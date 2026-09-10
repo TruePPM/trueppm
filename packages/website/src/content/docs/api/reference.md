@@ -2491,6 +2491,10 @@ The `git_webhook_ip` scope below — the per-client-IP limit on the inbound Git-
 receiver — ships in **0.4**. On `0.3.0-alpha.3` that endpoint is bounded only by the
 per-project `GitWebhookThrottle`, which a caller can sidestep by rotating the project
 ID in the URL.
+
+`MembershipGrantThrottle` also ships in **0.4** — on `0.3.0-alpha.3`, granting
+project or program membership has no dedicated scope and falls through to the
+general `user` default (1000/min).
 :::
 
 Every endpoint is rate limited. A **general default** applies to any endpoint
@@ -2576,6 +2580,7 @@ return `429` with the same `Retry-After` envelope shown above.
 | `GitWebhookThrottle` | 120/min | Inbound Git webhook receiver, per project — the caller picks the project ID out of the URL, so this is stacked with the per-IP `git_webhook_ip` scope above and neither bounds the endpoint alone |
 | `TaskLinkRefreshThrottle` | 30/min | Manual task-link refresh, per user |
 | `MentionRateThrottle` | 100/hour and 1000/day | Comment `@mention` fan-out, per user (both windows apply) |
+| `MembershipGrantThrottle` | 60/min | Granting project or program membership, per user — shared budget across both surfaces (rate set inline, not `DEFAULT_THROTTLE_RATES`); does not bound role changes or removal |
 
 Every hand-rolled class fails **open** on a Redis error (never blocks
 legitimate traffic during a cache outage) except `SyncUploadThrottle`, which

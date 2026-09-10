@@ -72,6 +72,10 @@ _EVENT_TYPE_CATEGORY: dict[str, str] = {
     NotificationEventType.PROJECT_CONFIG_CHANGED.value: CATEGORY_PROJECT,
     NotificationEventType.PROGRAM_HEALTH_DIGEST.value: CATEGORY_DIGESTS,
     NotificationEventType.RESOURCE_OVERALLOCATION_DIGEST.value: CATEGORY_DIGESTS,
+    # `project`, not a new category (#3645): both events are project/program
+    # access-lifecycle notices, the same reading as PROJECT_DELETED above.
+    NotificationEventType.MEMBERSHIP_GRANTED.value: CATEGORY_PROJECT,
+    NotificationEventType.MEMBERSHIP_ROLE_CHANGED.value: CATEGORY_PROJECT,
 }
 
 

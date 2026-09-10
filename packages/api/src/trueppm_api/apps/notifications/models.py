@@ -176,6 +176,15 @@ class NotificationEventType(models.TextChoices):
         "resource.overallocation_digest",
         "Weekly resource overallocation digest",
     )
+    # Membership grant / role-change (#3645). ProjectMembershipViewSet and
+    # ProgramMembershipViewSet could create, change and revoke access with no
+    # signal reaching the affected person — their only tell was a project or
+    # program appearing in their list. These two fire to the added or
+    # role-changed user only (not on revoke, which is audit-only — see the
+    # issue). In-app ON, email opt-in OFF, matching every other contributor
+    # signal in this table (Priya's un-opted-email hard-NO).
+    MEMBERSHIP_GRANTED = "membership.granted", "Added to a project or program"
+    MEMBERSHIP_ROLE_CHANGED = "membership.role_changed", "Role changed on a project or program"
 
 
 class NotificationChannel(models.TextChoices):
@@ -551,6 +560,13 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     (NotificationEventType.PROGRAM_HEALTH_DIGEST, NotificationChannel.EMAIL, False),
     (NotificationEventType.RESOURCE_OVERALLOCATION_DIGEST, NotificationChannel.IN_APP, False),
     (NotificationEventType.RESOURCE_OVERALLOCATION_DIGEST, NotificationChannel.EMAIL, False),
+    # #3645 — membership grant / role-change. In-app ON so the affected person
+    # sees who changed their access and to what; email opt-in OFF, the same
+    # un-opted-email floor every contributor signal in this table keeps.
+    (NotificationEventType.MEMBERSHIP_GRANTED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.MEMBERSHIP_GRANTED, NotificationChannel.EMAIL, False),
+    (NotificationEventType.MEMBERSHIP_ROLE_CHANGED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.MEMBERSHIP_ROLE_CHANGED, NotificationChannel.EMAIL, False),
 ]
 
 
