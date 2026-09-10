@@ -1258,6 +1258,18 @@ CSV_IMPORT_MAX_UPLOAD_MB: int = env.int("CSV_IMPORT_MAX_UPLOAD_MB", default=10)
 # cap are reported back as `truncated_rows` rather than silently dropped.
 CSV_IMPORT_MAX_ROWS: int = env.int("CSV_IMPORT_MAX_ROWS", default=5_000)
 
+# The tested-comfortable Schedule size (#3388, administration/sizing.md
+# "Tested envelope"): whole-project load is measured at 1.85s at 1,000 tasks and
+# breaches at 2,000 (60s) — a cliff, not a slope. CSV_IMPORT_MAX_ROWS (5,000) is
+# far above this, so nothing stops an import from landing a project past the
+# ceiling it cannot comfortably open. This is a *warn, do not block* line, not a
+# correctness limit — someone on better hardware may legitimately want more —
+# so it is only ever surfaced as advisory fields on the import preview response
+# (`exceeds_recommended_ceiling`) and read client-side against the already-loaded
+# Schedule task count. Configurable because the comfortable figure is
+# hardware-dependent and is expected to move as #3383 lands.
+SCHEDULE_TASK_CEILING: int = env.int("TRUEPPM_SCHEDULE_TASK_CEILING", default=1_000)
+
 # Decompression-bomb ceiling for .xlsx uploads (#743). An .xlsx is a zip of XML:
 # openpyxl inherits XXE hardening from defusedxml automatically, but nothing in
 # that stack bounds the *inflated* size, so a 1 MB upload can expand to

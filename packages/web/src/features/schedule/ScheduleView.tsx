@@ -161,6 +161,7 @@ import type { DependencyDirection } from './deps/linkTypes';
 import { PendingCrossProjectReview } from './PendingCrossProjectReview';
 import { SeedBanner } from './SeedBanner';
 import { SeedFailureBanner } from './SeedFailureBanner';
+import { ScheduleTaskCeilingBanner, exceedsScheduleTaskCeiling } from './ScheduleTaskCeilingBanner';
 import { ScheduleSeedingState } from './ScheduleSeedingState';
 import { useTemplateApplication } from '@/hooks/useProjectTemplates';
 import { useQueryClient } from '@tanstack/react-query';
@@ -1030,6 +1031,10 @@ export function ScheduleView() {
   // Dismissal is per-recompute: a new divergence re-opens the panel rather than
   // staying hidden because the planner closed the last one (#2965).
   const [reforecastDismissed, setReforecastDismissed] = useState(false);
+  // #3388: dismissed for this mount only, same as `reforecastDismissed` above —
+  // reopening the Schedule (or another tab) is a fresh "you're near the tested
+  // ceiling" moment worth restating, not a preference to remember forever.
+  const [taskCeilingDismissed, setTaskCeilingDismissed] = useState(false);
   const setWorkingDaysMask = useReconcileStore((s) => s.setWorkingDaysMask);
   const setReviewFilter = useReconcileStore((s) => s.setReviewFilter);
   const reviewTaskIds = useMemo(() => reviewableTaskIds(reconcileEntries), [reconcileEntries]);
@@ -4454,6 +4459,17 @@ export function ScheduleView() {
           currentRole={currentRole}
           onRetried={handleSeedRetried}
           onDismiss={() => setSeedFailureDismissed(true)}
+        />
+      )}
+
+      {/* Task ceiling warning (#3388) — the Schedule already paid for the
+          whole-project fetch to build `allTasks`, so this reads its length
+          rather than issuing a second request. Non-blocking: past the ceiling
+          is a measured comfort line, not a correctness limit. */}
+      {!taskCeilingDismissed && exceedsScheduleTaskCeiling(allTasks.length) && (
+        <ScheduleTaskCeilingBanner
+          taskCount={allTasks.length}
+          onDismiss={() => setTaskCeilingDismissed(true)}
         />
       )}
 

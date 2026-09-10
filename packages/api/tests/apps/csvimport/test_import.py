@@ -830,6 +830,69 @@ class TestPreviewEndpoint:
         )
         assert r.status_code == 403
 
+    def test_preview_flags_a_project_that_would_land_past_the_ceiling(
+        self, project: Project, settings: object
+    ) -> None:
+        """#3388: warn — never block — past the tested-comfortable Schedule size.
+
+        The ceiling is lowered to 5 rather than generating a 1,000+ row CSV: the
+        view compares `existing + plan_task_count` against
+        `settings.SCHEDULE_TASK_CEILING`, so the comparison is exercised
+        identically at any threshold.
+        """
+        settings.SCHEDULE_TASK_CEILING = 5  # type: ignore[attr-defined]
+        client = self._client(project, Role.SCHEDULER, "p8")
+        r = client.post(
+            f"/api/v1/projects/{project.pk}/import/csv/preview/",
+            {"file": SimpleUploadedFile("plan.csv", REFERENCE_CSV, content_type="text/csv")},
+            format="multipart",
+        )
+        assert r.status_code == 200
+        assert r.data["task_count"] == 7
+        assert r.data["existing_task_count"] == 0
+        assert r.data["projected_task_count"] == 7
+        assert r.data["recommended_task_ceiling"] == 5
+        assert r.data["exceeds_recommended_ceiling"] is True
+
+    def test_preview_does_not_flag_a_project_under_the_ceiling(
+        self, project: Project, settings: object
+    ) -> None:
+        settings.SCHEDULE_TASK_CEILING = 1_000  # type: ignore[attr-defined]
+        client = self._client(project, Role.SCHEDULER, "p9")
+        r = client.post(
+            f"/api/v1/projects/{project.pk}/import/csv/preview/",
+            {"file": SimpleUploadedFile("plan.csv", REFERENCE_CSV, content_type="text/csv")},
+            format="multipart",
+        )
+        assert r.status_code == 200
+        assert r.data["projected_task_count"] == 7
+        assert r.data["recommended_task_ceiling"] == 1_000
+        assert r.data["exceeds_recommended_ceiling"] is False
+
+    def test_preview_counts_existing_tasks_toward_the_ceiling(
+        self, project: Project, settings: object
+    ) -> None:
+        """Importing into an already-large project can breach the ceiling even
+        when the file itself is small — the failure is opening the *project*."""
+        settings.SCHEDULE_TASK_CEILING = 5  # type: ignore[attr-defined]
+        for i in range(5):
+            Task.objects.create(project=project, name=f"Existing {i}", duration=1)
+        client = self._client(project, Role.SCHEDULER, "p10")
+        r = client.post(
+            f"/api/v1/projects/{project.pk}/import/csv/preview/",
+            {
+                "file": SimpleUploadedFile(
+                    "plan.csv", b"Name,Duration\nOne more,1\n", content_type="text/csv"
+                )
+            },
+            format="multipart",
+        )
+        assert r.status_code == 200
+        assert r.data["task_count"] == 1
+        assert r.data["existing_task_count"] == 5
+        assert r.data["projected_task_count"] == 6
+        assert r.data["exceeds_recommended_ceiling"] is True
+
 
 @pytest.mark.django_db
 class TestStatusEndpoint:
