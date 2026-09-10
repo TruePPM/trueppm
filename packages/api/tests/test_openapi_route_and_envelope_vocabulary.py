@@ -70,6 +70,22 @@ _GRANDFATHERED_ENVELOPES: dict[str, str] = {
     # a triage surface has no use for page 2. `results`/`next` would imply a
     # continuation that does not exist.
     "/api/v1/sprints/{id}/blocked/": "capped triage roll-up, not paginated (#1157/#2855)",
+    # Task-level history (#3683) is the task-scoped counterpart to the already-
+    # grandfathered project-level history feed — same pre-0.3 keyset-paging shape
+    # (#1882): `next`/`next_until` carry the keyset cursor, `count_truncated` flags
+    # a capped window. It was declared free-form until #3683 typed it for the first
+    # time; restyling the envelope itself is a breaking response-shape change and
+    # out of scope for a response-schema-only fix.
+    "/api/v1/projects/{project_pk}/tasks/{task_pk}/history/": (
+        "task-scoped keyset history, same family as /projects/{id}/history/ (#1882/#2844/#3683)"
+    ),
+    # The caller's own time-entry list plus their own total — never paginated
+    # (bounded to one contributor's entries on one task, ADR-0185), same
+    # "aggregate field alongside the list" pattern as /api/v1/me/work/. Declared
+    # free-form until #3683 typed it for the first time.
+    "/api/v1/tasks/{task_pk}/time-entries/": (
+        "caller-scoped unpaginated list + total_logged_minutes aggregate (#3683)"
+    ),
 }
 
 # Path segments that are not kebab-case. All pre-0.3; tracked in #2844.

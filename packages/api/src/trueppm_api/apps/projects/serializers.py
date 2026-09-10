@@ -9472,6 +9472,19 @@ class SprintScopeChangeSerializer(serializers.Serializer[dict[str, Any]]):
     added_at = serializers.DateTimeField(read_only=True)
 
 
+class SprintScopeChangeSingleActionResultSerializer(SprintScopeChangeSerializer):
+    """Response shape for the single-item accept/reject scope-change actions (#3685).
+
+    The row fields of ``SprintScopeChangeSerializer`` plus the sprint's
+    ``pending_count``, matching what ``SprintScopeChangeViewSet._act`` actually
+    returns — distinct from ``SprintScopeChangeBulkResultSerializer``, which wraps
+    a *list* of rows under ``accepted``/``rejected`` for the sprint-scoped bulk
+    actions.
+    """
+
+    pending_count = serializers.IntegerField(read_only=True)
+
+
 class ScopeChangeBulkSerializer(serializers.Serializer[dict[str, Any]]):
     """Validate the body for the bulk accept/reject endpoints (ADR-0102 §5).
 
