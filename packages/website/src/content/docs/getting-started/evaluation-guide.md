@@ -120,6 +120,15 @@ depend on who they are. Atlas is built to show this, because it sets roles
 **per project** rather than once per account, so one person can hold two
 different roles:
 
+:::note[Role names you'll see two ways]
+The role column below names the current in-app labels (**Project Admin**,
+**Project Manager**, **Resource Manager**, **Team Member**, **Viewer**). Other
+pages, ADRs, and the API describe the same five ranks by their internal names
+(**Owner**, **Admin**, **Scheduler**, **Member**, **Viewer**) — one axis, two
+vocabularies for it, never two different systems. `atlas-priya`'s "Project
+Manager" on Platform Core and "Admin" elsewhere in these docs are the same rank.
+:::
+
 | Sign in as | Sees | Role |
 | --- | --- | --- |
 | `atlas-alex` | all three projects | Project Admin — the program lead |
@@ -174,6 +183,77 @@ before you start clicking:
   session, it survives a page reload and picks up a teammate's edits as readily
   as your own. To force a run when the forecast *is* current, use **Rerun
   forecast** on the project Overview.
+
+## The funnel map — install to your own first output
+
+Everything above tours **sample** data. This section maps the separate path — the
+one a self-hoster actually needs before they trust TruePPM with real work — from
+[install](/getting-started/installation/) to a **first useful output on a
+project you built yourself**, for the three funnel-defining evaluators. Each step
+is marked **UI** (a documented in-app path), **API** (curl/REST only, no in-app
+path today), or **Missing** (no path at all yet).
+
+:::note[Read this against your installed version]
+This guide's checklist above verifies **0.3**. The steps below name the version
+each UI path actually ships in — several (in-app baseline capture, the status
+date field) are **0.4-only**; on `0.3.0-alpha.3` those specific steps fall back
+to **API**.
+:::
+
+### Waterfall PM
+
+| Step | Path | Status |
+|---|---|---|
+| Install and sign in | [Installation](/getting-started/installation/) | UI |
+| Tour a sample to see what "done" looks like | [Bayside Civic Center](/getting-started/sample-projects/) | UI |
+| Create your own waterfall project | Start sheet → **New project** → Waterfall | UI |
+| Build a WBS: phases, tasks, milestones | [Schedule Build Mode](/features/schedule-build-mode/) | UI *(opt-in toggle on 0.3, on by default from 0.4)* |
+| Wire dependencies (all four types, lag) | Right-click a row → **Add dependency** | UI |
+| Capture a baseline | [Baselines](/features/baselines/) — Project actions → **Capture baseline** | **UI from 0.4**; API-only on 0.3 |
+| Set the status date so forecasts anchor on your data | Project settings → General → **Status date** | **UI from 0.4**; API-only (`PATCH /projects/{id}/`) on 0.3 |
+| Run Monte Carlo and read P50/P80/P95 | Schedule → **Forecast & sensitivity** bar | UI |
+| Hand the plan to a stakeholder | Schedule toolbar → **Export PDF** | UI |
+
+Until this MR, the step from "create your own project" to "a WBS with phases and
+milestones" had no UI walkthrough anywhere in the docs — [quickstart.md](/getting-started/quickstart/)'s
+Route B is curl-only. The [Waterfall day-one guide](/getting-started/waterfall-day-one/)
+closes that gap.
+
+### Scrum Master / agile delivery
+
+| Step | Path | Status |
+|---|---|---|
+| Install and sign in | [Installation](/getting-started/installation/) | UI |
+| Tour a sample sprint in flight | [Aurora Mobile App](/getting-started/sample-projects/) | UI |
+| Create your own agile project | Start sheet → **New project** → Agile | UI |
+| Groom a backlog: stories, epics, points, DoR | [Product backlog & scoring](/features/product-backlog/) | UI |
+| Plan the first sprint | [Plan Sprint dialog](/features/plan-sprint/) | UI |
+| Run the board day to day | [Board](/features/board/) | UI |
+| Preflight capacity before committing | [Capacity preflight](/features/capacity-preflight/) — set the points ceiling on the Board's Capacity card | UI |
+| See a velocity trend and a backlog delivery forecast | [Velocity panel](/features/velocity/) | UI, but needs **2–3 real closed sprints** of elapsed time before it renders — there is no way to see a trend on day one of your own project |
+
+The agile path has had a UI-only day one since 0.3 — the funnel gap here is not
+missing UI, it is the multi-sprint wait before velocity has anything to show. A
+day-one evaluator should expect the [sample tour](/getting-started/sample-projects/)
+to be where they *see* a velocity trend, and their own project to be where they
+*start building* one.
+
+### Hybrid program (multi-project PM)
+
+| Step | Path | Status |
+|---|---|---|
+| Install and sign in | [Installation](/getting-started/installation/) | UI |
+| Tour a sample program | [Atlas Platform Launch](/getting-started/sample-projects/) | UI |
+| Create your own program | Programs directory → **+ New program** | UI |
+| Add or create projects under it | Program → **Projects** tab → **New project** | UI |
+| Cross-project critical path across your own projects | [Program schedule](/features/program-schedule/) | UI |
+| Cross-project resource contention | Program → **Resources** tab | UI |
+| Shared cross-project backlog | Program → **Backlog** tab | UI |
+
+The hybrid-program funnel has no UI gap today — every step above works on a
+program you build yourself, on 0.3. The gap in this persona is coverage, not
+capability: nothing in getting-started walks a reader through *doing* it end to
+end on their own data the way the sample tour does on Atlas's.
 
 ## Capability checklist
 
@@ -306,8 +386,10 @@ sample it names.
 
 ### Team member / contributor — ~5 min (Aurora)
 
-1. Sign in as **`aurora-priya`**. Click **My Work**, pinned at the top of the left
-   sidebar (`/me/work`), and find your in-flight cards.
+1. Sign in as **`aurora-mei`** — `aurora-priya` is Aurora's Product Owner and Owner
+   (see [Sample projects](/getting-started/sample-projects/)), not a contributor.
+   Click **My Work**, pinned at the top of the left sidebar (`/me/work`), and find
+   your in-flight cards.
 2. Open **Deliver → Board** and drag a card to the next column. Go back to
    **Deliver → Sprints**: the active sprint's **burndown** has already redrawn, and
    you didn't touch anything else.
@@ -321,7 +403,7 @@ Cross-project allocation and pre-commit conflict warnings are a **0.5**
 capability — they are not here yet, and an honest evaluation should expect that.
 What you *can* verify today is project-scoped:
 
-1. Sign in to any sample and open **People → Resources** in the left rail
+1. Sign in to any sample and open **People → Team** in the left rail
    (`/projects/:id/resources`, **Roster** tab). Every sample seeds realistic
    **capacity profiles** — full-time, part-time, and 10% advisors, not everyone at
    100% — with a non-default working calendar on at least one person.

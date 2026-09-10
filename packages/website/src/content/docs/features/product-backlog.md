@@ -38,15 +38,21 @@ backlog terms.
 ## Where this lives in the story
 
 The product backlog feeds [Sprint planning](/features/plan-sprint/): the Product Owner
-grooms and orders work here, and the team pulls from the top of it into a sprint. It is a
-read-only feeder to planning — the backlog never assigns work to a sprint directly
-(sprint sovereignty is preserved; see [Sprints](/features/sprints/)).
+grooms and orders work here, and the team pulls from the top of it into a sprint. From
+**this page**, that pull is planning-only — grooming never assigns work to a sprint
+directly (sprint sovereignty is preserved; see [Sprints](/features/sprints/)). The
+Board's own **backlog rail** is a separate, direct-manipulation surface: dragging a card
+from it into a phase column *does* assign that task to the viewed sprint immediately —
+see [Board → Sprint integration](/features/board/#sprint-integration). The two are not
+in tension: this page is where the Product Owner grooms and orders *before* a sprint
+exists to pull into, and the Board's rail is where the team pulls *during* an active or
+planned sprint.
 
 ## The grooming view
 
-The grooming view will show stories grouped under their epics, ordered by priority, each
+The grooming view shows stories grouped under their epics, ordered by priority, each
 row carrying its Definition-of-Ready signal, an acceptance-criteria meter, and its story
-points. A **grooming-health strip** across the top will summarize:
+points. A **grooming-health strip** across the top summarizes:
 
 ![The product backlog grouped by epic, with readiness metrics on top and the sprint planning capacity preflight on the right](../../../assets/screenshots/product-backlog.webp)
 
@@ -71,7 +77,7 @@ the keyboard-accessible **Parent epic** picker in the story drawer.
 
 ## Work-item types
 
-Every task will carry a **type**: Story, Task, Bug, Spike, or Epic. The type drives the
+Every task carries a **type**: Story, Task, Bug, Spike, or Epic. The type drives the
 card icon, grouping, and filtering — it never partitions data, so existing work continues
 to behave exactly as before (everything is a Task until you say otherwise).
 
@@ -82,20 +88,20 @@ are rolled up from its child stories rather than scheduled in their own right.
 
 ## Managing epics
 
-The grooming view is also where you will shape the epic structure itself — not just the
+The grooming view is also where you shape the epic structure itself — not just the
 stories underneath it.
 
-- **Add an epic** — an **+ Add epic** button in the header will open an inline input; type
-  a name and press Enter to create the epic. It will appear as its own group immediately,
+- **Add an epic** — a **+ Add epic** button in the header opens an inline input; type
+  a name and press Enter to create the epic. It appears as its own group immediately,
   even before any story is assigned to it, so you can lay out the epics first and fill them
   in later.
-- **Edit an epic** — clicking an epic's name will open an **epic detail drawer** (the same
+- **Edit an epic** — clicking an epic's name opens an **epic detail drawer** (the same
   side panel a story opens into) where you can edit the epic's **name** and **description**.
   Edits batch behind a **Save** bar that appears only once you have unsaved changes, exactly
   like the story drawer.
-- **Delete an epic** — each epic group header will carry an actions (**⋯**) menu with a
+- **Delete an epic** — each epic group header carries an actions (**⋯**) menu with a
   **Delete** action. Deleting an epic **never deletes its stories**: they move to the
-  **Ungrouped** group instead, and the confirmation will state exactly how many stories are
+  **Ungrouped** group instead, and the confirmation states exactly how many stories are
   affected before you commit.
 
 Assigning an *existing* story to an epic stays on the story drawer — set or change the
@@ -108,7 +114,7 @@ and edit epics but not delete them. See [Who can do what](#who-can-do-what).
 
 ## Acceptance criteria
 
-Each story will have first-class, tickable **acceptance criteria** (with optional
+Each story has first-class, tickable **acceptance criteria** (with optional
 Given/When/Then structure), edited from the story drawer. Criteria show an **"X of Y met"**
 readiness count and keep a **sprint-review pass/fail trail** — who marked each criterion
 met, and when — so "is this actually done?" is answerable at the review instead of from
@@ -142,7 +148,7 @@ thing that rewrites it.
 
 ## Definition of Ready
 
-Each story will carry a Definition-of-Ready signal the Product Owner sets explicitly:
+Each story carries a Definition-of-Ready signal the Product Owner sets explicitly:
 
 - **Idea** — captured, not yet refined
 - **Refine** — being groomed
@@ -155,7 +161,7 @@ a sprint when they choose to.
 
 ## Prioritization scoring
 
-Each project will choose one prioritization model — **None**, **WSJF**, **RICE**, or
+Each project chooses one prioritization model — **None**, **WSJF**, **RICE**, or
 **Value / Effort**. With a model selected, you enter that model's inputs per story:
 
 | Model | Inputs | Score |
@@ -183,7 +189,7 @@ the product backlog. This is the standard dual-backlog model — the Product Own
 
 ## Quick add
 
-Capturing a story will take under 30 seconds: type a title, press Enter, and keep going —
+Capturing a story takes under 30 seconds: type a title, press Enter, and keep going —
 no required fields. Stories land at the bottom of the backlog as a Story, ready to groom.
 
 ## Who can do what

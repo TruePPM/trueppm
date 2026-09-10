@@ -88,20 +88,6 @@ async function setupScheduleWithPendingSuggestion(
   // teardown and races the page render (#2366). Routes below win.
   await setupCatchAll(page);
 
-  // 401-guard safety net (#1518): registered FIRST so every specific route below
-  // wins (Playwright LIFO). Any endpoint the drawer/shell reads that isn't mocked
-  // (drawer sections, pollers, …) would otherwise fall through to the preview
-  // server, 401, and raise the full-screen session-expired modal — which then
-  // intercepts every click. A benign empty-list 200 keeps the session alive; the
-  // object-shaped endpoints (overview, status-summary) are mocked explicitly below.
-  await page.route('**/api/v1/**', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
-    }),
-  );
-
   // Auth-refresh + notifications stubs (#1518): without a catch-all guard an
   // unmocked read (e.g. the NotificationBell poll) can 401 during the click-retry
   // window, and an unmocked token-refresh then trips the full-screen

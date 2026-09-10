@@ -1,19 +1,30 @@
 #!/usr/bin/env bash
 # Every Playwright spec that mocks the API must register the shared catch-all
-# (`setupCatchAll`) before its own routes (#2366).
+# (`setupCatchAll`) before its own routes (#2366), and must never register a
+# second, broader catch-all of its own that shadows it (#3697).
 #
-# Without it, any endpoint the spec forgot to mock escapes the browser-level
-# mocks. What happens next depends on the machine: in CI (no backend) it hits the
-# preview server, and on a developer box with `make up` running it reaches the
-# real API and 401s, which drives the client's token-refresh + session-teardown
-# path and races the page render. Same spec, different outcome per environment —
-# which is how `wave6-heatmap.spec.ts` spent months being triaged as an
-# "environmental flake" (14 failed / 13 passed at --repeat-each=3; 36/36 with the
-# catch-all).
+# Without setupCatchAll, any endpoint the spec forgot to mock escapes the
+# browser-level mocks. What happens next depends on the machine: in CI (no
+# backend) it hits the preview server, and on a developer box with `make up`
+# running it reaches the real API and 401s, which drives the client's
+# token-refresh + session-teardown path and races the page render. Same spec,
+# different outcome per environment — which is how `wave6-heatmap.spec.ts`
+# spent months being triaged as an "environmental flake" (14 failed / 13
+# passed at --repeat-each=3; 36/36 with the catch-all).
 #
-# The catch-all answers anything unmocked with a typed 404 plus a console warning
-# naming the URL, so a missing mock becomes a visible, deterministic warning
-# instead of a machine-dependent race.
+# The catch-all answers anything unmocked with a typed 404 plus a console
+# warning naming the URL, so a missing mock becomes a visible, deterministic
+# warning instead of a machine-dependent race — but only as long as nothing
+# else in the file also matches `**/api/v1/**`. Playwright matches routes in
+# REVERSE registration order, so a spec that calls `setupCatchAll` and then
+# registers its own `page.route('**/api/v1/**', ...)` permanently shadows the
+# typed 404 with whatever shape that local catch-all fulfills. #3697 found 14
+# specs doing exactly this — every one of them silently served `200 []` for
+# any endpoint the file forgot to mock, which was invisible while the schema
+# guard treated most operations as free-form, and started failing (correctly,
+# on real drift) the moment #3652 gave those operations real schemas. A
+# missing mock must fail loud and immediately, not silently pass until an
+# unrelated schema change flips it into a mystery failure.
 #
 # Usage: scripts/check-e2e-catchall.sh [SPEC_DIR]
 #        scripts/check-e2e-catchall.sh --self-test
@@ -24,8 +35,8 @@
 # trees instead of keeping a second copy of the detection greps.
 #
 # Exit codes:
-#   0  every API-mocking spec registers the catch-all
-#   1  at least one does not (CI fails; see output)
+#   0  every API-mocking spec registers the catch-all, and none shadow it
+#   1  at least one violates either rule (CI fails; see output)
 #   2  invocation error
 set -euo pipefail
 
@@ -132,6 +143,52 @@ ST
   cp "$st_tmp/bad-route/bad-route.spec.ts" "$d/zzz-violating.spec.ts"
   st_probe "violating spec alongside a clean one" expect-fail "$d"
 
+  # --- shadow-catchall direction (#3697) -------------------------------------
+  # A spec that calls setupCatchAll and then ALSO registers its own
+  # '**/api/v1/**' route permanently shadows the typed 404 (Playwright matches
+  # last-registered-first) — this is the exact shape that let 14 specs silently
+  # serve 200 [] for every endpoint they forgot to mock.
+  d="$st_tmp/bad-shadow"; mkdir -p "$d"
+  cat > "$d/bad-shadow.spec.ts" <<'ST'
+import { test } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
+
+test.beforeEach(async ({ page }) => {
+  await setupCatchAll(page);
+  await page.route('**/api/v1/**', (r) => r.fulfill({ status: 200, body: '[]' }));
+});
+ST
+  st_probe "spec that shadows setupCatchAll with its own **/api/v1/** route" expect-fail "$d"
+
+  # The shadow can also arrive via context.route rather than page.route.
+  d="$st_tmp/bad-shadow-context"; mkdir -p "$d"
+  cat > "$d/bad-shadow-context.spec.ts" <<'ST'
+import { test } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
+
+test.beforeEach(async ({ page, context }) => {
+  await setupCatchAll(page);
+  await context.route('**/api/v1/**', (r) => r.fulfill({ status: 200, body: '[]' }));
+});
+ST
+  st_probe "spec that shadows setupCatchAll via context.route" expect-fail "$d"
+
+  # A spec that registers only NARROW routes (never the bare **/api/v1/**
+  # wildcard) must still pass — the check targets the exact shadow pattern,
+  # not "any route registered after setupCatchAll" (that is every valid spec).
+  d="$st_tmp/ok-narrow"; mkdir -p "$d"
+  cat > "$d/ok-narrow.spec.ts" <<'ST'
+import { test } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
+
+test.beforeEach(async ({ page }) => {
+  await setupCatchAll(page);
+  await page.route('**/api/v1/projects/**', (r) => r.fulfill({ status: 200, body: '[]' }));
+  await page.route(/\/api\/v1\/sprints\/.*\/blocked\//, (r) => r.fulfill({ status: 200, body: '{}' }));
+});
+ST
+  st_probe "spec with only narrow routes after setupCatchAll" expect-pass "$d"
+
   [ "$st_rc" -eq 0 ] && echo "SELF-TEST: all cases passed."
   exit "$st_rc"
 fi
@@ -168,15 +225,32 @@ is_allowlisted() {
 }
 
 missing=()
+shadowing=()
+# Matches page.route('**/api/v1/**', ...) or context.route('**/api/v1/**', ...)
+# in either quote style — the exact shape that shadows setupCatchAll's own
+# internal catch-all of the same pattern. Deliberately NOT "any route matching
+# a wide glob" — a spec narrowing to '**/api/v1/projects/**' or a regex is
+# normal and correct; only the bare whole-namespace wildcard is the anti-pattern.
+SHADOW_PATTERN="(page|context)\.route\([\"']\*\*/api/v1/\*\*[\"']"
 for spec in "$SPEC_DIR"/*.spec.ts; do
   # An unmatched glob stays literal; skip it rather than grepping a missing file.
   [ -e "$spec" ] || continue
   name="$(basename "$spec")"
   is_allowlisted "$name" && continue
+  # The shadow check applies to any spec calling setupCatchAll at all — it is
+  # a claim about what that call actually buys the file, independent of
+  # whether the file also happens to match the "mocks the API" prefilter
+  # below (a context.route-only shadow, for instance, never contains a bare
+  # "page.route(" and would otherwise dodge detection entirely).
+  if grep -q "setupCatchAll" "$spec" && grep -qE "$SHADOW_PATTERN" "$spec"; then
+    shadowing+=("$name")
+  fi
   # Only specs that mock the API need the catch-all.
-  grep -q "page.route(\|setupApiMocks" "$spec" || continue
+  grep -q "page.route(\|context.route(\|setupApiMocks" "$spec" || continue
   grep -q "setupCatchAll" "$spec" || missing+=("$name")
 done
+
+status=0
 
 if (( ${#missing[@]} > 0 )); then
   echo "✖ e2e specs mock the API but never call setupCatchAll:" >&2
@@ -191,7 +265,24 @@ Add it as the FIRST route registration in the spec's setup (later routes win):
 If the spec genuinely makes no API calls, add it to ALLOWLIST in
 scripts/check-e2e-catchall.sh with a one-line reason.
 EOF
-  exit 1
+  status=1
 fi
 
-echo "✅ all API-mocking e2e specs register the catch-all"
+if (( ${#shadowing[@]} > 0 )); then
+  echo "✖ e2e specs register their own '**/api/v1/**' route AFTER setupCatchAll," >&2
+  echo "  which permanently shadows its typed 404 (Playwright matches the" >&2
+  echo "  most-recently-registered route first) — #3697:" >&2
+  printf '    %s\n' "${shadowing[@]}" >&2
+  cat >&2 <<'EOF'
+
+Delete the local '**/api/v1/**' route entirely — setupCatchAll already
+provides one — and add explicit, schema-correct mocks for whatever specific
+endpoints this spec actually needs. A silent 200 for an unmocked endpoint
+looks harmless until that endpoint's schema stops being free-form (#3652),
+at which point it becomes a real, hard-to-diagnose schema-guard failure.
+EOF
+  status=1
+fi
+
+(( status == 0 )) && echo "✅ all API-mocking e2e specs register the catch-all, and none shadow it"
+exit "$status"

@@ -76,17 +76,6 @@ async function setup(page: Page, initial: TokenRow[] = []) {
   // teardown and races the page render (#2366). Routes below win.
   await setupCatchAll(page);
 
-  // Catch-all FIRST (Playwright matches in reverse registration order) — a 401
-  // guard so no unmocked request trips the session-expired modal. Returns a bare
-  // array (iterable): the shell reads several array endpoints, and an object-shaped
-  // body here makes a `[...(r ?? [])]` in the shell throw and tears down the app
-  // (CLAUDE.md catch-all note). The paginated /me/api-tokens/ route below is
-  // registered later, so it still wins for the page's own list read.
-  await page.route('**/api/v1/**', (r) => {
-    if (r.request().method() !== 'GET') return r.fallback();
-    return r.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
-  });
-
   await page.route('**/api/v1/auth/me/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FIXTURE_ME) }),
   );

@@ -1,6 +1,7 @@
 ---
 title: WIP-limit overload detection
 description: Three-band column tinting + move-to-over-limit confirmation prompt.
+documentedFor: "0.4"
 ---
 
 The board's silent-WIP-creep alarm. Per-column WIP limits drive a three-band visual escalation, and moving a task into a column that would push it past its limit triggers a confirmation prompt.
@@ -28,7 +29,12 @@ Both drag-and-drop and the keyboard "Move to…" menu route through the same gua
 
 ## Trend arrow — catching creep before the breach
 
-The at/over chips catch a column that is *already* full. To catch the creep building toward it, 0.4 will add a tiny trend arrow to the column header, next to the breach chip. It reads the column's recent occupancy from the [flow-analytics](/features/flow-analytics/) daily series and shows direction:
+:::note[Ships in 0.4]
+This entire section describes a 0.4 addition. On `0.3.0-alpha.3` and earlier
+the column header shows only the at/over breach chips above — no trend arrow.
+:::
+
+The at/over chips catch a column that is *already* full. To catch the creep building toward it, 0.4 adds a tiny trend arrow to the column header, next to the breach chip. It reads the column's recent occupancy from the [flow-analytics](/features/flow-analytics/) daily series and shows direction:
 
 - **▲ rising** — the column is filling. It turns amber ("trending up toward WIP limit") once the column is within one card of its limit; below that it stays neutral, purely informational.
 - **▼ falling** — the column is draining. Always neutral — recovery needs no alarm.
