@@ -6817,3 +6817,150 @@ def enqueue_program_import(
 
     transaction.on_commit(_dispatch)
     return job
+
+
+# ---------------------------------------------------------------------------
+# CPM output lifecycle (#3578, ADR-1152)
+# ---------------------------------------------------------------------------
+
+
+CPM_OUTPUT_FIELDS: tuple[str, ...] = (
+    "early_start",
+    "early_finish",
+    "late_start",
+    "late_finish",
+    "scheduled_start",
+    "total_float",
+    "free_float",
+    "is_critical",
+)
+"""The eight engine-owned columns on ``Task`` whose contract ADR-1152 makes total.
+
+Deliberately NOT ``duration``: it is ``IntegerField(default=1)``, non-nullable and
+user-owned. The CPM write-back overwrites it for summary rows only (#3530) and does
+not retain the prior value anywhere, so "clearing" it would mean inventing a number
+rather than restoring one. A groomed-out summary keeping its rolled-up working-day
+duration is a stale number, not a false assertion about a schedule — a different
+problem, and not this one.
+
+Every field here is nullable and is listed in ``_HISTORY_EXCLUDED_TASK``, so the
+bulk ``update()`` below writes no ``HistoricalTask`` rows — matching the existing
+CPM write-back, which is also history-silent by design (ADR-0091).
+"""
+
+
+def clear_uncommitted_cpm_output(task_model: Any, project_ids: Any = None) -> int:
+    """Null the CPM output columns on every row outside the committed set.
+
+    ADR-1152 makes the eight columns' contract total: **non-null iff the row is in
+    ``Task.committed``**. Without this, the invariant is unstatable — CPM writes
+    back only the rows it just scheduled (``_apply_cpm_results``), and the schedulable
+    population is ``Task.committed``, so a task that *leaves* that set (groomed to
+    BACKLOG, retyped to EPIC, flagged recurring, soft-deleted) is never loaded again
+    and keeps its last schedule indefinitely. That residue is read as current by
+    roughly nine project-level aggregates over ``Task.objects`` and by the task
+    serializer; on the dev database it made ``ProjectOverviewView`` report eight
+    phantom late tasks, because its ``active_statuses`` list explicitly includes
+    BACKLOG (#3578, split from #3539).
+
+    WHY a widened queryset UPDATE here rather than clearing at each transition
+    point: ``status`` / ``type`` / ``is_recurring`` / soft-delete are mutated from
+    serializers, ``tasks/bulk/``, MS Project import, program moves, cascading delete
+    and management commands. Clearing at each is unenforceable and the next write
+    path reopens the hole. The recompute already *owns* these eight columns, so this
+    completes an existing write path instead of minting a second owner — and it is
+    self-healing: a row that slips through is cleared by the project's next pass.
+
+    The predicate is the plain negation of ``CommittedTaskManager`` — soft-deleted
+    rows included. They are invisible to today's readers, but that is a property of
+    today's readers, not of the data: a restored row would come back asserting a
+    critical path it is not on, and restore does not reliably trigger a recompute.
+    Keeping the predicate a clean negation is also what keeps the invariant checkable
+    in one expression.
+
+    Args:
+        task_model: the ``Task`` model — the real class at runtime, or the historical
+            model from ``apps.get_model`` inside a migration. Both expose an
+            unfiltered ``objects`` manager, which is what this needs.
+        project_ids: restrict to these projects, or ``None`` for every project (the
+            one-time backfill). The single-project pass passes its own id; the
+            program pass passes every member project, not just the schedulable
+            subset, because a member whose entire committed set was groomed away
+            contributes no scheduled rows yet still holds residue.
+
+    Returns:
+        The number of rows cleared — ``0`` in the steady state.
+    """
+    from django.db.models import Q
+
+    from trueppm_api.apps.projects.models import TaskStatus, TaskType
+
+    outside_committed = (
+        Q(status=TaskStatus.BACKLOG)
+        | Q(type=TaskType.EPIC)
+        | Q(is_recurring=True)
+        | Q(is_deleted=True)
+    )
+
+    # Only touch rows that actually carry output. Without this guard the UPDATE
+    # rewrites every BACKLOG card in the project on every recompute; with it, the
+    # steady state is a zero-row statement and the index on `project` keeps the
+    # scan confined to the projects being recomputed.
+    carries_output = Q()
+    for field in CPM_OUTPUT_FIELDS:
+        carries_output |= Q(**{f"{field}__isnull": False})
+
+    qs = task_model.objects.filter(outside_committed).filter(carries_output)
+    if project_ids is not None:
+        qs = qs.filter(project_id__in=project_ids)
+
+    return int(qs.update(**dict.fromkeys(CPM_OUTPUT_FIELDS, None)))
+
+
+BACKFILL_PROJECT_CHUNK = 500
+"""Projects per statement in the one-time backfill.
+
+Sized like ``_WRITEBACK_BATCH_SIZE`` in ``scheduling/tasks.py``, which batches the
+CPM write-back this backfill mirrors.
+"""
+
+
+def clear_all_uncommitted_cpm_output(
+    task_model: Any, project_model: Any, chunk_size: int = BACKFILL_PROJECT_CHUNK
+) -> int:
+    """Project-chunked :func:`clear_uncommitted_cpm_output` across every project.
+
+    WHY IT CHUNKS rather than issuing one unscoped statement. Unscoped, the ``WHERE``
+    is ``(status=BACKLOG OR type=EPIC OR is_recurring OR is_deleted) AND (any of eight
+    columns IS NOT NULL)``, and no index on ``Task`` covers that compound OR — so
+    Postgres plans a **sequential scan of the whole ``projects_task`` table**. This
+    runs from a migration, and migrations run on container start, so unscoped it is
+    unbounded upgrade latency in exchange for clearing a residue expected to be small.
+
+    Scoping each statement with ``project_id__in`` makes it index-served by
+    ``Task.Meta.indexes[project]`` instead. The project ids come from
+    ``projects_project``, which is two to three orders of magnitude smaller than
+    ``projects_task``, so enumerating them does not reintroduce the scan this avoids.
+    Chunked rather than one ``__in`` over every id, because that list is itself an
+    unbounded query parameter.
+
+    Idempotent: the helper only touches rows still carrying output, so re-running a
+    completed chunk matches nothing and an interrupted backfill is safe to retry.
+
+    Args:
+        task_model: the ``Task`` model (``apps.get_model`` inside a migration).
+        project_model: the ``Project`` model, read only for its id list.
+        chunk_size: projects per statement.
+
+    Returns:
+        Total rows cleared across all chunks.
+    """
+    project_ids = list(project_model.objects.values_list("pk", flat=True))
+    cleared = 0
+    for start in range(0, len(project_ids), chunk_size):
+        cleared += clear_uncommitted_cpm_output(
+            task_model, project_ids=project_ids[start : start + chunk_size]
+        )
+    if cleared:
+        logger.info("cleared CPM output on %d task(s) outside the committed set", cleared)
+    return cleared
