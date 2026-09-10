@@ -415,6 +415,12 @@ detected column mapping, the first ten parsed rows, the task and resource counts
 and any row-level problems. **It writes nothing.** Use it to confirm the mapping
 before committing.
 
+It also reports `existing_task_count`, `projected_task_count`,
+`recommended_task_ceiling`, and `exceeds_recommended_ceiling` — whether committing this
+import would carry the project past the Schedule's tested-comfortable size (see
+[Limits](#limits) below). Advisory only: nothing in the response, or in committing
+anyway, is refused.
+
 ### 2. Override any column you disagree with
 
 Send a `column_map` alongside the file — a JSON object of
@@ -581,6 +587,19 @@ than partially imported. See
 [CSV / Excel import limits](/administration/configuration/#csv--excel-import-limits)
 for operator configuration.
 
+:::note[Ships in 0.4 — a separate warning for the Schedule ceiling]
+The row limits above are a hard cap on the *file*. They are not the same thing as the
+Schedule's own **[tested-comfortable size](/administration/sizing/#tested-envelope)** of
+roughly 1,000 tasks per project — a file well inside `CSV_IMPORT_MAX_ROWS` (5,000) can
+still leave a project past that line.
+
+The preview step warns when it would: if your existing task count plus this file's tasks
+would land the project past the ceiling, the wizard says so on the mapping and confirm
+steps, naming the projected task count and linking the sizing guide. **This warns, it does
+not block** — the import still proceeds if you continue. If the Schedule is later opened
+on a project already past the ceiling, it shows the same warning as a dismissible banner.
+:::
+
 ## Excel specifics
 
 - **Only the first worksheet is imported.** Extra sheets are ignored and you are
@@ -711,3 +730,4 @@ For anything on that list, use
 - [Jira import](/features/jira-import/) — for issue sets coming from Jira Server / Data Center
 - [Bring your existing plan in](/getting-started/bring-your-plan-in/) — decision table for which importer to use
 - [Seed data schema](/architecture/seed-data-schema/) — the canonical JSON format
+- [Deployment sizing](/administration/sizing/#tested-envelope) — the Schedule's tested-comfortable task count, and why importing well under the row cap can still exceed it
