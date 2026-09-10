@@ -21,8 +21,13 @@ from django.db.models import Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import status
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    inline_serializer,
+)
+from rest_framework import serializers, status
 from rest_framework.exceptions import ErrorDetail, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -219,16 +224,33 @@ class MeTimeEntryWeeklyView(APIView):
             OpenApiParameter("to", OpenApiTypes.DATE, OpenApiParameter.QUERY, required=False),
         ],
         responses={
-            200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description=(
-                    "Caller's entries in [from, to] across accessible projects with "
-                    "totals: {results: [<weekly entry>], totals: {by_day, by_cell, "
-                    "today_minutes, week_minutes}, submission: {week_start, submitted, "
-                    "submitted_at}}. 'submission' reflects the Monday of 'from' (#1435 always "
-                    "requests a full Mon-Sun week)."
-                ),
-            )
+            200: inline_serializer(
+                name="MeTimeEntriesWeeklyResponse",
+                fields={
+                    "results": TimeEntryWeeklySerializer(many=True),
+                    "totals": inline_serializer(
+                        name="MeTimeEntriesWeeklyTotals",
+                        fields={
+                            # Keyed by ISO date (by_day) or "<task_id>|<ISO date>"
+                            # (by_cell) — the key set is data-shaped, not a fixed
+                            # schema, so the value type is all drf-spectacular can
+                            # usefully declare here.
+                            "by_day": serializers.DictField(child=serializers.IntegerField()),
+                            "by_cell": serializers.DictField(child=serializers.IntegerField()),
+                            "today_minutes": serializers.IntegerField(),
+                            "week_minutes": serializers.IntegerField(),
+                        },
+                    ),
+                    "submission": inline_serializer(
+                        name="MeTimeEntriesWeeklySubmission",
+                        fields={
+                            "week_start": serializers.CharField(),
+                            "submitted": serializers.BooleanField(),
+                            "submitted_at": serializers.CharField(allow_null=True),
+                        },
+                    ),
+                },
+            ),
         },
     )
     def get(self, request: Request) -> Response:
@@ -322,9 +344,12 @@ class MeTimesheetSubmitView(APIView):
     @extend_schema(
         request=None,
         responses={
-            200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description="Week submitted: {week_start, submitted_at}.",
+            200: inline_serializer(
+                name="TimesheetSubmitResponse",
+                fields={
+                    "week_start": serializers.CharField(),
+                    "submitted_at": serializers.CharField(),
+                },
             ),
             400: state_refusal_400(
                 "``week_start`` in the path is not an ISO date (YYYY-MM-DD). The "
@@ -379,7 +404,28 @@ class MeTimerView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)})
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="MeTimerResponse",
+                fields={
+                    "active": serializers.BooleanField(),
+                    # Present only when active is True — flattened from
+                    # ActiveTimerSerializer at the top level (not nested), matching
+                    # what the view actually returns.
+                    "id": serializers.UUIDField(required=False),
+                    "task": serializers.UUIDField(required=False),
+                    "task_short_id": serializers.CharField(required=False),
+                    "task_name": serializers.CharField(required=False),
+                    "project": serializers.UUIDField(required=False),
+                    "started_at": serializers.DateTimeField(required=False),
+                    "elapsed_seconds": serializers.IntegerField(required=False),
+                    "note": serializers.CharField(required=False, allow_blank=True),
+                    "stale": serializers.BooleanField(required=False),
+                },
+            )
+        }
+    )
     def get(self, request: Request) -> Response:
         user = cast("_User", request.user)
         timer = (
@@ -404,7 +450,17 @@ class MeTimerStartView(IdempotencyMixin, APIView):
 
     @extend_schema(
         request=TimerStartSerializer,
-        responses={201: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+        responses={
+            201: inline_serializer(
+                name="MeTimerStartResponse",
+                fields={
+                    "active_timer": ActiveTimerSerializer(),
+                    # Non-null only on a second-start, where the prior timer is
+                    # atomically stopped and logged (see class docstring).
+                    "finalized_entry": TimeEntrySerializer(allow_null=True, required=False),
+                },
+            ),
+        },
     )
     def post(self, request: Request) -> Response:
         body = TimerStartSerializer(data=request.data)
