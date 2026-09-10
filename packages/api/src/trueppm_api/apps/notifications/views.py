@@ -797,8 +797,14 @@ class WorkspaceEmailTestView(IdempotencyMixin, APIView):
         request=None,
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description='Test message sent: ``{"sent": true, "recipient": "<email>"}``.',
+                response=inline_serializer(
+                    name="WorkspaceEmailTestResult",
+                    fields={
+                        "sent": serializers.BooleanField(),
+                        "recipient": serializers.EmailField(),
+                    },
+                ),
+                description="Test message sent to the requesting operator's own address.",
             ),
             400: OpenApiResponse(
                 # NOT the standard ``{"detail"}`` refusal envelope: this endpoint

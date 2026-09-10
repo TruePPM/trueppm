@@ -1492,6 +1492,8 @@ _FREE_FORM_FIXED_BY_3652: frozenset[tuple[str, str, str]] = frozenset(
             "200",
         ),
         ("get", "/api/v1/sprints/{id}/burndown/", "200"),
+        # #3686 (sub-issue H of #3652): workspace email test-send's 200.
+        ("post", "/api/v1/workspace/email-settings/send-test/", "200"),
     }
 )
 
