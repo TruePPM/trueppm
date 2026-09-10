@@ -13418,16 +13418,78 @@ def _history_paginated_response(
         ],
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=inline_serializer(
+                    name="TaskHistoryPage",
+                    fields={
+                        # Present on the offset-paginated envelope; absent on the
+                        # keyset envelope (returned instead when `until` is set).
+                        "count": serializers.IntegerField(required=False),
+                        "next": serializers.URLField(required=False, allow_null=True),
+                        "previous": serializers.URLField(required=False, allow_null=True),
+                        "results": inline_serializer(
+                            name="TaskHistoryItem",
+                            many=True,
+                            fields={
+                                # Legacy field-diff keys — always present without
+                                # `include`; still present (alongside the unified
+                                # keys below) on a field-diff entry with `include`.
+                                "id": serializers.IntegerField(required=False),
+                                "history_date": serializers.DateTimeField(required=False),
+                                "history_type": serializers.CharField(required=False),
+                                "history_user": serializers.CharField(
+                                    required=False, allow_null=True
+                                ),
+                                "history_user_display": serializers.CharField(
+                                    required=False, allow_null=True
+                                ),
+                                "diff": inline_serializer(
+                                    name="TaskHistoryFieldDiff",
+                                    many=True,
+                                    required=False,
+                                    fields={
+                                        "field": serializers.CharField(),
+                                        "old": serializers.CharField(allow_null=True),
+                                        "new": serializers.CharField(allow_null=True),
+                                    },
+                                ),
+                                # Unified activity keys — present only when `include`
+                                # is set. A non-diff activity event (comment, time,
+                                # attachment, schedule, risk, resource, dependency)
+                                # carries ONLY these four keys, with no legacy keys
+                                # above.
+                                "event_type": serializers.CharField(required=False),
+                                "actor": inline_serializer(
+                                    name="TaskHistoryActor",
+                                    required=False,
+                                    allow_null=True,
+                                    fields={
+                                        "id": serializers.CharField(),
+                                        "display_name": serializers.CharField(),
+                                    },
+                                ),
+                                "timestamp": serializers.DateTimeField(required=False),
+                                # Free-form: shape depends on `event_type` (a
+                                # field-diff entry's detail is `{diff: [...]}`;
+                                # every other source has its own detail shape).
+                                "detail": serializers.DictField(required=False),
+                            },
+                        ),
+                        "count_truncated": serializers.BooleanField(),
+                        # Present on the keyset envelope always, and on the
+                        # offset-paginated envelope only when `include` is set.
+                        "next_until": serializers.DateTimeField(required=False, allow_null=True),
+                    },
+                ),
                 description=(
                     "Page-number-paginated envelope `{count, next, previous, "
-                    "results, count_truncated}`. Without `include`, each `results` "
-                    "entry is `{id, history_date, history_type, history_user, "
-                    "history_user_display, diff}`, where `diff` is a list of "
-                    "`{field, old, new}` changes, `history_user` is the author's "
-                    "username, and `history_user_display` is their full name "
-                    "(username fallback; both null for programmatic writes). With "
-                    "`include` "
+                    "results, count_truncated}` (or, with `until` set, the keyset "
+                    "envelope `{results, next_until, count_truncated}`). Without "
+                    "`include`, each `results` entry is `{id, history_date, "
+                    "history_type, history_user, history_user_display, diff}`, "
+                    "where `diff` is a list of `{field, old, new}` changes, "
+                    "`history_user` is the author's username, and "
+                    "`history_user_display` is their full name (username fallback; "
+                    "both null for programmatic writes). With `include` "
                     f"({', '.join(f'`{tok}`' for tok in sorted(_ACTIVITY_SOURCES))}), "
                     "each entry additionally carries `{event_type, actor, timestamp, "
                     "detail}`; field-diff entries emit `task_created`, "
@@ -13509,14 +13571,55 @@ class TaskHistoryView(APIView):
         summary="Active-baseline comparison for a single task",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=inline_serializer(
+                    name="TaskBaselineComparison",
+                    fields={
+                        # Always present.
+                        "has_baseline": serializers.BooleanField(),
+                        # Present once has_baseline is True (absent on the
+                        # {"has_baseline": false} short-circuit response).
+                        "in_baseline": serializers.BooleanField(required=False),
+                        "baseline_name": serializers.CharField(required=False),
+                        "baseline_taken_at": serializers.DateTimeField(required=False),
+                        # Present only on the full snapshot (has_baseline=True,
+                        # in_baseline=True) — absent on the two shorter branches above.
+                        "has_cpm_dates": serializers.BooleanField(required=False),
+                        "planned_start": serializers.DateField(required=False, allow_null=True),
+                        "planned_finish": serializers.DateField(required=False, allow_null=True),
+                        "planned_duration": serializers.IntegerField(required=False),
+                        "planned_actual_start": serializers.DateField(
+                            required=False, allow_null=True
+                        ),
+                        "planned_actual_finish": serializers.DateField(
+                            required=False, allow_null=True
+                        ),
+                        "current_start": serializers.DateField(required=False, allow_null=True),
+                        "current_finish": serializers.DateField(required=False, allow_null=True),
+                        "current_duration": serializers.IntegerField(required=False),
+                        "current_actual_start": serializers.DateField(
+                            required=False, allow_null=True
+                        ),
+                        "current_actual_finish": serializers.DateField(
+                            required=False, allow_null=True
+                        ),
+                        "start_delta_days": serializers.IntegerField(
+                            required=False, allow_null=True
+                        ),
+                        "finish_delta_days": serializers.IntegerField(
+                            required=False, allow_null=True
+                        ),
+                        "duration_delta": serializers.IntegerField(required=False),
+                    },
+                ),
                 description=(
                     "Baseline comparison object. `{has_baseline: false}` when the "
                     "project has no active baseline; `{has_baseline: true, "
-                    "in_baseline: false, ...}` when the task post-dates the "
-                    "baseline; otherwise the full snapshot with planned vs current "
-                    "dates/durations and signed `*_delta*` values (positive = "
-                    "slipping behind plan)."
+                    "in_baseline: false, baseline_name, baseline_taken_at}` when "
+                    "the task post-dates the baseline; otherwise the full snapshot "
+                    "with planned vs current dates/durations and signed `*_delta*` "
+                    "values (positive = slipping behind plan). Fields beyond "
+                    "`has_baseline` are present only on the branch that produces "
+                    "them — see the view docstring."
                 ),
             )
         },
@@ -19658,17 +19761,26 @@ class TaskCommentViewSet(
         )
 
     @extend_schema(
-        summary="Toggle acknowledgement on a comment",
+        methods=["POST"],
+        summary="Acknowledge a comment",
         responses={
-            200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description=(
-                    "POST returns the acknowledgement row; DELETE returns a `deleted` count. "
-                    "DELETE returns 404 when no acknowledgement existed."
-                ),
+            # POST returns the acknowledgement row — idempotent, so the "already
+            # acknowledged" case also 200s with the existing row, not a fresh one.
+            200: CommentAcknowledgementSerializer,
+            401: OpenApiResponse(description="Authentication required."),
+            404: OpenApiResponse(description="Comment not found."),
+        },
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        summary="Remove acknowledgement from a comment",
+        responses={
+            200: inline_serializer(
+                name="CommentAcknowledgementDeleteResponse",
+                fields={"deleted": serializers.IntegerField()},
             ),
             401: OpenApiResponse(description="Authentication required."),
-            404: OpenApiResponse(description="No acknowledgement to remove (DELETE)."),
+            404: OpenApiResponse(description="No acknowledgement to remove."),
         },
     )
     @action(detail=True, methods=["post", "delete"], url_path="acknowledge")
