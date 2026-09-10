@@ -1,11 +1,13 @@
 ---
 title: Change History
 description: Every change to a task, project, or dependency is recorded with a field-level diff, so you can see what changed, when, and (as an admin) who changed it.
+documentedFor: "0.4"
 ---
 
 :::note[Shipped in 0.2 (alpha)]
 Change history shipped in **TruePPM 0.2**, available since the `0.2.0-alpha.1`
-pre-release (May 31, 2026). 0.2 is an alpha release.
+pre-release (May 31, 2026). 0.2 is an alpha release. The [Activity feed
+`?include=` parameter](#activity-feed-ships-in-04) below ships in 0.4.
 :::
 
 TruePPM records a **change history** for tasks, projects, dependencies, sprints, and more. Each edit
@@ -20,7 +22,9 @@ risks, programs, and more.
 
 ## Viewing a task's history
 
-Open a task in the Schedule view and switch to the **History** tab. You'll see a reverse
+Open a task in the Schedule view and switch to the task drawer's **Activity** tab —
+the "All events" timeline there is where task history renders; there is no separate
+**History** tab. You'll see a reverse
 chronological list of changes, each tagged with its type:
 
 - **`+` Created** — the object was added.
@@ -57,6 +61,13 @@ usual `{count, next, previous, results}` envelope, meaning older history exists 
 is not reachable through this endpoint.
 
 ### Activity feed (ships in 0.4)
+
+:::note[Ships in 0.4]
+This section describes the `?include=` parameter below, which ships in 0.4. On
+`0.3.0-alpha.3` and earlier the per-task history endpoint returns only
+field-diff rows — no comments, time entries, attachments, schedule, or risk
+events.
+:::
 
 The per-task history endpoint will gain an opt-in `?include=` parameter in **0.4**
 that merges non-diff activity into the same feed:

@@ -1,6 +1,7 @@
 ---
 title: Sprint → milestone rollup
 description: Sprints linked to a Schedule-view milestone now propagate their progress live — the milestone's percent complete and date variance reflect sprint state without a status meeting or spreadsheet reconciliation.
+documentedFor: "0.4"
 ---
 
 :::note[Added in 0.3]
@@ -8,6 +9,11 @@ The **persistent, clickable scope-changed chip** and its **scope-change audit
 drawer** were added in 0.3 (the agile team release), available since the
 `0.3.0-alpha.1` pre-release (Jun 28, 2026). The live rollup itself is shipped
 behavior.
+:::
+
+:::note[Ships in 0.4]
+The **CPM-float annotation** on the variance chip, described under [What
+changes](#what-changes) below, ships in 0.4.
 :::
 
 Linking a sprint to a Schedule-view milestone via `Sprint.target_milestone` makes that

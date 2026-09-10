@@ -310,6 +310,15 @@ produces for one sample row.
 
 ## The wizard
 
+:::note[Ships in 0.4]
+Everything in this section — the wizard, its two entry points, and the three
+steps below — describes task **import**, which ships in **0.4**. On
+`0.3.0-alpha.3` and earlier, **Create & import spreadsheet** and **Import a
+spreadsheet** are not offered anywhere in the app; only task **export** (the
+[round-trip table](#what-round-trips-and-what-doesnt) above) and risk CSV
+import/export are live today.
+:::
+
 ### Getting to it
 
 There are two ways in, and which one you want depends on whether the project
@@ -670,8 +679,12 @@ things still to be built:
    types, no version marker.
 2. **No identity, so no updates.** Import always *creates*. There is no CSV path to
    modify a task or risk that already exists.
-3. **No dependencies on export**, and only simple predecessors on import — no lag,
-   and not the four dependency types the scheduler supports.
+3. **No dependencies on export.** The task export column set (WBS, Name, Start,
+   Finish, Duration, Progress, Status, Critical, Total/Free float) carries no
+   predecessor column, so a round-tripped export loses the dependency network —
+   re-import the original source file if you need dependencies back. Import is
+   richer than export here: the predecessor column reads all **four** dependency
+   types and lag (see [How dependencies are read](#how-dependencies-are-read)).
 4. **No comments, attachments, time entries, or history.**
 5. **Excel reformats data**, so a file that has been opened and re-saved is no
    longer guaranteed to match what TruePPM wrote.

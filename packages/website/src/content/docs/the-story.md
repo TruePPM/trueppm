@@ -132,7 +132,7 @@ The WBS is not stored in a separate "schedule" object that the team never sees. 
 
 Raj enters durations and dependencies on the work packages — not the leaves yet. The scheduler runs a forward and backward pass; the critical path lights up. He sets contractual milestones (UAT signoff, Cutover) and baselines the schedule.
 
-- **Raj's view:** Gantt with critical path highlighted, baseline overlay, slack visualized per task, milestone diamonds on the contractual dates.
+- **Raj's view:** Gantt with critical path highlighted, slack visualized per task, milestone diamonds on the contractual dates, and — once a task has actual dates recorded — a dashed actual-vs-planned overlay below its bar (see [Schedule](/features/schedule/#bar-types); the persisted baseline-vs-current ghost overlay is a separate, later surface, see [Baselines](/features/baselines/)).
 - **Maya's view:** Nothing yet. Stories don't exist. The board is empty. She sees a project name in the sidebar and ignores it.
 
 → See [Gantt](/features/schedule/), [Scheduler engine](/features/scheduler/)
