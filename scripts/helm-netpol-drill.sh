@@ -76,8 +76,13 @@ INSTALL_TIMEOUT="${INSTALL_TIMEOUT:-8m}"
 # Beat keeps its probe: it renders a livenessProbe only, so it never gates
 # `--wait`, and its period stays at the chart's 60s so the drill does not double
 # Django-import forks into the chart's tightest cgroup.
+#
+# staleSeconds widened 30 -> 120 for the drill only (#3692) — full evidence and
+# rationale in the matching block in scripts/helm-install-drill.sh, which is
+# where the two failures that prompted this were observed.
 CELERY_PROBE_OVERRIDES=(
   --set probes.worker.liveness.enabled=false
+  --set probes.worker.readiness.staleSeconds=120
   --set probes.beat.initialDelaySeconds=45
   --set probes.beat.timeoutSeconds=15
   --set probes.beat.failureThreshold=10
