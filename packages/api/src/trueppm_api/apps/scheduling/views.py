@@ -24,7 +24,9 @@ from drf_spectacular.utils import (
     OpenApiResponse,
     extend_schema,
     extend_schema_view,
+    inline_serializer,
 )
+from rest_framework import serializers as drf_serializers
 from rest_framework import status
 from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
 from rest_framework.generics import ListAPIView
@@ -78,8 +80,10 @@ from trueppm_api.apps.scheduling.serializers import (
     FailedTaskDropSerializer,
     FailedTaskRequeueSerializer,
     FailedTaskSerializer,
+    MonteCarloForecastSerializer,
     MonteCarloRunSerializer,
     MonteCarloWhatIfRequestSerializer,
+    MonteCarloWhatIfResponseSerializer,
     ProjectForecastSnapshotSerializer,
     VelocitySuggestionSerializer,
 )
@@ -465,7 +469,7 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
     request=OpenApiTypes.OBJECT,
     responses={
         200: OpenApiResponse(
-            response=OpenApiTypes.OBJECT,
+            response=MonteCarloForecastSerializer,
             description=(
                 "Monte Carlo simulation result. Includes the engine result fields "
                 "(P50/P80/P95 finish dates, mean, std dev, etc.) plus "
@@ -880,7 +884,7 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
         summary="Latest cached Monte Carlo forecast for the project",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=MonteCarloForecastSerializer,
                 description=(
                     "The most recent Monte Carlo result for the project. Keys: p50/p80/p95 "
                     "(ISO-8601 finish dates), cpm_finish, delta_vs_cpm ({p50, p80, p95} "
@@ -1148,7 +1152,7 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
         ],
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=MonteCarloWhatIfResponseSerializer,
                 description=(
                     "What-if forecast. Keys: task_id; applied ({base_duration_days, "
                     "duration_delta_days, new_duration_days}); current and whatif (each "
@@ -1481,17 +1485,23 @@ def _mc_attribution_visible(request: Request, project: Project, pk: str) -> bool
     ],
     responses={
         200: OpenApiResponse(
-            response=OpenApiTypes.OBJECT,
+            response=inline_serializer(
+                name="MonteCarloHistoryResponse",
+                fields={
+                    "results": MonteCarloRunSerializer(many=True),
+                    "cap": drf_serializers.IntegerField(allow_null=True),
+                    "enabled": drf_serializers.BooleanField(),
+                },
+            ),
             description=(
-                "Project Monte Carlo run history (ADR-0175/0143). "
-                "{results: [MonteCarloRun], cap: int|null, enabled: bool}. When the "
-                "per-workspace config disables history, enabled is false and results is "
-                "empty. Each run carries P50/P80/P95, cpm_finish, n_simulations, "
-                "task_count, status_date (the data date the run was computed against — "
-                "null for runs persisted before #2638), a per-percentile delta vs the "
-                "previous run (null on the oldest row), triggered_by_name (non-null only "
-                "for the resolved attribution audience), and distribution (only when "
-                "?expand=distribution)."
+                "Project Monte Carlo run history (ADR-0175/0143). When the "
+                "per-workspace config disables history, enabled is false and results "
+                "is empty. Each run carries P50/P80/P95, cpm_finish, n_simulations, "
+                "task_count, status_date (the data date the run was computed against "
+                "— null for runs persisted before #2638), a per-percentile delta vs "
+                "the previous run (null on the oldest row), triggered_by_name "
+                "(non-null only for the resolved attribution audience), and "
+                "distribution (only when ?expand=distribution)."
             ),
         ),
         404: OpenApiResponse(

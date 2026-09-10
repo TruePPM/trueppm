@@ -2200,6 +2200,15 @@ SPECTACULAR_SETTINGS = {
         "StructuralUndoBlockedReasonEnum": (
             "trueppm_api.apps.projects.refusal_codes.StructuralUndoBlockedReason"
         ),
+        # #3680: MonteCarloForecastDiagnosticSerializer.reason introduces a SECOND
+        # "reason" choice set alongside TaskGroupLeftAloneEntrySerializer.reason
+        # (an inline tuple, not an enum class — hence the raw-list value, same
+        # shape as OutcomeEnum below). Without a pin drf-spectacular disambiguates
+        # both by serializer prefix and renames the published `ReasonEnum` — the
+        # project_drf_enum_name_collision regression every pin in this block
+        # exists to prevent. Pin the incumbent to its stable name; the new
+        # Monte Carlo set is then free to take the prefixed form.
+        "ReasonEnum": ["ancestor_selected", "different_parent"],
         "StateEnum": "trueppm_api.apps.projects.models.SprintState",
         "PurgeRunStateEnum": "trueppm_api.apps.observability.models.PurgeRun.State",
         "PurgeRunTriggerEnum": "trueppm_api.apps.observability.models.PurgeRun.Trigger",

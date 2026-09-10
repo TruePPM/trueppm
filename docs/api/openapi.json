@@ -20424,8 +20424,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/MonteCarloForecast"
                                 }
                             }
                         },
@@ -20546,12 +20545,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/MonteCarloHistoryResponse"
                                 }
                             }
                         },
-                        "description": "Project Monte Carlo run history (ADR-0175/0143). {results: [MonteCarloRun], cap: int|null, enabled: bool}. When the per-workspace config disables history, enabled is false and results is empty. Each run carries P50/P80/P95, cpm_finish, n_simulations, task_count, status_date (the data date the run was computed against — null for runs persisted before #2638), a per-percentile delta vs the previous run (null on the oldest row), triggered_by_name (non-null only for the resolved attribution audience), and distribution (only when ?expand=distribution)."
+                        "description": "Project Monte Carlo run history (ADR-0175/0143). When the per-workspace config disables history, enabled is false and results is empty. Each run carries P50/P80/P95, cpm_finish, n_simulations, task_count, status_date (the data date the run was computed against — null for runs persisted before #2638), a per-percentile delta vs the previous run (null on the oldest row), triggered_by_name (non-null only for the resolved attribution audience), and distribution (only when ?expand=distribution)."
                     },
                     "404": {
                         "content": {
@@ -20621,8 +20619,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/MonteCarloForecast"
                                 }
                             }
                         },
@@ -20729,8 +20726,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/MonteCarloWhatIfResponse"
                                 }
                             }
                         },
@@ -55175,6 +55171,16 @@
                     "velocity_low"
                 ]
             },
+            "ForecastStalenessEnum": {
+                "enum": [
+                    "current",
+                    "project_changed",
+                    "aged",
+                    "unknown"
+                ],
+                "type": "string",
+                "description": "* `current` - current\n* `project_changed` - project_changed\n* `aged` - aged\n* `unknown` - unknown"
+            },
             "FrequencyEnum": {
                 "enum": [
                     "daily",
@@ -57060,6 +57066,566 @@
                 ],
                 "type": "string",
                 "description": "* `export` - export\n* `probe` - probe"
+            },
+            "MonteCarloConfidencePoint": {
+                "type": "object",
+                "description": "One point of the cumulative P(finish <= date) S-curve derived from the histogram.",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "pct": {
+                        "type": "number",
+                        "format": "double"
+                    }
+                },
+                "required": [
+                    "date",
+                    "pct"
+                ]
+            },
+            "MonteCarloDelta": {
+                "type": "object",
+                "description": "Signed calendar-day delta of a percentile finish, per field (#987/#993/#2483).\n\nPositive means the field slipped later (worse). Shared shape for\n``run_monte_carlo``/``latest``'s ``delta_vs_cpm`` (each percentile vs the\ndeterministic CPM finish), the what-if endpoint's ``delta_vs_current``, and\nthe history endpoint's per-run ``delta`` (ADR-0108) — one derivation, one\nschema, three call sites. ``None`` whenever either date it is measured\nbetween is missing.",
+                "properties": {
+                    "p50": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "p80": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "p95": {
+                        "type": "integer",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "p50",
+                    "p80",
+                    "p95"
+                ]
+            },
+            "MonteCarloDistributionFields": {
+                "type": "object",
+                "description": "The ``{histogram_buckets, confidence_curve, sensitivity}`` shape (#1231).\n\nMixed into :class:`MonteCarloForecastSerializer` as flat top-level fields\n(the live-run and ``latest`` payloads), and used standalone — nested under\na ``distribution`` key — by :meth:`MonteCarloRunSerializer.get_distribution`\nfor the history endpoint's opt-in ``?expand=distribution``. One field\ndefinition, two positions on the wire.",
+                "properties": {
+                    "histogram_buckets": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MonteCarloHistogramBucket"
+                        }
+                    },
+                    "confidence_curve": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MonteCarloConfidencePoint"
+                        }
+                    },
+                    "sensitivity": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MonteCarloSensitivity"
+                        }
+                    }
+                },
+                "required": [
+                    "confidence_curve",
+                    "histogram_buckets",
+                    "sensitivity"
+                ]
+            },
+            "MonteCarloForecast": {
+                "type": "object",
+                "description": "Monte Carlo forecast payload shared by the live run and the ``latest`` read.\n\nTwo response-producing paths share this exact shape and are not identical on\nthe wire:\n\n- The **live run** (``POST .../monte-carlo/``) and a **cache hit**\n  (``GET .../monte-carlo/latest/`` inside the 24h TTL) always carry\n  ``distribution`` (the full sorted per-run finish-date sample — the large\n  field) and never carry ``from_history``.\n- The **persisted-history fallback** (``GET .../latest/`` once the cache\n  entry has expired, ADR-0175) always carries ``from_history: true`` and\n  never carries ``distribution`` — only the derived\n  ``histogram_buckets``/``confidence_curve``/``sensitivity`` (and\n  ``forecast_diagnostic``) survive past the TTL, and only for runs\n  persisted after #1231/#2483.\n\nBoth fields are declared ``required=False`` rather than modeled as two\nnamed variants (``PolymorphicProxySerializer``): nothing else about the\nshape differs between the two paths, so a discriminated union would only\nduplicate every other field for no added precision.",
+                "properties": {
+                    "risk_premium_days": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "risk_premium_ratio": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "risk_premium_band": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "risk_premium_as_of": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "risk_premium_reason": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "risk_premium_state": {
+                        "$ref": "#/components/schemas/RiskPremiumStateEnum"
+                    },
+                    "risk_premium_cpm_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "risk_premium_p80": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "forecast_staleness": {
+                        "$ref": "#/components/schemas/ForecastStalenessEnum"
+                    },
+                    "plan_version": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "plan_version_current": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "histogram_buckets": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MonteCarloHistogramBucket"
+                        }
+                    },
+                    "confidence_curve": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MonteCarloConfidencePoint"
+                        }
+                    },
+                    "sensitivity": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MonteCarloSensitivity"
+                        }
+                    },
+                    "project_id": {
+                        "type": "string"
+                    },
+                    "runs": {
+                        "type": "integer"
+                    },
+                    "p50": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "p80": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "p95": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "distribution": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "Full sorted per-run finish-date sample. Present on a live run or a cache hit; absent on the persisted-history fallback."
+                    },
+                    "cpm_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "delta_vs_cpm": {
+                        "$ref": "#/components/schemas/MonteCarloDelta"
+                    },
+                    "forecast_diagnostic": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MonteCarloForecastDiagnostic"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "last_run_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "status_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "from_history": {
+                        "type": "boolean",
+                        "description": "True only on the persisted-history fallback past the 24h cache TTL; absent (never false) on a live run or cache hit."
+                    }
+                },
+                "required": [
+                    "confidence_curve",
+                    "cpm_finish",
+                    "delta_vs_cpm",
+                    "forecast_diagnostic",
+                    "forecast_staleness",
+                    "histogram_buckets",
+                    "last_run_at",
+                    "p50",
+                    "p80",
+                    "p95",
+                    "plan_version",
+                    "plan_version_current",
+                    "project_id",
+                    "risk_premium_as_of",
+                    "risk_premium_band",
+                    "risk_premium_cpm_finish",
+                    "risk_premium_days",
+                    "risk_premium_p80",
+                    "risk_premium_ratio",
+                    "risk_premium_reason",
+                    "risk_premium_state",
+                    "runs",
+                    "sensitivity",
+                    "status_date"
+                ]
+            },
+            "MonteCarloForecastDiagnostic": {
+                "type": "object",
+                "description": "Why a Monte Carlo forecast carries -- or lacks -- an uncertainty band (#1340).\n\n``reason`` is populated only when ``deterministic`` is true (the forecast\ncollapsed to a single date); it is ``None`` whenever a real band exists.",
+                "properties": {
+                    "deterministic": {
+                        "type": "boolean"
+                    },
+                    "reason": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/MonteCarloForecastDiagnosticReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "tasks_total": {
+                        "type": "integer"
+                    },
+                    "tasks_with_variance": {
+                        "type": "integer"
+                    },
+                    "tasks_pending_approval": {
+                        "type": "integer"
+                    },
+                    "agile_tasks_without_velocity": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "agile_tasks_without_velocity",
+                    "deterministic",
+                    "reason",
+                    "tasks_pending_approval",
+                    "tasks_total",
+                    "tasks_with_variance"
+                ]
+            },
+            "MonteCarloForecastDiagnosticReasonEnum": {
+                "enum": [
+                    "no_committed_tasks",
+                    "all_complete",
+                    "estimates_off_critical_path",
+                    "estimates_pending_approval",
+                    "no_velocity_history",
+                    "no_estimates"
+                ],
+                "type": "string",
+                "description": "* `no_committed_tasks` - no_committed_tasks\n* `all_complete` - all_complete\n* `estimates_off_critical_path` - estimates_off_critical_path\n* `estimates_pending_approval` - estimates_pending_approval\n* `no_velocity_history` - no_velocity_history\n* `no_estimates` - no_estimates"
+            },
+            "MonteCarloHistogramBucket": {
+                "type": "object",
+                "description": "One ascending finish-date bucket of a Monte Carlo distribution.",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "count": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "count",
+                    "date"
+                ]
+            },
+            "MonteCarloHistoryResponse": {
+                "type": "object",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MonteCarloRun"
+                        }
+                    },
+                    "cap": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "cap",
+                    "enabled",
+                    "results"
+                ]
+            },
+            "MonteCarloRun": {
+                "type": "object",
+                "description": "Read serializer for one project Monte Carlo run in the forecast history (ADR-0175).\n\nTwo pieces of context the view must supply:\n\n- ``delta`` is computed-on-read (ADR-0108): the view attaches ``_delta`` to\n  each instance — a ``{\"p50\"|\"p80\"|\"p95\": signed-int-days|None}`` map of the\n  change versus the immediately-previous (older) run, or ``None`` on the\n  oldest/baseline row. Positive = the forecast slipped later (worse).\n- ``triggered_by_name`` (\"who ran it\") is emitted **only** when the context\n  flag ``can_see_attribution`` is true (requester is Admin/Owner). For every\n  other member the field is ``None`` so forecast drift cannot be read as a\n  named-individual performance signal (VoC Morgan). The FK is never exposed\n  directly; only a display name, and only to admins.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "taken_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "p50": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "p80": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "p95": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "cpm_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "n_simulations": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "task_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "status_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "delta": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MonteCarloDelta"
+                            }
+                        ],
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "triggered_by_name": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "distribution": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MonteCarloDistributionFields"
+                            }
+                        ],
+                        "nullable": true,
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "cpm_finish",
+                    "delta",
+                    "distribution",
+                    "id",
+                    "n_simulations",
+                    "p50",
+                    "p80",
+                    "p95",
+                    "status_date",
+                    "taken_at",
+                    "task_count",
+                    "triggered_by_name"
+                ]
+            },
+            "MonteCarloSensitivity": {
+                "type": "object",
+                "description": "One task's duration-sensitivity tornado entry (ADR-0140).\n\n``index`` is the absolute Spearman rank correlation between the task's\nsampled duration and the project's finish, in [0, 1]. Tasks whose duration\ncannot vary the finish are omitted from the list entirely rather than\nreported as 0.",
+                "properties": {
+                    "task_id": {
+                        "type": "string"
+                    },
+                    "index": {
+                        "type": "number",
+                        "format": "double"
+                    }
+                },
+                "required": [
+                    "index",
+                    "task_id"
+                ]
+            },
+            "MonteCarloWhatIfApplied": {
+                "type": "object",
+                "description": "The resolved perturbation the what-if endpoint applied to the target task (#993).",
+                "properties": {
+                    "base_duration_days": {
+                        "type": "integer"
+                    },
+                    "duration_delta_days": {
+                        "type": "integer"
+                    },
+                    "new_duration_days": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "base_duration_days",
+                    "duration_delta_days",
+                    "new_duration_days"
+                ]
+            },
+            "MonteCarloWhatIfDelta": {
+                "type": "object",
+                "description": "Signed calendar-day shift of ``whatif`` vs ``current``, per field (#993).\n\nSame ``p50``/``p80``/``p95`` shape as :class:`MonteCarloDeltaSerializer`,\nplus ``cpm_finish`` — the what-if endpoint's own deterministic-pass delta,\ndistinct from ``delta_vs_cpm``'s MC-vs-CPM comparison elsewhere.",
+                "properties": {
+                    "p50": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "p80": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "p95": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "cpm_finish": {
+                        "type": "integer",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "cpm_finish",
+                    "p50",
+                    "p80",
+                    "p95"
+                ]
+            },
+            "MonteCarloWhatIfLeg": {
+                "type": "object",
+                "description": "One forecast leg (``current`` or ``whatif``) of the what-if response (#993).",
+                "properties": {
+                    "p50": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "p80": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "p95": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "cpm_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "critical_path": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "required": [
+                    "cpm_finish",
+                    "critical_path",
+                    "p50",
+                    "p80",
+                    "p95"
+                ]
+            },
+            "MonteCarloWhatIfResponse": {
+                "type": "object",
+                "description": "Non-mutating Monte Carlo what-if result (#993).\n\nPerturbs exactly one committed task's duration and recomputes both the\ndeterministic CPM pass and a seeded Monte Carlo simulation in memory,\nwithout persisting anything — see the view docstring for the\nnon-persistence guarantee.",
+                "properties": {
+                    "task_id": {
+                        "type": "string"
+                    },
+                    "applied": {
+                        "$ref": "#/components/schemas/MonteCarloWhatIfApplied"
+                    },
+                    "current": {
+                        "$ref": "#/components/schemas/MonteCarloWhatIfLeg"
+                    },
+                    "whatif": {
+                        "$ref": "#/components/schemas/MonteCarloWhatIfLeg"
+                    },
+                    "critical_path_changed": {
+                        "type": "boolean"
+                    },
+                    "delta_vs_current": {
+                        "$ref": "#/components/schemas/MonteCarloWhatIfDelta"
+                    },
+                    "runs": {
+                        "type": "integer"
+                    },
+                    "seed": {
+                        "type": "integer",
+                        "description": "Fixed RNG seed shared by both runs so the delta isolates the perturbation."
+                    },
+                    "cpm_status_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "mc_status_date": {
+                        "type": "string",
+                        "format": "date"
+                    }
+                },
+                "required": [
+                    "applied",
+                    "cpm_status_date",
+                    "critical_path_changed",
+                    "current",
+                    "delta_vs_current",
+                    "mc_status_date",
+                    "runs",
+                    "seed",
+                    "task_id",
+                    "whatif"
+                ]
             },
             "MyApiToken": {
                 "type": "object",
@@ -67190,6 +67756,18 @@
                     "skipped",
                     "warnings"
                 ]
+            },
+            "RiskPremiumStateEnum": {
+                "enum": [
+                    "not_run",
+                    "unmeasurable",
+                    "stale",
+                    "zero",
+                    "premium",
+                    "negative"
+                ],
+                "type": "string",
+                "description": "* `not_run` - not_run\n* `unmeasurable` - unmeasurable\n* `stale` - stale\n* `zero` - zero\n* `premium` - premium\n* `negative` - negative"
             },
             "RiskRequest": {
                 "type": "object",
