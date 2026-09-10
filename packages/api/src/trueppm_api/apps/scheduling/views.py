@@ -24,8 +24,9 @@ from drf_spectacular.utils import (
     OpenApiResponse,
     extend_schema,
     extend_schema_view,
+    inline_serializer,
 )
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
 from rest_framework.generics import ListAPIView
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
@@ -171,7 +172,10 @@ _DATE_RANGE_EXCEEDED_DETAIL = "Project schedule exceeds the representable date r
     request=None,
     responses={
         202: OpenApiResponse(
-            response=OpenApiTypes.OBJECT,
+            response=inline_serializer(
+                name="ScheduleTriggerResult",
+                fields={"queued": serializers.BooleanField()},
+            ),
             description='Recalculation queued via the outbox; body is {"queued": true}.',
         ),
         403: OpenApiResponse(

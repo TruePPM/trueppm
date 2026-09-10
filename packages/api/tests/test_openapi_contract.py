@@ -1455,10 +1455,12 @@ def _is_free_form(
 
 
 #: The programs + sprints operations #3652 moved off a free-form `{"type": "object"}`
-#: 2xx body. Every other free-form operation the issue measured (schedule/projects,
-#: resources, monte-carlo, imports, time tracking, ...) is out of this MR's scope —
-#: see the sub-issues filed from #3652 — and must NOT be added here until it is
-#: actually fixed; this test exists to catch exactly that regression in reverse.
+#: 2xx body, plus the backlog/queue/schedule-compute/reorder operations #3681 (a
+#: #3652 sub-issue) fixed the same way. Every other free-form operation the parent
+#: issue measured (resources, monte-carlo, imports, time tracking, ...) is out of
+#: this MR's scope — see the sub-issues filed from #3652 — and must NOT be added
+#: here until it is actually fixed; this test exists to catch exactly that
+#: regression in reverse.
 _FREE_FORM_FIXED_BY_3652: frozenset[tuple[str, str, str]] = frozenset(
     {
         ("get", "/api/v1/programs/{id}/rollup/", "200"),
@@ -1492,6 +1494,15 @@ _FREE_FORM_FIXED_BY_3652: frozenset[tuple[str, str, str]] = frozenset(
             "200",
         ),
         ("get", "/api/v1/sprints/{id}/burndown/", "200"),
+        # #3681 (#3652 sub-issue C): backlog/queue/schedule-compute/reorder.
+        ("get", "/api/v1/projects/{id}/product-backlog/", "200"),
+        ("post", "/api/v1/projects/{id}/product-backlog/auto-rank/", "200"),
+        ("post", "/api/v1/projects/{id}/product-backlog/reorder/", "200"),
+        ("post", "/api/v1/projects/{id}/queue/reorder/", "200"),
+        ("post", "/api/v1/projects/{id}/schedule/", "202"),
+        ("post", "/api/v1/projects/{id}/sync/", "200"),
+        ("post", "/api/v1/projects/{id}/acceptance-results/", "200"),
+        ("post", "/api/v1/tasks/{id}/reorder/", "200"),
     }
 )
 
