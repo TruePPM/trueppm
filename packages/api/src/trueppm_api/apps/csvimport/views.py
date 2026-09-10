@@ -310,7 +310,10 @@ class CsvImportPreviewView(IdempotencyMixin, APIView):
                     "`values_matched`/`values_failed`, `date_preview` (per-row raw cell, "
                     "reading and duration), and — only when the file identifies no "
                     "convention — `date_order_readings`, both conventions with the "
-                    "duration each produces for one sample row."
+                    "duration each produces for one sample row. `exceeds_recommended_ceiling` "
+                    "and its sibling fields warn (never block) when this project would land "
+                    "past the tested-comfortable Schedule size — see "
+                    "`administration/sizing.md`."
                 ),
             ),
             400: OpenApiResponse(
@@ -343,6 +346,17 @@ class CsvImportPreviewView(IdempotencyMixin, APIView):
         except CsvImportError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
+        # #3388: warn — never block — when this import would land the project past
+        # the tested-comfortable Schedule size (administration/sizing.md "Tested
+        # envelope": 1.85s at 1,000 tasks, 60s at 2,000 — a cliff, not a slope).
+        # Local import: projects -> csvimport already exists (task_batch_services,
+        # tasks.py), so this direction is symmetric with the established pattern
+        # rather than a new circular-import risk.
+        from trueppm_api.apps.projects.models import Task
+
+        existing_task_count = Task.objects.filter(project_id=project_pk, is_deleted=False).count()
+        projected_task_count = existing_task_count + parsed.plan_task_count
+
         return Response(
             {
                 "filename": filename,
@@ -363,6 +377,18 @@ class CsvImportPreviewView(IdempotencyMixin, APIView):
                 # this number answers "how much of my file arrives as schedule",
                 # and the parked rows are counted on their own line below.
                 "task_count": parsed.plan_task_count,
+                # The tested-comfortable Schedule ceiling (#3388), and whether this
+                # project would land past it once this import lands — existing plan
+                # tasks plus this file's, not just the file's row count, because the
+                # failure the operator would hit is opening the *project*, not the
+                # import. Advisory only: `settings.SCHEDULE_TASK_CEILING` is a
+                # measured comfort line, not a correctness limit, so this never
+                # blocks the commit step.
+                "existing_task_count": existing_task_count,
+                "projected_task_count": projected_task_count,
+                "recommended_task_ceiling": settings.SCHEDULE_TASK_CEILING,
+                "exceeds_recommended_ceiling": projected_task_count
+                > settings.SCHEDULE_TASK_CEILING,
                 "resource_count": len(parsed.project_data.resources),
                 # Rows that cannot become plan tasks and will be parked in the
                 # Import review branch instead of dropped.

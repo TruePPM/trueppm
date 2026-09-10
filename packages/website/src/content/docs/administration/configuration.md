@@ -171,6 +171,7 @@ controls. See
 | `CSV_IMPORT_MAX_UPLOAD_MB` | `10` | Per-file size cap for [CSV / Excel](/features/csv-import-export/) imports, in megabytes. See [CSV / Excel import limits](#csv--excel-import-limits) below. |
 | `CSV_IMPORT_MAX_ROWS` | `5000` | Maximum data rows a single CSV / Excel import may contain. Rows past the cap are reported back as skipped, not silently dropped. |
 | `CSV_IMPORT_MAX_UNCOMPRESSED_MB` | `100` | Decompression-bomb ceiling for `.xlsx` uploads: the maximum total *uncompressed* size the workbook may declare. |
+| `TRUEPPM_SCHEDULE_TASK_CEILING` | `1000` | The Schedule's [tested-comfortable task count](/administration/sizing/#tested-envelope) (#3388). Distinct from the `CSV_IMPORT_MAX_ROWS` file cap above — a file well under that cap can still carry a project past this line. Advisory only: it drives the CSV/Excel import preview's warning and the Schedule's own past-the-ceiling banner, and never blocks anything. Lower it if your hardware is slower than the reference machine the ceiling was measured on; raise it if load-testing your own workload shows more headroom. |
 | `TRUEPPM_THROTTLE_ANON_RATE` | `60/min` | General default rate limit for **unauthenticated** requests, per client IP, in DRF `<count>/<period>` form (`period` is `sec`, `min`, `hour`, or `day`). Applies to every endpoint that does not set its own throttle. See [general API rate limiting](#general-api-rate-limiting) below. |
 | `TRUEPPM_THROTTLE_USER_RATE` | `1000/min` | General default rate limit for an **authenticated** account, in DRF `<count>/<period>` form. Applies to every endpoint that does not set its own throttle. See [general API rate limiting](#general-api-rate-limiting) below. |
 | `TRUEPPM_THROTTLE_READYZ_RATE` | `2000/min` | Rate limit for the unauthenticated readiness probe (`GET /api/v1/readyz`), per client IP, in DRF `<count>/<period>` form. Its own scope rather than the shared `anon` bucket — see [general API rate limiting](#general-api-rate-limiting) below. |
@@ -725,6 +726,15 @@ skipped** rather than silently dropped, so an import is never quietly partial.
 CSV_IMPORT_MAX_UPLOAD_MB=25
 CSV_IMPORT_MAX_ROWS=20000
 ```
+
+**`TRUEPPM_SCHEDULE_TASK_CEILING` (default `1000`) is not a fourth bound here** — the three
+limits above reject or truncate; this one never does. It is the Schedule's own
+[tested-comfortable task count](/administration/sizing/#tested-envelope), and the import
+preview compares your existing task count plus this file's tasks against it purely to
+warn, not to gate the commit. Raising `CSV_IMPORT_MAX_ROWS` does not raise this — they
+answer different questions ("how big a file will the parser accept" vs. "how big a
+project stays comfortable to open"), and a file well under the row cap can still carry a
+project past it.
 
 ### Why `.xlsx` has a third limit
 

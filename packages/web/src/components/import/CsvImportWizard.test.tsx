@@ -71,6 +71,10 @@ const PREVIEW: CsvPreview = {
   row_count: 12,
   truncated_rows: 0,
   task_count: 12,
+  existing_task_count: 0,
+  projected_task_count: 12,
+  recommended_task_ceiling: 1_000,
+  exceeds_recommended_ceiling: false,
   resource_count: 3,
   parked_row_count: 1,
   review_branch_name: 'Import review',
@@ -473,6 +477,54 @@ describe('CsvImportWizard (#746)', () => {
       // The outcome sentence carries the count so the polite announcement is
       // complete without navigating to the list.
       expect(screen.getByText(/1 note about this file/)).toBeInTheDocument();
+    });
+  });
+
+  describe('Schedule task ceiling warning (#3388)', () => {
+    const OVER_CEILING: CsvPreview = {
+      ...PREVIEW,
+      task_count: 1_200,
+      existing_task_count: 0,
+      projected_task_count: 1_200,
+      recommended_task_ceiling: 1_000,
+      exceeds_recommended_ceiling: true,
+    };
+
+    it('warns on the mapping step without disabling Next', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToMapping(user, container, OVER_CEILING);
+
+      const notice = screen.getByRole('region', { name: 'Schedule size warning' });
+      expect(notice).toHaveTextContent(/1,200 tasks/);
+      expect(notice).toHaveTextContent(/~1,000-task ceiling/);
+      expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled();
+    });
+
+    it('repeats the warning on the confirm step and still allows Import', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToMapping(user, container, OVER_CEILING);
+      await user.click(screen.getByRole('button', { name: 'Next' }));
+
+      expect(screen.getByRole('region', { name: 'Schedule size warning' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Import/ })).toBeEnabled();
+    });
+
+    it('renders nothing when the project stays under the ceiling', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToMapping(user, container, PREVIEW);
+
+      expect(
+        screen.queryByRole('region', { name: 'Schedule size warning' }),
+      ).not.toBeInTheDocument();
     });
   });
 
