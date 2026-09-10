@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { NavLink, useNavigate } from 'react-router';
 import { useWorkspaceSettings } from '@/features/settings/hooks/useWorkspaceSettings';
 import { useFeedbackStore } from '@/stores/feedbackStore';
 import { useAuthStore } from '@/stores/authStore';
 import { apiClient } from '@/api/client';
 import { queryClient } from '@/lib/queryClient';
+import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { WORKSPACE_ADMIN_ROLE } from '@/hooks/useIsWorkspaceAdmin';
 import { initialsForUser, labelForUser, accountAccessibleName } from '@/lib/userIdentity';
@@ -273,7 +276,9 @@ interface AvatarChipProps {
   isLoading: boolean;
   isOpen: boolean;
   onClick: () => void;
-  buttonRef: RefObject<HTMLButtonElement | null>;
+  /** A plain ref, or a callback for a caller merging it onto a second ref
+   *  (the desktop trigger also feeds the anchored-popover hook's own ref). */
+  buttonRef: RefObject<HTMLButtonElement | null> | ((node: HTMLButtonElement | null) => void);
 }
 
 function AvatarChip({
@@ -332,8 +337,31 @@ export function UserMenu() {
   // close() and is also reachable via the global `?` hotkey.
   const openShortcutsModal = useShortcutsModalStore((s) => s.openModal);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  // The desktop dropdown is positioned via `useAnchoredPopover` (rule 260):
+  // portaled to `document.body`, `position: fixed`, flipped/clamped against
+  // the viewport. The old in-flow `absolute top-full right-0` never escaped a
+  // clipping ancestor and never accounted for the viewport, so a narrow window
+  // clipped the menu's content instead of flipping/clamping (#3704). Only the
+  // desktop dropdown needs this — the mobile bottom sheet is already
+  // `fixed inset-x-0`, spans the full width, and cannot clip horizontally.
+  //
+  // Gated on `!isMobile` too: the desktop block's `hidden md:block` ancestor
+  // used to hide the (still-rendered) dropdown from mobile via CSS, but a
+  // portaled element is no longer a descendant of that ancestor — without
+  // this gate, opening the mobile sheet would also pop the desktop dropdown
+  // into `document.body` on top of it (rule 211's dual-render hazard, reached
+  // by portaling rather than by a second interactive control).
+  const isMobile = useBreakpoint() === 'sm';
+  const {
+    triggerRef: popoverTriggerRef,
+    popoverRef,
+    popoverStyle,
+  } = useAnchoredPopover<HTMLButtonElement, HTMLDivElement>({
+    open: isOpen && !isMobile,
+    width: 256,
+    estimatedHeight: 480,
+    align: 'right',
+  });
   // Mobile bottom sheet is a modal dialog (role="dialog" aria-modal="true"): trap
   // Tab/Shift+Tab inside it and land focus on its first control on open so a
   // keyboard user can't tab out into the obscured app behind it (WCAG 2.4.3 /
@@ -384,9 +412,10 @@ export function UserMenu() {
 
   // Close when clicking outside. This handler is registered at every width, so
   // it must recognize BOTH menu surfaces as "inside": the desktop dropdown
-  // (menuRef) and the mobile bottom sheet (sheetRef). Without the sheetRef
-  // check, a pointerdown on a control inside the sheet (e.g. the theme toggle)
-  // is misclassified as an outside click, closes the sheet on pointerdown, and
+  // (popoverRef — portaled, so no longer a DOM descendant of the trigger) and
+  // the mobile bottom sheet (sheetRef). Without the sheetRef check, a
+  // pointerdown on a control inside the sheet (e.g. the theme toggle) is
+  // misclassified as an outside click, closes the sheet on pointerdown, and
   // the control's click never fires — the mobile theme switcher did nothing
   // while the identical desktop dropdown worked (#1679). The mobile backdrop
   // still closes on its own onClick; this guard only prevents the false close.
@@ -394,7 +423,7 @@ export function UserMenu() {
     if (!isOpen) return;
     function onPointerDown(e: PointerEvent) {
       const target = e.target as Node;
-      const insideDropdown = menuRef.current?.contains(target) ?? false;
+      const insideDropdown = popoverRef.current?.contains(target) ?? false;
       const insideSheet = sheetRef.current?.contains(target) ?? false;
       const onTrigger = buttonRef.current?.contains(target) ?? false;
       if (!insideDropdown && !insideSheet && !onTrigger) {
@@ -404,20 +433,20 @@ export function UserMenu() {
     document.addEventListener('pointerdown', onPointerDown);
     return () => document.removeEventListener('pointerdown', onPointerDown);
     // sheetRef is a stable ref from useFocusTrap; listed to satisfy exhaustive-deps.
-  }, [isOpen, sheetRef]);
+  }, [isOpen, sheetRef, popoverRef]);
 
   // Seat focus into the desktop dropdown when it opens (WCAG 2.4.3 / rule 260).
   // The old role="menu" never moved focus in, so a keyboard user was told (by the
   // menu role) that Tab wouldn't work while focus stayed on the trigger. As a
   // non-modal dialog it seats focus on its first control on open; Escape (handler
   // above) restores focus to the trigger. Declared AFTER useFocusTrap so on
-  // desktop this seat wins the initial-focus race; on mobile the dropdown is
-  // display:none, so focusing its (hidden) first control is a no-op and the
+  // desktop this seat wins the initial-focus race; on mobile the hook above
+  // never opens, so `popoverRef.current` stays null and this is a no-op — the
   // mobile sheet's own trap seats focus instead.
   useEffect(() => {
     if (!isOpen) return;
-    dropdownRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
-  }, [isOpen]);
+    popoverRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
+  }, [isOpen, popoverRef]);
 
   // Client-side identity fallback (display_name → username → email local-part).
   // The chip must never degrade to a literal "?" nor a generic "User menu" — a
@@ -456,37 +485,47 @@ export function UserMenu() {
       {/* ------------------------------------------------------------------ */}
       {/* Desktop: relative-positioned dropdown                               */}
       {/* ------------------------------------------------------------------ */}
-      <div className="hidden md:block relative" ref={menuRef}>
+      <div className="hidden md:block relative">
         <AvatarChip
           initials={avatarInitials}
           accessibleName={accessibleName}
           isLoading={isLoading}
           isOpen={isOpen}
           onClick={toggle}
-          buttonRef={buttonRef}
+          buttonRef={(node) => {
+            // Merged: the shared `buttonRef` (Escape/outside-click checks,
+            // unchanged) plus the anchored-popover hook's own trigger ref.
+            buttonRef.current = node;
+            popoverTriggerRef.current = node;
+          }}
         />
 
-        {isOpen && (
-          // Non-modal dialog, NOT role="menu" (#2167): the dropdown holds
-          // heterogeneous interactive content — the Theme and View-focus toggle
-          // groups are plain buttons-in-divs, which are invalid `menuitem`
-          // children — so a menu role mis-advertised a keyboard model (arrow
-          // roving, no Tab) the surface never implemented. A non-modal dialog is
-          // the correct pattern (matching NotificationPanel): Tab navigates the
-          // controls, focus is seated on open (effect above) and restored to the
-          // trigger on Escape, and the app behind stays live (aria-modal="false").
-          <div
-            ref={dropdownRef}
-            tabIndex={-1}
-            role="dialog"
-            aria-modal="false"
-            aria-label="User menu"
-            data-testid="user-menu-dropdown"
-            className="absolute top-full right-0 mt-1 z-50 w-64 max-h-[min(70vh,32rem)] overflow-y-auto bg-chrome-surface rounded-card border border-neutral-border flex flex-col py-1 focus:outline-none"
-          >
-            <MenuContent {...sharedContentProps} isMobile={false} />
-          </div>
-        )}
+        {isOpen &&
+          !isMobile &&
+          popoverStyle &&
+          createPortal(
+            // Non-modal dialog, NOT role="menu" (#2167): the dropdown holds
+            // heterogeneous interactive content — the Theme and View-focus toggle
+            // groups are plain buttons-in-divs, which are invalid `menuitem`
+            // children — so a menu role mis-advertised a keyboard model (arrow
+            // roving, no Tab) the surface never implemented. A non-modal dialog is
+            // the correct pattern (matching NotificationPanel): Tab navigates the
+            // controls, focus is seated on open (effect above) and restored to the
+            // trigger on Escape, and the app behind stays live (aria-modal="false").
+            <div
+              ref={popoverRef}
+              style={popoverStyle}
+              tabIndex={-1}
+              role="dialog"
+              aria-modal="false"
+              aria-label="User menu"
+              data-testid="user-menu-dropdown"
+              className="z-50 overflow-y-auto bg-chrome-surface rounded-card border border-neutral-border flex flex-col py-1 focus:outline-none"
+            >
+              <MenuContent {...sharedContentProps} isMobile={false} />
+            </div>,
+            document.body,
+          )}
       </div>
 
       {/* ------------------------------------------------------------------ */}
@@ -522,7 +561,6 @@ export function UserMenu() {
           </>
         )}
       </div>
-
     </>
   );
 }
