@@ -67,6 +67,24 @@ services:
       # Prepend the bind-mounted source so uvicorn --reload picks up changes
       # to Python files without requiring a container rebuild.
       PYTHONPATH: /app/src
+      # Pin the OIDC redirect_uri origin (settings/base.py). Without this, the
+      # SSO views fall back to request.build_absolute_uri() — but the web
+      # container's Vite dev proxy forwards /api/* with changeOrigin: true
+      # (vite.config.ts), which rewrites the Host header to "api:8000" before
+      # Django sees it. That mints a redirect_uri the IdP dutifully redirects
+      # the BROWSER to after login, and "api" only resolves inside the Docker
+      # network — DNS_PROBE_FINISHED_NXDOMAIN on the host. Mirrors the
+      # TRUEPPM_PUBLIC_API_BASE_URL pin already used in .gitlab-ci.yml.
+      TRUEPPM_PUBLIC_API_BASE_URL: http://localhost:8000
+      # Pin where the OIDC callback view (views.py::_spa_completion_url) sends
+      # the browser once the token exchange is done — the SPA's dev server,
+      # not the API. Without this it's empty, _spa_completion_url() builds a
+      # bare relative "/auth/sso/complete?..." Location header, and the
+      # browser resolves it against wherever it currently is (the API's own
+      # origin, port 8000) instead of the SPA on 5173 — a 404 from Django's
+      # own URLconf, which has no such route. Mirrors the
+      # TRUEPPM_FRONTEND_BASE_URL pin already used in .gitlab-ci.yml.
+      TRUEPPM_FRONTEND_BASE_URL: http://localhost:5173
     volumes:
       - ./packages/api/src:/app/src
     ports:

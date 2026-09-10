@@ -130,6 +130,42 @@ The **Scopes** shown on the form are fixed by the open-source core
 (`openid email profile` for OIDC, `read:user user:email` for GitHub) and cannot be
 widened.
 
+### Testing SSO against the local development stack
+
+The bundled dev stack (`docker-compose.yml`, started with `make up`) does **not**
+serve the SPA and the API from one origin — that single-origin behavior is a
+production/Docker-Compose-single-server property (see
+[One origin, four variables](/administration/networking/#one-origin-four-variables)),
+not a property of local development itself. In dev the SPA runs under Vite on
+`:5173` and the API runs separately on `:8000`, and Vite's dev proxy forwards
+`/api/*` to the API container with `changeOrigin: true` — which rewrites the
+`Host` header the API sees to the *container's* internal name before Django ever
+gets the request. Two settings therefore cannot be left at their empty defaults
+for SSO to work locally, and `docker-compose.yml` sets both for you:
+
+```yaml
+# api service:
+TRUEPPM_PUBLIC_API_BASE_URL: http://localhost:8000  # the OIDC redirect_uri origin
+TRUEPPM_FRONTEND_BASE_URL: http://localhost:5173     # where the callback sends you back
+```
+
+Without the first, the `redirect_uri` your provider is handed is derived from
+the *proxy-rewritten* request and resolves to the API container's internal Docker
+hostname (e.g. `http://api:8000/...`) — reachable inside Docker's network, not
+from your browser, so the IdP redirects you to a page that cannot load
+(`DNS_PROBE_FINISHED_NXDOMAIN`). Without the second, the post-login redirect
+Django issues is a bare relative URL, which the browser resolves against
+whatever origin it is currently on (the API, port 8000) instead of the SPA
+(port 5173) — a 404 from Django's own URL configuration, since that route only
+exists in the SPA's router.
+
+When registering an application at your IdP for **local testing**, use the
+redirect URI the admin panel shows you (it should read
+`http://localhost:8000/api/v1/auth/oidc/callback/` once the stack is up with the
+defaults above) — never the Docker-internal `http://api:8000/...` form. If you
+change the published ports in `docker-compose.yml`, update both variables to
+match.
+
 ### GitHub specifics
 
 GitHub uses OAuth 2.0 rather than OIDC, so there is no issuer or discovery
@@ -173,10 +209,30 @@ On the sign-in screen, each **enabled** provider shows its own **Continue with
 returned to TruePPM and dropped into their workspace. If no provider is
 configured, the sign-in screen shows only the email-and-password form.
 
-If a user authenticates successfully at their provider but has no TruePPM account
-(and auto-create is off, or their domain is not allowed), they see a clear
-"verified, but not a member yet" message with the code `SSO_NO_MEMBER` — ask an
-admin to invite them, then have them sign in again.
+A user's identity is matched to a TruePPM account **by email address**
+(case-insensitive), the same key an [invite](/administration/workspace-settings/#invites-settingsmembers--invite-flow)
+is sent to — not by username or display name, and not by the provider's
+internal user ID. If a user authenticates successfully at their provider but no
+account with that email exists yet (and auto-create is off, or their domain is
+not on the **Allowed email domains** list), they see a clear "verified, but not
+a member yet" message with the code `SSO_NO_MEMBER`. To resolve it, an admin
+sends an [invite](/administration/workspace-settings/#invites-settingsmembers--invite-flow)
+to **the exact email address the user signs in with at that provider** —
+mismatched capitalization is fine (matching is case-insensitive), but a
+different address (e.g. a personal address instead of the corporate one the
+IdP returns) will not link, and the user will see `SSO_NO_MEMBER` again on the
+next attempt.
+
+**The invited user still has to complete the invite-accept step before their
+first SSO sign-in works.** No `User` row exists until the invite is accepted —
+sending an invite alone does not provision one, so the email match at sign-in
+has nothing to match against yet. The accept page asks for a username and a
+password even for someone who intends to sign in only via SSO going forward,
+because `accept_invite` requires one when no matching account already exists.
+Have the invitee follow the emailed link and complete that one-time step first;
+only then will the same email's SSO sign-in succeed. (With **auto-create
+members** enabled instead of an invite, this step is skipped entirely — the
+first successful SSO sign-in provisions the account itself.)
 
 A **deactivated** member is refused at the callback with `SSO_ACCOUNT_DISABLED` and
 no session is created, even though their identity provider signed them in

@@ -194,6 +194,17 @@ def three_point_estimates_ordered(
 # make it a "changed field" on literally every write, so the ADR-0217 merge would
 # name it in the ``X-Merged-Concurrent-Fields`` header a client reconciles from.
 _HISTORY_EXCLUDED_BASE = ["server_version", "sync_seq", "deleted_version"]
+
+# Shared suffix for every CPM output column's help_text (ADR-1152, #3578). One
+# template rather than eight copies so the published contract cannot drift field by
+# field — it reaches API clients through docs/api/openapi.json, where it is the only
+# statement of what a null means.
+CPM_OUTPUT_HELP = (
+    "{what}. Read-only engine output. Null when the task is outside the "
+    "schedulable set (BACKLOG status, EPIC type, a recurring template or "
+    "occurrence, or soft-deleted) or has not been scheduled yet."
+)
+
 _HISTORY_EXCLUDED_TASK = [
     *_HISTORY_EXCLUDED_BASE,
     "deleted_at",
@@ -2441,13 +2452,27 @@ class TaskManager(models.Manager["Task"]):
 
 
 class CommittedTaskManager(models.Manager["Task"]):
-    """Tasks that represent committed delivery: not BACKLOG and not soft-deleted.
+    """Tasks that represent committed delivery.
+
+    Four exclusions, not two: **not BACKLOG, not EPIC, not recurring, and not
+    soft-deleted** (the body below is the authority). This summary line used to
+    name only BACKLOG and soft-deleted, which understated the filter for exactly
+    the reader it exists to help — someone choosing between this manager and
+    ``Task.objects`` for a new aggregate.
 
     Use this for any aggregate where BACKLOG cards would distort the picture —
     capacity heat maps, Schedule/Gantt view, Monte Carlo input, client PDF
     export, Board phase progress. Default ``Task.objects`` is intentionally
     unfiltered so the Board can still render BACKLOG cards inside the
     band-above-grid layout (ADR-0057).
+
+    This set is also the domain of the CPM output columns: ADR-1152 (#3578) makes
+    ``early_start``/``early_finish``/``late_start``/``late_finish``/
+    ``scheduled_start``/``total_float``/``free_float``/``is_critical`` non-null if
+    and only if the row is in here, and the recompute clears them on every row
+    outside it. An aggregate over those columns that reaches for ``Task.objects``
+    is no longer reading residue — but it is still counting rows that carry no
+    schedule, so prefer this manager and mean it.
     """
 
     def get_queryset(self) -> models.QuerySet[Task]:
@@ -3138,11 +3163,27 @@ class Task(VersionedModel):
         help_text="Start no earlier than (SNET). CPM floor applied during forward pass.",
     )
 
-    # CPM output fields — populated by the scheduling Celery task
-    early_start = models.DateField(null=True, blank=True)
-    early_finish = models.DateField(null=True, blank=True)
-    late_start = models.DateField(null=True, blank=True)
-    late_finish = models.DateField(null=True, blank=True)
+    # CPM output fields — populated by the scheduling Celery task.
+    #
+    # ADR-1152 (#3578) makes their contract TOTAL: each is non-null if and only if
+    # the row is in ``Task.committed``. The recompute clears them on every row
+    # outside that set, so a groomed-out card can no longer render dates it has no
+    # claim to. The help_text below is the only place a schema-only API client — one
+    # not going through trueppm-mcp's hand-written tool docstrings — can learn that,
+    # so it is load-bearing rather than decorative; it reaches docs/api/openapi.json
+    # through drf-spectacular.
+    early_start = models.DateField(
+        null=True, blank=True, help_text=CPM_OUTPUT_HELP.format(what="CPM early start")
+    )
+    early_finish = models.DateField(
+        null=True, blank=True, help_text=CPM_OUTPUT_HELP.format(what="CPM early finish")
+    )
+    late_start = models.DateField(
+        null=True, blank=True, help_text=CPM_OUTPUT_HELP.format(what="CPM late start")
+    )
+    late_finish = models.DateField(
+        null=True, blank=True, help_text=CPM_OUTPUT_HELP.format(what="CPM late finish")
+    )
     # The task's SPAN start (ADR-0752), distinct from early_start's
     # remaining-work window (ADR-0132). Not started/complete: equals
     # early_start. In progress with actual_start recorded: equals
@@ -3152,12 +3193,22 @@ class Task(VersionedModel):
     # early_finish. Written by the same bulk_update that writes early_start;
     # never client-writable. No ``scheduled_finish`` column exists — it is
     # always identical to early_finish, so read that under its existing name.
-    scheduled_start = models.DateField(null=True, blank=True)
-    total_float = models.IntegerField(
-        null=True, blank=True, help_text="Total float in working days"
+    scheduled_start = models.DateField(
+        null=True, blank=True, help_text=CPM_OUTPUT_HELP.format(what="CPM span start")
     )
-    free_float = models.IntegerField(null=True, blank=True, help_text="Free float in working days")
-    is_critical = models.BooleanField(null=True, blank=True)
+    total_float = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text=CPM_OUTPUT_HELP.format(what="Total float in working days"),
+    )
+    free_float = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text=CPM_OUTPUT_HELP.format(what="Free float in working days"),
+    )
+    is_critical = models.BooleanField(
+        null=True, blank=True, help_text=CPM_OUTPUT_HELP.format(what="Critical-path membership")
+    )
 
     # Explicit milestone flag — set by the PM or preserved from MS Project / P6 import.
     # Canonical milestone invariant (#1773): a milestone is the coupled state

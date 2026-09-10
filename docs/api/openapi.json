@@ -54749,18 +54749,21 @@
                         "type": "string",
                         "format": "date",
                         "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "CPM early start. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "early_finish": {
                         "type": "string",
                         "format": "date",
                         "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "CPM early finish. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "is_critical": {
                         "type": "boolean",
                         "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "Critical-path membership. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     }
                 },
                 "required": [
@@ -56978,7 +56981,8 @@
                         "type": "string",
                         "format": "date",
                         "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "CPM early finish. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "is_bound": {
                         "type": "boolean",
@@ -62365,7 +62369,8 @@
                         "type": "string",
                         "format": "date",
                         "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "CPM early finish. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "is_milestone": {
                         "type": "boolean",
@@ -70646,19 +70651,22 @@
                         "type": "string",
                         "format": "date",
                         "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "CPM early start. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "early_finish": {
                         "type": "string",
                         "format": "date",
                         "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "CPM early finish. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "scheduled_start": {
                         "type": "string",
                         "format": "date",
                         "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "CPM span start. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "scheduled_finish": {
                         "type": "string",
@@ -70675,30 +70683,33 @@
                         "type": "string",
                         "format": "date",
                         "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "CPM late start. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "late_finish": {
                         "type": "string",
                         "format": "date",
                         "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "CPM late finish. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "total_float": {
                         "type": "integer",
                         "readOnly": true,
                         "nullable": true,
-                        "description": "Total float in working days"
+                        "description": "Total float in working days. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "free_float": {
                         "type": "integer",
                         "readOnly": true,
                         "nullable": true,
-                        "description": "Free float in working days"
+                        "description": "Free float in working days. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "is_critical": {
                         "type": "boolean",
                         "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "Critical-path membership. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "is_milestone": {
                         "type": "boolean"
@@ -73816,19 +73827,22 @@
                         "type": "string",
                         "format": "date",
                         "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "CPM early start. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "early_finish": {
                         "type": "string",
                         "format": "date",
                         "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "CPM early finish. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "scheduled_start": {
                         "type": "string",
                         "format": "date",
                         "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "CPM span start. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "scheduled_finish": {
                         "type": "string",
@@ -73845,30 +73859,33 @@
                         "type": "string",
                         "format": "date",
                         "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "CPM late start. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "late_finish": {
                         "type": "string",
                         "format": "date",
                         "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "CPM late finish. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "total_float": {
                         "type": "integer",
                         "readOnly": true,
                         "nullable": true,
-                        "description": "Total float in working days"
+                        "description": "Total float in working days. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "free_float": {
                         "type": "integer",
                         "readOnly": true,
                         "nullable": true,
-                        "description": "Free float in working days"
+                        "description": "Free float in working days. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "is_critical": {
                         "type": "boolean",
                         "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "Critical-path membership. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
                     },
                     "is_milestone": {
                         "type": "boolean"

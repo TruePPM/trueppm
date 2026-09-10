@@ -444,7 +444,19 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
     [pinnedItems, projectById],
   );
   const hasPins = pinnedProgramList.length > 0 || pinnedProjects.length > 0;
-  const orphanProjects = useMemo(() => (projects ?? []).filter((p) => !p.programId), [projects]);
+  // A project's `programId` can point at a program the viewer has no
+  // `ProgramMembership` on (project-only grants are legal — RBAC ADR-0070).
+  // `usePrograms()` only returns programs the caller is a member of, so such a
+  // project would fail both the "no program" orphan check below AND the
+  // per-program `kids` filter (its program never appears in `programs` to be
+  // iterated). It would render nowhere in Browse despite being fully
+  // accessible via the API, direct URL, and Command-K (#3693). Treat it as an
+  // orphan too — the viewer can't navigate into an invisible-to-them program
+  // regardless.
+  const orphanProjects = useMemo(
+    () => (projects ?? []).filter((p) => !p.programId || !programById.has(p.programId)),
+    [projects, programById],
+  );
   const countFor = useCallback(
     (programId: string) => (projects ?? []).filter((p) => p.programId === programId).length,
     [projects],

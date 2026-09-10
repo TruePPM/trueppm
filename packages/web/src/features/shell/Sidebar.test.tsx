@@ -579,6 +579,35 @@ describe('Sidebar rail — Tier 3 "Jump"', () => {
       screen.getByRole('button', { name: /Standalone Site, health unknown, 4 open tasks/ }),
     ).toBeInTheDocument();
   });
+
+  // #3693: a project-only grant is legal without a matching ProgramMembership
+  // (RBAC ADR-0070), so `programId` can point at a program absent from the
+  // member-scoped `usePrograms()` list. Before the fix such a project fell
+  // through both the per-program `kids` filter and the `!p.programId` orphan
+  // check and rendered nowhere in Browse, despite being fully accessible via
+  // the API, direct URL, and Command-K.
+  it('surfaces a project whose program the viewer cannot see as standalone', () => {
+    mockUseProjects.mockReturnValue({
+      data: [
+        ...DEFAULT_PROJECTS,
+        {
+          id: 'p4',
+          name: 'Bayside Civic Center',
+          programId: 'prog-invisible',
+          healthState: 'unknown',
+          openTaskCount: 2,
+          colorDot: null,
+        },
+      ],
+      count: undefined,
+    });
+    renderRail();
+    fireEvent.click(screen.getByRole('button', { name: 'Browse projects and programs' }));
+    expect(screen.getByText('Projects')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Bayside Civic Center, health unknown, 2 open tasks/ }),
+    ).toBeInTheDocument();
+  });
 });
 
 describe('Sidebar rail — Tier 2 off-project (pinned list)', () => {

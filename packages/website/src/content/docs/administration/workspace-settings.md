@@ -410,6 +410,14 @@ Workspace Admins send email invitations to bring new users into the workspace.
 5. Error responses are **generic** ("invalid or expired token") to prevent
    token enumeration.
 
+A member who will sign in via [Single sign-on](/administration/single-sign-on/)
+still has to complete step 4 — accepting the invite is what provisions the
+`User` row SSO matches against **by email**, so it cannot be skipped even
+though the username/password it sets will typically never be used again once
+SSO takes over. The exception is **auto-create members**, which provisions the
+account directly on first SSO sign-in with no invite at all — see [How users
+sign in](/administration/single-sign-on/#how-users-sign-in).
+
 ### Reading the invite history
 
 `GET /api/v1/workspace/invites/` defaults to `?status=pending` — the working set
