@@ -70,21 +70,6 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
   // teardown and races the page render (#2366). Routes below win.
   await setupCatchAll(page);
 
-  // 401-guard safety net. Any endpoint not explicitly mocked below (the app-wide
-  // shell + ⌘K palette fetch programs, sprints, velocity, project detail, me/work,
-  // …) would otherwise 401 → refresh → expire and raise the full-screen
-  // session-expired modal, which then intercepts every click. Registered FIRST so
-  // the specific routes below (added later) take precedence; returns a benign empty
-  // list shape. This previously passed on timing slack that #647's extra app-wide
-  // hook subscriptions removed.
-  await page.route('**/api/v1/**', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
-    }),
-  );
-
   // The app fetches the current user on boot; give it a real user object (the
   // empty-list catch-all above would otherwise stand in and the shell would treat
   // the session as unauthenticated).

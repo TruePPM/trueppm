@@ -54,8 +54,8 @@ That's it. Sign in at `http://localhost:5173` as any of the personas (password: 
 | Username | Persona | What to look at first |
 |---|---|---|
 | `atlas-alex` | Program lead (Owner) | The [program Schedule](/features/schedule/) — the critical path running across all three projects |
-| `atlas-priya` | Delivery lead (Admin) | The [Sprints workspace](/features/sprints/) — burndown, capacity, backlog, and a retro with a promoted action |
-| `atlas-sam` | Scheduler | The Schedule view — milestones, baseline overlay, and the calendar exception that moves the finish |
+| `atlas-priya` | Engineering Lead (Admin) | The [Sprints workspace](/features/sprints/) — burndown, capacity, backlog, and a retro with a promoted action |
+| `atlas-sam` | Scheduler | The Schedule view — milestones, the actual-date overlay on in-flight tasks, and the calendar exception that moves the finish |
 | `atlas-jordan` | GTM lead (Admin) | The Board for the GTM Readiness project, and its sprint-to-milestone bridge |
 | `atlas-mei` | Engineer (Member) | The Board with her assigned cards and the tasks she is blocked on |
 | `atlas-ada` | Stakeholder (Viewer) | The Overview page with forecast confidence intervals — and everything read-only |
@@ -73,6 +73,13 @@ The demo project is built to walk through the eight-step [hybrid PM flow](/the-s
 ## Route B — build a project via the API
 
 If you want to learn the data model rather than evaluate the UI, build a project with two tasks and a dependency, trigger CPM, and read the result back. The examples below use `curl` and `jq`.
+
+:::tip[Want the UI path instead?]
+This route is deliberately API-only, for learning the data model. To build a
+waterfall project the way you would with your own work — WBS, milestones,
+dependencies, a baseline, a status date, and a PDF handoff, no `curl` — see
+[Waterfall day one](/getting-started/waterfall-day-one/).
+:::
 
 ### 1. Set up admin credentials
 

@@ -86,8 +86,6 @@ async function setupCommon(page: Page) {
   // teardown and races the page render (#2366). Routes below win.
   await setupCatchAll(page);
 
-  // Catch-all safety net FIRST (later-registered specific routes win).
-  await page.route('**/api/v1/**', (r) => r.fulfill(json([])));
   await page.route('**/api/v1/me/work/', (r) =>
     r.fulfill(
       json({
@@ -172,6 +170,9 @@ async function setupCommon(page: Page) {
   );
   await page.route(/\/api\/v1\/sprints\/.*\/blocked\//, (r) =>
     r.fulfill(json({ sprint_id: ACTIVE_SPRINT.id, count: 0, blocked: [], truncated: false })),
+  );
+  await page.route(/\/api\/v1\/sprints\/.*\/incoming_carryover\//, (r) =>
+    r.fulfill(json({ prior_sprint: null, tasks: [] })),
   );
 }
 

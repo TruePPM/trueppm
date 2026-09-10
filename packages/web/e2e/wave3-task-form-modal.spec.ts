@@ -17,6 +17,7 @@
  * lands on login at 375×667 (the same known auth flake as wave3-card-info-popover).
  */
 import { test, expect } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-305-00000000-0000-0000-0000-000000000305';
 const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}`;
@@ -58,22 +59,10 @@ async function setup(page: import('@playwright/test').Page, options: SetupOption
   // with rows has no route to the modal at all (#2952).
   const tasks: unknown[] = [];
 
-  // Catch-all fallthrough, registered FIRST so every specific route below wins
-  // (Playwright matches last-registered first). Without it, any endpoint this
-  // spec forgets to mock — notably the `/auth/me/` bootstrap — leaks through the
-  // vite-preview proxy to a locally-running dev backend on :8000, which returns
-  // a real 401 for the fake e2e token and raises the session-expired modal that
-  // then intercepts every click. Returns 404 (not 401, and not a 200 list shape
-  // that would break object-shaped endpoints and trip the root error boundary),
-  // matching the repo's `setupCatchAll` and reproducing CI's no-backend
-  // fail-soft behavior where unmocked reads simply error rather than log out.
-  await page.route('**/api/v1/**', (route) =>
-    route.fulfill({
-      status: 404,
-      contentType: 'application/json',
-      body: JSON.stringify({ detail: 'unmocked in test' }),
-    }),
-  );
+  // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+  // falling through and 401ing, which trips the token-refresh session
+  // teardown and races the page render (#2366). Routes below win.
+  await setupCatchAll(page);
   // Auth bootstrap — object shapes the catch-all's list shape can't satisfy.
   await page.route('**/api/v1/auth/me/', (route) =>
     route.fulfill({

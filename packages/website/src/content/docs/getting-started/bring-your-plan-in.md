@@ -22,7 +22,7 @@ and nothing you import ever writes back to the source. Pick your source below.
 | Your plan lives in... | Use | Status | Watch for |
 |---|---|---|---|
 | Microsoft Project — **`.xml`** (MSPDI) | [MS Project import & export](/features/msproject-import-export/) | **Shipped** — REST endpoints since 0.1, in-app wizard since 0.2 | Constraint dates and actual start/finish dates ship in 0.4; deadlines, baselines, priority, work and cost are never imported — the import lists what it dropped |
-| Microsoft Project — **`.mpp`** (binary) | Save as `.xml` from MS Project instead | **Ships in 0.6** ([#128](https://gitlab.com/trueppm/trueppm/-/issues/128)) | Neither file picker offers `.mpp`. The API accepts it only where an operator installed the optional MPXJ / Java toolchain, which the reference image does not bundle |
+| Microsoft Project — **`.mpp`** (binary) | Save as `.xml` from MS Project instead | **Ships in 0.6** ([#128](https://gitlab.com/trueppm/trueppm/-/issues/128)) | As of the 0.4 beta, neither file picker offers `.mpp` — on `0.3.0-alpha.3` and earlier the import-into-existing dialog still accepted it and then failed in the background worker on any deployment without the optional MPXJ / Java toolchain |
 | A spreadsheet you built by hand, or exported from Asana, Trello, Basecamp, or a similar tool | [CSV / Excel import & export](/features/csv-import-export/) | **Ships in 0.4** — the column-mapping wizard is not live yet | Column headers are auto-detected, but always check the mapping before you commit |
 | Jira **Server or Data Center** (XML issue export) | [Jira import](/features/jira-import/) | **Ships in 0.4** | **Jira Cloud has no XML export** — Cloud has no file this importer can read. Cloud migration is a separate, out-of-scope track |
 | Another TruePPM instance, or a hand-edited file matching the seed schema | [Data export](/administration/data-export/#check-a-file-before-you-import-it) (JSON seed import) | **Shipped** today, with a dry-run validator | Replace-then-rebuild on the program slug — a colliding program is replaced, not merged, and only its projects are recoverable. Read the re-import semantics before you run it |
@@ -61,4 +61,5 @@ carry over — the constraints above are the ones every source shares.
 - [CSV / Excel import & export](/features/csv-import-export/)
 - [Jira import](/features/jira-import/)
 - [Data export](/administration/data-export/) — JSON seeds, export bundles, and the round-trip guarantee
+- [Waterfall day one](/getting-started/waterfall-day-one/) — building a plan from scratch in the UI, if you have no existing file to import
 - [Quickstart](/getting-started/quickstart/) — if you'd rather start from the demo data or the API instead
