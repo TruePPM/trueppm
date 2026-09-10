@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from datetime import date
 from typing import Any
 from unittest.mock import patch
@@ -1500,3 +1501,225 @@ def test_create_ceiling_check_serializes_against_concurrent_actor_demotion() -> 
     assert not ProjectMembership.objects.filter(project=project, user=new_user).exists()
     owner_membership.refresh_from_db()
     assert owner_membership.role == Role.ADMIN
+
+
+# ---------------------------------------------------------------------------
+# Audit trail + notification + throttle (#3645)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_create_writes_audit_event(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    colleague: object,
+) -> None:
+    from trueppm_api.apps.workspace.models import AuditEvent, AuditEventType
+
+    other_project = Project.objects.create(name="Shared3", start_date=date(2026, 1, 1))
+    ProjectMembership.objects.create(
+        project=other_project, user=owner_membership.user, role=Role.OWNER
+    )
+    ProjectMembership.objects.create(project=other_project, user=colleague, role=Role.MEMBER)
+
+    resp = owner_client.post(_url(project), {"user": str(colleague.pk), "role": Role.MEMBER})
+    assert resp.status_code == 201, resp.data
+
+    event = AuditEvent.objects.get(event_type=AuditEventType.MEMBER_ADDED)
+    assert event.actor_id == owner_membership.user_id
+    assert event.metadata["project_id"] == str(project.pk)
+    assert event.metadata["role"] == Role.MEMBER.label
+
+
+@pytest.mark.django_db
+def test_create_refused_writes_no_audit_event(
+    member_client: APIClient, project: Project, owner_membership: ProjectMembership
+) -> None:
+    """A refused (403) create must not write an audit row (DRF's set_rollback
+    contract — see the module docstring in ``record_audit_event``)."""
+    from trueppm_api.apps.workspace.models import AuditEvent, AuditEventType
+
+    new_user = User.objects.create_user(username="refused_add", password="pw")
+    resp = member_client.post(_url(project), {"user": str(new_user.pk), "role": Role.VIEWER})
+    assert resp.status_code == 403
+    assert not AuditEvent.objects.filter(event_type=AuditEventType.MEMBER_ADDED).exists()
+
+
+@pytest.mark.django_db
+def test_create_notifies_added_user(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    colleague: object,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    from trueppm_api.apps.notifications.models import Notification, NotificationEventType
+
+    other_project = Project.objects.create(name="Shared4", start_date=date(2026, 1, 1))
+    ProjectMembership.objects.create(
+        project=other_project, user=owner_membership.user, role=Role.OWNER
+    )
+    ProjectMembership.objects.create(project=other_project, user=colleague, role=Role.MEMBER)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = owner_client.post(_url(project), {"user": str(colleague.pk), "role": Role.MEMBER})
+    assert resp.status_code == 201, resp.data
+
+    notif = Notification.objects.get(
+        recipient=colleague, event_type=NotificationEventType.MEMBERSHIP_GRANTED
+    )
+    assert str(project.pk) == str(notif.project_id)
+    assert project.name in notif.subject
+
+
+@pytest.mark.django_db
+def test_partial_update_role_change_writes_audit_event_and_notifies(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    from trueppm_api.apps.notifications.models import Notification, NotificationEventType
+    from trueppm_api.apps.workspace.models import AuditEvent, AuditEventType
+
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = owner_client.patch(_url(project, member_membership.pk), {"role": Role.SCHEDULER})
+    assert resp.status_code == 200
+
+    event = AuditEvent.objects.get(event_type=AuditEventType.MEMBER_ROLE_CHANGED)
+    assert event.metadata["old_role"] == Role.MEMBER.label
+    assert event.metadata["new_role"] == Role.SCHEDULER.label
+
+    notif = Notification.objects.get(
+        recipient=member_membership.user, event_type=NotificationEventType.MEMBERSHIP_ROLE_CHANGED
+    )
+    assert project.name in notif.subject
+
+
+@pytest.mark.django_db
+def test_partial_update_same_role_writes_no_audit_event(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+) -> None:
+    """A no-op PATCH (role re-sent unchanged) must not fabricate a role-change
+    event (#590's role_changed_at rule, extended to the audit/notify pair)."""
+    from trueppm_api.apps.workspace.models import AuditEvent, AuditEventType
+
+    resp = owner_client.patch(_url(project, member_membership.pk), {"role": Role.MEMBER})
+    assert resp.status_code == 200
+    assert not AuditEvent.objects.filter(event_type=AuditEventType.MEMBER_ROLE_CHANGED).exists()
+
+
+@pytest.mark.django_db
+def test_destroy_writes_audit_event(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+) -> None:
+    from trueppm_api.apps.workspace.models import AuditEvent, AuditEventType
+
+    resp = owner_client.delete(_url(project, member_membership.pk))
+    assert resp.status_code == 204
+
+    event = AuditEvent.objects.get(event_type=AuditEventType.MEMBER_REMOVED)
+    assert event.actor_id == owner_membership.user_id
+    assert event.metadata["self_removal"] is False
+
+
+@pytest.mark.django_db
+class TestMembershipGrantThrottle:
+    """The ``membership_grant`` throttle bounds ``create`` only (#3645).
+
+    Mirrors ``TestMonteCarloThrottle`` (test_monte_carlo.py): the rate is patched
+    directly on the throttle class (it is set inline, not read from
+    ``THROTTLE_RATES``), and the LocMem cache is cleared before/after so one
+    test's count never bleeds into the next.
+    """
+
+    def test_exceeding_rate_returns_429(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+        owner_is_workspace_admin: WorkspaceMembership,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from django.core.cache import cache
+
+        from trueppm_api.apps.access.views import MembershipGrantThrottle
+
+        monkeypatch.setattr(MembershipGrantThrottle, "rate", "2/min")
+        cache.clear()
+        try:
+            users = [
+                User.objects.create_user(username=f"grantee_{i}", password="pw") for i in range(3)
+            ]
+            statuses = [
+                owner_client.post(
+                    _url(project), {"user": str(u.pk), "role": Role.VIEWER}
+                ).status_code
+                for u in users
+            ]
+            # First two are processed (201, since each names a distinct user);
+            # the third is rejected by the throttle (429) before the view runs.
+            assert statuses == [201, 201, 429]
+        finally:
+            cache.clear()
+
+    def test_single_create_not_throttled(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+        colleague: object,
+    ) -> None:
+        from django.core.cache import cache
+
+        cache.clear()
+        try:
+            other_project = Project.objects.create(name="Shared5", start_date=date(2026, 1, 1))
+            ProjectMembership.objects.create(
+                project=other_project, user=owner_membership.user, role=Role.OWNER
+            )
+            ProjectMembership.objects.create(
+                project=other_project, user=colleague, role=Role.MEMBER
+            )
+            resp = owner_client.post(
+                _url(project), {"user": str(colleague.pk), "role": Role.MEMBER}
+            )
+            assert resp.status_code == 201, resp.data
+        finally:
+            cache.clear()
+
+    def test_partial_update_is_not_throttled_by_the_grant_scope(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+        member_membership: ProjectMembership,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``membership_grant`` scopes ``create`` only — a burst of PATCHes must
+        not trip it (#3645's throttle is about naming a new reachable account,
+        not re-touching an existing row)."""
+        from django.core.cache import cache
+
+        from trueppm_api.apps.access.views import MembershipGrantThrottle
+
+        monkeypatch.setattr(MembershipGrantThrottle, "rate", "2/min")
+        cache.clear()
+        try:
+            statuses = [
+                owner_client.patch(
+                    _url(project, member_membership.pk), {"role": Role.VIEWER}
+                ).status_code
+                for _ in range(4)
+            ]
+            assert all(s == 200 for s in statuses), statuses
+        finally:
+            cache.clear()
