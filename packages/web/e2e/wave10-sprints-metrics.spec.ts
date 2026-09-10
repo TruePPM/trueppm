@@ -61,11 +61,14 @@ const ACTIVE_SPRINT = {
 const BURNDOWN_PAYLOAD = {
   sprint: ACTIVE_SPRINT,
   snapshots: [
-    { id: 'sn1', snapshot_date: '2026-04-01', remaining_points: 40, remaining_task_count: 18, completed_points: 0, completed_task_count: 0, scope_change_points: 0, scope_change_task_count: 0, created_at: '2026-04-01T00:00:00Z' },
-    { id: 'sn2', snapshot_date: '2026-04-02', remaining_points: 36, remaining_task_count: 17, completed_points: 4, completed_task_count: 1, scope_change_points: 0, scope_change_task_count: 0, created_at: '2026-04-02T00:00:00Z' },
-    { id: 'sn3', snapshot_date: '2026-04-03', remaining_points: 30, remaining_task_count: 15, completed_points: 10, completed_task_count: 3, scope_change_points: 0, scope_change_task_count: 0, created_at: '2026-04-03T00:00:00Z' },
-    { id: 'sn4', snapshot_date: '2026-04-05', remaining_points: 33, remaining_task_count: 16, completed_points: 11, completed_task_count: 3, scope_change_points: 4, scope_change_task_count: 1, created_at: '2026-04-05T00:00:00Z' },
+    { snapshot_date: '2026-04-01', remaining_points: 40, remaining_task_count: 18, completed_points: 0, completed_task_count: 0, scope_change_points: 0, scope_change_task_count: 0 },
+    { snapshot_date: '2026-04-02', remaining_points: 36, remaining_task_count: 17, completed_points: 4, completed_task_count: 1, scope_change_points: 0, scope_change_task_count: 0 },
+    { snapshot_date: '2026-04-03', remaining_points: 30, remaining_task_count: 15, completed_points: 10, completed_task_count: 3, scope_change_points: 0, scope_change_task_count: 0 },
+    { snapshot_date: '2026-04-05', remaining_points: 33, remaining_task_count: 16, completed_points: 11, completed_task_count: 3, scope_change_points: 4, scope_change_task_count: 1 },
   ],
+  burn_status: 'on_track',
+  trend_points: 0,
+  projected_finish_date: null,
 };
 
 const CAPACITY_PAYLOAD = {

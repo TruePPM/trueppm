@@ -158,6 +158,20 @@ async function setup(
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/mention-groups/`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   );
+  // The settings shell's live preview reads the rollup consumer (#673).
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/rollup/`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        aggregation_policy: 'worst',
+        policy_available: true,
+        project_count: program.project_count,
+        program_health: 'on_track',
+        kpis: {},
+      }),
+    }),
+  );
   // #2529: the reach strip's Viewer arm. Must be mocked with its real OBJECT shape —
   // the catch-all returns the list envelope `{count:0,…}`, which is truthy but has
   // no `viewer_member_count`, so the strip would silently degrade to its

@@ -157,6 +157,20 @@ async function setup(
       body: pj([OWNER_MEMBERSHIP, MEMBER_MEMBERSHIP]),
     }),
   );
+  // The settings shell's live preview reads the rollup consumer (#673).
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/rollup/`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        aggregation_policy: 'worst',
+        policy_available: true,
+        project_count: program.project_count,
+        program_health: 'on_track',
+        kpis: {},
+      }),
+    }),
+  );
   // Mention-groups list (stateful). Registered after setup so it wins the exact
   // URL over the catch-all (Playwright LIFO).
   const groups = [...(opts.groups ?? [])];
