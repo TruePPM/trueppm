@@ -38599,8 +38599,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintScopeChangeSingleActionResult"
                                 }
                             }
                         },
@@ -38662,8 +38661,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintScopeChangeSingleActionResult"
                                 }
                             }
                         },
@@ -39637,8 +39635,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintTaskOutcomeFlagForBacklogResult"
                                 }
                             }
                         },
@@ -39721,8 +39718,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintTaskOutcomeSetNoteResult"
                                 }
                             }
                         },
@@ -39838,8 +39834,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintTaskOutcomeSetPresenterResult"
                                 }
                             }
                         },
@@ -39955,8 +39950,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintTaskOutcomeToggleDemoResult"
                                 }
                             }
                         },
@@ -69683,6 +69677,58 @@
                     "summary"
                 ]
             },
+            "SprintScopeChangeSingleActionResult": {
+                "type": "object",
+                "description": "Response shape for the single-item accept/reject scope-change actions (#3685).\n\nThe row fields of ``SprintScopeChangeSerializer`` plus the sprint's\n``pending_count``, matching what ``SprintScopeChangeViewSet._act`` actually\nreturns — distinct from ``SprintScopeChangeBulkResultSerializer``, which wraps\na *list* of rows under ``accepted``/``rejected`` for the sprint-scoped bulk\nactions.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "sprint": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "item_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "goal_impact": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "added_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "pending_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "added_at",
+                    "goal_impact",
+                    "id",
+                    "item_name",
+                    "pending_count",
+                    "sprint",
+                    "status",
+                    "task"
+                ]
+            },
             "SprintScopeChangeSummary": {
                 "type": "object",
                 "description": "The ``summary`` block in :func:`services.sprint_scope_change_payload` (#543/#550, #3652).",
@@ -69719,6 +69765,76 @@
                 ],
                 "type": "string",
                 "description": "* `completed` - Completed in sprint\n* `carried` - Carried to another sprint\n* `dropped` - Dropped (not carried forward)"
+            },
+            "SprintTaskOutcomeFlagForBacklogResult": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "flagged_to_backlog": {
+                        "type": "boolean"
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "flagged_to_backlog",
+                    "id",
+                    "task_id"
+                ]
+            },
+            "SprintTaskOutcomeSetNoteResult": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "review_note": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "review_note"
+                ]
+            },
+            "SprintTaskOutcomeSetPresenterResult": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "presenter": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "presenter"
+                ]
+            },
+            "SprintTaskOutcomeToggleDemoResult": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "demo_ready": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "demo_ready",
+                    "id"
+                ]
             },
             "SsoDiscoverResponse": {
                 "type": "object",

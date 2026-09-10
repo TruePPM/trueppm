@@ -239,6 +239,7 @@ from trueppm_api.apps.projects.serializers import (
     SprintRetroSummarySerializer,
     SprintScopeChangeBulkResultSerializer,
     SprintScopeChangePayloadSerializer,
+    SprintScopeChangeSingleActionResultSerializer,
     SprintSerializer,
     StructureRoleConflictSerializer,
     TaskAttachmentSerializer,
@@ -7189,7 +7190,15 @@ class SprintTaskOutcomeViewSet(IdempotencyMixin, viewsets.GenericViewSet[SprintT
     @extend_schema(
         summary="Toggle whether a shipped story is in the Sprint Review demo list (ADR-0118)",
         request=OpenApiTypes.OBJECT,
-        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+        responses={
+            200: inline_serializer(
+                name="SprintTaskOutcomeToggleDemoResult",
+                fields={
+                    "id": serializers.UUIDField(),
+                    "demo_ready": serializers.BooleanField(),
+                },
+            )
+        },
     )
     @action(detail=True, methods=["post"], url_path="toggle-demo")
     def toggle_demo(self, request: Request, pk: str | None = None) -> Response:
@@ -7207,7 +7216,15 @@ class SprintTaskOutcomeViewSet(IdempotencyMixin, viewsets.GenericViewSet[SprintT
     @extend_schema(
         summary="Set the demo presenter for a shipped story (ADR-0118 amend, #1130)",
         request=OpenApiTypes.OBJECT,
-        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+        responses={
+            200: inline_serializer(
+                name="SprintTaskOutcomeSetPresenterResult",
+                fields={
+                    "id": serializers.UUIDField(),
+                    "presenter": serializers.CharField(),
+                },
+            )
+        },
     )
     @action(detail=True, methods=["post"], url_path="set-presenter")
     def set_presenter(self, request: Request, pk: str | None = None) -> Response:
@@ -7229,7 +7246,15 @@ class SprintTaskOutcomeViewSet(IdempotencyMixin, viewsets.GenericViewSet[SprintT
     @extend_schema(
         summary="Set the contributor review note on a story (#1131)",
         request=OpenApiTypes.OBJECT,
-        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+        responses={
+            200: inline_serializer(
+                name="SprintTaskOutcomeSetNoteResult",
+                fields={
+                    "id": serializers.UUIDField(),
+                    "review_note": serializers.CharField(),
+                },
+            )
+        },
     )
     @action(detail=True, methods=["post"], url_path="set-note")
     def set_note(self, request: Request, pk: str | None = None) -> Response:
@@ -7253,7 +7278,16 @@ class SprintTaskOutcomeViewSet(IdempotencyMixin, viewsets.GenericViewSet[SprintT
     @extend_schema(
         summary="Carry a not-shipped story forward to the backlog in one tap (#1132)",
         request=None,
-        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+        responses={
+            200: inline_serializer(
+                name="SprintTaskOutcomeFlagForBacklogResult",
+                fields={
+                    "id": serializers.UUIDField(),
+                    "flagged_to_backlog": serializers.BooleanField(),
+                    "task_id": serializers.UUIDField(allow_null=True),
+                },
+            )
+        },
     )
     @action(detail=True, methods=["post"], url_path="flag-for-backlog")
     def flag_for_backlog(self, request: Request, pk: str | None = None) -> Response:
@@ -16183,7 +16217,7 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
         summary="Accept a single pending scope change",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=SprintScopeChangeSingleActionResultSerializer,
                 description="The accepted scope-change row plus the sprint's pending_count.",
             ),
             403: OpenApiResponse(
@@ -16200,7 +16234,7 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
         summary="Reject a single pending scope change",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=SprintScopeChangeSingleActionResultSerializer,
                 description="The rejected scope-change row plus the sprint's pending_count.",
             ),
             403: OpenApiResponse(
