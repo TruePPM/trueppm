@@ -46,6 +46,7 @@ from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
     OpenApiResponse,
+    PolymorphicProxySerializer,
     extend_schema,
     extend_schema_view,
     inline_serializer,
@@ -191,6 +192,7 @@ from trueppm_api.apps.projects.serializers import (
     GuardrailBlockedError,
     InboundTaskSyncPayloadSerializer,
     InboundTaskSyncResultSerializer,
+    IncomingCarryoverSerializer,
     LabelSerializer,
     MeActiveSprintCardSerializer,
     MeWorkActiveSprintSerializer,
@@ -209,14 +211,20 @@ from trueppm_api.apps.projects.serializers import (
     ProjectExportJobSerializer,
     ProjectForecastSerializer,
     ProjectSerializer,
+    PulseResponseSerializer,
     ReforecastPreviewSerializer,
+    RetroActionItemPromotedTaskSerializer,
     RetroActionItemSerializer,
     RetroBoardItemSerializer,
+    RetroBoardStateSerializer,
     RiskCommentSerializer,
     RiskImportResultSerializer,
     RiskSerializer,
     SignedDownloadUrlSerializer,
+    SprintBlockedRollupSerializer,
+    SprintBurndownSerializer,
     SprintBurnSnapshotSerializer,
+    SprintCapacitySerializer,
     SprintCloseRequestSerializer,
     SprintCloseRequestStateSerializer,
     SprintDailyDeltaSerializer,
@@ -225,6 +233,12 @@ from trueppm_api.apps.projects.serializers import (
     SprintGenerateResponseSerializer,
     SprintGenerateSerializer,
     SprintOutcomeSerializer,
+    SprintPulseTrendSerializer,
+    SprintReorderResultSerializer,
+    SprintRetroSerializer,
+    SprintRetroSummarySerializer,
+    SprintScopeChangeBulkResultSerializer,
+    SprintScopeChangePayloadSerializer,
     SprintSerializer,
     StructureRoleConflictSerializer,
     TaskAttachmentSerializer,
@@ -15094,8 +15108,8 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         summary="Bulk-accept pending sprint scope changes",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description="Body includes the accepted scope-change rows and the pending_count.",
+                response=SprintScopeChangeBulkResultSerializer,
+                description="`accepted`: the accepted scope-change rows, plus `pending_count`.",
             ),
             403: OpenApiResponse(
                 description="Accepting scope changes is team-owned (Admin or SM/PO facet)."
@@ -15121,8 +15135,8 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         summary="Bulk-reject pending sprint scope changes",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description="Body includes the rejected scope-change rows and the pending_count.",
+                response=SprintScopeChangeBulkResultSerializer,
+                description="`rejected`: the rejected scope-change rows, plus `pending_count`.",
             ),
             403: OpenApiResponse(
                 description="Rejecting scope changes is team-owned (Admin or SM/PO facet)."
@@ -15146,15 +15160,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
     @extend_schema(
         summary="List a sprint's mid-sprint scope changes (audit + delta)",
-        responses={
-            200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description=(
-                    "Body includes a summary (points_added/points_removed/"
-                    "added_mid_sprint_count/total) and the ordered scope-change events."
-                ),
-            )
-        },
+        responses={200: SprintScopeChangePayloadSerializer},
     )
     @action(detail=True, methods=["get"], url_path="scope-changes")
     def scope_changes(self, request: Request, pk: str | None = None) -> Response:
@@ -15204,12 +15210,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
     @extend_schema(
         summary="Get a sprint's burndown series",
-        responses={
-            200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description="Body includes the serialized sprint and its burn snapshot series.",
-            )
-        },
+        responses={200: SprintBurndownSerializer},
     )
     @action(detail=True, methods=["get"])
     def burndown(self, request: Request, pk: str | None = None) -> Response:
@@ -15290,7 +15291,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
     @extend_schema(
         summary="Blocked tasks in this sprint (ADR-0124, #1134)",
-        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+        responses={200: SprintBlockedRollupSerializer},
     )
     @extend_schema(
         parameters=[
@@ -15340,7 +15341,12 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
     @extend_schema(
         summary="Reorder the Sprint Review demo list (ADR-0118 amend, #1130)",
         request=OpenApiTypes.OBJECT,
-        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+        responses={
+            200: SprintReorderResultSerializer,
+            409: OpenApiResponse(
+                description="Demo set changed concurrently. Body: {detail, conflicts: [ids]}."
+            ),
+        },
     )
     @action(detail=True, methods=["post"], url_path="demo-list/reorder")
     def demo_list_reorder(self, request: Request, pk: str | None = None) -> Response:
@@ -15410,7 +15416,12 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
     @extend_schema(
         summary="Reorder a sprint's within-sprint execution order (#365)",
         request=OpenApiTypes.OBJECT,
-        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+        responses={
+            200: SprintReorderResultSerializer,
+            409: OpenApiResponse(
+                description="Sprint set changed concurrently. Body: {detail, conflicts: [ids]}."
+            ),
+        },
     )
     @action(detail=True, methods=["post"], url_path="reorder")
     def reorder(self, request: Request, pk: str | None = None) -> Response:
@@ -15490,7 +15501,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         summary="Get a sprint's capacity summary",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=SprintCapacitySerializer,
                 description=(
                     "Per-person and aggregate capacity for the sprint. Available "
                     "hours are capacity x sprint working days x hours/day. " + BASIS
@@ -15517,7 +15528,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         summary="Incoming carryover preview for a PLANNED sprint",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=IncomingCarryoverSerializer,
                 description=(
                     "The prior closed sprint summary plus its unfinished tasks, each "
                     "flagged pulled_in_to_current. Empty tasks when no prior sprint."
@@ -15546,12 +15557,10 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
     @extend_schema(
         summary="Get or upsert a sprint retrospective",
         responses={
-            200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description=(
-                    "The retro, using the full or summary serializer depending on the "
-                    "caller's role and the retro's team_visibility."
-                ),
+            200: PolymorphicProxySerializer(
+                component_name="SprintRetroResponse",
+                serializers=[SprintRetroSerializer, SprintRetroSummarySerializer],
+                resource_type_field_name="kind",
             ),
             403: OpenApiResponse(description="Below the role required to change visibility."),
             404: OpenApiResponse(description="No retro recorded for this sprint."),
@@ -15609,17 +15618,23 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         return _retro_post(request, sprint, caller, caller_role)
 
     @extend_schema(
+        methods=["GET"],
         summary="Live retro board — stickies + columns (ADR-0117 §1)",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=RetroBoardStateSerializer,
                 description=(
                     "The board's column definitions and all live stickies for this "
                     "sprint's retro. Presence ('who is in the retro') arrives over the "
-                    "project WebSocket, not this endpoint. POST creates a sticky."
+                    "project WebSocket, not this endpoint."
                 ),
             ),
         },
+    )
+    @extend_schema(
+        methods=["POST"],
+        summary="Create a retro-board sticky (ADR-0117 §1)",
+        responses={201: RetroBoardItemSerializer},
     )
     @action(detail=True, methods=["get", "post"], url_path="retro-board")
     def retro_board(self, request: Request, pk: str | None = None) -> Response:
@@ -15670,7 +15685,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
     @extend_schema(
         summary="Team-health pulse — answer (one tap) or read your own (ADR-0117 §5)",
         responses={
-            200: OpenApiResponse(response=OpenApiTypes.OBJECT),
+            200: PulseResponseSerializer,
             204: OpenApiResponse(description="No response recorded yet (GET)."),
         },
     )
@@ -15716,7 +15731,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         summary="Team-health pulse trend — team + coach only (ADR-0117 §5 / ADR-0104)",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=SprintPulseTrendSerializer,
                 description=(
                     "Aggregate per-sprint mood/energy/confidence trend. Returns "
                     "{gated: true} with NO data for any reader outside the team's "
@@ -15742,12 +15757,10 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
     @extend_schema(
         summary="Get the prior completed sprint's retrospective",
         responses={
-            200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description=(
-                    "The most-recent prior completed retro, using the full or summary "
-                    "serializer depending on the caller's role and team_visibility."
-                ),
+            200: PolymorphicProxySerializer(
+                component_name="SprintRetroResponse",
+                serializers=[SprintRetroSerializer, SprintRetroSummarySerializer],
+                resource_type_field_name="kind",
             ),
             404: OpenApiResponse(description="No prior retrospective."),
         },
@@ -15834,10 +15847,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
     @extend_schema(
         summary="Promote a retro action item to a backlog task",
         responses={
-            201: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description="Body includes the created task under a `task` key.",
-            ),
+            201: RetroActionItemPromotedTaskSerializer,
             404: OpenApiResponse(description="Action item not found on this sprint's retro."),
             409: OpenApiResponse(
                 description="Action item already promoted; body includes the existing task_id."
@@ -15908,10 +15918,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
     @extend_schema(
         summary="Pull a retro action item into a planned sprint",
         responses={
-            200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description="Body includes the promoted-and-assigned task under a `task` key.",
-            ),
+            200: RetroActionItemPromotedTaskSerializer,
             400: OpenApiResponse(description="Missing target_sprint_id or invalid pull."),
             404: OpenApiResponse(description="Action item or target sprint not found."),
         },

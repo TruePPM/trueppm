@@ -10762,12 +10762,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ProgramResourceContention"
                                 }
                             }
                         },
-                        "description": "{program_id, window_start, window_end, resource_count, truncated, resources}. Each resource is {id, name, max_units, tasks[]} and each task span is {assignment_id, id, name, project_id, project_name, early_start, early_finish, scheduled_start, units, status} — aggregated across every member project of the program and tagged with its source project, so a caller can surface people over-allocated across sibling projects in overlapping windows. scheduled_start (ADR-0752) is the task's SPAN start; the client renders scheduled_start..early_finish, falling back to early_start when scheduled_start is null. Overallocation detection stays client-side per ADR-0031, so the assignment cap (ADR-1118) cuts on a resource boundary: resource_count is the number of resources in scope and truncated is true when whole resources were dropped — every resource returned carries all of its in-window spans, so its client-side verdict stays exact."
+                        "description": ""
                     },
                     "400": {
                         "description": "Malformed `start`/`end` date, or `start` is after `end`."
@@ -11008,12 +11007,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ProgramRollup"
                                 }
                             }
                         },
-                        "description": "Program rollup computed on read (ADR-0088): aggregation_policy, policy_available (whether that policy could be honored), project_count (contributing projects), program_health (the program health dot), and kpis — a per-KPI map where an available KPI is {available: true, value, unit?} and a deferred KPI is {available: false, reason}."
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -11248,12 +11246,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ProgramSchedule"
                                 }
                             }
                         },
-                        "description": "Merged program schedule computed on read: project lanes (each with its own rolled-up working-day duration, #3597), tasks (full — including each task's own working-day duration — for projects the caller can read, redacted ExternalTaskCard shape otherwise, with no duration field), leaf-level links flagged cross-project, and the program-true critical path."
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -40517,8 +40514,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintBlockedRollup"
                                 }
                             }
                         },
@@ -40582,12 +40578,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintBurndown"
                                 }
                             }
                         },
-                        "description": "Body includes the serialized sprint and its burn snapshot series."
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -40731,8 +40726,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintCapacity"
                                 }
                             }
                         },
@@ -41029,12 +41023,14 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintReorderResult"
                                 }
                             }
                         },
                         "description": ""
+                    },
+                    "409": {
+                        "description": "Demo set changed concurrently. Body: {detail, conflicts: [ids]}."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -41191,8 +41187,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/IncomingCarryover"
                                 }
                             }
                         },
@@ -41417,8 +41412,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/PulseResponse"
                                 }
                             }
                         },
@@ -41500,8 +41494,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/PulseResponse"
                                 }
                             }
                         },
@@ -41601,8 +41594,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintPulseTrend"
                                 }
                             }
                         },
@@ -41758,12 +41750,14 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintReorderResult"
                                 }
                             }
                         },
                         "description": ""
+                    },
+                    "409": {
+                        "description": "Sprint set changed concurrently. Body: {detail, conflicts: [ids]}."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -41856,12 +41850,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintRetroResponse"
                                 }
                             }
                         },
-                        "description": "The retro, using the full or summary serializer depending on the caller's role and the retro's team_visibility."
+                        "description": ""
                     },
                     "403": {
                         "description": "Below the role required to change visibility."
@@ -41942,12 +41935,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintRetroResponse"
                                 }
                             }
                         },
-                        "description": "The retro, using the full or summary serializer depending on the caller's role and the retro's team_visibility."
+                        "description": ""
                     },
                     "403": {
                         "description": "Below the role required to change visibility."
@@ -42060,12 +42052,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintRetroResponse"
                                 }
                             }
                         },
-                        "description": "The retro, using the full or summary serializer depending on the caller's role and the retro's team_visibility."
+                        "description": ""
                     },
                     "403": {
                         "description": "Below the role required to change visibility."
@@ -42164,12 +42155,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/RetroBoardState"
                                 }
                             }
                         },
-                        "description": "The board's column definitions and all live stickies for this sprint's retro. Presence ('who is in the retro') arrives over the project WebSocket, not this endpoint. POST creates a sticky."
+                        "description": "The board's column definitions and all live stickies for this sprint's retro. Presence ('who is in the retro') arrives over the project WebSocket, not this endpoint."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -42192,7 +42182,7 @@
             "post": {
                 "operationId": "v1_sprints_retro_board_create",
                 "description": "Live multi-writer retro board (ADR-0117 §1, §7).\n\n``GET`` returns ``{columns, items}`` — the fixed column template and every\nlive sticky for this sprint's retro (read = any project member). ``POST``\ncreates a sticky in a column (write = Member+); the resulting state is\nbroadcast over the project board channel as ``retro_item_created``.",
-                "summary": "Live retro board — stickies + columns (ADR-0117 §1)",
+                "summary": "Create a retro-board sticky (ADR-0117 §1)",
                 "parameters": [
                     {
                         "in": "path",
@@ -42240,16 +42230,15 @@
                     }
                 ],
                 "responses": {
-                    "200": {
+                    "201": {
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/RetroBoardItem"
                                 }
                             }
                         },
-                        "description": "The board's column definitions and all live stickies for this sprint's retro. Presence ('who is in the retro') arrives over the project WebSocket, not this endpoint. POST creates a sticky."
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -42368,12 +42357,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/RetroActionItemPromotedTask"
                                 }
                             }
                         },
-                        "description": "Body includes the created task under a `task` key."
+                        "description": ""
                     },
                     "404": {
                         "description": "Action item not found on this sprint's retro."
@@ -42498,12 +42486,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/RetroActionItemPromotedTask"
                                 }
                             }
                         },
-                        "description": "Body includes the promoted-and-assigned task under a `task` key."
+                        "description": ""
                     },
                     "400": {
                         "description": "Missing target_sprint_id or invalid pull."
@@ -42569,12 +42556,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintRetroResponse"
                                 }
                             }
                         },
-                        "description": "The most-recent prior completed retro, using the full or summary serializer depending on the caller's role and team_visibility."
+                        "description": ""
                     },
                     "404": {
                         "description": "No prior retrospective."
@@ -42637,12 +42623,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintScopeChangePayload"
                                 }
                             }
                         },
-                        "description": "Body includes a summary (points_added/points_removed/added_mid_sprint_count/total) and the ordered scope-change events."
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -42719,12 +42704,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintScopeChangeBulkResult"
                                 }
                             }
                         },
-                        "description": "Body includes the accepted scope-change rows and the pending_count."
+                        "description": "`accepted`: the accepted scope-change rows, plus `pending_count`."
                     },
                     "403": {
                         "description": "Accepting scope changes is team-owned (Admin or SM/PO facet)."
@@ -42840,12 +42824,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintScopeChangeBulkResult"
                                 }
                             }
                         },
-                        "description": "Body includes the rejected scope-change rows and the pending_count."
+                        "description": "`rejected`: the rejected scope-change rows, plus `pending_count`."
                     },
                     "403": {
                         "description": "Rejecting scope changes is team-owned (Admin or SM/PO facet)."
@@ -52552,6 +52535,79 @@
                     ""
                 ]
             },
+            "BlockedTaskRow": {
+                "type": "object",
+                "description": "One row of a blocked-task roll-up (:func:`blocker_services._blocked_row`, #3652).\n\nReason text is deliberately never included (ADR-0124 §4) — see the builder's\ndocstring. Shared by the sprint- and project-scoped roll-ups since both call\nthe same row builder.",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task_short_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "title": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "assignee": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_BlockedUserRef"
+                            }
+                        ],
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "blocker_type": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "blocked_since": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "blocked_age_seconds": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "blocked_by": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_BlockedUserRef"
+                            }
+                        ],
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "blocking_task": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_BlockingTaskRef"
+                            }
+                        ],
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "assignee",
+                    "blocked_age_seconds",
+                    "blocked_by",
+                    "blocked_since",
+                    "blocker_type",
+                    "blocking_task",
+                    "task_id",
+                    "task_short_id",
+                    "title"
+                ]
+            },
             "BlockerTypeEnum": {
                 "enum": [
                     "dependency",
@@ -55661,6 +55717,109 @@
                     "task_id"
                 ]
             },
+            "IncomingCarryover": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/sprints/{id}/incoming_carryover/`` (ADR-0094 §3, #3652).\n\n``prior_sprint`` is null and ``tasks`` is empty when there is no prior\nclosed sprint — see :func:`services.incoming_carryover`.",
+                "properties": {
+                    "prior_sprint": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/IncomingCarryoverPriorSprint"
+                            }
+                        ],
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "tasks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/IncomingCarryoverTask"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "prior_sprint",
+                    "tasks"
+                ]
+            },
+            "IncomingCarryoverPriorSprint": {
+                "type": "object",
+                "description": "The prior-sprint summary block in :func:`services.incoming_carryover` (#3652).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "short_id_display": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "finish_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "finish_date",
+                    "id",
+                    "name",
+                    "short_id_display",
+                    "start_date"
+                ]
+            },
+            "IncomingCarryoverTask": {
+                "type": "object",
+                "description": "One rolled-forward task row in :func:`services.incoming_carryover` (#865, #3652).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "short_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "short_id_display": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "story_points": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "pulled_in_to_current": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "pulled_in_to_current",
+                    "short_id",
+                    "short_id_display",
+                    "story_points"
+                ]
+            },
             "InviteAcceptRequest": {
                 "type": "object",
                 "description": "POST body to accept an invite. username/password required only when no\naccount already exists for the invited email.",
@@ -55787,6 +55946,15 @@
                     "id",
                     "name"
                 ]
+            },
+            "LabelEnum": {
+                "enum": [
+                    "on_track",
+                    "at_risk",
+                    "over_capacity"
+                ],
+                "type": "string",
+                "description": "* `on_track` - on_track\n* `at_risk` - at_risk\n* `over_capacity` - over_capacity"
             },
             "LabelRequest": {
                 "type": "object",
@@ -62662,6 +62830,150 @@
                     "name"
                 ]
             },
+            "ProgramResourceContention": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/programs/{id}/resource-contention/`` (ADR-0031, #3652).",
+                "properties": {
+                    "program_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "window_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "window_end": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "resources": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProgramResourceContentionResource"
+                        },
+                        "readOnly": true
+                    },
+                    "resource_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "truncated": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "program_id",
+                    "resource_count",
+                    "resources",
+                    "truncated",
+                    "window_end",
+                    "window_start"
+                ]
+            },
+            "ProgramResourceContentionResource": {
+                "type": "object",
+                "description": "One resource row in :meth:`ProgramViewSet.resource_contention`'s ``resources`` list (#3652).\n\n``email`` is deliberately absent (#3599) — see the view for why echoing it\nhere would reopen the #891 harvest control. ``max_units`` is the resource's\nown default, never a per-project override (#3574; see the view docstring).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "max_units": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "tasks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProgramResourceContentionTask"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "max_units",
+                    "name",
+                    "tasks"
+                ]
+            },
+            "ProgramResourceContentionTask": {
+                "type": "object",
+                "description": "One task span in ``ProgramViewSet.resource_contention``'s ``resources[].tasks`` (#3652).",
+                "properties": {
+                    "assignment_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "early_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "early_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "scheduled_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Task's SPAN start (ADR-0752); null until the next CPM recalculation."
+                    },
+                    "units": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "assignment_id",
+                    "early_finish",
+                    "early_start",
+                    "id",
+                    "name",
+                    "project_id",
+                    "project_name",
+                    "scheduled_start",
+                    "status",
+                    "units"
+                ]
+            },
             "ProgramRiskPolicy": {
                 "type": "object",
                 "description": "GET/PATCH payload for ``/api/v1/programs/{id}/risk-policy/`` (#529).\n\nWraps the two ``risk_*`` columns on Program. Both fields are partial-\nupdatable. Enum and range are enforced server-side so the UI can stay\nthin — DRF's ``ChoiceField`` rejects unknown values; the explicit\n``min_value``/``max_value`` mirror the model-level validators so a\nwell-formed PATCH never reaches the database with an out-of-range int.",
@@ -62678,6 +62990,42 @@
                 "required": [
                     "escalation_days",
                     "slip_propagation"
+                ]
+            },
+            "ProgramRollup": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/programs/{id}/rollup/`` (ADR-0088, #3652).\n\nMatches :func:`trueppm_api.apps.projects.program_rollup.compute_program_rollup`\nexactly — see that function's docstring for the aggregation semantics.",
+                "properties": {
+                    "aggregation_policy": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "policy_available": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "project_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "program_health": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "kpis": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/ProgramRollupKpiEntry"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "aggregation_policy",
+                    "kpis",
+                    "policy_available",
+                    "program_health",
+                    "project_count"
                 ]
             },
             "ProgramRollupConfig": {
@@ -62708,6 +63056,263 @@
                     "aggregation_policy",
                     "enabled_kpis",
                     "unavailable_kpis"
+                ]
+            },
+            "ProgramRollupKpiEntry": {
+                "type": "object",
+                "description": "One entry of the ``kpis`` map in :func:`compute_program_rollup` (ADR-0088, #3652).\n\nShape depends on ``available``: an available KPI carries ``value`` (and\n``unit`` for the two day-variance KPIs); a deferred one carries ``reason``\ninstead. Both extra fields are ``required=False`` because only one branch's\nkeys are ever present on a given entry — declaring both keeps the schema a\nreal object (unlike the ``{\"type\": \"object\"}`` this replaces) without\ninventing values the deferred branch never sends.",
+                "properties": {
+                    "available": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "value": {
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "unit": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "reason": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "available",
+                    "reason",
+                    "unit",
+                    "value"
+                ]
+            },
+            "ProgramSchedule": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/programs/{id}/schedule/`` (ADR-0120 D3/D5, #3652).\n\nMatches :func:`trueppm_api.apps.projects.program_schedule.compute_program_schedule`\nexactly — see that function's docstring for the merge/redaction semantics.\n``start_date``/``finish_date`` and every task-level date are ``null`` on the\nempty-graph path (no member project has a computed schedule yet).",
+                "properties": {
+                    "program_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "finish_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "projects": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProgramScheduleLane"
+                        },
+                        "readOnly": true
+                    },
+                    "tasks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProgramScheduleTask"
+                        },
+                        "readOnly": true
+                    },
+                    "links": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProgramScheduleLink"
+                        },
+                        "readOnly": true
+                    },
+                    "critical_path": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "readOnly": true
+                    },
+                    "cross_project_edge_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "critical_path",
+                    "cross_project_edge_count",
+                    "finish_date",
+                    "links",
+                    "program_id",
+                    "projects",
+                    "start_date",
+                    "tasks"
+                ]
+            },
+            "ProgramScheduleLane": {
+                "type": "object",
+                "description": "One project lane in :func:`compute_program_schedule`'s ``projects`` list (#3652).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "accessible": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "duration": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Lane's rolled-up working-day duration (#3597)."
+                    }
+                },
+                "required": [
+                    "accessible",
+                    "duration",
+                    "id",
+                    "name"
+                ]
+            },
+            "ProgramScheduleLink": {
+                "type": "object",
+                "description": "One leaf-level dependency edge in :func:`compute_program_schedule`'s ``links`` list.",
+                "properties": {
+                    "predecessor_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "successor_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "dep_type": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "lag_days": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "is_cross_project": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "dep_type",
+                    "is_cross_project",
+                    "lag_days",
+                    "predecessor_id",
+                    "successor_id"
+                ]
+            },
+            "ProgramScheduleTask": {
+                "type": "object",
+                "description": "One task row in :func:`compute_program_schedule`'s ``tasks`` list (ADR-0120 D5, #3652).\n\nDiscriminated by ``is_external``. When ``False`` the requester can read the\nowning project and every field below is populated (mirrors the project\nschedule's own task row, plus ``is_external``). When ``True`` the task is\nredacted to the ExternalTaskCard shape (title + CPM dates only,\n``ExternalTaskCardSerializer``) and the full-only fields\n(``wbs_path``/``late_start``/``late_finish``/``total_float_days``/``duration``)\nare absent; ``project_name`` is present only on this branch. ``name``\n(full) and ``title`` (redacted) are mutually exclusive by construction —\nnever both populated on the same row.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "title": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "hex_id": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "is_milestone": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "is_external": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "wbs_path": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "early_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "early_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "late_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "late_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "total_float_days": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "is_critical": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "duration": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "duration",
+                    "early_finish",
+                    "early_start",
+                    "hex_id",
+                    "id",
+                    "is_critical",
+                    "is_external",
+                    "is_milestone",
+                    "late_finish",
+                    "late_start",
+                    "name",
+                    "project_id",
+                    "project_name",
+                    "title",
+                    "total_float_days",
+                    "wbs_path"
                 ]
             },
             "ProgramUserDefinedMentionGroupRead": {
@@ -65423,6 +66028,50 @@
                     "recorded"
                 ]
             },
+            "PulseResponse": {
+                "type": "object",
+                "description": "A single team member's pulse answer — only ever the requester's own (#923).\n\nRaw responses are never serialized for anyone but their own author: the team\nsees the *aggregate* trend, never an individual's mood/energy (ADR-0117 §5).\nThis serializer backs the one-tap upsert and the requester's own echo only.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "retro": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "mood": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0
+                    },
+                    "energy": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0
+                    },
+                    "confidence": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "energy",
+                    "id",
+                    "mood",
+                    "retro",
+                    "updated_at"
+                ]
+            },
             "PurgeRun": {
                 "type": "object",
                 "description": "A recorded purge run with a computed duration.",
@@ -66127,6 +66776,41 @@
                     "text"
                 ]
             },
+            "RetroActionItemPromotedTask": {
+                "type": "object",
+                "description": "``{\"task\": <Task>}`` — response for promoting/pulling a retro action item\ninto a backlog task or a planned sprint (ADR-0071 §2/§4b, #3652).\n\nShared by ``POST .../retrospective/action-items/promote`` (201) and\n``POST .../retrospective/action-items/pull-to-sprint`` (200) — both return the\nsame created/reassigned task under the same ``task`` key.",
+                "properties": {
+                    "task": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Task"
+                            }
+                        ],
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "task"
+                ]
+            },
+            "RetroBoardColumn": {
+                "type": "object",
+                "description": "One fixed retro-board column definition (ADR-0117 §1, #3652).",
+                "properties": {
+                    "key": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "label": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "key",
+                    "label"
+                ]
+            },
             "RetroBoardItem": {
                 "type": "object",
                 "description": "A live retro-board sticky (ADR-0117 §1).\n\n``author`` is surfaced as ``author_username`` for the attribution chip; the\ncolumn/position/color round-trip the board layout. ``converted_action_item_id``\nlets the UI render a \"→ action\" affordance once a sticky has been distilled.\nWrites accept ``column``, ``text``, ``color``, ``position``; ``author`` is set\nserver-side from the request user, never trusted from the body.",
@@ -66191,6 +66875,30 @@
                     "retro",
                     "text",
                     "updated_at"
+                ]
+            },
+            "RetroBoardState": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/sprints/{id}/retro-board/`` (ADR-0117 §1, #3652).\n\n``POST`` on the same path creates one sticky and returns a bare\n``RetroBoardItemSerializer`` instead of this envelope — declared separately\non the view since the two methods return different shapes.",
+                "properties": {
+                    "columns": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RetroBoardColumn"
+                        },
+                        "readOnly": true
+                    },
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RetroBoardItem"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "columns",
+                    "items"
                 ]
             },
             "Risk": {
@@ -67592,6 +68300,125 @@
                     "wip_count"
                 ]
             },
+            "SprintBlockedRollup": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/sprints/{id}/blocked/`` (#1134/#1157, #3652).\n\nMatches :func:`trueppm_api.apps.projects.blocker_services.sprint_blocked_rollup`.",
+                "properties": {
+                    "sprint_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "blocked": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BlockedTaskRow"
+                        },
+                        "readOnly": true
+                    },
+                    "truncated": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "blocked",
+                    "count",
+                    "sprint_id",
+                    "truncated"
+                ]
+            },
+            "SprintBurnSnapshot": {
+                "type": "object",
+                "description": "Read-only serializer for a single burn snapshot row.",
+                "properties": {
+                    "snapshot_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "remaining_points": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "remaining_task_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "completed_points": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "completed_task_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "scope_change_points": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "scope_change_task_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "completed_points",
+                    "completed_task_count",
+                    "remaining_points",
+                    "remaining_task_count",
+                    "scope_change_points",
+                    "scope_change_task_count",
+                    "snapshot_date"
+                ]
+            },
+            "SprintBurndown": {
+                "type": "object",
+                "description": "Composite payload for ``GET /api/sprints/{id}/burndown/``.\n\nReturns the sprint metadata, the actual burn snapshots, and the\nserver-computed burn pace (#984): ``burn_status`` (ahead / on_track / behind\n/ no_data), signed ``trend_points`` (positive = ahead of ideal), and\n``projected_finish_date``. The chart's ideal line is still drawn client-side\nfrom ``committed_points`` + the date range (ADR-0037 Q4), but the pace\nverdict is now a first-class server fact so MCP/mobile don't re-derive it.",
+                "properties": {
+                    "sprint": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Sprint"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "snapshots": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SprintBurnSnapshot"
+                        },
+                        "readOnly": true
+                    },
+                    "burn_status": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "trend_points": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "projected_finish_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "burn_status",
+                    "projected_finish_date",
+                    "snapshots",
+                    "sprint",
+                    "trend_points"
+                ]
+            },
             "SprintCadenceEditRequest": {
                 "type": "object",
                 "description": "An operator-edited preview row handed back for commit (#2968).\n\nThe editable-preview half of the contract: once the operator has adjusted a\nname or a boundary, those values are authoritative and the generator's rules\nare not re-applied over them. The calendar read-out and the idempotency\nverdict stay server-computed.",
@@ -67676,6 +68503,42 @@
                 "type": "string",
                 "description": "* `new` - new\n* `exists` - exists\n* `created` - created"
             },
+            "SprintCapacity": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/sprints/{id}/capacity/`` (#228, #3652).\n\nMatches :func:`trueppm_api.apps.projects.services.capacity_summary` exactly —\nevery assigned member (not only over-allocated ones) plus aggregate totals.",
+                "properties": {
+                    "members": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SprintCapacityMember"
+                        },
+                        "readOnly": true
+                    },
+                    "totals": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SprintCapacityTotals"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "working_days": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "hours_per_day": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "hours_per_day",
+                    "members",
+                    "totals",
+                    "working_days"
+                ]
+            },
             "SprintCapacityHint": {
                 "type": "object",
                 "description": "The suggested first-iteration points figure — a planning aid, never a cap.\n\n``note`` is not decoration: it travels with the number so no client can\nrender the suggestion without the sentence that bounds it. ``points`` is\n``null`` when the team has no closed iteration to draw from — a made-up\ndefault would be a ceiling invented by the tool (ADR-0073 / ADR-0113).",
@@ -67716,6 +68579,100 @@
                 ],
                 "type": "string",
                 "description": "* `velocity_average` - velocity_average\n* `no_history` - no_history"
+            },
+            "SprintCapacityMember": {
+                "type": "object",
+                "description": "One assigned member's row in :func:`services.capacity_summary` (#228, #3652).",
+                "properties": {
+                    "member_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "member_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "initials": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "committed_hours": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    },
+                    "available_hours": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    },
+                    "ratio": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    },
+                    "is_over": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "available_hours",
+                    "committed_hours",
+                    "initials",
+                    "is_over",
+                    "member_id",
+                    "member_name",
+                    "ratio"
+                ]
+            },
+            "SprintCapacityTotals": {
+                "type": "object",
+                "description": "Aggregate totals block in :func:`services.capacity_summary` (#228, #3652).",
+                "properties": {
+                    "committed_hours": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    },
+                    "available_hours": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    },
+                    "ratio": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    },
+                    "buffer_hours": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    },
+                    "label": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/LabelEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "pto_days": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Always 0 today — placeholder until a time-off model lands."
+                    }
+                },
+                "required": [
+                    "available_hours",
+                    "buffer_hours",
+                    "committed_hours",
+                    "label",
+                    "pto_days",
+                    "ratio"
+                ]
             },
             "SprintCloseRequestState": {
                 "type": "object",
@@ -68226,6 +69183,123 @@
                     "velocity"
                 ]
             },
+            "SprintPulseMine": {
+                "type": "object",
+                "description": "The requester's own current pulse, echoed in ``pulse_trend`` (#3652).",
+                "properties": {
+                    "mood": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "energy": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "confidence": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "confidence",
+                    "energy",
+                    "mood"
+                ]
+            },
+            "SprintPulsePoint": {
+                "type": "object",
+                "description": "One sprint's aggregate point in :func:`retro_board_services.pulse_trend` (#3652).",
+                "properties": {
+                    "sprint_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "sprint_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "avg_mood": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "avg_energy": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "avg_confidence": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "response_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "avg_confidence",
+                    "avg_energy",
+                    "avg_mood",
+                    "response_count",
+                    "sprint_id",
+                    "sprint_name"
+                ]
+            },
+            "SprintPulseTrend": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/sprints/{id}/pulse-trend/`` (ADR-0104/ADR-0117 §5, #3652).\n\n``gated: true`` is the **entire** body for a reader outside the ``pulse``\nsignal's audience — no count, no points (ADR-0104 §2.3) — so every field\nbelow ``gated`` is ``required=False``: they are never present on that branch.",
+                "properties": {
+                    "gated": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "points": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SprintPulsePoint"
+                        },
+                        "readOnly": true
+                    },
+                    "energy_declining": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "my_response": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SprintPulseMine"
+                            }
+                        ],
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "energy_declining",
+                    "gated",
+                    "my_response",
+                    "points"
+                ]
+            },
+            "SprintReorderResult": {
+                "type": "object",
+                "description": "``{\"updated\": <count>}`` — shared response shape for the sprint reorder actions (#3652).\n\nUsed by ``POST .../reorder/`` and ``POST .../demo-list/reorder/``, both of\nwhich write a dense rank column under a row lock and report how many rows\nchanged. A ``409`` on either path instead returns\n``{\"detail\": ..., \"conflicts\": [...]}`` when the target set changed\nconcurrently — declared separately on each view.",
+                "properties": {
+                    "updated": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "updated"
+                ]
+            },
             "SprintRequest": {
                 "type": "object",
                 "description": "Read/write serializer for sprints.\n\nState, committed_*, completed_*, activated_at, closed_at are read-only —\nthey are written by the dedicated activate/close actions, not by PATCH.\n\ncompletion_ratio_* are computed from snapshotted committed/completed\nfields and only become non-null after sprint close.",
@@ -68289,6 +69363,312 @@
                     "finish_date",
                     "name",
                     "start_date"
+                ]
+            },
+            "SprintRetro": {
+                "type": "object",
+                "description": "Sprint retrospective + nested action items — full content (ADR-0071).\n\nReturned to MEMBER+ on the project's team when team_visibility=TEAM_ONLY,\nor to VIEWER+ when team_visibility=PROJECT. Below the visibility\nthreshold, use ``SprintRetroSummarySerializer`` instead.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "sprint": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "notes": {
+                        "type": "string"
+                    },
+                    "team_visibility": {
+                        "$ref": "#/components/schemas/TeamVisibilityEnum"
+                    },
+                    "created_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "action_items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RetroActionItem"
+                        },
+                        "readOnly": true
+                    },
+                    "kind": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "action_items",
+                    "created_at",
+                    "created_by",
+                    "id",
+                    "kind",
+                    "sprint",
+                    "updated_at"
+                ]
+            },
+            "SprintRetroResponse": {
+                "oneOf": [
+                    {
+                        "$ref": "#/components/schemas/SprintRetro"
+                    },
+                    {
+                        "$ref": "#/components/schemas/SprintRetroSummary"
+                    }
+                ],
+                "discriminator": {
+                    "propertyName": "kind",
+                    "mapping": {
+                        "full": "#/components/schemas/SprintRetro",
+                        "summary": "#/components/schemas/SprintRetroSummary"
+                    }
+                }
+            },
+            "SprintRetroSummary": {
+                "type": "object",
+                "description": "Counts-only retro view for callers below the visibility threshold.\n\nSurfaces ``action_items_count`` and ``promoted_count`` so the UI can\nrender a \"team only\" summary card with shape but never the raw text.\nEnterprise rollups read this serializer (ADR-0071 §6).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "sprint": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "team_visibility": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TeamVisibilityEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "action_items_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "promoted_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "kind": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "action_items_count",
+                    "created_at",
+                    "id",
+                    "kind",
+                    "promoted_count",
+                    "sprint",
+                    "team_visibility",
+                    "updated_at"
+                ]
+            },
+            "SprintScopeChange": {
+                "type": "object",
+                "description": "Read-only response shape for an accept/reject scope-change action (ADR-0102 §5).\n\nMirrors the row dict TaskSerializer.get_sprint_scope_changes emits so the\nfrontend has one shape for both the drawer list and the action responses.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "sprint": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "item_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "goal_impact": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "added_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "added_at",
+                    "goal_impact",
+                    "id",
+                    "item_name",
+                    "sprint",
+                    "status",
+                    "task"
+                ]
+            },
+            "SprintScopeChangeBulkResult": {
+                "type": "object",
+                "description": "``{\"<accepted|rejected>\": [...], \"pending_count\": N}`` for the bulk scope-change\nactions (ADR-0102 §5, #3652).\n\n``POST .../scope-changes/accept`` only ever populates ``accepted``; ``POST\n.../scope-changes/reject`` only ever populates ``rejected`` — each field is\n``required=False`` because the other is never present on that action's\nresponse, and both actions share one schema component rather than each\ndeclaring a near-duplicate.",
+                "properties": {
+                    "accepted": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SprintScopeChange"
+                        },
+                        "readOnly": true
+                    },
+                    "rejected": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SprintScopeChange"
+                        },
+                        "readOnly": true
+                    },
+                    "pending_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "accepted",
+                    "pending_count",
+                    "rejected"
+                ]
+            },
+            "SprintScopeChangeEvent": {
+                "type": "object",
+                "description": "One audit row in :func:`services.sprint_scope_change_payload`'s ``events`` list (#3652).\n\nDistinct from ``SprintScopeChangeSerializer`` (the accept/reject action's row\nshape): this audit read adds ``story_points``/``added_by_name`` and omits\n``task``/``sprint``, matching the dict the service actually builds.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "item_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "story_points": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "added_by_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "added_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "goal_impact": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "added_at",
+                    "added_by_name",
+                    "goal_impact",
+                    "id",
+                    "item_name",
+                    "status",
+                    "story_points"
+                ]
+            },
+            "SprintScopeChangePayload": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/sprints/{id}/scope-changes/`` (#543/#550, #3652).",
+                "properties": {
+                    "summary": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SprintScopeChangeSummary"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SprintScopeChangeEvent"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "events",
+                    "summary"
+                ]
+            },
+            "SprintScopeChangeSummary": {
+                "type": "object",
+                "description": "The ``summary`` block in :func:`services.sprint_scope_change_payload` (#543/#550, #3652).",
+                "properties": {
+                    "points_added": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "points_removed": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "added_mid_sprint_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "total": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "added_mid_sprint_count",
+                    "points_added",
+                    "points_removed",
+                    "total"
                 ]
             },
             "SprintTaskDispositionEnum": {
@@ -73181,6 +74561,15 @@
                 "type": "string",
                 "description": "* `member` - Member\n* `admin` - Admin"
             },
+            "TeamVisibilityEnum": {
+                "enum": [
+                    "team_only",
+                    "project",
+                    "org"
+                ],
+                "type": "string",
+                "description": "* `team_only` - Team Only\n* `project` - Project\n* `org` - Org"
+            },
             "TelemetryTestExportResult": {
                 "type": "object",
                 "description": "Result of ``POST /health/telemetry/test/`` (#2110).\n\nSerializes the dict from ``services.run_telemetry_test_export``. Deliberately\nhas **no** field for OTLP headers or the bearer token — the export secret must\nnever reach the browser — and ``detail`` is a canned, author-controlled\nsentence (never ``str(exc)``), so a transport error cannot leak config.",
@@ -74965,6 +76354,48 @@
                     "forecast_range_low",
                     "rolling_avg_points",
                     "velocity_suppressed"
+                ]
+            },
+            "_BlockedUserRef": {
+                "type": "object",
+                "description": "``{id, username}`` reference used by the blocked-task roll-ups (#1134, #3652).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "username": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "username"
+                ]
+            },
+            "_BlockingTaskRef": {
+                "type": "object",
+                "description": "``{id, short_id, title}`` soft link used by the blocked-task roll-ups (#1134, #3652).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "short_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "title": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "short_id",
+                    "title"
                 ]
             },
             "_CookieRefreshResponse": {
