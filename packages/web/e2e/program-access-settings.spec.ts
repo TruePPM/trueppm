@@ -96,9 +96,6 @@ async function setup(page: Page, captures: Captures, opts: { myRole?: number } =
   // teardown and races the page render (#2366). Routes below win.
   await setupCatchAll(page);
 
-  await page.route('**/api/v1/**', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-  );
   await page.route('**/api/v1/auth/me/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_ME) }),
   );

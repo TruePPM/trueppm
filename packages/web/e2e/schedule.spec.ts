@@ -504,6 +504,11 @@ test.describe('Schedule task edit — failed rename rolls back (#1518)', () => {
       );
     });
 
+    // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
+    // falling through and 401ing, which trips the token-refresh session
+    // teardown and races the page render (#2366). Routes below win.
+    await setupCatchAll(page);
+
     const json = (body: unknown) => ({
       status: 200,
       contentType: 'application/json',
@@ -511,27 +516,19 @@ test.describe('Schedule task edit — failed rename rolls back (#1518)', () => {
     });
     const emptyList = { count: 0, next: null, previous: null, results: [] };
 
-    // 401-guard safety net — registered FIRST so every specific route wins.
-    await page.route('**/api/v1/**', (route) => route.fulfill(json(emptyList)));
     // `/me/active-sprints/` returns a BARE array (MyActiveSprintEntry[]), not a
     // paginated envelope. The shell's health popover sprint row and the ⌘K
     // "Current sprint" action (#1594, relocated in #1680) both read
     // `useCurrentSprintTargets`, which does `for (const e of myActiveSprints ?? [])`
-    // — so the catch-all's `{count:0,…}` object above would be iterated as an object
-    // and throw "(r ?? []) is not iterable", tripping the root error boundary and
-    // unmounting the grid. Mock it with its real array shape.
+    // — an unmocked request would otherwise fall through to setupCatchAll's typed
+    // 404, which the hook treats as no data (`?? []` catches it fine), but pin the
+    // real array shape explicitly so this endpoint's data is deterministic rather
+    // than absent.
     await page.route('**/api/v1/me/active-sprints/', (route) => route.fulfill(json([])));
     await page.route('**/api/v1/auth/me/', (route) =>
       route.fulfill(json({ id: 'u1', email: 'pm@example.com'})),
     );
     await page.route('**/api/v1/edition/', (route) => route.fulfill(json({ edition: 'community' })));
-    // The always-mounted command palette (useCommandItems → useCurrentSprintTargets,
-    // issue 1594) fires this fetch on every route regardless of palette open state.
-    // useMyActiveSprints() returns res.data verbatim (a bare array, unlike the
-    // paginated shape below) — without this route it falls through to the 401-guard
-    // catch-all's `{count,...}` object, and `for (const entry of myActiveSprints ?? [])`
-    // throws "is not iterable", crashing the whole app through the root error boundary.
-    await page.route('**/api/v1/me/active-sprints/', (route) => route.fulfill(json([])));
     await page.route('**/api/v1/projects/', (route) =>
       route.fulfill(
         json({ count: FIXTURE_API_PROJECTS.length, next: null, previous: null, results: FIXTURE_API_PROJECTS }),
