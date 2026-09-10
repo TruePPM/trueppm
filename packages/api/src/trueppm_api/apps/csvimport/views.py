@@ -11,8 +11,7 @@ from typing import Any, cast
 from django.conf import settings
 from django.db import transaction
 from django.http import HttpResponse
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import MultiPartParser
@@ -278,6 +277,146 @@ class CsvImportStatusResponseSerializer(serializers.Serializer[Any]):
     )
 
 
+class CsvImportColumnMappingSerializer(serializers.Serializer[Any]):
+    """One detected column, as returned in preview's ``columns[]`` (#3682)."""
+
+    index = serializers.IntegerField()
+    header = serializers.CharField()
+    field = serializers.CharField(
+        allow_null=True, help_text="Target field this column resolved to, or null when unmapped."
+    )
+    confidence = serializers.CharField(
+        help_text="One of `exact` / `fuzzy` / `none` / `duplicate` / `override`."
+    )
+
+
+class CsvImportRowErrorSerializer(serializers.Serializer[Any]):
+    """One row-scoped diagnostic, as returned in preview's ``row_errors[]`` (#3682)."""
+
+    row = serializers.IntegerField()
+    column = serializers.CharField(allow_null=True)
+    code = serializers.CharField()
+    message = serializers.CharField()
+    severity = serializers.CharField(
+        help_text="`error` (row did not import) or `warning` (row imported, field dropped)."
+    )
+
+
+class CsvImportDateEvidenceSerializer(serializers.Serializer[Any]):
+    """The single cell that self-identified the date order, when one did (#2926)."""
+
+    row = serializers.IntegerField()
+    column = serializers.CharField()
+    value = serializers.CharField()
+    reason = serializers.CharField(
+        help_text="`no_thirteenth_month` or `second_part_exceeds_twelve`."
+    )
+
+
+class CsvImportDateReadingSerializer(serializers.Serializer[Any]):
+    """One convention's reading of a sample row — populated only for an ambiguous file."""
+
+    order = serializers.CharField()
+    sample_row = serializers.IntegerField(allow_null=True)
+    sample_name = serializers.CharField(allow_blank=True)
+    sample_raw_start = serializers.CharField(allow_blank=True)
+    start = serializers.CharField(allow_null=True)
+    finish = serializers.CharField(allow_null=True)
+    duration_days = serializers.IntegerField(allow_null=True)
+    values_matched = serializers.IntegerField()
+    values_failed = serializers.IntegerField()
+    rows_unparseable = serializers.IntegerField()
+
+
+class CsvImportDatePreviewRowSerializer(serializers.Serializer[Any]):
+    """One rendered row for the wizard's dates preview table (#2926)."""
+
+    row = serializers.IntegerField()
+    name = serializers.CharField(allow_blank=True)
+    raw_start = serializers.CharField(allow_blank=True)
+    raw_finish = serializers.CharField(allow_blank=True)
+    start = serializers.CharField(allow_null=True)
+    finish = serializers.CharField(allow_null=True)
+    duration_days = serializers.IntegerField(allow_null=True)
+    unreadable = serializers.BooleanField()
+
+
+class CsvImportFieldChoiceSerializer(serializers.Serializer[Any]):
+    """One entry in the wizard's per-column field dropdown catalog."""
+
+    field = serializers.CharField()
+    label = serializers.CharField()  # type: ignore[assignment]
+    required = serializers.BooleanField()  # type: ignore[assignment]
+    multi = serializers.BooleanField()
+
+
+class CsvImportPreviewResponseSerializer(serializers.Serializer[Any]):
+    """The 200 body of ``POST …/import/csv/preview/`` — declared, not prose (#3682).
+
+    Nothing is persisted by this endpoint; the view builds this dict directly
+    from a :class:`~trueppm_api.apps.csvimport.parser.ParseResult`.
+    Response-only — nothing deserializes it.
+    """
+
+    filename = serializers.CharField()
+    headers = serializers.ListField(child=serializers.CharField())
+    columns = CsvImportColumnMappingSerializer(many=True)
+    sample_rows = serializers.ListField(
+        child=serializers.ListField(child=serializers.CharField()),
+        help_text="First 10 parsed rows, raw cell text.",
+    )
+    row_count = serializers.IntegerField()
+    truncated_rows = serializers.IntegerField()
+    task_count = serializers.IntegerField(
+        help_text="The plan-task count, excluding the Import review branch."
+    )
+    existing_task_count = serializers.IntegerField()
+    projected_task_count = serializers.IntegerField()
+    recommended_task_ceiling = serializers.IntegerField()
+    exceeds_recommended_ceiling = serializers.BooleanField()
+    resource_count = serializers.IntegerField()
+    parked_row_count = serializers.IntegerField(
+        help_text="Rows that cannot become plan tasks and will be parked in the review branch."
+    )
+    review_branch_name = serializers.CharField()
+    row_errors = CsvImportRowErrorSerializer(many=True)
+    error_count = serializers.IntegerField()
+    warning_count = serializers.IntegerField()
+    warnings = serializers.ListField(child=serializers.CharField())
+    date_order = serializers.CharField(help_text="What the caller requested: one of `DATE_ORDERS`.")
+    date_order_resolved = serializers.CharField(help_text="What will actually be used.")
+    date_order_auto = serializers.CharField(help_text="What `auto` would have chosen.")
+    date_order_ambiguous = serializers.BooleanField()
+    date_order_evidence = CsvImportDateEvidenceSerializer(allow_null=True)
+    date_order_has_columns = serializers.BooleanField()
+    date_order_readings = CsvImportDateReadingSerializer(
+        many=True, help_text="Both conventions' readings, populated only when ambiguous."
+    )
+    values_matched = serializers.IntegerField()
+    values_failed = serializers.IntegerField()
+    date_preview = CsvImportDatePreviewRowSerializer(many=True)
+    available_fields = CsvImportFieldChoiceSerializer(many=True)
+
+
+class CsvImportUndoResultSerializer(serializers.Serializer[Any]):
+    """The ``undo`` sub-object of the undo response — split counts (#3682)."""
+
+    deleted = serializers.IntegerField(
+        help_text="Rows soft-deleted because no one had touched them."
+    )
+    kept = serializers.IntegerField(
+        help_text="Rows left in place because a collaborator has since modified them."
+    )
+
+
+class CsvImportUndoResponseSerializer(serializers.Serializer[Any]):
+    """The 200 body of ``POST …/import/csv/{id}/undo/`` — declared, not prose (#3682)."""
+
+    id = serializers.UUIDField()
+    status = serializers.CharField()
+    undo = CsvImportUndoResultSerializer()
+
+
 class CsvImportPreviewView(IdempotencyMixin, APIView):
     """Parse a spreadsheet and return the detected mapping — persisting nothing.
 
@@ -299,7 +438,7 @@ class CsvImportPreviewView(IdempotencyMixin, APIView):
         request=_IMPORT_REQUEST_SCHEMA,
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=CsvImportPreviewResponseSerializer,
                 description=(
                     "Detected mapping, first 10 parsed rows, row-level warnings and the "
                     "field catalog for the wizard's dropdown. Nothing is persisted. "
@@ -441,9 +580,13 @@ class CsvImportView(IdempotencyMixin, APIView):
         summary="Import a CSV/Excel spreadsheet into an existing project",
         request=_IMPORT_REQUEST_SCHEMA,
         responses={
-            202: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description='Import queued; body is {"detail", "queued", "import_request_id"}.',
+            202: inline_serializer(
+                name="CsvImportQueuedResponse",
+                fields={
+                    "detail": serializers.CharField(),
+                    "queued": serializers.BooleanField(),
+                    "import_request_id": serializers.UUIDField(),
+                },
             ),
             400: OpenApiResponse(
                 description=(
@@ -591,7 +734,7 @@ class CsvImportUndoView(IdempotencyMixin, APIView):
         request=None,
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=CsvImportUndoResponseSerializer,
                 description='{"status", "undo": {"deleted", "kept"}}.',
             ),
             400: OpenApiResponse(description="Import is not in a completed (done) state."),

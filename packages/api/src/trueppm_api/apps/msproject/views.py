@@ -16,8 +16,9 @@ from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
     extend_schema,
+    inline_serializer,
 )
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import MultiPartParser
@@ -171,9 +172,12 @@ class MsProjectImportView(IdempotencyMixin, APIView):
         summary="Import an MS Project file into an existing project",
         request=OpenApiTypes.BINARY,
         responses={
-            202: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description='Import queued; body is {"detail", "import_request_id"}.',
+            202: inline_serializer(
+                name="MsProjectImportQueuedResponse",
+                fields={
+                    "detail": serializers.CharField(),
+                    "import_request_id": serializers.UUIDField(),
+                },
             ),
             400: OpenApiResponse(description="Missing or invalid upload (wrong type/too large)."),
             403: OpenApiResponse(description="Caller lacks the Admin role on the project."),
@@ -240,10 +244,13 @@ class CreateProjectFromMsProjectView(IdempotencyMixin, APIView):
         summary="Create a new project by importing an MS Project file",
         request=OpenApiTypes.BINARY,
         responses={
-            202: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description="Project shell created; import queued. Body is "
-                '{"queued", "project_id", "import_request_id"}.',
+            202: inline_serializer(
+                name="MsProjectCreateProjectQueuedResponse",
+                fields={
+                    "queued": serializers.BooleanField(),
+                    "project_id": serializers.UUIDField(),
+                    "import_request_id": serializers.UUIDField(),
+                },
             ),
             400: OpenApiResponse(
                 description="Missing/invalid upload, or program-admin gate failed."
