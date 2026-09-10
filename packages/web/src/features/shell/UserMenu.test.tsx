@@ -182,6 +182,52 @@ describe('UserMenu', () => {
     expect(document.activeElement).not.toBe(document.body);
   });
 
+  it('clamps the dropdown to the viewport instead of clipping when the trigger sits near the right edge (#3704)', () => {
+    // The old `right-0` CSS anchor never accounted for available room, so a
+    // trigger near the right edge of a narrow window rendered the dropdown
+    // with its right edge pushed past the viewport — clipped by the
+    // viewport/clipping ancestor.
+    vi.spyOn(HTMLButtonElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 1000,
+      y: 10,
+      top: 10,
+      bottom: 38,
+      left: 1000,
+      right: 1032,
+      width: 32,
+      height: 28,
+      toJSON: () => {},
+    } as DOMRect);
+    renderWithRouter(<UserMenu />);
+    openMenu();
+    const dropdown = screen.getByTestId('user-menu-dropdown');
+    const left = Number.parseFloat(dropdown.style.left);
+    // rect.right (1032) - width (256) = 776, comfortably inside the default
+    // 1024px jsdom viewport — the clamp only engages once it would not be.
+    expect(left).toBeGreaterThanOrEqual(0);
+    expect(left + 256).toBeLessThanOrEqual(1024);
+  });
+
+  it('does not portal the desktop dropdown when the viewport is mobile-width (#3704)', () => {
+    // A portaled element is no longer hidden by its ancestor's `hidden
+    // md:block` CSS, so opening the mobile sheet must not ALSO pop the
+    // desktop dropdown into `document.body` on top of it.
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+    renderWithRouter(<UserMenu />);
+    openMenu();
+    expect(screen.queryByTestId('user-menu-dropdown')).toBeNull();
+    expect(screen.getByTestId('user-menu-sheet')).toBeInTheDocument();
+  });
+
   it('renders the "My Work" item linking to /me/work', () => {
     renderWithRouter(<UserMenu />);
     openMenu();
