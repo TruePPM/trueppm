@@ -7663,12 +7663,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/MeTimeEntriesWeeklyResponse"
                                 }
                             }
                         },
-                        "description": "Caller's entries in [from, to] across accessible projects with totals: {results: [<weekly entry>], totals: {by_day, by_cell, today_minutes, week_minutes}, submission: {week_start, submitted, submitted_at}}. 'submission' reflects the Monday of 'from' (#1435 always requests a full Mon-Sun week)."
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -7876,8 +7875,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/MeTimerResponse"
                                 }
                             }
                         },
@@ -7946,8 +7944,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/MeTimerStartResponse"
                                 }
                             }
                         },
@@ -8099,12 +8096,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/TimesheetSubmitResponse"
                                 }
                             }
                         },
-                        "description": "Week submitted: {week_start, submitted_at}."
+                        "description": ""
                     },
                     "400": {
                         "content": {
@@ -51554,6 +51550,60 @@
                 "type": "string",
                 "description": "* `minted` - Minted\n* `revoked` - Revoked\n* `used` - Used"
             },
+            "ActiveTimer": {
+                "type": "object",
+                "description": "Read serializer for the running timer (``GET /me/timer/`` active branch).\n\n``elapsed_seconds`` and ``stale`` are server-computed from the authoritative\n``started_at`` clock so every device agrees regardless of when it last polled.\n``stale`` flips once elapsed exceeds the ceiling, prompting the UI rather than\nsilently logging a weekend (ADR-0185 §2).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "task_short_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "task_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "elapsed_seconds": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "note": {
+                        "type": "string",
+                        "maxLength": 500
+                    },
+                    "stale": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "elapsed_seconds",
+                    "id",
+                    "project",
+                    "stale",
+                    "started_at",
+                    "task",
+                    "task_name",
+                    "task_short_id"
+                ]
+            },
             "AgentAction": {
                 "type": "object",
                 "description": "Team-facing view of one audited agent action.\n\nRead-only — ``AgentAction`` rows are append-only and never mutated through the API.\nExposes the chain fields (``sequence``, ``record_hash``) for transparency; they are\nintegrity anchors, not secrets. Never exposes token material — only the 8-char\n``actor_token_prefix``. ``refusal_detail`` is the non-hashed side-car telemetry\n(constraint that fired + projected impact); ``null`` for allowed actions and for\nrefusals recorded before a constraint was wired.",
@@ -56670,6 +56720,138 @@
                     "project_name",
                     "sprint",
                     "velocity"
+                ]
+            },
+            "MeTimeEntriesWeeklyResponse": {
+                "type": "object",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TimeEntryWeekly"
+                        }
+                    },
+                    "totals": {
+                        "$ref": "#/components/schemas/MeTimeEntriesWeeklyTotals"
+                    },
+                    "submission": {
+                        "$ref": "#/components/schemas/MeTimeEntriesWeeklySubmission"
+                    }
+                },
+                "required": [
+                    "results",
+                    "submission",
+                    "totals"
+                ]
+            },
+            "MeTimeEntriesWeeklySubmission": {
+                "type": "object",
+                "properties": {
+                    "week_start": {
+                        "type": "string"
+                    },
+                    "submitted": {
+                        "type": "boolean"
+                    },
+                    "submitted_at": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "submitted",
+                    "submitted_at",
+                    "week_start"
+                ]
+            },
+            "MeTimeEntriesWeeklyTotals": {
+                "type": "object",
+                "properties": {
+                    "by_day": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "integer"
+                        }
+                    },
+                    "by_cell": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "integer"
+                        }
+                    },
+                    "today_minutes": {
+                        "type": "integer"
+                    },
+                    "week_minutes": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "by_cell",
+                    "by_day",
+                    "today_minutes",
+                    "week_minutes"
+                ]
+            },
+            "MeTimerResponse": {
+                "type": "object",
+                "properties": {
+                    "active": {
+                        "type": "boolean"
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "task_short_id": {
+                        "type": "string"
+                    },
+                    "task_name": {
+                        "type": "string"
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "elapsed_seconds": {
+                        "type": "integer"
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "stale": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "active"
+                ]
+            },
+            "MeTimerStartResponse": {
+                "type": "object",
+                "properties": {
+                    "active_timer": {
+                        "$ref": "#/components/schemas/ActiveTimer"
+                    },
+                    "finalized_entry": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TimeEntry"
+                            }
+                        ],
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "active_timer"
                 ]
             },
             "MeWorkActiveSprint": {
@@ -75839,6 +76021,79 @@
                 "type": "string",
                 "description": "* `manual` - Manual\n* `timer` - Timer"
             },
+            "TimeEntryWeekly": {
+                "type": "object",
+                "description": "Enriched read serializer for the weekly cross-project grid (ADR-0185 §4).\n\nCarries the task and project labels the grid renders so the client needs no second\nround-trip. The viewset ``select_related(\"task\", \"task__project\")``, so these nested\nreads add no per-row query (N+1-safe — asserted by ``assertNumQueries``).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "task_short_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "task_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project_code": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "project_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "minutes": {
+                        "type": "integer",
+                        "maximum": 1440,
+                        "minimum": 1
+                    },
+                    "entry_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "note": {
+                        "type": "string",
+                        "maxLength": 500
+                    },
+                    "source": {
+                        "$ref": "#/components/schemas/TimeEntrySourceEnum"
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "id",
+                    "minutes",
+                    "project",
+                    "project_code",
+                    "project_name",
+                    "server_version",
+                    "task",
+                    "task_name",
+                    "task_short_id"
+                ]
+            },
             "TimerStartRequest": {
                 "type": "object",
                 "description": "Validate the ``POST /me/timer/start`` body (ADR-0185 §4).\n\nOnly ``task`` (uuid) and an optional ``note`` are accepted. Task resolution,\nmembership scoping (404), and the ``can_log_time`` role gate (403) are enforced in\nthe view against a membership-scoped queryset so existence is never leaked.",
@@ -75855,6 +76110,21 @@
                 },
                 "required": [
                     "task"
+                ]
+            },
+            "TimesheetSubmitResponse": {
+                "type": "object",
+                "properties": {
+                    "week_start": {
+                        "type": "string"
+                    },
+                    "submitted_at": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "submitted_at",
+                    "week_start"
                 ]
             },
             "TransferOwnershipRequest": {
