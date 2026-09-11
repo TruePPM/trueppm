@@ -458,6 +458,51 @@ done
 if [ -z "$ping_ok" ]; then
   echo "  ---- celery-worker log (broker connect / reconnect is the thing to look at) ----" >&2
   kubectl logs "$worker_pod" -c celery-worker --tail=40 2>&1 | sed 's/^/    /' >&2 || true
+
+  # #3236's local repro (Docker + a from-scratch kind cluster, 2026-09-10/11)
+  # refuted the pidbox-reconnect hypothesis in every configuration tried, so a
+  # recurrence here needs evidence the local repro could not produce rather than
+  # another blind reproduction attempt. Three targeted captures, each aimed at one
+  # question the celery CLI's own timeout message cannot answer on its own.
+  echo "  ---- ping from a SEPARATE pod, outside the worker's own cgroup (#3236) ----" >&2
+  # The failing ping above runs `kubectl exec` INTO the worker container, so it pays
+  # the same Django+Celery import cost, in the worker's OWN cpu cgroup, that the
+  # MainProcess needs free to answer it — a confound #3236's repro could only push
+  # to ~0.1 CPU before the ping degraded from "slow" to "absent" some other way. The
+  # api pod shares the image, the celery app, and REDIS_URL, but a different cgroup:
+  # a ping that succeeds from here while the in-container one above failed points at
+  # the prober's own contention, not a dead control plane.
+  kubectl exec "$api_pod" -c api -- \
+    celery -A trueppm_api.celery inspect ping \
+    --destination "celery@${worker_pod}" --timeout "$WORKER_PING_TIMEOUT" 2>&1 \
+    | sed "$INDENT_SED" >&2 || true
+
+  echo "  ---- broker pidbox / reply-queue state (#3236) ----" >&2
+  # Distinguishes "a reply was published but never arrived" (a live celery* pubsub
+  # channel, no matching reply key) from "the pidbox consumer is gone" (no celery*
+  # channel at all) — a distinction the CLI's own "No nodes replied" message erases.
+  kubectl exec "$api_pod" -c api -- python -c '
+import os
+import redis
+
+r = redis.from_url(os.environ["REDIS_URL"])
+print("PUBSUB CHANNELS celery*:", r.pubsub_channels("celery*"))
+print("KEYS *reply*:", r.keys("*reply*"))
+print("KEYS celery*:", r.keys("celery*"))
+' 2>&1 | sed "$INDENT_SED" >&2 || true
+
+  echo "  ---- worker container cgroup CPU throttling (#3236) ----" >&2
+  # Turns "the runner was busy" from a story into a number. #3236's repro showed
+  # starvation degrades the ping to slow, never absent, down to 0.1 CPU — so a real
+  # recurrence with near-zero nr_throttled here rules starvation back out rather
+  # than reopening it as the default explanation.
+  kubectl exec "$worker_pod" -c celery-worker -- sh -c '
+    for f in /sys/fs/cgroup/cpu.stat /sys/fs/cgroup/cpu/cpu.stat; do
+      if [ -r "$f" ]; then echo "$f:"; cat "$f"; exit 0; fi
+    done
+    echo "no readable cgroup cpu.stat at either the v2 or v1 path"
+  ' 2>&1 | sed "$INDENT_SED" >&2 || true
+
   fail "celery-worker is Ready with ${restarts:-0} restarts but never answered 'inspect ping' after ${WORKER_PING_ATTEMPTS} attempts of ${WORKER_PING_TIMEOUT}s — Ready does not mean serving (#3236). Last ping output: ${ping_out:-<none>}"
 fi
 
