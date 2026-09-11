@@ -61,6 +61,7 @@ from trueppm_api.apps.sync.serializers import (
     SyncTaskSuggestedAssigneeSerializer,
     SyncTimeEntrySerializer,
     SyncUploadRequestSerializer,
+    SyncUploadResponseSerializer,
 )
 from trueppm_api.apps.sync.ws_auth import TICKET_TTL_SECONDS, issue_ticket
 from trueppm_api.apps.timetracking.models import TimeEntry
@@ -494,7 +495,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
     @extend_schema(
         request=SyncUploadRequestSerializer,
         responses={
-            200: OpenApiTypes.OBJECT,
+            200: SyncUploadResponseSerializer,
             409: OpenApiTypes.OBJECT,
         },
         description=(
