@@ -68,7 +68,7 @@ async function setup(page: import('@playwright/test').Page) {
   );
   // Broad empty stubs so the views (and the TaskFormModal's dependent queries) don't
   // hit the live network. The "+ New" lives in the chrome, independent of view data.
-  for (const path of ['tasks', 'dependencies', 'sprints', 'risks', 'presence', 'monte-carlo/latest']) {
+  for (const path of ['tasks', 'dependencies', 'sprints', 'risks', 'presence']) {
     await page.route(`**/api/v1/projects/${PID}/${path}/**`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: pj(page200) }),
     );
@@ -101,11 +101,21 @@ async function setup(page: import('@playwright/test').Page) {
   await page.route(`**/api/v1/projects/${PID}/velocity/**`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj({ sprints: [] }) }),
   );
-  // status-summary is OBJECT-shaped and is deliberately not in the loop above: the
-  // list-shaped `page200` is the malformed-mock class that crashes a component into
-  // the root error boundary and surfaces as an unrelated flake later (this spec's own
-  // #1190). It also has to carry `health_band` since #3501 — the shell chip reads the
-  // server's band and derives nothing from the counts.
+  // status-summary and monte-carlo/latest are OBJECT-shaped and are deliberately not
+  // in the loop above: the list-shaped `page200` is the malformed-mock class that
+  // crashes a component into the root error boundary and surfaces as an unrelated
+  // flake later (this spec's own #1190) — and, for monte-carlo/latest specifically, is
+  // also an unknown-property violation of the endpoint's now-declared response schema
+  // (#3680). A 404 is the genuine "no run yet" state (see useMonteCarloResult).
+  await page.route(`**/api/v1/projects/${PID}/monte-carlo/latest/**`, (r) =>
+    r.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: pj({ detail: 'No simulation result available.' }),
+    }),
+  );
+  // status-summary also has to carry `health_band` since #3501 — the shell chip reads
+  // the server's band and derives nothing from the counts.
   await page.route(`**/api/v1/projects/${PID}/status-summary/**`, (r) =>
     r.fulfill({
       status: 200,
@@ -315,6 +325,18 @@ test.describe('#1179 context-aware "+ New" (desktop)', () => {
         status: 200,
         contentType: 'application/json',
         body: pj({ ...PROJECT_DETAIL, id: NEW_PROJECT_ID, name: 'Now Standalone', program_detail: null }),
+      }),
+    );
+    // More specific than the broad `**` route above (Playwright: last-registered
+    // wins), same as the overview override below it: the project-detail shape
+    // that route serves for every sub-path is an unknown-property violation of
+    // monte-carlo/latest's now-declared response schema (#3680). 404 is the
+    // genuine "no run yet" state (see useMonteCarloResult).
+    await page.route(`**/api/v1/projects/${NEW_PROJECT_ID}/monte-carlo/latest/**`, (r) =>
+      r.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: pj({ detail: 'No simulation result available.' }),
       }),
     );
     await page.route(`**/api/v1/projects/${NEW_PROJECT_ID}/overview/`, (r) =>

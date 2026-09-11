@@ -75,6 +75,14 @@ _GRANDFATHERED_ENVELOPES: dict[str, str] = {
     # there is no cursor to walk the rest. Declared free-form until #3679 typed
     # it for the first time.
     "/api/v1/projects/{id}/blocked/": "capped triage roll-up, not paginated (#1157/#2855/#3679)",
+    # Monte Carlo run history (#3680, ADR-0175/0143) is capped at
+    # settings.MC_HISTORY_CAP and read newest-first with no further pages by
+    # design — `cap` documents the ceiling and `enabled` reflects the
+    # per-workspace history toggle. Declared free-form until #3680 typed it
+    # for the first time.
+    "/api/v1/projects/{id}/monte-carlo/history/": (
+        "capped run history, not paginated (ADR-0175/#3680)"
+    ),
     # The caller's own weekly time-entry rollup (#3684, ADR-0185 §4) is bounded
     # to one ?from=/&to= week, not a paginated collection — `totals` and
     # `submission` are per-week aggregates alongside the entry list. Declared

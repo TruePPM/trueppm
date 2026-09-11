@@ -432,10 +432,14 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
       runCallCount++;
       // Delay the response so the pending state is observable.
       await new Promise((r) => setTimeout(r, 200));
+      // useRunMonteCarlo discards the response body (it just invalidates the
+      // `latest`/`history` queries on success), but the schema guard still
+      // validates whatever the mock sends — a placeholder `{ ok: true }` isn't
+      // a shape the server ever emits (#3680), so echo the real run shape.
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ ok: true }),
+        body: JSON.stringify(FIXTURE_MC_RESULT),
       });
     });
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from trueppm_api.apps.scheduling.models import (
@@ -11,6 +12,14 @@ from trueppm_api.apps.scheduling.models import (
     MonteCarloRun,
     ProjectForecastSnapshot,
     VelocitySuggestion,
+)
+from trueppm_api.apps.scheduling.services import (
+    FORECAST_ALL_COMPLETE,
+    FORECAST_ESTIMATES_OFF_CRITICAL_PATH,
+    FORECAST_ESTIMATES_PENDING_APPROVAL,
+    FORECAST_NO_COMMITTED_TASKS,
+    FORECAST_NO_ESTIMATES,
+    FORECAST_NO_VELOCITY_HISTORY,
 )
 
 
@@ -41,6 +50,237 @@ class MonteCarloWhatIfRequestSerializer(serializers.Serializer[dict[str, Any]]):
                 "Supply exactly one of 'duration_delta' or 'new_duration'."
             )
         return attrs
+
+
+class MonteCarloDeltaSerializer(serializers.Serializer[dict[str, Any]]):
+    """Signed calendar-day delta of a percentile finish, per field (#987/#993/#2483).
+
+    Positive means the field slipped later (worse). Shared shape for
+    ``run_monte_carlo``/``latest``'s ``delta_vs_cpm`` (each percentile vs the
+    deterministic CPM finish), the what-if endpoint's ``delta_vs_current``, and
+    the history endpoint's per-run ``delta`` (ADR-0108) — one derivation, one
+    schema, three call sites. ``None`` whenever either date it is measured
+    between is missing.
+    """
+
+    p50 = serializers.IntegerField(allow_null=True)
+    p80 = serializers.IntegerField(allow_null=True)
+    p95 = serializers.IntegerField(allow_null=True)
+
+
+class MonteCarloHistogramBucketSerializer(serializers.Serializer[dict[str, Any]]):
+    """One ascending finish-date bucket of a Monte Carlo distribution."""
+
+    date = serializers.DateField()
+    count = serializers.IntegerField()
+
+
+class MonteCarloConfidencePointSerializer(serializers.Serializer[dict[str, Any]]):
+    """One point of the cumulative P(finish <= date) S-curve derived from the histogram."""
+
+    date = serializers.DateField()
+    pct = serializers.FloatField()
+
+
+class MonteCarloSensitivitySerializer(serializers.Serializer[dict[str, Any]]):
+    """One task's duration-sensitivity tornado entry (ADR-0140).
+
+    ``index`` is the absolute Spearman rank correlation between the task's
+    sampled duration and the project's finish, in [0, 1]. Tasks whose duration
+    cannot vary the finish are omitted from the list entirely rather than
+    reported as 0.
+    """
+
+    task_id = serializers.CharField()
+    index = serializers.FloatField()
+
+
+class MonteCarloDistributionFieldsSerializer(serializers.Serializer[dict[str, Any]]):
+    """The ``{histogram_buckets, confidence_curve, sensitivity}`` shape (#1231).
+
+    Mixed into :class:`MonteCarloForecastSerializer` as flat top-level fields
+    (the live-run and ``latest`` payloads), and used standalone — nested under
+    a ``distribution`` key — by :meth:`MonteCarloRunSerializer.get_distribution`
+    for the history endpoint's opt-in ``?expand=distribution``. One field
+    definition, two positions on the wire.
+    """
+
+    histogram_buckets = MonteCarloHistogramBucketSerializer(many=True)
+    confidence_curve = MonteCarloConfidencePointSerializer(many=True)
+    sensitivity = MonteCarloSensitivitySerializer(many=True)
+
+
+class MonteCarloForecastDiagnosticSerializer(serializers.Serializer[dict[str, Any]]):
+    """Why a Monte Carlo forecast carries -- or lacks -- an uncertainty band (#1340).
+
+    ``reason`` is populated only when ``deterministic`` is true (the forecast
+    collapsed to a single date); it is ``None`` whenever a real band exists.
+    """
+
+    deterministic = serializers.BooleanField()
+    reason = serializers.ChoiceField(
+        choices=[
+            FORECAST_NO_COMMITTED_TASKS,
+            FORECAST_ALL_COMPLETE,
+            FORECAST_ESTIMATES_OFF_CRITICAL_PATH,
+            FORECAST_ESTIMATES_PENDING_APPROVAL,
+            FORECAST_NO_VELOCITY_HISTORY,
+            FORECAST_NO_ESTIMATES,
+        ],
+        allow_null=True,
+    )
+    tasks_total = serializers.IntegerField()
+    tasks_with_variance = serializers.IntegerField()
+    tasks_pending_approval = serializers.IntegerField()
+    agile_tasks_without_velocity = serializers.IntegerField()
+
+
+class RiskPremiumFieldsSerializer(serializers.Serializer[dict[str, Any]]):
+    """The flat ``risk_premium_*`` family shared by every forecast payload (ADR-0698).
+
+    Mixed into :class:`MonteCarloForecastSerializer` rather than nested — the
+    view spreads these keys directly onto the response dict (``**risk_premium_from_values(...)``),
+    and the schema mirrors that shape.
+    """
+
+    risk_premium_days = serializers.IntegerField(allow_null=True)
+    risk_premium_ratio = serializers.FloatField(allow_null=True)
+    # Always null until #2299 (the calibration flywheel); declared nullable now so
+    # the schema does not have to change shape when a band is first populated.
+    risk_premium_band = serializers.CharField(allow_null=True)
+    risk_premium_as_of = serializers.DateTimeField(allow_null=True)
+    risk_premium_reason = serializers.CharField(allow_null=True)
+    risk_premium_state = serializers.ChoiceField(
+        choices=["not_run", "unmeasurable", "stale", "zero", "premium", "negative"]
+    )
+    risk_premium_cpm_finish = serializers.DateField(allow_null=True)
+    risk_premium_p80 = serializers.DateField(allow_null=True)
+
+
+class ForecastStalenessFieldsSerializer(serializers.Serializer[dict[str, Any]]):
+    """The flat forecast-staleness family shared by every forecast payload (#3140).
+
+    Mixed into :class:`MonteCarloForecastSerializer` for the same reason as
+    :class:`RiskPremiumFieldsSerializer` — the view spreads
+    ``**forecast_staleness_facts(...)`` directly onto the response dict.
+    """
+
+    forecast_staleness = serializers.ChoiceField(
+        choices=["current", "project_changed", "aged", "unknown"]
+    )
+    plan_version = serializers.IntegerField(allow_null=True)
+    plan_version_current = serializers.IntegerField(allow_null=True)
+
+
+class MonteCarloForecastSerializer(
+    RiskPremiumFieldsSerializer,
+    ForecastStalenessFieldsSerializer,
+    MonteCarloDistributionFieldsSerializer,
+):
+    """Monte Carlo forecast payload shared by the live run and the ``latest`` read.
+
+    Two response-producing paths share this exact shape and are not identical on
+    the wire:
+
+    - The **live run** (``POST .../monte-carlo/``) and a **cache hit**
+      (``GET .../monte-carlo/latest/`` inside the 24h TTL) always carry
+      ``distribution`` (the full sorted per-run finish-date sample — the large
+      field) and never carry ``from_history``.
+    - The **persisted-history fallback** (``GET .../latest/`` once the cache
+      entry has expired, ADR-0175) always carries ``from_history: true`` and
+      never carries ``distribution`` — only the derived
+      ``histogram_buckets``/``confidence_curve``/``sensitivity`` (and
+      ``forecast_diagnostic``) survive past the TTL, and only for runs
+      persisted after #1231/#2483.
+
+    Both fields are declared ``required=False`` rather than modeled as two
+    named variants (``PolymorphicProxySerializer``): nothing else about the
+    shape differs between the two paths, so a discriminated union would only
+    duplicate every other field for no added precision.
+    """
+
+    project_id = serializers.CharField()
+    runs = serializers.IntegerField()
+    # Nullable: a project with no committed tasks yields no distribution to
+    # anchor the percentiles on (mirrors MonteCarloRun.p50/p80/p95).
+    p50 = serializers.DateField(allow_null=True)
+    p80 = serializers.DateField(allow_null=True)
+    p95 = serializers.DateField(allow_null=True)
+    distribution = serializers.ListField(
+        child=serializers.DateField(),
+        required=False,
+        help_text=(
+            "Full sorted per-run finish-date sample. Present on a live run or a "
+            "cache hit; absent on the persisted-history fallback."
+        ),
+    )
+    cpm_finish = serializers.DateField(allow_null=True)
+    delta_vs_cpm = MonteCarloDeltaSerializer()
+    forecast_diagnostic = MonteCarloForecastDiagnosticSerializer(allow_null=True)
+    last_run_at = serializers.DateTimeField()
+    status_date = serializers.DateField(allow_null=True)
+    from_history = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "True only on the persisted-history fallback past the 24h cache TTL; "
+            "absent (never false) on a live run or cache hit."
+        ),
+    )
+
+
+class MonteCarloWhatIfAppliedSerializer(serializers.Serializer[dict[str, Any]]):
+    """The resolved perturbation the what-if endpoint applied to the target task (#993)."""
+
+    base_duration_days = serializers.IntegerField()
+    duration_delta_days = serializers.IntegerField()
+    new_duration_days = serializers.IntegerField()
+
+
+class MonteCarloWhatIfLegSerializer(serializers.Serializer[dict[str, Any]]):
+    """One forecast leg (``current`` or ``whatif``) of the what-if response (#993)."""
+
+    p50 = serializers.DateField()
+    p80 = serializers.DateField()
+    p95 = serializers.DateField()
+    cpm_finish = serializers.DateField(allow_null=True)
+    critical_path = serializers.ListField(child=serializers.CharField())
+
+
+class MonteCarloWhatIfDeltaSerializer(serializers.Serializer[dict[str, Any]]):
+    """Signed calendar-day shift of ``whatif`` vs ``current``, per field (#993).
+
+    Same ``p50``/``p80``/``p95`` shape as :class:`MonteCarloDeltaSerializer`,
+    plus ``cpm_finish`` — the what-if endpoint's own deterministic-pass delta,
+    distinct from ``delta_vs_cpm``'s MC-vs-CPM comparison elsewhere.
+    """
+
+    p50 = serializers.IntegerField(allow_null=True)
+    p80 = serializers.IntegerField(allow_null=True)
+    p95 = serializers.IntegerField(allow_null=True)
+    cpm_finish = serializers.IntegerField(allow_null=True)
+
+
+class MonteCarloWhatIfResponseSerializer(serializers.Serializer[dict[str, Any]]):
+    """Non-mutating Monte Carlo what-if result (#993).
+
+    Perturbs exactly one committed task's duration and recomputes both the
+    deterministic CPM pass and a seeded Monte Carlo simulation in memory,
+    without persisting anything — see the view docstring for the
+    non-persistence guarantee.
+    """
+
+    task_id = serializers.CharField()
+    applied = MonteCarloWhatIfAppliedSerializer()
+    current = MonteCarloWhatIfLegSerializer()
+    whatif = MonteCarloWhatIfLegSerializer()
+    critical_path_changed = serializers.BooleanField()
+    delta_vs_current = MonteCarloWhatIfDeltaSerializer()
+    runs = serializers.IntegerField()
+    seed = serializers.IntegerField(
+        help_text="Fixed RNG seed shared by both runs so the delta isolates the perturbation."
+    )
+    cpm_status_date = serializers.DateField()
+    mc_status_date = serializers.DateField()
 
 
 class ProjectForecastSnapshotSerializer(serializers.ModelSerializer[ProjectForecastSnapshot]):
@@ -274,10 +514,12 @@ class MonteCarloRunSerializer(serializers.ModelSerializer[MonteCarloRun]):
         ]
         read_only_fields = fields
 
+    @extend_schema_field(MonteCarloDeltaSerializer(allow_null=True))
     def get_delta(self, obj: MonteCarloRun) -> dict[str, int | None] | None:
         """Return the per-percentile day delta vs the previous run (view-attached)."""
         return getattr(obj, "_delta", None)
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_triggered_by_name(self, obj: MonteCarloRun) -> str | None:
         """Run-author display name — gated by the resolved attribution audience.
 
@@ -294,6 +536,7 @@ class MonteCarloRunSerializer(serializers.ModelSerializer[MonteCarloRun]):
         full_name = user.get_full_name() if hasattr(user, "get_full_name") else ""
         return full_name or user.get_username()
 
+    @extend_schema_field(MonteCarloDistributionFieldsSerializer(allow_null=True))
     def get_distribution(self, obj: MonteCarloRun) -> dict[str, Any] | None:
         """The persisted per-run distribution — only when explicitly expanded (#1231).
 
