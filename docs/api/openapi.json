@@ -48390,12 +48390,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/WorkspaceEmailTestResult"
                                 }
                             }
                         },
-                        "description": "Test message sent: ``{\"sent\": true, \"recipient\": \"<email>\"}``."
+                        "description": "Test message sent to the requesting operator's own address."
                     },
                     "400": {
                         "content": {
@@ -77929,6 +77928,22 @@
                         "minimum": 0
                     }
                 }
+            },
+            "WorkspaceEmailTestResult": {
+                "type": "object",
+                "properties": {
+                    "sent": {
+                        "type": "boolean"
+                    },
+                    "recipient": {
+                        "type": "string",
+                        "format": "email"
+                    }
+                },
+                "required": [
+                    "recipient",
+                    "sent"
+                ]
             },
             "WorkspaceExportJob": {
                 "type": "object",
