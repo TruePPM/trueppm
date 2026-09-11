@@ -70,6 +70,11 @@ _GRANDFATHERED_ENVELOPES: dict[str, str] = {
     # a triage surface has no use for page 2. `results`/`next` would imply a
     # continuation that does not exist.
     "/api/v1/sprints/{id}/blocked/": "capped triage roll-up, not paginated (#1157/#2855)",
+    # The project-scoped blocked-tasks roll-up (#3679) is the same capped triage
+    # list as the sprint-scoped one above — `truncated` says "showing the top N",
+    # there is no cursor to walk the rest. Declared free-form until #3679 typed
+    # it for the first time.
+    "/api/v1/projects/{id}/blocked/": "capped triage roll-up, not paginated (#1157/#2855/#3679)",
     # Monte Carlo run history (#3680, ADR-0175/0143) is capped at
     # settings.MC_HISTORY_CAP and read newest-first with no further pages by
     # design — `cap` documents the ceiling and `enabled` reflects the

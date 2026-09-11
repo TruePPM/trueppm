@@ -252,7 +252,7 @@ async function gotoSchedule(page: Page, opts: { role?: number; canEdit?: boolean
     }),
   );
   await page.route('**/api/v1/projects/*/velocity/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sprints: [] }) }),
   );
   // #3680: a literal `null` 200 body doesn't match the endpoint's declared
   // response schema (and never matched the real API either — no run yet is a

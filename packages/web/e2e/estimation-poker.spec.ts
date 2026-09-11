@@ -128,7 +128,9 @@ async function setup(page: Page) {
     return r.fulfill(json({ count: tasks.length, next: null, previous: null, results: tasks }));
   });
   await page.route(/\/api\/v1\/sprints\/.*\/retro\//, (r) => r.fulfill(json({ detail: 'None' }, 404)));
-  await page.route(/\/api\/v1\/projects\/.*\/retrospective\/carryover\//, (r) => r.fulfill(json([])));
+  await page.route(/\/api\/v1\/projects\/.*\/retrospective\/carryover\//, (r) =>
+    r.fulfill(json({ items: [] })),
+  );
   await page.route('**/api/v1/me/active-sprints/', (r) => r.fulfill(json([])));
 
   // --- Stateful poker mocks ---

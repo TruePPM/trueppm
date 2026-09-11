@@ -157,9 +157,19 @@ async function setupRoutes(
     }),
   );
   // Burn-up chart read — GET /projects/{id}/burn/?chart_type=…
+  // baseline_series: [] — see reports-burn-chart.spec.ts's BURN_RESPONSE comment
+  // (#3679): the burn endpoint's PolymorphicProxySerializer oneOf matcher needs
+  // every optional field present to pick the burndown/burnup branch.
   await page.route('**/api/v1/projects/*/burn/**', (route) =>
     route.fulfill(
-      json({ chart_type: 'burnup', metric: 'tasks', since: '2026-01-01', until: '2026-06-01', series: [] }),
+      json({
+        chart_type: 'burnup',
+        metric: 'tasks',
+        since: '2026-01-01',
+        until: '2026-06-01',
+        series: [],
+        baseline_series: [],
+      }),
     ),
   );
   await page.route('**/api/v1/tasks/**', (route) =>

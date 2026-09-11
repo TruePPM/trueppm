@@ -89,8 +89,8 @@ async function setup(page: Page, policyBody: Record<string, unknown> = policy())
   await page.route('**/api/v1/auth/me/', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_ME) }));
   await page.route('**/api/v1/projects/*/presence/', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }));
   await page.route('**/api/v1/projects/*/status-summary/', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj({ task_count: 0, health_band: 'on_track', monte_carlo_p80: null, at_risk_count: 0, critical_count: 0 }) }));
-  await page.route('**/api/v1/projects/*/attention/', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }));
-  await page.route('**/api/v1/projects/*/my-tasks/', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }));
+  await page.route('**/api/v1/projects/*/attention/', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj({ items: [] }) }));
+  await page.route('**/api/v1/projects/*/my-tasks/', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj({ tasks: [] }) }));
   await page.route('**/api/v1/projects/*/members/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj([{ id: 'mem-alice', role: 300 }]) }));
 
   // The signal-privacy policy GET (mutations are routed per-test).

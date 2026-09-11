@@ -110,10 +110,10 @@ async function setup(page: Page) {
     }),
   );
   await page.route('**/api/v1/projects/*/attention/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ items: [] }) }),
   );
   await page.route('**/api/v1/projects/*/my-tasks/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ tasks: [] }) }),
   );
   // Members endpoint is hit by the Access page after a discard navigation; keep it
   // an empty roster (the Access page expects a richer member shape than we need here).
