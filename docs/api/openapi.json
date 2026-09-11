@@ -7663,12 +7663,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/MeTimeEntriesWeeklyResponse"
                                 }
                             }
                         },
-                        "description": "Caller's entries in [from, to] across accessible projects with totals: {results: [<weekly entry>], totals: {by_day, by_cell, today_minutes, week_minutes}, submission: {week_start, submitted, submitted_at}}. 'submission' reflects the Monday of 'from' (#1435 always requests a full Mon-Sun week)."
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -7876,8 +7875,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/MeTimerResponse"
                                 }
                             }
                         },
@@ -7946,8 +7944,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/MeTimerStartResponse"
                                 }
                             }
                         },
@@ -8099,12 +8096,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/TimesheetSubmitResponse"
                                 }
                             }
                         },
-                        "description": "Week submitted: {week_start, submitted_at}."
+                        "description": ""
                     },
                     "400": {
                         "content": {
@@ -18164,8 +18160,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/AcceptanceResultIngestOutcome"
                                 }
                             }
                         },
@@ -21427,8 +21422,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ProductBacklogGroomingView"
                                 }
                             }
                         },
@@ -21509,8 +21503,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ProductBacklogAutoRankResult"
                                 }
                             }
                         },
@@ -21624,8 +21617,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintReorderResult"
                                 }
                             }
                         },
@@ -21712,8 +21704,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SprintReorderResult"
                                 }
                             }
                         },
@@ -22194,8 +22185,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ScheduleTriggerResult"
                                 }
                             }
                         },
@@ -22641,8 +22631,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SyncUploadResponse"
                                 }
                             }
                         },
@@ -46021,8 +46010,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/TaskAnchorReorderResult"
                                 }
                             }
                         },
@@ -51441,6 +51429,36 @@
                     "text"
                 ]
             },
+            "AcceptanceResultIngestOutcome": {
+                "type": "object",
+                "properties": {
+                    "updated": {
+                        "type": "integer"
+                    },
+                    "unchanged": {
+                        "type": "integer"
+                    },
+                    "unknown": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    "tasks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AcceptanceResultTaskReport"
+                        }
+                    }
+                },
+                "required": [
+                    "tasks",
+                    "unchanged",
+                    "unknown",
+                    "updated"
+                ]
+            },
             "AcceptanceResultIngestRequest": {
                 "type": "object",
                 "description": "Validates the inbound CI acceptance-result batch (ADR-0148).\n\nBody shape ``{\"results\": [{\"criterion_id\": <uuid>, \"passed\": <bool>}, ...]}``.\nCapped at ``ACCEPTANCE_RESULT_BATCH_CAP`` items per request and rejects a\npayload that names the same criterion twice (an ambiguous double verdict).",
@@ -51474,6 +51492,30 @@
                     "passed"
                 ]
             },
+            "AcceptanceResultTaskReport": {
+                "type": "object",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "dor_ready": {
+                        "type": "boolean"
+                    },
+                    "criteria_met": {
+                        "type": "integer"
+                    },
+                    "criteria_total": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "criteria_met",
+                    "criteria_total",
+                    "dor_ready",
+                    "task"
+                ]
+            },
             "ActionEnum": {
                 "enum": [
                     "minted",
@@ -51482,6 +51524,60 @@
                 ],
                 "type": "string",
                 "description": "* `minted` - Minted\n* `revoked` - Revoked\n* `used` - Used"
+            },
+            "ActiveTimer": {
+                "type": "object",
+                "description": "Read serializer for the running timer (``GET /me/timer/`` active branch).\n\n``elapsed_seconds`` and ``stale`` are server-computed from the authoritative\n``started_at`` clock so every device agrees regardless of when it last polled.\n``stale`` flips once elapsed exceeds the ceiling, prompting the UI rather than\nsilently logging a weekend (ADR-0185 §2).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "task_short_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "task_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "elapsed_seconds": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "note": {
+                        "type": "string",
+                        "maxLength": 500
+                    },
+                    "stale": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "elapsed_seconds",
+                    "id",
+                    "project",
+                    "stale",
+                    "started_at",
+                    "task",
+                    "task_name",
+                    "task_short_id"
+                ]
             },
             "AgentAction": {
                 "type": "object",
@@ -56626,6 +56722,138 @@
                     "project_name",
                     "sprint",
                     "velocity"
+                ]
+            },
+            "MeTimeEntriesWeeklyResponse": {
+                "type": "object",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TimeEntryWeekly"
+                        }
+                    },
+                    "totals": {
+                        "$ref": "#/components/schemas/MeTimeEntriesWeeklyTotals"
+                    },
+                    "submission": {
+                        "$ref": "#/components/schemas/MeTimeEntriesWeeklySubmission"
+                    }
+                },
+                "required": [
+                    "results",
+                    "submission",
+                    "totals"
+                ]
+            },
+            "MeTimeEntriesWeeklySubmission": {
+                "type": "object",
+                "properties": {
+                    "week_start": {
+                        "type": "string"
+                    },
+                    "submitted": {
+                        "type": "boolean"
+                    },
+                    "submitted_at": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "submitted",
+                    "submitted_at",
+                    "week_start"
+                ]
+            },
+            "MeTimeEntriesWeeklyTotals": {
+                "type": "object",
+                "properties": {
+                    "by_day": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "integer"
+                        }
+                    },
+                    "by_cell": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "integer"
+                        }
+                    },
+                    "today_minutes": {
+                        "type": "integer"
+                    },
+                    "week_minutes": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "by_cell",
+                    "by_day",
+                    "today_minutes",
+                    "week_minutes"
+                ]
+            },
+            "MeTimerResponse": {
+                "type": "object",
+                "properties": {
+                    "active": {
+                        "type": "boolean"
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "task_short_id": {
+                        "type": "string"
+                    },
+                    "task_name": {
+                        "type": "string"
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "elapsed_seconds": {
+                        "type": "integer"
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "stale": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "active"
+                ]
+            },
+            "MeTimerStartResponse": {
+                "type": "object",
+                "properties": {
+                    "active_timer": {
+                        "$ref": "#/components/schemas/ActiveTimer"
+                    },
+                    "finalized_entry": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TimeEntry"
+                            }
+                        ],
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "active_timer"
                 ]
             },
             "MeWorkActiveSprint": {
@@ -62221,6 +62449,142 @@
                 ],
                 "type": "string",
                 "description": "* `none` - None\n* `wsjf` - WSJF\n* `rice` - RICE\n* `value_effort` - Value / Effort"
+            },
+            "ProductBacklogAutoRankResult": {
+                "type": "object",
+                "properties": {
+                    "reranked": {
+                        "type": "integer"
+                    },
+                    "model": {
+                        "$ref": "#/components/schemas/PrioritizationModelEnum"
+                    }
+                },
+                "required": [
+                    "model",
+                    "reranked"
+                ]
+            },
+            "ProductBacklogEpicGroup": {
+                "type": "object",
+                "properties": {
+                    "epic": {
+                        "$ref": "#/components/schemas/Task"
+                    },
+                    "stories": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Task"
+                        }
+                    },
+                    "rollup": {
+                        "$ref": "#/components/schemas/ProductBacklogEpicRollup"
+                    }
+                },
+                "required": [
+                    "epic",
+                    "rollup",
+                    "stories"
+                ]
+            },
+            "ProductBacklogEpicRollup": {
+                "type": "object",
+                "properties": {
+                    "story_count": {
+                        "type": "integer"
+                    },
+                    "points_total": {
+                        "type": "integer"
+                    },
+                    "points_done": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "points_done",
+                    "points_total",
+                    "story_count"
+                ]
+            },
+            "ProductBacklogGroomingView": {
+                "type": "object",
+                "properties": {
+                    "epics": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProductBacklogEpicGroup"
+                        }
+                    },
+                    "ungrouped": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Task"
+                        }
+                    },
+                    "health": {
+                        "$ref": "#/components/schemas/ProductBacklogHealth"
+                    },
+                    "scoring": {
+                        "$ref": "#/components/schemas/ProductBacklogScoring"
+                    }
+                },
+                "required": [
+                    "epics",
+                    "health",
+                    "scoring",
+                    "ungrouped"
+                ]
+            },
+            "ProductBacklogHealth": {
+                "type": "object",
+                "properties": {
+                    "dor_pct": {
+                        "type": "integer"
+                    },
+                    "ready_count": {
+                        "type": "integer"
+                    },
+                    "ready_points": {
+                        "type": "integer"
+                    },
+                    "capacity_points": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "unestimated": {
+                        "type": "integer"
+                    },
+                    "ac_met": {
+                        "type": "integer"
+                    },
+                    "ac_total": {
+                        "type": "integer"
+                    },
+                    "story_count": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "ac_met",
+                    "ac_total",
+                    "capacity_points",
+                    "dor_pct",
+                    "ready_count",
+                    "ready_points",
+                    "story_count",
+                    "unestimated"
+                ]
+            },
+            "ProductBacklogScoring": {
+                "type": "object",
+                "properties": {
+                    "model": {
+                        "$ref": "#/components/schemas/PrioritizationModelEnum"
+                    }
+                },
+                "required": [
+                    "model"
+                ]
             },
             "ProficiencyEnum": {
                 "enum": [
@@ -69392,6 +69756,17 @@
                 "type": "string",
                 "description": "* `on_track` - on_track\n* `at_risk` - at_risk\n* `critical` - critical\n* `unknown` - unknown"
             },
+            "ScheduleTriggerResult": {
+                "type": "object",
+                "properties": {
+                    "queued": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "queued"
+                ]
+            },
             "SchedulerRun": {
                 "type": "object",
                 "description": "Typed view over TaskRun records for scheduler recalculation runs.\n\nExposes ``initiated_by`` as a username string rather than a user UUID —\nobservability audit readers (Marcus/SOC 2) want a human-readable name, and\nthis avoids leaking user PKs to non-admin project members.",
@@ -72537,6 +72912,58 @@
                     "timestamp"
                 ]
             },
+            "SyncUploadApplied": {
+                "type": "object",
+                "description": "The ``applied`` envelope of an upload response, keyed by collection name.",
+                "properties": {
+                    "tasks": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SyncUploadAppliedTasks"
+                            }
+                        ],
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "tasks"
+                ]
+            },
+            "SyncUploadAppliedTasks": {
+                "type": "object",
+                "description": "The ``applied.tasks`` bucket of an upload response — rows actually written.\n\nMirrors :class:`SyncUploadCollectionSerializer`'s shape (created/updated as\nfull row objects, deleted as row dicts too — the view echoes back the applied\ncontent rather than just ids). Row objects are deliberately free-form\n(``DictField``), same rationale as the request-side collection serializer:\nthe row shape is whatever ``TaskSerializer`` produced inside ``sync.upload``,\nnot re-declared here (#3652/#3681).",
+                "properties": {
+                    "created": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        },
+                        "readOnly": true
+                    },
+                    "updated": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        },
+                        "readOnly": true
+                    },
+                    "deleted": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created",
+                    "deleted",
+                    "updated"
+                ]
+            },
             "SyncUploadChangesRequest": {
                 "type": "object",
                 "description": "The ``changes`` map of an upload envelope, keyed by collection name.\n\nv1 exposes only the writable ``tasks`` collection (ADR-0082 §B); every other\ncollection is pull-only. Unsupported collection keys are **not** rejected\nhere — ``apply_task_changes`` is the single authority for the writable-\ncollection whitelist and rejects them with an explicit 400 (rather than\nsilently dropping them). This serializer therefore documents the writable\nshape in the OpenAPI schema without masking that guard; the view feeds the\nraw ``changes`` map to ``apply_task_changes`` so behavior stays identical.",
@@ -72573,6 +73000,23 @@
                     }
                 }
             },
+            "SyncUploadConflicts": {
+                "type": "object",
+                "description": "The ``conflicts`` envelope of an upload response, keyed by collection name.\n\nEach entry is the REST-parity 409 body (``conflict_fields`` / ``server_value``\n/ ``client_value`` / ``server_version``) plus the row ``id`` — free-form here\nfor the same reason as the applied-row buckets above.",
+                "properties": {
+                    "tasks": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "tasks"
+                ]
+            },
             "SyncUploadRequestRequest": {
                 "type": "object",
                 "description": "Validate the envelope of a mobile upload batch (ADR-0082 §A).\n\n``changes`` is a typed nested map (per-collection created/updated/deleted\nlists) so the WatermelonDB upload shape is explicit in the OpenAPI schema and\nthe generated web types, instead of the opaque object it was before (#786).\nPer-collection row validation still happens in ``sync.upload`` so an\nunsupported collection can be rejected with an explicit 400 rather than\nsilently dropped. ``last_pulled_at`` is the client's last-pull high-water mark\nand is the default per-row base version for the field-level conflict guard\n(#1718): a stale edit that overlaps a concurrent writer is reported in the\nresponse ``conflicts`` collection instead of silently clobbering. Omit it (and\nany per-row ``base_version``) to keep plain last-writer-wins.",
@@ -72592,6 +73036,42 @@
                 "required": [
                     "changes",
                     "client_batch_id"
+                ]
+            },
+            "SyncUploadResponse": {
+                "type": "object",
+                "description": "``200`` body of ``POST /api/v1/projects/{pk}/sync/`` (ADR-0082 §D, #3681).\n\n``client_batch_id`` echoes the request so a client can correlate a fast-path\nreplay with the original submission. ``timestamp`` is the batch's high-water\n``sync_seq`` cursor (see :class:`BatchApplyResult.max_version`) — adopt it as\nthe next pull's ``since`` once conflicts (if any) are resolved.",
+                "properties": {
+                    "client_batch_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "applied": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SyncUploadApplied"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "conflicts": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SyncUploadConflicts"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "timestamp": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "applied",
+                    "client_batch_id",
+                    "conflicts",
+                    "timestamp"
                 ]
             },
             "SystemHealthResponse": {
@@ -73354,6 +73834,45 @@
                     "status_changed_at",
                     "total_float",
                     "wbs_path"
+                ]
+            },
+            "TaskAnchorReorderRenormalizedRow": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "priority_rank": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "id",
+                    "priority_rank"
+                ]
+            },
+            "TaskAnchorReorderResult": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "priority_rank": {
+                        "type": "integer"
+                    },
+                    "renormalized": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskAnchorReorderRenormalizedRow"
+                        }
+                    }
+                },
+                "required": [
+                    "id",
+                    "priority_rank",
+                    "renormalized"
                 ]
             },
             "TaskAssignment": {
@@ -77347,6 +77866,79 @@
                 "type": "string",
                 "description": "* `manual` - Manual\n* `timer` - Timer"
             },
+            "TimeEntryWeekly": {
+                "type": "object",
+                "description": "Enriched read serializer for the weekly cross-project grid (ADR-0185 §4).\n\nCarries the task and project labels the grid renders so the client needs no second\nround-trip. The viewset ``select_related(\"task\", \"task__project\")``, so these nested\nreads add no per-row query (N+1-safe — asserted by ``assertNumQueries``).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "task_short_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "task_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project_code": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "project_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "minutes": {
+                        "type": "integer",
+                        "maximum": 1440,
+                        "minimum": 1
+                    },
+                    "entry_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "note": {
+                        "type": "string",
+                        "maxLength": 500
+                    },
+                    "source": {
+                        "$ref": "#/components/schemas/TimeEntrySourceEnum"
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "id",
+                    "minutes",
+                    "project",
+                    "project_code",
+                    "project_name",
+                    "server_version",
+                    "task",
+                    "task_name",
+                    "task_short_id"
+                ]
+            },
             "TimerStartRequest": {
                 "type": "object",
                 "description": "Validate the ``POST /me/timer/start`` body (ADR-0185 §4).\n\nOnly ``task`` (uuid) and an optional ``note`` are accepted. Task resolution,\nmembership scoping (404), and the ``can_log_time`` role gate (403) are enforced in\nthe view against a membership-scoped queryset so existence is never leaked.",
@@ -77363,6 +77955,21 @@
                 },
                 "required": [
                     "task"
+                ]
+            },
+            "TimesheetSubmitResponse": {
+                "type": "object",
+                "properties": {
+                    "week_start": {
+                        "type": "string"
+                    },
+                    "submitted_at": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "submitted_at",
+                    "week_start"
                 ]
             },
             "ToneEnum": {

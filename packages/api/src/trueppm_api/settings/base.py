@@ -2358,5 +2358,15 @@ SPECTACULAR_SETTINGS = {
         # Pin the incumbent back to its stable name; the sprint-health set is
         # then free to take the serializer-prefixed name it already resolves to.
         "KeyEnum": "trueppm_api.apps.observability.retention.RETENTION_KEYS",
+        # #3684: giving the weekly time-entry rollup (`GET /me/time-entries/`) a
+        # real response schema exposes `TimeEntryWeeklySerializer.source`, a SECOND
+        # serializer surfacing `TimeEntry.source` alongside `TimeEntrySerializer`'s.
+        # A second exposure of an already-resolved choice set is exactly what makes
+        # drf-spectacular stop deriving the stable `TimeEntrySourceEnum` name and
+        # hash-disambiguate both instead — renaming the component on every
+        # *existing* time-entry endpoint for a purely additive response annotation
+        # (same regression class as ScopeChangeStatus above —
+        # project_drf_enum_name_collision). Pin it.
+        "TimeEntrySourceEnum": "trueppm_api.apps.timetracking.models.TimeEntrySource",
     },
 }

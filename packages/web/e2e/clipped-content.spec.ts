@@ -148,7 +148,11 @@ async function setupShell(page: import('@playwright/test').Page): Promise<void> 
     }),
   );
   await page.route('**/api/v1/me/timer/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(null) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ active: false }),
+    }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/monte-carlo/latest/`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MC_RESULT) }),

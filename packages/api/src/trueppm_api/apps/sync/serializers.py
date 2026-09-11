@@ -637,3 +637,51 @@ class SyncUploadRequestSerializer(serializers.Serializer):  # type: ignore[type-
     client_batch_id = serializers.UUIDField()
     last_pulled_at = serializers.IntegerField(required=False, min_value=0)
     changes = SyncUploadChangesSerializer()
+
+
+class SyncUploadAppliedTasksSerializer(serializers.Serializer):  # type: ignore[type-arg]
+    """The ``applied.tasks`` bucket of an upload response — rows actually written.
+
+    Mirrors :class:`SyncUploadCollectionSerializer`'s shape (created/updated as
+    full row objects, deleted as row dicts too — the view echoes back the applied
+    content rather than just ids). Row objects are deliberately free-form
+    (``DictField``), same rationale as the request-side collection serializer:
+    the row shape is whatever ``TaskSerializer`` produced inside ``sync.upload``,
+    not re-declared here (#3652/#3681).
+    """
+
+    created = serializers.ListField(child=serializers.DictField(), read_only=True)
+    updated = serializers.ListField(child=serializers.DictField(), read_only=True)
+    deleted = serializers.ListField(child=serializers.DictField(), read_only=True)
+
+
+class SyncUploadAppliedSerializer(serializers.Serializer):  # type: ignore[type-arg]
+    """The ``applied`` envelope of an upload response, keyed by collection name."""
+
+    tasks = SyncUploadAppliedTasksSerializer(read_only=True)
+
+
+class SyncUploadConflictsSerializer(serializers.Serializer):  # type: ignore[type-arg]
+    """The ``conflicts`` envelope of an upload response, keyed by collection name.
+
+    Each entry is the REST-parity 409 body (``conflict_fields`` / ``server_value``
+    / ``client_value`` / ``server_version``) plus the row ``id`` — free-form here
+    for the same reason as the applied-row buckets above.
+    """
+
+    tasks = serializers.ListField(child=serializers.DictField(), read_only=True)
+
+
+class SyncUploadResponseSerializer(serializers.Serializer):  # type: ignore[type-arg]
+    """``200`` body of ``POST /api/v1/projects/{pk}/sync/`` (ADR-0082 §D, #3681).
+
+    ``client_batch_id`` echoes the request so a client can correlate a fast-path
+    replay with the original submission. ``timestamp`` is the batch's high-water
+    ``sync_seq`` cursor (see :class:`BatchApplyResult.max_version`) — adopt it as
+    the next pull's ``since`` once conflicts (if any) are resolved.
+    """
+
+    client_batch_id = serializers.CharField(read_only=True)
+    applied = SyncUploadAppliedSerializer(read_only=True)
+    conflicts = SyncUploadConflictsSerializer(read_only=True)
+    timestamp = serializers.IntegerField(read_only=True)
