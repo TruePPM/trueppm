@@ -44,7 +44,10 @@ const FIXTURE_OVERVIEW = {
   start_date: '2026-01-01',
   open_risk_count: 0,
   high_risk_count: 0,
-  risk_premium_state: 'none',
+  // 'not_run' — the real RiskPremiumState enum has no 'none' value
+  // (risk_premium.py); every other risk_premium_* field here is null, matching
+  // the "never simulated" state (#3679).
+  risk_premium_state: 'not_run',
   risk_premium_days: null,
   risk_premium_ratio: null,
   risk_premium_band: null,

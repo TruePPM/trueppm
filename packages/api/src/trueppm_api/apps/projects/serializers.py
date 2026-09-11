@@ -9513,10 +9513,36 @@ class SprintScopeChangeBulkResultSerializer(serializers.Serializer[dict[str, Any
     pending_count = serializers.IntegerField(read_only=True)
 
 
-class ProjectVelocitySerializer(serializers.Serializer[dict[str, Any]]):
-    """Response shape for ``GET /api/projects/{id}/velocity/`` (ADR-0037 Q3)."""
+class ProjectVelocitySprintEntrySerializer(serializers.Serializer[dict[str, Any]]):
+    """One sprint row in :func:`services.velocity_summary` (#984, #3679)."""
 
-    sprints = serializers.ListField(child=serializers.DictField())
+    id = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    start_date = serializers.DateField(read_only=True)
+    finish_date = serializers.DateField(read_only=True)
+    committed_points = serializers.IntegerField(read_only=True, allow_null=True)
+    completed_points = serializers.IntegerField(read_only=True, allow_null=True)
+    committed_task_count = serializers.IntegerField(read_only=True, allow_null=True)
+    completed_task_count = serializers.IntegerField(read_only=True, allow_null=True)
+    delta_vs_prior_points = serializers.IntegerField(read_only=True, allow_null=True)
+    delta_vs_prior_tasks = serializers.IntegerField(read_only=True, allow_null=True)
+    exclude_from_velocity = serializers.BooleanField(read_only=True)
+
+
+class ProjectVelocitySerializer(serializers.Serializer[dict[str, Any]]):
+    """Response shape for ``GET /api/v1/projects/{id}/velocity/``.
+
+    See :func:`services.velocity_summary`.
+
+    ``velocity_suppressed`` is present only when
+    :func:`signal_privacy_services.suppress_velocity_summary` redacted the
+    team-private detail for a reader outside the velocity audience (ADR-0104
+    §2.1) — ``sprints`` is emptied and the point-based fields are nulled in that
+    case, so it is the discriminator a client checks rather than re-deriving
+    suppression from an empty list (#3679).
+    """
+
+    sprints = ProjectVelocitySprintEntrySerializer(many=True, read_only=True)
     rolling_avg_points = serializers.FloatField(allow_null=True)
     rolling_stdev_points = serializers.FloatField(allow_null=True)
     forecast_range_low = serializers.IntegerField(allow_null=True)
@@ -9530,6 +9556,7 @@ class ProjectVelocitySerializer(serializers.Serializer[dict[str, Any]]):
     # so the UI can render "N excluded from this forecast". Each entry in `sprints`
     # also carries its own `exclude_from_velocity` flag for per-bar marking.
     excluded_count = serializers.IntegerField()
+    velocity_suppressed = serializers.BooleanField(read_only=True, required=False)
 
 
 class PromoteToMilestoneRequestSerializer(serializers.Serializer[dict[str, Any]]):
@@ -11666,3 +11693,407 @@ class ProjectCustomFieldSerializer(serializers.ModelSerializer[ProjectCustomFiel
         # (the Workflow drag-to-reorder hook) can detect concurrent edits.
         instance.server_version = (instance.server_version or 0) + 1
         return super().update(instance, validated_data)
+
+
+# ---------------------------------------------------------------------------
+# Project analytics/rollup reads — response schemas (#3679, #3652 sub-issue A)
+#
+# These document GET endpoints on ProjectOverviewView / ProjectAttentionView /
+# ProjectMyTasksView / ProjectSprintHealthView / ProjectVelocityView /
+# ProjectBurnView / ProjectViewSet that previously declared a free-form
+# {"type": "object"} 2xx body (drf-spectacular OpenApiTypes.OBJECT with no
+# properties). Fields are read directly off the backing view/service function
+# that builds the response dict — see each serializer's docstring for the
+# source of truth; none was invented. None of these views is changed to call
+# `.data` on these serializers — like the sibling `ProjectForecastSerializer` /
+# `FlowMetricsSerializer` usage earlier in this file, they exist purely for
+# `@extend_schema` declaration, and the view keeps returning its own dict.
+# ---------------------------------------------------------------------------
+
+
+class ProjectOverviewNextMilestoneSerializer(serializers.Serializer[dict[str, Any]]):
+    """The ``next_milestone`` block of ``GET /projects/{id}/overview/`` (#3679)."""
+
+    id = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    date = serializers.DateField(read_only=True, allow_null=True)
+    percent_complete = serializers.IntegerField(read_only=True, allow_null=True)
+
+
+class ProjectOverviewSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/projects/{id}/overview/`` (``ProjectOverviewView.get``, #3679).
+
+    ``risk_premium_*`` fields come from
+    :func:`trueppm_api.apps.scheduling.risk_premium.build_risk_premium`; the
+    ``forecast_staleness``/``plan_version``/``plan_version_current`` fields come
+    from
+    :func:`trueppm_api.apps.scheduling.forecast_staleness.forecast_staleness_from_run`.
+    Exactly one of ``team_utilization_pct``/``team_utilization_reason`` is set — see
+    :func:`trueppm_api.apps.projects.utilization.compute_team_utilization`.
+    """
+
+    schedule_health = serializers.ChoiceField(
+        choices=["on_track", "at_risk", "critical", "unknown"], read_only=True
+    )
+    spi = serializers.FloatField(read_only=True, allow_null=True)
+    risk_premium_days = serializers.IntegerField(read_only=True, allow_null=True)
+    risk_premium_ratio = serializers.FloatField(read_only=True, allow_null=True)
+    risk_premium_band = serializers.CharField(read_only=True, allow_null=True)
+    risk_premium_as_of = serializers.CharField(read_only=True, allow_null=True)
+    risk_premium_reason = serializers.CharField(read_only=True, allow_null=True)
+    risk_premium_state = serializers.ChoiceField(
+        choices=["not_run", "unmeasurable", "stale", "zero", "premium", "negative"],
+        read_only=True,
+    )
+    risk_premium_cpm_finish = serializers.CharField(read_only=True, allow_null=True)
+    risk_premium_p80 = serializers.CharField(read_only=True, allow_null=True)
+    forecast_staleness = serializers.ChoiceField(
+        choices=["current", "project_changed", "aged", "unknown"], read_only=True
+    )
+    plan_version = serializers.IntegerField(read_only=True, allow_null=True)
+    plan_version_current = serializers.IntegerField(read_only=True, allow_null=True)
+    tasks_late_count = serializers.IntegerField(read_only=True)
+    critical_task_count = serializers.IntegerField(read_only=True)
+    total_tasks = serializers.IntegerField(read_only=True)
+    complete_tasks = serializers.IntegerField(read_only=True)
+    next_milestone = ProjectOverviewNextMilestoneSerializer(read_only=True, allow_null=True)
+    team_utilization_pct = serializers.FloatField(read_only=True, allow_null=True)
+    team_utilization_reason = serializers.ChoiceField(
+        choices=["no_roster", "no_capacity"], read_only=True, allow_null=True
+    )
+    owner_name = serializers.CharField(read_only=True, allow_null=True)
+    open_risk_count = serializers.IntegerField(read_only=True)
+    high_risk_count = serializers.IntegerField(read_only=True)
+    start_date = serializers.DateField(read_only=True)
+
+
+class ProjectAttentionItemSerializer(serializers.Serializer[dict[str, Any]]):
+    """One row of ``GET /api/v1/projects/{id}/attention/`` (``ProjectAttentionView.get``, #3679)."""
+
+    severity = serializers.ChoiceField(choices=["critical", "warning", "info"], read_only=True)
+    type = serializers.ChoiceField(
+        choices=[
+            "critical_task_late",
+            "unassigned_approaching",
+            "baseline_drift",
+            "overallocation",
+        ],
+        read_only=True,
+    )
+    task_id = serializers.CharField(read_only=True, allow_null=True)
+    task_name = serializers.CharField(read_only=True, allow_null=True)
+    assignee_name = serializers.CharField(read_only=True, allow_null=True)
+    date = serializers.CharField(read_only=True, allow_null=True)
+    detail = serializers.CharField(read_only=True, allow_null=True)
+    link_target = serializers.CharField(read_only=True, allow_null=True)
+
+
+class ProjectAttentionSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/projects/{id}/attention/`` (#3679)."""
+
+    items = ProjectAttentionItemSerializer(many=True, read_only=True)
+
+
+class ProjectMyTasksTaskSerializer(serializers.Serializer[dict[str, Any]]):
+    """One row of ``GET /api/v1/projects/{id}/my-tasks/`` (``ProjectMyTasksView.get``, #3679)."""
+
+    id = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    due = serializers.DateField(read_only=True, allow_null=True)
+    status = serializers.CharField(read_only=True)
+    percent_complete = serializers.IntegerField(read_only=True, allow_null=True)
+    is_critical = serializers.BooleanField(read_only=True)
+    owner_name = serializers.CharField(read_only=True)
+    owner_initials = serializers.CharField(read_only=True)
+
+
+class ProjectMyTasksSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/projects/{id}/my-tasks/`` (#3679)."""
+
+    tasks = ProjectMyTasksTaskSerializer(many=True, read_only=True)
+
+
+class ProjectSprintHealthSignalSerializer(serializers.Serializer[dict[str, Any]]):
+    """One tripped Tier-3 signal in :func:`services.sprint_health` (ADR-0101 §4, #3679)."""
+
+    key = serializers.ChoiceField(
+        choices=["orphan", "phase_span", "summary_in_sprint"], read_only=True
+    )
+    count = serializers.IntegerField(read_only=True)
+    tone = serializers.ChoiceField(choices=["info", "warn"], read_only=True)
+    detail = serializers.CharField(read_only=True)
+
+
+class ProjectSprintHealthSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/projects/{id}/sprint-health/`` (#988, #3679)."""
+
+    signals = ProjectSprintHealthSignalSerializer(many=True, read_only=True)
+
+
+class ProjectBurnSeriesPointSerializer(serializers.Serializer[dict[str, Any]]):
+    """One day of a burndown/burnup curve (:func:`services._daily_burn_series`, #3679)."""
+
+    date = serializers.DateField(read_only=True)
+    actual = serializers.IntegerField(read_only=True)
+    scope = serializers.IntegerField(read_only=True)
+    ideal = serializers.FloatField(read_only=True)
+
+
+class ProjectBurnCombinedPointSerializer(serializers.Serializer[dict[str, Any]]):
+    """One day of the combined burn curve (:func:`services.burn_series_combined`, #3679)."""
+
+    date = serializers.DateField(read_only=True)
+    remaining = serializers.IntegerField(read_only=True)
+    completed = serializers.IntegerField(read_only=True)
+    total = serializers.IntegerField(read_only=True)
+    ideal = serializers.FloatField(read_only=True)
+
+
+class ProjectBurnBaselinePointSerializer(serializers.Serializer[dict[str, Any]]):
+    """One day of the baseline overlay curve (:func:`services._burn_baseline_series`, #3679)."""
+
+    date = serializers.DateField(read_only=True)
+    planned = serializers.IntegerField(read_only=True)
+
+
+class ProjectBurnSeriesSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``?chart_type=burndown|burnup`` on ``GET /projects/{id}/burn/``.
+
+    See :func:`services.burn_series` (#3679). ``baseline_series`` is present only
+    when the project has an active baseline.
+    """
+
+    chart_type = serializers.ChoiceField(choices=["burndown", "burnup"], read_only=True)
+    metric = serializers.ChoiceField(choices=["tasks", "points"], read_only=True)
+    since = serializers.DateField(read_only=True)
+    until = serializers.DateField(read_only=True)
+    series = ProjectBurnSeriesPointSerializer(many=True, read_only=True)
+    baseline_series = ProjectBurnBaselinePointSerializer(many=True, read_only=True, required=False)
+
+
+class ProjectBurnCombinedSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``?chart_type=combined`` on ``GET /projects/{id}/burn/``.
+
+    See :func:`services.burn_series_combined` (#3679). Never carries
+    ``baseline_series``.
+    """
+
+    chart_type = serializers.ChoiceField(choices=["combined"], read_only=True)
+    metric = serializers.ChoiceField(choices=["tasks", "points"], read_only=True)
+    since = serializers.DateField(read_only=True)
+    until = serializers.DateField(read_only=True)
+    series = ProjectBurnCombinedPointSerializer(many=True, read_only=True)
+
+
+class ProjectBlockedRollupSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/projects/{id}/blocked/`` (ADR-0124, #1134/#1157, #3679).
+
+    Project-scoped counterpart to :class:`SprintBlockedRollupSerializer` — same
+    :func:`blocker_services._blocked_row` builder, keyed by ``project_id``
+    instead of ``sprint_id``.
+    """
+
+    project_id = serializers.UUIDField(read_only=True)
+    count = serializers.IntegerField(read_only=True)
+    blocked = BlockedTaskRowSerializer(many=True, read_only=True)
+    truncated = serializers.BooleanField(read_only=True)
+
+
+class ProjectUtilizationDaySerializer(serializers.Serializer[dict[str, Any]]):
+    """One day of one resource's load in :func:`utilization.compute_utilization` (#3679)."""
+
+    hours = serializers.FloatField(read_only=True)
+    tasks = serializers.ListField(child=serializers.CharField(), read_only=True)
+    load_pct = serializers.FloatField(read_only=True)
+    load_band = serializers.ChoiceField(choices=["on-track", "at-risk", "critical"], read_only=True)
+    overallocated = serializers.BooleanField(read_only=True)
+
+
+class ProjectUtilizationResourceSerializer(serializers.Serializer[dict[str, Any]]):
+    """One resource row in :func:`utilization.compute_utilization` (#3679)."""
+
+    resource_id = serializers.CharField(read_only=True)
+    resource_name = serializers.CharField(read_only=True)
+    max_units = serializers.CharField(read_only=True)
+    hours_per_day = serializers.FloatField(read_only=True)
+    calendar_id = serializers.CharField(read_only=True, allow_null=True)
+    calendar_differs_from_project = serializers.BooleanField(read_only=True)
+    overallocated = serializers.BooleanField(read_only=True)
+    days = serializers.DictField(child=ProjectUtilizationDaySerializer(), read_only=True)
+
+
+class ProjectUtilizationWindowSerializer(serializers.Serializer[dict[str, Any]]):
+    """The ``window`` block of :func:`utilization.compute_utilization` (#3679)."""
+
+    start = serializers.DateField(read_only=True)
+    end = serializers.DateField(read_only=True)
+
+
+class ProjectUtilizationSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/projects/{id}/utilization/`` (#3679).
+
+    See :func:`utilization.compute_utilization`.
+    """
+
+    project_id = serializers.CharField(read_only=True)
+    window = ProjectUtilizationWindowSerializer(read_only=True)
+    resources = ProjectUtilizationResourceSerializer(many=True, read_only=True)
+    unassigned_task_count = serializers.IntegerField(read_only=True)
+
+
+class ProjectResourceAllocationTaskSerializer(serializers.Serializer[dict[str, Any]]):
+    """One task span row in ``ProjectViewSet.resource_allocation`` (#3679)."""
+
+    assignment_id = serializers.CharField(read_only=True)
+    id = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    early_start = serializers.DateField(read_only=True, allow_null=True)
+    early_finish = serializers.DateField(read_only=True, allow_null=True)
+    scheduled_start = serializers.DateField(read_only=True, allow_null=True)
+    units = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)
+
+
+class ProjectResourceAllocationResourceSerializer(serializers.Serializer[dict[str, Any]]):
+    """One resource row in ``ProjectViewSet.resource_allocation`` (#3679)."""
+
+    id = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    max_units = serializers.CharField(read_only=True)
+    tasks = ProjectResourceAllocationTaskSerializer(many=True, read_only=True)
+
+
+class ProjectResourceAllocationSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/projects/{id}/resource-allocation/`` (issue #85, #3679)."""
+
+    project_id = serializers.CharField(read_only=True)
+    window_start = serializers.DateField(read_only=True)
+    window_end = serializers.DateField(read_only=True)
+    resources = ProjectResourceAllocationResourceSerializer(many=True, read_only=True)
+    resource_count = serializers.IntegerField(read_only=True)
+    truncated = serializers.BooleanField(read_only=True)
+
+
+class ProjectResourceHeatmapResourceSerializer(serializers.Serializer[dict[str, Any]]):
+    """One resource row in :func:`utilization.aggregate_utilization_weekly` (#3679)."""
+
+    id = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    initials = serializers.CharField(read_only=True)
+    job_role = serializers.CharField(read_only=True, allow_null=True)
+    color = serializers.CharField(read_only=True)
+    calendar_differs_from_project = serializers.BooleanField(read_only=True)
+    util = serializers.ListField(child=serializers.IntegerField(), read_only=True)
+
+
+class ProjectResourceHeatmapSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/projects/{id}/resources/heatmap/`` (issue #217, ADR-0042, #3679).
+
+    ``group_by`` echoes the grouping actually applied — ``role`` or ``none``; a
+    requested ``project`` is served as ``none`` (see
+    :func:`utilization.aggregate_utilization_weekly`).
+    """
+
+    weeks = serializers.ListField(child=serializers.CharField(), read_only=True)
+    resources = ProjectResourceHeatmapResourceSerializer(many=True, read_only=True)
+    group_by = serializers.ChoiceField(choices=["role", "none"], read_only=True)
+
+
+class ProjectResourcesSummarySerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/projects/{id}/resources/summary/`` (issue #219, ADR-0042).
+
+    See ``ProjectViewSet.resources_summary`` (#3679).
+    """
+
+    avg_utilization_pct = serializers.IntegerField(read_only=True)
+    over_allocated_count = serializers.IntegerField(read_only=True)
+    over_allocated_weeks = serializers.CharField(read_only=True)
+    under_utilized_count = serializers.IntegerField(read_only=True)
+    under_utilized_names = serializers.ListField(child=serializers.CharField(), read_only=True)
+    headcount = serializers.IntegerField(read_only=True)
+    contractor_count = serializers.IntegerField(read_only=True)
+
+
+class ProjectRetroCarryoverItemSerializer(serializers.Serializer[dict[str, Any]]):
+    """One unresolved retro action item in ``ProjectViewSet.retro_carryover`` (#3679).
+
+    ADR-0071 §4b.
+    """
+
+    action_item_id = serializers.UUIDField(read_only=True)
+    text = serializers.CharField(read_only=True)
+    from_retro_id = serializers.UUIDField(read_only=True)
+    from_sprint_id = serializers.UUIDField(read_only=True)
+    from_sprint_short_id = serializers.CharField(read_only=True)
+    promoted_task_id = serializers.UUIDField(read_only=True, allow_null=True)
+    promoted_task_status = serializers.CharField(read_only=True, allow_null=True)
+    promoted_task_short_id = serializers.CharField(read_only=True, allow_null=True)
+    age_days = serializers.IntegerField(read_only=True)
+    assignee_id = serializers.UUIDField(read_only=True, allow_null=True)
+    assignee_username = serializers.CharField(read_only=True, allow_null=True)
+    story_points = serializers.IntegerField(read_only=True, allow_null=True)
+
+
+class ProjectRetroCarryoverSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/projects/{id}/retrospective/carryover/`` (ADR-0071 §4b, #3679)."""
+
+    items = ProjectRetroCarryoverItemSerializer(many=True, read_only=True)
+
+
+class ProjectIntegrationsWebhookDeliverySerializer(serializers.Serializer[dict[str, Any]]):
+    """The ``last_delivery`` block of one webhook row in ``_summarize_webhooks`` (#3679)."""
+
+    status = serializers.CharField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    response_status = serializers.IntegerField(read_only=True, allow_null=True)
+    attempt_count = serializers.IntegerField(read_only=True)
+
+
+class ProjectIntegrationsWebhookSerializer(serializers.Serializer[dict[str, Any]]):
+    """One webhook row in ``_summarize_webhooks`` (ADR-0019, #3679)."""
+
+    id = serializers.CharField(read_only=True)
+    url = serializers.CharField(read_only=True)
+    is_active = serializers.BooleanField(read_only=True)
+    events = serializers.ListField(child=serializers.CharField(), read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    last_delivery = ProjectIntegrationsWebhookDeliverySerializer(read_only=True, allow_null=True)
+    recent_failure_count = serializers.IntegerField(read_only=True)
+
+
+class ProjectIntegrationsWebhooksSectionSerializer(serializers.Serializer[dict[str, Any]]):
+    """The ``webhooks`` section of ``ProjectViewSet.integrations_summary`` (#3679)."""
+
+    items = ProjectIntegrationsWebhookSerializer(many=True, read_only=True)
+    total = serializers.IntegerField(read_only=True)
+    active_total = serializers.IntegerField(read_only=True)
+    last_delivery_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+
+class ProjectIntegrationsApiTokenSerializer(serializers.Serializer[dict[str, Any]]):
+    """One API token row in ``_summarize_api_tokens`` (ADR-0068, #3679)."""
+
+    id = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    token_prefix = serializers.CharField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    last_used_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+
+class ProjectIntegrationsApiTokensSectionSerializer(serializers.Serializer[dict[str, Any]]):
+    """The ``api_tokens`` section of ``ProjectViewSet.integrations_summary`` (#3679)."""
+
+    items = ProjectIntegrationsApiTokenSerializer(many=True, read_only=True)
+    active_total = serializers.IntegerField(read_only=True)
+    last_used_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+
+class ProjectIntegrationsSummarySerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``GET /api/v1/projects/{id}/integrations-summary/`` (ADR-0076, #3679).
+
+    A 503 (one subservice failed) is documented separately on the view as
+    ``{"failed": "webhooks" | "api_tokens"}`` — this serializer covers the 200 only.
+    """
+
+    webhooks = ProjectIntegrationsWebhooksSectionSerializer(read_only=True)
+    api_tokens = ProjectIntegrationsApiTokensSectionSerializer(read_only=True)

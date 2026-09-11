@@ -106,10 +106,10 @@ async function setup(page: Page, { ownerCount = 1 }: { ownerCount?: number } = {
     }) }),
   );
   await page.route('**/api/v1/projects/*/attention/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ items: [] }) }),
   );
   await page.route('**/api/v1/projects/*/my-tasks/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ tasks: [] }) }),
   );
 
   // Members endpoint — distinguish ?self=true (role check) from list view
