@@ -912,7 +912,11 @@ URL the user came from.
 
 - the TruePPM version, edition, and build SHA;
 - the *screen* the user was on, as a route shape (`/projects/:id/board`);
-- the browser's user-agent string.
+- the browser's user-agent string;
+- the number of tasks in the project the user was viewing, when that count is
+  already sitting in the page's own data — the dialog never fetches it, so a
+  page that has not loaded a task list yet simply omits the line rather than
+  reporting zero.
 
 **What is not included** — and cannot be, by construction:
 

@@ -30,7 +30,36 @@ function isTrackerHost(url: string): boolean {
   return host === 'gitlab.com' || host.endsWith('.gitlab.com');
 }
 
-async function setup(page: Page, opts: { enabled?: boolean; url?: string } = {}) {
+/** Minimal task fixture (#3388) — just enough for the Schedule grid to paint a row. */
+const TASKS = [
+  {
+    id: 'ft1',
+    wbs_path: '1',
+    name: 'Kickoff',
+    early_start: '2026-04-01',
+    early_finish: '2026-04-03',
+    duration: 3,
+    percent_complete: 0,
+    is_critical: false,
+    is_milestone: false,
+  },
+  {
+    id: 'ft2',
+    wbs_path: '2',
+    name: 'Design review',
+    early_start: '2026-04-04',
+    early_finish: '2026-04-08',
+    duration: 5,
+    percent_complete: 0,
+    is_critical: false,
+    is_milestone: false,
+  },
+];
+
+async function setup(
+  page: Page,
+  opts: { enabled?: boolean; url?: string; tasks?: unknown[] } = {},
+) {
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, {
@@ -49,6 +78,7 @@ async function setup(page: Page, opts: { enabled?: boolean; url?: string } = {})
       },
     ],
     projectId: PROJECT_ID,
+    tasks: opts.tasks ?? [],
   });
   await page.route('**/api/v1/workspace/', (route) =>
     route.fulfill({
@@ -202,5 +232,33 @@ test.describe('Report a bug (#2392)', () => {
     await expect(
       page.getByRole('dialog').getByRole('link', { name: 'Continue to tracker' }),
     ).toHaveAttribute('href', /helpdesk\.internal/);
+  });
+});
+
+test.describe('Report a bug — project size (#3388)', () => {
+  test('includes the task count once the Schedule has loaded the project', async ({ page }) => {
+    await setup(page, { tasks: TASKS });
+    await page.goto(`/projects/${PROJECT_ID}/schedule`);
+    // Wait for the fetched task list to actually paint — the signal that
+    // `['tasks', PROJECT_ID]` is warm in the query cache, which is the only
+    // thing the dialog reads from (no request of its own).
+    await expect(page.getByText('Design review')).toBeVisible();
+
+    await openUserMenu(page);
+    await page.getByRole('button', { name: 'Report a bug' }).click();
+
+    const body = page.getByRole('dialog').getByLabel('Report contents');
+    await expect(body).toContainText('Project size: 2 tasks');
+  });
+
+  test('omits the project size on a page that never loaded a task list', async ({ page }) => {
+    await setup(page);
+    await page.goto('/me/work');
+
+    await openUserMenu(page);
+    await page.getByRole('button', { name: 'Report a bug' }).click();
+
+    const body = page.getByRole('dialog').getByLabel('Report contents');
+    await expect(body).not.toContainText('Project size');
   });
 });
