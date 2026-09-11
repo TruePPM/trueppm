@@ -78,6 +78,11 @@ _GRANDFATHERED_ENVELOPES: dict[str, str] = {
     "/api/v1/projects/{id}/monte-carlo/history/": (
         "capped run history, not paginated (ADR-0175/#3680)"
     ),
+    # The caller's own weekly time-entry rollup (#3684, ADR-0185 §4) is bounded
+    # to one ?from=/&to= week, not a paginated collection — `totals` and
+    # `submission` are per-week aggregates alongside the entry list. Declared
+    # free-form until #3684 typed it for the first time.
+    "/api/v1/me/time-entries/": "week-scoped rollup + aggregates, not paginated (ADR-0185/#3684)",
     # Task-level history (#3683) is the task-scoped counterpart to the already-
     # grandfathered project-level history feed — same pre-0.3 keyset-paging shape
     # (#1882): `next`/`next_until` carry the keyset cursor, `count_truncated` flags

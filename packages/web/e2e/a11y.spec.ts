@@ -256,16 +256,31 @@ async function setupShell(page: import('@playwright/test').Page): Promise<void> 
       }),
     }),
   );
-  // Running-timer probe (object or null) — polled by the TopBar timer chip.
+  // Running-timer probe — polled by the TopBar timer chip. `{active: false}` is
+  // the real inactive-timer shape (MeTimerView never returns a bare null).
   await page.route('**/api/v1/me/timer/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(null) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ active: false }),
+    }),
   );
-  // This-week time entries (paginated) — read by the My Work week strip.
+  // This-week time entries — read by `useTimeRollup`/`useWeekTimesheet` on the My
+  // Work week strip. Real shape is the weekly rollup envelope (results/totals/
+  // submission), not a paginated list — see MeTimeEntryWeeklyView.
   await page.route('**/api/v1/me/time-entries/**', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+      body: JSON.stringify({
+        results: [],
+        totals: { by_day: {}, by_cell: {}, today_minutes: 0, week_minutes: 0 },
+        submission: {
+          week_start: new Date().toISOString().slice(0, 10),
+          submitted: false,
+          submitted_at: null,
+        },
+      }),
     }),
   );
 }
