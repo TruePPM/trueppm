@@ -448,15 +448,29 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
     route.fulfill(jsonResponse({ runs: 0, p50: null, p80: null, p95: null, buckets: [] })),
   );
   // Wave-7 unified Monte Carlo data path — a separate per-project endpoint.
+  // Schema-valid "no committed tasks to anchor on" run (#3680): p50/p80/p95 and
+  // cpm_finish are genuinely nullable on a persisted/cached MonteCarloRun for
+  // that reason, but `last_run_at` is not — the server only ever returns 200 for
+  // a run that actually happened (no run at all is a 404, see
+  // useMonteCarloResult), so a null there would violate the declared schema. Key
+  // names match the real payload (`histogram_buckets`/`confidence_curve`/
+  // `sensitivity`, not the old placeholder `buckets`).
   await page.route('**/api/v1/projects/*/monte-carlo/latest/', (route) =>
     route.fulfill(
       jsonResponse({
+        project_id: projectId,
         runs: 0,
         p50: null,
         p80: null,
         p95: null,
-        buckets: [],
-        last_run_at: null,
+        cpm_finish: null,
+        delta_vs_cpm: { p50: null, p80: null, p95: null },
+        confidence_curve: [],
+        histogram_buckets: [],
+        sensitivity: [],
+        forecast_diagnostic: null,
+        last_run_at: '2026-01-01T00:00:00Z',
+        status_date: null,
         // The server always states the premium state explicitly rather than omitting
         // the key (#2531). `not_run` matches this fixture's `runs: 0`, and stating it
         // keeps the shell's added-time row on the same code path it takes in
