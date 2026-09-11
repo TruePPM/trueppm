@@ -125,6 +125,7 @@ from trueppm_api.apps.projects.models import (
     ExportJobStatus,
     Health,
     Label,
+    PrioritizationModel,
     Project,
     ProjectApiToken,
     ProjectCalendarLayer,
@@ -1839,7 +1840,49 @@ class ProjectViewSet(
         summary="Get the product backlog grooming view",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=inline_serializer(
+                    name="ProductBacklogGroomingView",
+                    fields={
+                        "epics": inline_serializer(
+                            name="ProductBacklogEpicGroup",
+                            many=True,
+                            fields={
+                                "epic": TaskSerializer(),
+                                "stories": TaskSerializer(many=True),
+                                "rollup": inline_serializer(
+                                    name="ProductBacklogEpicRollup",
+                                    fields={
+                                        "story_count": serializers.IntegerField(),
+                                        "points_total": serializers.IntegerField(),
+                                        "points_done": serializers.IntegerField(),
+                                    },
+                                ),
+                            },
+                        ),
+                        "ungrouped": TaskSerializer(many=True),
+                        "health": inline_serializer(
+                            name="ProductBacklogHealth",
+                            fields={
+                                "dor_pct": serializers.IntegerField(),
+                                "ready_count": serializers.IntegerField(),
+                                "ready_points": serializers.IntegerField(),
+                                "capacity_points": serializers.IntegerField(allow_null=True),
+                                "unestimated": serializers.IntegerField(),
+                                "ac_met": serializers.IntegerField(),
+                                "ac_total": serializers.IntegerField(),
+                                "story_count": serializers.IntegerField(),
+                            },
+                        ),
+                        "scoring": inline_serializer(
+                            name="ProductBacklogScoring",
+                            fields={
+                                "model": serializers.ChoiceField(
+                                    choices=PrioritizationModel.choices
+                                ),
+                            },
+                        ),
+                    },
+                ),
                 description=(
                     "Grooming payload: epics with nested stories and rollups, "
                     "ungrouped stories, a grooming-health summary, and the active "
@@ -1994,7 +2037,13 @@ class ProjectViewSet(
         summary="Auto-rank the product backlog from the active scoring model",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=inline_serializer(
+                    name="ProductBacklogAutoRankResult",
+                    fields={
+                        "reranked": serializers.IntegerField(),
+                        "model": serializers.ChoiceField(choices=PrioritizationModel.choices),
+                    },
+                ),
                 description="Body includes the reranked count and the active scoring model.",
             )
         },
@@ -2012,7 +2061,7 @@ class ProjectViewSet(
         summary="Manually reorder the product backlog",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=SprintReorderResultSerializer,
                 description="Body includes the updated row count.",
             ),
             400: OpenApiResponse(description="Malformed body (missing, oversized, or invalid)."),
@@ -2092,7 +2141,7 @@ class ProjectViewSet(
         summary="Promote / demote tasks in the board queue",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=SprintReorderResultSerializer,
                 description="Body includes the updated row count.",
             ),
             400: OpenApiResponse(
@@ -6124,7 +6173,21 @@ class TaskViewSet(
         request=OpenApiTypes.OBJECT,
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=inline_serializer(
+                    name="TaskAnchorReorderResult",
+                    fields={
+                        "id": serializers.UUIDField(),
+                        "priority_rank": serializers.IntegerField(),
+                        "renormalized": inline_serializer(
+                            name="TaskAnchorReorderRenormalizedRow",
+                            many=True,
+                            fields={
+                                "id": serializers.UUIDField(),
+                                "priority_rank": serializers.IntegerField(),
+                            },
+                        ),
+                    },
+                ),
                 description="Moved card's new priority_rank plus any renormalized siblings.",
             ),
             400: OpenApiResponse(description="Malformed body or an anchor outside the column."),
@@ -18361,7 +18424,24 @@ class TaskSyncView(IdempotencyMixin, APIView):
         request=AcceptanceResultIngestSerializer,
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+                response=inline_serializer(
+                    name="AcceptanceResultIngestOutcome",
+                    fields={
+                        "updated": serializers.IntegerField(),
+                        "unchanged": serializers.IntegerField(),
+                        "unknown": serializers.ListField(child=serializers.UUIDField()),
+                        "tasks": inline_serializer(
+                            name="AcceptanceResultTaskReport",
+                            many=True,
+                            fields={
+                                "task": serializers.UUIDField(),
+                                "dor_ready": serializers.BooleanField(),
+                                "criteria_met": serializers.IntegerField(),
+                                "criteria_total": serializers.IntegerField(),
+                            },
+                        ),
+                    },
+                ),
                 description=(
                     "Result object: `{updated, unchanged, unknown, tasks}`. "
                     "`updated`/`unchanged` are the criterion ids whose `met` flag "
