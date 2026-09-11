@@ -199,7 +199,7 @@ async function setup(
     route.fulfill({ status: 404, contentType: 'application/json', body: '{"detail":"None"}' }),
   );
   await page.route(/\/api\/v1\/projects\/.*\/retrospective\/carryover\//, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"items":[]}' }),
   );
   await page.route('**/api/v1/me/active-sprints/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),

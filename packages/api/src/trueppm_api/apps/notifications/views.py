@@ -239,12 +239,14 @@ class NotificationViewSet(
         """Precompute the recipient's member-project set once per response.
 
         Backs ``NotificationSerializer._recipient_can_see_project``, which redacts
-        ``snippet`` (#514 — program mentions can reach sibling-project members)
-        and, since #3510, ``subject``/``body``/``project`` as well, for a
+        ``snippet`` (#514 — program mentions can reach sibling-project members),
+        ``subject``/``body``/``project`` (#3510), and the two raw object
+        references ``task_id`` / ``mention.task_comment`` (#3674), for a
         recipient who is not a current member of the notification's project —
         including one who has since been removed from it. Resolving the
         membership set here keeps the inbox list at one query instead of one per
-        row.
+        row: every one of those fields reads the same memoized set, so widening
+        the redaction added no per-row membership query.
         """
         context: dict[str, Any] = dict(super().get_serializer_context())
         user = self.request.user
@@ -797,8 +799,14 @@ class WorkspaceEmailTestView(IdempotencyMixin, APIView):
         request=None,
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description='Test message sent: ``{"sent": true, "recipient": "<email>"}``.',
+                response=inline_serializer(
+                    name="WorkspaceEmailTestResult",
+                    fields={
+                        "sent": serializers.BooleanField(),
+                        "recipient": serializers.EmailField(),
+                    },
+                ),
+                description="Test message sent to the requesting operator's own address.",
             ),
             400: OpenApiResponse(
                 # NOT the standard ``{"detail"}`` refusal envelope: this endpoint
