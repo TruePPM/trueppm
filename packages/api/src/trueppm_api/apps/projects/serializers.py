@@ -33,6 +33,7 @@ from trueppm_api.apps.projects.models import (
     _VALID_SORT_KEYS,
     API_TOKEN_SCOPES,
     CPM_OUTPUT_HELP,
+    MAX_PROJECT_SPAN_DAYS,
     MCP_READ_TOKEN_MAX_EXPIRY_DAYS,
     PROJECT_CUSTOM_FIELD_MAX,
     RESERVED_SCRUM_CEREMONY_NAMES,
@@ -4233,6 +4234,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         self._enforce_phase_rollup_locks(attrs)
         self._enforce_project_span(attrs)
         self._validate_three_point_order(attrs)
+        self._validate_actual_dates(attrs)
         self._validate_estimate_write_permitted(attrs)
         self._validate_product_backlog(attrs)
         self._validate_board_lane(attrs)
@@ -5049,6 +5051,131 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                     }
                 )
 
+    #: Fields whose write arms :meth:`_validate_actual_dates` (ADR-1153).
+    _ACTUAL_DATE_FIELDS: frozenset[str] = frozenset({"actual_start", "actual_finish"})
+
+    #: Statuses on which an ``actual_finish`` may be recorded (ADR-1153 sign-off gate).
+    #: Both mean "delivered" — ``Task._coerce_signoff_percent`` forces them to 100%.
+    _SIGNOFF_STATUSES: frozenset[str] = frozenset({TaskStatus.REVIEW, TaskStatus.COMPLETE})
+
+    def _validate_actual_dates(self, attrs: dict[str, Any]) -> None:
+        """Actual-date invariants (ADR-1153, #3529) — ordering, future bound, sign-off gate.
+
+        Runs **only when the write touches an actual field**, so an unrelated PATCH to a
+        task carrying pre-existing invalid actuals (legacy rows, MS Project imports) is
+        not blocked — the same policy as ``_validate_three_point_order`` and
+        ``_enforce_project_span``. Every rule resolves its operands
+        payload-else-instance so a partial PATCH that crosses an invariant against a
+        *stored* value is still rejected.
+
+        Three rules, each for a different failure the API previously accepted:
+
+        1. **Ordering.** ``actual_start > actual_finish`` is physically impossible input,
+           not out-of-sequence truth. The engine already rejects it
+           (``_validate_task_actual_order``) — but it does so at *compute* time, by
+           raising ``InvalidScheduleInput``, which fails the whole project's recompute
+           rather than the one bad row. Rejecting it at the write boundary is what keeps
+           one PATCH from stranding a project on stale dates.
+        2. **Future bound.** Neither field may exceed
+           ``max(data date, today)``. The data date is ``Project.status_date`` resolved
+           through the single existing helper. ``max`` and not the data date alone
+           because ``status_date`` is routinely **stale** — a project last statused in
+           January still carries January, and bounding at it would reject a PM recording
+           a finish of *today*, the most common legitimate entry. A deliberately
+           *forward*-dated data date still widens the bound, which is the case where
+           honoring it is meaningful.
+        3. **Sign-off gate.** ``actual_finish`` may only be set when the task's effective
+           status is REVIEW or COMPLETE. ``engine._is_complete`` reads completion as
+           ``actual_finish is not None or percent_complete >= 100``, so a finish written
+           onto an in-flight task pins it as complete in CPM while the board still shows
+           it in progress — a contradictory state reachable in a single agent or
+           integration write. This is not new intent:
+           ``_apply_transition_actuals`` already clears ``actual_finish`` on a reopen out
+           of COMPLETE, and ``Task._coerce_signoff_percent`` already treats these two
+           statuses as the ones meaning "delivered". Because the status is resolved
+           payload-else-instance, ``{status: COMPLETE, actual_finish: ...}`` is accepted
+           as one write — only a *bare* finish on an in-flight task is refused.
+
+        A half-populated row — an ``actual_finish`` with no ``actual_start`` — stays
+        **valid by design** (ADR-0136): a task completed without ever being IN_PROGRESS
+        never recorded a start, and the progress-aware CPM pass derives its span backward
+        from the finish. Neither field is ever required.
+
+        The server-written auto-stamps in :meth:`_apply_transition_actuals` are out of
+        reach by construction: ``validate()`` runs before ``update()``, and those helpers
+        write into ``validated_data`` afterwards, so a server ``today`` is never
+        re-validated against a stale data date.
+        """
+        if not (self._ACTUAL_DATE_FIELDS & set(attrs)):
+            return
+
+        instance = self.instance
+        start = attrs.get("actual_start", getattr(instance, "actual_start", None))
+        finish = attrs.get("actual_finish", getattr(instance, "actual_finish", None))
+
+        if start is not None and finish is not None and start > finish:
+            raise serializers.ValidationError(
+                {
+                    "actual_finish": serializers.ErrorDetail(
+                        f"Actual finish cannot be earlier than actual start ({start.isoformat()}).",
+                        code="actual_dates_out_of_order",
+                    )
+                }
+            )
+
+        project = attrs.get("project") or getattr(instance, "project", None)
+        if project is not None:
+            from trueppm_api.apps.scheduling.services import resolve_cpm_status_date
+
+            upper = max(resolve_cpm_status_date(project.status_date), timezone.localdate())
+            for field, label in (
+                ("actual_start", "Actual start"),
+                ("actual_finish", "Actual finish"),
+            ):
+                value = attrs.get(field)
+                if value is None:
+                    continue
+                if value > upper:
+                    raise serializers.ValidationError(
+                        {
+                            field: serializers.ErrorDetail(
+                                f"{label} cannot be in the future (after {upper.isoformat()}).",
+                                code="actual_date_in_future",
+                            )
+                        }
+                    )
+                # Span cap, the same class as the ordering rule above and found by the
+                # same sweep: ``_validate_span_bounds`` rejects an actual more than
+                # MAX_PROJECT_SPAN_DAYS from the project start — measured as an
+                # ABSOLUTE offset, so a date far in the past detonates exactly like one
+                # far in the future. The future bound does not reach that direction, and
+                # a date input carries no floor, so a typed 1900-01-01 would otherwise
+                # be accepted here and fail the project's next recompute (#1068 class).
+                if abs((value - project.start_date).days) > MAX_PROJECT_SPAN_DAYS:
+                    raise serializers.ValidationError(
+                        {
+                            field: serializers.ErrorDetail(
+                                f"{label} is more than {MAX_PROJECT_SPAN_DAYS} days from the "
+                                "project start; the schedule cannot be computed within a "
+                                "representable date range.",
+                                code="actual_date_outside_span",
+                            )
+                        }
+                    )
+
+        if attrs.get("actual_finish") is not None:
+            effective_status = attrs.get("status", getattr(instance, "status", None))
+            if effective_status not in self._SIGNOFF_STATUSES:
+                raise serializers.ValidationError(
+                    {
+                        "actual_finish": serializers.ErrorDetail(
+                            "Actual finish can only be set on a task that is in review or "
+                            "complete.",
+                            code="actual_finish_requires_signoff",
+                        )
+                    }
+                )
+
     def _validate_product_backlog(self, attrs: dict[str, Any]) -> None:
         """Validate ADR-0105 fields: parent-epic membership and the DoR-gated READY move.
 
@@ -5752,8 +5879,12 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
         Status transition rules:
         - Any → IN_PROGRESS: set actual_start = today if currently null
-        - Any → COMPLETE: set actual_finish = today; also set actual_start if null
-        - COMPLETE → reopened (any non-COMPLETE status): clear actual_finish
+        - Any → REVIEW: set actual_finish = today (ADR-1153). actual_start is left
+          alone — ADR-0136 is unchanged; see ``_apply_transition_actuals``
+        - Any → COMPLETE: set actual_finish = today. actual_start is deliberately NOT
+          set (ADR-0136 — the engine derives the span backward from the finish)
+        - REVIEW/COMPLETE → reopened (any non-sign-off status): clear actual_finish.
+          REVIEW ⇄ COMPLETE keeps it — both states mean delivered
         - NOT_STARTED + planned_start ≤ today (no explicit status): auto-promote
           to IN_PROGRESS. The unified Schedule/Board data-model rule (#336) says
           IN_PROGRESS means "actual work has begun" in both views; setting a
@@ -6001,9 +6132,22 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         """Auto-set actual_start/actual_finish/remaining_points for the target status."""
         today = timezone.localdate()
 
-        # Reopening from COMPLETE: clear actual_finish unless explicitly provided.
-        # Checked first so it applies regardless of the target status.
-        if old_status == TaskStatus.COMPLETE and "actual_finish" not in validated_data:
+        # Reopening out of a sign-off state: clear actual_finish unless explicitly
+        # provided. Checked first so it applies regardless of the target status.
+        # REVIEW joined COMPLETE here in ADR-1153 (#3529) and is not separable from
+        # the REVIEW stamp below: stamping a finish on the way into REVIEW without
+        # clearing it on the way out would strand a stale actual_finish on a
+        # REVIEW → IN_PROGRESS reopen, leaving the engine pinning a task as finished
+        # while it is being worked (``engine._is_complete`` reads actual_finish alone).
+        #
+        # Clearing is about REOPENING, which is why the destination matters too: both
+        # sign-off states mean "delivered", so REVIEW ⇄ COMPLETE keeps the recorded
+        # finish rather than clearing and re-stamping it. That preserves the date the
+        # work actually finished (stamped on entry to REVIEW) instead of overwriting it
+        # with the day the PM got round to signing off.
+        leaving_signoff = old_status in (TaskStatus.COMPLETE, TaskStatus.REVIEW)
+        entering_signoff = new_status in (TaskStatus.COMPLETE, TaskStatus.REVIEW)
+        if leaving_signoff and not entering_signoff and "actual_finish" not in validated_data:
             validated_data["actual_finish"] = None
 
         if new_status == TaskStatus.IN_PROGRESS:
@@ -6011,19 +6155,36 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 validated_data["actual_start"] = today
 
         elif new_status == TaskStatus.REVIEW:
-            # REVIEW means "work is done, awaiting sign-off"; do NOT set
-            # actual_finish — that's reserved for the COMPLETE transition.
-            # We also do NOT invent an actual_start: a card that jumped to
-            # done without ever being IN_PROGRESS never recorded a start, and
-            # stamping "today" would collapse the schedule bar (the scheduler
-            # treats a start == finish == today task as a single day). Leaving
-            # it null lets the progress-aware CPM pass derive the historical
-            # full-duration span instead (ADR-0136). A genuine actual_start
-            # recorded at IN_PROGRESS, or an explicit payload value, is kept.
-            pass
+            # REVIEW means "work is done, awaiting sign-off", so the finish date is
+            # known at this moment — stamp it (ADR-1153, #3529). This is the highest
+            # -volume completion path: a contributor marking percent_complete=100 is
+            # auto-routed here by _apply_percent_complete_auto_status, and before
+            # ADR-1153 that path recorded no actuals at all. The row was already
+            # complete to the engine (Task._coerce_signoff_percent forces
+            # percent_complete=100 in this status, and _is_complete reads that), so
+            # this does not newly mark it done — it gives it a real PIN instead of a
+            # full-duration planning position (ADR-0136 _pinned_placement).
+            #
+            # We still do NOT invent an actual_start: a card that jumped to done
+            # without ever being IN_PROGRESS never recorded a start, and stamping
+            # "today" would collapse the schedule bar (the scheduler treats a
+            # start == finish == today task as a single day). Leaving it null lets the
+            # progress-aware CPM pass derive the historical full-duration span
+            # backward from the finish instead (ADR-0136, unchanged by ADR-1153). A
+            # genuine actual_start recorded at IN_PROGRESS, or an explicit payload
+            # value, is kept.
+            if "actual_finish" not in validated_data:
+                validated_data["actual_finish"] = today
 
         elif new_status == TaskStatus.COMPLETE:
-            if "actual_finish" not in validated_data:
+            # Stamp only when no finish is recorded yet — the same "don't overwrite a
+            # real date" rule the IN_PROGRESS branch applies to actual_start. Load-
+            # bearing since ADR-1153 made REVIEW stamp a finish: without the
+            # ``instance.actual_finish is None`` guard, signing off a REVIEW task would
+            # overwrite the date the work actually finished with the day the PM got
+            # round to approving it. It also preserves an imported actual on a legacy
+            # row taken straight to COMPLETE.
+            if "actual_finish" not in validated_data and instance.actual_finish is None:
                 validated_data["actual_finish"] = today
             # Intentionally do not auto-set actual_start here — see the REVIEW
             # branch above. When no real start was recorded the engine derives

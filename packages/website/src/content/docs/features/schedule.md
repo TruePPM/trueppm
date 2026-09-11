@@ -700,12 +700,86 @@ and the drag says so while you hold it: *"Recorded actuals set this task's
 dates — the drop won't move it."* Completion alone does not do this. A task
 marked 100% with no recorded actuals is still scheduled by the network and
 drags normally; it is the actuals, not the checkbox, that pin the dates. To
-move a pinned task, change its actual dates on the task itself.
+move a pinned task, change its actual dates in the task drawer's **Actual
+dates** section — see [Recording and correcting actual
+dates](#recording-and-correcting-actual-dates).
 
 **The keyboard path draws the same line.** Pressing `r` (or `Shift`+`Enter`) on
 a pinned task does not start a reschedule, and says why — the same sentence the
 drag shows, announced to a screen reader. A task complete with no recorded
 actuals starts a keyboard reschedule normally, exactly as it drags normally.
+
+## Recording and correcting actual dates
+
+:::note[Ships in 0.4]
+The **Actual dates** section of the task drawer described here ships in 0.4, along
+with the actual-finish stamp on the In-review transition. Before 0.4 no screen in
+TruePPM writes either field: actual dates are set only by the automatic stamps on
+the In-progress and Complete transitions, and the only way to correct one is an
+MS Project re-import or a direct API call.
+:::
+
+Actual dates are the record of what happened, as opposed to the plan. TruePPM
+stamps them for you on the transitions where the date is unambiguous, and gives
+you one place to correct them when it got the date wrong — which it will, because
+people update the board on Monday for work they finished on Friday.
+
+### What TruePPM records automatically
+
+| Transition | What is recorded |
+|---|---|
+| → **In progress** | **Actual start** = today, if none is on record yet |
+| → **In review** | **Actual finish** = today, if none is on record yet |
+| → **Complete** | **Actual finish** = today, if none is on record yet |
+| **In review** ⇄ **Complete** | Nothing changes — the recorded finish is kept |
+| Reopened out of In review or Complete | **Actual finish** is cleared |
+
+Two things about this table are deliberate and worth stating plainly, because both
+look like omissions.
+
+**Nothing ever invents an actual start.** A card taken straight to done without
+ever passing through In progress has no start date to record, and stamping today
+would collapse its bar to a single day. TruePPM leaves the field empty instead and
+lets the scheduling engine derive the historical span backward from the finish. A
+task with a finish and no start is a correct, complete record — not a gap to fill.
+
+**In review records a finish; Complete does not overwrite it.** "In review" means
+the work is done and awaiting sign-off, so the finish date is known at that moment.
+Sign-off can come days later, and the date that matters is when the work finished,
+not when somebody got round to approving it.
+
+That second rule is the one that changes what a contributor's completion is worth.
+Marking a task 100% moves it to In review, and before 0.4 that path recorded no
+actual dates at all — so the highest-volume way work gets completed produced no
+record of when it happened.
+
+### Correcting a date yourself
+
+Open the task drawer and expand **Actual dates** on the Details tab. Both fields
+are ordinary date pickers; each change saves immediately and re-runs the schedule,
+because an actual date moves where the task sits on the timeline.
+
+Three rules apply, and TruePPM will tell you which one you hit:
+
+- **Actual start cannot be later than actual finish.** Editing either field is
+  checked against whatever the other one currently holds.
+- **Neither date can be in the future.** The ceiling is the project's data date
+  when that is set ahead of today, otherwise today.
+- **Actual finish can only be set on a task that is in review or complete.** On a
+  task still in progress the field is present but inert, and says so. This is not
+  bureaucracy: the scheduling engine reads a recorded finish as "this task is
+  done" and pins the task's dates to it, so a finish on a running task would show
+  the work as complete on the timeline while the board still shows it in flight.
+  Moving the task and setting the date in the same edit is fine — it is only a
+  bare finish date on a running task that is refused.
+
+If you can view a project but not edit it, the section shows the recorded dates as
+plain text.
+
+There is **no dialog on any completion path**. Marking a task complete inline,
+dragging a card to Done, and bulk-completing a selection all behave exactly as they
+did — none of them stops to ask you for dates. The drawer is the correction path,
+and it is somewhere you go on purpose.
 
 ## Forecast & sensitivity
 

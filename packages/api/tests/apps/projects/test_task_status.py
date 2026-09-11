@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -445,8 +446,12 @@ def test_contributor_progress_100_routes_to_review(
     # actual_start was set when the task went IN_PROGRESS above; the REVIEW
     # transition itself no longer stamps it (ADR-0136).
     assert task.actual_start == date(2026, 4, 1)
-    # actual_finish stays null — sign-off has not happened yet
-    assert task.actual_finish is None
+    # ADR-1153 (#3529): the REVIEW transition DOES stamp actual_finish. This is the
+    # highest-volume completion path — before it, a contributor marking 100% recorded
+    # no actuals at all. REVIEW means "work is done, awaiting sign-off", so the finish
+    # date is known here; the row was already complete to the engine (percent_complete
+    # is coerced to 100 in this status) and only lacked a pin.
+    assert task.actual_finish == timezone.localdate()
 
 
 # ---------------------------------------------------------------------------
@@ -732,8 +737,8 @@ def test_reopen_complete_task_clears_actual_finish(
 def test_review_transition_preserves_in_progress_actual_start(
     client: APIClient, project: Project, task: Task, membership: ProjectMembership
 ) -> None:
-    """A REVIEW transition keeps the actual_start recorded at IN_PROGRESS, and never
-    sets actual_finish (sign-off has not happened)."""
+    """A REVIEW transition keeps the actual_start recorded at IN_PROGRESS, and stamps
+    actual_finish (ADR-1153) — the finish date is known the moment work is done."""
     task.status = TaskStatus.IN_PROGRESS
     task.actual_start = date(2026, 4, 1)
     task.save()
@@ -747,7 +752,7 @@ def test_review_transition_preserves_in_progress_actual_start(
     task.refresh_from_db()
     assert task.status == TaskStatus.REVIEW
     assert task.actual_start == started
-    assert task.actual_finish is None
+    assert task.actual_finish == timezone.localdate()
 
 
 @pytest.mark.django_db
@@ -756,7 +761,10 @@ def test_review_transition_without_prior_start_leaves_actual_start_null(
 ) -> None:
     """A card taken straight to REVIEW without ever being IN_PROGRESS records no
     actual_start — stamping "today" would collapse the schedule bar; the engine
-    derives the full-duration span instead (ADR-0136)."""
+    derives the full-duration span backward from the finish instead (ADR-0136,
+    unchanged by ADR-1153). The finish itself IS stamped, so the row is pinned at a
+    real date rather than taking a planning position: that half-populated shape is
+    the design, not a gap."""
     assert task.status != TaskStatus.IN_PROGRESS
     assert task.actual_start is None
     with (
@@ -768,7 +776,7 @@ def test_review_transition_without_prior_start_leaves_actual_start_null(
     task.refresh_from_db()
     assert task.status == TaskStatus.REVIEW
     assert task.actual_start is None
-    assert task.actual_finish is None
+    assert task.actual_finish == timezone.localdate()
 
 
 @pytest.mark.django_db
