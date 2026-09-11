@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { compareCodeUnits } from '../../src/lib/compareStrings';
+
 /**
  * Reads `docs/api/openapi.json` and answers one question: *for this request URL
  * and status, what shape would the real server send?*
@@ -223,5 +225,5 @@ export function allOperationKeys(): string[] {
       if (HTTP_METHODS.has(verb)) keys.push(`${verb.toUpperCase()} ${entry.template}`);
     }
   }
-  return keys.sort();
+  return keys.sort(compareCodeUnits);
 }
