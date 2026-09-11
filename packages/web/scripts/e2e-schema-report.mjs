@@ -29,6 +29,18 @@ function normalizeAt(at) {
   return (at || '<root>').replace(/\[\d+\]/g, '[]');
 }
 
+/**
+ * Deterministic UTF-16 code-unit order — stable across engines and locales.
+ * A plain node script cannot import the shared `src/lib/compareStrings.ts`
+ * helper without a TS loader, so this mirrors it: the ledger and waiver
+ * output below feed a generated TS source file, where the order needs to be
+ * canonical for a stable diff, not locale-sensitive.
+ */
+function compareCodeUnits(a, b) {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
 export function aggregate(ndjson) {
   const rows = ndjson
     .split('\n')
@@ -84,11 +96,11 @@ function render({ rows, ok, violating, waived, skipped, ledger }) {
 
 function renderWaivers({ ledger }) {
   const out = ['export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> = {'];
-  for (const [operationKey, entries] of [...ledger].sort()) {
+  for (const [operationKey, entries] of [...ledger].sort((a, b) => compareCodeUnits(a[0], b[0]))) {
     out.push(`  '${operationKey}': {`);
     out.push(`    reason: 'TODO — why this is still served, and the issue that removes it',`);
     out.push(`    allow: [`);
-    for (const key of [...entries.keys()].sort()) out.push(`      '${key}',`);
+    for (const key of [...entries.keys()].sort(compareCodeUnits)) out.push(`      '${key}',`);
     out.push(`    ],`);
     out.push(`  },`);
   }

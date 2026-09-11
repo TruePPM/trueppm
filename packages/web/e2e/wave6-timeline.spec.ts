@@ -225,7 +225,9 @@ async function setup(page: Page, memberRows = MEMBER_SCHEDULER) {
       body: JSON.stringify({
         avg_utilization_pct: 0,
         over_allocated_count: 0,
-        over_allocated_weeks: null,
+        // '' not null: the server always emits a string (empty when nothing is
+        // over-allocated — ProjectViewSet.resources_summary's `over_weeks_str`).
+        over_allocated_weeks: '',
         under_utilized_count: 0,
         under_utilized_names: [],
         headcount: 0,

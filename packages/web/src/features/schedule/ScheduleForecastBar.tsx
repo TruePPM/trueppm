@@ -336,7 +336,7 @@ export function ScheduleForecastBar({ projectId, tasks, cpmFinish }: Props) {
               </span>
             ) : (
               result.lastRunAt && (
-                <span className="text-xs text-neutral-text-disabled tppm-mono whitespace-nowrap">
+                <span className="text-xs text-neutral-text-secondary tppm-mono whitespace-nowrap">
                   {formatRelative(new Date(result.lastRunAt))}
                 </span>
               )

@@ -252,10 +252,18 @@ async function gotoSchedule(page: Page, opts: { role?: number; canEdit?: boolean
     }),
   );
   await page.route('**/api/v1/projects/*/velocity/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sprints: [] }) }),
   );
+  // #3680: a literal `null` 200 body doesn't match the endpoint's declared
+  // response schema (and never matched the real API either — no run yet is a
+  // 404, see useMonteCarloResult). This spec doesn't assert on forecast data,
+  // it only needs the route mocked so the shell doesn't 401-churn.
   await page.route('**/api/v1/projects/*/monte-carlo/latest/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(null) }),
+    route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ detail: 'No simulation result available.' }),
+    }),
   );
   await page.route('**/api/v1/projects/*/visit/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) }),
