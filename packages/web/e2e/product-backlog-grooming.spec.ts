@@ -86,7 +86,7 @@ function groomingPayload(empty = false) {
             prioritization_score: 3.5,
             // Committed to a sprint → "Pulled" chip; assigned → initials avatar.
             sprint: 'SP1',
-            assignments: [{ resource_id: 'R1', resource_name: 'Lena Bauer', units: 1 }],
+            assignments: [{ resource_id: 'R1', resource_name: 'Lena Bauer', units: '1.00' }],
           }),
           apiStory({
             id: 'S2',

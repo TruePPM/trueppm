@@ -96,15 +96,14 @@ function apiStory(over: Record<string, unknown>) {
     is_critical: false,
     is_milestone: false,
     is_summary: false,
-    assignees: [],
     assignments: [],
     total_float: null,
     predecessor_count: 0,
     is_blocked: false,
     linked_risks_count: 0,
     linked_risks_max_severity: null,
-    ac_met: 0,
-    ac_total: 0,
+    criteria_met_count: 0,
+    criteria_total: 0,
     ...over,
   };
 }
