@@ -5,7 +5,10 @@ Three Beat-scheduled tasks:
 - ``drain_notification_emails`` — every 30 s, finds Notification rows with
   ``email_pending=True`` older than the 5-min orphan window, renders an email
   for each, sends via SMTP, and updates delivery state. Best-effort — broker
-  outage logs but doesn't propagate.
+  outage logs but doesn't propagate. Re-checks the recipient's account and
+  project-membership status at drain time, not just at creation time (#3523,
+  #3675) — a row queued before an off-boarding or a project removal is
+  retired unsent rather than delivered on a stale grant.
 
 - ``archive_old_notifications`` — nightly, sets ``is_archived=True`` on any
   Notification older than 90 days that has ``is_read=True``. Keeps the
@@ -221,6 +224,89 @@ def _drain_batch_size(email_settings: Any) -> int:
     )
 
 
+def _current_project_membership_exists() -> Any:
+    """Correlated ``EXISTS(ProjectMembership …)`` for a notification's (recipient, project).
+
+    Shared by :func:`_retire_pending_for_revoked_membership` and the pending-row
+    query in :func:`_do_drain_emails` so both express the same boundary
+    ``NotificationSerializer._recipient_can_see_project`` (#3510) enforces on
+    read — as one correlated subquery attached to whatever outer
+    ``Notification`` queryset calls this, never a per-row Python-side lookup
+    (#3675 review note: this drain processes a whole batch per 30 s tick, so an
+    N+1 here scales with backlog size).
+
+    ``is_deleted=False`` matches the serializer predicate exactly: a soft-deleted
+    (revoked) ``ProjectMembership`` row does not count as current membership.
+    """
+    from django.db.models import Exists, OuterRef
+
+    from trueppm_api.apps.access.models import ProjectMembership
+
+    return Exists(
+        ProjectMembership.objects.filter(
+            user_id=OuterRef("recipient_id"),
+            project_id=OuterRef("project_id"),
+            is_deleted=False,
+        )
+    )
+
+
+def _retire_pending_for_revoked_membership() -> int:
+    """Retire queued emails whose recipient has since lost project membership (#3675).
+
+    Mirrors :func:`_retire_pending_for_deactivated_recipients` (#3523) for the
+    membership axis rather than the account-active axis. ``_render_email`` /
+    ``_send_email_for_notification`` read ``Notification.subject``/``.body``
+    straight off the frozen row and mail them via SMTP without ever consulting
+    ``NotificationSerializer._recipient_can_see_project`` (#3510) — so a member
+    removed from ``obj.project`` during the orphan-window-plus-retry gap between
+    a notification's creation and its eventual successful send still received a
+    plaintext email naming a project/task they can no longer see through the API.
+    Fixing the REST read path (#3510) does not reach this channel because it
+    never goes through the serializer at all.
+
+    A row with no project (``project_id IS NULL`` — the ADR-0663 account-scoped
+    digest shape) has no membership boundary to check and is left untouched,
+    matching ``_recipient_can_see_project``'s own "falls open with no project"
+    rule.
+
+    **Retired, not failed** — same terminal-state reasoning as #3523: only
+    ``email_pending`` is cleared here. ``email_attempts`` and ``email_failed_at``
+    are deliberately left untouched, so ``observability.selectors.
+    notification_email_signals``'s ``failed_recent`` signal (``email_pending=
+    False`` AND ``email_attempts >= EMAIL_MAX_RETRIES`` AND a recent
+    ``email_failed_at``) never reports a deliberate privacy suppression as an
+    SMTP/mail-relay failure, and the row does not sit in ``queued_aging`` forever
+    either (it reaches a terminal state instead of parking in the backlog).
+
+    Resolved as a single ``UPDATE … WHERE NOT EXISTS (…)`` rather than one
+    membership query per row — the drain runs every 30 s over the whole pending
+    backlog, so a per-row check would multiply with backlog size.
+
+    Returns:
+        The number of rows retired — 0 on every tick where no pending recipient
+        has lost project access, the steady state.
+    """
+    from .models import Notification
+
+    retired: int = (
+        Notification.objects.filter(
+            email_pending=True,
+            email_sent_at__isnull=True,
+            project_id__isnull=False,
+        )
+        .exclude(_current_project_membership_exists())
+        .update(email_pending=False)
+    )
+    if retired:
+        logger.info(
+            "drain_notification_emails: retired %d queued email(s) for recipient(s) "
+            "no longer a member of the notification's project",
+            retired,
+        )
+    return retired
+
+
 def _retire_pending_for_deactivated_recipients() -> int:
     """Retire queued emails whose recipient has since been deactivated (#3523).
 
@@ -282,6 +368,7 @@ def _do_drain_emails() -> None:
     orphan_cutoff = now - timedelta(minutes=EMAIL_ORPHAN_WINDOW_MINUTES)
 
     _retire_pending_for_deactivated_recipients()
+    _retire_pending_for_revoked_membership()
 
     # Read the operator's delivery limits BEFORE the query, because they bound it
     # (#2860). max_recipients and throttle_per_min persisted, validated and rendered
@@ -298,6 +385,8 @@ def _do_drain_emails() -> None:
     if granted <= 0:
         return
 
+    from django.db.models import Q
+
     pending = list(
         Notification.objects.filter(
             email_pending=True,
@@ -310,6 +399,12 @@ def _do_drain_emails() -> None:
             # this SELECT, where the only safe default is not to send.
             recipient__is_active=True,
         )
+        # Fail closed on the membership axis (#3675), same reasoning: the retirement
+        # pass above already cleared rows whose recipient lost project access, this
+        # is the backstop for a revocation landing in the gap between that UPDATE and
+        # this SELECT. A row with no project (account-scoped digests) has no
+        # membership boundary and always passes.
+        .filter(_current_project_membership_exists() | Q(project_id__isnull=True))
         .select_related("recipient", "mention", "mention__task_comment", "mention__mentioner")
         .order_by("created_at")[:granted]
     )
