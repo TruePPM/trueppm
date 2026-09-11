@@ -446,7 +446,11 @@ test.describe('Programs — shell nav', () => {
       return route.fulfill({
         status: 202,
         contentType: 'application/json',
-        body: JSON.stringify({ project_id: NEW_PROJECT_ID, detail: 'Import queued.' }),
+        body: JSON.stringify({
+          queued: true,
+          project_id: NEW_PROJECT_ID,
+          import_request_id: 'e2e-imported-project-import-req-001',
+        }),
       });
     });
 

@@ -10,8 +10,8 @@ import re
 from django.conf import settings
 from django.db import transaction
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import status
+from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
+from rest_framework import serializers, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -112,9 +112,12 @@ class JiraImportView(IdempotencyMixin, APIView):
         summary="Import a Jira XML export into an existing project",
         request=OpenApiTypes.BINARY,
         responses={
-            202: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description='Import queued; body is {"detail", "import_request_id"}.',
+            202: inline_serializer(
+                name="JiraImportQueuedResponse",
+                fields={
+                    "detail": serializers.CharField(),
+                    "import_request_id": serializers.UUIDField(),
+                },
             ),
             400: OpenApiResponse(description="Missing or invalid upload (wrong type/too large)."),
             403: OpenApiResponse(description="Caller lacks the Admin role on the project."),
