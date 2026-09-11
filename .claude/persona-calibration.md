@@ -46,6 +46,44 @@ personas are most likely to be wrong about. Read every hit rate below as an uppe
 
 ---
 
+## Pending assumptions (scoreable at the next cycle)
+
+An assumption recorded here is not yet a cycle entry — no real-user signal exists to
+score it against. It is documented in advance, with its falsification line fixed
+*before* the data arrives, per the rule above ("Only findings that carried a
+falsification line can be scored"). Move an entry out of this section and into a dated
+cycle entry once it is actually scored; do not backfill the falsification line after
+the fact.
+
+### Task ceiling assumption (#3388)
+
+**Claim:** projects in TruePPM's declared market do not exceed the ~1,000-task
+Schedule ceiling (`administration/sizing.md`) often enough to matter. This is
+load-bearing for the roadmap and is held at **T0 (modeled)** — see the Sarah persona's
+2026-07 revision in `personas.md`, which moved "schedules above ~1,000 activities" from
+a job requirement into the documented-gap list on modeled evidence alone.
+
+**Falsifies the ceiling assumption:** two or more independent reports of a project
+above 1,000 tasks in the first calibration cycle, from users who were not prompted
+about size.
+
+**Confirms it:** a cycle in which project size is never volunteered as a limitation.
+Score a confirming cycle as *weak* evidence only, and say so in the entry — per the
+Standing limitation above, the population that would falsify this leaves silently by
+construction, so silence is not proof.
+
+**Inputs now available (#3388):**
+- The CSV/Excel import preview warns when a file would carry a project past the
+  ~1,000-task line, and the Schedule shows a dismissible banner when a project is
+  already past it. Both are pure UI, nothing transmitted (shipped part 1).
+- The report-a-bug prefill (#2392) includes the task count of the project in view, when
+  the page already has it cached, in the editable body the user submits themselves
+  (shipped part 2). This is a channel, not a measurement — see its own doc comment
+  (`packages/web/src/lib/feedbackContext.ts`) for why it will never be a complete
+  sample.
+- Part 3 (asking directly on the hosted demo) is **deferred**, blocked on the demo
+  deployment itself (#2271) — not yet an available input.
+
 ## Cycle entries
 
 ### Pre-0.4 — baseline (no data)
@@ -58,6 +96,7 @@ with no real corroboration. That is a legitimate pre-launch position — it is r
 here so it is never mistaken for a validated one.
 
 **First real entry is due after 0.4 reaches users.** Inputs available at that point:
-the in-product feedback link (#2392), issues filed by self-hosting operators, and the
-hosted demo. Until that entry exists, no persona may be raised above T0 and no VoC
-output may claim corroboration.
+the in-product feedback link (#2392, now including project size per #3388), issues
+filed by self-hosting operators, and the hosted demo (once #2271 ships). Until that
+entry exists, no persona may be raised above T0 and no VoC output may claim
+corroboration.

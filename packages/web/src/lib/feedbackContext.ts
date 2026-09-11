@@ -9,9 +9,12 @@
  *
  * **What travels, and what deliberately does not.** The context is the minimum
  * that makes a report actionable: which build, which edition, which *surface*,
- * which browser. It carries no workspace, program, project or task identifier,
- * no user identity, and no schedule content — the route *path* tells us where
- * the user was without telling us what they were looking at.
+ * which browser, and — since #3388 — how many tasks are in the project the
+ * reporter is looking at. It carries no workspace, program, project or task
+ * identifier, no user identity, and no schedule content — the route *path*
+ * tells us where the user was without telling us what they were looking at,
+ * and the task count is a bare number with nothing to trace it back to a
+ * specific project once it lands on the tracker.
  */
 
 /** The default public tracker. Not stored in the DB — see `Workspace.feedback_url`. */
@@ -24,6 +27,21 @@ export interface FeedbackContext {
   /** Route path only — no query string, no fragment, no ids. */
   routePath: string;
   userAgent: string;
+  /**
+   * Task count of the project currently in view (#3388), sourced from data the
+   * page has already fetched — never a dedicated request the dialog triggers
+   * itself. `undefined` when the caller is not on a project route, or is but
+   * the count is not yet warm in cache; the field is simply omitted from the
+   * body rather than reported as zero, which would be a lie about a project
+   * that just hasn't loaded its tasks yet.
+   *
+   * This is a channel, not a measurement: only reports that are filed at all,
+   * from projects whose task list happened to be cached at that moment, ever
+   * surface here. See `.claude/persona-calibration.md`'s "task ceiling"
+   * assumption for what this is evidence toward and what it structurally
+   * cannot see.
+   */
+  taskCount?: number;
 }
 
 /**
@@ -74,6 +92,35 @@ function looksLikeIdentifier(seg: string): boolean {
   return seg.length >= 16 && /\d/.test(seg);
 }
 
+const PROJECT_ID_PATH_RE = /^\/projects\/([^/]+)(?:\/|$)/;
+
+/**
+ * Pull the project id out of a route, for a cache lookup only (#3388) — never
+ * for the reported body, which strips it via {@link sanitizeRoutePath}.
+ *
+ * Matches any non-empty segment, not just the canonical UUID shape: the
+ * router declares exactly one route under `/projects/` — `projects/:projectId`
+ * (see `router.tsx`), with no fixed keyword segment (no `/projects/new`) that
+ * a broader match could collide with — so whatever sits there always *is* the
+ * project id, canonical UUID in production or a human-readable fixture id in
+ * tests. A regex requiring the strict UUID shape would silently never fire
+ * against this codebase's own e2e fixtures (`e2e-feedback-0000-...`), which
+ * is exactly the false-negative direction this function is supposed to prefer
+ * — just not for a reason this narrow. Still stricter than
+ * {@link looksLikeIdentifier} in one way: it only ever reads the segment the
+ * route itself declares as the id, so there's nothing here for a false
+ * *positive* to misfire against.
+ */
+export function extractProjectId(href: string): string | null {
+  let path: string;
+  try {
+    path = new URL(href, 'http://localhost').pathname;
+  } catch {
+    path = href.split('?')[0]?.split('#')[0] ?? '/';
+  }
+  return PROJECT_ID_PATH_RE.exec(path)?.[1] ?? null;
+}
+
 /**
  * The issue body, shown verbatim in-app before the user leaves.
  *
@@ -103,6 +150,13 @@ export function buildFeedbackBody(ctx: FeedbackContext): string {
     `- Edition: ${ctx.edition}`,
     `- Screen: ${ctx.routePath}`,
     `- Browser: ${ctx.userAgent}`,
+    // Omitted rather than reported as 0 when unknown (#3388) — see the field's
+    // own doc comment. Line order keeps it last: everything above is always
+    // present, so a reader scanning for "did they include project size" finds
+    // it (or its absence) at a fixed spot.
+    ...(ctx.taskCount === undefined
+      ? []
+      : [`- Project size: ${ctx.taskCount.toLocaleString()} tasks`]),
   ].join('\n');
 }
 
@@ -127,6 +181,7 @@ export function collectFeedbackContext(input: {
   buildSha: string;
   href: string;
   userAgent: string;
+  taskCount?: number;
 }): FeedbackContext {
   return {
     version: input.version,
@@ -134,5 +189,6 @@ export function collectFeedbackContext(input: {
     buildSha: input.buildSha,
     routePath: sanitizeRoutePath(input.href),
     userAgent: input.userAgent,
+    taskCount: input.taskCount,
   };
 }
