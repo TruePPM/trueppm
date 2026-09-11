@@ -127,19 +127,20 @@ test.describe('e2e schema guard — the oracle resolves', () => {
   });
 
   test('a free-form declared schema is reported as free-form, never as a pass', () => {
-    // 36 operations declare `{"type":"object"}` with no properties (46 before
-    // #3679 typed the 13 projects analytics/rollup reads — #3652's own
-    // sub-issue A). A mock for one of them cannot be wrong here, and calling
-    // that "checked" is the exact "the guard's existence is read as coverage"
-    // failure this issue is an instance of. monte-carlo/latest/ is used as the
-    // illustrative example rather than overview/ (#3679 gave overview/ a real
-    // schema, so it no longer demonstrates this case).
-    const monteCarloLatest = resolveResponseSchema(
+    // Only 2 operations still declare `{"type":"object"}` with no properties,
+    // down from 46 before #3679 typed the projects analytics/rollup reads and
+    // #3680 typed the Monte Carlo endpoints (#3652's own sub-issue A). A mock
+    // for one of them cannot be wrong here, and calling that "checked" is the
+    // exact "the guard's existence is read as coverage" failure this issue is
+    // an instance of. projects/{id}/export/ is used as the illustrative
+    // example — a downloadable seed document with no fixed response shape —
+    // rather than overview/ or monte-carlo/latest/ (both now typed for real).
+    const projectExport = resolveResponseSchema(
       'GET',
-      'http://127.0.0.1:4173/api/v1/projects/p1/monte-carlo/latest/',
+      'http://127.0.0.1:4173/api/v1/projects/p1/export/',
       200,
     );
-    expect(monteCarloLatest.kind === 'skipped' && monteCarloLatest.reason).toBe(
+    expect(projectExport.kind === 'skipped' && projectExport.reason).toBe(
       'free-form-schema',
     );
     expect(isFreeForm({ type: 'object' })).toBe(true);
