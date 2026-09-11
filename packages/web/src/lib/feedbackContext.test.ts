@@ -11,6 +11,7 @@ import {
   buildFeedbackBody,
   buildFeedbackUrl,
   collectFeedbackContext,
+  extractProjectId,
   DEFAULT_FEEDBACK_URL,
 } from './feedbackContext';
 
@@ -104,6 +105,74 @@ describe('buildFeedbackBody — what must NOT travel', () => {
     expect(body).not.toContain('Acme');
     expect(body).not.toContain('payroll');
     expect(body).not.toContain('u-77');
+  });
+});
+
+describe('extractProjectId — a cache key, never a reported field (#3388)', () => {
+  it('reads the project id out of a project route', () => {
+    expect(extractProjectId('/projects/3f2504e0-4f89-11d3-9a0c-0305e82c3301/board')).toBe(
+      '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+    );
+  });
+
+  it('works from a full URL, query string and all', () => {
+    expect(
+      extractProjectId(
+        'https://app.example.com/projects/3f2504e0-4f89-11d3-9a0c-0305e82c3301/schedule?q=x',
+      ),
+    ).toBe('3f2504e0-4f89-11d3-9a0c-0305e82c3301');
+  });
+
+  it('returns null off a project route', () => {
+    expect(extractProjectId('/me/work')).toBeNull();
+    expect(extractProjectId('/programs/3f2504e0-4f89-11d3-9a0c-0305e82c3301/overview')).toBeNull();
+  });
+
+  it('matches a non-UUID fixture id too — the route has only one shape under /projects/', () => {
+    // `router.tsx` declares exactly one route here (`projects/:projectId`, no
+    // `/projects/new`-style keyword to collide with), so whatever segment sits
+    // there IS the project id — canonical UUID in production, a
+    // human-readable id in this repo's own e2e fixtures.
+    expect(extractProjectId('/projects/e2e-feedback-0000-0000-0000-000000002392/schedule')).toBe(
+      'e2e-feedback-0000-0000-0000-000000002392',
+    );
+  });
+});
+
+describe('buildFeedbackBody — task count (#3388)', () => {
+  it('reports the task count when known', () => {
+    const body = buildFeedbackBody({ ...CTX, taskCount: 1234 });
+    expect(body).toContain('Project size: 1,234 tasks');
+  });
+
+  it('omits the line entirely when the count is unknown, rather than reporting 0', () => {
+    const body = buildFeedbackBody(CTX);
+    expect(body).not.toContain('Project size');
+  });
+});
+
+describe('collectFeedbackContext — task count passthrough (#3388)', () => {
+  it('carries the task count straight through', () => {
+    const ctx = collectFeedbackContext({
+      version: '0.4.0',
+      edition: 'community',
+      buildSha: 'sha',
+      href: '/projects/3f2504e0-4f89-11d3-9a0c-0305e82c3301/schedule',
+      userAgent: 'UA',
+      taskCount: 42,
+    });
+    expect(ctx.taskCount).toBe(42);
+  });
+
+  it('leaves it undefined when the caller did not supply one', () => {
+    const ctx = collectFeedbackContext({
+      version: '0.4.0',
+      edition: 'community',
+      buildSha: 'sha',
+      href: '/me/work',
+      userAgent: 'UA',
+    });
+    expect(ctx.taskCount).toBeUndefined();
   });
 });
 

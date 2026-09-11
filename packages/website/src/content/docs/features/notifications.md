@@ -296,6 +296,39 @@ user by construction (the queryset filters on `recipient=request.user`) —
 there is no cross-user access and no admin surface to edit another member's
 routing; each person owns their own notification contract.
 
+### What an inbox row shows once you are not a member (ships in 0.4)
+
+A delivered notification is a record that a message was sent, not a live view
+of the project — so the row is kept, and its **contents** are redacted instead.
+From the 0.4 beta onward, every read of a row whose project you are not a
+*current* member of will return:
+
+| Field | What you get |
+|---|---|
+| `subject`, `body`, `snippet` | `""` — the free text that names the project, the task or the comment |
+| `project` | `null` |
+| `task_id`, `mention.task_comment` | `null` — the deep link and the source-comment reference |
+| `id`, `created_at`, `event_type`, `category`, read/archive state | unchanged — the row is still yours, still readable, still archivable |
+| `mention.mentioner`, `mention.mentioned_group_key`, `mention.scope` | unchanged — who pinged you and which group it came through |
+
+Two different people land here, and both get the same answer. One is a member
+whose access was removed: their inbox stops naming a project they can no longer
+open, but does not silently lose history. The other has **never** been a member
+— a `@program-pms` or `@program-all` mention fans out across a program, so it
+reaches people in sibling projects, and for them the row is the point. They are
+told they were pinged, by whom, and through which group; they are not shown one
+project's comment body, task or comment id.
+
+The identifiers are dropped because nobody in either group can use one. Reading
+a task or a comment re-checks live project membership on its own endpoint, so a
+`task_id` handed to a non-member opens nothing. Keeping it would be a reference
+to content you cannot reach, which is worth nothing to you and is worth
+something to anyone who gets hold of your inbox.
+
+Rows with no project at all are never redacted — the weekly digests are scoped
+to your whole membership set rather than one project, so there is no membership
+boundary to check them against.
+
 ## See also
 
 - [Task collaboration](/features/task-collaboration/) — how a comment becomes

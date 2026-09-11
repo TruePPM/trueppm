@@ -360,6 +360,237 @@ class TestDeactivatedRecipientRetirement:
 
 
 # ---------------------------------------------------------------------------
+# Queued mail for a recipient revoked from the notification's project (#3675)
+# ---------------------------------------------------------------------------
+
+
+class TestRevokedMembershipRetirement:
+    """A member removed *during* the retry window must not still get mailed.
+
+    ``_render_email``/``_send_email_for_notification`` read ``subject``/``body``
+    straight off the frozen row and never consult ``_recipient_can_see_project``
+    (#3510) — that fix only reaches the REST read path. This drain is the
+    unguarded egress #3675 tracks.
+    """
+
+    @pytest.mark.django_db
+    def test_pending_row_for_a_revoked_recipient_is_never_sent(
+        self,
+        recipient: object,
+        project: Project,
+        project_members: dict[str, ProjectMembership],
+        comment: TaskComment,
+        author: object,
+    ) -> None:
+        notif = _make_pending_notification(
+            recipient=recipient, project=project, comment=comment, author=author
+        )
+        ProjectMembership.objects.filter(project=project, user=recipient).update(is_deleted=True)
+
+        with patch("django.core.mail.EmailMessage.send") as send:
+            _do_drain_emails()
+
+        assert send.call_count == 0
+        notif.refresh_from_db()
+        assert notif.email_sent_at is None
+
+    @pytest.mark.django_db
+    def test_the_row_is_retired_rather_than_left_pending(
+        self,
+        recipient: object,
+        project: Project,
+        project_members: dict[str, ProjectMembership],
+        comment: TaskComment,
+        author: object,
+    ) -> None:
+        """Excluding it from the query alone would age it into ``queued_aging``
+        (see ``TestDeactivatedRecipientRetirement`` — same reasoning, membership
+        axis). The transport is mocked as down so a broken build that skips the
+        membership check but happens to fail SMTP for another reason doesn't
+        pass this by accident; only a fix that actively retires the row lands on
+        ``email_pending=False`` with no send attempted.
+        """
+        notif = _make_pending_notification(
+            recipient=recipient, project=project, comment=comment, author=author
+        )
+        ProjectMembership.objects.filter(project=project, user=recipient).update(is_deleted=True)
+
+        with patch("django.core.mail.EmailMessage.send", side_effect=OSError("smtp down")) as send:
+            _do_drain_emails()
+
+        assert send.call_count == 0
+        notif.refresh_from_db()
+        assert notif.email_pending is False
+        assert notif.email_sent_at is None
+
+    @pytest.mark.django_db
+    def test_retirement_is_not_recorded_as_a_delivery_failure(
+        self,
+        recipient: object,
+        project: Project,
+        project_members: dict[str, ProjectMembership],
+        comment: TaskComment,
+        author: object,
+    ) -> None:
+        """``failed_recent`` must not count a privacy suppression as a broken relay.
+
+        Seeded one attempt below the ceiling and run against a dead transport, so
+        on the unfixed drain this row burns its last retry and lands on exactly
+        the ``failed_recent`` state being asserted against.
+        """
+        notif = _make_pending_notification(
+            recipient=recipient,
+            project=project,
+            comment=comment,
+            author=author,
+            attempts=EMAIL_MAX_RETRIES - 1,
+        )
+        ProjectMembership.objects.filter(project=project, user=recipient).update(is_deleted=True)
+
+        with patch("django.core.mail.EmailMessage.send", side_effect=OSError("smtp down")):
+            _do_drain_emails()
+
+        notif.refresh_from_db()
+        assert notif.email_pending is False  # retired
+        assert notif.email_attempts == EMAIL_MAX_RETRIES - 1  # no retry burned
+        assert notif.email_failed_at is None  # not a delivery failure
+
+    @pytest.mark.django_db
+    def test_the_inbox_row_itself_survives(
+        self,
+        recipient: object,
+        project: Project,
+        project_members: dict[str, ProjectMembership],
+        comment: TaskComment,
+        author: object,
+    ) -> None:
+        """Only the outbound email channel is closed; the durable in-app record
+        (already redacted on read by #3510) is not deleted."""
+        notif = _make_pending_notification(
+            recipient=recipient, project=project, comment=comment, author=author
+        )
+        ProjectMembership.objects.filter(project=project, user=recipient).update(is_deleted=True)
+
+        with patch("django.core.mail.EmailMessage.send", side_effect=OSError("smtp down")):
+            _do_drain_emails()
+
+        assert Notification.objects.filter(pk=notif.pk).exists()
+
+    @pytest.mark.django_db
+    def test_a_current_members_queued_mail_still_drains(
+        self,
+        recipient: object,
+        project: Project,
+        project_members: dict[str, ProjectMembership],
+        comment: TaskComment,
+        author: object,
+    ) -> None:
+        """Guard against over-blocking: the retirement pass must claim only the
+        revoked recipient's rows, not every pending row in the project."""
+        removed = User.objects.create_user(username="gone", password="pw", email="gone@x.io")
+        ProjectMembership.objects.create(project=project, user=removed, role=Role.MEMBER)
+        revoked = _make_pending_notification(
+            recipient=removed, project=project, comment=comment, author=author
+        )
+        current = _make_pending_notification(
+            recipient=recipient, project=project, comment=comment, author=author
+        )
+        ProjectMembership.objects.filter(project=project, user=removed).update(is_deleted=True)
+
+        with patch("django.core.mail.EmailMessage.send", return_value=1) as send:
+            _do_drain_emails()
+
+        assert send.call_count == 1
+        current.refresh_from_db()
+        revoked.refresh_from_db()
+        assert current.email_sent_at is not None
+        assert revoked.email_sent_at is None
+        assert revoked.email_pending is False
+
+    @pytest.mark.django_db
+    def test_project_scoped_but_never_a_member_row_is_suppressed(
+        self,
+        project: Project,
+        comment: TaskComment,
+        author: object,
+    ) -> None:
+        """No ``ProjectMembership`` row at all (never a member) must behave the
+        same as a soft-deleted one — the predicate is "current member", not
+        "not explicitly revoked"."""
+        outsider = User.objects.create_user(username="outsider", password="pw", email="o@x.io")
+        notif = _make_pending_notification(
+            recipient=outsider, project=project, comment=comment, author=author
+        )
+
+        with patch("django.core.mail.EmailMessage.send") as send:
+            _do_drain_emails()
+
+        assert send.call_count == 0
+        notif.refresh_from_db()
+        assert notif.email_pending is False
+        assert notif.email_failed_at is None
+
+    @pytest.mark.django_db
+    def test_account_scoped_row_with_no_project_still_drains(
+        self,
+        recipient: object,
+        author: object,
+    ) -> None:
+        """A row with no owning project (ADR-0663 account-scoped digest shape)
+        has no membership boundary to check and must not be swept up."""
+        notif = Notification.objects.create(
+            recipient=recipient,
+            project=None,
+            event_type="digest.weekly",
+            subject="Your weekly digest",
+            body="Nothing to report.",
+            email_pending=True,
+        )
+        Notification.objects.filter(pk=notif.pk).update(
+            created_at=timezone.now() - timedelta(minutes=10)
+        )
+
+        with patch("django.core.mail.EmailMessage.send", return_value=1) as send:
+            _do_drain_emails()
+
+        assert send.call_count == 1
+        notif.refresh_from_db()
+        assert notif.email_sent_at is not None
+
+    @pytest.mark.django_db
+    def test_smtp_failure_then_revocation_then_retry_is_suppressed(
+        self,
+        recipient: object,
+        project: Project,
+        project_members: dict[str, ProjectMembership],
+        comment: TaskComment,
+        author: object,
+    ) -> None:
+        """The exact retry-window shape from #3675: a transient SMTP failure widens
+        the window during which a mid-flight revocation can land, and the retry
+        must re-check membership rather than mail on the original, stale grant."""
+        notif = _make_pending_notification(
+            recipient=recipient, project=project, comment=comment, author=author
+        )
+        with patch("django.core.mail.EmailMessage.send", side_effect=OSError("smtp down")):
+            _do_drain_emails()
+        notif.refresh_from_db()
+        assert notif.email_attempts == 1
+        assert notif.email_pending is True  # still eligible for retry
+
+        ProjectMembership.objects.filter(project=project, user=recipient).update(is_deleted=True)
+
+        with patch("django.core.mail.EmailMessage.send", return_value=1) as send:
+            _do_drain_emails()
+
+        assert send.call_count == 0
+        notif.refresh_from_db()
+        assert notif.email_pending is False  # suppressed, not retried
+        assert notif.email_sent_at is None
+        assert notif.email_attempts == 1  # no additional retry burned
+
+
+# ---------------------------------------------------------------------------
 # _do_archive — 90-day window
 # ---------------------------------------------------------------------------
 

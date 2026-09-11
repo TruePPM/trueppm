@@ -38,6 +38,16 @@ const BURN_RESPONSE = {
   since: '2026-04-01',
   until: '2026-04-14',
   series: BURN_SERIES,
+  // Always present (even empty) in this fixture: ProjectBurnSeriesSerializer's
+  // `baseline_series` is read-only + `required=False` for documentation only —
+  // drf-spectacular still lists it in the component's `required` array (the
+  // convention `SprintPulseTrendSerializer` uses for the same "sometimes
+  // absent" case), and the burn endpoint's response is a PolymorphicProxySerializer
+  // discriminated union (#3679): the schema guard's oneOf matcher picks a
+  // branch by zero-violations-of-any-kind, so an omitted key that is merely
+  // "missing-required" (not independently enforced) still makes this branch
+  // fail to match and the guard reports the wrapper as matching no variant.
+  baseline_series: [],
 };
 
 // ---------------------------------------------------------------------------

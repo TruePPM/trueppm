@@ -2200,6 +2200,15 @@ SPECTACULAR_SETTINGS = {
         "StructuralUndoBlockedReasonEnum": (
             "trueppm_api.apps.projects.refusal_codes.StructuralUndoBlockedReason"
         ),
+        # #3680: MonteCarloForecastDiagnosticSerializer.reason introduces a SECOND
+        # "reason" choice set alongside TaskGroupLeftAloneEntrySerializer.reason
+        # (an inline tuple, not an enum class — hence the raw-list value, same
+        # shape as OutcomeEnum below). Without a pin drf-spectacular disambiguates
+        # both by serializer prefix and renames the published `ReasonEnum` — the
+        # project_drf_enum_name_collision regression every pin in this block
+        # exists to prevent. Pin the incumbent to its stable name; the new
+        # Monte Carlo set is then free to take the prefixed form.
+        "ReasonEnum": ["ancestor_selected", "different_parent"],
         "StateEnum": "trueppm_api.apps.projects.models.SprintState",
         "PurgeRunStateEnum": "trueppm_api.apps.observability.models.PurgeRun.State",
         "PurgeRunTriggerEnum": "trueppm_api.apps.observability.models.PurgeRun.Trigger",
@@ -2349,6 +2358,15 @@ SPECTACULAR_SETTINGS = {
         # "constraint" is a generic field name, so pin it to a stable model-prefixed
         # component name (same rationale as the verdict/refusal_reason enums above).
         "RefusalConstraintEnum": "trueppm_api.apps.agents.models.RefusalConstraint",
+        # #3679: ProjectSprintHealthSignalSerializer.key ("orphan" |
+        # "phase_span" | "summary_in_sprint") introduces a second "key" choice
+        # set alongside RetentionPolicy.key, which is enough for drf-spectacular
+        # to stop resolving the stable `KeyEnum` and rename it to
+        # `RetentionPolicyWriteKeyEnum` — a removed component (same regression
+        # class as every pin in this block, project_drf_enum_name_collision).
+        # Pin the incumbent back to its stable name; the sprint-health set is
+        # then free to take the serializer-prefixed name it already resolves to.
+        "KeyEnum": "trueppm_api.apps.observability.retention.RETENTION_KEYS",
         # #3684: giving the weekly time-entry rollup (`GET /me/time-entries/`) a
         # real response schema exposes `TimeEntryWeeklySerializer.source`, a SECOND
         # serializer surfacing `TimeEntry.source` alongside `TimeEntrySerializer`'s.

@@ -25,11 +25,14 @@ const BLOCKED_ROWS = [
     blocked_age_seconds: 6 * 86400,
     blocked_by: { id: 'u2', username: 'alex' },
     blocking_task: { id: 't9', short_id: 'T-9', title: 'Permit approval' },
-    // Private impediment note (ADR-0124): present in the mock payload so the
-    // "never rendered" assertion below can actually fail if the panel ever
-    // leaks it. The distinctive "permit office" phrase appears nowhere else in
-    // the fixture, so the toHaveCount(0) check is load-bearing.
-    reason: 'Waiting on the permit office to countersign the variance',
+    // No `reason` field: the server's `_blocked_row()` builder never emits one
+    // (ADR-0124 §4), and since #3679 that is a declared schema fact — this row
+    // shape is checked against `BlockedTaskRowSerializer` by the e2e schema
+    // guard, which would now fail the spec if a mock sent a property the real
+    // endpoint can't produce. The client's `BlockedRow` type (useBlockedRollup.ts)
+    // carries no `reason` field either, so a leak would also be a TS compile
+    // error — the guarantee this test used to assert at runtime is now enforced
+    // one layer down, at the wire contract, by construction.
   },
 ];
 
@@ -77,11 +80,10 @@ test.describe('Blocked roll-up panel (ADR-0124)', () => {
       'href',
       `/projects/${PROJECT_ID}/tasks/t9`,
     );
-    // The private reason IS in the mock payload (see BLOCKED_ROWS.reason) but
-    // must never reach the DOM — the roll-up is a privacy-preserving triage
-    // list. If the panel ever renders the reason field, "permit office" would
-    // appear and this assertion fails.
-    await expect(panel.getByText(/permit office/i)).toHaveCount(0);
+    // The privacy-preserving guarantee this test used to assert at runtime by
+    // sending a reason the server can't produce — see BLOCKED_ROWS' comment —
+    // now lives in the wire contract itself (BlockedTaskRowSerializer, #3679)
+    // and the client's BlockedRow type, both of which have no `reason` field.
   });
 
   test('shows a reassuring empty state when nothing is blocked', async ({ page }) => {
