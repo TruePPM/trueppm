@@ -6,6 +6,8 @@ from datetime import date
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -352,6 +354,7 @@ class TestNotificationRevokedMemberRedaction:
         )
         assert first.status_code == 200
         assert first.data["subject"] != ""  # still a live member — unredacted
+        assert first.data["task_id"] is not None
 
         ProjectMembership.objects.filter(project=project, user=alice).update(is_deleted=True)
 
@@ -368,6 +371,10 @@ class TestNotificationRevokedMemberRedaction:
         assert second.data["subject"] == ""
         assert second.data["body"] == ""
         assert second.data["project"] is None
+        # #3674 widened the redaction set; the exemption has to cover the new
+        # fields too, or the replay path becomes a bypass for exactly the object
+        # references this branch removed.
+        assert second.data["task_id"] is None
 
     def test_paired_control_live_member_notifications_unchanged(
         self,
@@ -391,6 +398,99 @@ class TestNotificationRevokedMemberRedaction:
             f'You were assigned "{bob_event_notification.task.name}" on {project.name}.'
         )
         assert row["project"] == project.id
+
+
+# ---------------------------------------------------------------------------
+# NotificationViewSet — object-reference redaction (#3674)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestNotificationObjectReferenceRedaction:
+    """``task_id`` / ``mention.task_comment`` over the real request path.
+
+    The serializer-level decision and its reasoning live in
+    ``test_serializers.TestNotificationSerializerObjectReferenceRedaction``;
+    these exercise it through the viewset, where the membership set comes from
+    ``get_serializer_context`` rather than a hand-supplied context — including
+    the query-count guard that the widened redaction added no per-row lookup.
+    """
+
+    def test_list_redacts_object_references_after_membership_revoked(
+        self,
+        alice_client: APIClient,
+        alice: object,
+        project: Project,
+        task: Task,
+        comment: TaskComment,
+        memberships: dict[str, ProjectMembership],
+        alice_notifications: list[Notification],
+    ) -> None:
+        ProjectMembership.objects.filter(project=project, user=alice).update(is_deleted=True)
+
+        r = alice_client.get("/api/v1/me/notifications/")
+        assert r.status_code == 200
+        assert len(r.data["results"]) == 3
+        for row in r.data["results"]:
+            assert row["task_id"] is None
+            assert row["mention"]["task_comment"] is None
+            assert row["snippet"] == ""
+            # Still legible as "bob pinged you" — the #514 promise.
+            assert row["mention"]["mentioner"]["username"] == "bob"
+
+    def test_live_member_still_sees_object_references(
+        self,
+        alice_client: APIClient,
+        project: Project,
+        task: Task,
+        comment: TaskComment,
+        memberships: dict[str, ProjectMembership],
+        alice_notifications: list[Notification],
+    ) -> None:
+        r = alice_client.get("/api/v1/me/notifications/")
+        assert r.status_code == 200
+        for row in r.data["results"]:
+            assert row["task_id"] == str(task.pk)
+            assert row["mention"]["task_comment"] == comment.pk
+
+    def test_redaction_adds_no_per_row_query(
+        self,
+        alice_client: APIClient,
+        alice: object,
+        project: Project,
+        memberships: dict[str, ProjectMembership],
+        alice_notifications: list[Notification],
+        comment: TaskComment,
+        bob: object,
+    ) -> None:
+        # The gate is memoized on the serializer context (resolved once in
+        # NotificationViewSet.get_serializer_context), so widening it from three
+        # fields to five must not turn a paginated inbox into an N+1.
+        #
+        # Asserted as "same cost at 3 rows and at 8 rows" rather than against a
+        # hard-coded number: a fixed count would fail on any unrelated query
+        # added elsewhere in the view and say nothing about growth, which is the
+        # only thing an N+1 claim is about.
+        ProjectMembership.objects.filter(project=project, user=alice).update(is_deleted=True)
+
+        with CaptureQueriesContext(connection) as small:
+            r = alice_client.get("/api/v1/me/notifications/")
+        assert r.status_code == 200
+        assert len(r.data["results"]) == 3
+
+        for _ in range(5):
+            m = Mention.objects.create(
+                mentioner=bob, mentioned_user=alice, task_comment=comment, project=project
+            )
+            Notification.objects.create(recipient=alice, mention=m, project=project)
+
+        with CaptureQueriesContext(connection) as large:
+            r = alice_client.get("/api/v1/me/notifications/")
+        assert r.status_code == 200
+        assert len(r.data["results"]) == 8
+        assert all(row["task_id"] is None for row in r.data["results"])
+
+        assert len(large) == len(small)
 
 
 # ---------------------------------------------------------------------------

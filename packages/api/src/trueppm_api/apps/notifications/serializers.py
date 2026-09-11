@@ -249,9 +249,11 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
         is set at dispatch for both — the event-sourced fan-outs in ``services.py``
         write it directly, and the mention fan-out (``_build_mention_notification``)
         writes the same ``project_id`` the mention's source project resolved to — so
-        one project-membership check now backs both the mention ``snippet``
-        redaction and the ``subject``/``body``/``project`` redaction in
-        :meth:`to_representation`. A notification with no project at all (the
+        one project-membership check now backs the mention ``snippet``
+        redaction, the ``subject``/``body``/``project`` redaction in
+        :meth:`to_representation`, and — since #3674 — the ``task_id`` /
+        ``mention.task_comment`` object-reference redaction alongside it. A
+        notification with no project at all (the
         ADR-0663 account-scoped digest rows, which span the recipient's whole
         membership set rather than one project) has no project boundary to check
         against, so it is always visible.
@@ -285,7 +287,7 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
         return project_id in member_project_ids
 
     def to_representation(self, instance: Notification) -> dict[str, Any]:
-        """Redact ``subject``/``body``/``project`` for a revoked-membership read (#3510).
+        """Redact ``subject``/``body``/``project`` (#3510) + the source object refs (#3674).
 
         ``subject`` and ``body`` are free text rendered from the project and task
         names at dispatch time (see the ``Notification(...)`` fan-outs in
@@ -305,15 +307,76 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
         ``project`` becomes ``None`` — already the shape of an ADR-0663
         account-scoped digest row with no single owning project. No schema
         change, no new client-side branch.
+
+        Object references (#3674). ``mention.task_comment`` — a raw comment UUID
+        — is redacted to ``None`` on the same gate, as is ``task_id`` (in
+        :meth:`get_task_id`). The rest of the nested ``mention`` object is
+        deliberately KEPT. The dividing line is not which population is reading
+        (see below) but what the field *is*:
+
+        * **Redacted — opaque handles into the source project's content graph.**
+          ``task_id`` and ``mention.task_comment`` are UUIDs. They say nothing to
+          a human and exist only to be handed back to another endpoint, which is
+          precisely the residual-IDOR surface #3674 was filed on. Nobody who
+          fails this gate can spend one: ``TaskViewSet`` and the comment routes
+          floor on current membership. So redacting them removes an object
+          reference and zero capability.
+        * **Kept — the "you were pinged" signal, which is not a project-content
+          reference.** ``mentioner`` is the author's username/display name;
+          ``mentioned_user`` is null (group mention) or the recipient themselves
+          (``_resolve_mention_recipients`` keys a direct mention by its own
+          target); ``mentioned_group_key`` is a group the recipient belongs to —
+          that is *how* they were reached; ``scope`` is a 3-value enum. None of
+          these name a task, a project, or a comment. ``mention.id`` is kept with
+          them: it is a handle, but to an object no endpoint serves, and the one
+          pre-positioned read path (``MentionManager.visible_to``, for #476)
+          independently floors on live ``ProjectMembership`` rather than trusting
+          an id it was handed.
+
+        Why this does NOT need to distinguish the two populations that reach this
+        branch. ``_recipient_can_see_project`` is one predicate over two groups:
+        a member whose access was revoked, and a sibling-project member pinged
+        through a ``@program-*`` auto-group who was never a member of the source
+        project and was never intentionally denied (the #514 population). They
+        differ in intent, but they are identical in capability — both are gated
+        out of every endpoint a task or comment UUID could be spent at — and the
+        fields where their intents *would* diverge are exactly the ones kept
+        above. So the honest #514 promise, "the row still surfaces, they know
+        they were pinged", survives intact: a redacted mention row still renders
+        "Authoria mentioned @program-pms". What it loses is a deep link that was
+        already dead for that reader (the client short-circuits on
+        ``project === null`` before it ever reads ``task_id``). Widening the
+        redaction to ``mentioner``/``mentioned_group_key`` WOULD reverse #514 —
+        it would leave a row that says only "something happened" — and would
+        need a discriminator this row does not carry; that is not done here and
+        is not needed for the leak #3674 names.
         """
         data = super().to_representation(instance)
         if not self._recipient_can_see_project(instance):
             data["subject"] = ""
             data["body"] = ""
             data["project"] = None
+            mention = data.get("mention")
+            if mention is not None:
+                # Reuses a shape the client already handles: a mention row whose
+                # source comment was soft-deleted serializes with a null FK and a
+                # blank snippet, which is exactly what a redacted row now looks
+                # like. No schema change, no new client-side branch.
+                mention["task_comment"] = None
         return data
 
     def get_task_id(self, obj: Notification) -> str | None:
+        # Deliberately comment-only, not a docstring: drf-spectacular publishes a
+        # SerializerMethodField's docstring as the field `description` in
+        # docs/api/openapi.json, which would put this internal reasoning (and
+        # issue numbers) in the public contract.
+        #
+        # Redacted on the same membership predicate as `snippet` (#514) and
+        # `subject`/`body`/`project` (#3510) — see `to_representation` for why a
+        # raw task UUID goes while the mention's identity fields stay. Checked
+        # before the FK is read so a redacted row costs no attribute walk.
+        if not self._recipient_can_see_project(obj):
+            return None
         # Event-sourced rows (#497/#861) carry a direct deep-link FK; mention
         # rows resolve their task through the source comment. Prefer the explicit
         # FK so the inbox row links to the affected task/milestone either way.

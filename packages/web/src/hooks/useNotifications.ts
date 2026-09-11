@@ -43,6 +43,13 @@ export interface NotificationMention {
   mentioned_user: NotificationMentionAuthor | null;
   mentioned_group_key: string;
   scope: string;
+  /**
+   * `null` when the source comment was soft-deleted and, since #3674, when the
+   * recipient is no longer a current member of the source project — the server
+   * redacts the raw comment reference on the same gate that blanks
+   * `subject`/`body`/`project`. The identity fields above are deliberately kept
+   * so the row still renders "X mentioned @group" (the #514 promise).
+   */
   task_comment: string | null;
   created_at: string;
 }
@@ -78,6 +85,13 @@ export interface NotificationRow {
   created_at: string;
   read_at: string | null;
   snippet: string;
+  /**
+   * Deep-link target, or `null` when the row has no task and — since #3674 —
+   * when the recipient is no longer a current member of the source project.
+   * `handleNavigate` never reaches this branch on a redacted row anyway: the
+   * `!notification.project` guard above it fires first, because #3510 nulls
+   * `project` on the same gate.
+   */
   task_id: string | null;
 }
 
