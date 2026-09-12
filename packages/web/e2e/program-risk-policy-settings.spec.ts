@@ -171,10 +171,10 @@ test.describe('Program Settings → Risk & deps policy', () => {
     await expect(risk.getByRole('radio', { name: /Warn only/ })).toHaveCount(0);
     await expect(risk.getByRole('spinbutton')).toHaveCount(0);
     await expect(
-      risk.getByLabel('Slip policy: Warn only, managed by the program admin. View only.'),
+      risk.getByLabel('Slip policy: Warn only, managed by the program manager or above. View only.'),
     ).toBeVisible();
     await expect(
-      risk.getByLabel('Auto-escalate after: 3 days, managed by the program admin. View only.'),
+      risk.getByLabel('Auto-escalate after: 3 days, managed by the program manager or above. View only.'),
     ).toBeVisible();
   });
 });

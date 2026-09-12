@@ -446,7 +446,8 @@ export function ProgramProjectsPage() {
       )}
 
       {/* Import-a-project entry (#797) — the new project lands already assigned
-          to this program, gated by program Admin both client- and server-side. */}
+          to this program, gated by `isAdmin` (ordinal 300, "Program Manager") both
+          client- and server-side. */}
       {showImport && (
         <ImportProjectModal
           programId={programId}

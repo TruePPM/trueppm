@@ -234,9 +234,18 @@ export interface Task {
    * `undefined` on rows that predate the field; callers fall back to the mode check.
    */
   canEditEstimates?: boolean;
-  /** ISO date string — when work actually started */
+  /** ISO date string — when work actually began (ADR-0023). Auto-recorded on the
+   *  IN_PROGRESS transition, user-editable from the drawer's Actual dates section
+   *  (ADR-1153). Frequently absent on a COMPLETE task and that is **by design**: a
+   *  card taken straight to done never recorded a start, and the CPM pass derives
+   *  the span backward from {@link actualFinish} (ADR-0136). Never render a missing
+   *  value as an error or an incomplete state. */
   actualStart?: string;
-  /** ISO date string — when work actually finished */
+  /** ISO date string — when work actually finished (ADR-0023). Auto-recorded on the
+   *  REVIEW and COMPLETE transitions (ADR-1153), user-editable from the drawer.
+   *  Load-bearing: the engine reads a non-null value as "complete" and PINS the
+   *  task's schedule placement to it (ADR-0132/0136), so downstream forecasts depend
+   *  on it. The server refuses to set it on a task not in review or complete. */
   actualFinish?: string;
   /** actual_finish - early_finish in calendar days; positive = late */
   scheduleVarianceDays?: number | null;

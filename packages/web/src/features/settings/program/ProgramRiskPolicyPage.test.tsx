@@ -158,11 +158,11 @@ describe('ProgramRiskPolicyPage (settings)', () => {
     expect(screen.queryByRole('radio', { name: /Warn only/i })).toBeNull();
     expect(screen.queryByRole('spinbutton')).toBeNull();
     expect(
-      screen.getByLabelText('Slip policy: Warn only, managed by the program admin. View only.'),
+      screen.getByLabelText('Slip policy: Warn only, managed by the program manager or above. View only.'),
     ).toBeInTheDocument();
     expect(
       screen.getByLabelText(
-        'Auto-escalate after: 5 days, managed by the program admin. View only.',
+        'Auto-escalate after: 5 days, managed by the program manager or above. View only.',
       ),
     ).toBeInTheDocument();
   });

@@ -7,7 +7,8 @@
  * `trueppm_enterprise`.
  *
  * Priority allocation (multiples of 100 reserved for OSS):
- *   100 Overview · 200 Dependencies · 225 Related tasks (#2068) · 300 Subtasks (#308)
+ *   100 Overview · 125 Actual dates (ADR-1153, #3529) · 200 Dependencies
+ *   225 Related tasks (#2068) · 300 Subtasks (#308)
  *   400 Attachments (#310) · 450 External links (#637) · 480 Notes (#740)
  *   500 Comments (issue 311) · 600 Activity (issue 307 + issue 874 history, unified issue 869) · 700 Recurring (issue 312)
  *   800 Estimates · 1000 Baseline  (900 History merged into 600 Activity, ADR-0096)
@@ -21,6 +22,7 @@ import { registry } from '@/lib/widget-registry';
 import type { DrawerSectionContext } from '@/lib/widget-registry';
 import type { Task, TaskLink } from '@/types';
 import { OverviewSection } from './OverviewSection';
+import { ActualDatesSection } from './ActualDatesSection';
 import { BlockerSection } from './BlockerSection';
 import { SprintSection } from './SprintSection';
 import { SubtasksSection } from './SubtasksSection';
@@ -101,6 +103,37 @@ export function registerOssDrawerSections(): void {
     component: OverviewSection,
     priority: 100,
     tab: 'details',
+  });
+
+  // Actual dates (ADR-1153, #3529) — the ONLY surface where a user can state or
+  // correct when work really started and finished. Sits directly under Overview:
+  // the same "what is the state of this task" question status and progress answer.
+  registry.register('task_detail.section', {
+    id: 'actual-dates',
+    title: 'Actual dates',
+    component: ActualDatesSection,
+    priority: 125,
+    tab: 'details',
+    // Summaries and milestones carry no hand-recorded actuals: a summary's dates roll
+    // up from its children, and a milestone is a zero-duration gate.
+    canRender: (ctx) => {
+      const t = (ctx as { task: Task }).task;
+      return !t.isSummary && !t.isMilestone;
+    },
+    // Populated once work has plausibly happened — either actual is recorded, or the
+    // task has left the not-started states (ADR-0605). Read from the task object
+    // alone, so no query fires. A BACKLOG/NOT_STARTED card collapses the section
+    // behind "Add detail", which is what keeps this off the contributor's daily path.
+    isPopulated: (ctx) => {
+      const t = ctxTask(ctx);
+      return (
+        t.actualStart != null ||
+        t.actualFinish != null ||
+        t.status === 'IN_PROGRESS' ||
+        t.status === 'REVIEW' ||
+        t.status === 'COMPLETE'
+      );
+    },
   });
 
   registry.register('task_detail.section', {

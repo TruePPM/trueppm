@@ -132,12 +132,10 @@ def build_program_health_digest(user: Any, local_now: datetime.datetime) -> tupl
     # it, so a revoked or soft-deleted row would burn a cap slot and inflate the
     # "showing the first N of M" footer even after the body itself was corrected.
     #
-    # Inlined rather than shared: ``ProjectMembership`` has a ``live()`` helper but
-    # ``ProgramMembership`` does not, and adding one plus migrating every program-axis
-    # call site is #3458's scope, not this fix's.
-    audience = ProgramMembership.objects.filter(
-        user=user, is_deleted=False, program__is_deleted=False
-    )
+    # Shared, not inlined, since #3458 added ``ProgramMembership.live()``. The
+    # ``program__is_deleted`` term stays here because ``live()`` floors the *membership*
+    # only — a live row on a soft-deleted program passes it and confers nothing.
+    audience = ProgramMembership.live().filter(user=user, program__is_deleted=False)
     program_ids = list(
         audience.values_list("program_id", flat=True).order_by("program_id")[
             :MAX_PROGRAMS_PER_DIGEST
