@@ -28,6 +28,7 @@ free — ``server_version``, ``sync_seq``, and the ``simple_history`` row.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import uuid
 from collections import defaultdict
@@ -73,6 +74,7 @@ from trueppm_api.apps.projects.seed.reldates import (
     WorkingCalendar,
     resolve_anchor,
     resolve_date,
+    resolve_timestamp,
 )
 from trueppm_api.apps.projects.seed.replace import resolve_replace_candidates
 from trueppm_api.apps.projects.seed.replay import ReplayContext, replay_timeline
@@ -288,6 +290,12 @@ class _SeedImporter:
         # the major to "1", so replay is off and dates are plain ISO literals.
         self.replay = str(payload.get("schema_version", "")).split(".")[0] == "2"
         self.anchor: date = resolve_anchor(payload, date.today())
+        # (project_slug, wbs_path) -> earliest authored timeline beat naming that
+        # task, so a synthesized creation-history date can never land after a
+        # comment/status/estimate/etc. the seed itself dated against the task
+        # (#3487). Indexed once up front — Pass A builds tasks project by
+        # project, but the events timeline is not project-scoped.
+        self.earliest_task_event: dict[tuple[str, str], date] = self._index_earliest_task_events()
         self.working_calendars: dict[str, WorkingCalendar] = {}
         self.risks_by_slug: dict[str, Risk] = {}
         # Desired END states for replay — tasks/sprints are created at a base
@@ -407,6 +415,30 @@ class _SeedImporter:
     def _creation_dt(self, when: date) -> datetime:
         """A backdated creation timestamp (UTC 09:00) for replay history rows."""
         return datetime(when.year, when.month, when.day, 9, 0, tzinfo=ZoneInfo("UTC"))
+
+    def _index_earliest_task_events(self) -> dict[tuple[str, str], date]:
+        """Earliest ``task:<project>:<wbs>`` beat in the authored events timeline.
+
+        Only the target parsing matters here (mirrors ``replay._resolve_task``);
+        the action doesn't — a comment, an assignment, a status move, all of them
+        are things that happened *to* the task, so all of them bound how early
+        its own creation row is allowed to be. A seed that references a task
+        before it declares a plan for it (comment predates any baseline) still
+        gets a consistent, in-order history: the creation row simply follows the
+        earliest thing anyone said about it.
+        """
+        earliest: dict[tuple[str, str], date] = {}
+        for event in self.payload.get("events", []):
+            target = event.get("target", "")
+            if not target.startswith("task:"):
+                continue
+            _, _, ref = target.partition(":")
+            project_slug, _, wbs = ref.partition(":")
+            when = resolve_timestamp(event["at"], anchor=self.anchor).date()
+            key = (project_slug, wbs)
+            if key not in earliest or when < earliest[key]:
+                earliest[key] = when
+        return earliest
 
     # --- batched inserts (ADR-0726 §8) -------------------------------------
 
@@ -1093,8 +1125,9 @@ class _SeedImporter:
         """Create the project's tasks (Pass A). Runs after sprints — see above."""
         task_rows: list[Task] = []
         task_dates: list[date] = []
+        planning_beat = self._project_planning_beat(project, slug, data)
         for task_data in data.get("tasks", []):
-            task, created_on = self._build_task(project, slug, task_data)
+            task, created_on = self._build_task(project, slug, task_data, planning_beat)
             task_rows.append(task)
             task_dates.append(created_on)
         self._stamp_new_tasks(task_rows, project)
@@ -1174,14 +1207,50 @@ class _SeedImporter:
             except Exception:
                 logger.exception("seed import: burndown upsert failed for sprint=%s", sprint.pk)
 
+    def _project_planning_beat(self, project: Project, slug: str, data: dict[str, Any]) -> date:
+        """The creation-history anchor for the project's non-sprint tasks (#3487).
+
+        Prefers the project's earliest *declared* baseline capture — the moment
+        the plan was first committed to paper, which in every bundled sample
+        predates any comment or status beat authored against a task in it —
+        falling back to the project's own start date when the seed declares no
+        baseline. Reads the raw seed dict rather than ``Baseline`` rows: Pass B
+        (``_capture_baselines``) hasn't run yet when Pass A builds tasks.
+        """
+        captured = [
+            self._date_opt(bl.get("captured_at"), slug, snap=False)
+            for bl in data.get("baselines", [])
+        ]
+        earliest = min((c for c in captured if c is not None), default=None)
+        return earliest if earliest is not None else project.start_date
+
+    def _sprint_creation_beat(self, project_slug: str, wbs_path: str, sprint: Sprint) -> date:
+        """A sprint-bound task's creation beat: a few days before the sprint starts.
+
+        Never the sprint's own ``start_date`` (#3487) — a story exists before
+        sprint planning seats it in a sprint, so backdating creation to exactly
+        kickoff still reads as "born the moment planning began". The lead time is
+        derived from a stable hash of the task's own key, never wall-clock time
+        or unseeded randomness, so a reload reproduces the same history
+        (ADR-0114).
+        """
+        digest = hashlib.sha256(f"{project_slug}:{wbs_path}".encode()).digest()
+        lead_days = 2 + (digest[0] % 4)  # 2-5 days before kickoff
+        return sprint.start_date - timedelta(days=lead_days)
+
     def _build_task(
-        self, project: Project, project_slug: str, data: dict[str, Any]
+        self, project: Project, project_slug: str, data: dict[str, Any], planning_beat: date
     ) -> tuple[Task, date]:
         """Construct one unsaved ``Task`` plus the date its creation row backdates to.
 
         Returns rather than saves so the caller can batch a whole project's tasks
         into one INSERT (ADR-0726 §8). The returned date is only consulted under
         v2 replay.
+
+        Args:
+            planning_beat: the project's default creation-history anchor for a
+                non-sprint task (see :meth:`_project_planning_beat`) — computed
+                once per project rather than per task since it doesn't vary.
         """
         sprint = self.sprints.get((project_slug, data["sprint"])) if data.get("sprint") else None
         assignee = self.users.get(data["assignee"]) if data.get("assignee") else None
@@ -1250,9 +1319,26 @@ class _SeedImporter:
             color=data.get("color"),
             **estimate_fields,
         )
-        created_on = (
-            sprint.start_date if sprint is not None else (planned_start or project.start_date)
+        # The creation-history date (#3487). A sprint-bound task backdates to
+        # shortly before its sprint kicks off; everything else backdates to the
+        # project's own planning beat (earliest baseline capture, else project
+        # start) — never to ``planned_start``, which is a future schedule
+        # position, not a record of when the task came into being, and is
+        # exactly what put creation rows months into the future before this fix.
+        # Two further clamps, both required: an authored event against this
+        # task (comment, status move, …) is honored as an even earlier floor
+        # when the seed talks about the task before its plan existed, and the
+        # anchor is a hard ceiling so a reload never manufactures a future-dated
+        # creation row regardless of how far out the task or sprint is planned.
+        beat = (
+            self._sprint_creation_beat(project_slug, data["wbs_path"], sprint)
+            if sprint
+            else planning_beat
         )
+        earliest_event = self.earliest_task_event.get((project_slug, data["wbs_path"]))
+        if earliest_event is not None and earliest_event < beat:
+            beat = earliest_event
+        created_on = min(beat, self.anchor)
         self.tasks[(project_slug, data["wbs_path"])] = task
         if self.replay:
             self.final_status[(project_slug, data["wbs_path"])] = final_status
