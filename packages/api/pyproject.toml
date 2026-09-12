@@ -47,8 +47,18 @@ dependencies = [
     # 5.4/5.5 are no longer security-maintained upstream; track the supported
     # line (5.6+ requires Python >=3.9, satisfied by our >=3.11 floor).
     "celery>=5.6,<6.0",
-    # Floor tracks the installed major (7.x); 5.x/6.x span unsupported majors.
-    "redis>=7.0,<8.0",
+    # Ceiling is kombu 5.6.2's own declared support window, NOT ours:
+    # `Requires-Dist: redis!=4.5.5,!=5.0.2,<6.5,>=4.5.2; extra == "redis"`.
+    # 7.0-7.4.1 silently break the pidbox control-plane (celery inspect
+    # ping/reply, i.e. the Helm chart's control-plane drill, #3236) — pip/uv
+    # never caught this because this project's top-level `redis` requirement
+    # is what resolution actually uses; kombu's own `redis` extra (and its
+    # ceiling) is only enforced if something requests `kombu[redis]`, which
+    # nothing here does. Tracked upstream: redis/redis-py#4061. 6.4.0 is the
+    # newest release inside kombu's window (checked clean via OSV at the time
+    # of the #3236 fix). Do not raise this past <6.5 until kombu ships a
+    # release that raises its own ceiling.
+    "redis>=6.4,<6.5",
     # PostgreSQL driver. LGPL-3.0-only: a dynamically-imported runtime dep in an
     # application (not a library) — Apache 2.0 compatible per CLAUDE.md §Licenses
     # and the LICENSE/NOTICES files. The *implementation* (precompiled wheel vs.

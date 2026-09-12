@@ -373,7 +373,7 @@ export function ProgramCalendarPage() {
                   ? 'locked by workspace policy'
                   : closedToAdmin
                     ? 'program is closed — reopen it to change this'
-                    : 'managed by the program admin'
+                    : 'managed by the program manager or above'
               }
               filled={displayCalendarId !== null}
             />

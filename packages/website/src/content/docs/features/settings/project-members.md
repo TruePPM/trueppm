@@ -73,7 +73,7 @@ Each member row carries a role picker. Selecting a new role updates it immediate
 
 ## Transferring ownership
 
-To hand the project to someone else, use **Transfer ownership** on **Project → Settings → Lifecycle**. It opens a member picker: the chosen member becomes the project Owner and you are demoted to Admin in the same atomic step. The new owner must already be a project member — invite them first if needed. Only an Owner can transfer ownership; the API enforces this with `POST /api/v1/projects/{id}/transfer/` and rejects a non-owner with `HTTP 403`.
+To hand the project to someone else, use **Transfer ownership** on **Project → Settings → Lifecycle**. It opens a member picker: the chosen member becomes Project Admin and you step down to Project Manager in the same atomic step. The new Project Admin must already be a project member — invite them first if needed. Only a Project Admin can transfer ownership; the API enforces this with `POST /api/v1/projects/{id}/transfer/` and rejects a non-owner with `HTTP 403`.
 
 ## Removing a member and leaving a project
 

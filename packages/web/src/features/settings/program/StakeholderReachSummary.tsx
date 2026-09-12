@@ -62,7 +62,7 @@ export function StakeholderReachSummary({
       </p>
       {viewerCountRestricted && (
         <p className="mt-1 text-[12px] leading-relaxed text-neutral-text-secondary">
-          Viewer-role reach is visible to program admins.
+          Viewer-role reach is visible to a program manager or above.
         </p>
       )}
       {!viewerCountRestricted && viewerMemberCount !== undefined && (

@@ -121,7 +121,14 @@ def client(db: int, *, decode_responses: bool = False, **kwargs: Any) -> redis.R
                 **kwargs,
             ),
         )
-    return redis.from_url(url_for(db), decode_responses=decode_responses, **kwargs)
+    # redis-py 6.4.0's `redis.utils.from_url` (kombu's supported ceiling, #3236)
+    # dropped its type annotations versus 7.x's — `def from_url(url, **kwargs):`
+    # with no `-> "Redis"` — so mypy sees an untyped call returning `Any` here.
+    # Same idiom as the `master_for` cast above.
+    return cast(
+        "redis.Redis",
+        redis.from_url(url_for(db), decode_responses=decode_responses, **kwargs),  # type: ignore[no-untyped-call]
+    )
 
 
 def async_client(db: int, *, decode_responses: bool = False, **kwargs: Any) -> aioredis.Redis:
@@ -137,7 +144,11 @@ def async_client(db: int, *, decode_responses: bool = False, **kwargs: Any) -> a
                 **kwargs,
             ),
         )
-    return aioredis.from_url(url_for(db), decode_responses=decode_responses, **kwargs)
+    # Same untyped-in-6.4.0 gap as `client()` above, on the asyncio side.
+    return cast(
+        "aioredis.Redis",
+        aioredis.from_url(url_for(db), decode_responses=decode_responses, **kwargs),  # type: ignore[no-untyped-call]
+    )
 
 
 def pool(db: int, *, decode_responses: bool = False, **kwargs: Any) -> redis.ConnectionPool:
