@@ -477,18 +477,42 @@ if [ -z "$ping_ok" ]; then
     --destination "celery@${worker_pod}" --timeout "$WORKER_PING_TIMEOUT" 2>&1 \
     | sed "$INDENT_SED" >&2 || true
 
-  echo "  ---- broker pidbox / reply-queue state (#3236) ----" >&2
-  # Distinguishes "a reply was published but never arrived" (a live celery* pubsub
-  # channel, no matching reply key) from "the pidbox consumer is gone" (no celery*
-  # channel at all) — a distinction the CLI's own "No nodes replied" message erases.
-  kubectl exec "$api_pod" -c api -- python -c '
+  echo "  ---- broker pidbox binding registration (#3236) ----" >&2
+  # An earlier version of this capture globbed `PUBSUB CHANNELS celery*` and
+  # `KEYS celery*` — verified against the pinned celery 5.6.3 / kombu 5.6.2 /
+  # redis-py 7.4.1 versions this chart ships that BOTH are always empty, on a
+  # fully healthy worker as much as a wedged one: kombu's redis transport
+  # never surfaces pidbox traffic over native Pub/Sub here (PUBSUB CHANNELS
+  # stayed empty even polled through a live successful ping), and the real
+  # binding key is `_kombu.binding.celery.pidbox` — underscore-prefixed, so
+  # `celery*` can never match it. That made the capture dead weight: three
+  # lines that print nothing regardless of which failure mode this is.
+  #
+  # `_kombu.binding.celery.pidbox` is a Redis SET, one member per bound
+  # control queue, named `<nodename>.celery.pidbox` — durable for the life of
+  # the binding (unaffected by the reply queue's ~10s expiry, which is why
+  # the old `KEYS *reply*` line was also normally empty by the time a drill
+  # reaches this point). Its member for THIS worker uses the same
+  # `celery@<pod>` nodename the ping above already destinations against.
+  # Absence is unambiguous: the worker's control queue was never declared —
+  # the "pidbox consumer is gone" half of the distinction this issue wants.
+  # Presence does not prove the consumer is still being served (the binding
+  # is not cleaned up on an unclean death), so it narrows rather than
+  # resolves the other half — combine with the cgroup capture below.
+  kubectl exec "$api_pod" -c api -- env "TRUEPPM_DRILL_WORKER_NODE=celery@${worker_pod}" python -c '
 import os
 import redis
 
+# kombu stores each SET member as "routing_key<SEP>pattern<SEP>queue" (SEP is
+# the transports own field separator, kombu.transport.redis.Channel.sep) —
+# not the bare queue name. Splitting it out and comparing only the last field
+# is what makes this an exact match instead of a coincidental False.
+SEP = "\x06\x16"
 r = redis.from_url(os.environ["REDIS_URL"])
-print("PUBSUB CHANNELS celery*:", r.pubsub_channels("celery*"))
-print("KEYS *reply*:", r.keys("*reply*"))
-print("KEYS celery*:", r.keys("celery*"))
+target = os.environ["TRUEPPM_DRILL_WORKER_NODE"] + ".celery.pidbox"
+queues = sorted(m.decode().split(SEP)[-1] for m in r.smembers("_kombu.binding.celery.pidbox"))
+print("this worker bound:", target in queues)
+print("all bound pidbox queues:", queues)
 ' 2>&1 | sed "$INDENT_SED" >&2 || true
 
   echo "  ---- worker container cgroup CPU throttling (#3236) ----" >&2
