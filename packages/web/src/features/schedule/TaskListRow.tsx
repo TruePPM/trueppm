@@ -3,7 +3,9 @@ import type { DependencyDirection } from './deps/linkTypes';
 import { memo, useState, useRef, useCallback, useEffect } from 'react';
 import { formatChord } from '@/lib/platform';
 import type React from 'react';
+import { createPortal } from 'react-dom';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useEffectiveDurationPolicy, useProjectHoursPerDay } from '@/hooks/useProject';
 import { RecalcPercentChip } from './RecalcPercentChip';
@@ -51,12 +53,7 @@ import { GuardrailNotice } from './sections/GuardrailNotice';
 import { GuardrailBlock } from './sections/GuardrailBlock';
 import { useDragStore } from '@/stores/dragStore';
 import { AssigneeChips, formatOwnerCellLabel } from './AssigneeChips';
-import {
-  depFlag,
-  describeLinksCell,
-  type DepFlag,
-  type TaskDepChips,
-} from './deps/depFlag';
+import { depFlag, describeLinksCell, type DepFlag, type TaskDepChips } from './deps/depFlag';
 
 import {
   ArrowDownLeftIcon,
@@ -292,7 +289,6 @@ interface Props {
 // On macOS the modifier is labelled "Option"; everywhere else it's "Alt".
 const REORDER_KEY =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? 'Option' : 'Alt';
-
 
 /**
  * Truncate a long WBS path with a middle ellipsis so the leaf number (most
@@ -754,7 +750,12 @@ function handleRowKeyDown(e: React.KeyboardEvent, ctx: RowKeyDownCtx): void {
   // event bubbled up from a cell input/button, Home/End move the caret there
   // instead. Handled ahead of the build-mode reducer since the jump is
   // identical in both modes and neither reducer claims these keys.
-  if ((e.key === 'Home' || e.key === 'End') && e.target === e.currentTarget && !isEditing && !anyCellInEdit) {
+  if (
+    (e.key === 'Home' || e.key === 'End') &&
+    e.target === e.currentTarget &&
+    !isEditing &&
+    !anyCellInEdit
+  ) {
     e.preventDefault();
     onFocusEdge?.(e.key === 'Home' ? 'first' : 'last');
     return;
@@ -914,9 +915,7 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
       disabled: task.isSummary,
       disabledReason: task.isSummary ? MILESTONE_REFUSES_SUMMARY : undefined,
       onSelect: () =>
-        task.isMilestone
-          ? buildMode.convertToTask(task.id)
-          : buildMode.convertToMilestone(task.id),
+        task.isMilestone ? buildMode.convertToTask(task.id) : buildMode.convertToMilestone(task.id),
     },
     {
       key: 'delete',
@@ -1622,9 +1621,7 @@ function RowReorderHandle({
       style={{ width: gripWidth, height: rowHeight }}
       className={[
         'absolute left-0 top-0 z-10 flex items-center justify-center',
-        coarse
-          ? 'opacity-100'
-          : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+        coarse ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
         'transition-opacity cursor-grab active:cursor-grabbing',
         // The browser's own pan/select gestures would fight the drag on touch.
         'touch-none select-none',
@@ -1959,17 +1956,10 @@ function RowStructureNudges({
             }
             style={{ width: size, height: size }}
             className={`${buttonClass} ${
-              isSummary
-                ? 'cursor-not-allowed'
-                : isMilestone
-                  ? 'text-brand-primary'
-                  : ''
+              isSummary ? 'cursor-not-allowed' : isMilestone ? 'text-brand-primary' : ''
             }`}
           >
-            <MilestoneIcon
-              className={coarse ? 'h-4 w-4' : 'h-3 w-3'}
-              aria-hidden="true"
-            />
+            <MilestoneIcon className={coarse ? 'h-4 w-4' : 'h-3 w-3'} aria-hidden="true" />
           </button>
         </span>
       )}
@@ -2659,8 +2649,33 @@ function TaskListRowInner({
     visibleTaskIds,
   };
 
+  // The SprintPrompt and its post-commit outcome panel (GuardrailNotice /
+  // GuardrailBlock) are mutually exclusive (`!sprintOutcome` guards the first,
+  // `sprintOutcome` gates the second — see SprintAssignmentRegion below), so
+  // they share ONE anchored slot rather than two independent popovers.
+  // Portaled + `fixed`-positioned via useAnchoredPopover (#3664, web rule
+  // 260): the row renders inside TaskListPanel's `overflow-x-hidden
+  // overflow-y-auto` virtualized scroll wrapper, so the old in-flow `absolute
+  // top-full left-0` 260px panel could clip against either edge of the
+  // ~268px Timeline outline column — the same class of bug #3663 fixed for
+  // the session-trail popover. Anchored to the ROW itself (not the name
+  // cell): the old panel spanned from the row's own left edge, not the name
+  // cell's, so the row is the trigger this slot has always visually matched.
+  const sprintSlotOpen =
+    Boolean(authoring) && ((showSprintPrompt && !sprintOutcome) || Boolean(sprintOutcome));
+  const {
+    triggerRef: rowAnchorRef,
+    popoverRef: sprintSlotPanelRef,
+    popoverStyle: sprintSlotPopoverStyle,
+  } = useAnchoredPopover<HTMLDivElement, HTMLDivElement>({
+    open: sprintSlotOpen,
+    width: 260,
+    estimatedHeight: 220,
+  });
+
   return (
     <div
+      ref={rowAnchorRef}
       role="row"
       data-row-id={task.id}
       aria-rowindex={ariaRowIndex}
@@ -2838,8 +2853,7 @@ function TaskListRowInner({
           // drift into a box that is no longer centered on its mark.
           style={
             {
-              marginLeft:
-                gripReserve + nudgeLane + resolveInsertLaneGap(coarse) + (level - 1) * 12,
+              marginLeft: gripReserve + nudgeLane + resolveInsertLaneGap(coarse) + (level - 1) * 12,
               width: INSERT_DISC_SIZE,
               height: INSERT_DISC_SIZE,
               // Resolved for THIS pointer class, and emitted on both so the
@@ -3058,6 +3072,8 @@ function TaskListRowInner({
         projectId={projectId}
         task={task}
         updateTask={updateTask}
+        popoverStyle={sprintSlotPopoverStyle}
+        popoverRef={sprintSlotPanelRef}
       />
       {menuItems.length > 0 && menuAnchor && (
         <BuildModeRowMenu
@@ -3138,7 +3154,9 @@ function deriveMilestoneRollupDisplay(
   const varianceLabel =
     baseVarianceLabel && annotation ? `${baseVarianceLabel} · ${annotation}` : baseVarianceLabel;
   const varianceClass =
-    variance == null || variance === 0 ? 'text-neutral-text-secondary' : varianceToneTextClass(tone);
+    variance == null || variance === 0
+      ? 'text-neutral-text-secondary'
+      : varianceToneTextClass(tone);
   const ariaLabelParts = [`Progress ${pct}% (${itl.lower} rollup, locked)`];
   if (variance != null && variance !== 0) {
     const slipPhrase =
@@ -3340,6 +3358,36 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
   const slashFragment = slashOpen
     ? { start: slashAt, query: autocompleteQuery.slice(slashAt + 1) }
     : null;
+  // The `/` command menu, the token picker, and the name autocomplete are
+  // mutually exclusive (each only renders when the other two do not — see the
+  // JSX below), so they share ONE anchored slot rather than three independent
+  // popovers competing for the same position below the name cell. `open` is an
+  // over-approximation for the name case (it does not repeat NameAutocomplete's
+  // own case-insensitive substring filter): a false-positive here costs one
+  // wasted layout measurement, never a wrong position, since each leaf still
+  // renders null on zero matches (#3664, web rule 260). The name cell renders
+  // inside `TaskListPanel`'s `overflow-x-hidden overflow-y-auto` virtualized
+  // scroll wrapper, so an in-flow `absolute` panel wider than the ~268px
+  // Timeline outline column clipped with nothing to scroll it into view — the
+  // same class of bug #3663 fixed for the session-trail popover.
+  const slashSuggestions = slashFragment ? commandSuggestions(slashFragment.query) : [];
+  const showSlashAutocomplete = slashSuggestions.length > 0;
+  const showTokenAutocomplete =
+    !slashFragment && Boolean(tokenFragment && tokenPicker && tokenPicker.suggestions.length > 0);
+  const showNameAutocomplete =
+    !slashFragment &&
+    !tokenFragment &&
+    Boolean(nameSuggestions) &&
+    autocompleteQuery.trim().length > 0;
+  const {
+    triggerRef: nameCellRef,
+    popoverRef: autocompletePanelRef,
+    popoverStyle: autocompletePopoverStyle,
+  } = useAnchoredPopover<HTMLDivElement, HTMLUListElement>({
+    open: showSlashAutocomplete || showTokenAutocomplete || showNameAutocomplete,
+    width: 280,
+    estimatedHeight: 220,
+  });
   if (!buildMode) return null;
   // A row `insertBelow` just created carries a non-blank placeholder name
   // (the API rejects blank on create), but renders blank here until the user
@@ -3351,7 +3399,7 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
   const isCaretAtEnd = buildMode.isCaretAtEndRow(task.id);
   const clearCaretAtEnd = () => buildMode.clearCaretAtEndRow(task.id);
   return (
-    <div className="relative flex-1 min-w-0">
+    <div ref={nameCellRef} className="flex-1 min-w-0">
       <EditableCell
         column="name"
         value={isPristine ? '' : task.name}
@@ -3377,9 +3425,7 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
               id: task.id,
               projectId,
               name: parse.name || parsed,
-              ...(parse.owners.length > 0
-                ? { owners: ownerTokensToApiPayload(parse.owners) }
-                : {}),
+              ...(parse.owners.length > 0 ? { owners: ownerTokensToApiPayload(parse.owners) } : {}),
               ...(parse.duration !== null ? { duration: parse.duration } : {}),
               ...(parse.isMilestone ? { is_milestone: true } : {}),
               // delivery_mode is sent only when the row did not resolve to a
@@ -3469,9 +3515,9 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
           setDraftOverride({ value: next });
         }}
       />
-      {slashFragment && commandSuggestions(slashFragment.query).length > 0 && (
+      {showSlashAutocomplete && slashFragment && (
         <TokenAutocomplete
-          suggestions={commandSuggestions(slashFragment.query)}
+          suggestions={slashSuggestions}
           ariaLabel="Insert"
           onSelect={(picked) => {
             // A command inserts its sigil and hands the caret to that token's own
@@ -3483,9 +3529,11 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
             setDraftOverride({ value: next });
           }}
           onDismiss={() => setDismissedFor(autocompleteQuery)}
+          style={autocompletePopoverStyle}
+          panelRef={autocompletePanelRef}
         />
       )}
-      {!slashFragment && tokenFragment && tokenPicker && tokenPicker.suggestions.length > 0 && (
+      {showTokenAutocomplete && tokenFragment && tokenPicker && (
         <TokenAutocomplete
           suggestions={tokenPicker.suggestions}
           ariaLabel={tokenPicker.ariaLabel}
@@ -3498,9 +3546,11 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
             setDraftOverride({ value: next });
           }}
           onDismiss={() => setDismissedFor(autocompleteQuery)}
+          style={autocompletePopoverStyle}
+          panelRef={autocompletePanelRef}
         />
       )}
-      {!slashFragment && !tokenFragment && nameSuggestions && (
+      {showNameAutocomplete && nameSuggestions && (
         <NameAutocomplete
           query={autocompleteQuery}
           suggestions={nameSuggestions}
@@ -3510,6 +3560,8 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
             buildMode.focus.commitToRow();
           }}
           onDismiss={() => setAutocompleteQuery('')}
+          style={autocompletePopoverStyle}
+          panelRef={autocompletePanelRef}
         />
       )}
     </div>
@@ -3562,9 +3614,7 @@ function TaskNameLabel(props: TaskNameContentProps) {
             : `${task.name} — double-click to rename`) +
           // The Gantt bar is canvas-rendered (no DOM bar tooltip), so the
           // notes freshness signal (ADR-0143, issue 740) rides on the row name.
-          (task.latestNoteAt
-            ? `  ·  last note ${formatRelative(new Date(task.latestNoteAt))}`
-            : '')
+          (task.latestNoteAt ? `  ·  last note ${formatRelative(new Date(task.latestNoteAt))}` : '')
         }
         aria-label={`${task.wbs} ${task.name}${task.isCritical ? ' (critical path)' : ''}${task.assignees.length > 0 ? ` — assigned to ${task.assignees.map((a) => a.name).join(', ')}` : ''}${task.latestNoteAt ? `, last note ${formatRelative(new Date(task.latestNoteAt))}` : ''}`}
       >
@@ -4013,10 +4063,25 @@ function TaskStartCell({
   // Hoisted once so the five call sites below stay flat (#2245).
   const isMilestoneEditable = Boolean(buildMode && task.isMilestone);
   const toggleMilestonePicker = () => setShowMilestonePicker((v) => !v);
+  // Portaled + `fixed`-positioned via useAnchoredPopover (#3664, web rule 260):
+  // this cell renders inside TaskListPanel's `overflow-x-hidden overflow-y-auto`
+  // virtualized scroll wrapper, so the old in-flow `absolute top-full left-0`
+  // 220px panel could clip against either edge of the ~268px Timeline outline
+  // column — the same class of bug #3663 fixed for the session-trail popover.
+  const {
+    triggerRef: startCellRef,
+    popoverRef: milestonePopoverRef,
+    popoverStyle: milestonePopoverStyle,
+  } = useAnchoredPopover<HTMLDivElement, HTMLDivElement>({
+    open: isMilestoneEditable && showMilestonePicker,
+    width: 220,
+    estimatedHeight: 200,
+  });
   return (
     <div
+      ref={startCellRef}
       className={[
-        'relative flex items-center justify-end shrink-0 border-r border-neutral-border/20',
+        'flex items-center justify-end shrink-0 border-r border-neutral-border/20',
         'text-right text-neutral-text-secondary tabular-nums pr-2',
         isMilestoneEditable ? 'cursor-pointer hover:text-neutral-text-primary' : '',
       ].join(' ')}
@@ -4027,7 +4092,11 @@ function TaskStartCell({
       // (ADR-0784). Italic — the sighted preview signal — is likewise invisible
       // to assistive tech, hence "pending confirmation" here.
       aria-label={cellAriaLabel('start', task.start, startEntry)}
-      title={startEntry?.status === 'diverged' ? describeDivergence(startEntry, workingDaysMask) : undefined}
+      title={
+        startEntry?.status === 'diverged'
+          ? describeDivergence(startEntry, workingDaysMask)
+          : undefined
+      }
       tabIndex={isMilestoneEditable ? 0 : undefined}
       onClick={
         isMilestoneEditable
@@ -4060,6 +4129,8 @@ function TaskStartCell({
             setShowMilestonePicker(false);
           }}
           onClose={() => setShowMilestonePicker(false)}
+          style={milestonePopoverStyle}
+          panelRef={milestonePopoverRef}
         />
       )}
     </div>
@@ -4232,9 +4303,7 @@ function TaskProgressCell({
                     );
                     setTimeout(() => setScheduleError(null), 5000);
                   } else if (parseMilestoneRollupLockedError(err)) {
-                    setScheduleError(
-                      `Progress rolls up from sprint(s) — close or unlink to edit.`,
-                    );
+                    setScheduleError(`Progress rolls up from sprint(s) — close or unlink to edit.`);
                     setTimeout(() => setScheduleError(null), 5000);
                   }
                 },
@@ -4271,9 +4340,7 @@ function TaskOwnerCell({ task, widthPx }: { task: Task; widthPx: number }) {
       // (rule 328). Before #3154 it listed names only, so allocation was
       // unreachable by assistive tech.
       aria-label={
-        task.isSummary
-          ? 'Summary task — owner column empty'
-          : formatOwnerCellLabel(task.assignees)
+        task.isSummary ? 'Summary task — owner column empty' : formatOwnerCellLabel(task.assignees)
       }
     >
       {!task.isSummary && <AssigneeChips assignees={task.assignees} size="md" max={3} />}
@@ -4296,6 +4363,13 @@ interface SprintAssignmentRegionProps {
   projectId: string;
   task: Task;
   updateTask: UpdateTaskMutation;
+  /**
+   * Positioning from the caller's `useAnchoredPopover` call (web rule 260) —
+   * the caller owns the trigger (the row), so it owns the hook. Shared by
+   * both branches below since they are mutually exclusive (#3664).
+   */
+  popoverStyle: React.CSSProperties | null;
+  popoverRef: React.RefObject<HTMLDivElement | null>;
 }
 
 function SprintAssignmentRegion({
@@ -4307,6 +4381,8 @@ function SprintAssignmentRegion({
   projectId,
   task,
   updateTask,
+  popoverStyle,
+  popoverRef,
 }: SprintAssignmentRegionProps) {
   return (
     <>
@@ -4314,6 +4390,8 @@ function SprintAssignmentRegion({
         <SprintPrompt
           open={showSprintPrompt}
           projectId={projectId || null}
+          style={popoverStyle}
+          panelRef={popoverRef}
           onSelect={(sprintId, storyPoints) => {
             if (!projectId) {
               setShowSprintPrompt(false);
@@ -4350,39 +4428,43 @@ function SprintAssignmentRegion({
           onDismiss={() => setShowSprintPrompt(false)}
         />
       )}
-      {buildMode && sprintOutcome && (
-        <div className="absolute top-full left-0 z-50 w-[260px] mt-0.5">
-          {sprintOutcome.kind === 'warn' ? (
-            <GuardrailNotice
-              warnings={sprintOutcome.warnings}
-              onKeep={() => {
-                setSprintOutcome(null);
-                setShowSprintPrompt(false);
-              }}
-              onUndo={() => {
-                if (projectId) {
-                  // Re-PATCH to the prior sprint to revert the override.
-                  updateTask.mutate({
-                    id: task.id,
-                    projectId,
-                    sprint: sprintOutcome.priorSprintId,
-                  });
-                }
-                setSprintOutcome(null);
-                setShowSprintPrompt(false);
-              }}
-            />
-          ) : (
-            <GuardrailBlock
-              detail={sprintOutcome.detail}
-              onDismiss={() => {
-                setSprintOutcome(null);
-                setShowSprintPrompt(false);
-              }}
-            />
-          )}
-        </div>
-      )}
+      {buildMode &&
+        sprintOutcome &&
+        popoverStyle &&
+        createPortal(
+          <div ref={popoverRef} style={popoverStyle} className="z-50 overflow-y-auto">
+            {sprintOutcome.kind === 'warn' ? (
+              <GuardrailNotice
+                warnings={sprintOutcome.warnings}
+                onKeep={() => {
+                  setSprintOutcome(null);
+                  setShowSprintPrompt(false);
+                }}
+                onUndo={() => {
+                  if (projectId) {
+                    // Re-PATCH to the prior sprint to revert the override.
+                    updateTask.mutate({
+                      id: task.id,
+                      projectId,
+                      sprint: sprintOutcome.priorSprintId,
+                    });
+                  }
+                  setSprintOutcome(null);
+                  setShowSprintPrompt(false);
+                }}
+              />
+            ) : (
+              <GuardrailBlock
+                detail={sprintOutcome.detail}
+                onDismiss={() => {
+                  setSprintOutcome(null);
+                  setShowSprintPrompt(false);
+                }}
+              />
+            )}
+          </div>,
+          document.body,
+        )}
     </>
   );
 }

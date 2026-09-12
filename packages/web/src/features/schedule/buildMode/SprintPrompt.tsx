@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from '@/components/Button';
 import { useProject } from '@/hooks/useProject';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -11,6 +12,22 @@ interface Props {
   /** Called with sprint UUID (or null for Backlog) and optional story points. */
   onSelect: (sprintId: string | null, storyPoints: number | null) => void;
   onDismiss: () => void;
+  /**
+   * Positioning from the caller's `useAnchoredPopover` call (web rule 260) —
+   * the caller owns the trigger (the row), so it owns the hook. `null` while
+   * closed/unmeasured; the panel does not portal until this is set.
+   */
+  style: CSSProperties | null;
+  /**
+   * Attach to the portaled panel root. Kept as this component's OWN outside-
+   * pointerdown/Escape dismissal rather than the hook's `onDismiss` option
+   * (which spans trigger + panel) — the hook deliberately does not own Escape,
+   * and this component's existing "any click outside the panel dismisses"
+   * contract already covers the outside case; switching to the hook's
+   * trigger-aware span would change behavior (a click elsewhere in the same
+   * row would stop dismissing it, since the row IS the trigger).
+   */
+  panelRef: RefObject<HTMLDivElement | null>;
 }
 
 /**
@@ -24,12 +41,18 @@ interface Props {
  * every methodology. On a non-agile project the prompt skips step 1 and opens
  * directly on the estimate step (with no sprint assignment), so a PM can set a
  * point estimate from build-mode quick-add just as they can from the board form.
+ *
+ * Portaled to `document.body` and positioned `fixed` via the caller's
+ * `useAnchoredPopover` call (#3664, web rule 260) — the row it opens from
+ * renders inside `TaskListPanel`'s `overflow-x-hidden overflow-y-auto`
+ * virtualized scroll wrapper, so an in-flow `absolute` 260px panel could clip
+ * against either edge of the ~268px Timeline outline column (the same class
+ * of bug #3663 fixed for the session-trail popover).
  */
-export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
+export function SprintPrompt({ open, projectId, onSelect, onDismiss, style, panelRef }: Props) {
   const { data: project } = useProject(projectId);
   const itl = useIterationLabel(projectId);
   const { active, planned } = useSprintsByState(projectId);
-  const panelRef = useRef<HTMLDivElement>(null);
   const ptsInputRef = useRef<HTMLInputElement>(null);
 
   const [step, setStep] = useState<'sprint' | 'points'>('sprint');
@@ -76,7 +99,10 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [open, onDismiss]);
+    // `panelRef` is now a prop (the caller's useAnchoredPopover ref), not a
+    // local useRef, so eslint can no longer assume its identity is stable —
+    // it is, in practice, but listing it costs nothing and keeps the rule honest.
+  }, [open, onDismiss, panelRef]);
 
   // Escape: on the estimate step of an agile project, step back to the sprint
   // step; otherwise (sprint step, or the estimate-only non-agile flow) dismiss.
@@ -99,11 +125,7 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
   // Number-key shortcuts (1, 2, 3) — sprint step only
   useEffect(() => {
     if (!open || !isAgile || step !== 'sprint') return;
-    const sprintIds: (string | null)[] = [
-      active?.id ?? null,
-      planned[0]?.id ?? null,
-      null,
-    ];
+    const sprintIds: (string | null)[] = [active?.id ?? null, planned[0]?.id ?? null, null];
     const handler = (e: KeyboardEvent) => {
       const idx = Number.parseInt(e.key, 10) - 1;
       if (idx >= 0 && idx < sprintIds.length) {
@@ -118,28 +140,37 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
   // Wait for the project to load before rendering: `isAgile` is derived from it,
   // and showing the estimate-only (non-agile) step before the methodology is known
   // would flash the wrong step and re-seat once `agile_features` resolves.
-  if (!open || !project) return null;
+  if (!open || !project || !style) return null;
 
   const sprintOptions = (
     [
-      { label: active ? `Current ${itl.lower}: ${active.name}` : null, sprintId: active?.id ?? null },
-      { label: planned[0] ? `Next ${itl.lower}: ${planned[0].name}` : null, sprintId: planned[0]?.id ?? null },
+      {
+        label: active ? `Current ${itl.lower}: ${active.name}` : null,
+        sprintId: active?.id ?? null,
+      },
+      {
+        label: planned[0] ? `Next ${itl.lower}: ${planned[0].name}` : null,
+        sprintId: planned[0]?.id ?? null,
+      },
       { label: 'Backlog', sprintId: null as string | null },
     ] as { label: string | null; sprintId: string | null }[]
   ).filter((o): o is { label: string; sprintId: string | null } => o.label !== null);
 
-  return (
+  return createPortal(
     <div
       ref={panelRef}
       role="dialog"
       aria-modal="false"
       aria-label={step === 'sprint' ? `Assign to ${itl.lower}` : 'Story points'}
-      className="absolute top-full left-0 z-50 w-[260px] mt-0.5 rounded-card border border-chrome-border
-        bg-chrome-surface-raised p-2 space-y-0.5"
+      style={style}
+      className="z-50 rounded-card border border-chrome-border
+        bg-chrome-surface-raised p-2 space-y-0.5 overflow-y-auto"
     >
       {step === 'sprint' ? (
         <>
-          <p className="text-xs text-chrome-text-secondary px-1 pb-1 font-medium">Add to {itl.lower}?</p>
+          <p className="text-xs text-chrome-text-secondary px-1 pb-1 font-medium">
+            Add to {itl.lower}?
+          </p>
           {sprintOptions.map((opt, i) => (
             <button
               key={opt.sprintId ?? 'backlog'}
@@ -179,18 +210,17 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
               value={ptsValue}
               onChange={(e) => setPtsValue(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') { e.preventDefault(); commitPoints(); }
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  commitPoints();
+                }
               }}
               className="w-20 h-8 px-2 text-sm tppm-mono text-neutral-text-primary bg-neutral-surface
                 border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary
                 focus-visible:outline-none placeholder:text-neutral-text-secondary"
               aria-label="Story points (optional)"
             />
-            <Button
-              variant="primary"
-              size="md"
-              onClick={commitPoints}
-            >
+            <Button variant="primary" size="md" onClick={commitPoints}>
               Done
             </Button>
           </div>
@@ -199,6 +229,7 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
           </p>
         </>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }

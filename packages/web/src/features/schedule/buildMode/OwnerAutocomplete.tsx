@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState, type CSSProperties, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import type { ProjectResource } from '@/types';
 
 interface Props {
@@ -9,6 +10,14 @@ interface Props {
   /** Called with the chosen roster member's display name. */
   onSelect: (resource: ProjectResource) => void;
   onDismiss: () => void;
+  /**
+   * Positioning from the caller's `useAnchoredPopover` call (web rule 260) —
+   * the caller owns the trigger (the name cell), so it owns the hook. `null`
+   * while closed/unmeasured; the panel does not portal until this is set.
+   */
+  style: CSSProperties | null;
+  /** Attach to the portaled `<ul>` — required for the caller's outside-dismiss span. */
+  panelRef: RefObject<HTMLUListElement | null>;
 }
 
 const MAX_SUGGESTIONS = 6;
@@ -18,13 +27,16 @@ const MAX_SUGGESTIONS = 6;
  * Mirrors `NameAutocomplete`'s positioning, sizing, and keyboard contract so the two
  * popovers in the same cell behave identically; it differs only in what it lists.
  *
+ * Portaled to `document.body` and positioned `fixed` via the caller's
+ * `useAnchoredPopover` call (#3664) — see `NameAutocomplete`'s header for why
+ * an in-flow `absolute` panel could not stay.
+ *
  * Candidates come from the **project roster**, never a workspace-global directory —
  * the scoping is what stops a name typed here binding work to somebody who is a member
  * of no project the author can see.
  */
-export function OwnerAutocomplete({ query, pool, onSelect, onDismiss }: Props) {
+export function OwnerAutocomplete({ query, pool, onSelect, onDismiss, style, panelRef }: Props) {
   const [activeIdx, setActiveIdx] = useState(-1);
-  const listRef = useRef<HTMLUListElement>(null);
 
   const q = query.trim().toLowerCase();
   const matches = pool
@@ -58,15 +70,16 @@ export function OwnerAutocomplete({ query, pool, onSelect, onDismiss }: Props) {
     return () => document.removeEventListener('keydown', handler, true);
   }, [matches, activeIdx, onSelect, onDismiss]);
 
-  if (matches.length === 0) return null;
+  if (matches.length === 0 || !style) return null;
 
-  return (
+  return createPortal(
     <ul
-      ref={listRef}
+      ref={panelRef}
       role="listbox" // dropdown-scroll-ok: hard-capped slice(0, MAX_SUGGESTIONS)
       aria-label="Assign owner"
-      className="absolute top-full left-0 z-50 w-[280px] mt-0.5 rounded-card border border-chrome-border
-        bg-chrome-surface-raised overflow-hidden"
+      style={style}
+      className="z-50 rounded-card border border-chrome-border
+        bg-chrome-surface-raised overflow-y-auto"
     >
       {matches.map((p, i) => (
         <li
@@ -75,7 +88,9 @@ export function OwnerAutocomplete({ query, pool, onSelect, onDismiss }: Props) {
           aria-selected={i === activeIdx}
           className={[
             'flex items-center gap-2 px-2 py-1.5 text-xs cursor-pointer text-chrome-text-primary',
-            i === activeIdx ? 'bg-brand-primary/10 text-brand-primary' : 'hover:bg-chrome-row-hover',
+            i === activeIdx
+              ? 'bg-brand-primary/10 text-brand-primary'
+              : 'hover:bg-chrome-row-hover',
           ].join(' ')}
           onMouseDown={(e) => {
             // mousedown, not click — it must land before the input's onBlur commits.
@@ -91,6 +106,7 @@ export function OwnerAutocomplete({ query, pool, onSelect, onDismiss }: Props) {
           )}
         </li>
       ))}
-    </ul>
+    </ul>,
+    document.body,
   );
 }

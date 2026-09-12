@@ -1,4 +1,5 @@
-import { useRef, useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useSprintsByState } from '@/hooks/useSprints';
@@ -14,6 +15,14 @@ interface Props {
   parents: MilestoneParent[];
   onSelect: (isoDate: string) => void;
   onClose: () => void;
+  /**
+   * Positioning from the caller's `useAnchoredPopover` call (web rule 260) —
+   * the caller owns the trigger (the Start cell), so it owns the hook. `null`
+   * while closed/unmeasured; the panel does not portal until this is set.
+   */
+  style: CSSProperties | null;
+  /** Attach to the portaled panel root — required for the outside-dismiss check below. */
+  panelRef: RefObject<HTMLDivElement | null>;
 }
 
 /**
@@ -24,15 +33,19 @@ interface Props {
  *  2. "End of current sprint" when a sprint is active
  *  3. "Pick custom…" — opens a native date input inline
  *
- * Positioned by the caller (use a relative wrapper; this is absolute).
+ * Portaled to `document.body` and positioned `fixed` via the caller's
+ * `useAnchoredPopover` call (#3664, web rule 260) — the Start cell it opens
+ * from renders inside `TaskListPanel`'s `overflow-x-hidden overflow-y-auto`
+ * virtualized scroll wrapper, so an in-flow `absolute` 220px panel could clip
+ * against either edge (the same class of bug #3663 fixed for the session-trail
+ * popover).
  */
-export function MilestoneDatePopover({ open, parents, onSelect, onClose }: Props) {
+export function MilestoneDatePopover({ open, parents, onSelect, onClose, style, panelRef }: Props) {
   const projectId = useProjectId() ?? null;
   const itl = useIterationLabel(projectId);
   const { active: activeSprint } = useSprintsByState(projectId);
   const [showCustom, setShowCustom] = useState(false);
   const [customDate, setCustomDate] = useState('');
-  const panelRef = useRef<HTMLDivElement>(null);
 
   // Close on outside click
   useEffect(() => {
@@ -44,7 +57,10 @@ export function MilestoneDatePopover({ open, parents, onSelect, onClose }: Props
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [open, onClose]);
+    // `panelRef` is now a prop (the caller's useAnchoredPopover ref), not a
+    // local useRef, so eslint can no longer assume its identity is stable —
+    // it is, in practice, but listing it costs nothing and keeps the rule honest.
+  }, [open, onClose, panelRef]);
 
   // Close on Escape
   useEffect(() => {
@@ -59,7 +75,7 @@ export function MilestoneDatePopover({ open, parents, onSelect, onClose }: Props
     return () => document.removeEventListener('keydown', handler, true);
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || !style) return null;
 
   const phaseChips = parents.filter((p) => !!p.finish).slice(0, 3);
 
@@ -70,14 +86,15 @@ export function MilestoneDatePopover({ open, parents, onSelect, onClose }: Props
     }
   };
 
-  return (
+  return createPortal(
     <div
       ref={panelRef}
       role="dialog"
       aria-modal="false"
       aria-label="Pick milestone date"
-      className="absolute top-full left-0 z-50 w-[220px] mt-0.5 rounded-card border border-chrome-border
-        bg-chrome-surface-raised p-2 space-y-1"
+      style={style}
+      className="z-50 rounded-card border border-chrome-border
+        bg-chrome-surface-raised p-2 space-y-1 overflow-y-auto"
     >
       {phaseChips.map((p) => (
         <button
@@ -153,6 +170,7 @@ export function MilestoneDatePopover({ open, parents, onSelect, onClose }: Props
           </button>
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }
