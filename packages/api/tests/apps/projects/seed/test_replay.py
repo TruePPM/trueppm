@@ -556,3 +556,65 @@ def test_v1_seed_has_no_replay(owner: Any) -> None:
     task = _task(program, "1")
     assert task.status == TaskStatus.COMPLETE
     assert task.history.count() == 1  # no backdated progression
+
+
+# ---------------------------------------------------------------------------
+# ADR-1153 (#3709) — defense-in-depth: a beat that would produce an invalid
+# actual-date pair does not persist it. Real seed beats are deterministic,
+# developer-authored data and should never trip this; this proves the guard
+# directly against ``_apply_task_status`` rather than relying on a real seed
+# document happening to exercise it.
+# ---------------------------------------------------------------------------
+
+
+def test_beat_producing_an_invalid_actual_pair_drops_the_bad_field() -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from trueppm_api.apps.projects.models import Calendar
+    from trueppm_api.apps.projects.seed.replay import ReplayContext, _apply_task_status, _Beat
+
+    calendar = Calendar.objects.create(name="Standard")
+    project = Project.objects.create(
+        name="Replay target", start_date=date(2026, 3, 2), calendar=calendar
+    )
+    task = Task.objects.create(
+        project=project,
+        name="T",
+        duration=3,
+        status=TaskStatus.IN_PROGRESS,
+        # Later than the finish the COMPLETE beat below would stamp — an
+        # inverted pair if both landed as written.
+        actual_start=date(2026, 3, 20),
+    )
+    ctx = ReplayContext(
+        anchor=date(2026, 3, 2),
+        program_code="p",
+        default_actor=None,
+        users={},
+        tasks={("p", "1"): task},
+        sprints={},
+        projects={"p": project},
+        project_calendars={},
+        risks={},
+        final_status={},
+        final_sprint={},
+    )
+    beat = _Beat(
+        when=datetime(2026, 3, 10, 12, 0, tzinfo=ZoneInfo("UTC")),
+        order=0,
+        action="task.status",
+        target="task:p:1",
+        actor=None,
+        data={"to": "COMPLETE"},
+    )
+
+    _apply_task_status(beat, ctx)
+
+    task.refresh_from_db()
+    assert task.status == TaskStatus.COMPLETE
+    # The beat would stamp actual_finish = 2026-03-10, which precedes the
+    # pre-existing actual_start of 2026-03-20 — the order rule drops the
+    # finish rather than persisting the inverted pair.
+    assert task.actual_finish is None
+    assert task.actual_start == date(2026, 3, 20)

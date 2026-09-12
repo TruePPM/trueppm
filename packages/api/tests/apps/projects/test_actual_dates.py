@@ -805,3 +805,105 @@ def test_a_refused_actuals_write_broadcasts_nothing(
 
     assert r.status_code == 400
     broadcast.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Shared ADR-1153 rules module (#3709) — direct unit coverage of
+# projects.actual_date_rules, extracted so REST, the MS Project importer, and
+# seed replay enforce one implementation instead of two that can drift.
+# ---------------------------------------------------------------------------
+
+
+def test_check_actual_date_order_flags_an_inverted_pair() -> None:
+    from trueppm_api.apps.projects.actual_date_rules import check_actual_date_order
+
+    violation = check_actual_date_order(date(2026, 4, 20), date(2026, 4, 10))
+    assert violation is not None
+    assert violation.field == "actual_finish"
+    assert violation.code == "actual_dates_out_of_order"
+
+
+def test_check_actual_date_order_allows_a_coherent_or_half_populated_pair() -> None:
+    from trueppm_api.apps.projects.actual_date_rules import check_actual_date_order
+
+    assert check_actual_date_order(date(2026, 4, 1), date(2026, 4, 10)) is None
+    assert check_actual_date_order(None, date(2026, 4, 10)) is None
+    assert check_actual_date_order(date(2026, 4, 1), None) is None
+
+
+@pytest.mark.django_db
+def test_check_actual_date_bound_flags_a_future_date(project: Project) -> None:
+    from trueppm_api.apps.projects.actual_date_rules import check_actual_date_bound
+
+    future = timezone.localdate() + timedelta(days=5)
+    violation = check_actual_date_bound("actual_finish", "Actual finish", future, project)
+    assert violation is not None
+    assert violation.code == "actual_date_in_future"
+
+
+@pytest.mark.django_db
+def test_check_actual_date_bound_flags_a_date_outside_the_span(project: Project) -> None:
+    from trueppm_api.apps.projects.actual_date_rules import check_actual_date_bound
+
+    violation = check_actual_date_bound("actual_finish", "Actual finish", date(900, 1, 1), project)
+    assert violation is not None
+    assert violation.code == "actual_date_outside_span"
+
+
+@pytest.mark.django_db
+def test_check_actual_date_bound_allows_a_date_in_range(project: Project) -> None:
+    from trueppm_api.apps.projects.actual_date_rules import check_actual_date_bound
+
+    assert check_actual_date_bound("actual_start", "Actual start", None, project) is None
+    assert (
+        check_actual_date_bound("actual_start", "Actual start", timezone.localdate(), project)
+        is None
+    )
+
+
+def test_check_actual_finish_signoff_flags_a_non_signoff_status() -> None:
+    from trueppm_api.apps.projects.actual_date_rules import check_actual_finish_signoff
+
+    violation = check_actual_finish_signoff(date(2026, 4, 1), "IN_PROGRESS")
+    assert violation is not None
+    assert violation.code == "actual_finish_requires_signoff"
+
+    assert check_actual_finish_signoff(date(2026, 4, 1), "REVIEW") is None
+    assert check_actual_finish_signoff(date(2026, 4, 1), "COMPLETE") is None
+    assert check_actual_finish_signoff(None, "IN_PROGRESS") is None
+
+
+@pytest.mark.django_db
+def test_check_actual_dates_composes_all_three_rules(project: Project) -> None:
+    """The full-row convenience wrapper used by the importer/seed replay — not
+    the serializer, which needs the partial-PATCH field-touch semantics its own
+    ``_validate_actual_dates`` docstring describes."""
+    from trueppm_api.apps.projects.actual_date_rules import check_actual_dates
+
+    assert (
+        check_actual_dates(
+            actual_start=date(2026, 4, 1),
+            actual_finish=date(2026, 4, 10),
+            status="COMPLETE",
+            project=project,
+        )
+        is None
+    )
+
+    order_violation = check_actual_dates(
+        actual_start=date(2026, 4, 20),
+        actual_finish=date(2026, 4, 10),
+        status="COMPLETE",
+        project=project,
+    )
+    assert order_violation is not None
+    assert order_violation.code == "actual_dates_out_of_order"
+
+    signoff_violation = check_actual_dates(
+        actual_start=None,
+        actual_finish=date(2026, 4, 10),
+        status="IN_PROGRESS",
+        project=project,
+    )
+    assert signoff_violation is not None
+    assert signoff_violation.code == "actual_finish_requires_signoff"

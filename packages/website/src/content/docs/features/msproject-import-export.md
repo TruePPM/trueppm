@@ -46,6 +46,13 @@ Five things on this page land in **TruePPM 0.4**, the first beta. On
 5. **The import-into-existing dialog offers `.mpp`** alongside `.xml`, even
    though the reference image cannot parse it — see
    [`.mpp` — what actually works](#mpp--what-actually-works).
+6. **An `<ActualStart>` / `<ActualFinish>` pair is validated, not imported as-is.**
+   The rows for those two fields in the [task field matrix](#task-level-fields)
+   and the last row of the [import-warnings table](#import-warnings) describe
+   0.4; before it, the importer wrote whatever the file said onto the task with
+   no check — an inverted pair, or a date far outside any representable span,
+   would persist and then fail every schedule recompute for that project until
+   hand-corrected.
 
 Everything else on this page describes shipped behavior.
 :::
@@ -291,8 +298,8 @@ positions.
 | `<Start>` | `Task.planned_start` | ✅ Mapped | Date portion only; time component ignored. A `<ConstraintDate>` on a supported constraint type wins over this — see the next two rows. |
 | `<ConstraintType>` | `Task.planned_start` (codes 2, 4 only) | 🟡 Partial | `4` Start No Earlier Than is exactly `planned_start`'s meaning and is carried across. `2` Must Start On becomes the same start floor **and warns**, because TruePPM cannot also stop the task starting later. `0` As Soon As Possible is TruePPM's own default. `1` ALAP, `3` Must Finish On, `5` SNLT, `6` FNET and `7` FNLT have no TruePPM equivalent and are reported in the import warnings with a task count. |
 | `<ConstraintDate>` | `Task.planned_start` | 🟡 Partial | Read only alongside a code TruePPM applies (2 or 4). This is the date the PM *committed to*, so it takes precedence over the computed `<Start>` — importing the computed date instead was how a migrated plan quietly lost its commitments. |
-| `<ActualStart>` | `Task.actual_start` | ✅ Mapped | Date portion only. `NA` and unparseable values import as empty rather than as a date. |
-| `<ActualFinish>` | `Task.actual_finish` | ✅ Mapped | Date portion only. |
+| `<ActualStart>` | `Task.actual_start` | ✅ Mapped | Date portion only. `NA` and unparseable values import as empty rather than as a date. Validated against the pair, the project's span, and the future bound — see the last row of [Import warnings](#import-warnings). |
+| `<ActualFinish>` | `Task.actual_finish` | ✅ Mapped | Date portion only. Same validation as `<ActualStart>`, plus a task-status check: a finish is only kept on a task the file marks in review or complete. |
 | `<Deadline>` | — | ⬜ Ignored | TruePPM has no deadline field. Reported in the import warnings with a task count. |
 | `<Baseline>` | — | ⬜ Ignored | Reported with a count. Capture a [TruePPM baseline](/features/baselines/) after the import lands instead — it will then reflect the imported dates. |
 | `<Priority>` | — | ⬜ Ignored | MS Project's 0–1000 weight is not `Task.priority_rank`, which is an ordinal position. Reported with a count when the value is not the 500 default. |
@@ -452,11 +459,13 @@ The import summary includes a `warnings` list for non-fatal issues:
 | A field family TruePPM has no column for | `"Not imported: {what} — set on {n} of {total} tasks."` (see [What the import does not carry over](#what-the-import-does-not-carry-over)) |
 | A constraint type TruePPM cannot express | `"Not imported: '{MS Project name}' constraints — set on {n} of {total} tasks. TruePPM models only start-no-earlier-than, so these tasks are scheduled from their dependencies alone."` |
 | A Must Start On constraint | `"Partially imported: 'Must Start On' constraints on {n} of {total} tasks became start-no-earlier-than dates. The start is pinned; TruePPM cannot also stop the task starting later."` |
+| An actual date would fail ordering, the project's span, or the future bound, or a finish is set on a task not in review or complete | `"'{task name}': dropped actual start — {reason}"` or `"'{task name}': dropped actual finish — {reason}"`, one line per offending task. Only the offending field is dropped; the row still imports. |
 
-The import summary also includes two counts you can use to confirm three-point coverage at a glance:
+The import summary also includes counts you can use to confirm coverage at a glance:
 
 - `tasks_with_three_point_estimates` — leaf tasks that received all three values.
 - `tasks_skipped_partial_three_point` — tasks for which the file supplied a subset (1 or 2 of the three values).
+- `tasks_with_invalid_actuals_dropped` — tasks where an `<ActualStart>` or `<ActualFinish>` was dropped by the validation above.
 
 ## Export details
 

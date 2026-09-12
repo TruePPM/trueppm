@@ -144,6 +144,11 @@ def _init_summary(data: ProjectData) -> dict[str, Any]:
         # supplied a subset.
         "tasks_with_three_point_estimates": 0,
         "tasks_skipped_partial_three_point": 0,
+        # ADR-1153 actual-date rules (#3709): counts rows where the file's
+        # actual_start/actual_finish would have violated ordering, the future
+        # bound, the span cap, or the sign-off gate. The offending field is
+        # dropped rather than the whole row — see ``_sanitize_actual_dates``.
+        "tasks_with_invalid_actuals_dropped": 0,
         # Calendar mapping (#1769). ``calendar_applied`` is True when the file's
         # calendar was wired as Project.calendar (created or matched);
         # ``calendar_created``/``calendar_matched`` say which path produced it.
@@ -364,6 +369,10 @@ def _create_tasks(
     Project.objects.filter(pk=project_id).update(object_sequence=F("object_sequence") + task_count)
     end_seq: int = Project.objects.values_list("object_sequence", flat=True).get(pk=project_id)
     start_seq = end_seq - task_count + 1
+    # Fetched once for the ADR-1153 actual-date check every row runs below
+    # (#3709) — needs project.start_date and .status_date, neither of which the
+    # object_sequence query above selects.
+    project = Project.objects.only("start_date", "status_date").get(pk=project_id)
 
     wbs_paths = _build_wbs_paths(data.tasks)
     if not wipe_existing:
@@ -392,7 +401,7 @@ def _create_tasks(
 
     task_objects: list[Task] = [
         _build_task_object(
-            td, wbs_paths[i], i in summary_indices, project_id, start_seq + i, summary
+            td, wbs_paths[i], i in summary_indices, project_id, start_seq + i, summary, project
         )
         for i, td in enumerate(data.tasks)
     ]
@@ -434,10 +443,12 @@ def _build_task_object(
     project_id: str,
     short_id_seq: int,
     summary: dict[str, Any],
+    project: Any,
 ) -> Any:
     """Construct a single Task row from parsed TaskData, applying the import-time
     invariants (three-point gating, milestone normalization, progress-anchor
-    clamp) that bulk_create bypasses by skipping the TaskSerializer.
+    clamp, ADR-1153 actual-date rules) that bulk_create bypasses by skipping the
+    TaskSerializer.
     """
     from trueppm_api.apps.projects.models import DeliveryMode, Task, TaskStatus
 
@@ -486,6 +497,7 @@ def _build_task_object(
     # in-progress task to 0% whenever the file pinned it by constraint instead of
     # by `<Start>`, which is the inverse of the invariant this clamp exists for.
     effective_percent = td.percent_complete if (_task_anchor(td) or _terminal) else 0
+    actual_start, actual_finish = _sanitize_actual_dates(td, task_status, project, summary)
     return Task(
         project_id=project_id,
         name=td.name,
@@ -503,14 +515,81 @@ def _build_task_object(
         percent_complete=effective_percent,
         notes=td.notes,
         planned_start=_resolve_planned_start(td),
-        actual_start=td.actual_start,
-        actual_finish=td.actual_finish,
+        actual_start=actual_start,
+        actual_finish=actual_finish,
         optimistic_duration=opt,
         most_likely_duration=ml,
         pessimistic_duration=pess,
         estimate_status=est_status,
         short_id=f"{short_id_seq:08X}",
     )
+
+
+def _sanitize_actual_dates(
+    td: TaskData, task_status: str, project: Any, summary: dict[str, Any]
+) -> tuple[Any, Any]:
+    """Enforce ADR-1153 on an imported row instead of persisting whatever the file said (#3709).
+
+    This is untrusted input: an uploaded .mpp can encode an ``ActualFinish``
+    before its ``ActualStart``, or an actual date far outside any representable
+    span. ``bulk_create_tasks`` bypasses ``TaskSerializer`` entirely (per
+    ADR-0011, to skip django-simple-history on a bulk insert), so nothing else
+    on this path enforces the rule — the row would otherwise persist and detonate
+    the *project's* recompute at compute time (``models.py``'s
+    ``MAX_PROJECT_SPAN_DAYS`` comment: "then every recalculate_schedule throws"),
+    not just fail its own import.
+
+    Mirrors the importer's existing partial-three-point precedent
+    (``tasks_skipped_partial_three_point``): drop only the offending field and
+    keep the row, rather than rejecting the whole task. A row disappearing from
+    the imported plan because one date was unparseable would be worse than
+    importing it with that one field left unset — the same "half-populated is
+    valid by design" policy ADR-0136/ADR-1153 already apply to a PM's own PATCH.
+
+    At most two passes: each pass clears exactly one of the two fields, and
+    :func:`check_actual_dates` returns only the first violation it finds, so a
+    file with both fields independently bad (e.g. two out-of-span dates) needs a
+    second pass to catch the one the first pass didn't reach.
+
+    ``td.actual_start``/``td.actual_finish`` are already ``None`` or a
+    parser-validated ``YYYY-MM-DD`` string by the time they reach here
+    (``parser._iso_date_or_none`` filters MS Project's "NA"/malformed sentinels
+    before this function ever runs), so ``fromisoformat`` cannot raise on the
+    live MSP path today. The ``try/except`` is defense-in-depth against a future
+    ``TaskData`` producer that populates these fields without that guarantee —
+    the CSV and Jira adapters currently leave them ``None`` — so an unparseable
+    value is dropped exactly like any other invalid actual, not a crash that
+    takes down the whole import (security-review, #3709).
+    """
+    from datetime import date as _date
+
+    from trueppm_api.apps.projects.actual_date_rules import check_actual_dates
+
+    def _parse(raw: str | None) -> Any:
+        if not raw:
+            return None
+        try:
+            return _date.fromisoformat(raw)
+        except ValueError:
+            return None
+
+    start = _parse(td.actual_start)
+    finish = _parse(td.actual_finish)
+    for _ in range(2):
+        violation = check_actual_dates(
+            actual_start=start, actual_finish=finish, status=task_status, project=project
+        )
+        if violation is None:
+            break
+        summary["tasks_with_invalid_actuals_dropped"] += 1
+        summary["warnings"].append(
+            f"{td.name!r}: dropped {violation.field.replace('_', ' ')} — {violation.message}"
+        )
+        if violation.field == "actual_start":
+            start = None
+        else:
+            finish = None
+    return start, finish
 
 
 def _resolve_planned_start(td: TaskData) -> str | None:
