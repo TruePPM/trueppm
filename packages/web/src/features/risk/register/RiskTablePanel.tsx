@@ -4,6 +4,8 @@ import { EmptyState } from '@/components/EmptyState';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { Button } from '@/components/Button';
 import { CloseIcon, RiskIcon } from '@/components/Icons';
+import { useElementRef } from '@/hooks/useElementRef';
+import { useHasScrollRight } from '@/hooks/useHasScrollRight';
 import { RiskSegmentedFilter } from '../RiskSegmentedFilter';
 import {
   RISK_FILTERS,
@@ -66,6 +68,17 @@ export function RiskTablePanel({
   onNewestSortChange,
   renderRow,
 }: RiskTablePanelProps) {
+  // Right edge-fade affordance (web rule 290) — the table's scroll container
+  // (`min-w-max` on the table below) always starts scrolled to the left
+  // origin, so a right-only fade is the correct shape here (unlike the
+  // shell's StatusClusterScroller, which can be Tab-scrolled to an arbitrary
+  // offset and needs both edges). Without it, a card narrower than the
+  // table's intrinsic width — the Severity column is the one that clips
+  // first at 1280 — reads as truncated content rather than a scrollable
+  // table, because the scroll container has no visible scrollbar at rest.
+  const { el: scrollEl, setEl: setScrollEl } = useElementRef<HTMLDivElement>();
+  const hasScrollRight = useHasScrollRight(scrollEl);
+
   return (
     <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
       {/* Loading */}
@@ -122,72 +135,100 @@ export function RiskTablePanel({
           )}
 
           {displayRisks.length > 0 && (
-            <div className="flex-1 overflow-auto rounded-card border border-neutral-border bg-neutral-surface">
-              {/* min-w-max lets the table keep its intrinsic column widths and
+            <div className="relative flex-1 min-h-0 rounded-card border border-neutral-border bg-neutral-surface">
+              <div
+                ref={setScrollEl}
+                data-testid="risk-table-scroll"
+                className="h-full overflow-auto rounded-card"
+              >
+                {/* min-w-max lets the table keep its intrinsic column widths and
                   scroll horizontally inside this wrapper on a phone, rather than
                   squishing/clipping at 375px (rule 102a). */}
-              <table className="w-full min-w-max text-sm border-collapse">
-                <thead className="sticky top-0 z-10">
-                  <tr className="bg-neutral-surface-raised border-b border-neutral-border">
-                    <th
-                      scope="col"
-                      className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[88px]"
-                    >
-                      ID
-                    </th>
-                    <th
-                      scope="col"
-                      className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide"
-                    >
-                      Risk
-                    </th>
-                    <th
-                      scope="col"
-                      className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-10"
-                    >
-                      P
-                    </th>
-                    <th
-                      scope="col"
-                      className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-10"
-                    >
-                      I
-                    </th>
-                    <th
-                      scope="col"
-                      aria-sort={newestSort ? 'none' : severityAriaSort(severitySort)}
-                      className="px-4 py-3 w-[148px]"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => {
-                          // Column sort and Newest are mutually exclusive.
-                          onNewestSortChange(false);
-                          onSeveritySortChange(nextSeveritySort(severitySort));
-                        }}
-                        className="inline-flex items-center gap-1 font-medium text-neutral-text-secondary
+                <table className="w-full min-w-max text-sm border-collapse">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-neutral-surface-raised border-b border-neutral-border">
+                      <th
+                        scope="col"
+                        className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[88px]"
+                      >
+                        ID
+                      </th>
+                      <th
+                        scope="col"
+                        className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide"
+                      >
+                        Risk
+                      </th>
+                      <th
+                        scope="col"
+                        className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-10"
+                      >
+                        P
+                      </th>
+                      <th
+                        scope="col"
+                        className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-10"
+                      >
+                        I
+                      </th>
+                      <th
+                        scope="col"
+                        aria-sort={newestSort ? 'none' : severityAriaSort(severitySort)}
+                        className="px-4 py-3 w-[148px]"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Column sort and Newest are mutually exclusive.
+                            onNewestSortChange(false);
+                            onSeveritySortChange(nextSeveritySort(severitySort));
+                          }}
+                          className="inline-flex items-center gap-1 font-medium text-neutral-text-secondary
                         hover:text-neutral-text-primary text-xs uppercase tracking-wide
                         focus:outline-none focus:ring-2 focus:ring-brand-primary
                         focus:ring-offset-1 rounded-control"
+                        >
+                          Severity
+                          <span aria-hidden="true" className="text-xs leading-none">
+                            {severitySort === 'desc' ? '▼' : severitySort === 'asc' ? '▲' : '⇅'}
+                          </span>
+                        </button>
+                      </th>
+                      <th
+                        scope="col"
+                        className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[180px]"
                       >
-                        Severity
-                        <span aria-hidden="true" className="text-xs leading-none">
-                          {severitySort === 'desc' ? '▼' : severitySort === 'asc' ? '▲' : '⇅'}
-                        </span>
-                      </button>
-                    </th>
-                    <th
-                      scope="col"
-                      className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[180px]"
-                    >
-                      Owner
-                    </th>
-                    {/* Quick-edit affordance column — no header */}
-                    <th scope="col" className="w-10 px-2 py-3" aria-label="Actions" />
-                  </tr>
-                </thead>
-                <tbody>{displayRisks.map((risk) => renderRow(risk))}</tbody>
-              </table>
+                        Owner
+                      </th>
+                      {/* Quick-edit affordance column — no header */}
+                      <th scope="col" className="w-10 px-2 py-3" aria-label="Actions" />
+                    </tr>
+                  </thead>
+                  <tbody>{displayRisks.map((risk) => renderRow(risk))}</tbody>
+                </table>
+              </div>
+
+              {/* Right edge-fade — the "more to the right" cue for horizontal
+                  overflow (web rule 290). The Severity column is the one that
+                  clips first at 1280: with no visible scrollbar at rest
+                  (macOS/touch), the table read as truncated rather than
+                  scrollable. Rendered in the non-scrolling wrapper (the
+                  StatusClusterScroller / board pattern) so it stays pinned to
+                  the viewport edge rather than scrolling away with the
+                  content. Decorative (rule 6) and pointer-transparent so it
+                  never intercepts a click meant for the table beneath it;
+                  rendered only while content sits to the right of the current
+                  scroll position. `sticky top-0` on `<thead>` keeps the header
+                  aligned with the body as the container scrolls — both axes
+                  scroll together inside the one `overflow-auto` div, so there
+                  is nothing further to reconcile. */}
+              {hasScrollRight && (
+                <span
+                  aria-hidden="true"
+                  data-testid="risk-table-scroll-fade-right"
+                  className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 rounded-r-card bg-gradient-to-l from-neutral-surface to-transparent"
+                />
+              )}
             </div>
           )}
         </>
