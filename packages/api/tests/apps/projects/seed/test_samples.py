@@ -139,6 +139,83 @@ def test_bundled_sample_in_flight_tasks_keep_authored_progress(owner: Any, key: 
     assert checked > 0
 
 
+@pytest.mark.parametrize("key", sorted(SAMPLES))
+def test_bundled_sample_closed_sprints_get_outcome_rows(owner: Any, key: str) -> None:
+    """#3488: `_apply_sprint_close` bypassed the real close service, so every
+    closed sprint across all five samples loaded with zero SprintTaskOutcome
+    rows and no goal_outcome on a synthesized close. Read from the document
+    (not a hard-coded table) so this can't rot when a sample's content
+    changes — see the docstring above for the pattern.
+
+    Not every task ends the timeline at its declared final status — a
+    separate, pre-existing replay defect (unrelated to #3488, not fixed here)
+    leaves at least one bundled task short of its authored end column, which
+    is enough to make that task's sprint legitimately carry it forward — so
+    this checks outcome rows exist per closed sprint rather than asserting an
+    exact count or a single disposition, either of which that other defect
+    would make a false assumption.
+    """
+    from trueppm_api.apps.projects.models import Sprint, SprintTaskOutcome
+
+    document = json.loads(SAMPLES[key].path.read_text())
+    authored_close_targets = {
+        e["target"] for e in document.get("events", []) if e.get("action") == "sprint.close"
+    }
+    program = load_sample(key, owner=owner, create_users=True)
+
+    checked = 0
+    for project_data in document["projects"]:
+        project = Project.objects.get(program=program, name=project_data["name"])
+        for sprint_data in project_data.get("sprints", []):
+            if sprint_data["state"] != "COMPLETED":
+                continue
+            checked += 1
+            label = f"{key}/{project_data['slug']}/{sprint_data['slug']}"
+            sprint = Sprint.objects.get(project=project, name=sprint_data["name"])
+            outcomes = SprintTaskOutcome.objects.filter(sprint=sprint)
+            assert outcomes.exists(), label
+            target = f"sprint:{project_data['slug']}:{sprint_data['slug']}"
+            if target not in authored_close_targets:
+                # Synthesized close: no authored `sprint.close` beat means no
+                # authored goal_outcome — the derived committed-vs-completed
+                # verdict must not be left None (#3488).
+                assert sprint.goal_outcome is not None, label
+    # Guard against a vacuous pass: every bundled sample has a closed sprint
+    # (matches the issue's count of 11 across the five samples).
+    if checked == 0:
+        pytest.skip(f"{key} has no COMPLETED sprint")
+
+
+@pytest.mark.parametrize("key", sorted(SAMPLES))
+def test_bundled_sample_velocity_suggestions_where_history_supports_it(
+    owner: Any, key: str
+) -> None:
+    """#3488: a project with enough closed-sprint history gets at least one
+    VelocitySuggestion once its sprints have replayed through the real close.
+    """
+    from trueppm_api.apps.scheduling.models import VelocitySuggestion
+    from trueppm_api.apps.scheduling.services import MIN_CLOSED_SPRINTS_FOR_SUGGESTION
+
+    document = json.loads(SAMPLES[key].path.read_text())
+    program = load_sample(key, owner=owner, create_users=True)
+
+    checked = 0
+    for project_data in document["projects"]:
+        closed = [s for s in project_data.get("sprints", []) if s["state"] == "COMPLETED"]
+        # compute_velocity_suggestions needs MIN_CLOSED_SPRINTS_FOR_SUGGESTION
+        # *prior* closed sprints before the one just closed, i.e. more than
+        # that many closed sprints in total.
+        if len(closed) <= MIN_CLOSED_SPRINTS_FOR_SUGGESTION:
+            continue
+        checked += 1
+        project = Project.objects.get(program=program, name=project_data["name"])
+        assert VelocitySuggestion.objects.filter(sprint__project=project).exists(), (
+            f"{key}/{project_data['slug']}"
+        )
+    if checked == 0:
+        pytest.skip(f"{key} has no project with enough closed-sprint history to check")
+
+
 def test_samples_endpoint_lists_all(owner: Any) -> None:
     resp = _client(owner).get("/api/v1/programs/samples/")
     assert resp.status_code == 200

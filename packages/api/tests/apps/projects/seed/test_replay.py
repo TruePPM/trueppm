@@ -28,6 +28,8 @@ from trueppm_api.apps.projects.models import (
     SprintRetro,
     SprintScopeChange,
     SprintState,
+    SprintTaskDisposition,
+    SprintTaskOutcome,
     Task,
     TaskComment,
     TaskStatus,
@@ -395,6 +397,43 @@ def test_authored_sprint_close_records_goal_outcome(program: Any) -> None:
     assert sprint.closed_at is not None
 
 
+def test_sprint_close_creates_outcome_row_per_member_task(program: Any) -> None:
+    """#3488: the real close's SprintTaskOutcome snapshot now runs under replay.
+
+    task4 was rejected out of the sprint by the scope_resolve beat *before*
+    close, so it was never a member at close and correctly gets no row —
+    contrasting with the three tasks that were still on the sprint.
+    """
+    sprint = Sprint.objects.get(project__program=program, name="Sprint 1")
+    task1, task2, task3, task5 = (
+        _task(program, "1"),
+        _task(program, "2"),
+        _task(program, "3"),
+        _task(program, "5"),
+    )
+    outcomes = {o.task_id: o for o in SprintTaskOutcome.objects.filter(sprint=sprint)}
+    assert set(outcomes) == {task1.pk, task2.pk, task3.pk, task5.pk}
+    assert str(outcomes[task1.pk].disposition) == str(SprintTaskDisposition.COMPLETED)
+    # No later sprint exists in this fixture, so every incomplete member drops
+    # to the backlog rather than carrying forward.
+    for pk in (task2.pk, task3.pk, task5.pk):
+        assert str(outcomes[pk].disposition) == str(SprintTaskDisposition.DROPPED)
+        assert outcomes[pk].next_sprint_id is None
+    # task3 was scope-injected (goal_impact beat above) and never resolved —
+    # still pending at close (ADR-0102 §7).
+    assert outcomes[task3.pk].was_pending is True
+    assert outcomes[task2.pk].was_pending is False
+
+
+def test_sprint_close_computes_velocity_suggestions_safely(program: Any) -> None:
+    """#3488: the close now calls compute_velocity_suggestions; a single closed
+    sprint has no history to calibrate from, so it must no-op rather than error."""
+    from trueppm_api.apps.scheduling.models import VelocitySuggestion
+
+    sprint = Sprint.objects.get(project__program=program, name="Sprint 1")
+    assert not VelocitySuggestion.objects.filter(sprint=sprint).exists()
+
+
 def test_baseline_capture_creates_baseline_with_tasks(program: Any) -> None:
     project = Project.objects.get(program=program, name="Core")
     baseline = Baseline.objects.get(project=project, name="Sprint 1 commitment baseline")
@@ -618,3 +657,194 @@ def test_beat_producing_an_invalid_actual_pair_drops_the_bad_field() -> None:
     # finish rather than persisting the inverted pair.
     assert task.actual_finish is None
     assert task.actual_start == date(2026, 3, 20)
+
+
+# ---------------------------------------------------------------------------
+# #3488 — sprint.close routes through the real close contract (ADR-0176):
+# carried-over tasks get disposition=carried with next_sprint set, dropped
+# tasks (incomplete, no carry target) get disposition=dropped, and a
+# synthesized close derives a real goal_outcome instead of leaving it None.
+# Exercised directly against ``_apply_sprint_close`` (like the ADR-1153 test
+# above) rather than a full seed document, so the carry-over destination
+# (a second, later-starting sprint that actually runs) is under precise
+# control.
+# ---------------------------------------------------------------------------
+
+
+def test_sprint_close_carries_incomplete_tasks_to_the_next_running_sprint() -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from trueppm_api.apps.projects.models import Calendar
+    from trueppm_api.apps.projects.seed.replay import ReplayContext, _apply_sprint_close, _Beat
+
+    calendar = Calendar.objects.create(name="Standard")
+    project = Project.objects.create(
+        name="Carry-over target", start_date=date(2026, 1, 1), calendar=calendar
+    )
+    closing = Sprint.objects.create(
+        project=project,
+        name="Sprint 1",
+        start_date=date(2026, 1, 1),
+        finish_date=date(2026, 1, 14),
+        state=SprintState.ACTIVE,
+        committed_points=10,
+    )
+    # The next sprint the project actually runs — the implied carry-over
+    # destination, standing in for "the next sprint.activate beat implies".
+    next_sprint = Sprint.objects.create(
+        project=project,
+        name="Sprint 2",
+        start_date=date(2026, 1, 15),
+        finish_date=date(2026, 1, 28),
+        state=SprintState.PLANNED,
+    )
+    completed = Task.objects.create(
+        project=project,
+        name="Done",
+        duration=1,
+        status=TaskStatus.COMPLETE,
+        story_points=5,
+        sprint=closing,
+    )
+    carried_not_started = Task.objects.create(
+        project=project,
+        name="Not started",
+        duration=1,
+        status=TaskStatus.NOT_STARTED,
+        story_points=3,
+        sprint=closing,
+    )
+    carried_in_progress = Task.objects.create(
+        project=project,
+        name="In flight",
+        duration=1,
+        status=TaskStatus.IN_PROGRESS,
+        story_points=2,
+        sprint=closing,
+        sprint_pending=True,
+    )
+    dropped_on_hold = Task.objects.create(
+        project=project,
+        name="On hold",
+        duration=1,
+        status=TaskStatus.ON_HOLD,
+        story_points=1,
+        sprint=closing,
+    )
+
+    ctx = ReplayContext(
+        anchor=date(2026, 2, 1),
+        program_code="p",
+        default_actor=None,
+        users={},
+        tasks={},
+        sprints={("p", "s1"): closing, ("p", "s2"): next_sprint},
+        projects={"p": project},
+        project_calendars={},
+        risks={},
+        final_status={},
+        # The next sprint actually runs (ACTIVE) in the seed's intent — it is
+        # not merely PLANNED-and-never-touched, which would not qualify as a
+        # carry-over destination.
+        final_sprint={("p", "s2"): {"state": SprintState.ACTIVE}},
+    )
+    beat = _Beat(
+        when=datetime(2026, 1, 14, 17, 0, tzinfo=ZoneInfo("UTC")),
+        order=0,
+        action="sprint.close",
+        target="sprint:p:s1",
+        actor=None,
+        data={},  # synthesized close — no authored goal_outcome
+    )
+
+    _apply_sprint_close(beat, ctx)
+
+    closing.refresh_from_db()
+    assert closing.state == SprintState.COMPLETED
+    assert closing.closed_at == beat.when  # backdated to the beat, not now()
+    # completed=5 / committed=10 -> PARTIAL, derived rather than left None.
+    assert closing.goal_outcome == "PARTIAL"
+
+    outcomes = {o.task_id: o for o in SprintTaskOutcome.objects.filter(sprint=closing)}
+    assert str(outcomes[completed.pk].disposition) == str(SprintTaskDisposition.COMPLETED)
+    assert outcomes[completed.pk].next_sprint_id is None
+
+    for task in (carried_not_started, carried_in_progress):
+        assert str(outcomes[task.pk].disposition) == str(SprintTaskDisposition.CARRIED)
+        assert outcomes[task.pk].next_sprint_id == next_sprint.pk
+
+    assert outcomes[carried_in_progress.pk].was_pending is True
+    assert outcomes[carried_not_started.pk].was_pending is False
+
+    # ON_HOLD is outside apply_carry_over's move set — dropped, not carried.
+    assert str(outcomes[dropped_on_hold.pk].disposition) == str(SprintTaskDisposition.DROPPED)
+    assert outcomes[dropped_on_hold.pk].next_sprint_id is None
+
+    # apply_carry_over physically moved the two carried tasks; a sprint-target
+    # carry (unlike carry-to-backlog) reassigns the FK only, never the status.
+    carried_not_started.refresh_from_db()
+    carried_in_progress.refresh_from_db()
+    dropped_on_hold.refresh_from_db()
+    assert carried_not_started.sprint_id == next_sprint.pk
+    assert carried_not_started.status == TaskStatus.NOT_STARTED
+    assert carried_in_progress.sprint_id == next_sprint.pk
+    assert carried_in_progress.status == TaskStatus.IN_PROGRESS
+    assert dropped_on_hold.sprint_id == closing.pk  # never moved
+
+
+def test_sprint_close_authored_goal_outcome_overrides_the_derived_default() -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from trueppm_api.apps.projects.models import Calendar
+    from trueppm_api.apps.projects.seed.replay import ReplayContext, _apply_sprint_close, _Beat
+
+    calendar = Calendar.objects.create(name="Standard")
+    project = Project.objects.create(
+        name="Override target", start_date=date(2026, 1, 1), calendar=calendar
+    )
+    sprint = Sprint.objects.create(
+        project=project,
+        name="Sprint 1",
+        start_date=date(2026, 1, 1),
+        finish_date=date(2026, 1, 14),
+        state=SprintState.ACTIVE,
+        committed_points=10,
+    )
+    Task.objects.create(
+        project=project,
+        name="Done",
+        duration=1,
+        status=TaskStatus.COMPLETE,
+        story_points=10,
+        sprint=sprint,
+    )
+    ctx = ReplayContext(
+        anchor=date(2026, 2, 1),
+        program_code="p",
+        default_actor=None,
+        users={},
+        tasks={},
+        sprints={("p", "s1"): sprint},
+        projects={"p": project},
+        project_calendars={},
+        risks={},
+        final_status={},
+        final_sprint={},
+    )
+    beat = _Beat(
+        when=datetime(2026, 1, 14, 17, 0, tzinfo=ZoneInfo("UTC")),
+        order=0,
+        action="sprint.close",
+        target="sprint:p:s1",
+        actor=None,
+        # completed=10 / committed=10 would derive MET; the author's editorial
+        # call (e.g. "hit the points but missed the actual goal") must win.
+        data={"goal_outcome": "MISSED"},
+    )
+
+    _apply_sprint_close(beat, ctx)
+
+    sprint.refresh_from_db()
+    assert sprint.goal_outcome == "MISSED"

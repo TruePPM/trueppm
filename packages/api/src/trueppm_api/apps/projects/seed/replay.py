@@ -643,23 +643,121 @@ def _apply_sprint_activate(beat: _Beat, ctx: ReplayContext) -> None:
 
 
 def _apply_sprint_close(beat: _Beat, ctx: ReplayContext) -> None:
+    """Route the close through the real close contract (ADR-0176, #3488).
+
+    The prior version set four columns directly and stopped, so every closed
+    sample sprint carried zero ``SprintTaskOutcome`` rows and produced no
+    ``VelocitySuggestion`` — the sprint-review "what didn't finish" panel, the
+    carry-over history, and the velocity-calibration prompt all read from
+    exactly those rows, so a fresh load of every sample reviewed as empty.
+    This now calls the same snapshot/outcome/velocity functions the live
+    ``close_sprint`` drain task calls, in the same order, so a replayed close
+    produces the audit trail a real one would.
+
+    Narrowed from the live path on purpose, following ``is_seed_replay_active()``'s
+    own contract (the burndown receiver in ``receivers.py`` is the established
+    precedent): the board broadcast, the ``sprint.closed`` webhook, the
+    carry-over assignee notification, and the milestone reforecast digest are
+    all "the live side effect a real edit would trigger" and are skipped
+    outright — none of them write a row the review panel, carry-over history,
+    or velocity flow reads, and firing them here would spam a workspace
+    nobody is watching during import. ``apply_pending_disposition`` is
+    likewise skipped: its "carry" branch calls ``record_sprint_scope_change``,
+    which fires the un-suppressed ``sprint_scope_changed`` notify signal — the
+    same reason ``_apply_scope_inject`` above writes its ``SprintScopeChange``
+    row directly instead of going through that path. ``was_pending`` on the
+    outcome row is unaffected: it is read by ``snapshot_sprint_task_outcomes``
+    below, before any disposition would run, exactly as the live close orders
+    it.
+
+    Every write here — the sprint's own state/closed_at/goal_outcome/
+    completed_*, and any task the carry-over moves — goes through this
+    module's ``_save()`` rather than a bare ``instance.save()``, so its history
+    row is backdated to the beat like every other write in this file. Calling
+    ``services.apply_carry_over`` directly instead of ``_replay_carry_over``
+    below was the first attempt: it produced the right FK moves but dated the
+    *moved task's own* history row to import time, which
+    ``test_authored_percent_restore_is_backdated_not_import_time`` catches
+    immediately — the fixture's own sprint closes with in-flight tasks still
+    on it. ``_replay_carry_over`` re-applies the identical two classification
+    tuples the real service uses (imported, not copied by value, so a future
+    change to which statuses carry stays in sync) through ``_save()`` instead.
+    """
     sprint = _resolve_sprint(ctx, beat.target)
     if sprint is None:
         return
+
+    from trueppm_api.apps.projects.services import (
+        snapshot_completed_metrics,
+        snapshot_sprint_task_outcomes,
+    )
+    from trueppm_api.apps.scheduling.services import compute_velocity_suggestions
+
+    # ADR-0176 §2 / #3488: derive completed_*/the default goal_outcome from
+    # current task state before anything else moves, exactly like the live
+    # close. A synthesized close (no authored `sprint.close` beat) has no
+    # `ctx.final_sprint` goal_outcome — the importer never populates one for a
+    # synthesized beat (see `_synthesize_sprints`) — so without this every
+    # such sprint closed with `goal_outcome=None`; this derives a real
+    # MET/PARTIAL/MISSED verdict from committed vs. completed points instead.
+    snapshot_completed_metrics(sprint)
+    if beat.data.get("goal_outcome"):
+        # An authored value is the seed author's editorial call (e.g. "hit the
+        # points but missed the actual goal") and overrides the points-ratio
+        # default — mirroring the SCHEDULER+ override the live product allows
+        # after close.
+        sprint.goal_outcome = beat.data["goal_outcome"]
     sprint.state = SprintState.COMPLETED
     sprint.closed_at = beat.when
-    if beat.data.get("goal_outcome"):
-        sprint.goal_outcome = beat.data["goal_outcome"]
-    key = _sprint_key(ctx, sprint)
-    completed = ctx.final_sprint.get(key, {}).get("completed_points")
-    if completed is not None:
-        sprint.completed_points = completed
     _save(
         sprint,
         beat.when,
         beat.actor,
-        ["state", "closed_at", "goal_outcome", "completed_points"],
+        ["state", "closed_at", "goal_outcome", "completed_points", "completed_task_count"],
     )
+
+    # ADR-0176 §2: snapshot task membership-at-close BEFORE the carry-over
+    # mutates Task.sprint — same order as the live close — otherwise the
+    # "what didn't ship" set would already be gone by the time this reads it.
+    carry_over_to = _implied_carry_over_target(ctx, sprint)
+    snapshot_sprint_task_outcomes(sprint, carry_over_to=carry_over_to)
+    _replay_carry_over(sprint, carry_over_to, beat.when, beat.actor)
+
+    compute_velocity_suggestions(sprint.pk)
+
+
+def _replay_carry_over(sprint: Sprint, carry_over_to: str, when: datetime, actor: Any) -> None:
+    """Mirror ``services.apply_carry_over`` (ADR-0176) with a backdated write.
+
+    The real close's ``task.save()`` has no beat to backdate to — correct
+    there, timestamped wrong here (#3488): a replayed carry-over must date the
+    moved task's history row to the beat, not to import time, like every
+    other write in this file. The move rules are the same two classification
+    tuples the real service reads (imported, not copied by value, so this
+    stays in sync if the close contract's carry-over policy changes) — only
+    *how* the result is saved differs.
+    """
+    from trueppm_api.apps.projects.services import (
+        _CARRY_OVER_INCOMPLETE_STATUSES,
+        _DECOMMITTED_ON_CARRY_OVER_TO_BACKLOG,
+    )
+
+    if carry_over_to == "none":
+        return
+
+    incomplete = Task.objects.filter(
+        sprint_id=sprint.pk, status__in=_CARRY_OVER_INCOMPLETE_STATUSES, is_deleted=False
+    )
+    for task in incomplete:
+        fields = ["sprint"]
+        if carry_over_to == "backlog":
+            task.sprint = None
+            if task.status in _DECOMMITTED_ON_CARRY_OVER_TO_BACKLOG:
+                task.status = TaskStatus.BACKLOG
+                fields.append("status")
+        else:
+            task.sprint_id = carry_over_to
+        _save(task, when, actor, fields)
 
 
 def _apply_scope_inject(beat: _Beat, ctx: ReplayContext) -> None:
@@ -859,6 +957,34 @@ def _sprint_key(ctx: ReplayContext, sprint: Sprint) -> tuple[str, str]:
         if candidate.pk == sprint.pk:
             return key
     return ("", "")
+
+
+def _implied_carry_over_target(ctx: ReplayContext, sprint: Sprint) -> str:
+    """Infer this close's carry-over destination from the seed's own timeline (#3488).
+
+    The live close reads ``carry_over_to`` off the API request; a replayed
+    close has none, so it is read off the seed's intent instead: the next
+    sprint in the same project that the timeline actually runs (state ACTIVE
+    or COMPLETED in ``ctx.final_sprint`` — i.e. it gets an authored or
+    synthesized ``sprint.activate`` beat somewhere in the timeline) is where
+    an incomplete task would land. No such sprint — this closing sprint is
+    the project's last to actually run — falls back to ``"backlog"``, the
+    same default ``POST .../close/`` uses.
+    """
+    project_slug, _ = _sprint_key(ctx, sprint)
+    candidates = [
+        (candidate.start_date, candidate.pk)
+        for key, candidate in ctx.sprints.items()
+        if key[0] == project_slug
+        and candidate.pk != sprint.pk
+        and candidate.start_date > sprint.finish_date
+        and ctx.final_sprint.get(key, {}).get("state")
+        in (SprintState.ACTIVE, SprintState.COMPLETED)
+    ]
+    if not candidates:
+        return "backlog"
+    candidates.sort(key=lambda c: c[0])
+    return str(candidates[0][1])
 
 
 _HANDLERS = {
