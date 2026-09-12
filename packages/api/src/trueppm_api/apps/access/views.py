@@ -1503,8 +1503,12 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
 
     def get_queryset(self) -> QuerySet[ProgramMembership]:
         program_pk = self.kwargs["program_pk"]
-        return ProgramMembership.objects.select_related("program", "user").filter(
-            program_id=program_pk, is_deleted=False
+        # ``live()`` rather than an inline floor (#3458). This module is allowlisted in
+        # scripts/check-membership-live-floor.py — the revive path below must see revoked
+        # rows — so the gate cannot see this read. Routing it through the shared helper is
+        # the only protection the roster read gets.
+        return (
+            ProgramMembership.live().select_related("program", "user").filter(program_id=program_pk)
         )
 
     def get_serializer_class(self) -> type[BaseSerializer[ProgramMembership]]:
@@ -1532,9 +1536,7 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
 
     def _check_last_owner_guard(self, program_id: _PK, exclude_pk: _PK | None = None) -> None:
         """Raise **400** if removing/demoting would leave the program with zero Owners."""
-        qs = ProgramMembership.objects.filter(
-            program_id=program_id, role=Role.OWNER, is_deleted=False
-        )
+        qs = ProgramMembership.live().filter(program_id=program_id, role=Role.OWNER)
         if exclude_pk:
             qs = qs.exclude(pk=exclude_pk)
         # order_by("pk"): see the module-level "Lock-acquisition order" comment.

@@ -1804,6 +1804,43 @@ api:dependency-soft-delete:
     - bash scripts/check-dependency-soft-delete.sh --self-test
     - bash scripts/check-dependency-soft-delete.sh
 
+api:membership-live-floor:
+  # A membership READ that omits `is_deleted` resolves a REVOKED member as live (#3458).
+  #
+  # Revoking access soft-deletes the row, and `uniq_(project|program)_membership_..._user`
+  # is unconditional — the tombstone keeps owning the slot, so the lookup answers with the
+  # departed member's old role. That defect was fixed FIVE times as five separate issues
+  # (#3386 write gates, #3410 re-add 500, #3411 three read paths, #3456 the weekly digest
+  # emailing revoked members, #3457 the seed exporter exporting them), every one found by
+  # a gate sweep on an unrelated MR. Nothing ran on a branch.
+  #
+  # Scope-inverted rather than grep-shaped, and that is what makes it affordable: 127
+  # membership-manager chains live outside migrations, 12 of them unfloored reads, and
+  # ALL TWELVE are correct by design — so a bare `*Membership.objects` grep is a 100%
+  # false-positive gate. The twelve sit in four modules, so checking everywhere and
+  # exempting a named few costs a four-line allowlist and fires zero false positives.
+  # Replayed against `main` before #3411 it reported 7 violations, all 7 real.
+  #
+  # AST, not a line regex: `is_deleted` is a COLUMN, so it appears in `.only("role",
+  # "is_deleted")` — a projection, not a filter — and in the SELECT list of every
+  # membership query. A substring probe reports a false pass on a wholly unfiltered read.
+  # Pure static analysis: no Django, no database, seconds.
+  extends: [.api-no-db, .fast-job]
+  stage: analyze
+  needs:
+    - job: ci:build-api-image
+      optional: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script: []
+  script:
+    # Self-test FIRST: a gate's failure mode is a green pipeline, so "it passed" is not
+    # evidence that it can still fail (#3195). Both bounds are pinned — the unfloored
+    # read is caught, and each correct-by-design shape is not.
+    - python3 scripts/check-membership-live-floor.py --self-test
+    - python3 scripts/check-membership-live-floor.py
+
 demo:readonly-posture:
   extends: .fast-job
   # The hosted demo must stay read-only by construction (#2773, gates #2271).
