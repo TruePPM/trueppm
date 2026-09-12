@@ -616,6 +616,136 @@ def test_deleted_user_cannot_refresh(user) -> None:
     assert client.post(_REFRESH_URL, {}, format="json").status_code == 401
 
 
+# ---------------------------------------------------------------------------
+# Cross-site defense in depth (#3556). SameSite=Strict is the unconditional CSRF
+# control, but it is operator-configurable — this Sec-Fetch-Site / Origin check
+# is a second, independent layer on the refresh and logout endpoints.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("url_name", ["refresh", "logout"])
+def test_cross_site_sec_fetch_site_is_rejected_and_cookie_untouched(user, url_name) -> None:
+    client = APIClient()
+    _login(client)
+    url = _REFRESH_URL if url_name == "refresh" else _LOGOUT_URL
+
+    resp = client.post(url, {}, format="json", HTTP_SEC_FETCH_SITE="cross-site")
+
+    assert resp.status_code == 403
+    assert _COOKIE not in resp.cookies
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("url_name", ["refresh", "logout"])
+def test_cross_site_origin_is_rejected_and_cookie_untouched(user, url_name) -> None:
+    client = APIClient()
+    _login(client)
+    url = _REFRESH_URL if url_name == "refresh" else _LOGOUT_URL
+
+    resp = client.post(url, {}, format="json", HTTP_ORIGIN="https://attacker.example")
+
+    assert resp.status_code == 403
+    assert _COOKIE not in resp.cookies
+
+
+@pytest.mark.django_db
+def test_cross_site_rejection_does_not_revoke_the_refresh_token(user) -> None:
+    """The refused request must not blacklist the token it never inspected."""
+    client = APIClient()
+    refresh_value = _login(client)
+
+    resp = client.post(_LOGOUT_URL, {}, format="json", HTTP_SEC_FETCH_SITE="cross-site")
+    assert resp.status_code == 403
+
+    # The token minted at login must still be usable — logout never ran.
+    other = APIClient()
+    other.cookies[_COOKIE] = refresh_value
+    still_good = other.post(_REFRESH_URL, {}, format="json")
+    assert still_good.status_code == 200
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("url_name", ["refresh", "logout"])
+def test_absent_cross_site_headers_are_allowed(user, url_name) -> None:
+    """No Sec-Fetch-Site and no Origin — the mobile client / a non-browser caller —
+    must NOT be treated as cross-site (#3556). Every other flow test in this file
+    relies on this default already; these two assertions pin it explicitly."""
+    client = APIClient()
+    _login(client)
+    url = _REFRESH_URL if url_name == "refresh" else _LOGOUT_URL
+
+    resp = client.post(url, {}, format="json")
+
+    assert resp.status_code != 403
+
+
+@pytest.mark.django_db
+def test_same_origin_request_is_allowed(user) -> None:
+    client = APIClient()
+    _login(client)
+
+    resp = client.post(
+        _REFRESH_URL,
+        {},
+        format="json",
+        HTTP_SEC_FETCH_SITE="same-origin",
+        HTTP_ORIGIN="http://testserver",
+    )
+
+    assert resp.status_code == 200
+
+
+@pytest.mark.django_db
+def test_origin_matching_csrf_trusted_origins_is_allowed(user, settings) -> None:
+    settings.CSRF_TRUSTED_ORIGINS = ["https://trusted.example.com"]
+    client = APIClient()
+    _login(client)
+
+    resp = client.post(
+        _REFRESH_URL,
+        {},
+        format="json",
+        HTTP_ORIGIN="https://trusted.example.com",
+    )
+
+    assert resp.status_code == 200
+
+
+@pytest.mark.django_db
+def test_wildcard_csrf_trusted_origin_matches_subdomain(user, settings) -> None:
+    settings.CSRF_TRUSTED_ORIGINS = ["https://*.trusted.example.com"]
+    client = APIClient()
+    _login(client)
+
+    resp = client.post(
+        _REFRESH_URL,
+        {},
+        format="json",
+        HTTP_ORIGIN="https://app.trusted.example.com",
+    )
+
+    assert resp.status_code == 200
+
+
+@pytest.mark.django_db
+def test_untrusted_origin_is_rejected_even_with_sec_fetch_site_same_site(user) -> None:
+    """Sec-Fetch-Site absent/benign does not waive the Origin check — either
+    signal alone is sufficient to refuse."""
+    client = APIClient()
+    _login(client)
+
+    resp = client.post(
+        _REFRESH_URL,
+        {},
+        format="json",
+        HTTP_SEC_FETCH_SITE="same-site",
+        HTTP_ORIGIN="https://attacker.example",
+    )
+
+    assert resp.status_code == 403
+
+
 def test_refresh_cookie_path_reaches_the_logout_endpoint() -> None:
     """The cookie must be scoped so a *browser* sends it to logout (RFC 6265 §5.1.4).
 
