@@ -168,7 +168,7 @@ export function ProgramRiskPolicyPage() {
               title={
                 closedToAdmin
                   ? 'This program is closed and cannot be modified. Reopen it first.'
-                  : 'Only program admins can edit risk policy'
+                  : 'Only a program manager or above can edit risk policy'
               }
             >
               {closedToAdmin ? 'Read-only — program closed' : 'Read-only'}
@@ -261,7 +261,7 @@ export function ProgramRiskPolicyPage() {
               <ReadOnlyIndicator
                 label="Slip policy"
                 value={SLIP_OPTIONS.find((o) => o.id === slip)?.label ?? slip}
-                provenance={closedToAdmin ? 'program is closed — reopen it to change this' : 'managed by the program admin'}
+                provenance={closedToAdmin ? 'program is closed — reopen it to change this' : 'managed by the program manager or above'}
               />
             </div>
           )}
@@ -339,7 +339,7 @@ export function ProgramRiskPolicyPage() {
               <ReadOnlyIndicator
                 label="Auto-escalate after"
                 value={`${days} days`}
-                provenance={closedToAdmin ? 'program is closed — reopen it to change this' : 'managed by the program admin'}
+                provenance={closedToAdmin ? 'program is closed — reopen it to change this' : 'managed by the program manager or above'}
               />
             )}
           </FieldRow>

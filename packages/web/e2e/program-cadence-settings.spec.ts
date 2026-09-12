@@ -326,7 +326,7 @@ test.describe('Program Settings → Cadence & ceremonies', () => {
     // No disabled toggle (ADR-0133) — the enabled state shows read-only instead.
     await expect(page.getByRole('switch', { name: /Disable Program sync/ })).toHaveCount(0);
     await expect(
-      page.getByLabel('Program sync: On, managed by the program admin. View only.'),
+      page.getByLabel('Program sync: On, managed by the program manager or above. View only.'),
     ).toBeVisible();
   });
 });

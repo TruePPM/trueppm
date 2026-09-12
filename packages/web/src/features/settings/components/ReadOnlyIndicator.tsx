@@ -24,7 +24,7 @@ export interface ReadOnlyIndicatorProps {
   label: string;
   /** The effective value to display, e.g. "Warn only", "Agile", "On". */
   value: string;
-  /** Provenance clause rendered after "· ", e.g. "managed by the program admin".
+  /** Provenance clause rendered after "· ", e.g. "managed by the program manager or above".
    *  Explains why there is no editable control. */
   provenance: string;
   /** Filled brand dot (a set/on value) vs a hollow outline (an off/empty value).
