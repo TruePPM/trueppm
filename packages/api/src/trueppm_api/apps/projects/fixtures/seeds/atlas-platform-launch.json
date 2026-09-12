@@ -1467,7 +1467,7 @@
             },
             {
               "task": "5.6",
-              "story_points": 5
+              "story_points": 3
             },
             {
               "task": "5.7",
@@ -1475,7 +1475,7 @@
             },
             {
               "task": "5.8",
-              "story_points": 3
+              "story_points": 2
             }
           ]
         }
@@ -2267,121 +2267,6 @@
               "task": "5.1",
               "start": "A+55",
               "finish": "A+57",
-              "duration": 2
-            },
-            {
-              "task": "5.2",
-              "start": "A+60",
-              "finish": "A+63",
-              "duration": 3
-            },
-            {
-              "task": "5.3",
-              "start": "A+63",
-              "finish": "A+67",
-              "duration": 4
-            }
-          ]
-        },
-        {
-          "name": "Post-dry-run re-plan",
-          "is_active": true,
-          "captured_at": "A-10",
-          "tasks": [
-            {
-              "task": "1.1",
-              "start": "A-90",
-              "finish": "A-85",
-              "duration": 5
-            },
-            {
-              "task": "1.2",
-              "start": "A-83",
-              "finish": "A-79",
-              "duration": 4
-            },
-            {
-              "task": "1.3",
-              "start": "A-88",
-              "finish": "A-82",
-              "duration": 6
-            },
-            {
-              "task": "1.4",
-              "start": "A-77",
-              "finish": "A-74",
-              "duration": 3
-            },
-            {
-              "task": "2.1",
-              "start": "A-46",
-              "finish": "A-38",
-              "duration": 8
-            },
-            {
-              "task": "2.2",
-              "start": "A-42",
-              "finish": "A-35",
-              "duration": 7
-            },
-            {
-              "task": "2.3",
-              "start": "A-36",
-              "finish": "A-30",
-              "duration": 6
-            },
-            {
-              "task": "2.4",
-              "start": "A-28",
-              "finish": "A-24",
-              "duration": 4
-            },
-            {
-              "task": "3.1",
-              "start": "A-11",
-              "finish": "A-6",
-              "duration": 5
-            },
-            {
-              "task": "3.2",
-              "start": "A+11",
-              "finish": "A+15",
-              "duration": 4
-            },
-            {
-              "task": "3.3",
-              "start": "A+1",
-              "finish": "A+7",
-              "duration": 6
-            },
-            {
-              "task": "3.4",
-              "start": "A+18",
-              "finish": "A+23",
-              "duration": 5
-            },
-            {
-              "task": "4.1",
-              "start": "A+32",
-              "finish": "A+35",
-              "duration": 3
-            },
-            {
-              "task": "4.2",
-              "start": "A+37",
-              "finish": "A+41",
-              "duration": 4
-            },
-            {
-              "task": "4.3",
-              "start": "A+34",
-              "finish": "A+37",
-              "duration": 3
-            },
-            {
-              "task": "5.1",
-              "start": "A+61",
-              "finish": "A+63",
               "duration": 2
             },
             {
@@ -3251,6 +3136,21 @@
       "target": "task:migration-tooling:3.1",
       "actor": "yuki",
       "to": "IN_PROGRESS"
+    },
+    {
+      "at": "A-10T09:00",
+      "action": "task.comment",
+      "target": "task:migration-tooling:3.1",
+      "actor": "sam",
+      "body": "First-pass dry-run numbers are in and they push phases 3-5 out 6-7 days. Re-baselining against the re-plan so the kickoff dates stay on record rather than quietly becoming the new plan."
+    },
+    {
+      "at": "A-10T09:05",
+      "action": "baseline.capture",
+      "target": "project:migration-tooling",
+      "actor": "sam",
+      "body": "Post-dry-run re-plan",
+      "is_active": true
     },
     {
       "at": "A-7T17:00",
