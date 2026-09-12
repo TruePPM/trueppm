@@ -433,7 +433,7 @@ export function ProgramRollupPage() {
               title={
                 closedToAdmin
                   ? 'This program is closed and cannot be modified. Reopen it first.'
-                  : 'Only program admins can edit rollup KPIs'
+                  : 'Only a program manager or above can edit rollup KPIs'
               }
             >
               {closedToAdmin ? 'Read-only — program closed' : 'Read-only'}
@@ -545,7 +545,7 @@ export function ProgramRollupPage() {
                         <ReadOnlyIndicator
                           label={kpi.label}
                           value={isOn ? 'On' : 'Off'}
-                          provenance={closedToAdmin ? 'program is closed — reopen it to change this' : 'managed by the program admin'}
+                          provenance={closedToAdmin ? 'program is closed — reopen it to change this' : 'managed by the program manager or above'}
                           filled={isOn}
                         />
                       )}
@@ -602,7 +602,7 @@ export function ProgramRollupPage() {
               <ReadOnlyIndicator
                 label="Aggregation policy"
                 value={POLICIES.find((o) => o.id === policyShown)?.label ?? policyShown}
-                provenance={closedToAdmin ? 'program is closed — reopen it to change this' : 'managed by the program admin'}
+                provenance={closedToAdmin ? 'program is closed — reopen it to change this' : 'managed by the program manager or above'}
               />
             </div>
           )}

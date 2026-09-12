@@ -148,7 +148,7 @@ function CeremonyRow({
             provenance={
               closedToAdmin
                 ? 'program is closed — reopen it to change this'
-                : 'managed by the program admin'
+                : 'managed by the program manager or above'
             }
             filled={ceremony.enabled}
             compact
@@ -395,7 +395,7 @@ export function ProgramCadencePage() {
                 <p className="mt-4 text-[12px] text-neutral-text-secondary italic">
                   {closedToAdmin
                     ? 'This program is closed — reopen it to configure ceremonies.'
-                    : 'Program admins can configure ceremonies for this program.'}
+                    : 'A program manager or above can configure ceremonies for this program.'}
                 </p>
               )}
             </div>

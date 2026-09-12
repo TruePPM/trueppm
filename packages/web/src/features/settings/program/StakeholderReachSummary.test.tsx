@@ -55,7 +55,7 @@ describe('StakeholderReachSummary', () => {
     );
 
     // Silence here would read as "the alias reaches nobody" — say it is withheld.
-    expect(reachText()).toContain('Viewer-role reach is visible to program admins.');
+    expect(reachText()).toContain('Viewer-role reach is visible to a program manager or above.');
     expect(reachText()).not.toMatch(/gets? an in-app notification/);
   });
 

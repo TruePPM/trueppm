@@ -426,7 +426,7 @@ export function ProjectArchivePage() {
               ? ['Reversible — returns the project to its previous state.']
               : [
                   'Retains baselines, audit log, time entries, attachments.',
-                  'Reversible by any Owner.',
+                  'Reversible by any Project Admin.',
                 ]
           }
           docHref="administration/project-settings/#lifecycle"
@@ -438,11 +438,11 @@ export function ProjectArchivePage() {
         <LifecycleCard
           title="Transfer ownership"
           tone="warning"
-          description="Hand the Owner role to another member. The current Owner becomes an Admin."
+          description="Hand the Project Admin role to another member. You step down to Project Manager."
           actionLabel="Transfer ownership…"
           notes={[
-            'New owner must already be a project member.',
-            'You are demoted to Admin when the transfer completes.',
+            'The new Project Admin must already be a project member.',
+            'You step down to Project Manager when the transfer completes.',
           ]}
           docHref="administration/rbac"
           onClick={() => setTransferOpen(true)}
@@ -494,13 +494,16 @@ export function ProjectArchivePage() {
         />
       </div>
 
+      {/* One vocabulary per concept (#3513, #3524): name the tier in the scope's role
+          labels (`Role`: ordinal 300 → "Project Manager", 400 → "Project Admin"),
+          never the raw `Role` enum keys ("Owner"/"Admin"), which the user never sees. */}
       {transferOpen ? (
         <TransferOwnershipDialog
           scope="project"
           scopeId={projectId}
           title="Transfer ownership"
-          description="The selected member becomes the project Owner. You are demoted to Admin. The new owner must already be a project member."
-          ownerPickerLabel="new owner"
+          description="Ownership is the Project Admin role: the selected member becomes Project Admin and you step down to Project Manager."
+          ownerPickerLabel="new Project Admin"
           error={transferError}
           busy={transfer.isPending}
           onCancel={() => setTransferOpen(false)}

@@ -221,7 +221,7 @@ describe('ProgramCalendarPage', () => {
     expect(screen.queryByRole('combobox', { name: /Working calendar override/i })).toBeNull();
     expect(
       screen.getByLabelText(
-        'Working calendar: Inherited from workspace, managed by the program admin. View only.',
+        'Working calendar: Inherited from workspace, managed by the program manager or above. View only.',
       ),
     ).toBeInTheDocument();
   });

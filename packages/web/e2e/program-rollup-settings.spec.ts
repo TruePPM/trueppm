@@ -274,7 +274,7 @@ test.describe('Program Settings → Rollup KPIs', () => {
     // renders its effective value + provenance (ReadOnlyIndicator, ADR-0133).
     await expect(rollup.getByRole('switch', { name: 'Schedule health' })).toHaveCount(0);
     await expect(
-      rollup.getByLabel('Schedule health: On, managed by the program admin. View only.'),
+      rollup.getByLabel('Schedule health: On, managed by the program manager or above. View only.'),
     ).toBeVisible();
   });
 

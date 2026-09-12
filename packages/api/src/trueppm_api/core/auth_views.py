@@ -16,17 +16,31 @@ Why httpOnly for the refresh token:
     so it dies with the tab.
 
 CSRF posture:
-    The refresh cookie uses ``SameSite=Strict`` and is ``Path``-scoped to the
-    refresh endpoint only. ``SameSite=Strict`` means the browser never attaches
-    the cookie to a cross-site request, so a forged request from an attacker's
+    The refresh cookie uses ``SameSite=Strict`` (by default — see
+    ``core/refresh_cookie_policy.py``) and is ``Path``-scoped to the refresh
+    endpoint only. ``SameSite=Strict`` means the browser never attaches the
+    cookie to a cross-site request, so a forged request from an attacker's
     origin cannot trigger a refresh on the victim's behalf. The refresh endpoint
     is otherwise unauthenticated-by-cookie (it reads the refresh token solely
     from this cookie), and a successful refresh only mints a new short-lived
     access token returned in the response body — which a cross-site attacker
-    cannot read (CORS). There is therefore no additional CSRF token required on
-    the refresh path. Login and logout are likewise safe: login carries no
-    ambient credential, and logout is idempotent (clearing a cookie + best-effort
-    blacklist) with no cross-site state-change value.
+    cannot read (CORS). There is therefore no additional CSRF *token* required
+    on the refresh path. Login and logout are likewise safe against a *missing*
+    CSRF token: login carries no ambient credential, and logout is idempotent
+    (clearing a cookie + best-effort blacklist) with no cross-site state-change
+    value beyond revoking the caller's own session.
+
+    SameSite is nonetheless a **single, operator-configurable** control (#3556):
+    ``TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE`` can be relaxed to ``Lax`` or
+    ``None`` for a split-origin/framed deploy, and at ``None`` the cookie rides
+    on every cross-site request. :func:`_is_cross_site_auth_request` is defense
+    in depth for exactly that case: it independently refuses a refresh/logout
+    request whose ``Sec-Fetch-Site`` is ``cross-site``, or whose ``Origin`` is
+    present and neither same-origin nor in ``CSRF_TRUSTED_ORIGINS`` — so a
+    relaxed SameSite policy is not the *only* thing standing between a forged
+    cross-site page and these endpoints. A request that sends neither header
+    (the mobile client, a script, curl) is not treated as cross-site; see that
+    function's docstring for why refusing them would be the wrong trade.
 """
 
 from __future__ import annotations
@@ -35,8 +49,10 @@ import contextlib
 import hashlib
 import ipaddress
 import logging
+from collections.abc import Sequence
 from datetime import timedelta
 from typing import Any, TypeGuard, cast
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -102,6 +118,83 @@ def _client_ip(request: Request) -> str:
         return str(ipaddress.ip_address(candidate))
     except ValueError:
         return "invalid"
+
+
+def _origin_matches_trusted(origin: str, trusted_origins: Sequence[str]) -> bool:
+    """Whether ``origin`` matches an entry in ``CSRF_TRUSTED_ORIGINS`` (#3556).
+
+    Mirrors Django's own matching rules for that setting: an exact
+    ``scheme://host[:port]`` match, or a ``https://*.example.com``-style entry
+    (a leading ``*.`` wildcard segment) matching any subdomain of
+    ``example.com`` on that scheme. Case-sensitive on the host is intentional —
+    hostnames arrive lower-cased from both the browser and ``CSRF_TRUSTED_ORIGINS``
+    in practice, and DNS names are case-insensitive but this list is operator-typed
+    configuration, not attacker input, so normalizing case here would hide a typo
+    rather than tolerate one.
+    """
+    for allowed in trusted_origins:
+        if origin == allowed:
+            return True
+        scheme, _, host_pattern = allowed.partition("://")
+        if not host_pattern.startswith("*."):
+            continue
+        suffix = host_pattern[1:]  # "*.example.com" -> ".example.com"
+        origin_scheme, _, origin_host = origin.partition("://")
+        if origin_scheme == scheme and origin_host.endswith(suffix) and origin_host != suffix:
+            return True
+    return False
+
+
+def _is_same_origin(request: Request, origin: str) -> bool:
+    """Whether an ``Origin`` header value names this request's own origin (#3556)."""
+    parsed = urlsplit(origin)
+    if not parsed.scheme or not parsed.netloc:
+        # Not a well-formed "scheme://host" origin — never treat it as a match.
+        return False
+    return parsed.scheme == request.scheme and parsed.netloc == request.get_host()
+
+
+def _is_cross_site_auth_request(request: Request) -> bool:
+    """Whether a refresh/logout POST carries a browser-supplied cross-site signal.
+
+    Defense in depth for #3556: ``SameSite`` on the refresh cookie is the
+    unconditional CSRF control, but it is operator-configurable
+    (``TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE``) and can be relaxed to ``Lax`` or
+    ``None`` for a split-origin/framed deploy. This check is independent of that
+    setting — it refuses on either of two signals, checked in order:
+
+    1. ``Sec-Fetch-Site: cross-site`` — the Fetch Metadata header every current
+       mainstream browser sends, and unambiguous: the browser itself is
+       reporting that the request's initiator is a different site. Values other
+       than exactly ``"cross-site"`` (``same-origin``, ``same-site``, ``none``,
+       or the header absent) are not refused here.
+    2. An ``Origin`` header that is present and names neither this request's own
+       origin nor an entry in ``CSRF_TRUSTED_ORIGINS`` (for a reverse proxy that
+       rewrites ``Origin``/``Referer``, same as the CSRF middleware's own use of
+       that setting).
+
+    **Absence of both headers is deliberately NOT treated as cross-site.** A
+    non-browser caller — the mobile app, a server-to-server integration, a
+    script using curl/httpx — sends neither Fetch Metadata nor (usually) an
+    ``Origin`` header, and these two endpoints are unauthenticated-by-anything-
+    but-the-cookie by design (the access token may already have expired). Failing
+    such a request closed would lock out every legitimate non-browser client
+    while adding no protection — an attacker forging a cross-site *browser*
+    request cannot suppress the headers a real cross-site fetch/form-post
+    triggers, but a same-origin, header-free tool is simply not a CSRF actor.
+    This function is therefore a browser-specific backstop layered on top of
+    SameSite, never the sole gate.
+    """
+    if request.META.get("HTTP_SEC_FETCH_SITE") == "cross-site":
+        return True
+
+    origin = request.META.get("HTTP_ORIGIN")
+    if not origin:
+        return False
+    if _is_same_origin(request, origin):
+        return False
+    trusted_origins = getattr(settings, "CSRF_TRUSTED_ORIGINS", None) or []
+    return not _origin_matches_trusted(origin, trusted_origins)
 
 
 def _login_body(request_data: Any) -> dict[str, Any]:
@@ -646,10 +739,26 @@ class CookieTokenRefreshView(APIView):
         responses={
             200: _CookieRefreshResponseSerializer,
             401: OpenApiResponse(description="Missing or invalid refresh cookie."),
+            403: OpenApiResponse(
+                description=(
+                    "Refused: the request carries a cross-site Sec-Fetch-Site or "
+                    "Origin signal (#3556). The refresh cookie is left untouched."
+                )
+            ),
         },
         summary="Refresh the access token using the httpOnly refresh cookie",
     )
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Checked FIRST, before the cookie is even read (#3556): a refused
+        # request must leave the refresh cookie completely untouched, and the
+        # simplest way to guarantee that is to never reach the code that could
+        # set or clear it.
+        if _is_cross_site_auth_request(request):
+            logger.warning("auth.refresh_cross_site_rejected client_ip=%s", _client_ip(request))
+            return Response(
+                {"detail": "Cross-site request refused."}, status=status.HTTP_403_FORBIDDEN
+            )
+
         raw_token = request.COOKIES.get(settings.AUTH_REFRESH_COOKIE_NAME)
         if not raw_token:
             return Response(
@@ -737,10 +846,28 @@ class CookieTokenLogoutView(APIView):
 
     @extend_schema(
         request=None,
-        responses={205: OpenApiResponse(description="Logged out; refresh cookie cleared.")},
+        responses={
+            205: OpenApiResponse(description="Logged out; refresh cookie cleared."),
+            403: OpenApiResponse(
+                description=(
+                    "Refused: the request carries a cross-site Sec-Fetch-Site or "
+                    "Origin signal (#3556). The refresh cookie is left untouched."
+                )
+            ),
+        },
         summary="Log out — clear the refresh cookie and revoke the token",
     )
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Same defense-in-depth check as CookieTokenRefreshView, checked first
+        # for the same reason: a refused request must leave the refresh cookie
+        # untouched, which is only guaranteed by never reaching the blacklist /
+        # delete_cookie calls below (#3556).
+        if _is_cross_site_auth_request(request):
+            logger.warning("auth.logout_cross_site_rejected client_ip=%s", _client_ip(request))
+            return Response(
+                {"detail": "Cross-site request refused."}, status=status.HTTP_403_FORBIDDEN
+            )
+
         raw_token = request.COOKIES.get(settings.AUTH_REFRESH_COOKIE_NAME)
         response = Response(status=status.HTTP_205_RESET_CONTENT)
 

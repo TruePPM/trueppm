@@ -205,7 +205,12 @@ test.describe('Members Settings — golden path', () => {
   test('OWNER badge shown for alice (Project Admin, non-editable)', async ({ page }) => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings/members`);
-    await expect(page.getByText('Project Admin')).toBeVisible();
+    // Scope to alice's row — the consolidated settings shell (ADR-0146) mounts
+    // every section on one page, and the Danger Zone's transfer-ownership copy
+    // (#3524) also names "Project Admin", so an unscoped getByText collides
+    // with it under Playwright's strict mode.
+    const aliceRow = page.locator('li').filter({ hasText: 'alice' }).first();
+    await expect(aliceRow.getByText('Project Admin', { exact: true })).toBeVisible();
   });
 
   test('shows the other-active-projects badge with names tooltip (#598)', async ({ page }) => {
