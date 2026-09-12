@@ -182,22 +182,47 @@ def _status_transition_fields(
     path; the write-through ``.update()`` below skips both (#1767). Without them,
     a task marked "Done" by an external system lands in the Done column at 0%
     with no actual dates — EVM/burndown under-count it.
+
+    REVIEW mirrors ``TaskSerializer._apply_transition_actuals`` (ADR-1153,
+    #3709): before this, the same transition recorded a finish over REST and
+    none over inbound sync, so a task an external system moved to "In Review"
+    took a full-duration planning position in CPM instead of its real pin.
     """
     from django.utils import timezone as _tz
 
     today = _tz.localdate()
     fields: dict[str, Any] = {"status": new_status, "status_changed_at": _tz.now()}
 
-    if old_status == TaskStatus.COMPLETE.value:
-        # Reopened from COMPLETE — clear the finish stamp and restore
-        # remaining effort from the commitment baseline (the COMPLETE
-        # transition zeroed it). Mirrors TaskSerializer.update(). Uses the
-        # story_points being written on this push (falls back to the stored
-        # value) so burndown counts the reopened work again.
+    # Reopening out of a sign-off state clears the finish stamp unless the
+    # destination is still a sign-off state — REVIEW joined COMPLETE here in
+    # ADR-1153 (decision 4), mirroring ``_apply_transition_actuals``'
+    # leaving_signoff/entering_signoff pair: stamping a finish on the way into
+    # REVIEW below without this would strand a stale ``actual_finish`` on a
+    # REVIEW → IN_PROGRESS reopen, and COMPLETE ⇄ REVIEW must keep the recorded
+    # finish rather than clearing and re-stamping it.
+    leaving_signoff = old_status in (TaskStatus.COMPLETE.value, TaskStatus.REVIEW.value)
+    entering_signoff = new_status in (TaskStatus.COMPLETE.value, TaskStatus.REVIEW.value)
+    if leaving_signoff and not entering_signoff:
         fields["actual_finish"] = None
+
+    # Remaining-effort restoration on reopen stays COMPLETE-only, mirroring
+    # TaskSerializer._apply_status_transition_side_effects — untouched by
+    # ADR-1153, which only widened the actual_finish clear above. Uses the
+    # story_points being written on this push (falls back to the stored value)
+    # so burndown counts the reopened work again.
+    if old_status == TaskStatus.COMPLETE.value and new_status != TaskStatus.COMPLETE.value:
         fields["remaining_points"] = story_points if story_points is not None else task.story_points
+
     if new_status == TaskStatus.IN_PROGRESS.value and task.actual_start is None:
         fields["actual_start"] = today
+    elif new_status == TaskStatus.REVIEW.value:
+        # Guarded by ``task.actual_finish is None`` rather than the serializer's
+        # bare "not explicitly provided this write" check: this write-through
+        # path has no partial-payload concept, so "already recorded" is the
+        # only signal available to avoid clobbering a real date — the same rule
+        # the COMPLETE branch below already applies.
+        if task.actual_finish is None:
+            fields["actual_finish"] = today
     elif new_status == TaskStatus.COMPLETE.value:
         if task.actual_finish is None:
             fields["actual_finish"] = today

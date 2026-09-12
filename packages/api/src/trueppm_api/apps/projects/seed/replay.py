@@ -31,6 +31,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from trueppm_api.apps.projects.actual_date_rules import check_actual_dates
 from trueppm_api.apps.projects.models import (
     Baseline,
     BaselineTask,
@@ -442,6 +443,30 @@ def _apply_task_status(beat: _Beat, ctx: ReplayContext) -> None:
         task.actual_finish = beat.when.date()
         task.remaining_points = 0
         fields += ["actual_finish", "remaining_points"]
+    # Defense-in-depth (ADR-1153, #3709): beats are deterministic,
+    # developer-authored data and should never trip these rules, but this is a
+    # direct model write like the MS Project importer's, so it runs through the
+    # same shared check rather than trusting that by construction. A violation
+    # here means the beat script itself is wrong — log it and drop the
+    # offending field rather than persisting a pair the engine would reject at
+    # the project's next recompute.
+    violation = check_actual_dates(
+        actual_start=task.actual_start,
+        actual_finish=task.actual_finish,
+        status=task.status,
+        project=task.project,
+    )
+    if violation is not None:
+        logger.warning(
+            "seed replay: beat %r on task %s would violate ADR-1153 (%s); dropping %s",
+            beat.action,
+            task.pk,
+            violation.message,
+            violation.field,
+        )
+        setattr(task, violation.field, None)
+        if violation.field not in fields:
+            fields.append(violation.field)
     _save(task, beat.when, beat.actor, fields)
     # Task.save force-stamps status_changed_at=now(); correct it to the beat time
     # so cycle-time and "in column since" read as history, not import time.

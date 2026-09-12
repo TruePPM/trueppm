@@ -981,6 +981,125 @@ def test_external_reopen_from_complete_clears_finish_and_restores_remaining(
 
 
 # ---------------------------------------------------------------------------
+# ADR-1153 (#3709) — REVIEW stamps actual_finish, matching the REST path
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_external_review_stamps_actual_finish(project: Project, admin_user: Any) -> None:
+    """An external push to REVIEW records a finish, matching TaskSerializer.
+
+    Before this fix the same transition stamped a finish over REST
+    (``_apply_transition_actuals``) and recorded nothing over inbound sync — the
+    task would take a full-duration planning position in CPM (ADR-0136) instead
+    of its real pin.
+    """
+    _token, raw = _mint_token(project, admin_user)
+    client = _bearer(APIClient(), raw)
+    client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "status": "todo"},
+        format="json",
+    )
+    resp = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "status": "review"},
+        format="json",
+    )
+    task = Task.objects.get(pk=resp.data["task_id"])
+    assert task.status == TaskStatus.REVIEW
+    assert task.percent_complete == 100.0
+    assert task.actual_finish == timezone.localdate()
+    # ADR-0136 — do not invent an actual_start on the way into REVIEW.
+    assert task.actual_start is None
+
+
+@pytest.mark.django_db
+def test_external_review_does_not_overwrite_an_existing_finish(
+    project: Project, admin_user: Any
+) -> None:
+    """The REVIEW stamp is guarded by ``actual_finish is None`` — a real recorded
+    date is never clobbered by a later push into the same sign-off state."""
+    _token, raw = _mint_token(project, admin_user)
+    client = _bearer(APIClient(), raw)
+    client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "status": "todo"},
+        format="json",
+    )
+    task = Task.objects.get(project=project)
+    Task.objects.filter(pk=task.pk).update(actual_finish=date(2026, 3, 15))
+
+    resp = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "status": "review"},
+        format="json",
+    )
+    task = Task.objects.get(pk=resp.data["task_id"])
+    assert task.actual_finish == date(2026, 3, 15)
+
+
+@pytest.mark.django_db
+def test_external_reopen_from_review_clears_finish(project: Project, admin_user: Any) -> None:
+    """REVIEW → IN_PROGRESS clears the finish (ADR-1153 decision 4) — otherwise a
+    stale ``actual_finish`` would pin the task as complete in CPM while the
+    board shows it back in flight."""
+    _token, raw = _mint_token(project, admin_user)
+    client = _bearer(APIClient(), raw)
+    client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "status": "todo"},
+        format="json",
+    )
+    client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "status": "review"},
+        format="json",
+    )
+    resp = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "status": "in_progress"},
+        format="json",
+    )
+    task = Task.objects.get(pk=resp.data["task_id"])
+    assert task.status == TaskStatus.IN_PROGRESS
+    assert task.actual_finish is None
+
+
+@pytest.mark.django_db
+def test_external_review_to_complete_preserves_the_review_finish(
+    project: Project, admin_user: Any
+) -> None:
+    """REVIEW ⇄ COMPLETE keeps the recorded finish rather than clearing and
+    re-stamping it — both states mean "delivered" (mirrors the REST path's
+    ``leaving_signoff``/``entering_signoff`` pair)."""
+    _token, raw = _mint_token(project, admin_user)
+    client = _bearer(APIClient(), raw)
+    client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "status": "todo"},
+        format="json",
+    )
+    client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "status": "review"},
+        format="json",
+    )
+    task = Task.objects.get(project=project)
+    review_finish = task.actual_finish
+    assert review_finish is not None
+
+    resp = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "status": "done"},
+        format="json",
+    )
+    task = Task.objects.get(pk=resp.data["task_id"])
+    assert task.status == TaskStatus.COMPLETE
+    assert task.actual_finish == review_finish
+
+
+# ---------------------------------------------------------------------------
 # History rows for inbound updates (#1876)
 # ---------------------------------------------------------------------------
 

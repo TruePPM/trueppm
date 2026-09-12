@@ -457,3 +457,141 @@ class TestProjectStartShiftsForAConstraintBelowIt:
 
         assert Project.objects.get(pk=project.pk).start_date == date(2026, 3, 2)  # type: ignore[attr-defined]
         assert summary == {}
+
+
+@pytest.mark.django_db
+class TestADR1153ActualDateRulesEnforced:
+    """The importer's own line of defense (#3709) — ordering, the future/span
+    bound, and the sign-off gate, sharing one implementation
+    (``projects.actual_date_rules``) with ``TaskSerializer._validate_actual_dates``.
+
+    Built directly against ``TaskData`` rather than through ``parse_xml``:
+    ``_reconcile_actuals`` (parser.py) already drops an MS-Project-sourced
+    inverted or contradicts-the-progress pair before the importer ever sees it
+    (see ``TestActualsAreReconciledAgainstProgress`` above), so a fixture routed
+    through the real parser would never exercise this defense. A hand-built
+    ``TaskData`` is what a parser bug, or another ``TaskData`` producer sharing
+    ``_create_tasks``/``_build_task_object`` but not the MSP-specific
+    reconciliation pass (the CSV/Jira adapters), would hand the importer —
+    exactly the scenario this check exists for. The rule the parser cannot check
+    at all — the future/span bound — needs no such bypass: it needs a
+    ``Project``, which the parser never sees.
+    """
+
+    @pytest.fixture
+    def project(self, db: object) -> object:
+        from trueppm_api.apps.projects.models import Calendar, Project
+
+        calendar = Calendar.objects.create(name="Standard")
+        return Project.objects.create(
+            name="ADR-1153 target", start_date=date(2026, 3, 2), calendar=calendar
+        )
+
+    def _build(self, project: object, **task_kwargs: object) -> tuple[object, dict]:
+        from trueppm_api.apps.msproject.dataclasses import ProjectData, TaskData
+        from trueppm_api.apps.msproject.importer import _build_task_object, _init_summary
+
+        summary = _init_summary(ProjectData())
+        task_kwargs.setdefault("start", "2026-03-02")
+        td = TaskData(uid=1, **task_kwargs)  # type: ignore[arg-type]
+        task = _build_task_object(td, "1", False, str(project.pk), 1, summary, project)  # type: ignore[attr-defined]
+        return task, summary
+
+    def test_an_inverted_actual_pair_is_not_persisted(self, project: object) -> None:
+        task, summary = self._build(
+            project,
+            name="Inverted",
+            percent_complete=100.0,
+            status="COMPLETE",
+            actual_start="2026-03-20",
+            actual_finish="2026-03-10",
+        )
+        # The order rule flags actual_finish; the independently-valid
+        # actual_start is left in place — half-populated is valid by design
+        # (ADR-0136).
+        assert task.actual_start == date(2026, 3, 20)  # type: ignore[attr-defined]
+        assert task.actual_finish is None  # type: ignore[attr-defined]
+        assert summary["tasks_with_invalid_actuals_dropped"] == 1
+        assert any("actual finish" in w for w in summary["warnings"])
+
+    def test_a_year_9999_actual_is_not_persisted(self, project: object) -> None:
+        """The motivating case (#3709): an out-of-span date previously persisted
+        untouched and detonated the project's *next recompute* rather than
+        failing on import — see ``models.py``'s ``MAX_PROJECT_SPAN_DAYS`` note."""
+        task, summary = self._build(
+            project,
+            name="Far future",
+            percent_complete=100.0,
+            status="COMPLETE",
+            actual_start="2026-03-02",
+            actual_finish="9999-01-01",
+        )
+        assert task.actual_start == date(2026, 3, 2)  # type: ignore[attr-defined]
+        assert task.actual_finish is None  # type: ignore[attr-defined]
+        assert summary["tasks_with_invalid_actuals_dropped"] == 1
+
+    def test_actual_finish_on_a_non_signoff_status_is_not_persisted(self, project: object) -> None:
+        """The sign-off gate: a finish the file attaches to an in-flight task
+        would pin it as complete in CPM while the board still shows it in
+        progress (``engine._is_complete``)."""
+        task, summary = self._build(
+            project,
+            name="Still working",
+            percent_complete=40.0,
+            status="IN_PROGRESS",
+            actual_start="2026-03-02",
+            actual_finish="2026-03-10",
+        )
+        assert task.actual_start == date(2026, 3, 2)  # type: ignore[attr-defined]
+        assert task.actual_finish is None  # type: ignore[attr-defined]
+        assert summary["tasks_with_invalid_actuals_dropped"] == 1
+
+    def test_a_coherent_pair_survives_untouched(self, project: object) -> None:
+        """Negative control: a valid pair is not touched by the new check."""
+        task, summary = self._build(
+            project,
+            name="Good",
+            percent_complete=100.0,
+            status="COMPLETE",
+            actual_start="2026-03-02",
+            actual_finish="2026-03-06",
+        )
+        assert task.actual_start == date(2026, 3, 2)  # type: ignore[attr-defined]
+        assert task.actual_finish == date(2026, 3, 6)  # type: ignore[attr-defined]
+        assert summary["tasks_with_invalid_actuals_dropped"] == 0
+
+    def test_good_rows_still_import_alongside_a_bad_one(self, project: object) -> None:
+        """End-to-end negative control through the real ``import_project`` entry
+        point: one bad row must not affect its sibling."""
+        from trueppm_api.apps.msproject.dataclasses import ProjectData, TaskData
+        from trueppm_api.apps.msproject.importer import import_project
+        from trueppm_api.apps.projects.models import Task
+
+        good = TaskData(
+            uid=1,
+            name="Good",
+            start="2026-03-02",
+            percent_complete=100.0,
+            status="COMPLETE",
+            actual_start="2026-03-02",
+            actual_finish="2026-03-06",
+        )
+        bad = TaskData(
+            uid=2,
+            name="Bad",
+            start="2026-03-02",
+            percent_complete=100.0,
+            status="COMPLETE",
+            actual_start="2026-03-20",
+            actual_finish="2026-03-10",
+        )
+        data = ProjectData(tasks=[good, bad])
+        summary = import_project(str(project.pk), data)  # type: ignore[attr-defined]
+
+        tasks = {t.name: t for t in Task.objects.filter(project_id=project.pk)}  # type: ignore[attr-defined]
+        assert tasks["Good"].actual_start == date(2026, 3, 2)
+        assert tasks["Good"].actual_finish == date(2026, 3, 6)
+        assert tasks["Bad"].actual_start == date(2026, 3, 20)
+        assert tasks["Bad"].actual_finish is None
+        assert summary["tasks_created"] == 2
+        assert summary["tasks_with_invalid_actuals_dropped"] == 1

@@ -22,6 +22,12 @@ if TYPE_CHECKING:
     from trueppm_api.apps.workspace.models import Workspace
 
 from trueppm_api.apps.access.models import ProjectMembership, Role, program_role_label
+from trueppm_api.apps.projects.actual_date_rules import (
+    ActualDateViolation,
+    check_actual_date_bound,
+    check_actual_date_order,
+    check_actual_finish_signoff,
+)
 from trueppm_api.apps.projects.attachment_policy import (
     SYSTEM_ATTACHMENT_DENYLIST,
     SYSTEM_DEFAULT_ATTACHMENT_TYPES,
@@ -33,7 +39,6 @@ from trueppm_api.apps.projects.models import (
     _VALID_SORT_KEYS,
     API_TOKEN_SCOPES,
     CPM_OUTPUT_HELP,
-    MAX_PROJECT_SPAN_DAYS,
     MCP_READ_TOKEN_MAX_EXPIRY_DAYS,
     PROJECT_CUSTOM_FIELD_MAX,
     RESERVED_SCRUM_CEREMONY_NAMES,
@@ -5054,28 +5059,29 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     #: Fields whose write arms :meth:`_validate_actual_dates` (ADR-1153).
     _ACTUAL_DATE_FIELDS: frozenset[str] = frozenset({"actual_start", "actual_finish"})
 
-    #: Statuses on which an ``actual_finish`` may be recorded (ADR-1153 sign-off gate).
-    #: Both mean "delivered" — ``Task._coerce_signoff_percent`` forces them to 100%.
-    _SIGNOFF_STATUSES: frozenset[str] = frozenset({TaskStatus.REVIEW, TaskStatus.COMPLETE})
-
     def _validate_actual_dates(self, attrs: dict[str, Any]) -> None:
         """Actual-date invariants (ADR-1153, #3529) — ordering, future bound, sign-off gate.
 
         Runs **only when the write touches an actual field**, so an unrelated PATCH to a
         task carrying pre-existing invalid actuals (legacy rows, MS Project imports) is
         not blocked — the same policy as ``_validate_three_point_order`` and
-        ``_enforce_project_span``. Every rule resolves its operands
-        payload-else-instance so a partial PATCH that crosses an invariant against a
-        *stored* value is still rejected.
+        ``_enforce_project_span``.
 
-        Three rules, each for a different failure the API previously accepted:
+        The three rules themselves live in ``projects.actual_date_rules`` (#3709), shared
+        with every other write path that persists these fields (the MS Project importer,
+        seed replay). This method owns only the field-touch and payload-vs-instance
+        semantics that are specific to a partial ``PATCH`` — a full-row write has no such
+        distinction to make, which is why the shared module's ``check_actual_dates``
+        convenience wrapper is not used here:
 
         1. **Ordering.** ``actual_start > actual_finish`` is physically impossible input,
            not out-of-sequence truth. The engine already rejects it
            (``_validate_task_actual_order``) — but it does so at *compute* time, by
            raising ``InvalidScheduleInput``, which fails the whole project's recompute
            rather than the one bad row. Rejecting it at the write boundary is what keeps
-           one PATCH from stranding a project on stale dates.
+           one PATCH from stranding a project on stale dates. Resolved
+           payload-else-instance, so a partial PATCH that crosses the invariant against a
+           *stored* value is still rejected.
         2. **Future bound.** Neither field may exceed
            ``max(data date, today)``. The data date is ``Project.status_date`` resolved
            through the single existing helper. ``max`` and not the data date alone
@@ -5083,7 +5089,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
            January still carries January, and bounding at it would reject a PM recording
            a finish of *today*, the most common legitimate entry. A deliberately
            *forward*-dated data date still widens the bound, which is the case where
-           honoring it is meaningful.
+           honoring it is meaningful. Checked only against a field this write actually
+           sets (raw payload, no instance fallback) — an unrelated PATCH must not be
+           blocked by a pre-existing out-of-bound value.
         3. **Sign-off gate.** ``actual_finish`` may only be set when the task's effective
            status is REVIEW or COMPLETE. ``engine._is_complete`` reads completion as
            ``actual_finish is not None or percent_complete >= 100``, so a finish written
@@ -5094,7 +5102,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
            of COMPLETE, and ``Task._coerce_signoff_percent`` already treats these two
            statuses as the ones meaning "delivered". Because the status is resolved
            payload-else-instance, ``{status: COMPLETE, actual_finish: ...}`` is accepted
-           as one write — only a *bare* finish on an in-flight task is refused.
+           as one write — only a *bare* finish on an in-flight task is refused. Checked
+           only when this write actually sets ``actual_finish`` (raw payload) — the same
+           "don't re-validate an untouched field" policy as the future bound above.
 
         A half-populated row — an ``actual_finish`` with no ``actual_start`` — stays
         **valid by design** (ADR-0136): a task completed without ever being IN_PROGRESS
@@ -5113,68 +5123,32 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         start = attrs.get("actual_start", getattr(instance, "actual_start", None))
         finish = attrs.get("actual_finish", getattr(instance, "actual_finish", None))
 
-        if start is not None and finish is not None and start > finish:
-            raise serializers.ValidationError(
-                {
-                    "actual_finish": serializers.ErrorDetail(
-                        f"Actual finish cannot be earlier than actual start ({start.isoformat()}).",
-                        code="actual_dates_out_of_order",
-                    )
-                }
-            )
+        violation = check_actual_date_order(start, finish)
+        if violation is not None:
+            self._raise_actual_date_violation(violation)
 
         project = attrs.get("project") or getattr(instance, "project", None)
         if project is not None:
-            from trueppm_api.apps.scheduling.services import resolve_cpm_status_date
-
-            upper = max(resolve_cpm_status_date(project.status_date), timezone.localdate())
             for field, label in (
                 ("actual_start", "Actual start"),
                 ("actual_finish", "Actual finish"),
             ):
-                value = attrs.get(field)
-                if value is None:
-                    continue
-                if value > upper:
-                    raise serializers.ValidationError(
-                        {
-                            field: serializers.ErrorDetail(
-                                f"{label} cannot be in the future (after {upper.isoformat()}).",
-                                code="actual_date_in_future",
-                            )
-                        }
-                    )
-                # Span cap, the same class as the ordering rule above and found by the
-                # same sweep: ``_validate_span_bounds`` rejects an actual more than
-                # MAX_PROJECT_SPAN_DAYS from the project start — measured as an
-                # ABSOLUTE offset, so a date far in the past detonates exactly like one
-                # far in the future. The future bound does not reach that direction, and
-                # a date input carries no floor, so a typed 1900-01-01 would otherwise
-                # be accepted here and fail the project's next recompute (#1068 class).
-                if abs((value - project.start_date).days) > MAX_PROJECT_SPAN_DAYS:
-                    raise serializers.ValidationError(
-                        {
-                            field: serializers.ErrorDetail(
-                                f"{label} is more than {MAX_PROJECT_SPAN_DAYS} days from the "
-                                "project start; the schedule cannot be computed within a "
-                                "representable date range.",
-                                code="actual_date_outside_span",
-                            )
-                        }
-                    )
+                violation = check_actual_date_bound(field, label, attrs.get(field), project)
+                if violation is not None:
+                    self._raise_actual_date_violation(violation)
 
         if attrs.get("actual_finish") is not None:
             effective_status = attrs.get("status", getattr(instance, "status", None))
-            if effective_status not in self._SIGNOFF_STATUSES:
-                raise serializers.ValidationError(
-                    {
-                        "actual_finish": serializers.ErrorDetail(
-                            "Actual finish can only be set on a task that is in review or "
-                            "complete.",
-                            code="actual_finish_requires_signoff",
-                        )
-                    }
-                )
+            violation = check_actual_finish_signoff(attrs.get("actual_finish"), effective_status)
+            if violation is not None:
+                self._raise_actual_date_violation(violation)
+
+    @staticmethod
+    def _raise_actual_date_violation(violation: ActualDateViolation) -> None:
+        """Raise the field-level DRF error for one ADR-1153 rule violation (#3709)."""
+        raise serializers.ValidationError(
+            {violation.field: serializers.ErrorDetail(violation.message, code=violation.code)}
+        )
 
     def _validate_product_backlog(self, attrs: dict[str, Any]) -> None:
         """Validate ADR-0105 fields: parent-epic membership and the DoR-gated READY move.
