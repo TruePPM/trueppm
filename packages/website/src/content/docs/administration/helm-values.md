@@ -117,8 +117,23 @@ guess against. Leaving it deny-by-default is deliberate — see
 [Reaching Django admin](/administration/security/#reaching-django-admin).
 :::
 
+:::note[Ships in 0.4: two halves, and you need both]
+`web.adminAccess` is the **edge** half and governs only traffic that traverses the
+web tier's nginx — it is bypassed by `web.enabled: false`, by an
+`ingress.hosts[].paths[]` entry targeting `service: api`, and by
+`kubectl port-forward`. From 0.4 the chart also sets
+`env.TRUEPPM_DJANGO_ADMIN_ENABLED: "false"`, the **application** half, which makes
+the API answer `404` on `/admin/` on every one of those paths.
+
+The consequence worth knowing before you need it: the port-forward access path
+this chart recommends for administrative work **404s until you flip that variable
+to `"true"`**. Do that only when you use the admin; the login is throttled,
+audited, and enforced-SSO-checked from 0.4, but it is still a password door.
+:::
+
 | Key | Default | What it does |
 |---|---|---|
+| `env.TRUEPPM_DJANGO_ADMIN_ENABLED` | `"false"` | Ships in 0.4. Whether the API serves `/admin/` at all, independent of the nginx rules below. See [Configuration](/administration/configuration/). |
 | `web.adminAccess.enabled` | `true` | Render the `/admin/` proxy at all. Set `false` to return `404` instead — removes the path from the public listener entirely. |
 | `web.adminAccess.allowCIDRs` | `[]` | Source CIDRs permitted to reach `/admin/`. **Empty means deny everything.** Matched against nginx's `$remote_addr`, which behind an Ingress is the *controller's* pod IP, not the operator's — so this is only meaningful when the web tier sees real client addresses. |
 | `web.adminAccess.rateLimit.enabled` | `true` | Apply an nginx `limit_req` zone to the admin login surface. |

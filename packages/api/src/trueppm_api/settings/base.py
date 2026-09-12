@@ -47,7 +47,12 @@ ALLOWED_HOSTS: list[str] = []
 # ---------------------------------------------------------------------------
 
 DJANGO_APPS = [
-    "django.contrib.admin",
+    # django.contrib.admin, but with HardenedAdminSite as the default site
+    # (#3557) -- off unless TRUEPPM_DJANGO_ADMIN_ENABLED, and when on, its login
+    # carries the API login's throttles, audit lines and policy seam. Django's
+    # documented hook for swapping the default site is an AdminConfig subclass in
+    # INSTALLED_APPS; the app itself (label "admin", its migrations) is unchanged.
+    "trueppm_api.core.admin_site.HardenedAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -259,6 +264,27 @@ ALLOW_UNENCRYPTED_DB = env.bool("TRUEPPM_ALLOW_UNENCRYPTED_DB", default=False)
 # refuses to start: "*" is the one value that disables host validation outright,
 # and host validation is the only bound on the absolute URLs the API builds.
 ALLOW_WILDCARD_ALLOWED_HOSTS = env.bool("TRUEPPM_ALLOW_WILDCARD_HOSTS", default=False)
+
+# Whether /admin/ answers at all (#3557). Default OFF everywhere except the dev
+# settings module, which flips it back on for a developer workstation.
+#
+# Django admin is a plain Django view, so none of the API's login defenses reach
+# it by inheritance: DRF throttles apply to DRF views only, the auth audit lines
+# are emitted by our own login view, and the enterprise local_login_allowed seam
+# is consulted there too. Left unhardened it is a second password door onto a
+# known-present superuser (the create_admin bootstrap makes one on first deploy)
+# with none of the first door's controls. The chart's nginx denies /admin/ by
+# default, but Docker Compose and bare-metal deploys route to the API directly
+# and have no such edge.
+#
+# Off-by-default is the primary control, because the strongest statement about a
+# surface almost nobody uses is that it is not there. HardenedAdminSite raises
+# Http404 for every /admin/ path when this is False -- a 404, not a 403, so the
+# surface is not even advertised. An operator who genuinely needs the admin sets
+# this to true and gets the hardened door rather than the bare one: the same
+# "login"/"login_account" throttle buckets as the API login, the same
+# auth.login_failed / auth.login_succeeded lines, and the same policy seam.
+DJANGO_ADMIN_ENABLED = env.bool("TRUEPPM_DJANGO_ADMIN_ENABLED", default=False)
 
 # Global rate-limiting kill switch (ADR-0604, extends ADR-0208). Operator-only
 # escape hatch to disable ALL DRF throttling — used by the k6 perf:load job to

@@ -31,6 +31,7 @@ from __future__ import annotations
 import hashlib
 from typing import TYPE_CHECKING, cast
 
+from django.http import HttpRequest
 from rest_framework.request import Request
 from rest_framework.throttling import (
     AnonRateThrottle,
@@ -92,7 +93,111 @@ class ProbeExemptAnonRateThrottle(AnonRateThrottle):
         return super().get_cache_key(request, view)
 
 
-class LoginAccountRateThrottle(SimpleRateThrottle):
+class ConsumableRateThrottle(SimpleRateThrottle):
+    """A ``SimpleRateThrottle`` that can also be charged outside DRF's pipeline.
+
+    DRF throttles only run from ``APIView.check_throttles``, so a door that is not
+    a DRF view — the Django admin login (#3557) — cannot use one at all, and a
+    door that must charge a bucket it could not know about until *inside* the view
+    body — the email-identifier login retry (#3468) — cannot use one either.
+
+    :meth:`consume_key` is the shared primitive both need: record one attempt
+    against an explicit cache key and report the verdict, using the same window
+    arithmetic ``SimpleRateThrottle.allow_request`` uses, so a bucket charged this
+    way and a bucket charged by DRF are the same bucket with the same semantics.
+    """
+
+    @classmethod
+    def consume_key(cls, key: str) -> float | None:
+        """Record one attempt against ``key``'s bucket and report the verdict.
+
+        Returns ``None`` when the attempt was within the rate, or the number of
+        seconds to wait when the bucket was already at its limit.
+
+        Charging after the fact (rather than pre-emptively) matches how DRF
+        throttles work anyway — the Nth attempt is served and the N+1th refused.
+        """
+        throttle = cls()
+        if not throttle.rate:
+            # No rate configured for this scope — nothing to charge, nothing to refuse.
+            return None
+        throttle.key = key
+        throttle.now = throttle.timer()
+
+        # Evict entries that have aged out of the window before recording, exactly as
+        # ``SimpleRateThrottle.allow_request`` does. ``throttle_success`` refreshes the
+        # cache TTL on every write, so without this an entry could outlive the window
+        # it belongs to and over-throttle the account. ``duration`` is set in
+        # ``SimpleRateThrottle.__init__`` from ``parse_rate`` but is not declared on the
+        # class, so it carries no type for mypy --strict.
+        duration = cast("int", getattr(throttle, "duration", 0))
+        history: list[float] = list(throttle.cache.get(throttle.key, []))
+        while history and history[-1] <= throttle.now - duration:
+            history.pop()
+        throttle.history = history
+        # ``num_requests`` and ``duration`` are set in ``SimpleRateThrottle.__init__``
+        # from ``parse_rate`` but are not declared on the class, so they carry no type.
+        if len(history) >= cast("int", getattr(throttle, "num_requests", 0)):
+            # Already at the limit before this attempt. Report the wait and record
+            # nothing — DRF's own throttle_failure does not extend the window either,
+            # so a refused attempt must not push the bucket's expiry out.
+            return throttle.wait()
+        throttle.throttle_success()
+        return None
+
+
+class LoginIpRateThrottle(ConsumableRateThrottle):
+    """The IP-keyed ``login`` bucket, chargeable from a non-DRF login door (#3557).
+
+    Deliberately the **same scope and the same cache key** as the
+    ``ScopedRateThrottle`` the API login runs under, not a parallel bucket of its
+    own. ``/api/v1/auth/token/`` and ``/admin/login/`` are two doors onto one
+    credential set, so an attacker who exhausts one must not find the other's
+    allowance untouched — a per-door bucket would hand them ``2 x`` the guesses
+    the ``login`` rate is written to permit. Sharing it also means an operator who
+    tunes the rate tunes both doors, with nothing to keep in sync.
+
+    The key derivation mirrors ``ScopedRateThrottle.get_cache_key`` exactly
+    (account pk when the request is already authenticated, client IP otherwise);
+    if the two ever drift the buckets silently stop being the same bucket, which
+    is why :meth:`cache_key_for_request` is the single place either spells it out.
+    """
+
+    scope = "login"
+
+    def get_cache_key(self, request: Request, view: APIView) -> str | None:
+        """Key on the account pk when authenticated, the client IP otherwise."""
+        return self.cache_key_for_request(request)
+
+    @classmethod
+    def cache_key_for_request(cls, request: HttpRequest | Request) -> str:
+        """Return the ``login``-scope bucket key for ``request``'s source.
+
+        Accepts a plain Django ``HttpRequest`` as well as a DRF ``Request``: it
+        reads only ``request.user`` and ``request.META``, both of which the
+        ``AuthenticationMiddleware`` has already populated on the admin login path.
+        """
+        throttle = cls()
+        user = getattr(request, "user", None)
+        # ``get_ident`` is annotated for a DRF ``Request`` but reads only ``META``
+        # (``HTTP_X_FORWARDED_FOR`` / ``REMOTE_ADDR``) plus the ``NUM_PROXIES``
+        # setting, so a plain ``HttpRequest`` satisfies it at runtime. Narrowing
+        # here rather than duplicating DRF's proxy-depth logic is what keeps the
+        # admin door's key byte-identical to the API login's.
+        ident = (
+            user.pk
+            if user is not None and user.is_authenticated
+            else throttle.get_ident(cast("Request", request))
+        )
+        return cls.cache_format % {"scope": cls.scope, "ident": ident}
+
+    @classmethod
+    def consume(cls, request: HttpRequest | Request) -> float | None:
+        """Charge one login attempt from ``request``'s source against the IP bucket."""
+        return cls.consume_key(cls.cache_key_for_request(request))
+
+
+class LoginAccountRateThrottle(ConsumableRateThrottle):
     """Per-*account* login throttle, keyed on the submitted username (#1717).
 
     Why this exists alongside the IP-keyed ``login`` throttle:
@@ -188,33 +293,7 @@ class LoginAccountRateThrottle(SimpleRateThrottle):
         Charging after the fact (rather than pre-emptively) matches how DRF throttles
         work anyway — the Nth attempt is served and the N+1th is refused.
         """
-        throttle = cls()
-        if not throttle.rate:
-            # No rate configured for this scope — nothing to charge, nothing to refuse.
-            return None
-        throttle.key = cls.cache_key_for(identifier)
-        throttle.now = throttle.timer()
-
-        # Evict entries that have aged out of the window before recording, exactly as
-        # ``SimpleRateThrottle.allow_request`` does. ``throttle_success`` refreshes the
-        # cache TTL on every write, so without this an entry could outlive the window
-        # it belongs to and over-throttle the account. ``duration`` is set in
-        # ``SimpleRateThrottle.__init__`` from ``parse_rate`` but is not declared on the
-        # class, so it carries no type for mypy --strict.
-        duration = cast("int", getattr(throttle, "duration", 0))
-        history: list[float] = list(throttle.cache.get(throttle.key, []))
-        while history and history[-1] <= throttle.now - duration:
-            history.pop()
-        throttle.history = history
-        # ``num_requests`` and ``duration`` are set in ``SimpleRateThrottle.__init__``
-        # from ``parse_rate`` but are not declared on the class, so they carry no type.
-        if len(history) >= cast("int", getattr(throttle, "num_requests", 0)):
-            # Already at the limit before this attempt. Report the wait and record
-            # nothing — DRF's own throttle_failure does not extend the window either,
-            # so a refused attempt must not push the bucket's expiry out.
-            return throttle.wait()
-        throttle.throttle_success()
-        return None
+        return cls.consume_key(cls.cache_key_for(identifier))
 
 
 class ProbeExemptUserRateThrottle(UserRateThrottle):
