@@ -988,10 +988,9 @@ def _program_membership_role(request: Request, program_id: Any) -> int | None:
         return cache[cache_key]
 
     try:
-        membership = ProgramMembership.objects.get(
+        membership = ProgramMembership.live().get(
             program_id=program_id,
             user=request.user,
-            is_deleted=False,
         )
         role: int | None = membership.role
     except ProgramMembership.DoesNotExist:
