@@ -140,9 +140,19 @@ carries no credential, so anyone who can reach the listening port acts as the
 token owner and reads everything your role permits. Keep the transport
 loopback-only (`127.0.0.1`), or sit it behind an authenticated ingress (a reverse
 proxy that terminates TLS and enforces access control). Never bind `0.0.0.0`
-without that front door. Transport-level session auth is tracked for a later
-release ([#604](https://gitlab.com/trueppm/trueppm/-/issues/604)); until then this
-is a deployment responsibility.
+without that front door. Until one of the two changes below lands, this is a
+deployment responsibility.
+
+Two issues track the way out, and they are different sizes. **Per-client
+authentication on the network transports** — one token per connecting client
+instead of one shared server credential, which is what a team pointing several
+MCP clients at a single endpoint needs — is
+[#3464](https://gitlab.com/trueppm/trueppm/-/issues/3464). The broader read/write
+expansion that carries full session auth alongside write tools is
+[#604](https://gitlab.com/trueppm/trueppm/-/issues/604), and it is the larger
+piece of work. Neither carries a delivery commitment today. If you hit this
+limitation while standing up a shared endpoint for a team, say so on #3464 — an
+operator report is what moves it.
 :::
 
 ## Quickstart for non-Python clients (raw HTTP)
