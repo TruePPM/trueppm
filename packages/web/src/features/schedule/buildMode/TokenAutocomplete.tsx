@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 
 /** One row in a token type-ahead. */
 export interface TokenSuggestion {
@@ -16,6 +17,14 @@ interface Props {
   ariaLabel: string;
   onSelect: (suggestion: TokenSuggestion) => void;
   onDismiss: () => void;
+  /**
+   * Positioning from the caller's `useAnchoredPopover` call (web rule 260) —
+   * the caller owns the trigger (the name cell), so it owns the hook. `null`
+   * while closed/unmeasured; the panel does not portal until this is set.
+   */
+  style: CSSProperties | null;
+  /** Attach to the portaled `<ul>` — required for the caller's outside-dismiss span. */
+  panelRef: RefObject<HTMLUListElement | null>;
 }
 
 const MAX_SUGGESTIONS = 6;
@@ -23,6 +32,10 @@ const MAX_SUGGESTIONS = 6;
 /**
  * The type-ahead behind every inline authoring token (#2722), so nobody has to
  * memorize the syntax to use it.
+ *
+ * Portaled to `document.body` and positioned `fixed` via the caller's
+ * `useAnchoredPopover` call (#3664, web rule 260) — see `NameAutocomplete`'s
+ * header for why an in-flow `absolute` panel could not stay.
  *
  * **Non-modal, and that is the whole contract.** `↑`/`↓` move the selection, `⇥`
  * accepts it, `Esc` dismisses *without touching the text*, and typing past the
@@ -36,7 +49,14 @@ const MAX_SUGGESTIONS = 6;
  * the highlighted row. With **no** active selection `Enter` falls through, so a row
  * whose author ignored the popover still commits on the first Enter.
  */
-export function TokenAutocomplete({ suggestions, ariaLabel, onSelect, onDismiss }: Props) {
+export function TokenAutocomplete({
+  suggestions,
+  ariaLabel,
+  onSelect,
+  onDismiss,
+  style,
+  panelRef,
+}: Props) {
   const [activeIdx, setActiveIdx] = useState(-1);
   // Memoized: the keydown effect depends on this array, and a fresh slice on every
   // render would re-register the document listener on every keystroke.
@@ -81,14 +101,16 @@ export function TokenAutocomplete({ suggestions, ariaLabel, onSelect, onDismiss 
     return () => document.removeEventListener('keydown', handler, true);
   }, [matches, activeIdx, onSelect, onDismiss]);
 
-  if (matches.length === 0) return null;
+  if (matches.length === 0 || !style) return null;
 
-  return (
+  return createPortal(
     <ul
+      ref={panelRef}
       role="listbox" // dropdown-scroll-ok: hard-capped slice(0, MAX_SUGGESTIONS)
       aria-label={ariaLabel}
-      className="absolute top-full left-0 z-50 w-[280px] mt-0.5 rounded-card border border-chrome-border
-        bg-chrome-surface-raised overflow-hidden"
+      style={style}
+      className="z-50 rounded-card border border-chrome-border
+        bg-chrome-surface-raised overflow-y-auto"
     >
       {matches.map((s, i) => (
         <li
@@ -97,7 +119,9 @@ export function TokenAutocomplete({ suggestions, ariaLabel, onSelect, onDismiss 
           aria-selected={i === activeIdx}
           className={[
             'flex items-center gap-2 px-2 py-1.5 text-xs cursor-pointer text-chrome-text-primary',
-            i === activeIdx ? 'bg-brand-primary/10 text-brand-primary' : 'hover:bg-chrome-row-hover',
+            i === activeIdx
+              ? 'bg-brand-primary/10 text-brand-primary'
+              : 'hover:bg-chrome-row-hover',
           ].join(' ')}
           onMouseDown={(e) => {
             // mousedown, not click — it must land before the input's onBlur commits.
@@ -113,6 +137,7 @@ export function TokenAutocomplete({ suggestions, ariaLabel, onSelect, onDismiss 
           )}
         </li>
       ))}
-    </ul>
+    </ul>,
+    document.body,
   );
 }

@@ -10,6 +10,12 @@ function wrap(ui: React.ReactElement, qc?: QueryClient) {
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }
 
+// A caller's useAnchoredPopover result (#3664) — a fixture style is enough here
+// since positioning math itself is the hook's own test's job; this file only
+// needs to prove the panel still renders and behaves once portaled.
+const POPOVER_STYLE = { position: 'fixed' as const, top: 0, left: 0, width: 260, maxHeight: 240 };
+const panelRef = () => React.createRef<HTMLDivElement>();
+
 function agileProjectClient(): QueryClient {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const project: ApiProjectDetail = {
@@ -82,8 +88,18 @@ function agileProjectClient(): QueryClient {
     show_time_tracking: null,
     show_baselines: null,
     show_monte_carlo: null,
-    effective_surface_visibility: { reporting: true, time_tracking: true, baselines: false, monte_carlo: false },
-    inherited_surface_visibility: { reporting: true, time_tracking: true, baselines: false, monte_carlo: false },
+    effective_surface_visibility: {
+      reporting: true,
+      time_tracking: true,
+      baselines: false,
+      monte_carlo: false,
+    },
+    inherited_surface_visibility: {
+      reporting: true,
+      time_tracking: true,
+      baselines: false,
+      monte_carlo: false,
+    },
     is_archived: false,
     archived_at: null,
     archived_by: null,
@@ -113,28 +129,56 @@ function nonAgileProjectClient(): QueryClient {
 describe('SprintPrompt', () => {
   it('renders nothing when open=false', () => {
     const { container } = wrap(
-      <SprintPrompt open={false} projectId="p1" onSelect={vi.fn()} onDismiss={vi.fn()} />,
+      <SprintPrompt
+        open={false}
+        projectId="p1"
+        onSelect={vi.fn()}
+        onDismiss={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
     );
     expect(container.firstChild).toBeNull();
   });
 
   it('renders nothing when projectId is null', () => {
     const { container } = wrap(
-      <SprintPrompt open projectId={null} onSelect={vi.fn()} onDismiss={vi.fn()} />,
+      <SprintPrompt
+        open
+        projectId={null}
+        onSelect={vi.fn()}
+        onDismiss={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
     );
     expect(container.firstChild).toBeNull();
   });
 
   it('renders nothing when project data has not loaded yet (no agile_features)', () => {
     const { container } = wrap(
-      <SprintPrompt open projectId="p1" onSelect={vi.fn()} onDismiss={vi.fn()} />,
+      <SprintPrompt
+        open
+        projectId="p1"
+        onSelect={vi.fn()}
+        onDismiss={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
     );
     expect(container.firstChild).toBeNull();
   });
 
   it('renders the sprint step for an agile project', () => {
     wrap(
-      <SprintPrompt open projectId="p1" onSelect={vi.fn()} onDismiss={vi.fn()} />,
+      <SprintPrompt
+        open
+        projectId="p1"
+        onSelect={vi.fn()}
+        onDismiss={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
       agileProjectClient(),
     );
     expect(screen.getByRole('dialog', { name: 'Assign to sprint' })).toBeInTheDocument();
@@ -144,7 +188,14 @@ describe('SprintPrompt', () => {
   it('calls onDismiss when the Later button is clicked', () => {
     const onDismiss = vi.fn();
     wrap(
-      <SprintPrompt open projectId="p1" onSelect={vi.fn()} onDismiss={onDismiss} />,
+      <SprintPrompt
+        open
+        projectId="p1"
+        onSelect={vi.fn()}
+        onDismiss={onDismiss}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
       agileProjectClient(),
     );
     fireEvent.click(screen.getByText(/Later/));
@@ -153,7 +204,14 @@ describe('SprintPrompt', () => {
 
   it('always shows Backlog option for agile projects', () => {
     wrap(
-      <SprintPrompt open projectId="p1" onSelect={vi.fn()} onDismiss={vi.fn()} />,
+      <SprintPrompt
+        open
+        projectId="p1"
+        onSelect={vi.fn()}
+        onDismiss={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
       agileProjectClient(),
     );
     expect(screen.getByText('Backlog')).toBeInTheDocument();
@@ -161,7 +219,14 @@ describe('SprintPrompt', () => {
 
   it('advances to points step after sprint selection', () => {
     wrap(
-      <SprintPrompt open projectId="p1" onSelect={vi.fn()} onDismiss={vi.fn()} />,
+      <SprintPrompt
+        open
+        projectId="p1"
+        onSelect={vi.fn()}
+        onDismiss={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
       agileProjectClient(),
     );
     fireEvent.click(screen.getByText('Backlog'));
@@ -172,7 +237,14 @@ describe('SprintPrompt', () => {
   it('calls onSelect(null, null) when Backlog is picked and Done clicked with no pts', () => {
     const onSelect = vi.fn();
     wrap(
-      <SprintPrompt open projectId="p1" onSelect={onSelect} onDismiss={vi.fn()} />,
+      <SprintPrompt
+        open
+        projectId="p1"
+        onSelect={onSelect}
+        onDismiss={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
       agileProjectClient(),
     );
     fireEvent.click(screen.getByText('Backlog'));
@@ -183,7 +255,14 @@ describe('SprintPrompt', () => {
   it('calls onSelect(null, 5) when Backlog is picked and 5 pts entered', () => {
     const onSelect = vi.fn();
     wrap(
-      <SprintPrompt open projectId="p1" onSelect={onSelect} onDismiss={vi.fn()} />,
+      <SprintPrompt
+        open
+        projectId="p1"
+        onSelect={onSelect}
+        onDismiss={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
       agileProjectClient(),
     );
     fireEvent.click(screen.getByText('Backlog'));
@@ -197,7 +276,14 @@ describe('SprintPrompt', () => {
   it('goes back to sprint step when Esc pressed on points step', () => {
     const onDismiss = vi.fn();
     wrap(
-      <SprintPrompt open projectId="p1" onSelect={vi.fn()} onDismiss={onDismiss} />,
+      <SprintPrompt
+        open
+        projectId="p1"
+        onSelect={vi.fn()}
+        onDismiss={onDismiss}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
       agileProjectClient(),
     );
     fireEvent.click(screen.getByText('Backlog'));
@@ -212,7 +298,14 @@ describe('SprintPrompt', () => {
   describe('non-agile project (ADR-0418)', () => {
     it('opens directly on the story-points step, skipping the sprint step', () => {
       wrap(
-        <SprintPrompt open projectId="p1" onSelect={vi.fn()} onDismiss={vi.fn()} />,
+        <SprintPrompt
+          open
+          projectId="p1"
+          onSelect={vi.fn()}
+          onDismiss={vi.fn()}
+          style={POPOVER_STYLE}
+          panelRef={panelRef()}
+        />,
         nonAgileProjectClient(),
       );
       expect(screen.getByRole('dialog', { name: 'Story points' })).toBeInTheDocument();
@@ -223,7 +316,14 @@ describe('SprintPrompt', () => {
     it('calls onSelect(null, 8) when a point estimate is entered and confirmed', () => {
       const onSelect = vi.fn();
       wrap(
-        <SprintPrompt open projectId="p1" onSelect={onSelect} onDismiss={vi.fn()} />,
+        <SprintPrompt
+          open
+          projectId="p1"
+          onSelect={onSelect}
+          onDismiss={vi.fn()}
+          style={POPOVER_STYLE}
+          panelRef={panelRef()}
+        />,
         nonAgileProjectClient(),
       );
       fireEvent.change(screen.getByRole('spinbutton', { name: /story points/i }), {
@@ -237,7 +337,14 @@ describe('SprintPrompt', () => {
     it('dismisses (does not step back) when Esc is pressed, since there is no sprint step', () => {
       const onDismiss = vi.fn();
       wrap(
-        <SprintPrompt open projectId="p1" onSelect={vi.fn()} onDismiss={onDismiss} />,
+        <SprintPrompt
+          open
+          projectId="p1"
+          onSelect={vi.fn()}
+          onDismiss={onDismiss}
+          style={POPOVER_STYLE}
+          panelRef={panelRef()}
+        />,
         nonAgileProjectClient(),
       );
       fireEvent.keyDown(document, { key: 'Escape', bubbles: true });
@@ -246,10 +353,56 @@ describe('SprintPrompt', () => {
 
     it('labels the Esc hint "skip" rather than "go back"', () => {
       wrap(
-        <SprintPrompt open projectId="p1" onSelect={vi.fn()} onDismiss={vi.fn()} />,
+        <SprintPrompt
+          open
+          projectId="p1"
+          onSelect={vi.fn()}
+          onDismiss={vi.fn()}
+          style={POPOVER_STYLE}
+          panelRef={panelRef()}
+        />,
         nonAgileProjectClient(),
       );
       expect(screen.getByText(/Esc to skip/)).toBeInTheDocument();
+    });
+  });
+
+  describe('portal (#3664)', () => {
+    it('renders OUTSIDE the caller subtree, so no clipping ancestor can clip it', () => {
+      // The row it opens from renders inside TaskListPanel's `overflow-x-hidden`
+      // virtualized scroll wrapper — a 260px panel had no way to escape that
+      // clip. jsdom cannot measure the clip itself (the E2E spec asserts the
+      // box), but it can assert the property that makes the clip impossible:
+      // only leaving the subtree escapes a clipping ancestor.
+      const { container } = wrap(
+        <SprintPrompt
+          open
+          projectId="p1"
+          onSelect={vi.fn()}
+          onDismiss={vi.fn()}
+          style={POPOVER_STYLE}
+          panelRef={panelRef()}
+        />,
+        agileProjectClient(),
+      );
+      const panel = screen.getByRole('dialog');
+      expect(container.contains(panel)).toBe(false);
+    });
+
+    it('renders nothing while unmeasured (style is null), matching the hook contract', () => {
+      const { container } = wrap(
+        <SprintPrompt
+          open
+          projectId="p1"
+          onSelect={vi.fn()}
+          onDismiss={vi.fn()}
+          style={null}
+          panelRef={panelRef()}
+        />,
+        agileProjectClient(),
+      );
+      expect(container.firstChild).toBeNull();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
   });
 });

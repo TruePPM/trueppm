@@ -185,7 +185,7 @@ describe('ProgramCadencePage — ceremony actions menu keyboard access', () => {
     mockCeremonies({ data: [] });
     render(<ProgramCadencePage />);
     expect(
-      screen.getByText(/Program admins can configure ceremonies/i),
+      screen.getByText(/A program manager or above can configure ceremonies/i),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: /Add your first ceremony/i }),
@@ -204,7 +204,7 @@ describe('ProgramCadencePage — ceremony actions menu keyboard access', () => {
     render(<ProgramCadencePage />);
     expect(screen.queryByRole('switch')).not.toBeInTheDocument();
     expect(
-      screen.getByLabelText(/Standup: On, managed by the program admin. View only\./i),
+      screen.getByLabelText(/Standup: On, managed by the program manager or above. View only\./i),
     ).toBeInTheDocument();
     // No admin write affordances.
     expect(screen.queryByRole('button', { name: '+ Add ceremony' })).not.toBeInTheDocument();
@@ -377,7 +377,7 @@ describe('ProgramCadencePage — ceremony actions menu keyboard access', () => {
     mockCeremonies({ data: [RETRO] });
     render(<ProgramCadencePage />);
     expect(
-      screen.getByRole('img', { name: /Retro: Off, managed by the program admin\. View only\./i }),
+      screen.getByRole('img', { name: /Retro: Off, managed by the program manager or above\. View only\./i }),
     ).toBeInTheDocument();
   });
 

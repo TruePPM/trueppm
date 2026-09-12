@@ -8,11 +8,11 @@ describe('ReadOnlyIndicator (ADR-0133)', () => {
       <ReadOnlyIndicator
         label="Slip policy"
         value="Warn only"
-        provenance="managed by the program admin"
+        provenance="managed by the program manager or above"
       />,
     );
     expect(
-      screen.getByLabelText('Slip policy: Warn only, managed by the program admin. View only.'),
+      screen.getByLabelText('Slip policy: Warn only, managed by the program manager or above. View only.'),
     ).toBeInTheDocument();
   });
 
@@ -27,23 +27,23 @@ describe('ReadOnlyIndicator (ADR-0133)', () => {
       <ReadOnlyIndicator
         label="Program sync"
         value="On"
-        provenance="managed by the program admin"
+        provenance="managed by the program manager or above"
         compact
       />,
     );
     // Value word still visible...
     expect(screen.getByText('On')).toBeInTheDocument();
     // ...but the visible "· provenance" clause is gone.
-    expect(screen.queryByText('· managed by the program admin')).toBeNull();
+    expect(screen.queryByText('· managed by the program manager or above')).toBeNull();
     // ...while the composite accessible name still carries it.
     expect(
-      screen.getByLabelText('Program sync: On, managed by the program admin. View only.'),
+      screen.getByLabelText('Program sync: On, managed by the program manager or above. View only.'),
     ).toBeInTheDocument();
   });
 
   it('does not render any disabled or focusable form control', () => {
     const { container } = render(
-      <ReadOnlyIndicator label="Auto-escalate" value="On" provenance="managed by the program admin" />,
+      <ReadOnlyIndicator label="Auto-escalate" value="On" provenance="managed by the program manager or above" />,
     );
     expect(container.querySelector('input, button, select, textarea, [disabled]')).toBeNull();
   });

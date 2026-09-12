@@ -215,11 +215,18 @@ class ProjectMembership(VersionedModel):
         the predicate lives. Being a classmethod it cannot compose through a related
         manager or a join, so the ~30 ``memberships__is_deleted=False`` join filters and
         the ``obj.memberships.filter(is_deleted=False)`` reads elsewhere necessarily
-        restate it and are correct as they stand. Nothing enforces that a new direct read
-        starts here — no test, no CI gate — so treat this as a shared definition to
-        prefer, not an invariant to rely on. Making it a queryset method on a custom
+        restate it and are correct as they stand. Making it a queryset method on a custom
         manager would let ``project.memberships.live()`` and ``Prefetch`` compose too;
         that is the natural next step and is deliberately not taken in this fix.
+
+        Since #3458 a new direct read that omits the floor **is** caught:
+        ``scripts/check-membership-live-floor.py`` (``make pre-push`` and the
+        ``api:membership-live-floor`` CI job) rejects an unfloored read of either
+        membership manager outside a short allowlist. It does not require the read to go
+        through *this* method — an inline ``is_deleted=False`` satisfies it — so this
+        stays a shared definition to prefer rather than an invariant. Note what the gate
+        cannot see: a defect *inside* an allowlisted module, and a join filter, which is
+        why the paragraph above still matters.
 
         Some direct reads must see revoked rows and stay on ``objects`` by design: the
         ``pre_save`` receiver in :mod:`~trueppm_api.apps.access.signals`, which reads the
@@ -308,6 +315,49 @@ class ProgramMembership(VersionedModel):
             models.Index(fields=["program", "server_version"], name="progm_serverver_idx"),
             models.Index(fields=["program", "sync_seq"], name="progm_syncseq_idx"),
         ]
+
+    @classmethod
+    def live(cls) -> models.QuerySet[ProgramMembership]:
+        """Program membership rows that have not been revoked — the soft-delete floor.
+
+        The program-axis twin of :meth:`ProjectMembership.live`, added in #3458. The
+        class docstring above says this model "mirrors ``ProjectMembership`` exactly";
+        until this method existed that claim was false in the one place it mattered
+        most, and every program-axis read restated its own ``is_deleted=False`` or
+        forgot to. Two of the five known instances of the class were program-axis
+        (#3456, the weekly program-health digest; #3457, the seed exporter), and both
+        were found by a gate sweep on an unrelated MR rather than by anything that runs
+        on a branch.
+
+        It floors the *membership* only. A row on a soft-deleted **program** passes this
+        and confers nothing, so a caller that does not already scope to a live program
+        needs ``program__is_deleted=False`` as well (as
+        ``notifications.digests.build_program_health_digest`` does). Same division as on
+        the project side.
+
+        The mechanism is the same too: ``uniq_program_membership_program_user`` is
+        **unconditional**, so revoking access soft-deletes the row rather than removing
+        it and re-adding the member revives that same row (#3410). A ``(program, user)``
+        lookup that omits ``is_deleted`` therefore resolves a *revoked* member to their
+        old role and reads as if they were still present.
+
+        **Scope, stated as narrowly as the project-side twin.** This is a convenience
+        for a *direct* ``ProgramMembership`` lookup. Being a classmethod it cannot
+        compose through a related manager or a join, so ``memberships__is_deleted=False``
+        join filters elsewhere necessarily restate the predicate and are correct as they
+        stand. Migrating every inline filter to it was deliberately **not** done in
+        #3458: the project axis carries 95 correctly-floored reads and only 4 of them go
+        through ``ProjectMembership.live()``, so "mirrors exactly" means the helper
+        exists and is preferred, not that every call site was rewritten.
+
+        What is new in #3458 and is *not* on the project side is that the floor is now
+        checked rather than merely preferred: ``scripts/check-membership-live-floor.py``
+        (``make pre-push`` and the ``api:membership-live-floor`` CI job) fails any
+        unfloored read of either membership manager outside a short allowlist of modules
+        that must see revoked rows. The reads that must stay unfloored are named there,
+        with a reason each, rather than restated here.
+        """
+        return cls.objects.filter(is_deleted=False)
 
     def __str__(self) -> str:
         # Program vocabulary, not ``Role.label`` — this row is a membership of a

@@ -83,7 +83,7 @@ variables:
   #
   # Bump by running `bash scripts/check-ci-api-tag.sh`, which prints the value
   # the current inputs require. Enforced by api:ci-api-tag.
-  CI_API_TAG: "py3.11-b122d717e199"
+  CI_API_TAG: "py3.11-ec5162f9b50c"
 
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
@@ -1803,6 +1803,43 @@ api:dependency-soft-delete:
     # believing it found none (#3195).
     - bash scripts/check-dependency-soft-delete.sh --self-test
     - bash scripts/check-dependency-soft-delete.sh
+
+api:membership-live-floor:
+  # A membership READ that omits `is_deleted` resolves a REVOKED member as live (#3458).
+  #
+  # Revoking access soft-deletes the row, and `uniq_(project|program)_membership_..._user`
+  # is unconditional — the tombstone keeps owning the slot, so the lookup answers with the
+  # departed member's old role. That defect was fixed FIVE times as five separate issues
+  # (#3386 write gates, #3410 re-add 500, #3411 three read paths, #3456 the weekly digest
+  # emailing revoked members, #3457 the seed exporter exporting them), every one found by
+  # a gate sweep on an unrelated MR. Nothing ran on a branch.
+  #
+  # Scope-inverted rather than grep-shaped, and that is what makes it affordable: 127
+  # membership-manager chains live outside migrations, 12 of them unfloored reads, and
+  # ALL TWELVE are correct by design — so a bare `*Membership.objects` grep is a 100%
+  # false-positive gate. The twelve sit in four modules, so checking everywhere and
+  # exempting a named few costs a four-line allowlist and fires zero false positives.
+  # Replayed against `main` before #3411 it reported 7 violations, all 7 real.
+  #
+  # AST, not a line regex: `is_deleted` is a COLUMN, so it appears in `.only("role",
+  # "is_deleted")` — a projection, not a filter — and in the SELECT list of every
+  # membership query. A substring probe reports a false pass on a wholly unfiltered read.
+  # Pure static analysis: no Django, no database, seconds.
+  extends: [.api-no-db, .fast-job]
+  stage: analyze
+  needs:
+    - job: ci:build-api-image
+      optional: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script: []
+  script:
+    # Self-test FIRST: a gate's failure mode is a green pipeline, so "it passed" is not
+    # evidence that it can still fail (#3195). Both bounds are pinned — the unfloored
+    # read is caught, and each correct-by-design shape is not.
+    - python3 scripts/check-membership-live-floor.py --self-test
+    - python3 scripts/check-membership-live-floor.py
 
 demo:readonly-posture:
   extends: .fast-job
@@ -4860,6 +4897,14 @@ web:integration:
     SECRET_KEY: "ci-integration-secret-not-for-production"
     # Vite proxy target: routes /api and /ws/v1 to the local Django process.
     API_URL: "http://127.0.0.1:8000"
+    # The Vite dev proxy forwards /api/* with changeOrigin: true, which rewrites
+    # the Host header to 127.0.0.1:8000 before Django sees it — so a same-browser
+    # -origin refresh/logout POST arrives with Origin: http://127.0.0.1:5173 but
+    # request.get_host() == 127.0.0.1:8000, and the #3556 cross-site check would
+    # reject it as cross-site. This is the same Host-rewrite pitfall #3691 fixed
+    # for the OIDC redirect_uri; trusting the dev origin here is its counterpart
+    # for the independent Sec-Fetch-Site/Origin check on refresh and logout.
+    CSRF_TRUSTED_ORIGINS: "http://127.0.0.1:5173"
     INTEGRATION_USER_EMAIL: "ci@trueppm.test"
     INTEGRATION_USER_PASSWORD: "ci-integration-pw"
     # Every integration spec signs in as the single seeded INTEGRATION_USER, so
@@ -4989,6 +5034,12 @@ sso:integration:
     # completion origin — replayed at the token endpoint, so both must be pinned.
     TRUEPPM_PUBLIC_API_BASE_URL: "http://127.0.0.1:8000"
     TRUEPPM_FRONTEND_BASE_URL: "http://127.0.0.1:5173"
+    # Same Host-rewrite pitfall #3691 fixed for redirect_uri, hitting the #3556
+    # cross-site refresh/logout check instead: changeOrigin: true on the Vite
+    # proxy rewrites Host to 127.0.0.1:8000 before Django sees it, so the SPA's
+    # post-login refresh POST (Origin: http://127.0.0.1:5173) reads as cross-site
+    # without this. Mirrors TRUEPPM_FRONTEND_BASE_URL above.
+    CSRF_TRUSTED_ORIGINS: "http://127.0.0.1:5173"
     # The one allow-listed host (ADR-0590) — permits egress to the in-network IdP.
     TRUEPPM_EGRESS_ALLOWLISTED_HOSTS: "keycloak"
     # Match the baked realm export + seed_sso_keycloak.
