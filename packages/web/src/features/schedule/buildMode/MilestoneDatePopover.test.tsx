@@ -44,6 +44,12 @@ function wrap(ui: React.ReactElement) {
   );
 }
 
+// A caller's useAnchoredPopover result (#3664) — a fixture style is enough here
+// since positioning math itself is the hook's own test's job; this file only
+// needs to prove the panel still renders and behaves once portaled.
+const POPOVER_STYLE = { position: 'fixed' as const, top: 0, left: 0, width: 220, maxHeight: 240 };
+const panelRef = () => React.createRef<HTMLDivElement>();
+
 const PARENTS = [{ name: 'Foundation Phase', finish: '2026-06-30' }];
 
 const ACTIVE_SPRINT: ApiSprint = {
@@ -87,32 +93,75 @@ beforeEach(() => {
 describe('MilestoneDatePopover', () => {
   it('renders nothing when open=false', () => {
     const { container } = wrap(
-      <MilestoneDatePopover open={false} parents={PARENTS} onSelect={vi.fn()} onClose={vi.fn()} />,
+      <MilestoneDatePopover
+        open={false}
+        parents={PARENTS}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
     );
     expect(container.firstChild).toBeNull();
   });
 
   it('shows parent phase chip when open=true', () => {
-    wrap(<MilestoneDatePopover open parents={PARENTS} onSelect={vi.fn()} onClose={vi.fn()} />);
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={PARENTS}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
+    );
     expect(screen.getByText('End of Foundation Phase')).toBeInTheDocument();
   });
 
   it('calls onSelect with parent finish date when chip clicked', () => {
     const onSelect = vi.fn();
-    wrap(<MilestoneDatePopover open parents={PARENTS} onSelect={onSelect} onClose={vi.fn()} />);
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={PARENTS}
+        onSelect={onSelect}
+        onClose={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
+    );
     fireEvent.click(screen.getByText('End of Foundation Phase'));
     expect(onSelect).toHaveBeenCalledWith('2026-06-30');
   });
 
   it('closes after a phase chip is chosen', () => {
     const onClose = vi.fn();
-    wrap(<MilestoneDatePopover open parents={PARENTS} onSelect={vi.fn()} onClose={onClose} />);
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={PARENTS}
+        onSelect={vi.fn()}
+        onClose={onClose}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
+    );
     fireEvent.click(screen.getByText('End of Foundation Phase'));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('shows Pick custom… button', () => {
-    wrap(<MilestoneDatePopover open parents={[]} onSelect={vi.fn()} onClose={vi.fn()} />);
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={[]}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
+    );
     expect(screen.getByText('Pick custom…')).toBeInTheDocument();
   });
 
@@ -123,6 +172,8 @@ describe('MilestoneDatePopover', () => {
         parents={[{ name: 'Phase', finish: undefined }]}
         onSelect={vi.fn()}
         onClose={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
       />,
     );
     expect(screen.queryByText(/End of/)).toBeNull();
@@ -138,6 +189,8 @@ describe('MilestoneDatePopover', () => {
         ]}
         onSelect={vi.fn()}
         onClose={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
       />,
     );
     expect(screen.getByText('End of Dated Phase')).toBeInTheDocument();
@@ -151,28 +204,62 @@ describe('MilestoneDatePopover', () => {
       { name: 'Phase 3', finish: '2026-09-30' },
       { name: 'Phase 4', finish: '2026-12-31' },
     ];
-    wrap(<MilestoneDatePopover open parents={manyParents} onSelect={vi.fn()} onClose={vi.fn()} />);
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={manyParents}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
+    );
     expect(screen.getAllByText(/^End of/).length).toBe(3);
   });
 
   it('exposes the dialog role', () => {
-    wrap(<MilestoneDatePopover open parents={[]} onSelect={vi.fn()} onClose={vi.fn()} />);
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={[]}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
+    );
     expect(screen.getByRole('dialog', { name: 'Pick milestone date' })).toBeInTheDocument();
   });
 });
 
 describe('MilestoneDatePopover — active sprint chip', () => {
   it('omits the sprint chip when no sprint is active', () => {
-    wrap(<MilestoneDatePopover open parents={[]} onSelect={vi.fn()} onClose={vi.fn()} />);
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={[]}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
+    );
     expect(screen.queryByRole('button', { name: /End of sprint/ })).toBeNull();
   });
 
   it('offers the active sprint finish when a sprint is active', () => {
     mockActiveSprint = ACTIVE_SPRINT;
-    wrap(<MilestoneDatePopover open parents={[]} onSelect={vi.fn()} onClose={vi.fn()} />);
-    expect(
-      screen.getByRole('button', { name: 'End of sprint (Sprint 7)' }),
-    ).toBeInTheDocument();
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={[]}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'End of sprint (Sprint 7)' })).toBeInTheDocument();
   });
 
   it('uses the project iteration label in the sprint chip', () => {
@@ -184,7 +271,16 @@ describe('MilestoneDatePopover — active sprint chip', () => {
       lowerPlural: 'PIs',
       possessive: "PI's",
     };
-    wrap(<MilestoneDatePopover open parents={[]} onSelect={vi.fn()} onClose={vi.fn()} />);
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={[]}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
+    );
     expect(screen.getByRole('button', { name: 'End of PI (Sprint 7)' })).toBeInTheDocument();
   });
 
@@ -192,7 +288,16 @@ describe('MilestoneDatePopover — active sprint chip', () => {
     mockActiveSprint = ACTIVE_SPRINT;
     const onSelect = vi.fn();
     const onClose = vi.fn();
-    wrap(<MilestoneDatePopover open parents={[]} onSelect={onSelect} onClose={onClose} />);
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={[]}
+        onSelect={onSelect}
+        onClose={onClose}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
+    );
     fireEvent.click(screen.getByRole('button', { name: 'End of sprint (Sprint 7)' }));
     expect(onSelect).toHaveBeenCalledWith('2026-04-14');
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -201,21 +306,37 @@ describe('MilestoneDatePopover — active sprint chip', () => {
 
 describe('MilestoneDatePopover — custom date entry', () => {
   it('swaps the "Pick custom…" chip for a date field', () => {
-    wrap(<MilestoneDatePopover open parents={[]} onSelect={vi.fn()} onClose={vi.fn()} />);
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={[]}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Pick custom…' }));
     expect(screen.queryByRole('button', { name: 'Pick custom…' })).toBeNull();
     expect(screen.getByRole('button', { name: 'OK' })).toBeInTheDocument();
   });
 
   it('disables OK until a date is typed', () => {
-    const { container } = wrap(
-      <MilestoneDatePopover open parents={[]} onSelect={vi.fn()} onClose={vi.fn()} />,
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={[]}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Pick custom…' }));
     const ok = screen.getByRole('button', { name: 'OK' });
     expect(ok).toBeDisabled();
 
-    const input = container.querySelector<HTMLInputElement>('input[type="date"]');
+    const input = document.body.querySelector<HTMLInputElement>('input[type="date"]');
     expect(input).not.toBeNull();
     fireEvent.change(input as HTMLInputElement, { target: { value: '2026-08-15' } });
     expect(ok).not.toBeDisabled();
@@ -224,11 +345,18 @@ describe('MilestoneDatePopover — custom date entry', () => {
   it('submits the typed date when OK is clicked', () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
-    const { container } = wrap(
-      <MilestoneDatePopover open parents={[]} onSelect={onSelect} onClose={onClose} />,
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={[]}
+        onSelect={onSelect}
+        onClose={onClose}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Pick custom…' }));
-    const input = container.querySelector<HTMLInputElement>('input[type="date"]');
+    const input = document.body.querySelector<HTMLInputElement>('input[type="date"]');
     fireEvent.change(input as HTMLInputElement, { target: { value: '2026-08-15' } });
     fireEvent.click(screen.getByRole('button', { name: 'OK' }));
     expect(onSelect).toHaveBeenCalledWith('2026-08-15');
@@ -237,11 +365,18 @@ describe('MilestoneDatePopover — custom date entry', () => {
 
   it('submits on Enter', () => {
     const onSelect = vi.fn();
-    const { container } = wrap(
-      <MilestoneDatePopover open parents={[]} onSelect={onSelect} onClose={vi.fn()} />,
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={[]}
+        onSelect={onSelect}
+        onClose={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Pick custom…' }));
-    const input = container.querySelector<HTMLInputElement>('input[type="date"]');
+    const input = document.body.querySelector<HTMLInputElement>('input[type="date"]');
     fireEvent.change(input as HTMLInputElement, { target: { value: '2026-09-01' } });
     fireEvent.keyDown(input as HTMLInputElement, { key: 'Enter' });
     expect(onSelect).toHaveBeenCalledWith('2026-09-01');
@@ -250,11 +385,18 @@ describe('MilestoneDatePopover — custom date entry', () => {
   it('ignores Enter while the field is still empty', () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
-    const { container } = wrap(
-      <MilestoneDatePopover open parents={[]} onSelect={onSelect} onClose={onClose} />,
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={[]}
+        onSelect={onSelect}
+        onClose={onClose}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Pick custom…' }));
-    const input = container.querySelector<HTMLInputElement>('input[type="date"]');
+    const input = document.body.querySelector<HTMLInputElement>('input[type="date"]');
     fireEvent.keyDown(input as HTMLInputElement, { key: 'Enter' });
     expect(onSelect).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
@@ -262,11 +404,18 @@ describe('MilestoneDatePopover — custom date entry', () => {
 
   it('ignores unrelated keys in the date field', () => {
     const onSelect = vi.fn();
-    const { container } = wrap(
-      <MilestoneDatePopover open parents={[]} onSelect={onSelect} onClose={vi.fn()} />,
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={[]}
+        onSelect={onSelect}
+        onClose={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Pick custom…' }));
-    const input = container.querySelector<HTMLInputElement>('input[type="date"]');
+    const input = document.body.querySelector<HTMLInputElement>('input[type="date"]');
     fireEvent.change(input as HTMLInputElement, { target: { value: '2026-09-01' } });
     fireEvent.keyDown(input as HTMLInputElement, { key: 'a' });
     expect(onSelect).not.toHaveBeenCalled();
@@ -279,11 +428,18 @@ describe('MilestoneDatePopover — custom date entry', () => {
   it('dismisses the popover on Escape in the date field, without selecting', () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
-    const { container } = wrap(
-      <MilestoneDatePopover open parents={[]} onSelect={onSelect} onClose={onClose} />,
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={[]}
+        onSelect={onSelect}
+        onClose={onClose}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Pick custom…' }));
-    const input = container.querySelector<HTMLInputElement>('input[type="date"]');
+    const input = document.body.querySelector<HTMLInputElement>('input[type="date"]');
     fireEvent.change(input as HTMLInputElement, { target: { value: '2026-11-11' } });
     fireEvent.keyDown(input as HTMLInputElement, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -291,43 +447,123 @@ describe('MilestoneDatePopover — custom date entry', () => {
   });
 
   it('keeps the typed value across re-renders of the field', () => {
-    const { container } = wrap(
-      <MilestoneDatePopover open parents={[]} onSelect={vi.fn()} onClose={vi.fn()} />,
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={[]}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Pick custom…' }));
-    const input = container.querySelector<HTMLInputElement>('input[type="date"]');
+    const input = document.body.querySelector<HTMLInputElement>('input[type="date"]');
     fireEvent.change(input as HTMLInputElement, { target: { value: '2026-10-05' } });
-    expect(container.querySelector<HTMLInputElement>('input[type="date"]')?.value).toBe(
+    expect(document.body.querySelector<HTMLInputElement>('input[type="date"]')?.value).toBe(
       '2026-10-05',
     );
+  });
+});
+
+describe('MilestoneDatePopover — portal (#3664)', () => {
+  it('renders OUTSIDE the caller subtree, so no clipping ancestor can clip it', () => {
+    // The Start cell it opens from renders inside TaskListPanel's
+    // `overflow-x-hidden` virtualized scroll wrapper — a 220px panel had no way
+    // to escape that clip. jsdom cannot measure the clip itself (the E2E spec
+    // asserts the box), but it can assert the property that makes the clip
+    // impossible: only leaving the subtree escapes a clipping ancestor.
+    const { container } = wrap(
+      <MilestoneDatePopover
+        open
+        parents={PARENTS}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
+    );
+    const panel = screen.getByRole('dialog');
+    expect(container.contains(panel)).toBe(false);
+  });
+
+  it('renders nothing while unmeasured (style is null), matching the hook contract', () => {
+    const { container } = wrap(
+      <MilestoneDatePopover
+        open
+        parents={PARENTS}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+        style={null}
+        panelRef={panelRef()}
+      />,
+    );
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });
 
 describe('MilestoneDatePopover — dismissal', () => {
   it('closes on a mousedown outside the panel', () => {
     const onClose = vi.fn();
-    wrap(<MilestoneDatePopover open parents={PARENTS} onSelect={vi.fn()} onClose={onClose} />);
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={PARENTS}
+        onSelect={vi.fn()}
+        onClose={onClose}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
+    );
     fireEvent.mouseDown(document.body);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('stays open on a mousedown inside the panel', () => {
     const onClose = vi.fn();
-    wrap(<MilestoneDatePopover open parents={PARENTS} onSelect={vi.fn()} onClose={onClose} />);
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={PARENTS}
+        onSelect={vi.fn()}
+        onClose={onClose}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
+    );
     fireEvent.mouseDown(screen.getByRole('dialog'));
     expect(onClose).not.toHaveBeenCalled();
   });
 
   it('closes on Escape', () => {
     const onClose = vi.fn();
-    wrap(<MilestoneDatePopover open parents={PARENTS} onSelect={vi.fn()} onClose={onClose} />);
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={PARENTS}
+        onSelect={vi.fn()}
+        onClose={onClose}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
+    );
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('ignores other keys', () => {
     const onClose = vi.fn();
-    wrap(<MilestoneDatePopover open parents={PARENTS} onSelect={vi.fn()} onClose={onClose} />);
+    wrap(
+      <MilestoneDatePopover
+        open
+        parents={PARENTS}
+        onSelect={vi.fn()}
+        onClose={onClose}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
+    );
     fireEvent.keyDown(document, { key: 'Enter' });
     expect(onClose).not.toHaveBeenCalled();
   });
@@ -335,7 +571,14 @@ describe('MilestoneDatePopover — dismissal', () => {
   it('registers no document listeners while closed', () => {
     const onClose = vi.fn();
     wrap(
-      <MilestoneDatePopover open={false} parents={PARENTS} onSelect={vi.fn()} onClose={onClose} />,
+      <MilestoneDatePopover
+        open={false}
+        parents={PARENTS}
+        onSelect={vi.fn()}
+        onClose={onClose}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
     );
     fireEvent.mouseDown(document.body);
     fireEvent.keyDown(document, { key: 'Escape' });
@@ -345,7 +588,14 @@ describe('MilestoneDatePopover — dismissal', () => {
   it('stops listening once the popover is closed again', () => {
     const onClose = vi.fn();
     const { rerender } = wrap(
-      <MilestoneDatePopover open parents={PARENTS} onSelect={vi.fn()} onClose={onClose} />,
+      <MilestoneDatePopover
+        open
+        parents={PARENTS}
+        onSelect={vi.fn()}
+        onClose={onClose}
+        style={POPOVER_STYLE}
+        panelRef={panelRef()}
+      />,
     );
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     rerender(
@@ -356,6 +606,8 @@ describe('MilestoneDatePopover — dismissal', () => {
             parents={PARENTS}
             onSelect={vi.fn()}
             onClose={onClose}
+            style={POPOVER_STYLE}
+            panelRef={panelRef()}
           />
         </QueryClientProvider>
       </MemoryRouter>,
