@@ -10,6 +10,7 @@ from pathlib import Path
 import environ
 
 from trueppm_api.core.ratelimit import apply_rate_limit_disable, resolve_rate_limit_enabled
+from trueppm_api.core.refresh_cookie_policy import resolve_refresh_cookie_samesite
 from trueppm_api.core.storage_config import S3_STORAGE_BACKENDS, build_s3_storage_options
 from trueppm_api.core.valkey_config import parse_sentinels
 
@@ -845,10 +846,25 @@ AUTH_REFRESH_COOKIE_PATH = env(
     "TRUEPPM_AUTH_REFRESH_COOKIE_PATH",
     default=env("AUTH_REFRESH_COOKIE_PATH", default="/api/v1/auth/"),
 )
-AUTH_REFRESH_COOKIE_SAMESITE = env(
-    "TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE",
-    default=env("AUTH_REFRESH_COOKIE_SAMESITE", default="Strict"),
+#
+# The resolved value is validated, not passed through verbatim (#3556): refresh
+# and logout are authenticated by this cookie alone (no CSRF token, no
+# double-submit), so SameSite is the only unconditional CSRF control on them.
+# ``None`` requires the acknowledgment sentinel below or it is refused and
+# forced back to ``Strict``; ``Lax`` is accepted but logs a WARNING naming what
+# it gives up. See ``core/refresh_cookie_policy.py`` for the full resolution.
+_refresh_cookie_samesite_resolution = resolve_refresh_cookie_samesite(
+    requested=env(
+        "TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE",
+        default=env("AUTH_REFRESH_COOKIE_SAMESITE", default="Strict"),
+    ),
+    ack=env("TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE_NONE_ACK", default=""),
 )
+AUTH_REFRESH_COOKIE_SAMESITE = _refresh_cookie_samesite_resolution.value
+if _refresh_cookie_samesite_resolution.warning:
+    logging.getLogger("trueppm.settings").warning(_refresh_cookie_samesite_resolution.warning)
+if _refresh_cookie_samesite_resolution.critical:
+    logging.getLogger("trueppm.settings").critical(_refresh_cookie_samesite_resolution.critical)
 # Default Secure=True; dev settings flip this to False for plain-HTTP localhost.
 AUTH_REFRESH_COOKIE_SECURE = env.bool(
     "TRUEPPM_AUTH_REFRESH_COOKIE_SECURE",

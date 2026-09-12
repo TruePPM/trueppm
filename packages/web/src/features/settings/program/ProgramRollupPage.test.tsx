@@ -170,15 +170,15 @@ describe('ProgramRollupPage (settings)', () => {
     // No interactive switch — the on/off value + provenance is shown instead (ADR-0133).
     expect(screen.queryByRole('switch', { name: 'Schedule health' })).toBeNull();
     expect(
-      screen.getByLabelText('Schedule health: On, managed by the program admin. View only.'),
+      screen.getByLabelText('Schedule health: On, managed by the program manager or above. View only.'),
     ).toBeInTheDocument();
     expect(
-      screen.getByLabelText('At-risk tasks: Off, managed by the program admin. View only.'),
+      screen.getByLabelText('At-risk tasks: Off, managed by the program manager or above. View only.'),
     ).toBeInTheDocument();
     // Aggregation policy renders read-only too.
     expect(
       screen.getByLabelText(
-        'Aggregation policy: Worst-case (recommended), managed by the program admin. View only.',
+        'Aggregation policy: Worst-case (recommended), managed by the program manager or above. View only.',
       ),
     ).toBeInTheDocument();
   });
@@ -765,7 +765,7 @@ describe('ProgramRollupPage (settings)', () => {
       renderPage();
       expect(
         screen.getByLabelText(
-          'Aggregation policy: risk_weighted, managed by the program admin. View only.',
+          'Aggregation policy: risk_weighted, managed by the program manager or above. View only.',
         ),
       ).toBeInTheDocument();
     });

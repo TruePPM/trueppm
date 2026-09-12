@@ -83,7 +83,7 @@ variables:
   #
   # Bump by running `bash scripts/check-ci-api-tag.sh`, which prints the value
   # the current inputs require. Enforced by api:ci-api-tag.
-  CI_API_TAG: "py3.11-b122d717e199"
+  CI_API_TAG: "py3.11-ec5162f9b50c"
 
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
@@ -4860,6 +4860,14 @@ web:integration:
     SECRET_KEY: "ci-integration-secret-not-for-production"
     # Vite proxy target: routes /api and /ws/v1 to the local Django process.
     API_URL: "http://127.0.0.1:8000"
+    # The Vite dev proxy forwards /api/* with changeOrigin: true, which rewrites
+    # the Host header to 127.0.0.1:8000 before Django sees it — so a same-browser
+    # -origin refresh/logout POST arrives with Origin: http://127.0.0.1:5173 but
+    # request.get_host() == 127.0.0.1:8000, and the #3556 cross-site check would
+    # reject it as cross-site. This is the same Host-rewrite pitfall #3691 fixed
+    # for the OIDC redirect_uri; trusting the dev origin here is its counterpart
+    # for the independent Sec-Fetch-Site/Origin check on refresh and logout.
+    CSRF_TRUSTED_ORIGINS: "http://127.0.0.1:5173"
     INTEGRATION_USER_EMAIL: "ci@trueppm.test"
     INTEGRATION_USER_PASSWORD: "ci-integration-pw"
     # Every integration spec signs in as the single seeded INTEGRATION_USER, so
@@ -4989,6 +4997,12 @@ sso:integration:
     # completion origin — replayed at the token endpoint, so both must be pinned.
     TRUEPPM_PUBLIC_API_BASE_URL: "http://127.0.0.1:8000"
     TRUEPPM_FRONTEND_BASE_URL: "http://127.0.0.1:5173"
+    # Same Host-rewrite pitfall #3691 fixed for redirect_uri, hitting the #3556
+    # cross-site refresh/logout check instead: changeOrigin: true on the Vite
+    # proxy rewrites Host to 127.0.0.1:8000 before Django sees it, so the SPA's
+    # post-login refresh POST (Origin: http://127.0.0.1:5173) reads as cross-site
+    # without this. Mirrors TRUEPPM_FRONTEND_BASE_URL above.
+    CSRF_TRUSTED_ORIGINS: "http://127.0.0.1:5173"
     # The one allow-listed host (ADR-0590) — permits egress to the in-network IdP.
     TRUEPPM_EGRESS_ALLOWLISTED_HOSTS: "keycloak"
     # Match the baked realm export + seed_sso_keycloak.

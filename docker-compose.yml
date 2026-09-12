@@ -85,6 +85,13 @@ services:
       # own URLconf, which has no such route. Mirrors the
       # TRUEPPM_FRONTEND_BASE_URL pin already used in .gitlab-ci.yml.
       TRUEPPM_FRONTEND_BASE_URL: http://localhost:5173
+      # Same Host-rewrite as above, hitting the #3556 cross-site refresh/logout
+      # check instead of the OIDC redirect_uri: the SPA's post-login refresh POST
+      # carries Origin: http://localhost:5173, but Django's request.get_host()
+      # reads "api:8000" (the changeOrigin-rewritten Host), so without this the
+      # check reads a same-browser-origin request as cross-site and 403s every
+      # token refresh. Mirrors the CSRF_TRUSTED_ORIGINS pin used in .gitlab-ci.yml.
+      CSRF_TRUSTED_ORIGINS: http://localhost:5173
     volumes:
       - ./packages/api/src:/app/src
     ports:

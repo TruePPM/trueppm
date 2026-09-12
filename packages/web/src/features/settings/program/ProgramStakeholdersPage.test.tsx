@@ -310,7 +310,7 @@ describe('ProgramStakeholdersPage (settings)', () => {
     renderPage();
 
     expect(useProgramMentionReach).toHaveBeenCalledWith('p-1', false);
-    expect(document.body.textContent).toContain('Viewer-role reach is visible to program admins.');
+    expect(document.body.textContent).toContain('Viewer-role reach is visible to a program manager or above.');
   });
 
   it('holds the strip until the reach read settles, so it mounts in one commit', () => {
