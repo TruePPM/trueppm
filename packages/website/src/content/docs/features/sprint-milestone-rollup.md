@@ -76,7 +76,7 @@ live **reforecast preview** (projected dates and a team-pace band, computed on
 the fly and persisted to nothing), then either mints a new milestone from the
 sprint goal or binds an existing milestone in the same project.
 
-**Over the API.** `POST /api/v1/sprints/{id}/promote-to-milestone/` (Scheduler+):
+**Over the API.** `POST /api/v1/sprints/{id}/promote-to-milestone/` (Resource Manager+):
 
 - **Body `{}`** — mints a new `Task(is_milestone=true)` from the sprint goal,
   dated at the sprint finish, and binds it. Returns **201**. Optional
@@ -91,7 +91,7 @@ A dry run for the dialog is available at
 member; omit `milestone_id` to preview the to-be-minted milestone).
 
 To bind a *different* milestone, unbind first — the binding never silently
-re-points. `POST /api/v1/sprints/{id}/unbind-milestone/` (Scheduler+) clears the
+re-points. `POST /api/v1/sprints/{id}/unbind-milestone/` (Resource Manager+) clears the
 binding and its provenance and recomputes the freed milestone's rollup. It is
 no-op-safe: an already-unbound sprint returns **200** unchanged.
 
@@ -237,7 +237,7 @@ offers **Keep**, **Unbind**, and rebinding to a different milestone. Rebinding
 unbinds first: a binding never silently re-points.
 
 **Unlinking over the API.** `POST /api/v1/sprints/{id}/unbind-milestone/`
-(Scheduler+) is the same call the dialog makes. It clears `target_milestone` and
+(Resource Manager+) is the same call the dialog makes. It clears `target_milestone` and
 its provenance and recomputes the freed milestone's rollup, and is no-op-safe —
 an already-unbound sprint returns **200** unchanged.
 

@@ -58,7 +58,7 @@ Three read APIs back the same underlying task-run records at different scopes:
 |---|---|
 | `GET /api/v1/task-runs/{id}/` | A single run by id, from anywhere. |
 | `GET /api/v1/task-runs/active/` | Every pending/running run across the projects you belong to — the personal in-flight view this badge summarizes into one count. Not a PMO rollup. |
-| `GET /api/v1/projects/{project_id}/task-runs/` | A project's own run history; `POST .../task-runs/{id}/cancel/` (project Admin+) requests cancellation of one still in flight. |
+| `GET /api/v1/projects/{project_id}/task-runs/` | A project's own run history; `POST .../task-runs/{id}/cancel/` (Project Manager or above) requests cancellation of one still in flight. |
 | `GET /api/v1/projects/{project_id}/scheduler-runs/` | The scheduler-recalculation subset of a project's run history, filterable by status and date range — the audit trail behind the Schedule view's "last recalculated" indicator. |
 
 ## The command palette (⌘K)
@@ -148,7 +148,7 @@ no critical tasks knows something the float numbers do not.
 
 When that is what you are looking at, the popover says so. Under the word you get
 **Reported by the project manager**, with **View on Dashboard ›** taking you to
-the project's Dashboard, where the report lives and — if you are an Admin or Owner
+the project's Dashboard, where the report lives and — if you are a Project Manager or Project Admin
 — where you change it. Without that line, the word came from the plan itself, and
 the at-risk and critical rows below it are the whole explanation.
 

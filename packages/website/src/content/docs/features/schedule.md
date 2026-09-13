@@ -293,7 +293,7 @@ it was. Drag the divider if you would rather spend the width the other way.
 Worth knowing what that costs in practice, because the numbers are not obvious. At
 1280px with the left rail expanded the eight-column outline already asks for more
 room than the clamp can give it, so the Owner column has always been the first to
-clip there. The two float columns 0.4 adds are the rightmost pair, which puts them
+clip there. The two float columns 0.4 will add are the rightmost pair, which puts them
 first in line: at 1440px and above the full ten-column set fits, and below that you
 will want to hide a column you are not reading, collapse the rail, or drag the
 divider. That order is deliberate — float is the pair a planner consults rather
@@ -385,7 +385,7 @@ Dragging the progress slider (or the schedule grid's inline percent cell) to
 set a status explicitly, and the task isn't already past sign-off, TruePPM
 auto-promotes it:
 
-- **Project Manager and Project Admin** (Admin+): straight to **Complete**,
+- **Project Manager and Project Admin**: straight to **Complete**,
   which also stamps today as the actual finish date.
 - **Everyone else who can edit the task** (Team Member): to **Review**,
   pending PM/PMO sign-off — the task does not show as Complete yet.

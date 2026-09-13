@@ -92,7 +92,8 @@ The secret is stored encrypted at rest (AES-128-CBC with an HMAC-SHA256 tag,
 under the deployment's `INTEGRATION_ENCRYPTION_KEY`), the same mechanism used for
 every other stored credential in TruePPM. There is no API path that reads it back.
 
-**Permissions**: requires Admin role on the project (or program, for program-scoped webhooks).
+**Permissions**: requires Project Manager or above on the project (Program Manager or above on
+the program, for program-scoped webhooks).
 
 ### Project vs. program scope
 

@@ -4,8 +4,8 @@ description: Enable or disable task file attachments and configure the allowed f
 ---
 
 Two attachment settings — **file attachments enabled** and the **allowed file types** —
-are set at the workspace and **inherit down** to every program and project, where an
-Owner or Admin can override them for that scope. This page explains what the two
+are set at the workspace and **inherit down** to every program and project, where a
+Program Manager or Project Manager (or above) can override them for that scope. This page explains what the two
 settings do, how the Workspace → Program → Project inheritance model resolves a value,
 who may override it, and which file types are permanently blocked for security.
 

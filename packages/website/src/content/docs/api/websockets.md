@@ -80,7 +80,7 @@ close codes (rather than accepting and then dropping):
 | Code | Meaning |
 |------|---------|
 | `4001` | Missing, invalid, expired, or already-consumed ticket (or, on the deprecated path, an invalid token) |
-| `4003` | Authenticated but lacks the required role on the project (Member+ to subscribe) |
+| `4003` | Authenticated but lacks the required role on the project (Team Member+ to subscribe) |
 
 A client that receives `4001` should mint a fresh ticket (refreshing the access
 token first if needed) and reconnect; a persistent `4001` means the session has

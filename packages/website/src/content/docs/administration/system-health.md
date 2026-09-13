@@ -20,7 +20,7 @@ in `v0.3.0-alpha.3`, the latest release:
   diagnostic: you can filter, read a traceback, and read a payload, but there is
   no button that changes a parked task's state and no write endpoint behind one.
   (0.3 exposes `retry` and `dismiss` on this resource at the API level only, with
-  no UI, no backoff, no drop note, and no bulk form; 0.4 replaces both.)
+  no UI, no backoff, no drop note, and no bulk form; 0.4 will replace both.)
 - **The Notification dispatcher card's detection logic.** In 0.3 that card
   reports "stuck" only for emails that are *still queued* an hour after a failed
   attempt. Because the delivery queue abandons a row after three attempts (about

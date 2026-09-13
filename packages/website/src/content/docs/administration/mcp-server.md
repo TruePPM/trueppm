@@ -391,7 +391,8 @@ The underlying `mcp_enabled` field and the instance → workspace → program �
 project cascade already exist at all three scopes, but only the **project**
 settings page has a UI for it. To set program or workspace scope today, use the
 API directly: `PATCH /api/v1/programs/{id}/` or `PATCH /api/v1/workspace/` with
-`{"mcp_enabled": true|false|null}` (Admin role or above). Every scope's
+`{"mcp_enabled": true|false|null}` (Program Manager or above on a program, workspace Admin or above on the
+workspace). Every scope's
 serializer also exposes read-only `effective_mcp_enabled` and
 `inherited_mcp_enabled` fields so a client can show the resolved value without
 re-implementing the cascade. Workspace- and program-scope settings pages are
@@ -493,7 +494,7 @@ rather than a quiet bypass.
 2. **Inherit means "nobody above has objected"** — never "yes, on your behalf".
 3. **An agent cannot lift its own restriction.** `mcp:read` tokens are read-only
    at the API layer, so an agent cannot change this setting under any role.
-4. **Changing it requires project Admin or above**, and every change is recorded
+4. **Changing it requires Project Manager or above**, and every change is recorded
    in the project's history.
 
 ### Why it is separate from the instance switch

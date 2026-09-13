@@ -246,7 +246,7 @@ Scrum Master facilitates and is neither an assignee nor a booked resource; a
 project manager who owns the plan routinely assigns none of it to themselves.
 Those are the three people a preset flip re-shapes hardest, and the ones everyone
 else asks to explain it. So the preset and view notices also reach the project's
-Scrum Master and Product Owner and everyone at **Scheduler or above**, whether or
+Scrum Master and Product Owner and everyone at **Resource Manager or above**, whether or
 not they hold a task. Board-lane and board-column notices stay with the people
 whose cards actually moved.
 
@@ -266,7 +266,7 @@ Three things this deliberately does **not** do:
   with work on that board — assigned as the task's owner *or* booked on it as a
   resource. A lane going away moves *cards*, so holding a card is what makes it
   your business. A preset or view change adds the Scrum Master, the Product Owner
-  and everyone at Scheduler or above, as above. A Team Member or Viewer who holds
+  and everyone at Resource Manager or above, as above. A Team Member or Viewer who holds
   no work, no facet and no gate is still told nothing, and a member who has been
   removed from the project is never notified, even if work is still on their name.
 - **It never fires from a rejected change.** If the change is refused — a Team

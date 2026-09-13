@@ -174,7 +174,7 @@ critical path that runs *across* projects, and **shared people who over-allocate
 overlapping windows**. The critical path is genuinely computed by the
 program-scoped CPM pass, so it stays correct when a task is dragged rather than
 being hard-coded. It also carries the per-project **5-role RBAC matrix**
-(Owner/Admin/Scheduler/Member/Viewer), a WIP-limited Kanban board on the Security
+(Project Admin / Project Manager / Resource Manager / Team Member / Viewer), a WIP-limited Kanban board on the Security
 workstream, two sprints on the Marketing workstream, and a shared calendar with a
 company holiday.
 
