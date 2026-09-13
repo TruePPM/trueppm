@@ -242,6 +242,19 @@ of what actually arrives:
   assigned task reads it. The count clause degrades to a plain sentence rather
   than disappearing, because an omitted clause reads as an unstated many.
 
+**Notices arrive a few seconds after the change, and an identical repeat
+collapses.** The notice is queued together with the change and delivered by a
+background worker, so saving a change — including one applied to many projects
+at once from the program settings matrix — no longer waits for everyone's inbox
+to be written, and a notice queued while the worker is unavailable is delivered
+once it recovers rather than lost. If the same person repeats a change whose
+notice was just sent — hiding a column, showing it again, then hiding it again
+within ten minutes — the repeat is not sent, because the last notice already
+describes the board as it now stands. A different change, the same change by
+someone else, or a change back after a different notice was sent in between
+always sends. Operators can tune or disable the window with
+`TRUEPPM_CONFIG_NOTICE_COOLDOWN_SECONDS`.
+
 **A preset or view change reaches further than a board change.** A Product Owner
 authors and prioritizes the backlog and is frequently assigned none of it; a
 Scrum Master facilitates and is neither an assignee nor a booked resource; a

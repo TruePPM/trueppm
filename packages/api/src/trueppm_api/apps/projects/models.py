@@ -5519,6 +5519,68 @@ class SprintTaskOutcome(models.Model):
         return self.sprint.project_id
 
 
+class ConfigNoticeRequestStatus(models.TextChoices):
+    """Lifecycle of a config-change notice outbox row (ADR-1174)."""
+
+    PENDING = "pending", "Pending"
+    DISPATCHED = "dispatched", "Dispatched"
+    RUNNING = "running", "Running"
+    DONE = "done", "Done"
+    DEAD = "dead", "Dead"
+
+
+class ConfigNoticeRequest(models.Model):
+    """Transactional outbox for one config-change notice (#3009, ADR-1174).
+
+    ``config_notice`` writes the row in the same transaction as the board or surface
+    write it describes, so the notice commits or rolls back with that write. An
+    on-commit callback dispatches ``projects.emit_config_notice``; if the broker is
+    down the row stays PENDING and ``drain_config_notice_requests`` sends it. The
+    worker claims the row with a conditional UPDATE before emitting, which is what
+    lets a drain re-dispatch race the on-commit dispatch and still send once.
+
+    ``kind`` is ``"board"`` or ``"surface"`` — the values of
+    ``config_notice.KIND_BOARD`` / ``KIND_SURFACE``. ``payload`` carries everything
+    the emit needs, resolved at enqueue time. There is deliberately no project FK:
+    one surface row spans up to ``MAX_BULK_TARGETS`` projects, and a row must still
+    drain after its project is deleted — the emit then simply finds no recipients.
+
+    Does NOT inherit VersionedModel — not synced to mobile clients.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    kind = models.CharField(max_length=8)
+    payload = models.JSONField()
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    status = models.CharField(
+        max_length=12,
+        choices=ConfigNoticeRequestStatus.choices,
+        default=ConfigNoticeRequestStatus.PENDING,
+    )
+    attempt_count = models.PositiveIntegerField(default=0)
+    celery_task_id = models.CharField(max_length=255, blank=True, default="")
+    requested_at = models.DateTimeField(auto_now_add=True)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["requested_at"]
+        indexes = [
+            models.Index(fields=["status", "requested_at"], name="config_notice_status_idx"),
+            # Serves the drain's lost-row recovery, which ranges on claimed_at.
+            models.Index(fields=["status", "claimed_at"], name="config_notice_recovery_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"ConfigNoticeRequest({self.kind}, {self.status})"
+
+
 class SprintCloseRequestStatus(models.TextChoices):
     """Lifecycle of a transactional outbox row for sprint close (ADR-0037)."""
 

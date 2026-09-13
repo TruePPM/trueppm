@@ -36,6 +36,7 @@ called after a successful ``save()``.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import Counter
 from functools import partial
@@ -674,29 +675,30 @@ def notify_board_config_change(
 ) -> None:
     """Tell everyone with work in ``project`` that a lane or column went away.
 
-    Deferred to ``transaction.on_commit`` and best-effort: a notification failure
-    must never revert a board configuration the caller has already accepted.
+    Queued through the ``ConfigNoticeRequest`` outbox (ADR-1174) and emitted by a
+    worker: a notification failure must never revert a board configuration the
+    caller has already accepted, and must not be lost to a broker outage either.
 
-    **Every read the notice depends on happens inside the deferred callback** —
-    the recipient set as well as the counts. Resolving recipients here instead
-    would run three queries while the caller still holds its write locks, and
-    would pair a pre-commit recipient list with post-commit counts, so a person
-    whose assignment changed in the window could get a row whose count describes
-    a different moment than the list that selected them.
+    **Every read the notice depends on happens in the worker** — the recipient set
+    as well as the counts. Resolving recipients here instead would run three
+    queries while the caller still holds its write locks, and would pair a
+    pre-commit recipient list with post-commit counts, so a person whose
+    assignment changed in the window could get a row whose count describes a
+    different moment than the list that selected them.
     """
     removed, hidden = diff_board_config(old_columns, new_columns)
     if not removed and not hidden:
         return
 
-    transaction.on_commit(
-        partial(
-            _emit_board_notifications,
-            str(project.pk),
-            _actor_id(actor),
-            removed,
-            hidden,
-            _actor_name(actor),
-        )
+    _enqueue(
+        KIND_BOARD,
+        {
+            "project_id": str(project.pk),
+            "actor_name": _actor_name(actor),
+            "removed": [lane._asdict() for lane in removed],
+            "hidden": [column._asdict() for column in hidden],
+        },
+        actor=actor,
     )
 
 
@@ -953,12 +955,284 @@ def notify_project_surface_change(
 
 
 def notify_surface_changes(changes: list[SurfaceChange], *, actor: Any) -> None:
-    """Defer one emit for every project whose surface moved in this transaction."""
+    """Queue one emit for every project whose surface moved in this transaction.
+
+    One outbox row for the whole batch, so the bulk matrix's reads stay grouped in
+    the worker exactly as #3335 grouped them in the request (ADR-1174).
+    """
     if not changes:
         return
-    transaction.on_commit(
-        partial(_emit_surface_notifications, changes, _actor_id(actor), _actor_name(actor))
+    _enqueue(
+        KIND_SURFACE,
+        {
+            "actor_name": _actor_name(actor),
+            "changes": [_surface_change_to_json(change) for change in changes],
+        },
+        actor=actor,
     )
+
+
+# ---------------------------------------------------------------------------
+# Outbox — the emit leaves the request (#3009, ADR-1174)
+# ---------------------------------------------------------------------------
+
+KIND_BOARD = "board"
+KIND_SURFACE = "surface"
+
+#: Claims a queued notice may take before its failure is final. Counted per claim,
+#: so a dispatch whose broker message was lost never spends the budget.
+MAX_CONFIG_NOTICE_ATTEMPTS = 3
+
+
+def _snapshot_to_json(snapshot: ProjectSurfaceSnapshot) -> dict[str, Any]:
+    return {"methodology": snapshot.methodology, "visibility": dict(snapshot.visibility)}
+
+
+def _snapshot_from_json(data: dict[str, Any]) -> ProjectSurfaceSnapshot:
+    return ProjectSurfaceSnapshot(
+        methodology=str(data["methodology"]),
+        visibility={str(k): bool(v) for k, v in data["visibility"].items()},
+    )
+
+
+def _surface_change_to_json(change: SurfaceChange) -> dict[str, Any]:
+    return {
+        "project_id": str(change.project_id),
+        "before": _snapshot_to_json(change.before),
+        "after": _snapshot_to_json(change.after),
+    }
+
+
+def _surface_change_from_json(data: dict[str, Any]) -> SurfaceChange:
+    return SurfaceChange(
+        project_id=str(data["project_id"]),
+        before=_snapshot_from_json(data["before"]),
+        after=_snapshot_from_json(data["after"]),
+    )
+
+
+def _enqueue(kind: str, payload: dict[str, Any], *, actor: Any) -> None:
+    """Write the outbox row in the caller's transaction; dispatch once it commits.
+
+    The row is the durability, not the dispatch. It commits or rolls back with the
+    config write it describes, so a notice can neither outlive a rejected write nor
+    be lost to a broker that was unreachable at the moment of commit — the drain
+    picks up whatever the on-commit dispatch could not send.
+    """
+    from .models import ConfigNoticeRequest
+
+    row = ConfigNoticeRequest.objects.create(kind=kind, payload=payload, actor_id=_actor_id(actor))
+    transaction.on_commit(partial(_dispatch_config_notice, str(row.pk)))
+
+
+def _dispatch_config_notice(request_id: str) -> None:
+    """Best-effort immediate dispatch of a committed notice.
+
+    Swallows every failure: this runs after COMMIT but still inside the request, so
+    raising here would turn a write the server already accepted into a 500. A row
+    this cannot mark ``dispatched`` stays ``pending`` and the drain sends it.
+    """
+    from django.utils import timezone
+
+    from .models import ConfigNoticeRequest, ConfigNoticeRequestStatus
+    from .tasks import emit_config_notice
+
+    try:
+        result = emit_config_notice.delay(request_id)
+        ConfigNoticeRequest.objects.filter(
+            pk=request_id, status=ConfigNoticeRequestStatus.PENDING
+        ).update(
+            status=ConfigNoticeRequestStatus.DISPATCHED,
+            celery_task_id=str(result.id),
+            claimed_at=timezone.now(),
+        )
+    except Exception:
+        logger.exception(
+            "config notice %s: immediate dispatch failed; left pending for the drain",
+            request_id,
+        )
+
+
+def run_config_notice_request(request_id: str) -> None:
+    """Claim a queued notice, apply the cooldown, and emit it.
+
+    The claim is a conditional UPDATE, so the on-commit dispatch and a drain
+    re-dispatch of the same row can race: zero rows claimed means the row is
+    running elsewhere or already finished, and this delivery is a no-op.
+
+    The emitters log and swallow their own per-chunk and per-project failures, so
+    an exception reaching this handler is structural (an unreadable payload). It
+    returns the row to ``pending`` for the drain, or marks it ``dead`` once the
+    claim budget is spent.
+    """
+    from django.db.models import F
+    from django.utils import timezone
+
+    from .models import ConfigNoticeRequest, ConfigNoticeRequestStatus
+
+    claimed = ConfigNoticeRequest.objects.filter(
+        pk=request_id,
+        status__in=[ConfigNoticeRequestStatus.PENDING, ConfigNoticeRequestStatus.DISPATCHED],
+    ).update(
+        status=ConfigNoticeRequestStatus.RUNNING,
+        claimed_at=timezone.now(),
+        attempt_count=F("attempt_count") + 1,
+    )
+    if not claimed:
+        return
+
+    row = ConfigNoticeRequest.objects.get(pk=request_id)
+    running = ConfigNoticeRequest.objects.filter(
+        pk=request_id, status=ConfigNoticeRequestStatus.RUNNING
+    )
+    try:
+        if row.kind == KIND_BOARD:
+            _run_board_notice(row)
+        else:
+            _run_surface_notice(row)
+    except Exception:
+        final = row.attempt_count >= MAX_CONFIG_NOTICE_ATTEMPTS
+        logger.log(
+            logging.ERROR if final else logging.WARNING,
+            "config notice %s: emit failed on attempt %d%s",
+            request_id,
+            row.attempt_count,
+            " — abandoned" if final else "; left pending for the drain",
+            exc_info=True,
+        )
+        running.update(
+            status=ConfigNoticeRequestStatus.DEAD if final else ConfigNoticeRequestStatus.PENDING,
+            completed_at=timezone.now() if final else None,
+        )
+        return
+    running.update(status=ConfigNoticeRequestStatus.DONE, completed_at=timezone.now())
+
+
+def _run_board_notice(row: Any) -> None:
+    payload = row.payload
+    project_id = str(payload["project_id"])
+    removed = [_RemovedLane(**lane) for lane in payload["removed"]]
+    hidden = [_HiddenColumn(**column) for column in payload["hidden"]]
+    suppressed = _cooling_down(
+        KIND_BOARD, row.actor_id, str(row.pk), {project_id: _board_signature(removed, hidden)}
+    )
+    if project_id in suppressed:
+        return
+    _emit_board_notifications(project_id, row.actor_id, removed, hidden, str(payload["actor_name"]))
+
+
+def _run_surface_notice(row: Any) -> None:
+    payload = row.payload
+    changes = [_surface_change_from_json(change) for change in payload["changes"]]
+    suppressed = _cooling_down(
+        KIND_SURFACE,
+        row.actor_id,
+        str(row.pk),
+        {change.project_id: _surface_signature(change) for change in changes},
+    )
+    live = [change for change in changes if change.project_id not in suppressed]
+    if live:
+        _emit_surface_notifications(live, row.actor_id, str(payload["actor_name"]))
+
+
+def _board_signature(removed: list[_RemovedLane], hidden: list[_HiddenColumn]) -> str:
+    """What a board notice asserts: which lanes went where, which columns went away."""
+    return json.dumps(
+        {
+            "removed": sorted([lane.key, lane.column_label, lane.destination] for lane in removed),
+            "hidden": sorted(column.status for column in hidden),
+        },
+        sort_keys=True,
+    )
+
+
+def _surface_signature(change: SurfaceChange) -> str:
+    """What a surface notice asserts — the same three facts ``_attribution_clauses`` renders."""
+    before, after = change.before, change.after
+    return json.dumps(
+        {
+            "preset": after.methodology if before.methodology != after.methodology else None,
+            "hidden": sorted(
+                k for k, v in after.visibility.items() if before.visibility.get(k) and not v
+            ),
+            "shown": sorted(
+                k for k, v in after.visibility.items() if v and not before.visibility.get(k, False)
+            ),
+        },
+        sort_keys=True,
+    )
+
+
+def _cooling_down(
+    kind: str, actor_id: Any, request_id: str, signatures: dict[str, str]
+) -> set[str]:
+    """Projects whose notice repeats the last one sent for them, by the same actor.
+
+    Suppresses only when the stored actor, the signature, AND a *different* outbox
+    row all match the last notice recorded for ``(kind, project)``:
+
+    * **Against the last notice sent, never "any recent" one.** After
+      Agile→Waterfall→Agile, a third flip to Waterfall must send — suppressing it
+      because the first matched would leave the recipient's latest notice saying
+      Agile about a project that runs as Waterfall. A hide/un-hide/hide cycle does
+      collapse, because the un-hide sends nothing and the last notice still says
+      "hidden".
+    * **Keyed per project, with the actor stored.** If someone else's notice
+      intervened, the stored actor no longer matches and the repeat sends.
+    * **The row id is stored** so a row the drain re-drives after a worker died
+      mid-emit does not find its own signature and suppress the chunks it never
+      wrote.
+
+    Fails open on a Valkey error, as ``MentionRateThrottle`` does: the cooldown only
+    ever removes noise and must never be the way a notice is lost (ADR-1174 §D).
+    The window is fixed from the notice that was sent, not slid by suppressed
+    repeats, so a change toggled indefinitely still re-notifies once per window.
+    """
+    from typing import cast
+
+    import redis
+    from django.conf import settings
+
+    from trueppm_api.core import valkey
+
+    window = int(getattr(settings, "TRUEPPM_CONFIG_NOTICE_COOLDOWN_SECONDS", 0) or 0)
+    if window <= 0 or actor_id is None or not signatures:
+        return set()
+
+    actor = str(actor_id)
+    items = list(signatures.items())
+    keys = [f"config_notice:last:{kind}:{project_id}" for project_id, _ in items]
+    suppressed: set[str] = set()
+    try:
+        client = valkey.client(valkey.DB_NOTIFICATIONS, decode_responses=True)
+        previous = cast("list[str | None]", client.mget(keys))
+        pipe = client.pipeline(transaction=False)
+        for (project_id, signature), key, stored in zip(items, keys, previous, strict=True):
+            if stored is not None:
+                last_actor, last_signature, last_request = json.loads(stored)
+                if (
+                    last_actor == actor
+                    and last_signature == signature
+                    and last_request != request_id
+                ):
+                    suppressed.add(project_id)
+                    continue
+            pipe.set(key, json.dumps([actor, signature, request_id]), ex=window)
+        pipe.execute()
+    except redis.RedisError:
+        logger.exception("config notice cooldown: Valkey error, failing open")
+        return set()
+
+    for project_id in suppressed:
+        logger.info(
+            "config notice suppressed for project %s: repeats the last %s notice actor %s sent "
+            "within %ss (TRUEPPM_CONFIG_NOTICE_COOLDOWN_SECONDS)",
+            project_id,
+            kind,
+            actor,
+            window,
+        )
+    return suppressed
 
 
 def _emit_surface_notifications(
@@ -969,12 +1243,12 @@ def _emit_surface_notifications(
     """Render and write one notice per recipient across every changed project.
 
     **Every read is hoisted out of the per-project loop** (#3335). The program
-    settings matrix can hand this up to ``MAX_BULK_TARGETS`` projects, and the
-    whole emit runs inline in the request thread — ``transaction.on_commit``
-    fires synchronously in the worker after COMMIT, not on Celery — so a read
-    left inside the loop is response latency multiplied by two hundred. Each read
-    is ``project_id IN (...)`` grouped by project, and nothing in the batch
-    depends on another project's result.
+    settings matrix can hand this up to ``MAX_BULK_TARGETS`` projects in one
+    outbox row. Since #3009 the emit runs in the ``projects.emit_config_notice``
+    worker rather than the request thread, but a read left inside the loop would
+    still be two hundred round-trips holding a worker slot. Each read is
+    ``project_id IN (...)`` grouped by project, and nothing in the batch depends
+    on another project's result.
 
     The work is then processed in chunks of :data:`SURFACE_EMIT_CHUNK_SIZE`
     projects rather than as one batch, which is a deliberate trade of a little of

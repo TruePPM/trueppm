@@ -502,6 +502,17 @@ CELERY_BEAT_SCHEDULE = {
         # 02:15 UTC — between the two existing purge jobs.
         "schedule": crontab(hour=2, minute=15),
     },
+    # Config-change notice outbox drain (#3009, ADR-1174): recovers rows whose
+    # worker was lost and dispatches notices whose on-commit dispatch stranded.
+    "drain-config-notice-requests": {
+        "task": "projects.drain_config_notice_requests",
+        "schedule": 30.0,
+    },
+    # Nightly cleanup: deletes done/dead ConfigNoticeRequest rows older than 7 days.
+    "config-notice-requests-purge-nightly": {
+        "task": "projects.purge_old_config_notice_requests",
+        "schedule": crontab(hour=2, minute=55),
+    },
     # Nightly cleanup: deletes acknowledged / auto-resolved CrossProjectSlipConflict
     # rows 90 days past their resolution (ADR-0120 D4). Unresolved + unacknowledged
     # conflicts are kept indefinitely — they are still live.
@@ -1927,6 +1938,14 @@ TRUEPPM_EXPORT_RETENTION_DAYS: int | None = env.int("TRUEPPM_EXPORT_RETENTION_DA
 # disable the purge (ledger rows kept indefinitely).
 TRUEPPM_BATCH_OPERATION_RETENTION_DAYS: int | None = env.int(
     "TRUEPPM_BATCH_OPERATION_RETENTION_DAYS", default=30
+)
+
+# Window in seconds during which the same person repeating the change whose
+# config-change notice was the last one sent for a project is not re-notified
+# (ADR-1174 §D). A different change, a different person, or an intervening
+# different notice always sends. 0 disables the cooldown.
+TRUEPPM_CONFIG_NOTICE_COOLDOWN_SECONDS: int = env.int(
+    "TRUEPPM_CONFIG_NOTICE_COOLDOWN_SECONDS", default=600
 )
 
 # Age in seconds past which the Beat heartbeat is considered stale. Drives both
