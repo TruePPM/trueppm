@@ -8,6 +8,8 @@ The Schedule view's toolbar gives you the at-a-glance project status (rightmost 
 
 Of the three, only **`+ Item`** sits in the bar by default. `+ Milestone` and `+ Phase` start in the `···` menu: each is a one-click structural insert that lands at your current insertion point, and the bar is also where you click while simply reading a plan. Both keep their keyboard shortcuts, and either can be pinned into the bar from **Display → Outline**.
 
+![The Schedule view toolbar: item and milestone insert controls, the Author mode chip, display and zoom controls, Today, Fit to project, and Export PDF](../../../assets/screenshots/schedule-toolbar.webp)
+
 ## Toolbar layout
 
 ```
