@@ -558,6 +558,9 @@ alone, at boot.
 | `alerts.thresholds.outboxOldestAgeFor` | `10m` | How long `outboxOldestAgeSeconds` must stay breached before the alert fires. |
 | `alerts.thresholds.deadLetter` | `0` | Dead-letter gauge value that starts the `deadLetterFor` clock — any dead-lettered message is worth alerting on. |
 | `alerts.thresholds.deadLetterFor` | `5m` | How long the dead-letter gauge must stay above `deadLetter` before the alert fires. |
+| `alerts.thresholds.emailTransportFor` | `5m` | How long `trueppm_email_transport_unavailable` (a stored SMTP credential that will not decrypt — served by `/api/v1/health/email/`, its own scrape job, see [Observability](/administration/observability/)) must read true before `TruePPMEmailTransportUnavailable` fires (critical — no outbound email is sending at all). |
+| `alerts.thresholds.emailFailed` / `emailFailedFor` | `0` / `10m` | Threshold and hold time for `TruePPMEmailDeliveryFailing` — recent failed sends above the threshold **with zero recent deliveries**, meaning the relay is rejecting everything rather than one bad recipient. |
+| `alerts.thresholds.emailQueueAging` / `emailQueueAgingFor` | `0` / `15m` | Threshold and hold time for `TruePPMEmailQueueAging` — queued notifications sitting unsent, distinct from the two above: sends are not even being attempted (worker gone, or a transport that cannot be built). |
 | `alerts.thresholds.backup.jobFailedFor` | `5m` | How long a failed backup Job must persist before `TruePPMBackupJobFailed` fires. Rendered only when `backup.enabled`. |
 | `alerts.thresholds.backup.staleAfterSeconds` | `172800` | Age (seconds) of the last **successful** backup that fires `TruePPMBackupStale`. 48h = 2x the default daily schedule, so one missed run is tolerated and two are not. **Raise this if you lengthen `backup.schedule`** — a weekly schedule under a 48h window alerts every week by construction. |
 | `alerts.thresholds.backup.staleFor` | `30m` | How long `staleAfterSeconds` must stay breached before the alert fires. |
@@ -660,11 +663,13 @@ silent failure one step later.
 | `backup.enabled` | `false` | Enable the backup CronJob. |
 | `backup.schedule` | `"0 2 * * *"` | Cron schedule (cluster timezone). |
 | `backup.image` | `postgres:16-alpine` | Client-capable image carrying `pg_dump`/`psql` (the lean app image has no client binaries). |
+| `backup.successfulJobsHistoryLimit` / `failedJobsHistoryLimit` | `3` / `3` | How many completed / failed backup Jobs Kubernetes keeps around for `kubectl logs` inspection before garbage-collecting them. |
 | `backup.outputDir` | `/backups` | In-container artifact path (the mounted volume when persistence is on). |
 | `backup.mediaDir` | `""` | Include a local media/attachment PVC in the artifact. Set it to `persistence.media.mountPath` and mount the same claim through `extraVolumes` below. Leave empty when attachments live in object storage. |
 | `backup.keepDaily` / `keepWeekly` | `7` / `4` | `keepDaily` is enforced in-job. **`keepWeekly` is read by no template** — nothing promotes dailies to weeklies. It exists as the documented place to record the weekly retention your object store's lifecycle policy enforces, next to the schedule it belongs to; changing it changes nothing on the cluster. |
 | `backup.persistence.*` | disabled, `10Gi` RWO | Chart-managed PVC destination. |
-| `backup.s3.*` | disabled | S3-compatible off-cluster destination; the secret **must** come from a Kubernetes Secret via `existingSecret`. |
+| `backup.s3.*` | disabled | S3-compatible off-cluster destination; the secret **must** come from a Kubernetes Secret via `existingSecret`. Credentials are passed as `AWS_*` env vars rather than assembled into a URL, because a real secret key routinely contains `/`, `+`, or `:`. |
+| `backup.s3.allowPlaintext` | `false` | Silences the warning the job logs when `backup.s3.endpoint` is `http://` and does not look like an in-cluster or private-network address — the dump would otherwise cross the network unencrypted. It never fails the job either way; set this only once you have verified the path is actually trusted. |
 | `backup.extraVolumes` / `extraVolumeMounts` | `[]` | Mount the media claim (`<release>-trueppm-media`, or your `persistence.media.existingClaim`) read-only when `mediaDir` is set. `values.yaml` carries a copy-pasteable pair. An RWO media claim is unreadable here while the api pod holds it unless the Job lands on the same node — one more reason `persistence.media.accessMode` defaults to `ReadWriteMany`. |
 | `backup.resources` | `100m/256Mi` → `1/512Mi` | Backup job container resources. |
 
@@ -731,3 +736,4 @@ disables autoscaling, the PodDisruptionBudget, and backups.
 - [Configuration](/administration/configuration/) — the full application environment-variable catalog.
 - [Deployment](/administration/deployment/) — the stateful services and Docker Compose topology.
 - [Backup & Restore](/administration/backup-restore/) — the backup CronJob runbook.
+- [OpenShift Deployment](/administration/openshift/) — `podSecurityContext` / `containerSecurityContext` under the `restricted-v2` SCC, and Ingress→Route conversion.
