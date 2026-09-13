@@ -414,16 +414,33 @@ def test_bayside_is_a_two_waterfall_program() -> None:
 def test_bayside_demonstrates_a_rebaseline() -> None:
     # The change-order story needs an original baseline preserved (superseded) plus
     # an active rebaseline — the plan-vs-plan record a claim relies on.
+    #
+    # #3495: the active rebaseline is authored as a `baseline.capture` beat in
+    # the events timeline (dated + attributed), not a second declared row —
+    # that is the whole point of the fix. So "active" state must be read from
+    # both `project["baselines"]` and any `baseline.capture` event whose
+    # `is_active` is true, or this test would fail the exact change it exists
+    # to protect.
     doc = _load("bayside-civic-center")
-    baselines = [b for p in doc["projects"] for b in p.get("baselines", [])]
-    active = [b for b in baselines if b.get("is_active")]
-    superseded = [b for b in baselines if not b.get("is_active")]
+    declared = [b for p in doc["projects"] for b in p.get("baselines", [])]
+    captured_active = [
+        e
+        for p in doc["projects"]
+        for e in doc.get("events", [])
+        if e["action"] == "baseline.capture"
+        and e.get("target") == f"project:{p['slug']}"
+        and e.get("is_active")
+    ]
+    active = [b for b in declared if b.get("is_active")] + captured_active
+    superseded = [b for b in declared if not b.get("is_active")]
     assert superseded, "bayside: no superseded baseline — the rebaseline story is missing"
     assert active, "bayside: no active baseline"
     # Some project carries both an active and a superseded baseline (the rebaseline).
-    by_project = {}
+    by_project: dict[str, set[bool]] = {}
     for p in doc["projects"]:
         states = {b.get("is_active", False) for b in p.get("baselines", [])}
+        if any(e.get("target") == f"project:{p['slug']}" for e in captured_active):
+            states.add(True)
         by_project[p["slug"]] = states
     assert any(states >= {True, False} for states in by_project.values()), (
         "bayside: no single project holds both a superseded and an active baseline"

@@ -13,11 +13,14 @@ scheduling engine), and **native metrics** (request latency/count, Celery task
 duration, transactional-outbox depth/lag, and database backend counts) (#707–#710).
 :::
 
-TruePPM will export distributed **traces** and **metrics** using
+TruePPM will export distributed **traces** (a record of the steps one request or
+job took, and how long each one spent) and **metrics** (aggregate numbers over
+time, like request latency or queue depth) using
 [OpenTelemetry](https://opentelemetry.io/) (OTel), the vendor-neutral CNCF
-standard, over the OTLP protocol. Point it at your existing observability stack —
-Grafana Tempo/Alloy, Jaeger, an OpenTelemetry Collector, or a SaaS APM — with no
-custom exporter code.
+standard, over **OTLP** (the OpenTelemetry Protocol — the wire format traces and
+metrics are sent in). Point it at your existing observability stack — Grafana
+Tempo/Alloy, Jaeger, an OpenTelemetry Collector, or a SaaS APM — with no custom
+exporter code.
 
 Export is **opt-in and off by default**. There is **no default endpoint**: until
 you configure a collector, TruePPM installs no telemetry provider at all — a

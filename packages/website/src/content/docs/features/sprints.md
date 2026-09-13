@@ -155,6 +155,8 @@ A read-only sidebar lists the unfinished tasks from the **previous closed sprint
 
 #### What `carry_over_to` does to a task
 
+![The Close Sprint dialog: remaining task/point count, three carry-over-incomplete-work options (next planned sprint, project backlog, or leave on this sprint), and Cancel / Close sprint buttons](../../../assets/screenshots/sprint-close-dialog.webp)
+
 The close body's `carry_over_to` takes `"none"`, `"backlog"`, or a sprint id. Only
 tasks in a carry-eligible status move — `BACKLOG`, `NOT_STARTED`, `IN_PROGRESS` and
 `REVIEW`. Anything `COMPLETE` stays in the sprint it completed in, because that is the

@@ -327,6 +327,7 @@ export default defineConfig({
           items: [
             { slug: "administration/deployment" },
             { slug: "administration/networking" },
+            { slug: "administration/openshift" },
             { slug: "administration/sizing" },
             { slug: "administration/helm-values" },
             { slug: "administration/probes" },

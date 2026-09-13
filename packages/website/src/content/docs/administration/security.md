@@ -4,6 +4,14 @@ description: Security considerations for deploying and operating TruePPM.
 documentedFor: "0.4"
 ---
 
+This page is the security reference for operating a self-hosted install: how
+TruePPM authenticates and rate-limits, what to check before exposing it to the
+internet, and the procedure to follow after a suspected credential leak (see
+[Secret management](#secret-management)). Read it once at deploy time for the
+[Helm secure-by-default](#helm-secure-by-default) checklist, and come back to
+[Reporting vulnerabilities](#reporting-vulnerabilities) or the breach-recovery
+steps if something goes wrong later.
+
 ## Authentication
 
 :::note[Ships in 0.4]

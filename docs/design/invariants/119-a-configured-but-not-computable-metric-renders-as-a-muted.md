@@ -1,0 +1,5 @@
+# Rule 119 — A configured-but-not-computable metric renders as a muted card with a reason, never hidden
+
+> **Invariant.** Indexed from [`packages/web/CLAUDE.md`](../../../packages/web/CLAUDE.md), section *Signal encoding*. The index carries the rule's headline; this file carries its full text (#3744, ADR-0653 amendment). Binding everywhere, not only on the surface that produced it.
+
+**A configured-but-not-computable metric renders as a muted card with a reason, never hidden.** When a dashboard or overview is driven by a user-selected metric set (e.g. the program rollup KPIs), a metric the user enabled but for which no value can be computed yet MUST render as a muted card (`border-dashed border-neutral-border`, value `—` in `text-neutral-text-disabled`) with a short plain-language reason in the `sub` slot (e.g. "Needs cost data"). Do not silently drop it from the grid — the user enabled it and must see *why* it is blank. The machine-readable `reason` from the API drives the human label via a lookup map; never render the raw reason code. See `ProgramOverviewPage.tsx`.

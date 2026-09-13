@@ -289,6 +289,9 @@ _EVENT_TARGET_KIND = {
     "sprint.close": "sprint",
     # Scope inject/resolve target the task being injected; its ACTIVE sprint is
     # derived from task.sprint, matching record_sprint_scope_change(task, sprint).
+    # A re-imported export can name a task that has since left the sprint (a
+    # close carried it to the backlog), so replay falls back to the sprint
+    # running at the beat's own instant — see replay._injected_sprint (#3488).
     "sprint.scope_inject": "task",
     "sprint.scope_resolve": "task",
     "baseline.capture": "project",

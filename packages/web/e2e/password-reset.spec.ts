@@ -73,7 +73,7 @@ test.describe('Password reset', () => {
       }),
     );
 
-    await page.goto('/reset-password/confirm/dummyuid/dummy-token');
+    await page.goto('/reset-password/confirm#uid=dummyuid&token=dummy-token');
     await expect(page.getByRole('heading', { name: 'Choose a new password' })).toBeVisible();
 
     // Fill a password that satisfies the client-side requirements so the submit
@@ -104,14 +104,53 @@ test.describe('Password reset', () => {
       }),
     );
 
-    await page.goto('/reset-password/confirm/dummyuid/dummy-token');
+    await page.goto('/reset-password/confirm#uid=dummyuid&token=dummy-token');
     const pw = 'Passw0rd-123!';
     await page.getByLabel('New password', { exact: true }).fill(pw);
     await page.getByLabel('Confirm new password').fill(pw);
     await page.getByRole('button', { name: 'Update password' }).click();
 
     // Stays on the confirm screen and surfaces the server message inline.
-    await expect(page).toHaveURL(/\/reset-password\/confirm\//);
+    await expect(page).toHaveURL(/\/reset-password\/confirm#/);
     await expect(page.getByText('This password is too common.')).toBeVisible();
+  });
+
+  // --- #3553: the credential must never be in the path ----------------------
+  test('the credential rides in the fragment, never the pathname', async ({ page }) => {
+    await setupCatchAll(page);
+    await page.goto('/reset-password/confirm#uid=dummyuid&token=sekrit-token');
+    await expect(page.getByRole('heading', { name: 'Choose a new password' })).toBeVisible();
+
+    // `location.pathname` is what telemetry.ts and RouteErrorBoundary export and
+    // what a path-logging proxy in front of the SPA records. It must carry
+    // neither half of the credential.
+    const pathname = await page.evaluate(() => window.location.pathname);
+    expect(pathname).toBe('/reset-password/confirm');
+    expect(pathname).not.toContain('sekrit-token');
+    expect(await page.evaluate(() => window.location.search)).toBe('');
+    // …and the fragment still holds it, so the page is functional, not just quiet.
+    expect(await page.evaluate(() => window.location.hash)).toContain('sekrit-token');
+  });
+
+  test('a pre-#3553 path link redirects to the fragment form', async ({ page }) => {
+    await setupCatchAll(page);
+    await page.goto('/reset-password/confirm/dummyuid/sekrit-token');
+
+    // A link already in an inbox at deploy time still reaches the form.
+    await expect(page.getByRole('heading', { name: 'Choose a new password' })).toBeVisible();
+    expect(await page.evaluate(() => window.location.pathname)).toBe('/reset-password/confirm');
+    expect(await page.evaluate(() => window.location.hash)).toBe(
+      '#uid=dummyuid&token=sekrit-token',
+    );
+  });
+
+  test('a reset link whose fragment was stripped lands on the expired screen', async ({ page }) => {
+    await setupCatchAll(page);
+    // The shape an email URL-rewriting proxy produces when it drops the fragment.
+    await page.goto('/reset-password/confirm');
+
+    await expect(page).toHaveURL(/\/reset-password\/expired$/);
+    await expect(page.getByRole('heading', { name: 'This link has expired' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Request a new link' })).toBeVisible();
   });
 });
