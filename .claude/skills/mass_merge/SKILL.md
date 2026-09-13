@@ -279,13 +279,10 @@ bash   scripts/check-web-rule-numbers.sh       # duplicate packages/web/CLAUDE.m
 ```
 
 `check-web-rule-numbers.sh` is the one that guards the hotspot Step 1 names most
-often: `packages/web/CLAUDE.md` indexes one numbered line per rule (bodies under
-`docs/design/invariants/`, #3744), so a batch routinely has two or three MRs adding
-one. The index is `merge=union`, so those appends no longer conflict — which makes
-this gate the only thing that sees a duplicate number, the doubled line union keeps
-when two MRs edited the same rule, or an index line whose body file did not come
-with it. All three exist **only** on the merged tree — each branch is
-self-consistent — which is exactly the class Phase A is for.
+often: `packages/web/CLAUDE.md` collects a numbered rule per UI branch, so a batch
+routinely has two or three MRs appending to it. A duplicate number exists **only**
+on the merged tree — each branch is self-consistent — which is exactly the class
+Phase A is for.
 
 **If a batch MR adds a new gate script, run that too** — it applies to the whole
 combined tree the moment it lands. Sweep for them rather than hardcoding the list:
@@ -753,6 +750,38 @@ Rules for Phase B:
 
 ---
 
+## Step 3b — Clean up landed worktrees
+
+Each merged MR's source branch is very often a `scripts/wt`-managed worktree — that is
+the default parallel-work pattern this project uses (see Step 3's `$WT` resolution).
+Once an MR merges, GitLab deletes its remote branch
+(`remove_source_branch_after_merge`), and the local worktree is left behind on a dead
+branch — pure debris. Left alone across repeated `/mass_merge` runs these pile up
+silently, and CLAUDE.md's `wt` workflow caps active worktrees at 10 — a batch that never
+cleans up after itself is the surest way to hit that ceiling mid-sprint. This step was
+missing from the original skill and was only caught because the user asked for it
+after a run left four dead worktrees behind (2026-09-13).
+
+**Run this immediately after each MR merges, not batched at the end** — cheap, and it
+means a run that stops partway through (a later 🔴, a red main pipeline) still cleans
+up everything it actually landed rather than leaving the whole batch's worktrees for a
+final step that never runs:
+
+```bash
+scripts/wt remove <issue-number>
+```
+
+`wt remove` is safe to call unconditionally on every merged MR's issue number: it is a
+no-op (with a clear message) if the branch was never a worktree (checked out via
+`glab mr checkout` instead — see Step 3's `$WT` resolution), and it will not remove a
+worktree that still has unpushed or uncommitted work — which cannot be true here since
+the branch was just merged from a pushed, clean state.
+
+**Do not remove a worktree for an MR that did not merge.** A 🔴-blocked or still-open
+MR's worktree holds live work — leave it for its owner to fix and re-run.
+
+---
+
 ## Step 4 — Report
 
 Emit a final summary:
@@ -760,12 +789,12 @@ Emit a final summary:
 ```
 Mass merge of !123 !124 !125 → main
 
-  ✅ !123  merged   (merged main in, pipeline #NNN green)
-  ✅ !124  merged   (already up to date, reused pipeline #NNN)
+  ✅ !123  merged   (merged main in, pipeline #NNN green, worktree removed)
+  ✅ !124  merged   (already up to date, reused pipeline #NNN, worktree removed)
   🔴 !125  BLOCKED  — lint:design-system-v2: +3 hex literals over ratchet
                       once stacked on !123/!124. Fix on the branch:
                       replace #1f2937 with the `surface-raised` token, then
-                      re-run /mass_merge !125.
+                      re-run /mass_merge !125. Worktree left in place.
 
 Landed 2 of 3. main pipeline: <URL of latest main pipeline — confirm green>.
 ```
@@ -876,5 +905,11 @@ before merging rather than after.
   worktree — a bare `git worktree add` does not, and the toolchain dies without them.
 - **Restore the user's original branch** (Step 0) when the run ends, on success
   or failure.
+- **Remove each MR's worktree (`scripts/wt remove <issue>`) right after it merges,
+  not batched at the end.** A merged branch's worktree is immediately debris —
+  GitLab deletes the remote branch on merge, and the local worktree just sits on
+  a dead ref. Skipping this is how worktrees pile up across repeated batches and
+  hit the 10-worktree WIP cap. Never remove a worktree for an MR that is still
+  open or 🔴-blocked — that one holds live, unmerged work.
 - If merged-results pipelines / merge trains get enabled in the project, tell the
   user this skill is now mostly redundant with the server doing it.
