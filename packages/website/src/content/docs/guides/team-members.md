@@ -97,7 +97,7 @@ You can't accidentally modify the schedule structure or break dependencies. That
 
 ## API access
 
-If you live in the terminal, the REST API is the primary interface. The OpenAPI schema documents every endpoint, and JWT auth means you can script anything.
+If you live in the terminal, the REST API is the primary interface. The OpenAPI schema documents every endpoint, and JWT (JSON Web Token) auth means you can script anything — trade your password for an **API token** once (see [Quickstart, Route B](/getting-started/quickstart/#route-b--build-a-project-via-the-api)) and use that token (`$TOKEN` below) on every request instead.
 
 ```bash
 # Get your tasks in the active sprint
@@ -112,7 +112,7 @@ curl -s "http://localhost:8000/api/v1/tasks/?project=$PROJECT_ID&sprint=$SPRINT_
 
 The only question that matters: does this remove a click, or add one? Run these steps in order — they start from a machine with nothing running.
 
-1. **Start the stack and seed the demo.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
+1. **Start the stack and seed the demo — load a ready-made sample program with one command.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
 
    ```bash
    make up

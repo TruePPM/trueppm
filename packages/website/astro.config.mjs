@@ -249,6 +249,12 @@ export default defineConfig({
         {
           label: "Getting Started",
           items: [
+            // Container host setup leads: a reader with no container
+            // experience needs a working `docker compose` before anything
+            // below it will run. It documents only shipped, version-agnostic
+            // behavior (installing a container engine), so it carries no
+            // `documentedFor` and no badge — see docs-declaration-baseline.txt.
+            { slug: "getting-started/container-host" },
             // Installation + quickstart lead: they are the verified path today.
             // "Try it" (hosted demo + one-command trial) is demoted until its
             // zero-config paths go live with the 0.4 tag (#1775, #939).

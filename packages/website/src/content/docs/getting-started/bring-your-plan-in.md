@@ -14,8 +14,10 @@ Jira rows carry their own 0.4 markers.
 
 If your plan already lives somewhere else, you don't have to retype it.
 TruePPM reads several source formats as **one-way, file-based, point-in-time**
-imports — you upload a file, TruePPM builds a CPM-schedulable project from it,
-and nothing you import ever writes back to the source. Pick your source below.
+imports — you upload a file, TruePPM builds a project from it that it can
+schedule with CPM (Critical Path Method — the algorithm that computes task
+dates and the critical path), and nothing you import ever writes back to the
+source. Pick your source below.
 
 ## Which importer do I want?
 
