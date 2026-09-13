@@ -15,7 +15,12 @@ If you are running 0.3 or earlier, set `DJANGO_SUPERUSER_EMAIL` explicitly befor
 your first deploy; the default there is a domain you do not control.
 :::
 
-TruePPM ships a `create_admin` Django management command that bootstraps a superuser on first run. The default writes a securely-generated password to a file with `0o600` permissions so the credential never appears in container logs or log aggregators (CloudWatch, Datadog, etc.).
+Every fresh TruePPM install needs one administrator account to sign in with before
+anyone else can. This page covers getting that first password (during initial setup),
+finding it again if you missed it, and resetting any user's password later —
+including your own, if you lose it.
+
+TruePPM ships a `create_admin` Django management command that bootstraps a superuser on first run. The default writes a securely-generated password to a file with `0o600` permissions (readable only by its owner) so the credential never appears in container logs or log aggregators (CloudWatch, Datadog, etc.).
 
 ## First-run setup
 

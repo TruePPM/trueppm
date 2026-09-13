@@ -95,7 +95,7 @@ For metrics-based alerting, scrape the Prometheus-text endpoint. It requires a
 
 It emits a single gauge, `trueppm_task_dead_letter_parked`, labeled by task name:
 
-```
+```text
 # HELP trueppm_task_dead_letter_parked Permanently dead-lettered Celery tasks currently awaiting operator action, by task name.
 # TYPE trueppm_task_dead_letter_parked gauge
 trueppm_task_dead_letter_parked{task_name="scheduling.recalculate"} 3
@@ -226,11 +226,11 @@ because raising would hand the retry decision back to Celery for something the t
 has already decided not to retry. The task therefore parks itself explicitly, and
 the result is indistinguishable from any other dead-lettered task:
 
-```
+```text
 WARNING dead-letter alert: task webhooks.deliver_webhook (a1b2c3d4-…) permanently failed: WebhookDeliveryFailed
 ```
 
-```
+```text
 trueppm_task_dead_letter_parked{task_name="webhooks.deliver_webhook"} 2
 ```
 

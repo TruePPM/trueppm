@@ -44,7 +44,7 @@ single-use ticket** (RFC 6750 §2.3) rather than the access token itself.
 
 First mint a ticket with an authenticated REST call:
 
-```
+```http
 POST /api/v1/ws/ticket/
 Authorization: Bearer <access_token>
 
@@ -53,7 +53,7 @@ Authorization: Bearer <access_token>
 
 Then open the socket with the ticket as the `ticket` query parameter:
 
-```
+```text
 wss://trueppm.example.com/ws/v1/projects/3f9a…/?ticket=<ticket>
 ```
 
