@@ -83,4 +83,5 @@ Within a program (one or more related projects), resource management will be ful
 - [Quickstart](/getting-started/quickstart/) — the shortest path from install to a populated project
 - [API reference](/api/reference/) — the Resources and Task-Resources endpoints
 - [Resources](/features/resources/) — roster, capacity profiles, and allocation
-- [RBAC model](/administration/rbac/) — the Admin role or above is needed to manage resources
+- [RBAC model](/administration/rbac/) — editing the Workspace resource catalog needs the Project Manager role or above
+  on at least one active project

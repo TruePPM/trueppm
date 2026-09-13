@@ -130,4 +130,4 @@ This is your one-question filter — *does it tell me when the feature ships, in
 - [Burn charts](/features/burn-charts/) — the release forecasting charts
 - [Product backlog](/features/product-backlog/) — epics, ordering, and the dual backlog
 
-To see the same data from the schedule side, sign in as `atlas-sam` (Sam Okafor, Project Scheduler, Scheduler role) and open **Plan → Schedule** — your stories are child tasks of his work packages, in one hierarchy.
+To see the same data from the schedule side, sign in as `atlas-sam` (Sam Okafor, Project Scheduler, Resource Manager role) and open **Plan → Schedule** — your stories are child tasks of his work packages, in one hierarchy.
