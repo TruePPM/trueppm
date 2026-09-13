@@ -862,6 +862,24 @@ env:
   # production. Live state shows read-only to workspace admins (Settings → System)
   # and via the trueppm.ratelimit.enabled OTel gauge.
   TRUEPPM_RATE_LIMIT_ENABLED: "true"
+  # Django admin exposure (#3557). "false" (default) makes every /admin/ path
+  # answer 404 — not 403, so the path is not advertised. Django admin is a plain
+  # Django view and therefore inherits none of the API login's defenses (no rate
+  # limit, no auth.login_* audit line, no enforced-SSO check), while create_admin
+  # guarantees a superuser exists to guess against.
+  #
+  # This is the APPLICATION half of the posture; web.adminAccess is the edge half.
+  # They are not redundant: the edge deny only governs traffic through the web
+  # tier, so it is bypassed by web.enabled=false, by an ingress path targeting the
+  # api Service, and by kubectl port-forward. This setting holds in all of those.
+  #
+  # Set "true" only if you use the admin — note that it also re-enables the
+  # port-forward access path documented at the link below, which 404s while this
+  # is off. The login is then throttled, audited and policy-checked exactly like
+  # POST /api/v1/auth/token/, sharing its buckets rather than adding a second
+  # allowance.
+  # https://docs.trueppm.com/administration/security/#reaching-django-admin
+  TRUEPPM_DJANGO_ADMIN_ENABLED: "false"
   # Public read-only board sharing (#283, ADR-0245). The org-wide kill switch for
   # the unauthenticated /share/board/<token> endpoint. "true" (default) lets project
   # Admins mint public board links; NO data is exposed until one is explicitly

@@ -7,7 +7,7 @@ documentedFor: "0.4"
 ## Authentication
 
 :::note[Ships in 0.4]
-Eight items on this page ship in **TruePPM 0.4**, the first beta, and are **not**
+Nine items on this page ship in **TruePPM 0.4**, the first beta, and are **not**
 in `v0.3.0-alpha.3`, the latest release:
 
 - **Session-only "Remember me"** — in 0.3 the checkbox is present but inert; every
@@ -37,6 +37,11 @@ in `v0.3.0-alpha.3`, the latest release:
   `auth.login_succeeded` log line described under
   [Single sign-on](#single-sign-on-oidc--oauth2) below. In 0.3 there is no single
   sign-on and no record of a successful login at all.
+- **A Django admin that is off unless you ask for it, and defended when you do**
+  (`TRUEPPM_DJANGO_ADMIN_ENABLED`) — see
+  [Reaching Django admin](#reaching-django-admin). In 0.3 `/admin/login/` answers
+  on every deployment, with no login throttle, no audit line, and no enforced-SSO
+  check. On 0.3 the only remedy is to restrict `/admin/` at your own edge.
 
 Everything else on this page describes 0.3 behavior and is current.
 :::
@@ -418,17 +423,71 @@ the operator-facing highlights:
 
 ### Reaching Django admin
 
-The web tier **denies `/admin/` by default**, and this is deliberate rather than
-conservative. Django admin is a plain Django view, so neither of the API's
-[login throttles](#login-rate-limiting-and-per-account-lockout) applies to it —
-including the per-account lockout — and there is no account-lockout backend in
-the dependency set; and the [admin bootstrap](/administration/admin-password/)
-creates a superuser on every deploy. An unrestricted `/admin/` on an
-ingress-exposed install is therefore an unthrottled credential-guessing surface
-against a known-present privileged account.
+:::note[Ships in 0.4]
+`TRUEPPM_DJANGO_ADMIN_ENABLED` and the hardened admin login described in this
+section ship in **0.4**. On `v0.3.0-alpha.3`, the latest release, `/admin/login/`
+answers on every deployment and is a second password door with none of the API
+login's controls — no throttle, no audit line, no enforced-SSO check. Until you
+are on 0.4, the Helm chart's `web.adminAccess` deny below, or an equivalent rule
+at your own edge, is the only thing standing in front of it.
+:::
+
+Django admin is a plain Django view, which means **none of the API's login
+defenses reach it by inheritance**. The
+[login throttles](#login-rate-limiting-and-per-account-lockout) are applied by
+Django REST Framework, which never sees a request to `/admin/login/`; the
+`auth.login_failed` / `auth.login_succeeded` audit lines are emitted by TruePPM's
+own login view; and the enforced-SSO policy hook that
+[single sign-on](#single-sign-on-oidc--oauth2) hangs off is consulted there too.
+There is also no account-lockout backend in the dependency set. Meanwhile the
+[admin bootstrap](/administration/admin-password/) creates a superuser on first
+deploy — so an unrestricted `/admin/` is a guessing surface against a
+*known-present* privileged account.
+
+**From 0.4 the admin is off unless you ask for it.** Every `/admin/` path answers
+`404` — not `403`, so the path is not even advertised — unless the API is started
+with:
+
+```bash
+TRUEPPM_DJANGO_ADMIN_ENABLED=true
+```
+
+This is an **application** control, not an edge one, so it holds on every
+topology: Docker Compose, a bare single-server install, a Helm release with the
+web tier disabled, and a `kubectl port-forward` straight at the API pod. The
+`web.adminAccess` deny below is unchanged and still correct — it is the edge half
+of the same posture — but it only governs traffic that traverses the web tier's
+nginx, and Compose and bare deploys have no such tier.
+
+:::caution[This changes behavior for existing installs]
+If you are upgrading to 0.4 and you use Django admin, set
+`TRUEPPM_DJANGO_ADMIN_ENABLED=true` before the rollout, or `/admin/` will `404`
+after it. Nothing else in TruePPM depends on the admin: user and role management
+live in [Workspace settings](/administration/workspace-settings/) and
+[RBAC](/administration/rbac/), and password rotation is
+[`changepassword`](/administration/admin-password/#rotate-the-password-after-first-run).
+:::
+
+**When you do turn it on, the door is hardened rather than bare.** The admin login
+then carries the same controls as `POST /api/v1/auth/token/`:
+
+- **The same two throttle buckets** — the per-IP `login` scope and the per-account
+  `login_account` lockout, sharing one allowance with the API login rather than
+  each door handing out its own. An attacker who spends the budget on one door
+  finds the other already spent. A refused attempt answers `429` with
+  `Retry-After`.
+- **The same audit lines.** A failed admin login emits `auth.login_failed` with
+  the hashed identifier and client IP; a successful one emits
+  `auth.login_succeeded` with `method=admin`. Both land on the `trueppm.auth`
+  logger, so one alerting rule covers both doors — see
+  [Login rate limiting and per-account lockout](#login-rate-limiting-and-per-account-lockout).
+- **The same enforced-SSO seam.** An account an enterprise policy has blocked from
+  password sign-in is refused here too, with the session torn down again rather
+  than merely a `403` body over a live cookie.
 
 **The recommended access path needs no chart change and no exposure at all.**
-Port-forward straight to the API Service, bypassing the web tier:
+Port-forward straight to the API Service, bypassing the web tier (the API must
+have been started with `TRUEPPM_DJANGO_ADMIN_ENABLED=true` for this to answer):
 
 ```bash
 # Resolve the API Service by label — the chart's fullname helper collapses the
@@ -478,14 +537,20 @@ Port-forwarding still works, because it never traverses nginx.
 :::danger[This control does not apply when `web.enabled: false`]
 `adminAccess` is enforced by the web tier's nginx. If you disable the web tier
 to front the SPA from your own CDN, the chart-managed Ingress routes `/`
-**straight to the API Service**, and Django serves `/admin/` there with no
-allowlist and no rate limit — the same exposure this setting exists to prevent.
+**straight to the API Service**, with no allowlist and no nginx rate limit — the
+same exposure this setting exists to prevent.
 
 If you run `web.enabled: false` with a public Ingress, you must restrict
 `/admin/` at your own edge (ingress-controller annotation, WAF, or CDN rule).
 The same applies if you change `service.type` away from `ClusterIP`, or add an
 `ingress.hosts[].paths[]` entry that targets `service: api` — any path that
 reaches the API Service directly bypasses the nginx control.
+
+From 0.4 this is a narrower hole than it was, because the API no longer serves
+the admin at all unless `TRUEPPM_DJANGO_ADMIN_ENABLED=true` — a bypassed edge
+reaches a `404`. It is not a substitute for the edge rule: the moment you enable
+the admin for legitimate use, the bypass is live again, now against a login that
+is throttled and audited but still reachable from the internet.
 :::
 
 ### Datastore network isolation
