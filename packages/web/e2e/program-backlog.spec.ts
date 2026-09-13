@@ -308,7 +308,7 @@ test.describe('Program backlog', () => {
   }) => {
     await setup(page, []);
 
-    await expect(page.getByText('The program backlog is empty')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'The program backlog is empty' })).toBeVisible();
     await page.getByRole('button', { name: 'Create your first item' }).click();
 
     // The create form now has a home (the bug: it never appeared).
@@ -330,7 +330,7 @@ test.describe('Program backlog', () => {
   test('empty state — header "New item" opens the create form', async ({ page }) => {
     await setup(page, []);
 
-    await expect(page.getByText('The program backlog is empty')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'The program backlog is empty' })).toBeVisible();
     await page.getByRole('button', { name: 'New item' }).click();
 
     await expect(page.getByRole('heading', { name: 'New backlog item' })).toBeVisible();

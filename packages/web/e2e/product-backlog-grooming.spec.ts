@@ -297,7 +297,9 @@ test.describe('Product backlog grooming (#494/#921/#922)', () => {
     await setup(page, { empty: true });
     await page.goto(`${BASE_URL}/product-backlog`);
 
-    await expect(page.getByText(/No stories yet/i)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: /No stories yet/i })).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(page.getByRole('textbox', { name: 'Add a story' })).toBeVisible();
     // No model → no score column header, and auto-rank disabled.
     await expect(page.getByRole('button', { name: 'Auto-rank' })).toBeDisabled();

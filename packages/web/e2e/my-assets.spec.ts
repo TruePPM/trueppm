@@ -116,6 +116,6 @@ test.describe('My Assets — personal surface (#1980, ADR-0428)', () => {
     await setup(page, EMPTY_FEED);
     await page.goto('/me/assets');
     await expect(page.getByRole('heading', { name: 'My Assets' })).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('No assets on your tasks yet')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No assets on your tasks yet' })).toBeVisible();
   });
 });

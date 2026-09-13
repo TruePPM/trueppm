@@ -186,7 +186,7 @@ test.describe('Program schedule view', () => {
     });
     await page.goto(`/programs/${PROGRAM_ID}/schedule`);
 
-    await expect(page.getByText('No program schedule yet')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No program schedule yet' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Go to Projects' })).toBeVisible();
   });
 
@@ -209,7 +209,9 @@ test.describe('Program schedule view', () => {
     });
     await page.goto(`/programs/${PROGRAM_ID}/schedule`);
 
-    await expect(page.getByText("A project's task data can't be scheduled")).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: "A project's task data can't be scheduled" }),
+    ).toBeVisible();
     await expect(page.getByText(/A task in “Migration Tooling”/)).toBeVisible();
     await expect(
       page.getByRole('button', { name: /Open Migration Tooling schedule/i }),

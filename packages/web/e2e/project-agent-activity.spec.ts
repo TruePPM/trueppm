@@ -178,7 +178,7 @@ test.describe('Project Activity → Agents sub-view', () => {
     await setup(page, { actions: [] });
     await page.goto(`${BASE_URL}/activity?view=agents`);
 
-    await expect(page.getByText(/No agent activity yet/i)).toBeVisible();
+    await expect(page.getByRole('heading', { name: /No agent activity yet/i })).toBeVisible();
     await expect(page.getByRole('link', { name: /Connect an agent/i })).toHaveAttribute(
       'href',
       '/me/settings/api-tokens',

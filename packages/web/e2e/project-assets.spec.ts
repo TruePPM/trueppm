@@ -117,6 +117,6 @@ test.describe('Project Assets surface', () => {
     await setup(page, EMPTY_FEED);
     await page.goto(`${BASE_URL}/assets`);
     await expect(page.getByRole('heading', { name: 'Assets', exact: true })).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('No assets yet')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No assets yet' })).toBeVisible();
   });
 });

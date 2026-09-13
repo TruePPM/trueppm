@@ -109,7 +109,7 @@ test.describe('Workspace Trash (#1113)', () => {
     // Restore endpoint fired, success toast shown, and the row is gone (refetch → []).
     await expect.poll(() => restoreCalled).toBe(true);
     await expect(page.getByText('"Downtown Retrofit" restored')).toBeVisible();
-    await expect(page.getByText('Trash is empty')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Trash is empty' })).toBeVisible();
   });
 
   test('shows the empty state when Trash has no projects', async ({ page }) => {
@@ -120,7 +120,7 @@ test.describe('Workspace Trash (#1113)', () => {
 
     await page.goto('/settings/trash');
     await expect(page.getByRole('heading', { name: 'Trash', exact: true })).toBeVisible();
-    await expect(page.getByText('Trash is empty')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Trash is empty' })).toBeVisible();
   });
 
   // Reachability (#2184): the workspace-rail Trash link is admin-gated, so a
@@ -142,7 +142,7 @@ test.describe('Workspace Trash (#1113)', () => {
     await trashLink.click();
 
     await expect(page.getByRole('heading', { name: 'Trash', exact: true })).toBeVisible();
-    await expect(page.getByText('Trash is empty')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Trash is empty' })).toBeVisible();
   });
 });
 

@@ -350,8 +350,12 @@ test.describe('Grid facets — panels, links and the empty intersection', () => 
     await setup(page);
     // Chen owns nothing; NOT_STARTED has a row. Neither is empty alone.
     await page.goto(`${GRID_URL}?owner=res-chen&status=NOT_STARTED`);
-    await expect(page.getByText('No tasks match both filters')).toBeVisible();
-    await expect(page.getByText(/Each filter has rows on its own/)).toBeVisible();
+    // Scoped to the filtered-empty container: the headline is a plain <p>, not a
+    // heading, and is also echoed into the shell's persistent aria-live region
+    // (ADR-0989) — an unscoped getByText resolves to both under contention (#3655).
+    const filteredEmpty = page.getByTestId('grid-filtered-empty');
+    await expect(filteredEmpty.getByText('No tasks match both filters')).toBeVisible();
+    await expect(filteredEmpty.getByText(/Each filter has rows on its own/)).toBeVisible();
 
     // Dropping Owner brings the NOT_STARTED row back; dropping Status would
     // bring back nothing, so Owner is what gets offered.

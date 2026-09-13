@@ -103,6 +103,8 @@ test.describe('Project Activity tab', () => {
   test('shows the empty state when there is no activity', async ({ page }) => {
     await setup(page, { results: [], next_cursor: null });
     await page.goto(`${BASE_URL}/activity`);
-    await expect(page.getByText('No activity yet')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: 'No activity yet' })).toBeVisible({
+      timeout: 10_000,
+    });
   });
 });
