@@ -233,6 +233,18 @@ the v1 default, so there is no API-surface change.
   `SprintScopeChange.added_at` to the beat (so a PENDING injection reconstructs with a
   stable timestamp), and the newly-added `retro.action` / `retro.promote` handlers write
   backdated creation rows like the other replay handlers.
+- Two further supports became necessary once a replayed `sprint.close` began carrying
+  unfinished tasks back to the backlog (#3488) — that made the export the first document
+  able to describe a task *after* it has left its sprint, a state no hand-authored seed
+  ever declares. (a) The importer births a task whose final column is `BACKLOG` at
+  `NOT_STARTED` **when, and only when, the document itself dates a `task.status` beat
+  against it**: born already at `BACKLOG` the beat is a no-op, so the history row the
+  re-export reads back never exists, while an ordinary backlog item carries no such beat
+  and must stay born where it belongs (the synthesizer deliberately refuses to walk
+  anything to `BACKLOG`, so it would otherwise strand at `NOT_STARTED`). (b)
+  `sprint.scope_inject` falls back to the sprint *running at the beat's own instant* when
+  the target task no longer holds one — ambiguity (two overlapping active sprints in one
+  project) is refused rather than resolved.
 
 ### 7a. `retro.*` replay (delivered in #1109)
 ADR-0114's original taxonomy listed `retro.action` / `retro.promote` but they were dropped
