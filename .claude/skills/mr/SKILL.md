@@ -189,6 +189,9 @@ MR created: <URL>
 
 CI runs automatically on push. To watch the pipeline and auto-fix failures to green:
   /fix-mr !<NNN>
+
+After it merges, reap the worktree from the main checkout:
+  scripts/wt prune
 ```
 
 Always emit the `/fix-mr !<NNN>` follow-up line — it is a one-keystroke handoff to the
@@ -196,6 +199,14 @@ pipeline-watch loop. Do **not** invoke `/fix-mr` yourself; both skills are user-
 by design (`disable-model-invocation`), and the user decides whether to babysit this MR
 or batch it with others. If the pipeline hasn't started yet, note that CI will run
 automatically on push.
+
+Emit the `scripts/wt prune` line whenever the branch lives in a worktree (its path is
+under `../trueppm-wt/`); omit it for a branch checked out in the main checkout. **Nothing
+reaps a worktree after a GitLab merge.** `make pre-push` runs a silent `wt prune`, but
+only before a push, so an MR that merges after the last push anywhere leaves its
+worktree on disk until someone runs prune by hand. Each one counts against the
+10-worktree WIP cap. Do not run the prune yourself at this step: the MR has not merged
+yet, so it would keep this worktree anyway, and waiting for the merge is off-limits.
 
 ---
 

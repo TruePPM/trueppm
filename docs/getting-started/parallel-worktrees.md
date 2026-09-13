@@ -525,9 +525,20 @@ on `origin`. Detection works like this:
    `TRUEPPM_WT_GRACE_MIN` minutes (default 30) is never reaped, so an agent
    mid-startup is safe (override with `--force`)
 3. For each remaining worktree, check that its branch (a) had an upstream, (b) no
-   longer has one on `origin`, and (c) is fully an ancestor of `origin/main`
+   longer has one on `origin`, and (c) has its work in `origin/main`. Any one of
+   these proves (c):
+   - the local tip is an ancestor of `origin/main` (a merge-commit merge)
+   - the local tip was rewritten after its last push (an amend, a local rebase,
+     a GitLab server-side rebase), but `git cherry` finds every one of the
+     branch's patches already in `origin/main`
+   - GitLab has a merged MR from the branch whose head SHA is exactly the local
+     tip (a squash merge; needs `glab`)
+
+   If none holds, prune warns `local commits NOT in origin/main` and keeps the
+   worktree. That now means real unmerged work, so check it before forcing.
 4. Apply the same safety guards as `wt remove` — refuse to drop worktrees
-   with uncommitted local work (override with `--force` if you really mean it)
+   with uncommitted local work (override with `--force` if you really mean it).
+   A tracked `.envrc`, `.wt-owner`, or `.wt-reservation` does not count as work.
 5. Drop each pruned worktree's test database, subject to the same guards as
    `wt remove` (see [Test databases](#test-databases))
 6. Report what got pruned, what was skipped, and what was kept
