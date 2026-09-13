@@ -18,7 +18,7 @@ opinion — it is a CPM or Monte Carlo computation the engine performed, carryin
 derivation you can cite. The model's only job is to translate a question into an engine call
 and to phrase the engine's answer back in natural language. It never supplies the number.
 
-```
+```text
 Incumbent — the LLM is the answer:
 
     question ─▶ LLM ─▶ asserted answer

@@ -79,7 +79,7 @@ and why [every feature is an API fact first](#api-first): if a value is computed
 server-side and reachable over the API, an agent can retrieve it and cite it; if
 it lived only in a chat prompt, the agent could only guess at it.
 
-```
+```text
 Incumbent — the LLM is the answer:
 
     question ─▶ LLM ─▶ asserted answer
