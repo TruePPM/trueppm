@@ -1,0 +1,5 @@
+# Rule 8d — `bg-neutral-overlay` is the scrim token for a modal/slide-out's full-screen backdrop
+
+> **Invariant.** Indexed from [`packages/web/CLAUDE.md`](../../../packages/web/CLAUDE.md), section *Color and tokens*. The index carries the rule's headline; this file carries its full text (#3744, ADR-0653 amendment). Binding everywhere, not only on the surface that produced it.
+
+**`bg-neutral-overlay` is the scrim token for a modal/slide-out's full-screen backdrop** — never a raw `bg-black/N` literal. Like the `--sem-*-bg` family (rule 8b), it is a pre-computed RGBA custom property (`rgba(0, 0, 0, 0.4)` in both light and dark — the scrim doesn't get a dark-mode-specific treatment) and therefore **cannot be combined with Tailwind's `/N` opacity modifier**; write `bg-neutral-overlay` alone, not `bg-neutral-overlay/40`. Popover/edge scrims that intentionally use a different opacity for a lighter touch (e.g. a mobile drawer's `/30` edge, a cheatsheet's `/20`) are a distinct visual role, not this token — `bg-neutral-overlay` is specifically for the `role="dialog" aria-modal="true"` full backdrop. (Surfaced by ux-review follow-up, issue 575.)
