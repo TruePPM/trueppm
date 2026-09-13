@@ -230,7 +230,7 @@ curl -X POST http://127.0.0.1:8000/mcp \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
 ```
 
-```http
+```text
 event: message
 data: {"jsonrpc":"2.0","id":2,"result":{"tools":[
        {"name":"list_projects","description":"List every project you can read...",
@@ -253,7 +253,7 @@ Every tool result arrives twice over: `content` (the JSON rendered as text, for
 models that only read text) and `structuredContent` (the same payload as real
 JSON). **Parse `structuredContent`.**
 
-```http
+```text
 event: message
 data: {"jsonrpc":"2.0","id":3,"result":{
        "content":[{"type":"text","text":"{\n  \"items\": [],\n  \"total_count\": 0\n}"}],

@@ -72,7 +72,7 @@ attachments, and the board/task structural operations).
 
 A number of endpoints are intentionally exempt — each view opts out with
 `idempotency_exempt = True` (`trueppm_api.apps.idempotency.mixins.IdempotencyMixin`),
-for one of three reasons. This lists the exemptions by reason rather than
+for one of four reasons. This lists the exemptions by reason rather than
 naming every view, since the set can grow without this page being updated in
 lockstep — if you rely on the header against an endpoint not covered by the
 categories below, send a real request first and confirm you get an
@@ -105,6 +105,13 @@ categories below, send a real request first and confirm you get an
   repeated verdict is a no-op), and SSO provider create
   (`POST /api/v1/workspace/sso/providers/`, which keys on a unique
   `(workspace, slug)` constraint and answers `409` on a duplicate).
+- **Replaying a stored response would bypass read-time redaction** —
+  notification updates (`PATCH /api/v1/notifications/{id}/` and snooze). A
+  notification's subject, body, and project are redacted when the recipient is no
+  longer a member of that project; a cached response captured while they still
+  were would replay the unredacted content. Both mutations are already naturally
+  idempotent (marking read or archived twice is a no-op, and snooze overwrites its
+  timestamp), so the header would add no double-submit protection here.
 
 Several of these also carry a token-principal or unauthenticated caller rather
 than a JWT/session user, which the generic Idempotency-Key store keys on — a

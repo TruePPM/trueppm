@@ -258,16 +258,17 @@ controls. See
 | `EMAIL_TIMEOUT` | `10` | Seconds. **Not Django's `None`** — an unbounded socket timeout means one unreachable relay can hold a Celery worker indefinitely. |
 | `DEFAULT_FROM_EMAIL` | `notifications@trueppm.local` | **Set this.** `.local` is a reserved TLD that most relays reject outright, so leaving the default silently breaks outbound mail on an otherwise correct SMTP configuration. |
 
-¹ `TRUEPPM_SYNC_BATCH_MAX_OWNERS`, above, is the one exception in this table: the
-code reads it only with `getattr(settings, "TRUEPPM_SYNC_BATCH_MAX_OWNERS", 500)`
-and never registers it with `django-environ`, so setting the plain container
-environment variable of that name has **no effect**. To change it from the
-default, override the Django setting in a settings module — the same mechanism
-the [Monte Carlo caps](#monte-carlo-simulation-caps) below use. Wiring it through
+¹ `TRUEPPM_SYNC_BATCH_MAX_OWNERS`, in the table above, is the one variable in it
+that is not read from the environment: the code reads it only with
+`getattr(settings, "TRUEPPM_SYNC_BATCH_MAX_OWNERS", 500)` and never registers it
+with `django-environ`, so setting the plain container environment variable of that
+name has **no effect**. To change it from the default, override the Django setting
+in a settings module — the same mechanism the
+[Monte Carlo caps](#monte-carlo-simulation-caps) below use. Wiring it through
 `env.int()` like its `TRUEPPM_SYNC_BATCH_MAX_ROWS` neighbor is tracked in
 [#3735](https://gitlab.com/trueppm/trueppm/-/issues/3735).
 
-**Every one of the `EMAIL_*` variables below binds directly from the container
+**Every one of the `EMAIL_*` variables above binds directly from the container
 environment** — set them as plain env vars or Helm `env:` values, no settings
 override needed. See
 [Outbound email](/administration/email/) for how they relate to the in-app
