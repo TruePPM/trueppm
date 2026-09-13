@@ -5,6 +5,7 @@ import {
   initWebVitals,
   isTelemetryEnabled,
   reportError,
+  scrubSensitivePath,
 } from './telemetry';
 
 const ENDPOINT = 'https://collector.example.test/v1/client';
@@ -575,6 +576,118 @@ describe('telemetry', () => {
       vi.stubEnv('VITE_TELEMETRY_ENDPOINT', 'https://build.example.test/otlp');
       enableTelemetry('https://runtime.example.test/otlp');
       expect(getTelemetryEndpoint()).toBe('https://runtime.example.test/otlp');
+    });
+  });
+
+  // --- #3553: credential-bearing paths must never reach the collector ---------
+  describe('scrubSensitivePath', () => {
+    it('redacts the segments after the reset-confirm prefix', () => {
+      expect(scrubSensitivePath('/reset-password/confirm/MQ/abc-def')).toBe(
+        '/reset-password/confirm/<redacted>',
+      );
+    });
+
+    it('redacts the reset-confirm prefix itself', () => {
+      expect(scrubSensitivePath('/reset-password/confirm')).toBe(
+        '/reset-password/confirm/<redacted>',
+      );
+    });
+
+    it('redacts the invite flow', () => {
+      expect(scrubSensitivePath('/invite/accept')).toBe('/invite/<redacted>');
+      expect(scrubSensitivePath('/invite')).toBe('/invite/<redacted>');
+    });
+
+    it('is idempotent, so scrubbing at the call site AND in reportError is safe', () => {
+      const once = scrubSensitivePath('/reset-password/confirm/MQ/abc-def');
+      expect(scrubSensitivePath(once)).toBe(once);
+    });
+
+    it('leaves the non-credential reset screens alone', () => {
+      expect(scrubSensitivePath('/reset-password/done')).toBe('/reset-password/done');
+      expect(scrubSensitivePath('/reset-password/expired')).toBe('/reset-password/expired');
+      expect(scrubSensitivePath('/forgot-password')).toBe('/forgot-password');
+    });
+
+    it('matches on a path boundary, not a bare prefix', () => {
+      // `/invitees` is not the invite flow and must not be redacted into it.
+      expect(scrubSensitivePath('/invitees')).toBe('/invitees');
+      expect(scrubSensitivePath('/reset-password/confirmation')).toBe(
+        '/reset-password/confirmation',
+      );
+    });
+
+    it('leaves ordinary routes untouched', () => {
+      expect(scrubSensitivePath('/projects/abc/schedule')).toBe('/projects/abc/schedule');
+      expect(scrubSensitivePath('/')).toBe('/');
+    });
+  });
+
+  describe('envelopes never carry a reset credential (#3553)', () => {
+    const originalPath = window.location.pathname;
+
+    afterEach(() => {
+      window.history.replaceState({}, '', originalPath);
+    });
+
+    it('scrubs the envelope path when the boundary fires on a legacy reset URL', async () => {
+      // The pre-#3553 link shape, still reachable through the legacy redirect
+      // route. A render error here used to ship a live 30-minute account-takeover
+      // credential to the operator's collector.
+      window.history.replaceState({}, '', '/reset-password/confirm/MQ/sekrit-token');
+      enableTelemetry();
+
+      reportError(new Error('kaboom'), { boundary: 'route' });
+
+      const [, blob] = beacon.mock.calls[0];
+      const payload = await readBeaconBody(blob);
+      expect(payload.path).toBe('/reset-password/confirm/<redacted>');
+      expect(JSON.stringify(payload)).not.toContain('sekrit-token');
+    });
+
+    it('scrubs an unscrubbed route handed in by a boundary', async () => {
+      enableTelemetry();
+
+      // A boundary that forgot to scrub must not be able to reintroduce the leak.
+      reportError(new Error('kaboom'), {
+        boundary: 'route',
+        route: '/reset-password/confirm/MQ/sekrit-token',
+      });
+
+      const [, blob] = beacon.mock.calls[0];
+      const payload = await readBeaconBody(blob);
+      expect(payload.route).toBe('/reset-password/confirm/<redacted>');
+      expect(JSON.stringify(payload)).not.toContain('sekrit-token');
+    });
+
+    it('leaves the route field absent when the boundary passes none', async () => {
+      enableTelemetry();
+      reportError(new Error('kaboom'), { boundary: 'section:Overview' });
+
+      const [, blob] = beacon.mock.calls[0];
+      const payload = await readBeaconBody(blob);
+      expect(payload.route).toBeUndefined();
+    });
+
+    it('scrubs the path on web-vital envelopes too', async () => {
+      window.history.replaceState({}, '', '/invite/accept');
+      enableTelemetry();
+
+      // Web vitals go through the same baseEnvelope; drive one via the TTFB path.
+      const nav = { responseStart: 12 } as PerformanceNavigationTiming;
+      vi.spyOn(performance, 'getEntriesByType').mockReturnValue([nav]);
+      vi.stubGlobal(
+        'PerformanceObserver',
+        class {
+          observe(): void {}
+        },
+      );
+
+      initWebVitals();
+
+      const payloads = await beaconPayloads();
+      const vital = payloads.find((p) => p.type === 'web-vital');
+      expect(vital?.path).toBe('/invite/<redacted>');
     });
   });
 });
