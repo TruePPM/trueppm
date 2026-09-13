@@ -57,6 +57,7 @@ from urllib.parse import urlsplit
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.http import HttpRequest
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status
@@ -84,7 +85,7 @@ logger = logging.getLogger("trueppm.auth")
 User = get_user_model()
 
 
-def _client_ip(request: Request) -> str:
+def _client_ip(request: HttpRequest | Request) -> str:
     """Best-effort client IP for the audit event.
 
     Prefers the left-most ``X-Forwarded-For`` hop when present (deployments sit
@@ -305,10 +306,27 @@ def _emit_login_failure_event(request: Request, canonical_identifier: str | None
     # A non-object JSON body (list/str/scalar) leaves ``request.data`` without a
     # ``.get``; guard on the dict shape so audit emission can never turn a rejected
     # login into a 500 (#2126). A non-object body simply has no username → "unknown".
-    raw_username = canonical_identifier or _submitted_identifier(request.data)
+    emit_login_failure(
+        request, identifier=canonical_identifier or _submitted_identifier(request.data)
+    )
+
+
+def emit_login_failure(request: HttpRequest | Request, *, identifier: str | None) -> None:
+    """Emit ``auth.login_failed`` for a rejected login on any door.
+
+    The counterpart to :func:`emit_login_success`, and public for the same reason
+    (#3557): the Django admin is a second password door, and an operator alarming
+    on credential stuffing must see its refusals on the same channel, in the same
+    shape, as the API's. A door that emitted its own differently-spelled line would
+    be invisible to the rule ``auth.login_failed`` exists to feed.
+
+    ``identifier`` is the submitted (or view-resolved) username; it is hashed here
+    and never logged in the clear. ``request`` may be a plain Django ``HttpRequest``
+    — only ``META`` is read, for the best-effort client IP.
+    """
     username_hash = (
-        hashlib.sha256(str(raw_username).strip().lower().encode("utf-8")).hexdigest()
-        if raw_username
+        hashlib.sha256(str(identifier).strip().lower().encode("utf-8")).hexdigest()
+        if identifier
         else "unknown"
     )
     logger.warning(
@@ -318,7 +336,9 @@ def _emit_login_failure_event(request: Request, canonical_identifier: str | None
     )
 
 
-def emit_login_success(request: Request, *, user: Any, method: str, remember: bool) -> None:
+def emit_login_success(
+    request: HttpRequest | Request, *, user: Any, method: str, remember: bool
+) -> None:
     """Emit the structured login-success line for a session that was actually minted.
 
     The counterpart to :func:`_emit_login_failure_event` (#3552, ADR-1120). Both land on
@@ -351,7 +371,8 @@ def emit_login_success(request: Request, *, user: Any, method: str, remember: bo
         user: The authenticated user. Only ``pk`` is logged — never the email or
             username, matching ``_emit_login_failure_event``, which hashes the submitted
             identifier rather than writing it in the clear.
-        method: ``"password"`` or ``"sso:<provider-slug>"``.
+        method: ``"password"``, ``"sso:<provider-slug>"``, or ``"admin"`` (the
+            hardened Django admin login, #3557).
         remember: Whether the session opted into browser-persistent "remember me". SSO
             logins are always ``False`` (an IdP redirect carries no such choice).
     """

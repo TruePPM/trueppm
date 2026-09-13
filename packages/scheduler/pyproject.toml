@@ -63,8 +63,15 @@ dev = [
     "hypothesis>=6.0,<7.0",
     # Mutation testing (#2282): proves the suite's assertions actually *catch*
     # regressions, not just that lines execute. Dev/CI-only — never shipped in the
-    # wheel. Pinned below 4 (the 3.x line is the maintained rewrite).
-    "mutmut>=3.6,<4",
+    # wheel.
+    #
+    # EXACT pin, unlike its neighbors: mutmut is the measuring instrument behind
+    # the gating MUTATION_MIN floor, and a minor release changes WHAT gets measured.
+    # 3.8.0 started mutating @dataclass methods; floated in under `>=3.6,<4` the
+    # night it shipped, it moved the denominator and broke the stats pass with no
+    # commit on our side (#3720). Bump it in its own MR — changing this line runs
+    # scheduler:mutation on that MR, so the new score is read before it merges.
+    "mutmut==3.8.0",
     "mypy>=1.0,<2.0",
     "ruff>=0.8,<1.0",
     "types-networkx>=3.0,<4",

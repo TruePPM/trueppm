@@ -23,7 +23,17 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from trueppm_scheduler import Calendar, Dependency, Project, Task
-from trueppm_scheduler.derive import Quantity, derive_value
+from trueppm_scheduler.derive import (
+    Derivation,
+    DerivationContribution,
+    Quantity,
+    UnknownTaskError,
+    _backward_pullback_binding,
+    _derive_backward,
+    _derive_forward,
+    _forward_pullback_binding,
+    derive_value,
+)
 from trueppm_scheduler.models import DependencyType
 
 
@@ -497,3 +507,190 @@ def test_free_float_falls_back_to_total_float_without_successors() -> None:
     assert [c.to_dict() for c in d.contributions] == [
         _c("total_float", slack_days=0, is_binding=True),
     ]
+
+
+# --------------------------------------------------------------------------- #
+# mutmut 3.8.0 survivors (#3720): dataclass methods, ternary conditions.       #
+# --------------------------------------------------------------------------- #
+
+
+def _completed_then_open() -> Project:
+    """A (3 days, recorded complete 3/2-3/4) → B (2 days)."""
+    return Project(
+        id="pc",
+        name="Progress",
+        start_date=date(2026, 3, 2),
+        tasks=[
+            Task(
+                id="A",
+                name="Alpha",
+                duration=timedelta(days=3),
+                actual_start=date(2026, 3, 2),
+                actual_finish=date(2026, 3, 4),
+                percent_complete=100.0,
+            ),
+            Task(id="B", name="Beta", duration=timedelta(days=2)),
+        ],
+        dependencies=[Dependency("A", "B")],
+        calendar=Calendar(),
+    )
+
+
+def test_derivation_to_dict_emits_every_key_and_a_null_binding() -> None:
+    d = Derivation(
+        task_id="A",
+        task_name="Alpha",
+        quantity="total_float",
+        value=3,
+        pass_="float",
+        is_critical=True,
+        binding=None,
+        contributions=[],
+    )
+    assert d.to_dict() == {
+        "task_id": "A",
+        "task_name": "Alpha",
+        "quantity": "total_float",
+        "value": 3,
+        "pass": "float",
+        "is_critical": True,
+        "binding": None,
+        "contributions": [],
+    }
+
+
+def test_derivation_names_the_task_and_its_criticality() -> None:
+    d = derive_value(_parallel(), "A", Quantity.EARLY_START)
+    assert d.task_id == "A"
+    assert d.task_name == "Alpha"
+    assert d.is_critical is True
+    off_path = derive_value(_parallel(), "B", Quantity.EARLY_START)
+    assert off_path.is_critical is False
+
+
+def test_unknown_task_message_names_the_id() -> None:
+    try:
+        derive_value(_parallel(), "ZZ", Quantity.EARLY_START)
+    except UnknownTaskError as err:
+        assert str(err) == "Task 'ZZ' is not in the project."
+    else:  # pragma: no cover - the call above must raise
+        raise AssertionError("derive_value accepted an unknown task id")
+
+
+def test_project_start_snaps_on_the_tasks_own_calendar() -> None:
+    # ADR-0120 D3: A works Tue-Fri, the project Mon-Fri, and the project starts on
+    # a Monday. The project-start floor must snap on A's calendar (→ Tuesday, one
+    # calendar day added). Snapping on the pass-level calendar would cite Monday,
+    # a date the engine never used.
+    p = Project(
+        id="ptc",
+        name="TaskCal",
+        start_date=date(2026, 3, 2),
+        tasks=[Task(id="A", name="Alpha", duration=timedelta(days=2), calendar_id="tue")],
+        calendar=Calendar(),
+        calendars={"tue": Calendar(working_days=0b0011110)},
+    )
+    d = derive_value(p, "A", Quantity.EARLY_START)
+    assert d.value == "2026-03-03"
+    assert [c.to_dict() for c in d.contributions] == [
+        _c("project_start", imposed_date="2026-03-03", calendar_days_added=1, is_binding=True),
+    ]
+
+
+def test_completed_task_late_start_cites_its_early_start() -> None:
+    d = derive_value(_completed_then_open(), "A", Quantity.LATE_START)
+    assert d.value == "2026-03-02"
+    assert d.binding is not None
+    assert d.binding.kind == "early_start"
+
+
+def test_completed_task_late_finish_cites_the_finish_anchor() -> None:
+    d = derive_value(_completed_then_open(), "A", Quantity.LATE_FINISH)
+    assert d.value == "2026-03-04"
+    assert d.binding is not None
+    assert d.binding.kind == "project_finish"
+
+
+def test_completed_task_early_start_is_not_its_early_finish() -> None:
+    d = derive_value(_completed_then_open(), "A", Quantity.EARLY_START)
+    assert d.value == "2026-03-02"
+    assert d.binding is not None
+    assert d.binding.kind == "actual_start"
+
+
+def test_unscheduled_task_derives_a_null_value_rather_than_raising() -> None:
+    # ``Derivation.value`` is documented ``| None``. A task with no CPM dates (a
+    # prebuilt result that never scheduled it) must yield None on every branch,
+    # not an AttributeError from ``None.isoformat()``.
+    cal = Calendar()
+    done = Task(id="D", name="Done", duration=timedelta(days=1), actual_finish=date(2026, 3, 2))
+    open_ = Task(id="O", name="Open", duration=timedelta(days=1))
+    assert _derive_forward(done, [], cal, date(2026, 3, 2), None, want_finish=True)[0] is None
+    assert _derive_forward(open_, [], cal, date(2026, 3, 2), None, want_finish=False)[0] is None
+    assert _derive_backward(done, [], cal, date(2026, 3, 6), want_start=True)[0] is None
+    assert _derive_backward(open_, [], cal, date(2026, 3, 6), want_start=False)[0] is None
+
+
+def _term(sid: str, imposed: date | None, dep_type: str) -> DerivationContribution:
+    return DerivationContribution(
+        kind="term",
+        source_task_id=sid,
+        source_task_name=f"Task {sid}",
+        dep_type=dep_type,
+        lag_days=2,
+        imposed_date=imposed,
+    )
+
+
+def _pullback_terms(dep_type: str) -> list[DerivationContribution]:
+    # The tightest (earliest) term is deliberately neither first nor last, and an
+    # undated term sorts as date.max rather than crashing the comparison.
+    return [
+        _term("L", date(2026, 3, 10), dep_type),
+        _term("N", None, dep_type),
+        _term("T", date(2026, 3, 6), dep_type),
+        _term("M", date(2026, 3, 9), dep_type),
+    ]
+
+
+def test_forward_pullback_cites_the_tightest_finish_driver() -> None:
+    task = Task(id="X", name="X", duration=timedelta(days=3), early_start=date(2026, 3, 5))
+    got = _forward_pullback_binding(task, _pullback_terms("FF"))
+    assert got.to_dict() == _c(
+        "early_finish_pullback",
+        source_task_id="T",
+        source_task_name="Task T",
+        dep_type="FF",
+        lag_days=2,
+        imposed_date="2026-03-05",
+        is_binding=True,
+    )
+
+
+def test_forward_pullback_without_finish_terms_names_no_driver() -> None:
+    task = Task(id="X", name="X", duration=timedelta(days=3), early_start=date(2026, 3, 5))
+    got = _forward_pullback_binding(task, [])
+    assert got.to_dict() == _c("early_finish_pullback", imposed_date="2026-03-05", is_binding=True)
+
+
+def test_backward_pullback_cites_the_tightest_start_driver() -> None:
+    task = Task(id="X", name="X", duration=timedelta(days=3), late_finish=date(2026, 3, 12))
+    got = _backward_pullback_binding(task, _pullback_terms("SS"))
+    assert got.to_dict() == _c(
+        "duration_from_late_start",
+        source_task_id="T",
+        source_task_name="Task T",
+        dep_type="SS",
+        lag_days=2,
+        imposed_date="2026-03-12",
+        slack_days=3,
+        is_binding=True,
+    )
+
+
+def test_backward_pullback_without_start_terms_names_no_driver() -> None:
+    task = Task(id="X", name="X", duration=timedelta(days=3), late_finish=date(2026, 3, 12))
+    got = _backward_pullback_binding(task, [])
+    assert got.to_dict() == _c(
+        "duration_from_late_start", imposed_date="2026-03-12", slack_days=3, is_binding=True
+    )
