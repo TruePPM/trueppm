@@ -79,7 +79,7 @@ The most important interface between the PO and the PM:
 
 Run these steps in order — they start from a machine with nothing running.
 
-1. **Start the stack and seed the demo.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
+1. **Start the stack and seed the demo — load a ready-made sample program with one command.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
 
    ```bash
    make up
@@ -94,7 +94,7 @@ Run these steps in order — they start from a machine with nothing running.
 
 4. **Open the burn-up chart.** Go to **Deliver → Sprints** (`/projects/:id/sprints`). The total-scope line steps up where scope was added mid-sprint, so "what we committed to" and "what crept in" are visibly different.
 
-5. **Read the release forecast.** Velocity (completed points per sprint) drives a *remaining ÷ velocity* forecast — the answer to "when does this ship?" in your language, not a CPM planned date.
+5. **Read the release forecast.** Velocity (completed points per sprint) drives a *remaining ÷ velocity* forecast — the answer to "when does this ship?" in your language, not a CPM (Critical Path Method) planned date.
 
 6. **Check scope protection.** On the same Sprints page, the **capacity preflight** panel sits in the top half of the metrics row's right column. It's the evidence you point to when someone wants to inject scope into a sprint that's already full.
 

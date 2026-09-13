@@ -4,6 +4,8 @@ description: How to upgrade TruePPM — Docker Compose, single-server, and Helm 
 documentedFor: "0.4"
 ---
 
+This page walks through moving an existing TruePPM instance to a newer version, safely, for whichever way you run it — Docker Compose, a single server, or Helm/Kubernetes. If you are standing up TruePPM for the first time rather than upgrading one, see [Installation](/getting-started/installation/) instead.
+
 ## Before you upgrade
 
 1. **Read the changelog** for the target version — check `CHANGELOG.md` or the [release notes](https://gitlab.com/trueppm/trueppm/-/releases) for breaking changes and migration notes.
@@ -80,10 +82,14 @@ truth.
 
 ## Upgrading to 0.3
 
-0.3 adds new database tables and columns for the agile-team feature set. All of
-the migrations are **additive** (new models and nullable columns — no destructive
-operations), so the upgrade is a standard `migrate` with no manual data steps and
-no downtime beyond the migration run. Apply them the usual way for your deploy
+0.3 adds new database tables and columns for the agile-team feature set. A
+**migration** is a script that changes TruePPM's database structure to match a
+new version of the code (adding a table or column, for example) — it runs
+automatically as part of the upgrade, not something you write or edit
+yourself. All of the migrations in 0.3 are **additive** (new tables and
+nullable columns — no destructive operations), so the upgrade is a standard
+`migrate` run with no manual data steps and no downtime beyond that run. Apply
+them the usual way for your deploy
 path (the `migrate` step shown in each section below). The new schema:
 
 - **Forecast snapshots** (`scheduling.0007_projectforecastsnapshot`) — a new

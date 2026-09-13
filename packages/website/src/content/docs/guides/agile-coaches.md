@@ -41,7 +41,7 @@ The fastest way to kill adoption is to add "fill this in for the PMO" steps. The
 
 The real test isn't what a feature does — it's what *each role can see and do*. So evaluate it as a contrast: run the same instance as two different people and compare. Run these steps in order — they start from a machine with nothing running.
 
-1. **Start the stack and seed the demo.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
+1. **Start the stack and seed the demo — load a ready-made sample program with one command.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
 
    ```bash
    make up

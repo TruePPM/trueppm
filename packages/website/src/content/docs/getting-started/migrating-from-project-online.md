@@ -5,14 +5,16 @@ documentedFor: "0.4"
 ---
 
 :::note[Ships in 0.4 — the evaluation path]
-The MSPDI `.xml` import itself has shipped since 0.1. Three things this page leans on
+The MSPDI (Microsoft Project Data Interchange — the `.xml` file format MS Project
+exports to) import itself has shipped since 0.1. Three things this page leans on
 ship in **0.4**, TruePPM's first beta, and are not in `0.3.0-alpha.3`: constraint-date
 and actual-date import, the hosted read-only demo, and read-only share links. On the
 current release you evaluate against your own install, and imported constraint dates
 are dropped with a warning rather than applied.
 :::
 
-Microsoft retires Project Online on **September 30, 2026**. New PWA sites have been
+Microsoft retires Project Online on **September 30, 2026**. New PWA sites — Project
+Web App, the browser-based front end Project Online is built on — have been
 blocked since April 1, 2026, and after the retirement date the projects and data in a
 tenant are no longer reachable. Microsoft's own successor, Planner Premium, is built
 for task coordination rather than scheduling: it has no critical path, no resource
@@ -40,7 +42,7 @@ you compare tools, list what your organization actually uses. Three lists matter
 
 Export each plan from Project Online as **MSPDI XML** (Project desktop: *Save As →
 XML*). TruePPM's [MS Project import](/features/msproject-import-export/) reads it and
-builds a CPM-schedulable project:
+builds a project TruePPM can schedule with CPM (Critical Path Method):
 
 - **The WBS**, summary tasks, and milestones, with outline structure intact.
 - **All four dependency types** (FS, SS, FF, SF) with lead and lag on every link.
