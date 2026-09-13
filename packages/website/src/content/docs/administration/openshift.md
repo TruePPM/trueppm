@@ -142,6 +142,12 @@ Two behaviors worth knowing before you rely on them:
   sync controller picks up the result. Leaving `ingress.tls` empty renders an
   HTTP-only Ingress and an HTTP-only Route — fine for a dev/demo project, never
   for production, same as on vanilla Kubernetes.
+- **Ingress annotations are copied onto the generated Routes.** The controller
+  copies the Ingress's annotations verbatim, so OpenShift router annotations set
+  under `ingress.annotations` — for example
+  `haproxy.router.openshift.io/timeout` for long uploads, or
+  `route.openshift.io/termination: reencrypt` / `passthrough` instead of the
+  default edge termination — reach the Route without a Route template.
 
 `ingress.annotations`' shipped default,
 `nginx.ingress.kubernetes.io/proxy-body-size: "110m"`
@@ -280,20 +286,22 @@ Two ways around it, neither of which this chart can do for you:
   meant to be a dev/demo workload, and is not something the chart or these docs
   configure for you.
 
-A follow-up chart issue to make the subcharts' UID/GID configurable is proposed
-below; until it ships, treat the bundled datastores as **unsupported on
-OpenShift**, on any project running the default SCC set.
+Making the subcharts' UID/GID configurable is tracked in
+[#3731](https://gitlab.com/trueppm/trueppm/-/issues/3731); until it ships, treat
+the bundled datastores as **unsupported on OpenShift**, on any project running
+the default SCC set.
 
 ### No native `Route` object
 
-The chart renders `Ingress` only. The OpenShift ingress-to-route conversion
-covers hostnames, paths, and edge/passthrough TLS from a Secret, but it cannot
-express `haproxy.router.openshift.io/*` Route annotations (weighted backends,
-per-Route timeouts, custom balance algorithms) — `ingress.annotations` places
-annotations on the *Ingress*, and there is no guarantee the sync controller
-carries an OpenShift-specific annotation through to the Route it generates the
-way it does the small set of annotations it explicitly translates. If you need
-those, they are out of reach of this chart today; see the follow-up below.
+The chart renders `Ingress` only. Because the ingress-to-route controller copies
+Ingress annotations onto each Route it generates (see
+[above](#ingress-converts-to-route-with-no-chart-changes)), per-Route router
+annotations such as timeouts work through `ingress.annotations`. What the
+conversion cannot express is Route *spec* that has no Ingress equivalent —
+weighted `alternateBackends` for blue/green traffic splitting, or a
+re-encrypt destination CA managed alongside the Route. If you need those, create
+the `Route` objects yourself outside the chart; an optional native Route template
+is tracked in [#3732](https://gitlab.com/trueppm/trueppm/-/issues/3732).
 
 ### No CI coverage against a real OpenShift SCC
 
@@ -307,21 +315,22 @@ green.
 
 ## Proposed follow-up
 
-These are documentation-driven findings, not yet filed — proposed here per the
-scope of this page rather than opened against the chart:
+The gaps above are tracked as chart issues:
 
-- **Make the bundled `postgresql`/`valkey` subcharts' `securityContext`
-  configurable** (expose `runAsUser`/`runAsGroup`/`fsGroup` as subchart values,
-  defaulting to today's `999` so nothing changes for existing installs) so a
-  project with a permissive-enough SCC — or a future `restricted-v2`-compatible
-  image — can run them. Today there is no override at all.
-- **Add an optional native `Route` template** (`route.enabled`, gated off by
-  default) for operators who need `haproxy.router.openshift.io/*` annotations
-  the Ingress→Route conversion does not carry through.
-- **Add an OpenShift/CRC-equivalent CI drill** alongside `helm:install` /
-  `helm:netpol` so a `restricted-v2` regression fails a pipeline instead of
-  waiting for an operator to hit it — the gap this page's own "audited, not
-  cluster-verified" caveat exists to name.
+- [#3731](https://gitlab.com/trueppm/trueppm/-/issues/3731) — **make the bundled
+  `postgresql`/`valkey` subcharts' `securityContext` configurable** (expose
+  `runAsUser`/`runAsGroup`/`fsGroup` as subchart values, defaulting to today's
+  `999` so nothing changes for existing installs) so a project with a
+  permissive-enough SCC — or a future `restricted-v2`-compatible image — can run
+  them. Today there is no override at all.
+- [#3732](https://gitlab.com/trueppm/trueppm/-/issues/3732) — **an optional native
+  `Route` template** (`route.enabled`, gated off by default) for operators who need
+  Route spec the Ingress conversion cannot express, such as weighted backends.
+- [#3733](https://gitlab.com/trueppm/trueppm/-/issues/3733) — **an
+  OpenShift/CRC-equivalent CI drill** alongside `helm:install` / `helm:netpol` so
+  a `restricted-v2` regression fails a pipeline instead of waiting for an
+  operator to hit it — the gap this page's own "audited, not cluster-verified"
+  caveat exists to name.
 
 ## Related
 
