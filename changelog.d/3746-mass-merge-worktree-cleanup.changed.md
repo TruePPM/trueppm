@@ -1,0 +1,1 @@
+`/mass_merge` now removes each merge request's `scripts/wt` worktree immediately after that MR merges, instead of leaving every source branch's worktree behind on a dead, merged branch — the fastest way to hit the 10-worktree WIP cap mid-batch (#3746).
