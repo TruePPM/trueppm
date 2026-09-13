@@ -93,10 +93,10 @@ Exchange your admin password for an **API token** — a temporary credential the
 curl -s -X POST http://localhost:8000/api/v1/auth/token/ \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "<your password>"}' \
-  | jq .access
+  | jq -r .access
 ```
 
-This prints your access token as a quoted string. Copy it, then set it as an
+This prints your access token. Copy it, then set it as an
 environment variable so the rest of this page's commands can use it:
 
 ```bash

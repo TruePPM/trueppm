@@ -41,7 +41,7 @@ An open-source alternative from SUSE, also GUI-based and free for any use (Docke
 Rancher Desktop lets you choose which container engine runs underneath it, in its Preferences: **dockerd (moby)** — the same engine Docker Desktop uses, or **containerd**, managed with a different CLI (`nerdctl`) and a different compose command (`nerdctl compose`). TruePPM's Makefile and documentation invoke `docker compose` specifically. Choose **dockerd (moby)** so the bundled `docker` and `docker compose` commands work exactly as written on this site — the containerd option requires substituting `nerdctl compose` for every `docker compose` command you see here, which this project does not otherwise document or test.
 :::
 
-Give it the same 4 CPU / 8 GB minimum as Docker Desktop, above — the setting lives in the same kind of Preferences → Resources panel.
+Give it the same 4 CPU / 8 GB minimum as Docker Desktop, above. On macOS and Linux the setting is under **Preferences → Virtual Machine**; on Windows, Rancher Desktop runs inside WSL 2, whose CPU and memory limits come from WSL's own `.wslconfig` file.
 
 ### Podman Desktop / Podman (Red Hat)
 
@@ -51,7 +51,7 @@ A daemonless, rootless alternative sponsored by Red Hat. The CLI (`podman`) and 
 **→ [podman-desktop.io](https://podman-desktop.io/)** (the optional GUI)
 
 :::caution[`docker compose` is not `podman compose` — plan for one extra step]
-Podman does not ship a `docker` command at all, and its Compose-compatible equivalent — `podman compose` (built in) or the separate `podman-compose` tool — is not a drop-in replacement: most `docker-compose.yml` files work under it, but TruePPM's Makefile and every command shown in this documentation site are written as literal `docker compose ...` invocations. Two ways to bridge that:
+Podman does not ship a `docker` command at all, and its Compose-compatible equivalent — `podman compose`, a wrapper that hands off to a separately installed compose provider such as `podman-compose` — is not a drop-in replacement: most `docker-compose.yml` files work under it, but TruePPM's Makefile and every command shown in this documentation site are written as literal `docker compose ...` invocations. Two ways to bridge that:
 
 - Run the equivalent `podman compose ...` yourself in place of each documented `docker compose ...` command (for example, `podman compose up -d` instead of `docker compose up -d`), or
 - Alias `docker` to `podman` and install `podman-compose`, so the documented commands work unchanged.
