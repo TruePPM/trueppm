@@ -196,6 +196,16 @@ as Product Owner grants no extra permission by itself. See
 The page appears only for methodologies that have a team ceremony model; a purely
 predictive project does not show it.
 
+## Templates and template divergence
+
+The **Templates** page publishes this project's shape (phases, dependencies,
+durations — never owners, dates, or progress) as a reusable starting point for
+future projects, and **Template divergence** reports how far a project adopted
+from a template has drifted from it since. Both are feature-level, not
+administration settings, so the full picture — what a template carries, what it
+strips, and how divergence is computed and reported — lives in
+[Project templates](/features/project-templates/).
+
 ## Workflow & fields
 
 A block within [How this team works](#how-this-team-works).
@@ -365,6 +375,17 @@ board. Anyone holding a link can view it with no login, so a link is a credentia
 revoke it here when it should stop working. Whether this page is available at all
 depends on the workspace (or program) public-sharing policy, which an Owner or Admin may
 override per project. See [Sharing & access](/administration/sharing-and-access/).
+
+## Agents
+
+The **Agents** page sets **Agent read access** — whether an AI agent connected over
+[MCP](/administration/mcp-server/) may read this project's data. Inherits the program
+or workspace setting unless you override it here. Turning it off blocks the read
+outright (it does not affect people signed in through the web or mobile app, or a
+member's own personal API token) and cannot be reversed by a program or workspace
+administrator — only this project can re-enable it. See
+[Team-level opt-out](/administration/mcp-server/#team-level-opt-out) for the full
+inheritance and audit behavior.
 
 ## Integrations
 

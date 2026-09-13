@@ -119,7 +119,7 @@ bound. It also has no before and after to record. Both auth log lines therefore 
 one logger, so an operator correlating "somebody was hammering this account, did they get
 in?" reads one channel:
 
-```
+```text
 auth.login_failed username_hash=<sha256> client_ip=<ip>
 auth.login_succeeded user_id=<id> method=password|sso:<provider> client_ip=<ip> remember=<bool>
 ```
@@ -171,7 +171,7 @@ no actor.
 
 ## Reading the log
 
-```
+```http
 GET /api/v1/workspace/audit-events/
 ```
 

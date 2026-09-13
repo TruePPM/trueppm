@@ -4,9 +4,9 @@ description: Set a task's type, governance class, and delivery mode — what eac
 documentedFor: "0.4"
 ---
 
-Every task carries three classification fields — `type`, `governance_class`, and `delivery_mode` — that describe *what kind of work it is*, *which governance model applies to it*, and *how it executes and rolls up*. They have always been part of the [unified data model](/features/unified-data-model/) and are set by the demo seeds, but until now there was no way to change them from the task editor.
+Every task can be classified along three axes — its **Type**, its **Governance class**, and its **Delivery mode** — that describe *what kind of work it is*, *which governance model applies to it*, and *how it executes and rolls up*. This is for anyone setting up how a task is planned and tracked: a PM laying out a phase-gated plan, a Scrum team running sprints, or a hybrid team mixing both. These three fields have always been part of TruePPM's [unified data model](/features/unified-data-model/) and are set automatically by the demo seeds, but until now there was no way to change them yourself from the task editor.
 
-The three fields are not read to the same depth. `type` and `delivery_mode` are consumed across the product; `governance_class` is stored, cascaded, imported and exported faithfully, but only one place in the product currently branches on its value. Each section below says which.
+The three fields are not used to the same depth today. **Type** and **Delivery mode** drive behavior across the product; **Governance class** is stored, carried along when you classify a whole branch of the plan at once, and included in imports and exports, but only one place in the product currently changes what it shows based on this value. Each section below says which.
 
 :::note[Added in 0.3]
 The **Classification** controls were added in **0.3** (the agile team). The fields were already stored and set by the seeds; 0.3 added the editor. They are purely additive — every existing task keeps its current values (`task` / `flow` / `waterfall`), so nothing changes unless you set them.
@@ -43,9 +43,9 @@ Epic is special: it changes hierarchy rather than adding schedulable work, so ch
 
 ## Governance class — which overlay governs the subtree
 
-`governance_class` records *which* governance model applies to a task and its subtree. It is distinct from delivery mode: governance is about oversight, delivery is about execution.
+Governance class records *which* governance model applies to a task and everything beneath it in the plan. It is distinct from delivery mode: governance is about oversight, delivery is about execution.
 
-**What reads it today.** One thing: a template's **gates** count, which tallies the milestones marked `gated` in the shape you are about to publish or adopt. Everything else stores the value and carries it faithfully — the classification cascade sets it across a subtree and reports how many overrides it kept, MS Project and seed import/export round-trip it, and the API returns it — but no board lane, rollup figure, forecast or schedule overlay currently changes because a task is `gated` rather than `flow`. Set it to describe your plan and to drive the template gate count; do not expect a different number anywhere else yet.
+**What it affects today.** One thing: a template's **gates** count, which tallies the milestones marked **Gated** in the shape you are about to publish or adopt. Everything else about this field is stored and carried along faithfully — setting it on a whole branch of the plan at once keeps track of any tasks that were deliberately set differently, an MS Project or seed import/export round-trips the value, and it comes back from the API — but no board lane, rollup figure, forecast, or schedule display currently changes just because a task is **Gated** rather than **Flow**. Set it to describe your plan and to drive the template gate count; don't expect a different number to show up anywhere else yet.
 
 | Governance class | Meaning |
 |------------------|---------|
@@ -55,7 +55,7 @@ Epic is special: it changes hierarchy rather than adding schedulable work, so ch
 
 ## Delivery mode — how the work executes and rolls up
 
-`delivery_mode` selects *how* a task is executed, estimated, and rolled up. It is finer-grained than the project-level [methodology preset](/features/methodology-preset/): a single hybrid program can hold tasks in different delivery modes.
+Delivery mode selects *how* a task is executed, estimated, and rolled up into its parent's progress. It is finer-grained than the project-level [methodology preset](/features/methodology-preset/): a single hybrid program can hold tasks running in different delivery modes side by side.
 
 | Delivery mode | Rolls up from |
 |---------------|---------------|
@@ -125,10 +125,10 @@ are preserved. Three of those numbers are worth understanding:
 - **Your per-task edits survive by default.** A task whose governance class was set
   explicitly (rather than inherited from its parent) keeps it, and the footer counts how
   many were kept. Clear **Keep explicit governance overrides** to cascade over them.
-- **"Overrides kept" is a governance-only number.** Only `governance_class` records
-  whether a task inherited its value; `delivery_mode` carries no such flag, so no override
-  count exists for it. The popover says that rather than showing a zero that would read as
-  "there were none".
+- **"Overrides kept" is a governance-only number.** TruePPM only tracks whether a task
+  inherited its **governance class** or was set explicitly; it doesn't track that for
+  **delivery mode**, so there's no override count for delivery mode. The popover says
+  that plainly rather than showing a zero that would read as "there were none".
 
 After the cascade lands, a receipt names what the **server** actually wrote — not what the
 preview predicted — including any rows it skipped.

@@ -175,12 +175,22 @@ def _reset_link(uid: str, token: str) -> str:
     Mirrors the invite/notification/export idiom (``workspace/tasks.py``): read
     ``FRONTEND_BASE_URL``, strip a trailing slash, and return "" when it is not
     configured so the email builder can omit the link rather than emit a broken
-    relative URL. The path matches the SPA route ``/reset-password/confirm/:uid/:token``.
+    relative URL.
+
+    The credential rides in the URL **fragment**, not the path (#3553). ``uid`` and
+    ``token`` together are a 30-minute bearer credential for the account, and a
+    path carrying them is exported by the SPA's telemetry envelope, by its
+    route-error boundary, and to any cross-origin destination as ``Referer``. A
+    fragment is never transmitted to any server at all, so none of the three can
+    see it — and neither can a path-logging proxy in front of the SPA.
+
+    The SPA route is ``/reset-password/confirm``; it reads ``uid``/``token`` from
+    ``window.location.hash`` (``packages/web/src/features/auth/passwordReset/resetLink.ts``).
     """
     base = (getattr(settings, "FRONTEND_BASE_URL", "") or "").rstrip("/")
     if not base:
         return ""
-    return f"{base}/reset-password/confirm/{uid}/{token}/"
+    return f"{base}/reset-password/confirm#uid={uid}&token={token}"
 
 
 def _render_password_reset_email(user: Any, reset_url: str) -> tuple[str, str, str]:

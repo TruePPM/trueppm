@@ -4,7 +4,7 @@ import { WarningIcon } from '@/components/Icons';
 import { Button } from '@/components/Button';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { getPendingWriteCount } from '@/hooks/useSyncStatus';
-import { reportError } from '@/lib/telemetry';
+import { reportError, scrubSensitivePath } from '@/lib/telemetry';
 
 /**
  * True when the error is a failed dynamic `import()` of a route chunk — the most
@@ -145,10 +145,17 @@ export function RouteErrorBoundary() {
 
   // Report to the operator's collector (no-op unless configured) once per
   // distinct error — keyed on `error` so a re-render doesn't re-send.
+  //
+  // The route is scrubbed before it is handed over (#3553): on the password-reset
+  // confirm screen the pathname could carry a live 30-minute account-takeover
+  // credential, and this boundary is precisely the code that runs when that
+  // screen has just failed to render. `reportError` scrubs again on its side —
+  // the duplication is deliberate, so neither half is the only thing standing
+  // between a render error and the collector.
   useEffect(() => {
     reportError(error, {
       boundary: 'route',
-      route: typeof window !== 'undefined' ? window.location.pathname : undefined,
+      route: typeof window !== 'undefined' ? scrubSensitivePath(window.location.pathname) : undefined,
     });
   }, [error]);
 

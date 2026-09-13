@@ -81,7 +81,7 @@ The value that actually applies at a given scope is **resolved on the server** a
 returned to every client (web, mobile, API), so no client re-implements the
 precedence. The chain is:
 
-```
+```text
 Workspace value  →  Program override  →  Project override
    (the default)      (optional)            (optional)
 ```

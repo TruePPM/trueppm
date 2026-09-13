@@ -771,6 +771,7 @@ are pulled.
 ## See also
 
 - [Deployment](/administration/deployment/) — Compose, Helm, and single-server walkthroughs
+- [OpenShift Deployment](/administration/openshift/) — Ingress→Route conversion and SCC compatibility
 - [Configuration](/administration/configuration/) — the full environment-variable reference
 - [Helm values](/administration/helm-values/) — every chart key
 - [Sizing](/administration/sizing/) — replica counts and where the bottlenecks are

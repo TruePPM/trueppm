@@ -664,91 +664,6 @@
               "duration": 2
             }
           ]
-        },
-        {
-          "name": "Rebaseline — mezzanine change order",
-          "is_active": true,
-          "captured_at": "A-13",
-          "tasks": [
-            {
-              "task": "1.1",
-              "start": "A-90",
-              "finish": "A-86",
-              "duration": 4
-            },
-            {
-              "task": "1.2",
-              "start": "A-82",
-              "finish": "A-76",
-              "duration": 6
-            },
-            {
-              "task": "1.3",
-              "start": "A-70",
-              "finish": "A-67",
-              "duration": 3
-            },
-            {
-              "task": "1.4",
-              "start": "A-64",
-              "finish": "A-62",
-              "duration": 2
-            },
-            {
-              "task": "2.1",
-              "start": "A-60",
-              "finish": "A-52",
-              "duration": 8
-            },
-            {
-              "task": "2.2",
-              "start": "A-50",
-              "finish": "A-44",
-              "duration": 6
-            },
-            {
-              "task": "2.3",
-              "start": "A-38",
-              "finish": "A-35",
-              "duration": 3
-            },
-            {
-              "task": "2.4",
-              "start": "A-32",
-              "finish": "A-29",
-              "duration": 3
-            },
-            {
-              "task": "2.5",
-              "start": "A-26",
-              "finish": "A-22",
-              "duration": 4
-            },
-            {
-              "task": "3.1",
-              "start": "A-18",
-              "finish": "A-10",
-              "duration": 8
-            },
-            {
-              "task": "3.2",
-              "start": "A+5",
-              "finish": "A+13",
-              "duration": 8
-            },
-            {
-              "task": "3.3",
-              "start": "A+17",
-              "finish": "A+24",
-              "duration": 7
-            },
-            {
-              "task": "3.4",
-              "start": "A+31",
-              "finish": "A+33",
-              "duration": 2
-            }
-          ]
         }
       ],
       "risks": [
@@ -1529,11 +1444,19 @@
       }
     },
     {
+      "at": "A-13T09:35",
+      "action": "baseline.capture",
+      "target": "project:bayside-sitework",
+      "actor": "diego",
+      "body": "Rebaseline — mezzanine change order",
+      "is_active": true
+    },
+    {
       "at": "A-6T07:00",
       "action": "task.comment",
       "target": "task:bayside-sitework:3.3",
       "actor": "tom",
-      "body": "High winds shut the crane two afternoons this week — roof steel and the framing inspection are running two days behind the rebaseline."
+      "body": "High winds shut the crane two afternoons this week — roof steel and the framing inspection are running two days behind the mezzanine re-plan."
     },
     {
       "at": "A-2T14:00",

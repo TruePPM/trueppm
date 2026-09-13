@@ -62,7 +62,7 @@ write to stdout.
 
 ### API
 
-```
+```http
 GET /api/v1/programs/{id}/export/
 ```
 
@@ -82,7 +82,7 @@ project downloads as a seed file.
 
 ### API
 
-```
+```http
 GET /api/v1/projects/{id}/export/
 ```
 
@@ -128,7 +128,7 @@ tier above the Viewer-and-above JSON export.
 
 ### API
 
-```
+```http
 POST /api/v1/projects/{id}/export/          # queue a bundle → 202 + job
 GET  /api/v1/projects/{id}/export/jobs/{job_id}/           # poll status
 GET  /api/v1/projects/{id}/export/jobs/{job_id}/download/  # download when ready
@@ -183,7 +183,7 @@ member's time entries, and all attachment binaries across the program.
 
 ### API
 
-```
+```http
 POST /api/v1/programs/{id}/export/          # queue a bundle → 202 + job
 GET  /api/v1/programs/{id}/export/jobs/{job_id}/           # poll status
 GET  /api/v1/programs/{id}/export/jobs/{job_id}/download/  # download when ready
@@ -357,12 +357,12 @@ the program itself back, export it to a seed file before you re-import over it.
 Both import paths have a dry run that validates the file and reports every
 problem while writing nothing:
 
-```console
-$ python manage.py import_seed atlas.json --check
+```bash
+python manage.py import_seed atlas.json --check
 ```
 
-```console
-$ curl -X POST https://your-instance/api/v1/programs/import/validate/ \
+```bash
+curl -X POST https://your-instance/api/v1/programs/import/validate/ \
     -H "Authorization: Bearer $TOKEN" -F file=@atlas.json
 ```
 

@@ -17,9 +17,9 @@ it creates the persona logins unconditionally and does not accept
 `--with-personas`. See the [roadmap](/overview/roadmap/).
 :::
 
-The fastest path from `git clone` to a workspace you can actually click around. Two routes: the **demo seed** (recommended for evaluation) and the **API tutorial** (recommended for learning the data model).
+The fastest path from `git clone` to a workspace you can actually click around. Two routes: the **demo seed** — a ready-made sample program you load with one command, so you have realistic data to explore instead of an empty install — (recommended for evaluation), and the **API tutorial** (recommended for learning the data model).
 
-You should already have completed [Installation](/getting-started/installation/) — the stack is up via `docker compose up -d`.
+You should already have completed [Installation](/getting-started/installation/) — the stack is up via `docker compose up -d`. If that command is new to you, [Set up a container host](/getting-started/container-host/) explains what it does and gets Docker running first.
 
 Already have a real plan you'd rather work with — an MPP file, a spreadsheet, or
 a Jira export? Neither route below is it; see
@@ -41,7 +41,7 @@ into "here is how to verify each 0.3 capability" — which sample, which login,
 which screen, and what to expect — in about 30 minutes.
 :::
 
-The `load_sample_project` management command loads a bundled sample program. The default — **Atlas Platform Launch** — is a three-project hybrid program with a WBS, a CPM schedule with cross-project dependencies, baselines, resources, closed sprints with velocity history, an active sprint mid-window, a retro with a promoted action item, and a populated risk register. With `--with-personas` it also gives the sample's persona accounts a usable password and prints their usernames.
+The `load_sample_project` management command loads a bundled sample program. The default — **Atlas Platform Launch** — is a three-project hybrid program with a WBS (work breakdown structure), a CPM (Critical Path Method) schedule with cross-project dependencies, baselines, resources, closed sprints with velocity history, an active sprint mid-window, a retro with a promoted action item, and a populated risk register. With `--with-personas` it also gives the sample's persona accounts a usable password and prints their usernames.
 
 ![The Programs directory showing the Atlas Platform Launch card with its three projects and the Load demo data button](../../../assets/screenshots/programs.webp)
 
@@ -87,12 +87,19 @@ If you haven't already, see [Admin password setup](/administration/admin-passwor
 
 ### 2. Authenticate
 
+Exchange your admin password for an **API token** — a temporary credential the API accepts in place of your password on every request below, so you are not sending your real password over and over.
+
 ```bash
 curl -s -X POST http://localhost:8000/api/v1/auth/token/ \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "<your password>"}' \
-  | jq .access
+  | jq -r .access
+```
 
+This prints your access token. Copy it, then set it as an
+environment variable so the rest of this page's commands can use it:
+
+```bash
 export TOKEN="<paste access token here>"
 ```
 
@@ -118,6 +125,8 @@ CALENDAR=$(curl -s -X POST http://localhost:8000/api/v1/calendars/ \
 CALENDAR_ID=$(echo $CALENDAR | jq -r .id)
 ```
 
+`CALENDAR_ID` now holds the new calendar's ID, ready to attach to a project.
+
 ### 4. Create a project
 
 ```bash
@@ -129,7 +138,7 @@ PROJECT=$(curl -s -X POST http://localhost:8000/api/v1/projects/ \
 PROJECT_ID=$(echo $PROJECT | jq -r .id)
 ```
 
-The `methodology` field controls default tab visibility — see [Project methodology preset](/features/methodology-preset/).
+`PROJECT_ID` now holds the new project's ID. The `methodology` field controls default tab visibility — see [Project methodology preset](/features/methodology-preset/).
 
 ### 5. Add tasks
 
@@ -148,7 +157,13 @@ TASK_A_ID=$(echo $TASK_A | jq -r .id)
 TASK_B_ID=$(echo $TASK_B | jq -r .id)
 ```
 
+Two tasks now exist, each with its own ID, but nothing links them yet — the
+schedule does not know "Build" has to wait for "Design" until you add a
+dependency in the next step.
+
 ### 6. Add a dependency
+
+Link the two tasks Finish-to-Start (`FS`): "Build" cannot start until "Design" finishes.
 
 ```bash
 curl -s -X POST http://localhost:8000/api/v1/dependencies/ \
@@ -159,7 +174,7 @@ curl -s -X POST http://localhost:8000/api/v1/dependencies/ \
 
 ### 7. Read the schedule
 
-CPM recalculates automatically via Celery after each write. Wait a moment, then:
+Adding the dependency triggers a recalculation: Celery (the background worker) re-runs CPM (Critical Path Method — the algorithm that computes task dates and the critical path) automatically after each write. Wait a moment, then read the result back:
 
 ```bash
 curl -s "http://localhost:8000/api/v1/tasks/?project=$PROJECT_ID" \
@@ -177,6 +192,8 @@ Expected output:
 Both tasks are critical because there is only one path through the network.
 
 ### 8. Add a project member
+
+Grant another user access to this project by adding them with a role (replace `<user-id>` with their actual user ID):
 
 ```bash
 curl -s -X POST "http://localhost:8000/api/v1/projects/$PROJECT_ID/members/" \

@@ -62,7 +62,8 @@ Neither view ever includes:
 
 - comments, notes, or attachments
 - story points, business value, cost, or any estimate
-- schedule float, slack, or Monte Carlo risk figures
+- schedule float or slack (how many days a task can slip before it delays the
+  project) or Monte Carlo risk figures (probability-based finish-date forecasts)
 - blocker details
 - assignee names (unless you explicitly enabled *Show assignee names* for that link)
 

@@ -3,7 +3,7 @@ title: For Scrum Masters
 description: How TruePPM supports sprint facilitation, WIP management, velocity tracking, and hybrid delivery — without forcing you to learn CPM.
 ---
 
-You run sprints. You care about the board, velocity, and whether your team is healthy. You don't want to learn CPM, and you shouldn't have to. TruePPM is built so your agile surface is fully native — and the translation to the PM's Gantt happens automatically, behind the scenes.
+You run sprints. You care about the board, velocity, and whether your team is healthy. You don't want to learn CPM (Critical Path Method — the scheduling math behind a PM's Gantt chart), and you shouldn't have to. TruePPM is built so your agile surface is fully native — and the translation to the PM's Gantt happens automatically, behind the scenes.
 
 This is your guide. The PM's Gantt exists. You don't have to open it.
 
@@ -134,7 +134,7 @@ Your job is still just: run good sprints, protect the team, facilitate retrospec
 
 The test: you should never need to open the Gantt. Run these steps in order — they start from a machine with nothing running.
 
-1. **Start the stack and seed the demo.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
+1. **Start the stack and seed the demo — load a ready-made sample program with one command.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
 
    ```bash
    make up

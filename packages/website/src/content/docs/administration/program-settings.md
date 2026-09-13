@@ -17,7 +17,8 @@ separate, Enterprise concern and is not configured here.)
 Every program has a **Settings** area at `/programs/:programId/settings` — one
 scrolling page (ADR-0146) whose sections you can jump to from the settings nav:
 General, Projects, Access, External stakeholders, Rollup KPIs, Cadence, Working
-calendar, Risk & dependency policy, Attachments, Integrations, and Lifecycle.
+calendar, Risk policy, Attachments, Integrations, and Lifecycle (shown in the
+settings rail as **Archive / Close**).
 
 Fields carrying jargon, a policy choice, or an inheritance cascade also carry a
 circled **ⓘ** contextual-help affordance that explains the setting and deep-links to
@@ -218,8 +219,8 @@ table states both so you can see exactly who a mention touches:
   If the program has no Viewer-role members, the summary says so plainly — the
   alias notifies nobody in-app.
 
-Reading the summary requires the program **Admin** role, the same role that
-manages the list. The count comes from
+Reading the summary requires the **Program Manager** role or above, the same
+role that manages the list. The count comes from
 `GET /api/v1/programs/{id}/mention-reach/`, which returns the two arms
 separately and never a combined total.
 
@@ -237,9 +238,10 @@ before it deletes a row.
 
 ### Access
 
-Reading and writing the list both require the program **Admin** role or
+Reading and writing the list both require the **Program Manager** role or
 above — managing who is externally pinged is treated as an administrative
-act, so Scheduler, Member, Viewer, and non-members cannot see or change it.
+act, so Resource Manager, Team Member, Viewer, and non-members cannot see or
+change it.
 Writes are additionally blocked once the program is closed (reads still work).
 
 ### Endpoints
@@ -295,10 +297,10 @@ schedule the program's projects (ADR-0441). It **inherits the workspace default
 unless you override it here**; a project can in turn override the program
 calendar. See [Working calendars](/administration/working-calendars/).
 
-## Risk & dependency policy
+## Risk policy
 
-The **Risk & dependency policy** section governs cross-project risk within the
-program (#529):
+The **Risk policy** section (its own page header reads **Risk & deps policy**)
+governs cross-project risk within the program (#529):
 
 - **Slip policy** — how a slip on a cross-project dependency propagates to the
   dependent project (warn or block). Default: **warn**.

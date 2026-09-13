@@ -3,18 +3,18 @@ title: "Real-Time Collaboration"
 description: "WebSocket broadcasts for all project mutations via Django Channels."
 ---
 
-TruePPM uses Django Channels 4 to push project changes to connected clients over WebSocket.
+**This page is for developers** connecting to TruePPM's live-update channel — end users don't configure anything here; changes just appear on screen as teammates make them. Under the hood, TruePPM pushes project changes to every connected client over a WebSocket connection the moment they happen, so a schedule move or a card drag shows up for everyone else without a page refresh.
 
 ## Connecting
 
 Mint a single-use ticket (`POST /api/v1/ws/ticket/`, 30-second TTL), then connect:
 
-```
+```text
 ws://localhost:8000/ws/v1/projects/{project_id}/?ticket=<ticket>
 ```
 
 Authentication uses a short-lived, single-use ticket so no JWT ever appears in a
-WebSocket URL or access log (RFC 6750 §2.3) — see the [WebSocket API reference](/api/websockets/) for the handshake. The deprecated `?token=<jwt>` parameter is disabled by default (it leaked the JWT into access logs) and is opt-in via `TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED` for one last release. Requires at least the Member role on the project. Viewers are rejected with close code 4003. If a connected user's membership is revoked or demoted below Member mid-session, the server evicts the live socket immediately with close code 4003 — revocation does not wait for the client to disconnect.
+WebSocket URL or access log (RFC 6750 §2.3) — see the [WebSocket API reference](/api/websockets/) for the handshake. The deprecated `?token=<jwt>` parameter is disabled by default (it leaked the JWT into access logs) and is opt-in via `TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED` for one last release. Requires at least the Team Member role on the project. Viewers are rejected with close code 4003. If a connected user's membership is revoked or demoted below Team Member mid-session, the server evicts the live socket immediately with close code 4003 — revocation does not wait for the client to disconnect.
 
 ## Event format
 

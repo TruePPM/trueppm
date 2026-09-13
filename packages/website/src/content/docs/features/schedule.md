@@ -4,7 +4,7 @@ description: "Canvas-rendered Schedule (Gantt-style) with critical path, baselin
 documentedFor: "0.4"
 ---
 
-The **Schedule view** is TruePPM's project-timeline surface — what the rest of the industry calls a *Gantt chart*. The product's canonical name is **Schedule** (per [ADR-0030](/architecture/decisions/) and the wave/1 rename in #204) because the view does more than the historical Gantt: critical path, baselines, milestones, the unscheduled gutter, and live CPM re-forecast off sprint velocity all live in the same canvas.
+This is the home view for a PM planning and tracking a project's timeline. The **Schedule view** is TruePPM's project-timeline surface — what the rest of the industry calls a *Gantt chart*. TruePPM calls it **Schedule** in the product because the view does more than a historical Gantt chart: the **critical path** (the chain of dependent tasks that determines the earliest the project can finish), baselines, milestones, the unscheduled gutter, and a live re-forecast driven by **CPM** — the Critical Path Method, the calculation engine that works out every task's dates from durations and dependencies — off sprint velocity all live in the same canvas.
 
 :::note[A note on "Gantt"]
 *Gantt chart* is the well-known industry term and is what most evaluators search for. We use **Schedule** in product copy and route names; the underlying paradigm is still a Gantt. The two words refer to the same thing in this docs site.
@@ -87,7 +87,7 @@ below.
 A committed start is a **start-no-earlier-than (SNET)** constraint. On each
 forward pass the engine takes the later of the two:
 
-```
+```text
 early_start = max(computed early_start, committed start, project start)
 ```
 
@@ -513,6 +513,12 @@ The **picker** — a search-and-pick dialog for the same result, and the way to 
 
 - **Right-click a task row** in the task list and choose **Add dependency…**.
 - **Open the task detail drawer**, expand the **Dependencies** section, and use the same **Add predecessor** / **Add successor** controls — or, for a task in another project, the **Search another project in this program…** link underneath them.
+
+![The dependency picker: a program-scoped task search with the Dependency type direction, the Relationship and lag fields, and the plain-language line restating the link about to be created](../../../assets/screenshots/dependency-editor.webp)
+
+The task detail drawer's own **Dependencies** section lists existing predecessors and successors with their type and lag inline, and offers the same add controls without opening the picker:
+
+![The Dependencies section of a task's detail page, expanded: predecessor and successor lists each with an inline type and lag field, and the cross-project search link below each](../../../assets/screenshots/task-detail-dependencies.webp)
 
 For a standalone project, the picker searches only that project's tasks. For a project that belongs to a program, it gains a **This project / Program** toggle: Program scope searches every sibling project in the program and groups the results by project, so you can gate a task against work owned by another team. A cross-project link you create may land as **pending** rather than immediately active — see [Program schedule](/features/program-schedule/) for how the counterpart team accepts it and how the link is drawn once accepted.
 

@@ -17,7 +17,9 @@ project admin the team has not shared velocity with, and a member whose access
 was revoked. Everything else on this page has shipped since 0.1.
 :::
 
-The `My Teams` toggle on the Sprints view aggregates active-sprint health across every project where the requesting user owns a non-complete task. Cards are sorted server-side by burndown deviation — most behind first.
+If you have open work on more than one team's sprint, the **My Teams** toggle on the Sprints view gives you a single screen showing how each of those sprints is doing, instead of clicking through projects one at a time. It's for anyone splitting their time across two or more teams — a PM covering two Scrum teams, a resource manager balancing several projects, or a PMO director keeping an eye on several at once.
+
+Turning it on shows one card per project where you have unfinished work in an active sprint. Each card is sorted by how far behind its **burndown** is — the chart that tracks remaining work against the sprint's time — so the sprint most behind schedule shows first.
 
 ## Where this lives in the story
 
@@ -44,22 +46,24 @@ Scope is the user's own assignments, not an org-wide rollup. The cross-portfolio
 
 ## Who can see what
 
-A card appears only for a project where you hold **live membership** — an
-assignment on its own is not access. Project memberships are soft-deleted, so a
-task you were assigned before your access was revoked keeps pointing at you; the
-lens checks the membership rather than inferring it from the assignment, and a
-revoked member sees no card for that project at all.
+A card appears only for a project where you are still a current member — being
+assigned a task there is not enough on its own. If your access to a project is
+later removed, an old task can still point at you, but the card for that
+project stops showing up; TruePPM checks your current membership, not just
+whether a task happens to be assigned to you.
 
-The **forecast range** on each card is the project's velocity band, and it
-carries the same team-privacy posture as the project's own Velocity and Forecast
-views ([ADR-0104](/architecture/decisions/)). Velocity is team-private by
-default: the team reads it, and a project admin or owner does not until the team
-shares it upward. Because the lens spans teams, the check runs **per project** —
-you can be an ordinary member of one team and the admin of the next, and each
-project's own setting decides its own card. A gated card reads `Team-private`
-where the range would be, and returns `velocity_suppressed: true` with the three
-point figures nulled. That is deliberately distinct from `no velocity yet`,
-which means the team has no closed sprints to average.
+The **forecast range** on each card is the project's **velocity** — a rolling
+average of how many story points the team completes per sprint, used to
+predict how much they'll finish next — and it follows the same privacy rule as
+the project's own Velocity and Forecast views: velocity is private to the team
+by default, and a project's own PM or owner cannot see it until the team
+chooses to share it upward. Because this lens spans several teams at once, that
+check happens separately for each project's card — you might be an ordinary
+team member on one project and the admin on the next, and each project decides
+for itself what its own card shows you. If a project hasn't shared its
+velocity, its card simply reads **Team-private** instead of a number. That is
+different from a card that reads **no velocity yet**, which just means the
+team hasn't closed enough sprints yet to have an average.
 
 The rest of the card — day-N-of-M, remaining points, capacity, and the trend
 chip — is not gated.

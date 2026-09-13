@@ -516,6 +516,8 @@ simulated dates — usually signals that one or two tasks have extreme P estimat
 that dominate the tail. Investigate those tasks; they are your primary risk
 drivers.
 
+![The Monte Carlo finish-date distribution histogram, with the P50, P80 and P95 dates marked as vertical lines](../../../assets/screenshots/monte-carlo-histogram.webp)
+
 ## Added time
 
 **Added time** is the number of calendar days the P80 commitment date sits beyond
@@ -539,6 +541,8 @@ open the chip and the full read is in the popover, which never drops it.
 On a phone the same value rides the Monte Carlo card at the foot of the schedule,
 and tapping through opens the full added-time card at the top of the forecast
 sheet.
+
+![The Monte Carlo forecast detail panel: the finish-date histogram, added time vs the computed finish at P50/P80/P95, the sensitivity list of what's holding the date, and confidence by date](../../../assets/screenshots/monte-carlo-detail-panel.webp)
 
 Every one of those surfaces reads the same server-computed value, delivered on
 both the project overview API (`risk_premium_days` and friends) and the Monte

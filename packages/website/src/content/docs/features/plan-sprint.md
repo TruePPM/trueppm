@@ -3,7 +3,7 @@ title: Plan Sprint dialog
 description: Single-step modal for creating the next sprint — name + dates + optional goal.
 ---
 
-The smallest credible sprint creation flow. Triggered by the "Plan next sprint" button in the Sprints view header, opens a single-step dialog with name + start/finish dates + optional goal, and POSTs to the existing sprint endpoint.
+This is for a Scrum Master opening the next sprint once the current one closes. It's the smallest credible sprint creation flow: the **Plan next sprint** button in the Sprints view header opens a single-step dialog where you enter a name, start and finish dates, and an optional goal.
 
 ## Where this lives in the story
 
@@ -16,6 +16,8 @@ Step 5 ([Sprint planning](/the-story/#5-sprint-planning--the-team-pulls-work)) o
 - **Goal** (optional) — the narrative the team commits to for the iteration
 
 Inline validation on `finish ≤ start`. Submit creates the sprint in `PLANNED` state — activate it later from the timeline strip.
+
+![The Plan Sprint dialog: Name, Start and Finish date fields, an optional Goal textarea, and Cancel / Save changes buttons](../../../assets/screenshots/sprint-plan-dialog.webp)
 
 ## Where to find it in the app
 

@@ -178,9 +178,12 @@ Every write endpoint that reads named fields from the body expects a JSON
 **object**. A top-level array is legal JSON, so it reaches the endpoint and is
 refused with `invalid_body`:
 
-```console
-$ curl -X POST .../api/v1/sprint-task-outcomes/{id}/toggle-demo/ \
+```bash
+curl -X POST .../api/v1/sprint-task-outcomes/{id}/toggle-demo/ \
     -H 'Content-Type: application/json' -d '[{"demo_ready": true}]'
+```
+
+```text
 400
 {"code": "invalid_body", "detail": "Request body must be a JSON object."}
 ```
@@ -426,7 +429,7 @@ SSO failures are a third shape again. The login and callback endpoints are
 **browser redirects**, so the code arrives as an `?error=` query parameter on the
 SPA completion URL — not in a response body:
 
-```
+```text
 https://ppm.example.com/auth/complete?error=invalid_state
 ```
 

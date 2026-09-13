@@ -14,6 +14,15 @@ vi.mock('@/hooks/useSyncStatus', async (importOriginal) => {
   return { ...actual, getPendingWriteCount: () => pending.count };
 });
 
+// Only the egress is stubbed. `scrubSensitivePath` stays REAL — a test that
+// mocked it too would assert the boundary calls something, not that what leaves
+// the boundary is safe (#3553).
+const reportErrorMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/telemetry', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/telemetry')>();
+  return { ...actual, reportError: reportErrorMock };
+});
+
 /**
  * Renders a route whose element throws `message`, with RouteErrorBoundary wired
  * as its `errorElement` — mirroring the real router wiring (issue 1654).
@@ -44,6 +53,7 @@ beforeEach(() => {
   reload = vi.fn();
   fakeLocation = { reload, href: '', pathname: '/me/timesheet' };
   Object.defineProperty(window, 'location', { configurable: true, value: fakeLocation });
+  reportErrorMock.mockClear();
 });
 
 afterEach(() => {
@@ -210,5 +220,38 @@ describe('RouteErrorBoundary — discarding queued writes (#2834)', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Go to home anyway' }));
     expect(fakeLocation.href).toBe('/');
+  });
+
+  // --- #3553 ---------------------------------------------------------------
+  describe('telemetry route reporting', () => {
+    it('reports an ordinary route verbatim', () => {
+      fakeLocation.pathname = '/me/timesheet';
+      renderThrowing('boom');
+
+      expect(reportErrorMock).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({ boundary: 'route', route: '/me/timesheet' }),
+      );
+    });
+
+    it('never hands the collector a password-reset credential', () => {
+      // This boundary is exactly the code that runs when the reset screen has
+      // just failed to render, and the pre-#3553 path shape is still reachable
+      // through the legacy-link redirect route.
+      fakeLocation.pathname = '/reset-password/confirm/MQ/sekrit-token';
+      renderThrowing('boom');
+
+      const [, context] = reportErrorMock.mock.calls[0] as [unknown, { route: string }];
+      expect(context.route).toBe('/reset-password/confirm/<redacted>');
+      expect(context.route).not.toContain('sekrit-token');
+    });
+
+    it('redacts the invite flow too', () => {
+      fakeLocation.pathname = '/invite/accept';
+      renderThrowing('boom');
+
+      const [, context] = reportErrorMock.mock.calls[0] as [unknown, { route: string }];
+      expect(context.route).toBe('/invite/<redacted>');
+    });
   });
 });

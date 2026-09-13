@@ -130,6 +130,11 @@ is no 3.14-specific dependency.
 
 For preliminary hardware sizing guidance at 50 / 100 / 200 users, see [Deployment Sizing](/administration/sizing/).
 
+**Running on OpenShift?** See [OpenShift Deployment](/administration/openshift/)
+for the `restricted-v2` SCC override, Ingress→Route behavior, and what does not
+work yet (the bundled dev/demo `postgresql`/`valkey` subcharts) — everything
+else on this page applies unchanged.
+
 ### Production install walkthrough
 
 Prerequisites: Helm 3.14+, `kubectl` compatible with your cluster, and a

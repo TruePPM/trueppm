@@ -8,10 +8,12 @@ documentedFor: "0.4"
 Sample projects and JSON seed import/export were added in 0.3, available since the `0.3.0-alpha.1` pre-release (Jun 28, 2026). See the [roadmap](/overview/roadmap/).
 :::
 
-TruePPM uses one canonical JSON format to seed sample projects and to move whole
-programs in and out of an instance. A single seed document describes a program
-and all of its projects — tasks (with WBS paths and three-point estimates),
-dependencies, sprints, baselines, risks, resources, and memberships.
+TruePPM uses one canonical JSON format both to **seed** (load ready-made starter
+data into) sample projects and to move whole programs in and out of an
+instance. A single seed document — a JSON file, either one TruePPM ships or one
+you export yourself — describes a program and all of its projects: tasks (with
+WBS paths and three-point estimates), dependencies, sprints, baselines, risks,
+resources, and memberships.
 
 The format is **v2** (the JSON Schema lives at
 `packages/api/src/trueppm_api/apps/projects/schemas/seed_v2.json`, with the
@@ -224,10 +226,16 @@ local Docker dev with `DEBUG` on. Without the flag the personas are view-only.
 See the [evaluation guide](/getting-started/evaluation-guide/) for the persona
 sign-in walkthrough.
 
-Or over the API: `POST /api/v1/programs/load-sample/` (any authenticated user;
-the caller becomes the program owner). Loading a sample builds the whole program
-in one synchronous request, so it takes seconds and is capped at six loads per
-minute per account — set a generous client timeout, and do not poll it.
+Or over the API:
+
+```http
+POST /api/v1/programs/load-sample/
+```
+
+Any authenticated user may call it; the caller becomes the program owner.
+Loading a sample builds the whole program in one synchronous request, so it
+takes seconds and is capped at six loads per minute per account — set a
+generous client timeout, and do not poll it.
 
 ## Import a seed file
 
@@ -266,9 +274,9 @@ docker compose exec api python manage.py import_seed path/to/seed.json [--owner 
 
 Re-importing the same file is idempotent: a program with the same slug is
 replaced rather than duplicated. **The command defaults to replacing**, so
-`make seed` keeps re-running in place; pass `--no-replace` when you want the
-command to stop rather than overwrite. The REST endpoint defaults the other way
-— it refuses until you confirm.
+re-running the `import_seed` command above updates the program in place; pass
+`--no-replace` when you want the command to stop rather than overwrite. The
+REST endpoint defaults the other way — it refuses until you confirm.
 
 ### What happens to the replaced program
 
@@ -287,7 +295,7 @@ reload never replaces a program that contains a real, non-sample project.
 
 ### Over the API
 
-```
+```http
 POST /api/v1/programs/import/
 ```
 
@@ -298,9 +306,13 @@ failure returns `400`.
 The import is **asynchronous**. A successful call returns `202 Accepted` with
 `{"queued": true, "program_id": …, "import_request_id": …, "replaced_program_id": …}`.
 The program shell exists at `program_id` immediately — you can navigate to it
-right away — while its projects and tasks are built by a background worker. Poll
-`GET /api/v1/programs/{program_id}/import/jobs/{import_request_id}/` until
-`status` is `success` or `failed`.
+right away — while its projects and tasks are built by a background worker. Poll:
+
+```http
+GET /api/v1/programs/{program_id}/import/jobs/{import_request_id}/
+```
+
+until `status` is `success` or `failed`.
 
 If a live program you own already holds the seed's slug, the endpoint refuses
 with `409 Conflict` and `code: "seed_replace_required"`, naming the program and
@@ -316,12 +328,23 @@ response shapes.
 ## Export a program
 
 See [Data export](/administration/data-export/) for the full operator
-reference. In short:
+reference. Three ways to export:
 
-- **Web:** open **Program → Settings → General** and choose **Export to JSON**.
-- **CLI:** `python manage.py export_program <program-slug> --out program.json`
-- **API:** `GET /api/v1/programs/{id}/export/` (any program member, Viewer and
-  above).
+**Web:** open **Program → Settings → General** and choose **Export to JSON**.
+
+**Command line:**
+
+```bash
+docker compose exec api python manage.py export_program <program-slug> --out program.json
+```
+
+**API:**
+
+```http
+GET /api/v1/programs/{id}/export/
+```
+
+Any program member (Viewer role and above) may call it.
 
 :::caution
 An exported seed file includes the email addresses of the program's members and

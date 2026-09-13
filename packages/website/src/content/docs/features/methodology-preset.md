@@ -34,6 +34,8 @@ a label change, not a matrix change.
 
 Waterfall hides Backlog and Sprints; Agile hides Schedule and Calendar; Hybrid hides nothing. The **Grid** tab replaced the earlier separate WBS and Table tabs (ADR-0053) and is visible in all three methodologies — its Outline mode covers the WBS use case for Waterfall and Hybrid, while Flat mode is the Agile default. Independently of methodology, the **Team** tab is additionally role-gated: it only shows for users with the Resource Manager role or above.
 
+![The three methodology cards, zoomed: Agile selected, with Waterfall and Hybrid beside it each naming what it turns on and off](../../../assets/screenshots/methodology-selector.webp)
+
 The default for new projects is **Hybrid** — every tab visible. Existing projects (created before ADR-0041 landed) all default to Hybrid; no behavior change.
 
 ## Why hide tabs but not gate routes

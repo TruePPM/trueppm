@@ -10,6 +10,7 @@ import { ForgotPasswordSentPage } from './ForgotPasswordSentPage';
 import { ResetPasswordConfirmPage } from './ResetPasswordConfirmPage';
 import { ResetPasswordDonePage } from './ResetPasswordDonePage';
 import { ResetPasswordExpiredPage } from './ResetPasswordExpiredPage';
+import { ResetPasswordLegacyLinkRedirect } from './ResetPasswordLegacyLinkRedirect';
 import { confirmPasswordReset, requestPasswordReset } from './resetApi';
 
 // Keep the pure helpers (redactEmail, isRateLimited, classifyConfirmError) real —
@@ -144,8 +145,10 @@ describe('ForgotPasswordSentPage', () => {
 });
 
 describe('ResetPasswordConfirmPage', () => {
-  const CONFIRM_PATH = '/reset-password/confirm/:uid/:token';
-  const START = '/reset-password/confirm/uid123/tok456';
+  // The credential rides in the fragment, not the path (#3553) — so the route
+  // pattern carries no params and `START` is the same path for every case.
+  const CONFIRM_PATH = '/reset-password/confirm';
+  const START = '/reset-password/confirm#uid=uid123&token=tok456';
 
   async function fillPasswords(user: ReturnType<typeof userEvent.setup>) {
     await user.type(screen.getByLabelText('New password'), STRONG_PASSWORD);
@@ -211,6 +214,38 @@ describe('ResetPasswordConfirmPage', () => {
     expect(confirm).toHaveAttribute('aria-describedby', mismatch.getAttribute('id'));
   });
 
+  // --- #3553: fragment transport -------------------------------------------
+  it('takes uid + token from the fragment, and the pathname carries neither', () => {
+    renderAt(START, [{ path: CONFIRM_PATH, element: <ResetPasswordConfirmPage /> }]);
+
+    expect(screen.getByRole('heading', { name: 'Choose a new password' })).toBeInTheDocument();
+    // The route pattern has no params at all — the only thing a server, a proxy
+    // log, or `window.location.pathname` can see is the bare flow path.
+    expect(CONFIRM_PATH).not.toContain(':');
+    expect(START.split('#')[0]).toBe(CONFIRM_PATH);
+  });
+
+  it.each([
+    ['a missing fragment', '/reset-password/confirm'],
+    ['a fragment with no token', '/reset-password/confirm#uid=uid123'],
+    ['a fragment with no uid', '/reset-password/confirm#token=tok456'],
+  ])(
+    'routes straight to the expired screen on %s, without asking for a password',
+    (_label, start) => {
+      renderAt(start, [
+        { path: CONFIRM_PATH, element: <ResetPasswordConfirmPage /> },
+        { path: '/reset-password/expired', element: <div>expired-screen</div> },
+      ]);
+
+      // An email URL-rewriting proxy that drops the fragment lands here. Making
+      // the user compose a password first could only ever end in a server
+      // rejection.
+      expect(screen.getByText('expired-screen')).toBeInTheDocument();
+      expect(screen.queryByLabelText('New password')).not.toBeInTheDocument();
+      expect(mockConfirm).not.toHaveBeenCalled();
+    },
+  );
+
   it('associates server policy errors with the new-password input (#2206)', async () => {
     const user = userEvent.setup();
     mockConfirm.mockResolvedValueOnce({
@@ -226,6 +261,38 @@ describe('ResetPasswordConfirmPage', () => {
     const alert = await screen.findByRole('alert');
     expect(newPassword).toHaveAttribute('aria-invalid', 'true');
     expect(newPassword).toHaveAttribute('aria-describedby', alert.getAttribute('id'));
+  });
+});
+
+describe('ResetPasswordLegacyLinkRedirect (#3553)', () => {
+  const LEGACY_PATH = '/reset-password/confirm/:uid/:token';
+
+  it('rewrites a pre-#3553 path link into the fragment form and renders the form', () => {
+    renderAt('/reset-password/confirm/uid123/tok456', [
+      { path: LEGACY_PATH, element: <ResetPasswordLegacyLinkRedirect /> },
+      { path: '/reset-password/confirm', element: <ResetPasswordConfirmPage /> },
+    ]);
+
+    // A link already in an inbox at deploy time still works…
+    expect(screen.getByRole('heading', { name: 'Choose a new password' })).toBeInTheDocument();
+  });
+
+  it('carries the credential through to the confirm call', async () => {
+    const user = userEvent.setup();
+    mockConfirm.mockResolvedValueOnce({ kind: 'success' });
+    renderAt('/reset-password/confirm/uid123/tok456', [
+      { path: LEGACY_PATH, element: <ResetPasswordLegacyLinkRedirect /> },
+      { path: '/reset-password/confirm', element: <ResetPasswordConfirmPage /> },
+      { path: '/reset-password/done', element: <div>done-screen</div> },
+    ]);
+
+    await user.type(screen.getByLabelText('New password'), STRONG_PASSWORD);
+    await user.type(screen.getByLabelText('Confirm new password'), STRONG_PASSWORD);
+    await user.click(screen.getByRole('button', { name: 'Update password' }));
+
+    // …with the same uid/token it was minted with, now sourced from the fragment.
+    expect(mockConfirm).toHaveBeenCalledWith('uid123', 'tok456', STRONG_PASSWORD);
+    expect(await screen.findByText('done-screen')).toBeInTheDocument();
   });
 });
 

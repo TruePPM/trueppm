@@ -15,7 +15,12 @@ If you are running 0.3 or earlier, set `DJANGO_SUPERUSER_EMAIL` explicitly befor
 your first deploy; the default there is a domain you do not control.
 :::
 
-TruePPM ships a `create_admin` Django management command that bootstraps a superuser on first run. The default writes a securely-generated password to a file with `0o600` permissions so the credential never appears in container logs or log aggregators (CloudWatch, Datadog, etc.).
+Every fresh TruePPM install needs one administrator account to sign in with before
+anyone else can. This page covers getting that first password (during initial setup),
+finding it again if you missed it, and resetting any user's password later —
+including your own, if you lose it.
+
+TruePPM ships a `create_admin` Django management command that bootstraps a superuser on first run. The default writes a securely-generated password to a file with `0o600` permissions (readable only by its owner) so the credential never appears in container logs or log aggregators (CloudWatch, Datadog, etc.).
 
 ## First-run setup
 
@@ -163,9 +168,12 @@ follows the flow:
    page never reveals which emails are registered (no account enumeration).
 2. **Reset email** — if the address belongs to an account, TruePPM emails a
    single-use link that is valid for **30 minutes**.
-3. **`/reset-password/confirm/…`** — the link opens a page where the user sets a new
+3. **`/reset-password/confirm`** — the link opens a page where the user sets a new
    password (minimum 10 characters, at least one number or symbol, and different
-   from their current password).
+   from their current password). The link's single-use credential is carried in the
+   URL *fragment* (after the `#`), which browsers never transmit to any server — so
+   it stays out of your reverse-proxy access logs and out of the `Referer` header
+   sent to any site the user navigates to next.
 4. **All other sessions are signed out** — a successful reset revokes every other
    active session for that account, so a leaked-but-forgotten session on another
    device cannot outlive the reset.

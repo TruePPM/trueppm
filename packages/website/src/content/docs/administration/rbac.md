@@ -199,7 +199,7 @@ These flags are advisory for clients (the server still authorizes every write â€
 
 The rule is *not* "Team Member or above". It is Team Member or above **minus the resource-management band (200â€“299)**:
 
-```
+```text
 role >= Member  and not  (Scheduler <= role < Admin)
 ```
 

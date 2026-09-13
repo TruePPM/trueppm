@@ -10,7 +10,7 @@ categories, and the earned-value actuals feed follow in 0.5. The running timer a
 popover described below feed the same underlying time entries and ship alongside the grid in 0.4.
 :::
 
-TruePPM captures time three ways, all writing to the same underlying `TimeEntry` records: a
+This is for anyone who needs to record time spent on their work — a contributor logging hours against tasks, or a PM who wants an accurate picture of effort. TruePPM offers three ways to capture time, and all three feed the same record behind the scenes: a
 **running timer** you start and stop against a task, a **quick-log popover** for logging a chunk
 of time you already finished, and the **weekly grid** below for reviewing and submitting a whole
 week. Whichever you use, the same entry shows up in the others — stop a timer and its entry
@@ -81,6 +81,8 @@ Monday to Sunday.
 - **Type hours however is fastest** — `2`, `2.5`, or `2:30` all mean two-and-a-half hours. `Tab` moves between cells, `Enter` saves the cell, `Esc` discards the edit. Clearing a cell removes that day's entry.
 - **Totals update as you type** — a row total per task, a daily total under each day, and the week total in the header. A daily total over eight hours is flagged amber so an over-long day is obvious.
 - **Weekends are shaded** and today's column is tinted, so you can orient at a glance.
+
+![The weekly grid header and daily-total row, zoomed: Saturday and Sunday shaded, Sunday's date tinted as today, and the Total column on the right](../../../assets/screenshots/timesheet-grid.webp)
 
 Step between weeks with the `‹ … ›` stepper, and start logging against a task that isn't in the grid yet with **Add project or task**.
 

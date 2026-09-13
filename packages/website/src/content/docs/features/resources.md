@@ -4,7 +4,7 @@ description: Maintain a Workspace resource catalog with skills and proficiency, 
 documentedFor: "0.4"
 ---
 
-TruePPM models the people who do the work as **resources**. Resources live in a
+This is for a resource manager or PM who staffs projects and wants to see who's available and who's overloaded. TruePPM models the people who do the work as **resources**. Resources live in a
 Workspace-wide catalog, carry **skills** at a proficiency level, join a **project
 roster**, and get **assigned to tasks** at a fractional capacity. When you assign someone,
 TruePPM surfaces soft warnings if their skills don't match the task or if they're
@@ -134,6 +134,8 @@ stay in control.
 The overallocation check windows by date against the same calendar-aware engine as the
 heatmap, so the two cannot disagree about who is overcommitted: three 80% tasks that never
 share a working day are 80% allocated, not 240%. Two consequences are worth knowing:
+
+![The utilization heatmap grid, zoomed: each cell shows a person's committed percentage for that week, with a lighter cell for a week with no allocation](../../../assets/screenshots/resource-heatmap-cells.webp)
 
 - **Non-working days are not conflicts.** Spans that meet only across a weekend, or only
   on a calendar exception, do not stack. A resource's own calendar wins over the

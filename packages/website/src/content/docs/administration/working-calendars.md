@@ -52,7 +52,7 @@ The **effective calendar** — the one CPM actually schedules against — is **r
 the server** and returned to every client (web, mobile, API), so no client re-implements
 the precedence. The chain is:
 
-```
+```text
 Workspace calendar  →  Program override  →  Project override
     (the default)         (optional)             (optional)
 ```

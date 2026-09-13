@@ -9,14 +9,7 @@ documentedFor: "0.4"
 This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4. The **Notes** section below was added separately in 0.3 — see its callout.
 :::
 
-Every task has its own decision log, attachment grid, and comment thread
-inside the detail drawer. **Notes** capture the *why* behind the work — a
-flat, per-author, append-only log of decisions and reasoning, distinct from
-the back-and-forth of comments. **Comments** support `@user` and `@group`
-mentions; mentioned recipients get an in-app notification on the TopBar bell
-within ~30 seconds, with an optional email opt-in. Acknowledgements (✅) and
-reactions (👍) are structurally distinct so coaches can read team health
-without polluting it with chatter.
+This is for anyone working on a task who needs to record why a decision was made, attach a file, or discuss the work with teammates — every task has its own decision log, file attachments, and comment thread inside its detail drawer. **Notes** capture the *why* behind the work — a flat, append-only log of decisions and reasoning, distinct from the back-and-forth of comments. **Comments** support `@user` and `@group` mentions; mentioned people get a notification in their inbox (the bell icon in the top bar) within about 30 seconds, with an optional email as well. Giving a comment a thumbs-up and formally acknowledging it ("I've seen this, I'm on it") are kept as two separate, structurally distinct signals, so a Scrum Master or coach reading team health from acknowledgements isn't drowned out by casual reactions.
 
 ![A task detail page for a critical-path task: start, finish, duration and float, with status, progress, assignees and labels](../../../assets/screenshots/task-detail.webp)
 
@@ -492,7 +485,7 @@ enforces visibility scope (relevant for the future TEAM_ONLY scope that
 - Attachment pin/unpin toggle — needs a small backend `PATCH` addition
 - IndexedDB offline write queue for comments + attachments — #311 phase 2c
 - Real-time per-user notification push via a `user_{id}` WebSocket channel —
-  deferred to 0.3 if the 30 s polling proves too laggy in practice
+  still deferred; the bell polls every 30 s instead
 - Portfolio-level Decision rollup, audit-trail immutability, and the
   executive weekly digest — all filed in `trueppm-enterprise` as paid-tier
   overlays (#108–#113)

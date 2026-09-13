@@ -3,7 +3,7 @@ title: Retrospective panel
 description: Notes + action items with explicit per-item promotion into the project backlog, a team-visibility gate, and prior-retro context.
 ---
 
-The retrospective surface that closes the sprint loop. Notes textarea + action items with optional story points. Each saved action item carries an explicit **Promote to backlog** button — promoting creates a real task in the project backlog, and the resulting task surfaces back as a `T-XXX` chip on the action item.
+This is for a Scrum Master and team wrapping up a sprint together. It's the retrospective surface where the team reflects on how the sprint went: a notes area for the discussion, plus a list of action items with optional **story points** — the team's own size estimate for a piece of work, distinct from the schedule's duration estimate. Each saved action item carries an explicit **Promote to backlog** button — promoting creates a real task in the project backlog, and the resulting task surfaces back as a `T-XXX` chip on the action item so you can see it was followed through on.
 
 ## Where this lives in the story
 
