@@ -145,7 +145,7 @@ cd packages/web && npm test         # web (vitest)
   2. **Single-focus work on clean main**: `git checkout main && git pull origin main && git checkout -b <prefix>/<short-description>`
   3. Make changes, commit, push branch
   4. Open the MR targeting `main` — the user runs `/mr`, or an agent runs `glab mr create` directly in the `/mr` skill's format (the `/mr`, `/fix-mr`, and `/release` skills are `disable-model-invocation`, so an agent reproduces their behavior rather than invoking them). Then wait for a **green pipeline** and merge.
-  5. After merge: in the main checkout, `scripts/wt remove <issue>` if you used a worktree
+  5. After merge: in the main checkout, `scripts/wt prune` (reaps every worktree whose MR merged) or `scripts/wt remove <issue>`. Nothing does this automatically after a GitLab merge; `make pre-push`'s sweep runs only before a push
 - Release commits also go through branches and MRs — `scripts/release.sh` handles this automatically
 - **Changelog entries use fragment files** — create `changelog.d/<slug>.<type>.md` instead of editing `CHANGELOG.md` directly. Valid types: `added`, `changed`, `fixed`, `security`. Fragments are assembled at release time by `scripts/assemble-changelog.sh`. See `changelog.d/README.md` for the naming convention. **Never edit `CHANGELOG.md` directly** — the CI `changelog:check` job looks for fragment files and will block the pipeline if none are present.
 - **Every new or modified feature must include test cases and documentation updates in the same MR** — do not ship a feature without both
