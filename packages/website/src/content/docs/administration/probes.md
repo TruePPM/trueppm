@@ -155,6 +155,20 @@ exists at all" is precisely "this worker has established a broker connection
 at least once." Until it does, liveness stays suspended, so a slow first
 connection cannot restart-loop the pod.
 
+**Before any of that, the worker waits for its broker (#3722).** On a fresh
+install the worker and Valkey start at the same time. Every recorded case of a
+worker that connected, logged `ready`, and then served nothing (heartbeat file
+frozen at the `ready` timestamp, no `inspect ping` reply) began with the worker
+hitting refused broker connections during that race. The exact mechanism is not
+yet confirmed, so treat this as a mitigation rather than a proven fix. The worker
+now pings the broker before it starts consuming, retrying every 2s. If the broker
+still isn't reachable after `TRUEPPM_CELERY_BROKER_WAIT_SECONDS` (default `120`,
+inside the startup probe's 150s budget), the worker exits non-zero so the
+container restarts cleanly. Set it to `0` to turn the wait off. Log lines
+prefixed `worker_broker_wait:` show whether the wait engaged. This covers only
+startup: a broker that restarts under a running worker is still recovered by the
+liveness probe.
+
 *What to do when readiness or startup fails:* check whether the worker process
 is even running (`kubectl logs -c celery-worker`, or `docker compose logs
 celery`) before assuming a probe bug — a worker that has genuinely crashed or

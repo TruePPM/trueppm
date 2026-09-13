@@ -36,7 +36,7 @@ Foundation for self-hosted, scheduling-first PPM. Everything below is in `main` 
 
 | Surface | What landed |
 |---------|-------------|
-| Scheduling | CPM engine (4 dependency types, calendar-aware lag, cycle detection), Monte Carlo P50/P80/P95, auto-reschedule on every write, sub-100ms in-browser drag preview via a TypeScript CPM worker (calendar-approximate — fixed Mon–Fri week; the authoritative server CPM reconciles exact dates on commit). A Rust/WASM CPM engine ships as a conformance reference validated against the Python engine in CI (ADR-0015); wiring it into the browser is future work (#1777) |
+| Scheduling | Critical Path Method (CPM) engine (4 dependency types, calendar-aware lag, cycle detection), Monte Carlo risk analysis giving P50/P80/P95 finish-date confidence bands, auto-reschedule on every write, sub-100ms in-browser drag preview via a TypeScript CPM worker (calendar-approximate — fixed Mon–Fri week; the authoritative server CPM reconciles exact dates on commit). A Rust/WASM CPM engine ships as a conformance reference validated against the Python engine in CI (ADR-0015); wiring it into the browser is future work (#1777) |
 | Schedule view | Custom canvas Gantt with critical path, milestones, unscheduled gutter, drag-to-reschedule, dependency editing UX (#249), design polish parity (#248) |
 | Agile | Board / Kanban (5-column, swimlanes, WIP-overload), Sprints workspace (header + goal + milestone link + cadence + backlog + burndown + capacity + velocity + retro), multi-team Sprints lens, sprint header buttons (#299) |
 | Hybrid bridge | Velocity feedback loop (`VelocitySuggestion` model, ADR-0065) — sprint velocity suggests revised CPM durations non-destructively |
@@ -44,7 +44,7 @@ Foundation for self-hosted, scheduling-first PPM. Everything below is in `main` 
 | Risk | Risk Register tab — probability × impact scoring, lifecycle states, task links (#174), CSV export (#222) |
 | Methodology | Waterfall / Agile / Hybrid preset driving tab visibility |
 | Data exchange | MS Project import/export via REST API — no in-app UI yet, inbound task-sync webhook |
-| Platform | REST API, 5-role RBAC, real-time WebSocket, offline sync (WatermelonDB-compatible), application shell, project settings RBAC UI (#144) |
+| Platform | REST API, 5-role role-based access control (RBAC), real-time WebSocket, offline sync (WatermelonDB-compatible), application shell, project settings RBAC UI (#144) |
 | Operations | Helm 3 chart, Docker images, PyPI publish path for `trueppm-scheduler` (#301) |
 
 ### 0.2 — settings, administration & consolidation (alpha: May 31, 2026)
@@ -81,7 +81,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 
 ### 0.4 — the self-hosting PM's beta (target: Aug 31 – Sep 14, 2026)
 
-**For the project manager whose schedule lives on their own infrastructure — and TruePPM's first beta release.** The headliner is a read-only MCP server: point any MCP client (Claude Desktop, Cursor, Zed) at your self-hosted instance and ask real questions of the live schedule — critical path, a non-mutating Monte Carlo what-if, sprint status — all computed by the CPM engine, never guessed by a model, never leaving your box. That is the principle we call [**computed, not guessed**](/architecture/overview/#computed-not-guessed), and it is the spine of the MCP launch and of everything AI-facing that follows it. Because a beta is judged in its first five minutes, 0.4 is also where TruePPM becomes trivially evaluable: a hosted read-only demo, a one-command trial path, and read-only share links that let a schedule travel beyond its own instance — the evaluation story that stands in for a mobile app until the installable PWA lands in 0.5 and the native Android app in 0.6. And it lands the production foundations the self-hosting community expects at beta: SSO login federation, OpenTelemetry observability, a published rate-limiting and API-stability contract, and a coexistence-first inbound Jira pull so a team can adopt without abandoning the tools they already use. Time capture and in-app baselines move up from 0.5 into this release, because a PM cannot pilot a schedule they can't baseline or log time against. And the largest single body of work in the cycle is none of the above: it is the polish, accessibility, and refactoring pass described at the end of this section — the difference between a demo and a beta.
+**For the project manager whose schedule lives on their own infrastructure — and TruePPM's first beta release.** The headliner is a read-only MCP (Model Context Protocol) server: point any MCP client (Claude Desktop, Cursor, Zed) at your self-hosted instance and ask real questions of the live schedule — critical path, a non-mutating Monte Carlo what-if, sprint status — all computed by the CPM engine, never guessed by a model, never leaving your box. That is the principle we call [**computed, not guessed**](/architecture/overview/#computed-not-guessed), and it is the spine of the MCP launch and of everything AI-facing that follows it. Because a beta is judged in its first five minutes, 0.4 is also where TruePPM becomes trivially evaluable: a hosted read-only demo, a one-command trial path, and read-only share links that let a schedule travel beyond its own instance — the evaluation story that stands in for a mobile app until the installable PWA lands in 0.5 and the native Android app in 0.6. And it lands the production foundations the self-hosting community expects at beta: SSO login federation, OpenTelemetry observability, a published rate-limiting and API-stability contract, and a coexistence-first inbound Jira pull so a team can adopt without abandoning the tools they already use. Time capture and in-app baselines move up from 0.5 into this release, because a PM cannot pilot a schedule they can't baseline or log time against. And the largest single body of work in the cycle is none of the above: it is the polish, accessibility, and refactoring pass described at the end of this section — the difference between a demo and a beta.
 
 #### How the 0.4 line is numbered
 
@@ -165,10 +165,10 @@ See [Computed, not guessed](/overview/computed-not-guessed/) for the full princi
 #### Beta hardening — the unglamorous majority of 0.4
 
 The feature list above is the smaller half of this release. By volume the 0.4 cycle is a
-polish, accessibility, and refactoring pass: roughly **900 issues closed** across about
-**2,400 commits** since the 0.3 tag, of which fixes, a11y work, refactoring, tests, and
-tooling substantially outnumber new surface — around 270 `feat:` commits against roughly
-1,050 across `fix`, `test`, `refactor`, `docs`, `chore`, `ci`, and `perf`. That is deliberate. 0.4 is the first release
+polish, accessibility, and refactoring pass: roughly **1,500 issues closed** across about
+**2,350 commits** since the 0.3 tag, of which fixes, a11y work, refactoring, tests, and
+tooling substantially outnumber new surface — around 380 `feat:` commits against roughly
+1,930 across `fix`, `test`, `refactor`, `docs`, `chore`, `ci`, and `perf`. That is deliberate. 0.4 is the first release
 we ask anyone to run a real project on, and a beta earns that by being *finished*, not by
 being *large*. Six standing audits — UX, accessibility, voice-of-customer, red-team,
 settings, and security — fed the queue rather than a feature backlog.

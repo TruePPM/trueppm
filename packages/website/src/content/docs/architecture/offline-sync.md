@@ -48,7 +48,7 @@ The bug that forced the split (tracked as #2491, and the direct cause of
 `sync_seq` existing) is worth stating precisely, because "add a version number"
 sounds like it should obviously work and the reason it doesn't is not obvious:
 
-```
+```text
 A task saved 7 times:      task.server_version = 7
 A risk saved once:         risk.server_version = 1
 Project watermark:         MAX(server_version) = 7

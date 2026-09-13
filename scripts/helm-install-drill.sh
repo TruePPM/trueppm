@@ -430,6 +430,18 @@ worker_ready_condition="$(kubectl get pod "$worker_pod" -o jsonpath='{.status.co
   || fail "celery-worker pod is not Ready (${worker_ready_condition:-<empty>}) despite helm install --wait succeeding — inconsistent chart/cluster state"
 log "celery worker pinned, Ready, and stable (0 restarts): $worker_cmd"
 
+# Startup broker race, measured on EVERY run (#3722). Every recorded ping
+# failure below began with the worker booting into refused broker connections
+# before valkey was up, but the worker log used to be printed only on failure,
+# so no green run could say whether the race had happened at all. The worker
+# now waits for the broker before it starts (trueppm_api.core.worker_broker_wait),
+# which should leave consumer refusals at 0 every run. If a ping failure recurs
+# with 0 refusals, the startup-race explanation is wrong.
+worker_log="$(kubectl logs "$worker_pod" -c celery-worker 2>&1 || true)"
+broker_waits="$(printf '%s\n' "$worker_log" | grep -c 'worker_broker_wait: broker not reachable yet' || true)"
+consumer_refusals="$(printf '%s\n' "$worker_log" | grep -c 'consumer: Cannot connect to' || true)"
+log "worker startup: ${broker_waits} pre-start broker wait(s), ${consumer_refusals} consumer connect refusal(s) (#3722)"
+
 # An INDEPENDENT, retry-able functional proof that the worker actually SERVES,
 # not merely that Kubernetes reports it Ready (#3236, #3346). Before #3346 this
 # was diagnostic-only because the chart's own readiness probe had to be
@@ -527,7 +539,19 @@ print("all bound pidbox queues:", queues)
     echo "no readable cgroup cpu.stat at either the v2 or v1 path"
   ' 2>&1 | sed "$INDENT_SED" >&2 || true
 
-  fail "celery-worker is Ready with ${restarts:-0} restarts but never answered 'inspect ping' after ${WORKER_PING_ATTEMPTS} attempts of ${WORKER_PING_TIMEOUT}s — Ready does not mean serving (#3236). Last ping output: ${ping_out:-<none>}"
+  echo "  ---- worker thread stacks via celery's SIGUSR1 handler (#3722) ----" >&2
+  # Every capture above says THAT the worker stopped; none says WHERE. Celery
+  # installs a SIGUSR1 "cry" handler in the worker MainProcess that writes every
+  # thread's stack to stderr (celery.apps.worker.install_cry_handler). The chart
+  # runs `celery` as PID 1, since the api image has no init wrapper, and exec runs
+  # as the same user, so no py-spy and no ptrace capability are needed. An empty
+  # capture is itself an answer: the main thread never got back to the
+  # interpreter to run a Python signal handler, so it is blocked inside a C call.
+  kubectl exec "$worker_pod" -c celery-worker -- sh -c 'kill -USR1 1' 2>&1 | sed "$INDENT_SED" >&2 || true
+  sleep 3
+  kubectl logs "$worker_pod" -c celery-worker --since=10s 2>&1 | sed "$INDENT_SED" >&2 || true
+
+  fail "celery-worker is Ready with ${restarts:-0} restarts but never answered 'inspect ping' after ${WORKER_PING_ATTEMPTS} attempts of ${WORKER_PING_TIMEOUT}s — Ready does not mean serving (#3236). Startup: ${broker_waits} broker wait(s), ${consumer_refusals} consumer refusal(s) — 0 refusals falsifies #3722's startup-race explanation. Last ping output: ${ping_out:-<none>}"
 fi
 
 log "HELM INSTALL DRILL GREEN — chart boots, admin retrievable, admin denied at edge, worker pinned+Ready+serving, guards fail closed"

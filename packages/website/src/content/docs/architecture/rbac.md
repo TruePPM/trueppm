@@ -207,7 +207,7 @@ runs each returned permission's `has_permission` for seven callers. The seven ve
 become a seven-character mask, and every mask is checked in to
 `role_route_matrix.txt` beside the test:
 
-```
+```text
 # anon  non-member  Viewer  Member  Scheduler  Admin  Owner
 --+++++  GET api/v1/projects/<project_pk>/task-runs/::list
 -----++  DELETE api/v1/projects/<project_pk>/phases/<pk>/::destroy
