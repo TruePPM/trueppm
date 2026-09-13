@@ -270,6 +270,7 @@ export function TaskDetailDrawer({
     dirty,
     reset,
     commit,
+    markSaved,
     commitField,
   } = useDirtyDraft<ScalarDraft>(task ? toDraft(task) : EMPTY_DRAFT);
 
@@ -475,8 +476,10 @@ export function TaskDetailDrawer({
   ]);
 
   // Save = one PATCH carrying only the changed scalar keys (name/notes + the
-  // #1985 estimate columns), then re-snapshot the baseline on success so the bar
-  // clears without waiting on a refetch. `baseVersion` opts this drawer save into
+  // #1985 estimate columns), then re-baseline to the snapshot that was SENT on
+  // success so the bar clears without waiting on a refetch — while an edit typed
+  // during the flight stays dirty rather than reading as saved (#3658).
+  // `baseVersion` opts this drawer save into
   // ADR-0217 field-level merge so a concurrent overlapping edit 409s (surfacing
   // the conflict toast via useUpdateTask.onError) instead of silently last-writer-
   // wins — matching the board TaskFormModal (#2038).
@@ -486,9 +489,9 @@ export function TaskDetailDrawer({
     if (Object.keys(patch).length === 0) return;
     updateTask(
       { id: task.id, projectId, baseVersion: task.serverVersion, ...patch },
-      { onSuccess: () => commit() },
+      { onSuccess: () => markSaved(draft) },
     );
-  }, [task, estimateInvalid, projectId, draft, baseline, updateTask, commit]);
+  }, [task, estimateInvalid, projectId, draft, baseline, updateTask, markSaved]);
 
   // Expand → full-page focus view (ADR-0124). A dirty draft is guarded on its
   // own path so Discard navigates to a fresh editable load (Keep editing stays).

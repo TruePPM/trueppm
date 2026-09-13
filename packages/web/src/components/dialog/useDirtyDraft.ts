@@ -14,11 +14,21 @@ export interface DirtyDraft<T extends object> {
   /** Cancel — revert the draft back to the baseline, discarding pending edits. */
   reset: () => void;
   /**
-   * Adopt the current draft (or an explicit value) as the new baseline. Call
-   * from a mutation's `onSuccess` so a saved edit clears the dirty flag without
-   * a round-trip through freshly-fetched props.
+   * Adopt the current draft (or an explicit value) as BOTH the baseline and the
+   * draft — a re-seed. Not for an async save's success path: the draft it adopts
+   * is whatever is in the field when the response lands, which includes anything
+   * typed while the request was in flight. Use `markSaved` there.
    */
   commit: (next?: T) => void;
+  /**
+   * Re-baseline to `saved` — the snapshot that was actually submitted — leaving
+   * the live draft untouched. Call from a save's `onSuccess` with the draft
+   * captured when the request was sent, so the bar clears without a round-trip
+   * through freshly-fetched props when nothing changed in flight, and stays up
+   * when something did. `commit()` there would mark the unsent keystrokes as
+   * saved, and a close would then discard them with no prompt (#3658).
+   */
+  markSaved: (saved: T) => void;
   /**
    * Re-baseline a SINGLE field (draft + baseline) to `value`, leaving every
    * other pending edit dirty. For an immediate side-write to one field while the
@@ -51,10 +61,10 @@ export interface DirtyDraft<T extends object> {
  * @param initial The initial form values; also the first baseline.
  *
  * @example
- * const { draft, setField, baseline, dirty, reset, commit } =
+ * const { draft, setField, baseline, dirty, reset, markSaved } =
  *   useDirtyDraft<Draft>(toDraft(epic));
  * // …bind inputs to `draft`, call setField('name', v) on change…
- * patch.mutate(changedFields(draft, baseline), { onSuccess: () => commit() });
+ * patch.mutate(changedFields(draft, baseline), { onSuccess: () => markSaved(draft) });
  */
 export function useDirtyDraft<T extends object>(initial: T): DirtyDraft<T> {
   const [baseline, setBaseline] = useState<T>(initial);
@@ -84,10 +94,12 @@ export function useDirtyDraft<T extends object>(initial: T): DirtyDraft<T> {
     setDraft(value);
   }, []);
 
+  const markSaved = useCallback((saved: T) => setBaseline(saved), []);
+
   const commitField = useCallback(<K extends keyof T>(key: K, value: T[K]) => {
     setBaseline((b) => ({ ...b, [key]: value }) as T);
     setDraft((d) => ({ ...d, [key]: value }) as T);
   }, []);
 
-  return { draft, setDraft, setField, baseline, dirty, reset, commit, commitField };
+  return { draft, setDraft, setField, baseline, dirty, reset, commit, markSaved, commitField };
 }

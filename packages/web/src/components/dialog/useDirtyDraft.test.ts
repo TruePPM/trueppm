@@ -51,6 +51,32 @@ describe('useDirtyDraft', () => {
     expect(result.current.dirty).toBe(true);
   });
 
+  it('markSaved(sent) re-baselines to the submitted snapshot without touching the live draft (#3658)', () => {
+    const { result } = renderHook(() => useDirtyDraft<Draft>({ name: 'Alpha', points: 3 }));
+
+    act(() => result.current.setField('name', 'Sent'));
+    const sent = result.current.draft;
+    // The user keeps typing while the save request is in flight.
+    act(() => result.current.setField('name', 'Typed mid-save'));
+    act(() => result.current.markSaved(sent));
+
+    expect(result.current.baseline).toEqual({ name: 'Sent', points: 3 });
+    expect(result.current.draft.name).toBe('Typed mid-save');
+    // The unsent keystroke is still an unsaved change, so a close still guards it.
+    expect(result.current.dirty).toBe(true);
+  });
+
+  it('markSaved(sent) clears dirty when nothing changed during the save', () => {
+    const { result } = renderHook(() => useDirtyDraft<Draft>({ name: 'Alpha', points: 3 }));
+
+    act(() => result.current.setField('points', 8));
+    const sent = result.current.draft;
+    act(() => result.current.markSaved(sent));
+
+    expect(result.current.dirty).toBe(false);
+    expect(result.current.baseline.points).toBe(8);
+  });
+
   it('commit(next) adopts an explicit value as the baseline and draft', () => {
     const { result } = renderHook(() => useDirtyDraft<Draft>({ name: 'Alpha', points: 3 }));
 

@@ -116,7 +116,7 @@ export function StoryDetailDrawer({
     baseline,
     dirty,
     reset,
-    commit,
+    markSaved,
   } = useDirtyDraft<ScalarDraft>(toDraft(story));
 
   // Retire the refusal on the edit that could have fixed it (web-rule 376).
@@ -157,7 +157,9 @@ export function StoryDetailDrawer({
   function handleSave() {
     const patch = changedFields(draft, baseline);
     if (Object.keys(patch).length === 0) return;
-    patchStory.mutate({ taskId: story.id, patch }, { onSuccess: () => commit() });
+    // Re-baseline to this render's `draft` — the snapshot just sent — so an edit
+    // typed while the PATCH is in flight stays dirty instead of reading as saved.
+    patchStory.mutate({ taskId: story.id, patch }, { onSuccess: () => markSaved(draft) });
   }
 
   // Readiness gate (server-authoritative, mirrored client-side from the live

@@ -8,7 +8,7 @@
  * `TagInput.test.tsx`, since they live entirely in that component.)
  */
 
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { BacklogItem } from '../types';
 import { DetailView, type DetailViewProps } from './DetailView';
@@ -196,6 +196,42 @@ describe('DetailView — save round-trip', () => {
       ),
     );
     expect(screen.getByTestId('dialog-footer-error')).not.toHaveTextContent(/try again/i);
+  });
+
+  it('keeps an edit typed while the save is in flight dirty, so a close still guards it (#3658)', async () => {
+    let resolveSave: () => void = () => {};
+    const onSave = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    const onClose = vi.fn();
+    render(<DetailView {...makeProps({ onSave, onClose })} />);
+    makeDirty();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByRole('button', { name: 'Saving…' })).toBeInTheDocument();
+
+    // Typed after Save was clicked but before the PATCH resolved.
+    fireEvent.change(screen.getByPlaceholderText(/No description yet/), {
+      target: { value: 'Typed mid-save' },
+    });
+    act(() => resolveSave());
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Saving…' })).not.toBeInTheDocument(),
+    );
+
+    // The save that landed carried the FIRST edit; the second never left the
+    // browser, so the bar stays up and the close is guarded rather than silent.
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'Radar spike, revised' }),
+    );
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByPlaceholderText(/No description yet/)).toHaveValue('Typed mid-save');
   });
 
   it('Discard reverts the draft to the last-saved values and clears the bar', () => {
