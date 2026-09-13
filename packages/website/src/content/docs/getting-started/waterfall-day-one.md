@@ -110,7 +110,7 @@ the **critical path** automatically — no separate "recalculate" step.
 A baseline freezes today's planned dates so you can measure drift later — the
 snapshot you show a stakeholder alongside "here is where we actually are."
 
-Open the Schedule toolbar's **Project actions (···)** menu and choose **Capture
+Open the Schedule toolbar's **Actions** menu and choose **Capture
 baseline**. A short confirmation explains what a baseline is; confirm it. The
 snapshot is named automatically (`Baseline 1`) and becomes the active baseline.
 See [Baselines](/features/baselines/) for what gets captured, and for capturing
@@ -146,7 +146,7 @@ the full mechanics.
 ## 7. Export a PDF
 
 From the Schedule toolbar, choose **Export PDF** (in the toolbar by default; if
-the window is narrow it moves into the **···** overflow menu — see [Schedule
+the window is narrow it moves into the **Actions** menu — see [Schedule
 Toolbar](/features/schedule-toolbar/)). The export matches what you currently
 see: hide the dependency lines first if you want a cleaner handoff copy.
 

@@ -209,7 +209,7 @@ to **API**.
 | Create your own waterfall project | Start sheet → **New project** → Waterfall | UI |
 | Build a WBS: phases, tasks, milestones | [Schedule Build Mode](/features/schedule-build-mode/) | UI *(opt-in toggle on 0.3, on by default from 0.4)* |
 | Wire dependencies (all four types, lag) | Right-click a row → **Add dependency** | UI |
-| Capture a baseline | [Baselines](/features/baselines/) — Project actions → **Capture baseline** | **UI from 0.4**; API-only on 0.3 |
+| Capture a baseline | [Baselines](/features/baselines/) — **Actions** → **Capture baseline** | **UI from 0.4**; API-only on 0.3 |
 | Set the status date so forecasts anchor on your data | Project settings → General → **Status date** | **UI from 0.4**; API-only (`PATCH /projects/{id}/`) on 0.3 |
 | Run Monte Carlo and read P50/P80/P95 | Schedule → **Forecast & sensitivity** bar | UI |
 | Hand the plan to a stakeholder | Schedule toolbar → **Export PDF** | UI |
@@ -290,7 +290,7 @@ name if you would rather not read URLs.
 | Cross-project dependencies | Bayside · `bayside-sam` | Same program schedule | Fit-out tasks gated on the structure's framing inspection, incl. a negative-lag lead |
 | All four dependency types | Bayside · `bayside-sam` | Project rail **Plan → Schedule** → the Foundation / Finish-out link lines | FS, SS, FF, and SF links present (parallel pours, "finish together", SF on commissioning) |
 | Three-point estimates | Bayside · `bayside-sam` | Schedule → click any task row → drawer **Details** → **Estimates** | Optimistic / most-likely / pessimistic on the estimate |
-| Baseline + rebaseline | Bayside · `bayside-sam` | Schedule toolbar → **Project actions (···)** → **Baselines…** | The current plan compared against the superseded **Contract baseline** and the active **change-order Rebaseline**, captured months apart rather than on the same afternoon |
+| Baseline + rebaseline | Bayside · `bayside-sam` | Schedule toolbar → **Actions** → **Baselines…** | The current plan compared against the superseded **Contract baseline** and the active **change-order Rebaseline**, captured months apart rather than on the same afternoon |
 | Calendar exceptions that bite | Bayside · `bayside-sam` | Program **Schedule** → the Framing and Finish-out bars | Two site stand-downs with different outcomes: the crane window stretches floor decking and is absorbed by framing's float; the contract weather allowance lands on the thinnest float left and pushes the certificate of occupancy |
 | Labels | every sample | Board or Schedule → the toolbar filter | Themed labels (e.g. Bayside "critical-path", "inspection"; Atlas "security", "cutover") |
 | Monte Carlo P50/P80/P95 | Bayside · `bayside-sam` / Atlas · `atlas-alex` | Schedule → **Forecast** bar along the bottom → **Details ›** | Monotonic P50 ≤ P80 ≤ P95; toggling a high-impact risk shifts P80 |
@@ -359,7 +359,7 @@ sample it names.
 2. Open **Plan → Schedule** in the left rail. Follow the highlighted critical path
    and spot the four dependency types in the link lines (the parallel pours and
    the "finish together" framing links).
-3. Open the Schedule toolbar's **Project actions (···)** menu → **Baselines…** to
+3. Open the Schedule toolbar's **Actions** menu → **Baselines…** to
    see the superseded **Contract baseline** alongside the active change-order
    rebaseline. For a single task's variance, click its row and read the
    **Baseline** section in the drawer.

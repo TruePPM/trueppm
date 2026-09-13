@@ -296,7 +296,7 @@ four controls appear at its left edge, in the order the how-to bar prints them:
 The **`◆`** is the same act as **Convert to milestone** in the row menu — one control,
 both directions. The toolbar's own **+ Milestone** button (which inserts a *new*
 milestone rather than converting the row you have) is unpinned by default and lives in
-the **···** overflow; pin it back from **Display → Toolbar**.
+the **Actions** menu; pin it back from **Display → Toolbar**.
 
 ## Indenting and emergent phases
 
@@ -497,7 +497,7 @@ individually from the outline or the task drawer.
 `⌘ ⇧ K` (`Ctrl + Shift + K`) opens a sheet that applies one change to every selected item
 at once. With no selection, it acts on the focused item alone — the same rule `Delete`
 uses. With a selection active you can also click **Edit N items** in the build-mode strip
-at the foot of the Schedule, or **Edit selected items…** in the toolbar's `···` menu.
+at the foot of the Schedule, or **Edit selected items…** in the toolbar's **Actions** menu.
 
 **It acts on exactly the items you selected, and never their children.** To change a whole
 subtree including descendants, use [`⌘ ⇧ M`](/features/task-classification/) instead — the
