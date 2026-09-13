@@ -160,12 +160,17 @@ renders.
 
 `networkPolicy.enabled: true` (the default) restricts ingress to the bundled
 datastores to the tiers that need it — see [Network and pod
-security](/administration/helm-values/#network-and-pod-security). OpenShift's
-default network plugin since 4.4, and the only supported one from 4.15 onward
-(OpenShift SDN was removed), is OVN-Kubernetes, which fully enforces standard
-`networking.k8s.io/v1` NetworkPolicy — the same object this chart renders. No
-OpenShift-specific change is needed here, unlike on a vanilla Kubernetes cluster
-where the enforcement depends on which CNI you installed.
+security](/administration/helm-values/#network-and-pod-security). OVN-Kubernetes
+is OpenShift's default network plugin and, from 4.15, the only option for new
+installations (OpenShift SDN was deprecated in 4.14). It fully enforces standard
+`networking.k8s.io/v1` NetworkPolicy — the same object this chart renders — so no
+OpenShift-specific change is needed. A cluster upgraded from an older release may
+still run the deprecated OpenShift SDN plugin. To check which plugin your cluster
+runs:
+
+```bash
+oc get network.config cluster -o jsonpath='{.spec.networkType}{"\n"}'
+```
 
 ### Private / mirrored registries
 
