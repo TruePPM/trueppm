@@ -9,10 +9,18 @@ documentedFor: "0.4"
 This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4.
 :::
 
+Every table TruePPM writes for its own bookkeeping — not your project data — grows
+without bound unless something trims it. This page is where you find each of those
+tables, what its default retention window is, and how to change one: from the
+in-app editor for a running deployment, or ahead of time via an environment
+variable.
+
 TruePPM runs several **transactional outbox** tables (schedule requests, MS Project
-imports, webhook deliveries, sprint-close requests) plus historical records (object
-history, task runs). Each is kept bounded by a Celery Beat purge so the tables stay
-small, index scans on the drain paths stay fast, and backups don't bloat.
+imports, webhook deliveries, sprint-close requests) — a queued-job table a background
+worker drains — plus historical records (object history, task runs). Each is kept
+bounded by a **Celery Beat** purge (Beat is TruePPM's background job scheduler; see
+[Beat Liveness](/administration/beat-liveness/)) so the tables stay small, index scans
+on the drain paths stay fast, and backups don't bloat.
 
 You can tune retention two ways: from the **System health → Retention & purge** editor in
 the UI (workspace admins), or via Django settings / environment variables (the default,

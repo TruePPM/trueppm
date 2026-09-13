@@ -12,8 +12,12 @@ revocation lever, and tokens must be revoked one at a time from each owner's
 personal settings page. Everything else on this page is in the current release.
 :::
 
-TruePPM ships a small set of Django management commands. Run them with
-`python manage.py <command>` inside the API container, for example:
+TruePPM ships a small set of **Django management commands** — one-off scripts you
+run from a shell inside the API container, for tasks that don't belong behind a
+button in the UI: bootstrapping the first admin account, loading a demo program,
+importing or exporting data in bulk, and the breach-recovery and audit-log
+maintenance commands under [Maintenance commands](#maintenance-commands) below. Run
+one with `python manage.py <command>` inside the API container, for example:
 
 ```bash
 docker compose exec api python manage.py load_sample_project --with-personas

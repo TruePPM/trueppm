@@ -4,7 +4,13 @@ description: Environment variables and settings for TruePPM.
 documentedFor: "0.4"
 ---
 
-All configuration is via environment variables. For local development, `docker-compose.yml` sets sensible defaults.
+This page is the reference for every environment variable and Django setting a
+self-hosted TruePPM install reads — what it defaults to, what changing it does, and
+when you would need to. Most self-hosters only ever touch the handful under
+[Required in production](#required-in-production); the rest exist for the narrower
+cases called out in each section (a split-network topology, a slower box, a stricter
+security posture). All configuration is set via environment variables. For local
+development, `docker-compose.yml` sets sensible defaults.
 
 ## Required in production
 
