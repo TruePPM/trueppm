@@ -313,11 +313,14 @@ vi.mock('@/hooks/useSurfaceVisibility', () => ({
 vi.mock('@/hooks/useBreakpoint', () => ({
   useBreakpoint: () => mockBreakpoint,
 }));
+// `undefined` models an unsettled read — the Read → Author gate must ask then (#3748).
+let mockBaselines: Array<{ id: string; name: string; is_active: boolean }> | undefined = [];
 vi.mock('@/hooks/useBaselines', () => ({
   useCreateBaseline: () => ({ mutate: createBaselineMutate, isPending: false }),
   // ScheduleView reads the baseline list to pass activeBaselineName into the
-  // capture confirm dialog (#2215). Default to no baselines.
-  useBaselines: () => ({ data: [] }),
+  // capture confirm dialog (#2215), and to gate Read → Author (#3748). Default
+  // to no baselines.
+  useBaselines: () => ({ data: mockBaselines, isLoading: false, isError: false }),
 }));
 vi.mock('@/hooks/useMsProjectImportExport', () => ({
   useExportMsProject: () => ({
@@ -878,6 +881,9 @@ beforeEach(() => {
   // every LATER test in the file into Read mode, which reads as eight unrelated
   // failures. Clearing it once here is the version that cannot be forgotten.
   window.localStorage.removeItem('trueppm.schedule.authorMode.test-user-1.project-1');
+  // The baselined-Author acknowledgment persists the same way (#3748).
+  window.localStorage.removeItem('trueppm.schedule.baselineAck.test-user-1.project-1');
+  mockBaselines = [];
   createBaselineMutate.mockReset();
   addDepMutate.mockReset();
   toastInfo.mockReset();
@@ -1161,16 +1167,20 @@ describe('ScheduleView — read-only vs authoring gates', () => {
     expect(badge).toHaveTextContent('Ask the project owner for edit rights');
   });
 
-  it('keeps the apparatus present and inert for an EDITOR who chose Read', async () => {
+  it('hides the create controls for an EDITOR who chose Read, and keeps the way back (#3748)', async () => {
     pinMilestoneButton();
-    // The state that must not collapse into the one above: an editor can get
-    // back with one key, so the controls stay where they were.
+    // Still not the state above: an editor keeps the chip, which leads the bar
+    // and says how to get back, instead of the View-only badge. What changed in
+    // #3748 is that the dimmed create controls beside it are gone.
     const user = userEvent.setup();
     mockRole = ROLE_MEMBER;
     renderSchedule();
     await toggleAuthorMode(user);
-    expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Read');
-    expect(screen.getByRole('button', { name: '+ Milestone' })).toBeDisabled();
+    expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent(
+      'Read only · Switch to Author to edit',
+    );
+    expect(screen.queryByRole('button', { name: '+ Milestone' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add item' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('schedule-view-only')).not.toBeInTheDocument();
   });
 
@@ -2589,34 +2599,133 @@ describe('ScheduleView — Alt+A Author/Read toggle (#2727, ADR-0776 §5)', () =
     pinMilestoneButton();
     renderSchedule();
     const pill = screen.getByTestId('schedule-mode-chip');
-    expect(pill).toHaveTextContent('Author');
+    expect(pill).toHaveTextContent(/^Author/);
     expect(screen.getByRole('button', { name: '+ Milestone' })).toBeEnabled();
   });
 
-  it('clicking the pill switches to Read mode and disables create controls', async () => {
+  it('puts the mode chip ahead of the create controls (#3748)', () => {
+    renderSchedule();
+    const chip = screen.getByTestId('schedule-mode-chip');
+    const addItem = screen.getByRole('button', { name: 'Add item' });
+    expect(chip.compareDocumentPosition(addItem) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('clicking the pill switches to Read mode and hides create controls', async () => {
     pinMilestoneButton();
     const user = userEvent.setup();
     enableStructureButtons();
     renderSchedule();
     await toggleAuthorMode(user);
-    expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Read');
-    expect(screen.getByRole('button', { name: '+ Milestone' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '+ Phase' })).toBeDisabled();
-    // Present and inert, not absent — one key gets this editor back (#2949).
-    expect(screen.getByTestId('group-rows-button')).toBeDisabled();
-    expect(screen.getByTestId('ungroup-rows-button')).toBeDisabled();
+    expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Read only');
+    // Absent, not disabled, since #3748 — the chip ahead of them names the way back.
+    expect(screen.queryByRole('button', { name: 'Add item' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ Milestone' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ Phase' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('group-rows-button')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('ungroup-rows-button')).not.toBeInTheDocument();
   });
 
   it('Alt+A toggles the same as clicking the pill', () => {
     renderSchedule();
-    expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Author');
+    expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent(/^Author/);
     const preventDefault = vi.fn();
     const e = { preventDefault } as unknown as KeyboardEvent;
     act(() => capturedKeyBindings['alt+a']?.(e));
     expect(preventDefault).toHaveBeenCalled();
     expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Read');
     act(() => capturedKeyBindings['alt+a']?.(e));
-    expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Author');
+    expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent(/^Author/);
+  });
+
+  describe('on a baselined plan (#3748)', () => {
+    const ACK_KEY = 'trueppm.schedule.baselineAck.test-user-1.project-1';
+    const MODE_KEY = 'trueppm.schedule.authorMode.test-user-1.project-1';
+    beforeEach(() => {
+      mockBaselines = [{ id: 'bl-1', name: 'Baseline v1', is_active: true }];
+    });
+
+    it('never asks on Author → Read', async () => {
+      const user = userEvent.setup();
+      renderSchedule();
+      await toggleAuthorMode(user);
+      expect(screen.queryByTestId('baselined-author-confirm')).not.toBeInTheDocument();
+      expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent(/^Read only/);
+    });
+
+    it('asks on Read → Author, and Stay in Read keeps Read', async () => {
+      const user = userEvent.setup();
+      renderSchedule();
+      await toggleAuthorMode(user);
+      await toggleAuthorMode(user);
+      const dialog = screen.getByRole('dialog', { name: 'This plan has a baseline' });
+      expect(dialog).toHaveTextContent('Baseline v1');
+      // A Member cannot capture, so the sentence names someone who can (ux-review §6.3).
+      expect(dialog).toHaveTextContent('ask a project admin to capture a new baseline');
+      expect(dialog).not.toHaveTextContent('Project actions → Capture baseline');
+      await user.click(within(dialog).getByRole('button', { name: 'Stay in Read' }));
+      expect(screen.queryByTestId('baselined-author-confirm')).not.toBeInTheDocument();
+      expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent(/^Read only/);
+      expect(window.localStorage.getItem(ACK_KEY)).toBeNull();
+    });
+
+    it('points an Admin at the capture action by name', async () => {
+      mockRole = ROLE_ADMIN;
+      const user = userEvent.setup();
+      renderSchedule();
+      await toggleAuthorMode(user);
+      await toggleAuthorMode(user);
+      expect(screen.getByRole('dialog', { name: 'This plan has a baseline' })).toHaveTextContent(
+        'Project actions → Capture baseline',
+      );
+    });
+
+    it('Switch to Author enters Author and does not ask again for the same baseline', async () => {
+      const user = userEvent.setup();
+      renderSchedule();
+      await toggleAuthorMode(user);
+      await toggleAuthorMode(user);
+      await user.click(screen.getByRole('button', { name: 'Switch to Author' }));
+      expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent(
+        /^Author · vs Baseline v1$/,
+      );
+      expect(window.localStorage.getItem(ACK_KEY)).toBe('bl-1');
+      await toggleAuthorMode(user);
+      await toggleAuthorMode(user);
+      expect(screen.queryByTestId('baselined-author-confirm')).not.toBeInTheDocument();
+      expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent(/^Author/);
+    });
+
+    it('asks again when a different baseline is active than the one acknowledged', async () => {
+      window.localStorage.setItem(ACK_KEY, 'bl-old');
+      window.localStorage.setItem(MODE_KEY, 'read');
+      const user = userEvent.setup();
+      renderSchedule();
+      await waitFor(() =>
+        expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent(/^Read only/),
+      );
+      await toggleAuthorMode(user);
+      expect(screen.getByRole('dialog', { name: 'This plan has a baseline' })).toBeInTheDocument();
+    });
+
+    it('asks when the baselines read has not settled — unresolved is not "none" (rule 392)', async () => {
+      mockBaselines = undefined;
+      const user = userEvent.setup();
+      renderSchedule();
+      await toggleAuthorMode(user);
+      await toggleAuthorMode(user);
+      const dialog = screen.getByRole('dialog', { name: 'This plan may have a baseline' });
+      expect(dialog).not.toHaveTextContent("You won't be asked again");
+    });
+
+    it('Alt+A goes through the same gate and announces nothing until the mode changes', () => {
+      renderSchedule();
+      const e = { preventDefault: vi.fn() } as unknown as KeyboardEvent;
+      act(() => capturedKeyBindings['alt+a']?.(e));
+      expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent(/^Read only/);
+      act(() => capturedKeyBindings['alt+a']?.(e));
+      expect(screen.getByRole('dialog', { name: 'This plan has a baseline' })).toBeInTheDocument();
+      expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent(/^Read only/);
+    });
   });
 
   it('is not a permission change — the server role gate still applies independently', () => {
