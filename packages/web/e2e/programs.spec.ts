@@ -349,7 +349,7 @@ test.describe('Programs — shell nav', () => {
     // exact: the empty-state h2 ("The program backlog is empty") also contains
     // "backlog", so a substring name match would resolve to two headings.
     await expect(page.getByRole('heading', { name: 'Backlog', exact: true })).toBeVisible();
-    await expect(page.getByText('The program backlog is empty')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'The program backlog is empty' })).toBeVisible();
   });
 
   test('Projects tab shows empty state for an empty program', async ({ page }) => {
@@ -893,7 +893,9 @@ test.describe('Programs — directory filter & sort (#1796)', () => {
     await page
       .getByRole('searchbox', { name: /Filter programs by name/i })
       .fill('nonexistent-program');
-    await expect(page.getByText(/No programs match your filter/i)).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: /No programs match your filter/i }),
+    ).toBeVisible();
     // Recovering via the empty-state action restores the full directory. Scope to
     // the empty-state block — the search box also exposes a "Clear filter"
     // affordance while a query is active. Scoped by testid since #3198: the block

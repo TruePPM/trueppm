@@ -274,6 +274,8 @@ test.describe('Mobile Schedule surface (#1671)', () => {
 
   test('renders the empty state for a project with no tasks', async ({ page }) => {
     await gotoMobileSchedule(page, []);
-    await expect(page.getByText('No items yet')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: 'No items yet' })).toBeVisible({
+      timeout: 10_000,
+    });
   });
 });

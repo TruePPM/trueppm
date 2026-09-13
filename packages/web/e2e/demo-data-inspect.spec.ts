@@ -168,7 +168,9 @@ test.describe('Demo data — inspect before you import', () => {
     await setup(page, { catalogFails: true });
     await page.goto('/settings/demo-data');
 
-    await expect(page.getByText("Couldn't load the sample list")).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: "Couldn't load the sample list" }),
+    ).toBeVisible();
 
     // Scoped to the catalog's own error block: a page-wide Retry locator would
     // click any other component's error-state Retry, so an unrelated query

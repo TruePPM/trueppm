@@ -173,7 +173,7 @@ test.describe('Program agent-oversight panel', () => {
   test('empty state — no agents connected yet', async ({ page }) => {
     await setup(page, { rows: [] });
     await expect(page.getByRole('heading', { name: 'Agents', level: 1 })).toBeVisible();
-    await expect(page.getByText(/No agent activity yet/i)).toBeVisible();
+    await expect(page.getByRole('heading', { name: /No agent activity yet/i })).toBeVisible();
     await expect(page.getByRole('link', { name: /Connect an agent/i })).toBeVisible();
   });
 });

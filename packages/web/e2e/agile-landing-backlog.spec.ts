@@ -283,7 +283,7 @@ test.describe('Agile landing — the backlog stands itself up (#2734)', () => {
     await expect(page.getByText('Onboarding')).toBeVisible();
     await expect(page.getByText('Invite a teammate').first()).toBeVisible();
     await expect(page.getByText('First-run checklist').first()).toBeVisible();
-    await expect(page.getByText('No stories yet')).not.toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No stories yet' })).not.toBeVisible();
 
     // The not-in-a-sprint strip (#2734, ADR-0800) — both fixture stories carry no
     // sprint, so it reports 2.
@@ -316,7 +316,7 @@ test.describe('Agile landing — the backlog stands itself up (#2734)', () => {
     await expect(
       page.getByRole('status', { name: 'Setting up your backlog', exact: true }),
     ).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('No stories yet')).toBeHidden();
+    await expect(page.getByRole('heading', { name: 'No stories yet' })).toBeHidden();
     await expect(page.getByTestId('seed-failure-banner')).toBeHidden();
     // One-shot consume, same as the Schedule (rule 374(b)).
     await expect(page).toHaveURL(new RegExp(`/projects/${NEW_PID}/product-backlog$`));
@@ -356,7 +356,7 @@ test.describe('Agile landing — the backlog stands itself up (#2734)', () => {
     // The empty state beneath is deliberately UNCHANGED — "continue with an empty
     // project" is that surface, not something the banner needs to offer — and the
     // skeleton is gone at once, not after a timer.
-    await expect(page.getByText('No stories yet')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No stories yet' })).toBeVisible();
     await expect(
       page.getByRole('status', { name: 'Setting up your backlog', exact: true }),
     ).toBeHidden();
