@@ -359,7 +359,6 @@ def _pred_forward_contribution(
 
 def _derive_forward(
     task: Task,
-    task_map: dict[str, Task],
     preds: list[tuple[Task, DependencyType, timedelta]],
     cal: Calendar,
     project_start: date,
@@ -393,7 +392,9 @@ def _derive_forward(
         else:
             contribs.append(contribution)
 
-    es_terms = [c for c in contribs if c.kind not in ("predecessor_ff", "predecessor_sf")]
+    # A snapshot, not a filter: every FF/SF term went to ``ef_terms`` above, so
+    # ``contribs`` holds only early-start candidates until the extend below.
+    es_terms = list(contribs)
     contribs.extend(ef_terms)
 
     value, derived = _resolve_forward_binding(task, es_terms, ef_terms, want_finish=want_finish)
@@ -863,7 +864,6 @@ def derive_value(
     if q in (Quantity.EARLY_START, Quantity.EARLY_FINISH):
         value, contribs = _derive_forward(
             task,
-            task_map,
             preds,
             cal,
             project.start_date,

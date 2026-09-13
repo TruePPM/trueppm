@@ -128,7 +128,8 @@ assertion-strength gap).
 
 In CI this runs as **`scheduler:mutation`** — schedule-only, so it never blocks a
 merge request, but **gating**: `MUTATION_MIN` is `0.92`, set from the observed
-nightly baseline of 93.0–93.1%, and a nightly that scores below it goes red and
+nightly baseline of 93.0–93.1% under mutmut 3.7 (the suite scores 96.8% under the
+pinned mutmut 3.8.0), and a nightly that scores below it goes red and
 stays red until the survivor is killed. Unlike the fuzz jobs it does *not* carry
 `allow_failure`, because a mutation score crossing a fixed floor is one
 deterministic number rather than an open-ended stochastic finding. Ratchet the
@@ -142,6 +143,17 @@ was not listed in `[tool.mutmut] also_copy`, so mutmut's stats pass died inside 
 sandbox and every mutant came back `not checked`). If you add a test under
 `packages/scheduler/` that reads a file from the package root, add that file to
 `also_copy`.
+
+mutmut itself is pinned to an exact version in the scheduler's `dev` extra, unlike
+its neighbors, because a minor mutmut release changes *what* gets measured. 3.8.0
+began mutating `@dataclass` methods, which grew the mutant set by 459 overnight and
+broke the run with no change on our side. Bump the pin in its own merge request:
+changing `packages/scheduler/pyproject.toml` runs `scheduler:mutation` on that
+merge request, so you see the new score before it merges. Two consequences of
+mutmut's sandbox are worth knowing when you write a test: mutated methods gain
+sibling attributes such as `xǁTaskǁto_dict__mutmut_orig` on their class, so a test
+that walks `vars(cls)` must skip them, and the stats pass stops at the first failing
+test — one such failure means no mutant runs at all.
 
 ## CI gates
 

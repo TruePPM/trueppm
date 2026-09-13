@@ -117,8 +117,23 @@ guess against. Leaving it deny-by-default is deliberate — see
 [Reaching Django admin](/administration/security/#reaching-django-admin).
 :::
 
+:::note[Ships in 0.4: two halves, and you need both]
+`web.adminAccess` is the **edge** half and governs only traffic that traverses the
+web tier's nginx — it is bypassed by `web.enabled: false`, by an
+`ingress.hosts[].paths[]` entry targeting `service: api`, and by
+`kubectl port-forward`. From 0.4 the chart also sets
+`env.TRUEPPM_DJANGO_ADMIN_ENABLED: "false"`, the **application** half, which makes
+the API answer `404` on `/admin/` on every one of those paths.
+
+The consequence worth knowing before you need it: the port-forward access path
+this chart recommends for administrative work **404s until you flip that variable
+to `"true"`**. Do that only when you use the admin; the login is throttled,
+audited, and enforced-SSO-checked from 0.4, but it is still a password door.
+:::
+
 | Key | Default | What it does |
 |---|---|---|
+| `env.TRUEPPM_DJANGO_ADMIN_ENABLED` | `"false"` | Ships in 0.4. Whether the API serves `/admin/` at all, independent of the nginx rules below. See [Configuration](/administration/configuration/). |
 | `web.adminAccess.enabled` | `true` | Render the `/admin/` proxy at all. Set `false` to return `404` instead — removes the path from the public listener entirely. |
 | `web.adminAccess.allowCIDRs` | `[]` | Source CIDRs permitted to reach `/admin/`. **Empty means deny everything.** Matched against nginx's `$remote_addr`, which behind an Ingress is the *controller's* pod IP, not the operator's — so this is only meaningful when the web tier sees real client addresses. |
 | `web.adminAccess.rateLimit.enabled` | `true` | Apply an nginx `limit_req` zone to the admin login surface. |
@@ -147,6 +162,7 @@ one header.
 | `web.securityHeaders.enabled` | `true` | Render the header block at all. Only set `false` when a trusted upstream (an ingress `configuration-snippet`, a WAF, a CDN edge) already sets the same headers — nginx cannot merge or deduplicate a header the upstream also emits. |
 | `web.securityHeaders.frameOptions` | `DENY` | `X-Frame-Options`. The SPA is never legitimately framed, so `DENY` rather than `SAMEORIGIN`. |
 | `web.securityHeaders.contentTypeOptions` | `nosniff` | `X-Content-Type-Options`. Stops a browser re-typing a response as a script. |
+| `web.securityHeaders.referrerPolicy` | `strict-origin-when-cross-origin` | `Referrer-Policy`. Without it, a user navigating from a TruePPM page to any other site hands that site the **full URL** they came from, and the browser default varies by vendor and version. The default keeps the full referrer for same-origin requests and sends only the bare origin cross-origin; tighten to `no-referrer` to disclose nothing at all. Set `""` to omit the header only when an upstream proxy already sets it. |
 | `web.securityHeaders.contentSecurityPolicy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'none'` | `Content-Security-Policy`. `connect-src` includes `ws:`/`wss:` for the real-time collaboration socket. Widen it if you host fonts or images off-origin or add an analytics endpoint. Serving the SPA and API from different origins is **not supported** — see [Split-origin deploys](/administration/configuration/#split-origin-deploys). |
 | `web.securityHeaders.strictTransportSecurity` | `""` (off) | `Strict-Transport-Security`. Off by default, unlike the Compose TLS template: in the chart's default topology TLS terminates at the Ingress and this nginx speaks plain HTTP, and most ingress controllers emit HSTS themselves. Turn it on — `"max-age=63072000; includeSubDomains"` — only when the web tier *is* your TLS edge, and note that `includeSubDomains` binds every sibling subdomain of the apex you serve from. |
 

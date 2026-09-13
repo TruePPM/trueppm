@@ -50,6 +50,8 @@ server {
     add_header X-Robots-Tag           "noindex, nofollow, noarchive" always;
     add_header X-Frame-Options        "DENY" always;
     add_header X-Content-Type-Options "nosniff" always;
+    # #3553 — see packages/web/nginx.conf for the rationale.
+    add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
     add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
 
     # Read-only demo: small body cap, no large uploads are ever legitimate.

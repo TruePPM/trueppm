@@ -1,20 +1,23 @@
 import { useId, useMemo, useState, type FormEvent } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { Navigate, useLocation, useNavigate } from 'react-router';
 import { AuthShell } from './AuthShell';
 import { confirmPasswordReset } from './resetApi';
 import { checkRequirements, passwordScore } from './passwordStrength';
 import { PasswordVisibilityToggle, RequirementsChecklist, StrengthBar } from './passwordFields';
+import { parseResetCredential } from './resetLink';
 
 /**
  * Screen 3 — set a new password (issue 765, ADR-0209).
  *
- * uid + token come from the route (the emailed link). Client-side strength meter
- * and requirements checklist are advisory; the server has final say. The confirm
+ * uid + token come from the emailed link's URL **fragment**, never the path
+ * (#3553) — see `resetLink.ts` for why. Client-side strength meter and
+ * requirements checklist are advisory; the server has final say. The confirm
  * endpoint returns distinct codes: success → done screen, `invalid_token` →
  * expired screen, `weak_password` → inline messages.
  */
 export function ResetPasswordConfirmPage() {
-  const { uid = '', token = '' } = useParams<{ uid: string; token: string }>();
+  const { hash } = useLocation();
+  const credential = useMemo(() => parseResetCredential(hash), [hash]);
   const navigate = useNavigate();
 
   const [password, setPassword] = useState('');
@@ -37,11 +40,12 @@ export function ResetPasswordConfirmPage() {
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!credential) return;
     setServerErrors([]);
     setFormError(null);
     setIsSubmitting(true);
 
-    const outcome = await confirmPasswordReset(uid, token, password);
+    const outcome = await confirmPasswordReset(credential.uid, credential.token, password);
     switch (outcome.kind) {
       case 'success':
         void navigate('/reset-password/done', { replace: true });
@@ -64,6 +68,13 @@ export function ResetPasswordConfirmPage() {
     }
     setIsSubmitting(false);
   }
+
+  // No credential in the fragment — there is nothing this screen can do, and
+  // letting the user compose a password first only to have the server reject an
+  // empty token wastes their time. Reachable in practice when an email
+  // URL-rewriting proxy strips the fragment. Declared after every hook above so
+  // the hook order is unconditional.
+  if (!credential) return <Navigate to="/reset-password/expired" replace />;
 
   return (
     <AuthShell

@@ -279,10 +279,13 @@ bash   scripts/check-web-rule-numbers.sh       # duplicate packages/web/CLAUDE.m
 ```
 
 `check-web-rule-numbers.sh` is the one that guards the hotspot Step 1 names most
-often: `packages/web/CLAUDE.md` collects a numbered rule per UI branch, so a batch
-routinely has two or three MRs appending to it. A duplicate number exists **only**
-on the merged tree — each branch is self-consistent — which is exactly the class
-Phase A is for.
+often: `packages/web/CLAUDE.md` indexes one numbered line per rule (bodies under
+`docs/design/invariants/`, #3744), so a batch routinely has two or three MRs adding
+one. The index is `merge=union`, so those appends no longer conflict — which makes
+this gate the only thing that sees a duplicate number, the doubled line union keeps
+when two MRs edited the same rule, or an index line whose body file did not come
+with it. All three exist **only** on the merged tree — each branch is
+self-consistent — which is exactly the class Phase A is for.
 
 **If a batch MR adds a new gate script, run that too** — it applies to the whole
 combined tree the moment it lands. Sweep for them rather than hardcoding the list:

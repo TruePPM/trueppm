@@ -79,18 +79,17 @@ and why [every feature is an API fact first](#api-first): if a value is computed
 server-side and reachable over the API, an agent can retrieve it and cite it; if
 it lived only in a chat prompt, the agent could only guess at it.
 
-```
-Incumbent — the LLM is the answer:
+```mermaid
+flowchart LR
+    subgraph incumbent["Incumbent — the LLM is the answer"]
+        direction LR
+        iq["Question"] --> illm["LLM"] --> ia["Asserted answer<br/>(a plausible guess;<br/>no derivation to check)"]
+    end
 
-    question ─▶ LLM ─▶ asserted answer
-                       (a plausible guess; no derivation to check)
-
-
-TruePPM — the engine is the answer: "computed, not guessed"
-
-    question ─▶ NL layer ─▶ engine call ─▶ provenance-carrying answer
-                (translates   (CPM / Monte    ("P80 is Oct 22, derived from
-                 to a call)    Carlo computes)  this critical chain" — citable)
+    subgraph trueppm["TruePPM — computed, not guessed"]
+        direction LR
+        tq["Question"] --> tnl["NL layer<br/>(translates to a call)"] --> teng["Engine call<br/>(CPM / Monte Carlo<br/>computes)"] --> ta["Provenance-carrying answer<br/>(e.g. P80 is Oct 22, derived<br/>from this critical chain —<br/>citable)"]
+    end
 ```
 
 The principle is sequenced across the roadmap as one capability with four parts —

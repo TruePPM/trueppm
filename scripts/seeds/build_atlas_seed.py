@@ -696,6 +696,16 @@ def build_platform_core() -> dict:
     )
     sprints[-1]["target_milestone"] = "9"
 
+    # Points the Sprint-0 baseline recorded before later re-pointing, keyed by
+    # wbs (#3495). 3.4 is the mid-sprint scope-injection growth narrated in the
+    # events timeline (5 -> 8 via task.points). 5.6 and 5.8 are ordinary
+    # backlog-grooming re-estimates on not-yet-started stories — no beat
+    # needed, since nothing pulls them into a sprint until they are already
+    # re-pointed — so the Sprint-0 scope variance is not carried by a single
+    # task, and the has_cpm_dates=False snapshot still tells a real "the plan
+    # grew" story rather than a column of zeroes.
+    pc_baseline_points_override = {"3.4": 5, "5.6": 3, "5.8": 2}
+
     return {
         "slug": "platform-core",
         "name": "Platform Core",
@@ -734,13 +744,14 @@ def build_platform_core() -> dict:
                 "name": "Sprint-0 baseline",
                 "is_active": True,
                 # Captured a few days into the project — before the 3.4 scope
-                # growth (baselined 5, current 8 via task.points) and before the
+                # growth (baselined 5, current 8 via task.points), before 5.6
+                # and 5.8 were re-pointed up during grooming, and before the
                 # later-added stories existed, so the variance view has a story.
                 "captured_at": d(3),
                 "tasks": [
                     {
                         "task": wbs,
-                        "story_points": 5 if wbs == "3.4" else points,
+                        "story_points": pc_baseline_points_override.get(wbs, points),
                     }
                     for (wbs, _n, points, *_rest) in PC_STORIES
                     if wbs in PC_BASELINE_WBS
@@ -937,14 +948,17 @@ MT_TASK_LINKS = {
 
 def _mt_task_entry(
     p_idx: int, t_idx: int, item: tuple
-) -> tuple[dict, dict, dict, list[dict]]:
+) -> tuple[dict, dict, list[dict]]:
     """Build one Migration Tooling task with its baseline row and dependency rows.
 
-    Returns ``(task, baseline_row, replan_row, dep_rows)``. ``baseline_row``
-    keeps the ORIGINAL (pre-slip) window; ``replan_row`` is the same task as the
-    post-dry-run re-plan recorded it, so the two baselines differ by exactly the
-    realized slip. ``slip is None`` leaves off the SNET floor so the task chains
-    its predecessor's variance straight through (#1891).
+    Returns ``(task, baseline_row, dep_rows)``. ``baseline_row`` keeps the
+    ORIGINAL (pre-slip) window authored for the "Kickoff baseline". The
+    post-dry-run re-plan is no longer a hand-computed sibling row here — it is
+    a `baseline.capture` beat in the events timeline (#3495) that snapshots
+    `planned_start` directly, so the two baselines differ by exactly the
+    realized slip without this function needing to recompute it. ``slip is
+    None`` leaves off the SNET floor so the task chains its predecessor's
+    variance straight through (#1891).
     """
     name, ml, dep_paths, dep_type, original, slip, risk = item
     wbs = f"{p_idx}.{t_idx}"
@@ -984,27 +998,17 @@ def _mt_task_entry(
         "finish": d(original + ml),
         "duration": ml,
     }
-    # The re-plan re-cut every remaining task by its realized slip; work that had
-    # already completed (phases 1-2, slip 0) is identical in both baselines.
-    shift = slip or 0
-    replan_row = {
-        "task": wbs,
-        "start": d(original + shift),
-        "finish": d(original + shift + ml),
-        "duration": ml,
-    }
     dep_rows = [
         {"predecessor": dep, "successor": wbs, "dep_type": dep_type, "lag": 0}
         for dep in dep_paths
     ]
-    return task, baseline_row, replan_row, dep_rows
+    return task, baseline_row, dep_rows
 
 
 def build_migration_tooling() -> dict:
     tasks: list[dict] = []
     deps: list[dict] = []
     baseline_rows: list[dict] = []
-    replan_rows: list[dict] = []
 
     for p_idx, (phase, items) in enumerate(MT_PHASES, start=1):
         tasks.append(
@@ -1017,12 +1021,9 @@ def build_migration_tooling() -> dict:
             }
         )
         for t_idx, item in enumerate(items, start=1):
-            task, baseline_row, replan_row, dep_rows = _mt_task_entry(
-                p_idx, t_idx, item
-            )
+            task, baseline_row, dep_rows = _mt_task_entry(p_idx, t_idx, item)
             tasks.append(task)
             baseline_rows.append(baseline_row)
-            replan_rows.append(replan_row)
             deps.extend(dep_rows)
 
     # Cutover milestone. Deliberately carries NO planned_start pin: a fixed SNET
@@ -1065,18 +1066,20 @@ def build_migration_tooling() -> dict:
         # measured against the re-plan, which is what the team is now committed
         # to. Comparing the two is how a reviewer sees the +6/+7 day slip the
         # dry-run findings caused (#3095).
+        #
+        # Only the kickoff snapshot is declared here — a static row list with no
+        # actor and no reason (#3495). The re-plan is authored as a
+        # `baseline.capture` beat in the events timeline below instead, dated
+        # and attributed to the scheduler persona, paired with the task.comment
+        # that gives the reason (the dry-run findings). It supersedes this one
+        # (`is_active: True` on the beat deactivates this baseline) the moment
+        # it replays.
         "baselines": [
             {
                 "name": "Kickoff baseline",
                 "is_active": False,
                 "captured_at": d(3),
                 "tasks": baseline_rows,
-            },
-            {
-                "name": "Post-dry-run re-plan",
-                "is_active": True,
-                "captured_at": d(80),
-                "tasks": replan_rows,
             },
         ],
         "risks": [
@@ -1742,6 +1745,27 @@ def build_atlas() -> dict:
             body="Kicking off the dry-run against the full production extract.",
         ),
         _ev(ts(79, 9, 30), "task.status", mt_task("3.1"), "yuki", to="IN_PROGRESS"),
+        # Early dry-run results are already forcing the +6/+7 day slip on phases
+        # 3-5 (see MT_PHASES); re-baselining now so the kickoff dates stay on
+        # record as the original commitment while the schedule view starts
+        # measuring drift against what the team actually re-planned to (#3495).
+        _ev(
+            ts(80, 9, 0),
+            "task.comment",
+            mt_task("3.1"),
+            "sam",
+            body="First-pass dry-run numbers are in and they push phases 3-5 out "
+            "6-7 days. Re-baselining against the re-plan so the kickoff dates stay "
+            "on record rather than quietly becoming the new plan.",
+        ),
+        _ev(
+            ts(80, 9, 5),
+            "baseline.capture",
+            "project:migration-tooling",
+            "sam",
+            body="Post-dry-run re-plan",
+            is_active=True,
+        ),
         _ev(
             ts(83, 17, 0),
             "sprint.close",
