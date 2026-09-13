@@ -10,7 +10,7 @@ Of the three, only **`+ Item`** sits in the bar by default. `+ Milestone` and `+
 
 ## Toolbar layout
 
-```
+```text
 [ + Item ]   ( + Milestone, + Phase · Group · Ungroup — in the ··· menu by default )   [ Author ▾ ]
 [ CP only · Focus chain ]   [ Critical path · Milestones ]
                                  ...

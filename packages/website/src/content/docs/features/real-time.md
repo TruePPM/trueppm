@@ -9,7 +9,7 @@ TruePPM uses Django Channels 4 to push project changes to connected clients over
 
 Mint a single-use ticket (`POST /api/v1/ws/ticket/`, 30-second TTL), then connect:
 
-```
+```text
 ws://localhost:8000/ws/v1/projects/{project_id}/?ticket=<ticket>
 ```
 

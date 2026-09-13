@@ -186,7 +186,7 @@ Every delivery carries **two** signature headers. `X-TruePPM-Signature-V2` is th
 recipe to implement; `X-TruePPM-Signature` is the original one, still emitted so
 existing receivers keep working (see [Signature versions](#signature-versions)).
 
-```
+```http
 X-TruePPM-Signature-V2: t=1755432000,v1=<hmac>
 X-TruePPM-Signature: sha256=<hmac>
 ```

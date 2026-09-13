@@ -87,7 +87,7 @@ below.
 A committed start is a **start-no-earlier-than (SNET)** constraint. On each
 forward pass the engine takes the later of the two:
 
-```
+```text
 early_start = max(computed early_start, committed start, project start)
 ```
 

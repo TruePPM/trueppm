@@ -87,7 +87,7 @@ recorded in the shared history tables at all.
 
 Activity is backed by a documented, read-only endpoint:
 
-```
+```http
 GET /api/v1/projects/{id}/changelog/?since=&object_type=&change_type=&user=&cursor=
 ```
 

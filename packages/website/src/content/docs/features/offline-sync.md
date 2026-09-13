@@ -10,7 +10,7 @@ This page documents the **server** side, which is live. **No client implements i
 
 ## Pull endpoint
 
-```
+```http
 GET /api/v1/projects/{project_id}/sync/?since={cursor}
 Authorization: Bearer <token>
 ```
@@ -172,7 +172,7 @@ Task deletion cascades: all Dependency rows where the task is predecessor or suc
 
 ## Upload endpoint
 
-```
+```http
 POST /api/v1/projects/{project_id}/sync/
 Authorization: Bearer <token>
 ```

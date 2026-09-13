@@ -107,7 +107,7 @@ no-op-safe: an already-unbound sprint returns **200** unchanged.
 The rollup uses points by default and falls back to task counts when no team
 member sized in points:
 
-```
+```text
 if any sprint has committed_points > 0:
     percent_complete = min(100, completed_points / committed_points * 100)
     basis = "points"
@@ -158,7 +158,7 @@ visibility surface only; it never accepts or rejects a change.
 On a milestone row in the Schedule-view task list, the chip sits inline after the
 rolled-up percent, alongside the lock indicator and the variance chip:
 
-```
+```text
 1.4  ▸ UAT signoff        🔒 73%   Sprint plan: +3d slip   Scope changed +5 / −2 pts
 ```
 

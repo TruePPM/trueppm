@@ -37,7 +37,7 @@ A `VelocitySuggestion` row is created when **all** of the following hold:
 
 The formula is:
 
-```
+```text
 team_velocity_per_day = mean(completed_points / sprint_working_days)  # last 6 closed sprints
 suggested_duration    = round(task.story_points / team_velocity_per_day)
 ```
