@@ -15,9 +15,8 @@ captures a field-level diff — the old value, the new value, and when it happen
 can answer "when did this task's finish date slip, and why?" without a spreadsheet.
 
 :::note[Edition]
-Change history is part of the **Community (OSS)** edition. It is built on
-django-simple-history and records changes for tasks, projects, dependencies, sprints,
-risks, programs, and more.
+Change history is part of the **Community (OSS)** edition, and it records changes
+for tasks, projects, dependencies, sprints, risks, programs, and more.
 :::
 
 ## Viewing a task's history
@@ -38,10 +37,12 @@ histories paginate with a **Load more** control.
 
 ## What is and isn't tracked
 
-History deliberately excludes **CPM-derived fields** (early/late start and finish, float,
-critical-path flag) and **sync bookkeeping** (`server_version`, tombstone versions). Those
-recompute automatically on every schedule run, so recording them would bury the changes
-you actually care about — duration, status, percent complete, planned dates, assignee, and
+History deliberately excludes fields the **scheduling engine** recalculates on its own —
+the earliest/latest a task could start and finish, its **float** (how many days it can
+slip before it delays the project), and whether it's on the critical path — along with
+internal bookkeeping used to keep your data in sync across devices. Those recompute
+automatically on every schedule run, so recording them would bury the changes you
+actually care about — duration, status, percent complete, planned dates, assignee, and
 notes — under recalculation noise.
 
 ## API
@@ -96,6 +97,6 @@ member as `actor`.
 
 ## Retention
 
-History rows are bounded by a nightly purge governed by `HISTORY_RETENTION_DAYS`
-(default **90** days). See [Outbox & Record Retention](/administration/retention/) to tune
-or disable it.
+*For your TruePPM administrator:* history rows are cleared out by a nightly purge job
+after **90 days** by default. See [Outbox & Record Retention](/administration/retention/)
+to tune or disable it.

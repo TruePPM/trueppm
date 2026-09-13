@@ -16,11 +16,18 @@ for version accuracy when this declaration was added, so read it as undeclared
 rather than as verified-shipped.
 :::
 
-**Inbound Task Sync** is the lightweight authenticated webhook that lets external task tools push work into a TruePPM project — without TruePPM having to host an OAuth handshake or maintain a connector. You mint a token, your external system POSTs to `/projects/{id}/task-sync/`, and the task lands in the project's backlog ready for the PM to schedule.
+This page is for whoever sets up integrations for the team — a PM, an admin, or a
+developer connecting an existing tool. **Inbound Task Sync** is a lightweight,
+authenticated way to let an external task tool push work into a TruePPM project,
+without TruePPM having to support a full sign-in flow or a dedicated connector for
+that tool. You create an access token, your external system sends new or updated
+tasks to one API address, and each one lands in the project's backlog ready for
+the PM to schedule.
 
-It's deliberately **import-only**: status changes you make in TruePPM do **not** flow back to the external source. Designate one source of truth for status *before* setup — see [Source of truth](#source-of-truth) below. Two-way sync with conflict resolution is on the Enterprise roadmap.
-
-This feature closes [ADR-0065 Gap 3](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0065-hybrid-bridge-v1-1-cpm-velocity-feedback-my-work-and-inbound-sync.md) and is detailed in [ADR-0068](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0068-inbound-task-sync-protocol-project-api-tokens-audit-and-status-map.md).
+It's deliberately **import-only**: status changes you make in TruePPM do **not**
+flow back to the external source. Designate one source of truth for status
+*before* setup — see [Source of truth](#source-of-truth) below. Two-way sync with
+conflict resolution is on the Enterprise roadmap.
 
 ## What's in v1
 

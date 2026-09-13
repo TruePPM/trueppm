@@ -4,7 +4,12 @@ description: Kanban board with a backlog rail, phase swimlanes, and configurable
 documentedFor: "0.4"
 ---
 
-The **Board** tab is the primary execution surface in TruePPM. It presents the project's tasks as cards in a Kanban layout and stays in sync with the Schedule view via WebSocket — moving a card here updates the task's status everywhere.
+The **Board** tab is where the whole team — PM, Scrum Master, and every contributor
+— tracks day-to-day execution. It presents the project's tasks as cards in a
+Kanban layout (a board of columns like To Do / In Progress / Done, with cards you
+move across them as work progresses) and stays in sync with the Schedule view in
+real time — moving a card here updates the task's status everywhere else in
+TruePPM.
 
 ## Board layout
 
@@ -12,21 +17,42 @@ The board has two zones:
 
 ![The Platform Core board with the active sprint panel open: sprint goal, velocity, capacity and WIP tiles above the phase columns, with the backlog inbox on the left](../../../assets/screenshots/board.webp)
 
-- **Backlog** — `BACKLOG` cards live in a dedicated surface *beside* the working columns, not as a column of their own. Backlog is intake — undated, unrefined, not-yet-committed work — so it stays phase-agnostic and visible while you work the active board. Three layout variants are available from the toolbar's segmented control: **Rail** (left-side band, the default), **Drawer**, and **Queue**.
-- **Working columns** — the committed-work columns, rendered as **phase swimlanes** (one lane per phase in the WBS). Columns are configurable per project — labels, visibility, WIP limits, and accent colors — and default to:
+- **Backlog** — cards not yet committed to a phase live in a dedicated surface
+  *beside* the working columns, not as a column of their own. Backlog is intake —
+  undated, unrefined, not-yet-committed work — so it stays visible while you work
+  the active board without it. Three layout variants are available from the
+  toolbar's segmented control: **Rail** (left-side band, the default), **Drawer**,
+  and **Queue**.
+- **Working columns** — the committed-work columns, rendered as **phase
+  swimlanes** (one row per phase of the project outline). Columns are
+  configurable per project — labels, visibility, WIP limits (WIP means **work in
+  progress** — a cap on how many cards a column can hold at once, so work doesn't
+  pile up faster than the team can finish it), and accent colors — and default to:
 
-| Column | Status value | Meaning | Default WIP limit |
+| Column | Underlying status | Meaning | Default WIP limit |
 |--------|-------------|---------|-------------------|
-| To Do | `NOT_STARTED` | Committed; work has not begun | — |
-| In Progress | `IN_PROGRESS` | Work is active | 5 |
-| Review | `REVIEW` | Work complete; awaiting review / sign-off | 3 |
-| Done | `COMPLETE` | Done | — |
+| To Do | Not started | Committed; work has not begun | — |
+| In Progress | In progress | Work is active | 5 |
+| Review | Review | Work complete; awaiting review / sign-off | 3 |
+| Done | Complete | Done | — |
 
-Dragging a card from the backlog into a working column commits it (status changes to the column's status). Dragging is not the only way: each backlog card's **···** menu carries **File under…**, which files the idea into a phase and lands it in **To Do** — the same move the drag performs, reachable from the keyboard and comfortable on a touch screen. Dragging a To Do card back to the backlog opens a confirmation dialog — demoting committed work is a deliberate decision. Cards that are In Progress or beyond cannot be demoted to the backlog.
+Dragging a card from the backlog into a working column commits it (its status
+changes to match the column). Dragging is not the only way: each backlog card's
+**···** menu carries **File under…**, which files the idea into a phase and lands
+it in **To Do** — the same move the drag performs, reachable from the keyboard and
+comfortable on a touch screen. Dragging a To Do card back to the backlog opens a
+confirmation dialog — demoting committed work is a deliberate decision. Cards
+that are In Progress or beyond cannot be demoted to the backlog.
 
-The backlog rail captures with a **single field** at the top: type a name, press <kbd>Enter</kbd>, and the idea is created — the field clears and keeps the caret so you can fire off several in a row. A description, an assignee or a date go in the task drawer on the card you just made; intake is for catching an item that has no place yet, and those are answers it does not have.
+The backlog rail captures with a **single field** at the top: type a name, press
+<kbd>Enter</kbd>, and the idea is created — the field clears and keeps the caret
+so you can fire off several in a row. A description, an assignee, or a date go in
+the task drawer on the card you just made; intake is for catching an item that
+has no place yet, and those are answers it does not have.
 
-The legacy `ON_HOLD` status is kept for data compatibility with pre-0.1 projects but does not appear as a column; on the board it is treated like Backlog for drag guards.
+An old **On Hold** status still exists so projects created before TruePPM 0.1
+keep working correctly, but it does not appear as its own column; on the board a
+task in that state is treated like a backlog item.
 
 ## The board grid
 
@@ -128,10 +154,11 @@ Each card shows:
 - **Readiness chip** — `idea` / `estimated` / `ready` / `baselined`, shown only when the
   board holds more than one readiness value (see [Readiness states](#readiness-states))
 - **Risk badge** — count of linked active risks, colored by max severity
-- **Blocked indicator** — shown when any predecessor is not yet `COMPLETE`
+- **Blocked indicator** — shown when any predecessor task is not yet complete
 - **Sprint chip** — when the task is committed to a sprint
 - **Progress ring** — % complete, fills as work progresses
-- **CPI badge** — cost performance index when cost data is available (board batch 4)
+- **CPI badge** — the cost performance index (a ratio showing whether the task is
+  running under or over its budgeted cost), shown when cost data is available
 
 ### Card health signal
 
@@ -142,12 +169,21 @@ SPI, CPI, cost — stacked side by side, with no consolidated badge and no expan
 collapse behavior.
 :::
 
-0.4 will consolidate a card's stacked delivery chips — float, dwell, SPI, CPI, cost — into a single **worst-offender badge** that surfaces the one highest-severity signal at a glance. The severity order is derived from objective delivery state, never from PM priority rank:
+0.4 will consolidate a card's stacked delivery chips — float, dwell, cost, and the
+schedule/cost performance ratios below — into a single **worst-offender badge**
+that surfaces the one highest-severity signal at a glance. The severity order is
+based on the task's actual delivery state, never on PM priority rank:
 
 1. **Blocked** (⛔) — a predecessor is not yet complete, with the dependency count
 2. **Stale** (⚡) — past the column's aging threshold and stalled; escalates when it passes twice the limit
-3. **Critical path / late** (⚑) — on the critical path or running on negative float
-4. **Behind** (📉) — behind schedule (SPI) or over budget (CPI) when EVM mode is on
+3. **Critical path / late** (⚑) — on the critical path (the chain of tasks that
+   directly controls the project's finish date), or running on negative **float**
+   (float is how many days a task can slip before it delays the project — negative
+   means it has already used that cushion up and is now the thing driving the delay)
+4. **Behind** (📉) — behind schedule or over budget, when Earned Value Management
+   (EVM) mode is turned on. EVM compares planned, actual, and earned cost/schedule
+   progress to answer "are we ahead or behind, and by how much" — the schedule
+   ratio is called SPI, the cost ratio CPI; under 1.0 means behind or over budget.
 
 An on-track card shows no badge. Every badge carries a glyph and a label (never color alone), so the signal reads without relying on hue.
 
@@ -192,7 +228,7 @@ Custom fields on cards is single-project, team-level board presentation. Aggrega
 
 Drag a card to a new column to change its status. The status change is optimistic: the card moves immediately, and the API call fires in the background. If the API call fails, the card snaps back with a toast.
 
-**Keyboard alternative**: every card's `···` overflow menu includes a **Move to…** item with a submenu. Arrow keys navigate the submenu; Enter commits. An `aria-live` region announces the move.
+**Keyboard alternative**: every card's `···` overflow menu includes a **Move to…** item with a submenu. Arrow keys navigate the submenu; Enter commits. Screen readers announce the move as it happens.
 
 ### Moving cards offline
 
@@ -268,18 +304,18 @@ The export honors your **current view** — the selected sprint scope and any ac
 
 ## Readiness states
 
-Readiness is computed server-side from the task's data, resolved in this order (highest specificity first):
+Readiness is calculated automatically from the task's own data (not something you set directly), resolved in this order (most specific first):
 
 | State | Condition |
 |-------|-----------|
-| `baselined` | Task is in the active baseline (always wins) |
-| `idea` | No assignee **and** still in `BACKLOG` (unrefined, uncommitted) |
-| `ready` | Has an assignee + at least one predecessor link |
-| `estimated` | Has an assignee without predecessors, **or** was promoted out of `BACKLOG` without an assignee (committed but unowned) |
+| `baselined` | Task is part of the project's active **baseline** — the frozen snapshot of the schedule the plan is measured against (always wins over the other states) |
+| `idea` | No assignee **and** still in the backlog (unrefined, uncommitted) |
+| `ready` | Has an assignee and at least one dependency link to another task |
+| `estimated` | Has an assignee with no dependencies yet, **or** was moved out of the backlog without an assignee (committed but unowned) |
 
 `idea` only applies while the task is in the backlog: once a card moves to any working column, a commitment decision has been made, so it reads as `estimated` even with no assignee.
 
-The readiness chip drives the card's left accent bar color (overridden by `isCritical` → red).
+The readiness chip drives the card's left accent bar color, except a task on the critical path always shows red regardless of its readiness.
 
 Readiness is a **comparative** signal, so the chip is hidden when every card on the board
 shares the same state — the steady state of any project past planning is "everything is
@@ -366,7 +402,7 @@ clause is omitted at 0% and at 100% — a card in Done saying "100% done" adds n
 
 ## Mobile
 
-On viewports below 768px the board reflows into a **horizontal snap-scroll layout**: each status column becomes a full-width page (`scroll-snap-align: start`), and swiping settles cleanly column-to-column. The phase swimlanes collapse on a phone — each column shows a flat list of its cards across every phase, so the narrow screen carries the status axis without nesting.
+On a screen narrower than 768px, the board reflows into a **horizontal snap-scroll layout**: each status column becomes a full-width page, and swiping settles cleanly on one column at a time rather than leaving you half-scrolled between two. The phase swimlanes collapse on a phone — each column shows a flat list of its cards across every phase, so the narrow screen carries the status axis without nesting.
 
 A **dot-strip** above the board names every column with its task count and a health dot, and acts as the map: the active column's bar fills solid, and tapping any segment jumps to that column. Card anatomy, WIP limits, and the critical / blocked treatment are unchanged from desktop — only the layout reflows.
 

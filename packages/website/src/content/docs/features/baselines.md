@@ -48,7 +48,7 @@ stateDiagram-v2
     end note
 ```
 
-Committing is a single transaction that does two things:
+Committing happens in one step and does two things at once:
 
 1. **Captures `Baseline v1`** and makes it active — including a copy of the working
    calendar the dates were computed against, stored *by value*. A later calendar edit
@@ -67,7 +67,11 @@ without a reason. The prompt that collects one, and the changeset view that read
 reasons back, ship in **0.5**.
 
 **You cannot un-commit.** A plan is committed once, so that the anchor every variance
-number is measured from cannot move. Committing a second time returns `409`.
+number is measured from cannot move — trying to commit an already-active plan again
+is refused.
+
+If you're automating this instead of using the button, the same action over the API
+looks like:
 
 ```bash
 # Commit the plan. Requires the Project Manager role. Returns 409 if already committed.

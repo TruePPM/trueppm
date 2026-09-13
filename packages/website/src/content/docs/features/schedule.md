@@ -4,7 +4,7 @@ description: "Canvas-rendered Schedule (Gantt-style) with critical path, baselin
 documentedFor: "0.4"
 ---
 
-The **Schedule view** is TruePPM's project-timeline surface — what the rest of the industry calls a *Gantt chart*. The product's canonical name is **Schedule** (per [ADR-0030](/architecture/decisions/) and the wave/1 rename in #204) because the view does more than the historical Gantt: critical path, baselines, milestones, the unscheduled gutter, and live CPM re-forecast off sprint velocity all live in the same canvas.
+This is the home view for a PM planning and tracking a project's timeline. The **Schedule view** is TruePPM's project-timeline surface — what the rest of the industry calls a *Gantt chart*. TruePPM calls it **Schedule** in the product because the view does more than a historical Gantt chart: the **critical path** (the chain of dependent tasks that determines the earliest the project can finish), baselines, milestones, the unscheduled gutter, and a live re-forecast driven by **CPM** — the Critical Path Method, the calculation engine that works out every task's dates from durations and dependencies — off sprint velocity all live in the same canvas.
 
 :::note[A note on "Gantt"]
 *Gantt chart* is the well-known industry term and is what most evaluators search for. We use **Schedule** in product copy and route names; the underlying paradigm is still a Gantt. The two words refer to the same thing in this docs site.
@@ -87,7 +87,7 @@ below.
 A committed start is a **start-no-earlier-than (SNET)** constraint. On each
 forward pass the engine takes the later of the two:
 
-```
+```text
 early_start = max(computed early_start, committed start, project start)
 ```
 

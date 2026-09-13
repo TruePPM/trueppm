@@ -4,7 +4,7 @@ description: Decide what a program does when a cross-project dependency slips �
 documentedFor: "0.4"
 ---
 
-When one project's task is a predecessor for a task in another project in the same **program**, a slip in the first can block the second. The **Program Settings → Risk & deps policy** page decides what the program does when that happens. Open it at **Program → Settings → Risk & deps policy**.
+This is for a program manager who wants to control what happens when a delay in one project threatens another. When one project's task is a predecessor for a task in another project in the same **program**, a slip in the first can block the second. The **Program Settings → Risk & deps policy** page decides what the program does when that happens. Open it at **Program → Settings → Risk & deps policy**.
 
 The page has three parts:
 

@@ -42,17 +42,17 @@ two stacked rows). Left to right it carries:
 
 ## Background task runs
 
-A small badge in the TopBar's right cluster — `role="status"`, reading "N
-background operation(s) running" — appears **only** while at least one task is
-in flight (a schedule recalculation, an import, an export job); it disappears
-the moment the count returns to zero, so the calm shell stays quiet rather than
-carrying a permanently-visible, empty run indicator. A spinner and a live count
-sit inside it.
+A small badge on the right side of the top bar reads "N background operation(s)
+running" and appears **only** while at least one task is in flight (a schedule
+recalculation, an import, an export job); it disappears the moment the count
+returns to zero, so the calm shell stays quiet rather than carrying a
+permanently-visible, empty run indicator. A spinner and a live count sit inside
+it, and it's announced to screen readers as a live status update.
 
-The badge is driven by real-time WebSocket events (`task_run_started`,
-`task_run_progress`, `task_run_completed`, `task_run_failed`,
-`task_run_cancelled`) landing in a small client-side store — it does not poll.
-Three read APIs back the same underlying task-run records at different scopes:
+The badge updates itself the moment a background job starts, makes progress, or
+finishes — it doesn't need to ask the server for an update. For anyone building
+against the API, three endpoints back the same underlying run records at
+different scopes:
 
 | Endpoint | Scope |
 |---|---|
@@ -134,11 +134,14 @@ project's methodology, so you always see the right three signals:
 - **Waterfall** — Forecast (P80) · At-risk · Critical
 - **Hybrid** — Sprint · Forecast · Critical
 
-Slots are fixed: a zero or empty segment reads calmly ("0 critical", "—", "No
-active sprint") rather than vanishing, so the bar never reflows. At-risk and
-critical counts above zero open a task popover; a forecast date is neutral
-(informational, not a risk colour); and team-private velocity shows a "kept to
-the team" wall rather than a number when the team's privacy policy withholds it.
+The forecast shown here is a **P80** date — the date the schedule's forecast is
+confident about roughly 8 times out of 10 — and **Velocity** is how much work the
+team typically finishes per sprint. Slots are fixed: a zero or empty segment reads
+calmly ("0 critical", "—", "No active sprint") rather than vanishing, so the bar
+never reflows. At-risk and critical counts above zero open a task popover; a
+forecast date is neutral (informational, not a risk colour); and team-private
+velocity shows a "kept to the team" wall rather than a number when the team's
+privacy policy withholds it.
 
 ### The health word, and where it came from
 
@@ -146,7 +149,8 @@ The chip's word — **On track**, **At risk**, or **Critical** — is the projec
 health as the server decides it, and a project manager's **manual health report**
 outranks the task counts. So the word can be worse (or better) than anything in
 the rows beneath it: a PM who reports **Critical** on a plan with no at-risk and
-no critical tasks knows something the float numbers do not.
+no critical tasks knows something the schedule's own numbers — float included
+(how many days a task can slip before it delays the project) — do not.
 
 When that is what you are looking at, the popover says so. Under the word you get
 **Reported by the project manager**, with **View on Dashboard ›** taking you to

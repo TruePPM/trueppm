@@ -44,7 +44,7 @@ token carries.
 
 Send a PAT in the `Authorization` header on every request:
 
-```
+```http
 Authorization: Bearer tppm_<64 hex characters>
 ```
 

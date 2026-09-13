@@ -200,7 +200,7 @@ actually encode one:
 
 **A WBS / outline column.** Dotted codes map straight to the tree:
 
-```
+```text
 WBS   Name
 1     Discovery
 1.1   Stakeholder interviews
@@ -212,7 +212,7 @@ WBS   Name
 **Indentation in the name column.** Two spaces (or one tab, or one leading dot)
 per level — the convention most hand-built sheets use:
 
-```
+```text
 Name
 Phase One
   Design
@@ -468,7 +468,7 @@ an **Import review** summary branch appended at the bottom of the outline, one
 task per row, each named for the spreadsheet row it came from and carrying that
 row's original cell values in its notes.
 
-```
+```text
 1  Discovery
    1.1  Stakeholder interviews
    1.2  Requirements draft

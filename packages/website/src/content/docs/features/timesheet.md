@@ -10,7 +10,7 @@ categories, and the earned-value actuals feed follow in 0.5. The running timer a
 popover described below feed the same underlying time entries and ship alongside the grid in 0.4.
 :::
 
-TruePPM captures time three ways, all writing to the same underlying `TimeEntry` records: a
+This is for anyone who needs to record time spent on their work — a contributor logging hours against tasks, or a PM who wants an accurate picture of effort. TruePPM offers three ways to capture time, and all three feed the same record behind the scenes: a
 **running timer** you start and stop against a task, a **quick-log popover** for logging a chunk
 of time you already finished, and the **weekly grid** below for reviewing and submitting a whole
 week. Whichever you use, the same entry shows up in the others — stop a timer and its entry
