@@ -17,9 +17,11 @@ trial pulls published release images that are not built until then (#939). Until
 
 **To evaluate TruePPM today,** use the verified developer stack: bring the
 dev stack up with `docker compose up -d`, then seed a populated demo with
-`load_sample_project --with-personas` (persona logins, full write access). See
-[Installation](/getting-started/installation/) for the step-by-step, and the
-[Quickstart](/getting-started/quickstart/) for what to click once it is up.
+`load_sample_project --with-personas` (persona logins, full write access). If
+you have never run Docker before, [Set up a container host](/getting-started/container-host/)
+gets a machine ready first. Then see [Installation](/getting-started/installation/)
+for the step-by-step, and the [Quickstart](/getting-started/quickstart/) for
+what to click once it is up.
 :::
 
 ## The hosted read-only demo (ships in 0.4)
@@ -162,6 +164,7 @@ has nothing to verify.
 
 ## Next steps
 
+- [Set up a container host](/getting-started/container-host/) — what Docker is and how to install it, if you're starting from a bare machine
 - [The Story](/the-story/) — the eight-step hybrid PM flow the sample walks through
 - [Sample projects](/getting-started/sample-projects/) — the full catalog of loadable samples
 - [Evaluation guide](/getting-started/evaluation-guide/) — verify each capability, screen by screen

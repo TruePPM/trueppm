@@ -84,6 +84,11 @@ The fastest way to run TruePPM locally. All six services start from a single com
 | Memory available to Docker | 8 GB |
 | Free disk | ~10 GB for images, layers, and the build cache |
 
+New to containers, or don't have Docker installed yet? See
+[Set up a container host](/getting-started/container-host/) first — it explains
+what Docker and Docker Compose actually are and walks through installing Docker
+Desktop, Rancher Desktop, or Podman.
+
 The CPU and memory figures match the smallest tier in
 [Sizing](/administration/sizing/#sizing-tiers) — a single node at ~4 vCPU / 8 GB.
 On Docker Desktop these are set under **Settings → Resources**; the defaults are

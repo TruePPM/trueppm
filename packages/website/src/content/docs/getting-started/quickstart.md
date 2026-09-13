@@ -19,7 +19,7 @@ it creates the persona logins unconditionally and does not accept
 
 The fastest path from `git clone` to a workspace you can actually click around. Two routes: the **demo seed** (recommended for evaluation) and the **API tutorial** (recommended for learning the data model).
 
-You should already have completed [Installation](/getting-started/installation/) — the stack is up via `docker compose up -d`.
+You should already have completed [Installation](/getting-started/installation/) — the stack is up via `docker compose up -d`. If that command is new to you, [Set up a container host](/getting-started/container-host/) explains what it does and gets Docker running first.
 
 Already have a real plan you'd rather work with — an MPP file, a spreadsheet, or
 a Jira export? Neither route below is it; see
