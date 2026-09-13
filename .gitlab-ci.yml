@@ -83,7 +83,7 @@ variables:
   #
   # Bump by running `bash scripts/check-ci-api-tag.sh`, which prints the value
   # the current inputs require. Enforced by api:ci-api-tag.
-  CI_API_TAG: "py3.11-ec5162f9b50c"
+  CI_API_TAG: "py3.11-91e87b2b9514"
 
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
@@ -3547,9 +3547,10 @@ scheduler:mutation:
   # test; mutmut proves the tests would FAIL if that line were wrong by corrupting
   # the code and checking whether the suite catches it.
   #
-  # GATING POSTURE: this job GATES on the mutation score. Schedule-only, so it
-  # never blocks an MR — but a nightly whose score falls below MUTATION_MIN goes
-  # RED and stays red until someone kills the mutant or moves the floor (#3215).
+  # GATING POSTURE: this job GATES on the mutation score. A nightly whose score
+  # falls below MUTATION_MIN goes RED and stays red until someone kills the mutant
+  # or moves the floor (#3215). It runs on an MR only when that MR changes the
+  # measuring instrument itself — see the rules below.
   #
   # Read "report first, gate later" as done, not as ongoing. Three mechanisms used
   # to stack here — MUTATION_MIN: "0", an early `if args.min <= 0: return 0` in the
@@ -3569,10 +3570,21 @@ scheduler:mutation:
   #
   # WHERE MUTATION_MIN COMES FROM. Observed, not chosen: 1042-1043 killed of 1120
   # considered — 93.0%-93.1% — on every nightly artifact from 2026-08-11 to
-  # 2026-08-17, and 1042/1120 reproduced locally on 2026-08-30. The floor sits one
-  # point under the low end, which absorbs the +/-1 mutant of run-to-run jitter in
-  # that record and nothing larger. RATCHET DOWN, NEVER UP: raising the floor to
-  # quiet a red is deleting the finding.
+  # 2026-08-17 under mutmut 3.6/3.7, and 1042/1120 reproduced locally on
+  # 2026-08-30. The floor sits one point under the low end, which absorbs the
+  # +/-1 mutant of run-to-run jitter in that record and nothing larger. RATCHET
+  # DOWN, NEVER UP: raising the floor to quiet a red is deleting the finding.
+  #
+  # THE INSTRUMENT CHANGED ONCE, AND THAT IS WHY IT IS PINNED (#3720). mutmut
+  # 3.8.0 floated in under `>=3.6,<4` on 2026-09-12 and started mutating
+  # @dataclass methods and ternary conditions: the mutant set grew from 1120 to
+  # 1579 with no commit on our side, and the first run on it measured nothing
+  # (its trampolines tripped the __all__ docstring test in the stats pass). Kill
+  # tests took survivors from 156 to 50 — every non-equivalent new survivor — and
+  # two equivalent-mutant sources in derive.py were removed, for 1523/1573 =
+  # 96.8% measured locally on 2026-09-13. The floor was NOT moved on
+  # that one reading — a single run is not the multi-night record the paragraph
+  # above requires. Restate it from the 3.8.0 nightly artifacts once they exist.
   #
   # Scope is the beachhead in [tool.mutmut]: models.py, derive.py, cli.py. The
   # engine.py expansion is tracked as phase 2.
@@ -3583,6 +3595,15 @@ scheduler:mutation:
       optional: true
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    # An MR that changes the measuring instrument — the exact mutmut pin and
+    # [tool.mutmut] both live in pyproject.toml — is measured before it merges,
+    # not the night after. That is the only MR shape this runs on: an ordinary
+    # scheduler change still waits for the nightly, so this cannot turn every
+    # survivor into an MR blocker. ~30 s of CI.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/scheduler/pyproject.toml
+        - packages/scheduler/scripts/check_mutation_score.py
   variables:
     MUTATION_MIN: "0.92"
   script:
