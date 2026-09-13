@@ -82,6 +82,8 @@ Monday to Sunday.
 - **Totals update as you type** — a row total per task, a daily total under each day, and the week total in the header. A daily total over eight hours is flagged amber so an over-long day is obvious.
 - **Weekends are shaded** and today's column is tinted, so you can orient at a glance.
 
+![The weekly grid header and daily-total row, zoomed: Saturday and Sunday shaded, Sunday's date tinted as today, and the Total column on the right](../../../assets/screenshots/timesheet-grid.webp)
+
 Step between weeks with the `‹ … ›` stepper, and start logging against a task that isn't in the grid yet with **Add project or task**.
 
 ### Days with more than one entry

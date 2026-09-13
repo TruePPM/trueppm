@@ -4,8 +4,9 @@ The 228 rules split out of `packages/web/CLAUDE.md` by #2433 (ADR-0653).
 
 Each is a rule bound to one surface and one issue. It is **still binding** for
 that surface — it is simply not part of the invariant set every contributor is
-expected to hold. The invariants live in
-[`packages/web/CLAUDE.md`](../../../packages/web/CLAUDE.md).
+expected to hold. The invariants are indexed in
+[`packages/web/CLAUDE.md`](../../../packages/web/CLAUDE.md), one line per rule,
+with their full text under [`docs/design/invariants/`](../invariants/) (#3744).
 
 Rule numbers are unchanged from the original file, so an existing `rule 176`
 reference in code, an ADR, or an MR description still resolves. The one

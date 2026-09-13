@@ -168,9 +168,12 @@ follows the flow:
    page never reveals which emails are registered (no account enumeration).
 2. **Reset email** — if the address belongs to an account, TruePPM emails a
    single-use link that is valid for **30 minutes**.
-3. **`/reset-password/confirm/…`** — the link opens a page where the user sets a new
+3. **`/reset-password/confirm`** — the link opens a page where the user sets a new
    password (minimum 10 characters, at least one number or symbol, and different
-   from their current password).
+   from their current password). The link's single-use credential is carried in the
+   URL *fragment* (after the `#`), which browsers never transmit to any server — so
+   it stays out of your reverse-proxy access logs and out of the `Referer` header
+   sent to any site the user navigates to next.
 4. **All other sessions are signed out** — a successful reset revokes every other
    active session for that account, so a leaked-but-forgotten session on another
    device cannot outlive the reset.

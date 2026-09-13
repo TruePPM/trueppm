@@ -109,6 +109,35 @@ reference in the codebase means the disabled-placeholder recipe, so that rule ke
 the number and the scrollbar-gutter rule became **288** — 286 (#2447) and 287
 (#2389) were claimed by rules that landed on `main` while this split was open.
 
+## Amendment — 2026-09-13 (#3744): invariant bodies move out; the file becomes an index
+
+The invariant set did not stay "short enough to read in one sitting". By September
+it was 173 rules and **457 KB** — and the harness loads that file whole into every
+session that reads anything under `packages/web/`. It was also the second-most-touched
+file on `main` (112 of 545 merges in 30 days), because every UI branch that surfaced a
+rule appended to it; rules 411 and 412 had even landed below the decision-record
+pointer at the foot of the file.
+
+§1 is amended, not reversed. What an invariant *is* does not change, and neither does
+the test for one. What changes is where its text lives:
+
+- `packages/web/CLAUDE.md` holds **one line per invariant** under the same 13
+  sections: its bold headline — plus the operative clause, where the headline is only
+  a label — and a link to its body.
+- The full text moves verbatim to `docs/design/invariants/<N>-<slug>.md`, mirroring
+  §2's decision records. Rule numbers are unchanged, so every citation still resolves.
+- `.gitattributes` merges the index with `merge=union`, so concurrent additions no
+  longer conflict. `check-web-rule-numbers.sh` now also fails on an index line with no
+  body and on a body no line indexes; its existing duplicate-number check is what
+  catches union's one failure mode (both sides edited the same line, so both are kept).
+
+**Cost, stated plainly.** §1 argued an invariant must be *held*. A contributor now
+holds the headline and must open the body before touching the surface a rule governs
+or citing one of its lettered clauses. For most rules the headline *is* the rule. For
+a minority — where the operative detail is a list (rule 7's health encoding) or a set
+of lettered obligations — it is not, and the link is the price of an index that fits
+in context.
+
 ## Alternatives considered
 
 - **Delete the case notes.** Rejected: the reasoning is the expensive part, and
