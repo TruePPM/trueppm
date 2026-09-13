@@ -70,25 +70,55 @@ risks, baselines, sprints, calendars, phases, custom fields, resources, skills,
 notifications, project/program memberships, integration credentials, comments,
 attachments, and the board/task structural operations).
 
-A few endpoints are intentionally exempt:
+A number of endpoints are intentionally exempt — each view opts out with
+`idempotency_exempt = True` (`trueppm_api.apps.idempotency.mixins.IdempotencyMixin`),
+for one of three reasons. This lists the exemptions by reason rather than
+naming every view, since the set can grow without this page being updated in
+lockstep — if you rely on the header against an endpoint not covered by the
+categories below, send a real request first and confirm you get an
+`Idempotent-Replay` header on a byte-identical retry:
 
-- **API token issuance** (`POST /api/v1/projects/{id}/api-tokens/`) — the response carries
-  a one-time plaintext token that must never be persisted for replay.
-- **Webhook registration** (`POST /api/v1/{projects,programs}/{id}/webhooks/`) — same
-  reason: the response may carry a one-time plaintext signing secret.
-- **MS Project import** (`POST /api/v1/projects/{id}/import/msproject/`) — multipart upload;
-  already deduplicated server-side.
-- **Inbound task sync** (`POST /api/v1/projects/{id}/task-sync/`) — already idempotent by
-  `(project, source, external_id)` upsert (see the inbound task-sync protocol).
-- **Offline sync push** (`POST /api/v1/projects/{id}/sync/`) — already idempotent by
-  `client_batch_id` replay.
+- **The response carries a one-time plaintext secret that must never be
+  persisted for replay** — API token issuance
+  (`POST /api/v1/projects/{id}/api-tokens/` and
+  `POST /api/v1/me/api-tokens/`, personal access tokens), webhook registration
+  (`POST /api/v1/{projects,programs}/{id}/webhooks/`), and Git-automation
+  secret rotation (`POST .../git-automation/rotate-secret/`).
+- **Multipart file uploads already deduplicated server-side** by their own
+  request-tracking table, so the generic key store would only add overhead —
+  MS Project import, both into an existing project
+  (`POST /api/v1/projects/{id}/import/msproject/`) and as a new project
+  (`POST /api/v1/projects/import/msproject/`); Jira XML import
+  (`POST /api/v1/projects/{id}/import/jira/`); and CSV/Excel import, both the
+  stateless preview and the commit (`POST /api/v1/projects/{id}/import/csv/`
+  and its `/preview/` sibling).
+- **Already idempotent by a different, purpose-built mechanism**, so a second
+  layer would be redundant — inbound task sync
+  (`POST /api/v1/projects/{id}/task-sync/`, idempotent by
+  `(project, source, external_id)` upsert; see the inbound task-sync
+  protocol), offline sync push (`POST /api/v1/projects/{id}/sync/`, idempotent
+  by `client_batch_id`), the inbound Git webhook receiver (an unauthenticated
+  endpoint with no JWT user to key a store on — replay safety comes from a
+  Redis delivery claim and a forward-only status guard instead), the
+  Git-automation config toggle (`PUT .../git-automation/`, which converges to
+  the same state on replay), the CI-verdict / acceptance-criteria endpoint (a
+  repeated verdict is a no-op), and SSO provider create
+  (`POST /api/v1/workspace/sso/providers/`, which keys on a unique
+  `(workspace, slug)` constraint and answers `409` on a duplicate).
+
+Several of these also carry a token-principal or unauthenticated caller rather
+than a JWT/session user, which the generic Idempotency-Key store keys on — a
+second, independent reason several of the above are exempt rather than simply
+covered by it.
 
 ## Retention
 
 Stored idempotency responses are retained for **24 hours** (configurable via
-`IDEMPOTENCY_RETENTION_HOURS`; set to `None` to disable purging) and removed by an hourly
-maintenance task. After expiry the key is free to be reused, and a retry that arrives after
-the window re-runs the request.
+[`TRUEPPM_IDEMPOTENCY_RETENTION_HOURS`](/administration/configuration/#optional--advanced-settings);
+set the Django setting to `None` to disable purging — the legacy bare
+`IDEMPOTENCY_RETENTION_HOURS` is still read as a fallback when the prefixed variable is
+unset) and removed by an hourly maintenance task. After expiry the key is free to be
+reused, and a retry that arrives after the window re-runs the request.
 
 ## Client behavior
 
