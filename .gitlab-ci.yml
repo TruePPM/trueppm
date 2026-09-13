@@ -161,8 +161,20 @@ workflow:
 # Path-change rule templates.
 #
 # Every package job uses one of these anchors so it only runs when files in
-# that package (or the CI config itself) change. On main the changes: filter
-# is omitted — the protected branch always gets a full green signal.
+# that package (or the CI config itself) change — on main pushes as well as
+# MRs (#3745). A main push compares against the previous main tip, so a
+# docs-only merge no longer re-runs ~100 jobs over a code tree byte-identical
+# to its parent, which already ran them. The main pipeline for a diff thus has
+# the same shape as the MR pipeline for that diff, so every `needs:` edge it
+# relies on is already exercised on MRs.
+#
+# Full coverage still comes from non-push pipelines: GitLab evaluates
+# `changes:` as true for schedules and manual runs, so the nightly SonarCloud
+# schedule on main runs every package job. That is the backstop for the one
+# gap path filtering opens: a code merge whose push pipeline never ran (job
+# quota exhausted → 0 jobs) followed by a docs-only merge, which compares
+# against the untested tip and skips the code jobs. Do not narrow the nightly
+# schedule's job set without replacing that backstop.
 #
 # api includes scheduler paths because the API package installs the scheduler
 # as a dependency; a scheduler change can break API type-checking.
@@ -177,16 +189,14 @@ workflow:
 
 .rules-scheduler: &rules-scheduler
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/scheduler/**/*
         - .gitlab-ci.yml
 
 .rules-api: &rules-api
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/api/**/*
         - packages/scheduler/**/*
@@ -194,16 +204,14 @@ workflow:
 
 .rules-web: &rules-web
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/web/**/*
         - .gitlab-ci.yml
 
 .rules-mobile: &rules-mobile
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/mobile/**/*
         - .gitlab-ci.yml
@@ -222,8 +230,7 @@ workflow:
 
 .rules-wasm: &rules-wasm
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/wasm-scheduler/**/*
         # The wasm:* jobs run *inside* the ci-wasm image, so a change to its
@@ -237,8 +244,7 @@ workflow:
 
 .rules-helm: &rules-helm
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/helm/**/*
         # helm:template's deploy-contract assertions live in this script, so a
@@ -250,8 +256,7 @@ workflow:
 
 .rules-mcp: &rules-mcp
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/mcp/**/*
         - .gitlab-ci.yml
@@ -3202,8 +3207,7 @@ api:schema-drift:
     - job: ci:build-api-image
       optional: true
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/api/**/*
         - packages/scheduler/**/*
@@ -3227,8 +3231,7 @@ api:uv-lock-check:
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   needs: []
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/api/pyproject.toml
         - packages/api/uv.lock
@@ -3255,8 +3258,7 @@ scheduler:uv-lock-check:
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   needs: []
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/scheduler/pyproject.toml
         - packages/scheduler/uv.lock
@@ -3282,8 +3284,7 @@ mcp:uv-lock-check:
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   needs: []
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/mcp/pyproject.toml
         - packages/mcp/uv.lock
@@ -4036,8 +4037,7 @@ wasm:conformance:
     - job: wasm:lint
       optional: true
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/wasm-scheduler/**/*
         - packages/scheduler/**/*
@@ -4852,9 +4852,7 @@ web:e2e:report:
     - job: ci:mirror-playwright-base
       optional: true
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-      when: always
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/web/**/*
         - .gitlab-ci.yml
@@ -4936,7 +4934,17 @@ web:integration:
     TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE: "1000/min"
     PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
   rules:
+    # Post-merge stack health on main: every merge that can change the stack,
+    # not only the auth surfaces the MR rule below targets. Deliberately broader
+    # than the MR filter; it skips only merges that touch none of the stack
+    # (docs-only, #3745). Schedules still run it — `changes:` is true there.
     - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - packages/api/**/*
+        - packages/scheduler/**/*
+        - packages/web/**/*
+        - .gitlab/ci-images/integration.Dockerfile
+        - .gitlab-ci.yml
     # Block MRs that change an auth or real-time surface — the interacting
     # in-memory-token / cookie-refresh / WebSocket-auth paths only break under a
     # real reload against the live stack, which web:e2e (mocked) cannot reach.
@@ -5436,8 +5444,7 @@ security:trivy:config:
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   needs: []
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/**/Dockerfile
         - packages/helm/**/*
@@ -5489,8 +5496,7 @@ security:semgrep:
     entrypoint: [""]
   needs: []
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/web/src/**/*
         - packages/api/src/**/*
@@ -5558,8 +5564,9 @@ license:check:py:
   # Mirrors the existing security:osv (Python+node+cargo) per-manifest scoping.
   #
   # Kaizen #640 N1: `changes:` is dep manifests only — license composition
-  # only changes when manifests/lock files do; main + scheduled runs catch
-  # transitive drift that a lock-file refresh might miss.
+  # only changes when manifests/lock files do; the nightly scheduled run
+  # catches transitive drift that a lock-file refresh might miss. Main pushes
+  # use the same manifest filter as MRs (#3745).
   stage: security
   image: $CI_REGISTRY_IMAGE/ci-api:$CI_API_TAG
   needs:
@@ -5570,8 +5577,7 @@ license:check:py:
     policy: pull
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/scheduler/pyproject.toml
         - packages/api/pyproject.toml
@@ -5607,8 +5613,7 @@ license:check:web:
     policy: pull
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/web/package.json
         - packages/web/package-lock.json
@@ -5672,8 +5677,7 @@ license:check:website:
     policy: pull
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/website/package.json
         - packages/website/package-lock.json
@@ -5709,8 +5713,7 @@ license:check:mobile:
     policy: pull
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/mobile/package.json
         - packages/mobile/package-lock.json
@@ -5737,8 +5740,7 @@ license:check:mcp:
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/mcp/pyproject.toml
         - packages/mcp/uv.lock
