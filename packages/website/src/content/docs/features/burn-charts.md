@@ -4,7 +4,7 @@ description: Project-level burn down, burn up, and combined progress charts in t
 documentedFor: "0.4"
 ---
 
-Three standard agile/iterative progress charts scoped to a single project: burn down (remaining work over time), burn up (completed work against a scope line), and a combined overlay of both. All three share a Y-axis unit selector — story points or task count — so you can read them in the unit that matches your planning cadence.
+Burn charts help a PM, Scrum Master, or executive answer "are we still on track?" at a glance. TruePPM offers three standard progress charts for a single project: burn down (remaining work over time), burn up (completed work measured against how much scope you've taken on), and a combined view overlaying both. All three let you choose the unit on the vertical axis — story points or task count — so you can read them in the unit that matches your planning cadence.
 
 Portfolio-level burn charts (aggregated across projects) are an Enterprise feature.
 
@@ -42,7 +42,7 @@ Overlays burn down and burn up on the same axes. The area between the two lines 
 ## Where to find it in the app
 
 - Route: `/projects/:projectId/reports`
-- Tab: **Reports** — visible for HYBRID, AGILE, and WATERFALL projects
+- Tab: **Reports** — visible on Hybrid, Agile, and Waterfall projects
 - Mode selector in the chart toolbar: **Burn Down · Burn Up · Combined**
 - Unit selector: **Points · Tasks**
 - Date range: the **From** / **To** pickers in the chart toolbar (project charts only — in a sprint the range is the sprint). From 0.4 the range they can ask for is bounded; the limits are under [API endpoints](#api-endpoints)

@@ -478,6 +478,12 @@ run_scan() {
   # is …").
   local anchor_re='(shipped in|added in|landed in|introduced in|available in|released in|new in|as of|since|In) 0\.[0-9]+'
 
+  # Subject form (#3739): the version is the grammatical subject of a
+  # present-tense verb — "0.4 adds a constraint", "0.4 removes that toggle".
+  # anchor_re cannot see it, because no anchor phrase precedes the version. The
+  # leading class keeps "10.4 adds" from matching as 0.4.
+  local subject_re='(^|[^0-9.])0\.[0-9]+ (adds|replaces|removes|introduces|makes|brings|drops|renames|moves|gains|splits|turns|changes)( |$|[[:punct:]])'
+
   # Future-tense modal qualifiers — if a matched line also carries one of these,
   # the claim is forward-looking ("In 0.3 My Work will group …") and is allowed.
   local future_re='(will |wo n.t |won.t |plans to |plan to |is planned|are planned|ships in|lands in|coming|expected to|is sequenced|are sequenced|sequenced for|planned for)'
@@ -493,7 +499,7 @@ run_scan() {
   while IFS= read -r f; do
     [ -z "$f" ] && continue
     # grep -nE gives "lineno:content" for every line carrying an anchor.
-    hits="$(grep -nE "$anchor_re" "$f" 2>/dev/null || true)"
+    hits="$(grep -nE "$anchor_re|$subject_re" "$f" 2>/dev/null || true)"
     [ -z "$hits" ] && continue
     while IFS= read -r hit; do
       [ -z "$hit" ] && continue
@@ -513,7 +519,7 @@ run_scan() {
           violations=$((violations + 1))
         fi
       done < <(printf '%s\n' "$line" \
-        | grep -oE "$anchor_re" \
+        | grep -oE "$anchor_re|$subject_re" \
         | grep -oE '0\.[0-9]+')
     done <<< "$hits"
   done <<< "$files"
@@ -664,6 +670,9 @@ MD
 The feature shipped in 0.2.
 In 0.3 My Work will group your tasks differently.
 The full picker ships in 0.3.
+0.2 adds a column to the grid.
+0.3 will add a database constraint.
+Version 10.3 adds nothing new.
 MD
 
   # Bad page: unshipped reference (0.3) in past tense.
@@ -690,6 +699,19 @@ MD
     return 1
   else
     echo "SELF-TEST OK: unshipped past-tense claim correctly rejected."
+  fi
+
+  # Subject form (#3739): the version is the subject of a present-tense verb and
+  # no anchor phrase precedes it, so anchor_re alone never sees the claim.
+  local sdir="$tmp/s"
+  mkdir -p "$sdir"
+  cp "$docs/overview/roadmap.md" "$sdir/"
+  printf '%s\n' '0.3 adds a database constraint that forbids it.' >"$sdir/subject.md"
+  if run_scan "$sdir/roadmap.md" "$sdir" >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: unshipped subject-form present tense (\"0.3 adds\") was accepted." >&2
+    return 1
+  else
+    echo "SELF-TEST OK: unshipped subject-form present tense correctly rejected."
   fi
 
   # ── documentedFor pairing (#2608) ──────────────────────────────────────────

@@ -12,8 +12,12 @@ revocation lever, and tokens must be revoked one at a time from each owner's
 personal settings page. Everything else on this page is in the current release.
 :::
 
-TruePPM ships a small set of Django management commands. Run them with
-`python manage.py <command>` inside the API container, for example:
+TruePPM ships a small set of **Django management commands** — one-off scripts you
+run from a shell inside the API container, for tasks that don't belong behind a
+button in the UI: bootstrapping the first admin account, loading a demo program,
+importing or exporting data in bulk, and the breach-recovery and audit-log
+maintenance commands under [Maintenance commands](#maintenance-commands) below. Run
+one with `python manage.py <command>` inside the API container, for example:
 
 ```bash
 docker compose exec api python manage.py load_sample_project --with-personas
@@ -174,7 +178,7 @@ critical path that runs *across* projects, and **shared people who over-allocate
 overlapping windows**. The critical path is genuinely computed by the
 program-scoped CPM pass, so it stays correct when a task is dragged rather than
 being hard-coded. It also carries the per-project **5-role RBAC matrix**
-(Owner/Admin/Scheduler/Member/Viewer), a WIP-limited Kanban board on the Security
+(Project Admin / Project Manager / Resource Manager / Team Member / Viewer), a WIP-limited Kanban board on the Security
 workstream, two sprints on the Marketing workstream, and a shared calendar with a
 company holiday.
 
@@ -272,8 +276,11 @@ user-facing guide.
   and the project / task / resource counts — then lists each diagnostic anchored
   to its JSON path:
 
-  ```console
-  $ python manage.py import_seed atlas.json --check
+  ```bash
+  python manage.py import_seed atlas.json --check
+  ```
+
+  ```text
   Checked atlas.json
     schema_version: 2.0
     program:        Atlas Platform Launch

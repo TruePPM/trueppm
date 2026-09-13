@@ -130,6 +130,11 @@ is no 3.14-specific dependency.
 
 For preliminary hardware sizing guidance at 50 / 100 / 200 users, see [Deployment Sizing](/administration/sizing/).
 
+**Running on OpenShift?** See [OpenShift Deployment](/administration/openshift/)
+for the `restricted-v2` SCC override, Ingress→Route behavior, and what does not
+work yet (the bundled dev/demo `postgresql`/`valkey` subcharts) — everything
+else on this page applies unchanged.
+
 ### Production install walkthrough
 
 Prerequisites: Helm 3.14+, `kubectl` compatible with your cluster, and a
@@ -878,7 +883,7 @@ page describes the current release.
 A task's `wbs_path` is the only thing that records its place in the work
 breakdown; there is no `parent_id` column. Before 0.4 nothing stopped two live
 tasks in one project from being written to the same path, and several code paths
-did exactly that. 0.4 adds a database constraint that forbids it.
+did exactly that. 0.4 will add a database constraint that forbids it.
 
 That constraint is **validated against every existing row** when it is created, so
 on a database that already holds a duplicate the upgrade would otherwise fail —

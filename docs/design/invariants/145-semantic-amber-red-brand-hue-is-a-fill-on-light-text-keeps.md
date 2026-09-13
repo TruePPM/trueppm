@@ -1,0 +1,5 @@
+# Rule 145 — Semantic amber/red: brand hue is a FILL, on-light text keeps the AA-dark variant
+
+> **Invariant.** Indexed from [`packages/web/CLAUDE.md`](../../../packages/web/CLAUDE.md), section *Color and tokens*. The index carries the rule's headline; this file carries its full text (#3744, ADR-0653 amendment). Binding everywhere, not only on the surface that produced it.
+
+**Semantic amber/red: brand hue is a FILL, on-light text keeps the AA-dark variant.** at-risk fill/dot `#DE9326` but text/border `#92400E`; warning fill/dot `#D97706` (it lives only in `--sem-warning-bg`) but text/border `#854D0E` — yellow-800, ≥5.4:1 on the warning-bg tint; critical fill/dot `#CF4438` but text/border `#B91C1C`. Never set `text-semantic-at-risk`/`text-semantic-warning`/`text-semantic-critical` to the brand hue — those brand values fail AA as text on white (2.4:1 / 2.9:1 / 4.0:1; warning brand `#D97706` as text was only ~2.74:1, the 1.4.3 fail in issue 1377). `#854D0E` is kept deliberately distinct from at-risk's `#92400E` so the two amber states stay separable. on-track `#3E8C6D` and info `#2F6FD1` are AA as text and used directly.

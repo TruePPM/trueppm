@@ -33,7 +33,7 @@ week of real usage to accrue.
 ### Forecast trend, on day one
 
 Open **Platform Core → Overview**. The forecast-trend chart draws **60 days of
-history**: the P50/P80/P95 band and the CPM finish line **drift to the right**
+history**: the P50/P80/P95 band and the CPM (Critical Path Method) finish line **drift to the right**
 across the window while the committed date holds — the schedule slipping in slow
 motion. Because the commitment stays fixed as the forecast moves past it, the
 project's total float **crosses from positive into negative**, so the "we are now

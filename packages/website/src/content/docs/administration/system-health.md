@@ -20,7 +20,7 @@ in `v0.3.0-alpha.3`, the latest release:
   diagnostic: you can filter, read a traceback, and read a payload, but there is
   no button that changes a parked task's state and no write endpoint behind one.
   (0.3 exposes `retry` and `dismiss` on this resource at the API level only, with
-  no UI, no backoff, no drop note, and no bulk form; 0.4 replaces both.)
+  no UI, no backoff, no drop note, and no bulk form; 0.4 will replace both.)
 - **The Notification dispatcher card's detection logic.** In 0.3 that card
   reports "stuck" only for emails that are *still queued* an hour after a failed
   attempt. Because the delivery queue abandons a row after three attempts (about
@@ -34,9 +34,15 @@ the retention summary, and the read side of the Dead-letter inspector — descri
 :::
 
 TruePPM runs scheduling, notifications, webhooks, MS Project imports, and retention
-purges as background work via Celery and a transactional outbox. The **System Health**
+purges as **background work** — jobs that run outside the request that triggered
+them, via **Celery** (the worker processes that do the work), **Celery Beat** (the
+single scheduler process that dispatches jobs on a timer), and a **transactional
+outbox** (a database table of pending jobs that survives a crash between "the
+triggering change committed" and "the job actually ran"). The **System Health**
 console gives a workspace administrator a read-only operator view of that machinery —
-without shelling into the cluster or scraping Prometheus by hand.
+without shelling into the cluster or scraping Prometheus by hand. Reach for this page
+first whenever something that should have happened automatically — a schedule
+recompute, a notification email, a webhook delivery — appears not to have.
 
 Find it at **Settings → Workspace → System health**.
 

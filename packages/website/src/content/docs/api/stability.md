@@ -225,7 +225,7 @@ deprecation window rather than being removed outright:
    The reasoning: this is the security carve-out named in step 3's opening — the field was
    the last bypass of the org-wide address-harvest control. Both endpoints build their rows
    by hand and so never reached the resource serializer that enforces that control, and both
-   are gated on Scheduler+ against the caller's *own* project or program, which any account
+   are gated on Resource Manager+ against the caller's *own* project or program, which any account
    can grant itself by creating a project. A deprecation window on a field in that position
    would mean publishing a known disclosure for another release.
 

@@ -163,7 +163,13 @@ def test_migration_keeps_the_kickoff_baseline_and_activates_the_replan(owner):
 
     kickoff_rows = {r.task_name: r for r in kickoff.tasks.all()}
     replan_rows = {r.task_name: r for r in replan.tasks.all()}
-    assert set(kickoff_rows) == set(replan_rows), "the re-plan dropped tasks"
+    # The kickoff baseline is a hand-authored, leaf-tasks-only row list. The
+    # re-plan (#3495) is a `baseline.capture` beat, which — like the live
+    # capture endpoint it mirrors — snapshots every task in the project, phase
+    # headers and the "Migration complete" milestone included. So the re-plan
+    # is a superset, not an exact match; what must not happen is the re-plan
+    # dropping any task the kickoff baseline named.
+    assert set(kickoff_rows) <= set(replan_rows), "the re-plan dropped tasks"
 
     # Completed work is identical in both; the slipped tail is not. Asserting
     # only "two baselines exist" would pass against two identical snapshots,

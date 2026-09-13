@@ -9,10 +9,18 @@ documentedFor: "0.4"
 This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4.
 :::
 
+Every table TruePPM writes for its own bookkeeping — not your project data — grows
+without bound unless something trims it. This page is where you find each of those
+tables, what its default retention window is, and how to change one: from the
+in-app editor for a running deployment, or ahead of time via an environment
+variable.
+
 TruePPM runs several **transactional outbox** tables (schedule requests, MS Project
-imports, webhook deliveries, sprint-close requests) plus historical records (object
-history, task runs). Each is kept bounded by a Celery Beat purge so the tables stay
-small, index scans on the drain paths stay fast, and backups don't bloat.
+imports, webhook deliveries, sprint-close requests) — a queued-job table a background
+worker drains — plus historical records (object history, task runs). Each is kept
+bounded by a **Celery Beat** purge (Beat is TruePPM's background job scheduler; see
+[Beat Liveness](/administration/beat-liveness/)) so the tables stay small, index scans
+on the drain paths stay fast, and backups don't bloat.
 
 You can tune retention two ways: from the **System health → Retention & purge** editor in
 the UI (workspace admins), or via Django settings / environment variables (the default,
@@ -140,6 +148,14 @@ its uploaded file* are kept. The replaced program shell is not recoverable at
 all: there is no program Trash
 ([#2587](https://gitlab.com/trueppm/trueppm/-/issues/2587)).
 :::
+
+**Batch-operation undo records are purged on their own schedule too.**
+`TRUEPPM_BATCH_OPERATION_RETENTION_DAYS` (default `30`) bounds how long the
+⌘Z **undo ledger** for a paste-many or cascade-delete batch operation is kept,
+whether or not it was ever undone. The standalone nightly `purge_expired_batch_operations`
+Beat task (04:40 UTC) deletes rows past the window. Like the export and
+import-job purges above, it is not folded into the retention coordinator: it
+enforces its own knob rather than one of the six the coordinator drives.
 
 **`TRUEPPM_SYNC_BATCH_RETENTION_HOURS` is in hours, not days.** Unlike the other knobs,
 this window is measured in **hours** because it doubles as the mobile sync upload **dedup

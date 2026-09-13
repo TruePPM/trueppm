@@ -131,10 +131,10 @@ Use this when the destination project already exists. From the project's **Sched
 
 The import runs **asynchronously** — the worker parses the file in the background and the **schedule refreshes once it finishes**. There is no live per-import progress bar yet ([#61](https://gitlab.com/trueppm/trueppm/-/issues/61)).
 
-:::note[Import-into-existing requires Project Admin]
-The import action is enforced server-side: you must have the **Project Admin**
-role on the project. Members below Admin do not see the import control. Export
-is available to any project member (see below).
+:::note[Import-into-existing requires Project Manager]
+The import action is enforced server-side: you must have the **Project Manager**
+role or above on the project. Members below Project Manager do not see the import
+control. Export is available to any project member (see below).
 :::
 
 :::caution[A circular predecessor link rejects the whole file]

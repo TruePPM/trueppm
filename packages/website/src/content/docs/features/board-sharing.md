@@ -20,8 +20,8 @@ Public sharing ships in **TruePPM 0.4**, the first beta. It is not present in
 
 You can create a link two ways:
 
-- From the **Schedule** or **Board** toolbar, choose **Share** (Admin or Owner
-  only). The dialog is scoped to the view you launched it from.
+- From the **Schedule** or **Board** toolbar, choose **Share** (Project Manager
+  or above). The dialog is scoped to the view you launched it from.
 - From **Project Settings → Sharing**, choose **Create link…** and pick whether to
   share the **schedule** or the **board**.
 
@@ -62,7 +62,8 @@ Neither view ever includes:
 
 - comments, notes, or attachments
 - story points, business value, cost, or any estimate
-- schedule float, slack, or Monte Carlo risk figures
+- schedule float or slack (how many days a task can slip before it delays the
+  project) or Monte Carlo risk figures (probability-based finish-date forecasts)
 - blocker details
 - assignee names (unless you explicitly enabled *Show assignee names* for that link)
 

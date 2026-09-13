@@ -77,7 +77,7 @@ with nothing running and end with a signed-in browser.
    installed yet, do that first — see [Installation](/getting-started/installation/).
 
 2. **Load a sample.** Pick the one that matches the methodology you care about —
-   **Aurora** for pure agile, **Bayside** for waterfall/CPM, **Helios** for the
+   **Aurora** for pure agile, **Bayside** for waterfall/CPM (Critical Path Method scheduling), **Helios** for the
    small hybrid bridge, **Atlas** for the whole story at program scale, and
    **1.0 GA Launch** for coordination across four workstreams — and run its line.
    Loading more than one is fine; they do not collide.

@@ -16,33 +16,32 @@ The **CPM-float annotation** on the variance chip, described under [What
 changes](#what-changes) below, ships in 0.4.
 :::
 
-Linking a sprint to a Schedule-view milestone via `Sprint.target_milestone` makes that
-milestone's `percent_complete` *live*. The number a PM sees on the Schedule view and the
+This is for hybrid teams where a sprint's progress is meant to advance a milestone on the schedule. Binding a sprint to a Schedule-view milestone makes that milestone's percent complete *live*. The number a PM sees on the Schedule view and the
 number a Scrum Master sees on the Sprints view are the same number, computed
 from the same sprint state, with no manual reconciliation step.
 
 This closes the longest-standing gap between TruePPM's agile and waterfall
-views: before this change, the link was display-only — the AdvancingToMilestone
-card showed the milestone's name and date, but its progress drifted from the
+views: before this change, the link was display-only — the Sprints view's
+"advancing to milestone" card showed the milestone's name and date, but its progress drifted from the
 sprint's real state until someone updated the Schedule view by hand.
 
 ## What changes
 
 When at least one sprint targets a milestone task:
 
-- The milestone's **percent complete** rolls up live from sprint
-  `committed_*` / `completed_*` snapshots and current task state. The Schedule-view
-  task list shows the rolled-up value with a 🔒 lock indicator and the
-  AdvancingToMilestone card shows the same number.
+- The milestone's **percent complete** rolls up live from what each linked sprint committed to and has completed, and the current status of its tasks. The Schedule-view
+  task list shows the rolled-up value with a 🔒 lock indicator, and the Sprints
+  view's advancing-to-milestone card shows the same number.
 - A **sprint plan variance** (positive = slip past the milestone, negative =
   ahead) appears next to the rolled-up value: `Sprint plan: +3d slip` or
-  `Sprint plan: -2d ahead`. This is computed from the latest ACTIVE / PLANNED
-  sprint's `finish_date` against the milestone's CPM date. Sprint dates are
-  never automatically mutated.
-- The variance chip **will be annotated with CPM float** *(ships in 0.4)* so a
-  slip reads against the schedule's tolerance, not just its magnitude. Off the
-  critical path it reads `Sprint plan: +3d slip · 8d float` and its color band
-  reflects slip-vs-float — red when the slip exceeds the available float, amber
+  `Sprint plan: -2d ahead`. This compares the latest active or planned
+  sprint's finish date against the milestone's date on the schedule. Sprint dates are
+  never automatically changed to match.
+- The variance chip **will be annotated with float** *(ships in 0.4)* — **float** is
+  how many days a task can slip before it delays the project, the schedule's built-in
+  tolerance — so a slip reads against how much room the plan actually has, not just its
+  raw size. Off the critical path it reads `Sprint plan: +3d slip · 8d float` and its
+  color band reflects slip-vs-float — red when the slip exceeds the available float, amber
   when the float absorbs it, green when ahead. On the critical path it reads
   `Sprint plan: +3d slip · critical path` in the critical color regardless of
   slip magnitude, because a critical milestone has no float to give. The
@@ -76,7 +75,7 @@ live **reforecast preview** (projected dates and a team-pace band, computed on
 the fly and persisted to nothing), then either mints a new milestone from the
 sprint goal or binds an existing milestone in the same project.
 
-**Over the API.** `POST /api/v1/sprints/{id}/promote-to-milestone/` (Scheduler+):
+**Over the API.** `POST /api/v1/sprints/{id}/promote-to-milestone/` (Resource Manager+):
 
 - **Body `{}`** — mints a new `Task(is_milestone=true)` from the sprint goal,
   dated at the sprint finish, and binds it. Returns **201**. Optional
@@ -91,7 +90,7 @@ A dry run for the dialog is available at
 member; omit `milestone_id` to preview the to-be-minted milestone).
 
 To bind a *different* milestone, unbind first — the binding never silently
-re-points. `POST /api/v1/sprints/{id}/unbind-milestone/` (Scheduler+) clears the
+re-points. `POST /api/v1/sprints/{id}/unbind-milestone/` (Resource Manager+) clears the
 binding and its provenance and recomputes the freed milestone's rollup. It is
 no-op-safe: an already-unbound sprint returns **200** unchanged.
 
@@ -107,7 +106,7 @@ no-op-safe: an already-unbound sprint returns **200** unchanged.
 The rollup uses points by default and falls back to task counts when no team
 member sized in points:
 
-```
+```text
 if any sprint has committed_points > 0:
     percent_complete = min(100, completed_points / committed_points * 100)
     basis = "points"
@@ -158,7 +157,7 @@ visibility surface only; it never accepts or rejects a change.
 On a milestone row in the Schedule-view task list, the chip sits inline after the
 rolled-up percent, alongside the lock indicator and the variance chip:
 
-```
+```text
 1.4  ▸ UAT signoff        🔒 73%   Sprint plan: +3d slip   Scope changed +5 / −2 pts
 ```
 
@@ -237,7 +236,7 @@ offers **Keep**, **Unbind**, and rebinding to a different milestone. Rebinding
 unbinds first: a binding never silently re-points.
 
 **Unlinking over the API.** `POST /api/v1/sprints/{id}/unbind-milestone/`
-(Scheduler+) is the same call the dialog makes. It clears `target_milestone` and
+(Resource Manager+) is the same call the dialog makes. It clears `target_milestone` and
 its provenance and recomputes the freed milestone's rollup, and is no-op-safe —
 an already-unbound sprint returns **200** unchanged.
 

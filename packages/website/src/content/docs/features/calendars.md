@@ -4,10 +4,11 @@ description: Working-day calendars define which days and hours count toward task
 documentedFor: "0.4"
 ---
 
-A **calendar** defines which days are working days and how many hours a working day holds.
-The scheduling engine uses it to convert a task's duration (expressed in working days) into
-real calendar dates — skipping weekends and holidays so your finish dates reflect actual
-availability.
+This page is for a PM or scheduler who wants finish dates that reflect real availability,
+not just a raw day count. A **calendar** defines which days are working days and how many
+hours a working day holds. The scheduling engine uses it to convert a task's duration
+(expressed in working days) into real calendar dates — skipping weekends and holidays so
+your finish dates reflect actual availability.
 
 :::note[0.1]
 Calendars shipped in 0.1 and are part of the **Community (OSS)** edition.
@@ -62,7 +63,7 @@ A **Working calendars** panel in Project Settings will let anyone with the Resou
 Manager (Scheduler) role or above apply and reorder a project's calendars and preview the
 **effective working time** day-by-day — each non-working day showing *which* applied
 calendar blocked it. Reading the applied set and its preview will be open to any project
-member; changing it will require the Scheduler role, the same gate as editing the
+member; changing it will require the Resource Manager role, the same gate as editing the
 schedule.
 
 Applying calendars to a project draws only on the shared calendar **library** — the same
@@ -78,7 +79,7 @@ are **not** part of this release.
 
 ## Effect on the schedule
 
-During the CPM forward and backward passes, non-working days — weekends, plus any day
+When the scheduling engine works out task dates, non-working days — weekends, plus any day
 inside a calendar exception — are skipped entirely. A task with a 5-day duration starting
 on a Thursday finishes the following Wednesday on a Monday–Friday calendar, not the
 following Monday. Add a holiday exception in that span and the finish slides another day.
@@ -126,8 +127,8 @@ itself.
 
 Adding, editing, or removing an exception recomputes every project scheduled against
 the calendar — whether the calendar is that project's base or one of its overlays — so
-dependent task dates stay true to the new working time. The change also rides the
-calendar's sync delta to offline clients, keeping critical-path math holiday-aware
-offline. (Offline recompute composes against a project's base calendar only until the
-overlay set flows through the sync delta — a tracked follow-up; the server always
-computes against the full composed set.)
+dependent task dates stay true to the new working time. The change also syncs down
+automatically to anyone working offline, so critical-path calculations made without a
+connection still account for holidays. (Offline recompute currently only accounts for a
+project's base calendar, not any additional calendars layered on top — a tracked
+follow-up; the server always computes against the full combined set.)

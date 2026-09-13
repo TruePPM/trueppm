@@ -29,8 +29,8 @@ your board's WIP or permission rules.
 
 ## Who can configure it
 
-The Git-event automation section is **project-admin only** (Owner or Admin). A
-Member never sees it. Configuration lives under **Project → Settings →
+The Git-event automation section is **Project Manager or above only**. A
+Team Member never sees it. Configuration lives under **Project → Settings →
 Integrations → Git-event automation**.
 
 ## The prerequisite: each task needs a link to its pull/merge request
@@ -138,7 +138,7 @@ ID can POST to it — so a wrong secret, a disabled toggle, and a project with n
 automation at all must be impossible to tell apart from outside. Otherwise the
 endpoint becomes a way to discover which of your projects have automation
 configured. The real reason is in the **Last delivery** row and the server log,
-both of which require you to already be an Owner or Admin of that project.
+both of which require you to already be a Project Manager or Project Admin on that project.
 
 ## Rotating the secret
 

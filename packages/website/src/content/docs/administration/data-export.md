@@ -62,7 +62,7 @@ write to stdout.
 
 ### API
 
-```
+```http
 GET /api/v1/programs/{id}/export/
 ```
 
@@ -82,7 +82,7 @@ project downloads as a seed file.
 
 ### API
 
-```
+```http
 GET /api/v1/projects/{id}/export/
 ```
 
@@ -122,13 +122,13 @@ shows the job move through *queued → building → ready*, then offers **Downlo
 bundle**. A finished bundle's download link stays valid for a few days (see
 [retention](/administration/retention/)); use **Rebuild** to make a fresh one.
 
-Exporting a bundle is an **Admin+** action — it aggregates the full change
+Exporting a bundle requires **Project Manager** or above — it aggregates the full change
 history, every member's time entries, and all attachment binaries, so it sits a
 tier above the Viewer-and-above JSON export.
 
 ### API
 
-```
+```http
 POST /api/v1/projects/{id}/export/          # queue a bundle → 202 + job
 GET  /api/v1/projects/{id}/export/jobs/{job_id}/           # poll status
 GET  /api/v1/projects/{id}/export/jobs/{job_id}/download/  # download when ready
@@ -183,7 +183,7 @@ member's time entries, and all attachment binaries across the program.
 
 ### API
 
-```
+```http
 POST /api/v1/programs/{id}/export/          # queue a bundle → 202 + job
 GET  /api/v1/programs/{id}/export/jobs/{job_id}/           # poll status
 GET  /api/v1/programs/{id}/export/jobs/{job_id}/download/  # download when ready
@@ -302,7 +302,8 @@ A seed file is the program's **declarative state**, not its database internals.
 Withholding `email` from a non-workspace-Admin export ships in TruePPM 0.4. On
 `v0.3.0-alpha.3`, the latest release, `email` is always included for every
 resource and account, for any caller who can generate the export at all
-(project/program Admin+). From 0.4 onward, a project or program Admin+ who
+(Project Manager or Program Manager and above). From 0.4 onward, a Project Manager or
+Program Manager (or above) who
 does *not* also hold a workspace Admin or Owner role will instead get a seed
 with those `email` fields withheld — every resource and account will still be
 fully described, just without the address. The gap this closes: a project
@@ -356,12 +357,12 @@ the program itself back, export it to a seed file before you re-import over it.
 Both import paths have a dry run that validates the file and reports every
 problem while writing nothing:
 
-```console
-$ python manage.py import_seed atlas.json --check
+```bash
+python manage.py import_seed atlas.json --check
 ```
 
-```console
-$ curl -X POST https://your-instance/api/v1/programs/import/validate/ \
+```bash
+curl -X POST https://your-instance/api/v1/programs/import/validate/ \
     -H "Authorization: Bearer $TOKEN" -F file=@atlas.json
 ```
 

@@ -9,13 +9,15 @@ Offline Jira import lands in **TruePPM 0.4**, the first beta. On unreleased
 builds the mapping and endpoint may still be changing.
 :::
 
-TruePPM can turn a **Jira Server / Data Center** issue export into a
-**CPM-schedulable** project: upload the XML you get from Jira's issue navigator,
-and TruePPM creates one task per issue, sets each task's duration from its
-original estimate, and draws a Finish-to-Start dependency for every **Blocks**
-link. The result is a real critical-path network — durations plus dependencies
-are exactly what the [scheduling engine](/features/scheduler/) needs to compute
-dates.
+This page is for a Project Manager bringing an existing Jira issue set into
+TruePPM as a real, schedulable plan. TruePPM can turn a **Jira Server / Data
+Center** issue export into a project the scheduling engine can compute dates
+for: upload the XML you get from Jira's issue navigator, and TruePPM creates one
+task per issue, sets each task's duration from its original estimate, and draws
+a **Finish-to-Start** dependency (the successor task can't start until its
+predecessor finishes) for every **Blocks** link. The result is a real
+critical-path network — durations plus dependencies are exactly what the
+[scheduling engine](/features/scheduler/) needs to compute dates.
 
 This is the **minimal "get real data in and computable" slice**: enough to lift
 a Jira issue set into a schedule and see a critical path, not a full-fidelity
@@ -47,7 +49,7 @@ by what you want at the end:
 | Enters the schedule? | **Yes** — real tasks with durations and Finish-to-Start dependencies, scheduled by CPM | **No** — a read-only pointer; never enters CPM, sprints, the board, or your load |
 | How it connects | An `.xml` file you upload; no connection to Jira | A live, authenticated connection to your own Jira account |
 | Jira Cloud | **Not supported** — Cloud has no XML export | **Supported**, as well as Data Center / Server |
-| Who sets it up | A **Project Admin**, once per file | **You**, for your own account |
+| Who sets it up | A **Project Manager**, once per file | **You**, for your own account |
 | How it refreshes | It doesn't. Importing the same issues again **adds a second set of tasks** rather than updating the first — the import-into-existing-project path is additive | **Sync now**, plus an automatic pull when you open My Work and the cached items have gone stale |
 
 Use the **import** to lift a Jira issue set into a schedule you will manage in
@@ -94,12 +96,12 @@ creating schedulable tasks, so it is a different outcome from this importer —
 but it needs no file, and no XML export.
 :::
 
-## Import the file into a project (Admin only)
+## Import the file into a project (Project Manager or above)
 
 Jira import lands issues into an **existing** project. Upload runs through the
 API described below; the import is enforced server-side to require the
-**Project Admin** role on the destination project — members below Admin cannot
-import.
+**Project Manager** role or above on the destination project — members below
+Project Manager cannot import.
 
 The import runs **asynchronously**. A successful upload returns immediately with
 an `import_request_id`; the worker parses the file, validates the derived graph,
@@ -222,7 +224,7 @@ cycle (or an unparseable file) fails the import outright.
 
 The import authenticates with a bearer token (`$JWT`); `$PROJECT_ID` is the
 destination project UUID. The endpoint accepts a single `.xml` file as multipart
-form-data in the `file` field, and requires **Project Admin**.
+form-data in the `file` field, and requires **Project Manager** or above.
 
 ```bash
 # POST a Jira Server/DC XML export as multipart form-data (field: "file").
@@ -243,7 +245,7 @@ retried forever.
 
 Only `.xml` is accepted. A different extension is rejected with `400` before any
 parsing happens; a file above the size cap is rejected with `400` naming the
-configured limit; a caller without the Admin role gets `403`.
+configured limit; a caller below Project Manager gets `403`.
 
 ## Configuration
 

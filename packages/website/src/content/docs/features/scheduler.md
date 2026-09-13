@@ -3,7 +3,7 @@ title: "CPM Scheduler"
 description: "Forward/backward pass, lead/lag on every link, Monte Carlo simulation, and auto-scheduling."
 ---
 
-The scheduling engine lives in `packages/scheduler` and ships independently as [`trueppm-scheduler`](https://pypi.org/project/trueppm-scheduler/) on PyPI. It has no Django dependency.
+**This page is for Python developers** who want to use TruePPM's scheduling math in their own code — an end user never installs anything here; it's what runs behind the scenes on the Schedule view and the Monte Carlo forecast. The scheduling engine ships independently as [`trueppm-scheduler`](https://pypi.org/project/trueppm-scheduler/) on PyPI, with no dependency on the rest of TruePPM.
 
 ```bash
 pip install trueppm-scheduler

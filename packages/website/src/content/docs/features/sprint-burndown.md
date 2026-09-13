@@ -3,7 +3,7 @@ title: Sprint burndown
 description: Actual vs ideal burn line, scope-add markers, today line, and forecast close date.
 ---
 
-A hand-rolled SVG burndown for the active sprint. Renders Actual (solid), Ideal (dashed), Scope-add markers (amber dots), and a vertical TODAY line — with a trending callout below the chart and a forecast close date right-aligned.
+This is for anyone tracking how a sprint is progressing — the Scrum Master watching for trouble, or a PM checking whether the team is on pace. A **burndown chart** tracks how much work is left in the current sprint, day by day, against how much should be left if the team stays on pace — so a chart that trends toward zero on schedule means the sprint is healthy, and one trailing above the line means work is falling behind. The chart shows the Actual line (solid), the Ideal pace line (dashed), amber dots marking days when new work was added mid-sprint, and a vertical line marking today — with a trending callout below the chart and a forecast close date to the right.
 
 ## Where this lives in the story
 

@@ -81,7 +81,7 @@ The value that actually applies at a given scope is **resolved on the server** a
 returned to every client (web, mobile, API), so no client re-implements the
 precedence. The chain is:
 
-```
+```text
 Workspace value  →  Program override  →  Project override
    (the default)      (optional)            (optional)
 ```
@@ -125,7 +125,8 @@ inherit label.
 ## Who can override
 
 Setting (or clearing) an override at a scope uses the **same General-settings write
-gate** as the rest of that scope's identity settings: the scope's **Owner or Admin**.
+gate** as the rest of that scope's identity settings: the scope's administrators: **Project Manager** or above on a project, **Program
+Manager** or above on a program, and a workspace **Admin** on the workspace.
 
 - **Owner / Admin** of a program or project can set, change, or clear that scope's
   override.
@@ -158,7 +159,7 @@ degrades to Suggest** — no lock is applied and downstream overrides still work
 Do not rely on Enforce to restrict sharing on a community-edition deployment.
 :::
 
-When Enforce is active (Enterprise), an Owner/Admin downstream can still *tighten*
+When Enforce is active (Enterprise), a Project Manager or Program Manager (or above) downstream can still *tighten*
 sharing for their scope, but cannot loosen it past the workspace ceiling, and the
 resolved effective value is clamped to the workspace value.
 

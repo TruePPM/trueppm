@@ -236,7 +236,7 @@ switcher, no translated string catalog, and no RTL support.
   ([#728](https://gitlab.com/trueppm/trueppm/-/issues/728)) — whether to commit to
   string externalization now or defer, made while the UI surface is still small
   because retrofitting extraction gets more expensive every release.
-- **0.9:** i18n/l10n execution against whatever framework decision 0.4 makes, as part
+- **0.9:** i18n/l10n execution against whatever framework decision is made in 0.4, as part
   of GA hardening.
 
 A framework decision is not a commitment to any particular translated language.

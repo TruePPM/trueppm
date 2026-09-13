@@ -4,7 +4,7 @@ description: "Hierarchical task grouping with duration, date, and percent-comple
 documentedFor: "0.4"
 ---
 
-Summary tasks are parent nodes in the Work Breakdown Structure (WBS). Their duration, dates, and progress are computed by the scheduler from their children — a summary is never edited directly.
+This is for anyone building or reading a project plan who wants to group related tasks into phases or deliverables. A **summary task** is a parent row in the Work Breakdown Structure (WBS) — the tree of phases and tasks that makes up the plan. A summary's duration, dates, and progress are computed automatically from its children; you never edit them directly on the summary itself.
 
 ![The Grid view of Migration Tooling in Outline mode: phases, owners, percent done, start and finish dates, durations, and predecessors, with critical-path rows highlighted](../../../assets/screenshots/grid.webp)
 
@@ -14,11 +14,11 @@ Use summary tasks to group related work into phases, deliverables, or work packa
 
 | Field | Rollup rule |
 |-------|-------------|
-| `start` | Earliest `start` among children |
-| `finish` | Latest `finish` among children |
-| `duration` | Span from `start` to `finish` (working days, per project calendar) |
-| `percent_complete` | Duration-weighted average of children's `percent_complete` |
-| `is_critical` | True if **any** descendant is on the critical path |
+| **Start** | Earliest start date among the children |
+| **Finish** | Latest finish date among the children |
+| **Duration** | Span from Start to Finish (working days, per the project calendar) |
+| **% complete** | Duration-weighted average of the children's own percent complete |
+| **Critical** | Marked critical if **any** task beneath it is on the critical path — the chain of dependent work driving the project's finish date |
 
 Summary tasks cannot hold resource assignments, time entries, or direct dependencies. Add those on leaf tasks; the rollup will update on the next scheduler run.
 
@@ -62,7 +62,7 @@ When a task row is focused in the WBS view:
 
 Plain `Tab` and `Shift` + `Tab` are deliberately left alone on a focused row — they fall through to the browser's normal focus traversal, so a keyboard user can always Tab out of the grid.
 
-Indent and outdent call the `useIndentTask` / `useOutdentTask` mutations. A one-line aria-live announcement ("Task indented", "Cannot outdent: task is already at root level", etc.) is emitted for screen reader users on every action.
+Every indent and outdent announces what happened to screen-reader users — "Task indented", "Cannot outdent: task is already at root level", and so on.
 
 Expanding or collapsing a summary announces `"<Name> expanded, N inside."` or
 `"<Name> collapsed, N hidden."` — the same words the row and the chevron use, so

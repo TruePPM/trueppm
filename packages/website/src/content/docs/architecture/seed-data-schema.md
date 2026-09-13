@@ -228,6 +228,21 @@ and its promotion (matched by `body`) into a `BACKLOG` task with no sprint,
 exactly what the live promote endpoint produces. There is no `time.log` action:
 time entries are not part of the seed format.
 
+**`baseline.capture` snapshots the project's live task state at the beat's
+time, dated and attributed** — the events-timeline counterpart to a declared
+`baselines[]` row, and the only way to give a rebaseline the actor + reason a
+static row cannot carry (#3495). Pair it with a `task.comment` or `risk.note`
+naming the reason, on the same or an adjacent beat. `is_active` (default
+false) collapses the live app's separate capture-then-activate steps into one
+beat: when true, any baseline already active for the project is deactivated
+first, so an authored rebaseline can supersede the one it replaces without a
+second, unauthored write. Because replay runs before the post-commit CPM
+recalc, the snapshot's `start`/`finish` come from `planned_start`, not
+`early_start` — a project whose tasks rely on the engine (rather than an
+authored `planned_start`) for their dates will still show `has_cpm_dates:
+false` on a beat-captured baseline, same as it would on the equivalent
+declared row.
+
 ## Authoring a new sample
 
 The bundled samples are **generated** by developer scripts, then committed as

@@ -219,9 +219,11 @@ DNS egress, so both are throttled to keep the surface from being abused.
 ## Environment configuration (`EMAIL_*`)
 
 In the built-in **Server default** transport mode — and on any install before the
-in-app page ships — TruePPM uses Django's standard `EMAIL_*` settings. The
-Beat-driven drain runs on the `api`, `celery`, and `celery-beat` workloads, so
-all three need the same transport configuration.
+in-app page ships — TruePPM uses Django's standard `EMAIL_*` settings. Mail is sent
+by a periodic **Celery Beat** job (TruePPM's background job scheduler; see
+[Beat Liveness](/administration/beat-liveness/)) rather than inline, so it runs on
+the `api`, `celery`, and `celery-beat` workloads alike — all three need the same
+transport configuration.
 
 :::tip[Set these via environment variables / Helm values]
 Every `EMAIL_*` setting binds directly from the container environment, so you

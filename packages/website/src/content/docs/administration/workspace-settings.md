@@ -9,14 +9,19 @@ documentedFor: "0.4"
 This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4.
 :::
 
-TruePPM's workspace is the installation itself — a single-tenant configuration
-row that backs the pages under **Workspace → Settings**: General, Members,
-Invites, Groups & teams, and Programs, plus workspace archive/delete actions
-(#517/#518/#519, ADR-0087). ADR-0087 scoped the original three — General,
-Members, and Groups & teams — and the section has grown since.
+The **workspace** is your TruePPM installation as a whole — the one shared record
+that names the deployment, its members, and the defaults every program and project
+starts from. This page covers the settings under **Workspace → Settings** that
+apply instance-wide and have no dedicated page of their own: General, Members,
+Invites, Groups & teams, and Programs, plus the workspace archive/delete actions
+(#517/#518/#519, ADR-0087). Reach for it to invite or remove people, set the
+workspace-wide defaults programs and projects inherit, or run a full export before
+a destructive change. ADR-0087 scoped the original three sections — General,
+Members, and Groups & teams — and the settings area has grown since.
 
-Multi-tenancy is an Enterprise feature. In the community edition there is exactly
-one workspace per deployment.
+**Multi-tenancy** (more than one workspace on one install) is an Enterprise
+feature. In the community edition there is exactly one workspace per deployment,
+so "the workspace" and "this install" mean the same thing throughout this page.
 
 ---
 
@@ -252,7 +257,7 @@ three-level hierarchy:
 | **Owner** | 400 | Same capabilities as Admin. At least one Owner must exist at all times (last-Owner guard). |
 
 These role ordinals are distinct from the five project-scoped roles
-(Owner/Admin/Scheduler/Member/Viewer — see [Roles and Permissions](/administration/rbac/)).
+(Project Admin / Project Manager / Resource Manager / Team Member / Viewer — see [Roles and Permissions](/administration/rbac/)).
 A workspace Member may hold any project role; a workspace Admin is not
 automatically an admin on any project.
 

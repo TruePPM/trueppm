@@ -13,7 +13,7 @@ those fields could still show values that no longer described anything. Everythi
 else on this page describes released behavior.
 :::
 
-Most "hybrid" project management tools are two tools bolted together. TruePPM is not. Every view — Schedule, Board, Sprints, WBS — reads and writes the same rows in the same database. There is no sync, no translation, no eventual consistency.
+This page is for anyone curious why switching a project between Waterfall, Agile, and Hybrid never loses data, and for developers who want to understand the model behind the API. Most "hybrid" project management tools are two tools bolted together. TruePPM is not. Every view — Schedule, Board, Sprints, WBS — reads and writes the same rows in the same database. There is no sync, no translation, no eventual consistency.
 
 This page explains the data model that makes this possible.
 
@@ -21,7 +21,7 @@ This page explains the data model that makes this possible.
 
 Every item of work in TruePPM — a WBS phase, a deliverable task, a sprint story, a milestone — is a single `Task` row. The row carries fields that are relevant in different contexts, and different views surface different subsets of those fields.
 
-```
+```text
 Task
  ├── Identity
  │     id            UUID primary key
@@ -30,7 +30,7 @@ Task
  │     project       FK → Project
  │
  ├── Taxonomy (work-item type + governance overlay)
- │     type             epic | story | task | bug | spike  (epic is structural, excluded from CPM)
+ │     type             epic | story | task | bug | spike | tech_debt  (epic is structural, excluded from CPM)
  │     governance_class flow | gated | hybrid              (declares how the subtree is governed)
  │     delivery_mode    waterfall | scrum | kanban | milestone  (how the task rolls up)
  │
@@ -75,7 +75,7 @@ No methodology owns any field. A waterfall PM fills in `duration` and leaves `st
 
 Tasks are arranged into a tree using a PostgreSQL `ltree` column (`wbs_path`). A path of `"1.2.3"` means: first top-level phase → second child → third grandchild.
 
-```
+```text
 Project
   └── 1       Phase: Discovery          (duration auto-rolled up from children)
         ├── 1.1   Task: Stakeholder interviews
@@ -112,7 +112,7 @@ This is a contract, not a coincidence: a value in those fields means the engine 
 
 A waterfall PM works entirely with `duration`, `planned_start`, dependencies, and CPM output fields. The Board is still available but secondary. Story points are left null. Sprints are not created.
 
-```
+```text
 Typical waterfall task:
   name:           "Develop payment API"
   duration:       10
@@ -132,7 +132,7 @@ The Schedule view renders the bar from `early_start`/`early_finish`. The Board s
 
 An agile team works entirely with `sprint`, `story_points`, `remaining_points`, and `status`. The Schedule view is hidden (via the Agile methodology preset). CPM is still computed in the background — `duration` defaults to 1 day for backlog items — but the team never looks at it. The WBS is flat or minimal.
 
-```
+```text
 Typical agile task ("story"):
   name:           "User can reset password"
   duration:       1            ← default; CPM runs but results ignored
@@ -149,7 +149,7 @@ The Board renders this as a card in the IN_PROGRESS column. The sprint burndown 
 
 A hybrid team uses both sets of fields on the same rows. The PM sets `duration` and `planned_start`; the team sets `story_points`. A task can live in Sprint 3 (agile planning) and also be on the critical path (CPM scheduling). The Monte Carlo engine uses `optimistic_duration` / `most_likely_duration` / `pessimistic_duration` to compute delivery confidence.
 
-```
+```text
 Typical hybrid task:
   name:              "Implement auth service"
   duration:          8          ← PM's scheduling estimate

@@ -34,7 +34,7 @@ Everything else — registration, scopes, payload shape, the sequence contract, 
 the delivery-history endpoint — describes the shipped feature.
 :::
 
-Webhooks let you subscribe to TruePPM project events and receive an HTTP POST to a URL you control when those events occur. Common uses: posting notifications to Slack, triggering a CI pipeline when a milestone is resolved, or syncing changes to an external system.
+**This page is for developers and admins** wiring TruePPM up to other tools. Webhooks let you subscribe to TruePPM project events and receive an HTTP POST to a URL you control when those events occur. Common uses: posting notifications to Slack, triggering a CI pipeline when a milestone is resolved, or syncing changes to an external system.
 
 ## Registering a webhook
 
@@ -92,7 +92,8 @@ The secret is stored encrypted at rest (AES-128-CBC with an HMAC-SHA256 tag,
 under the deployment's `INTEGRATION_ENCRYPTION_KEY`), the same mechanism used for
 every other stored credential in TruePPM. There is no API path that reads it back.
 
-**Permissions**: requires Admin role on the project (or program, for program-scoped webhooks).
+**Permissions**: requires Project Manager or above on the project (Program Manager or above on
+the program, for program-scoped webhooks).
 
 ### Project vs. program scope
 
@@ -186,7 +187,7 @@ Every delivery carries **two** signature headers. `X-TruePPM-Signature-V2` is th
 recipe to implement; `X-TruePPM-Signature` is the original one, still emitted so
 existing receivers keep working (see [Signature versions](#signature-versions)).
 
-```
+```http
 X-TruePPM-Signature-V2: t=1755432000,v1=<hmac>
 X-TruePPM-Signature: sha256=<hmac>
 ```

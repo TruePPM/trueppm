@@ -44,7 +44,7 @@ single-use ticket** (RFC 6750 §2.3) rather than the access token itself.
 
 First mint a ticket with an authenticated REST call:
 
-```
+```http
 POST /api/v1/ws/ticket/
 Authorization: Bearer <access_token>
 
@@ -53,7 +53,7 @@ Authorization: Bearer <access_token>
 
 Then open the socket with the ticket as the `ticket` query parameter:
 
-```
+```text
 wss://trueppm.example.com/ws/v1/projects/3f9a…/?ticket=<ticket>
 ```
 
@@ -80,7 +80,7 @@ close codes (rather than accepting and then dropping):
 | Code | Meaning |
 |------|---------|
 | `4001` | Missing, invalid, expired, or already-consumed ticket (or, on the deprecated path, an invalid token) |
-| `4003` | Authenticated but lacks the required role on the project (Member+ to subscribe) |
+| `4003` | Authenticated but lacks the required role on the project (Team Member+ to subscribe) |
 
 A client that receives `4001` should mint a fresh ticket (refreshing the access
 token first if needed) and reconnect; a persistent `4001` means the session has

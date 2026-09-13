@@ -4,13 +4,15 @@ description: Reference for the Schedule view toolbar — filter groups, summary 
 documentedFor: "0.4"
 ---
 
-The Schedule view's toolbar gives you the at-a-glance project status (rightmost summary chip), the day-to-day filtering controls (toggle groups), and the authoring actions (`+ Item`, `+ Milestone`, `+ Phase`).
+This is for anyone working in the Schedule view day to day. The toolbar gives you the at-a-glance project status (rightmost summary chip), the day-to-day filtering controls (toggle groups), and the actions for adding to the plan (`+ Item`, `+ Milestone`, `+ Phase`).
 
 Of the three, only **`+ Item`** sits in the bar by default. `+ Milestone` and `+ Phase` start in the `···` menu: each is a one-click structural insert that lands at your current insertion point, and the bar is also where you click while simply reading a plan. Both keep their keyboard shortcuts, and either can be pinned into the bar from **Display → Outline**.
 
+![The Schedule view toolbar: item and milestone insert controls, the Author mode chip, display and zoom controls, Today, Fit to project, and Export PDF](../../../assets/screenshots/schedule-toolbar.webp)
+
 ## Toolbar layout
 
-```
+```text
 [ + Item ]   ( + Milestone, + Phase · Group · Ungroup — in the ··· menu by default )   [ Author ▾ ]
 [ CP only · Focus chain ]   [ Critical path · Milestones ]
                                  ...
@@ -119,7 +121,7 @@ Filters are split into two clusters so they don't read as a "pick one of four" r
 
 **Chart** — control what the timeline paints (presentation, not a data filter):
 - **Dependency lines** — show or hide all dependency arrows.
-- **Task names** — place on-bar names **Next to bar** or **Hidden**. This placement is remembered **independently for Grid and Timeline** — the sub-label names the view it applies to (*Task names (Grid)* / *Task names (Timeline)*) — and both default to **Hidden**, because the outline already shows every name in both layouts. Choose **Next to bar** where a name riding along with its bar as you scroll is worth the extra ink; the label caps with an ellipsis to the room it has, and flips to the left of the bar when the bar runs long. (0.3 offered a third placement, **Aligned left**, which drew a name column onto the canvas for the layout that hid the outline. 0.4 removes it, and an existing preference for it becomes **Hidden**.)
+- **Task names** — place on-bar names **Next to bar** or **Hidden**. This placement is remembered **independently for Grid and Timeline** — the sub-label names the view it applies to (*Task names (Grid)* / *Task names (Timeline)*) — and both default to **Hidden**, because the outline already shows every name in both layouts. Choose **Next to bar** where a name riding along with its bar as you scroll is worth the extra ink; the label caps with an ellipsis to the room it has, and flips to the left of the bar when the bar runs long. (0.3 offered a third placement, **Aligned left**, which drew a name column onto the canvas for the layout that hid the outline. 0.4 will remove it, and an existing preference for it will become **Hidden**.)
 - **Progress %** — show or hide the on-bar completion pills.
 
 Chart choices are saved per-user in your browser. Unlike the view/render filters (which are encoded in the URL so a filtered view is shareable), Chart choices are personal presentation preferences and stay local. Hiding a Chart element lights the Display trigger's badge so nothing disappears silently (a hidden on-bar task name is the one exception, on either layout — the name is still right there in the outline, so the badge stays quiet), and a PDF export opens matching what you see — hide the dependency lines and the export's arrow toggle starts off to match.

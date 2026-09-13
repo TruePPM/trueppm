@@ -581,7 +581,7 @@ RFC 9220. In practice:
 
 | What you see | Cause | Fix |
 |---|---|---|
-| Closes immediately, code **4003** | The authenticated user's role on that project is Viewer. Not a networking fault. | Grant Member or above; see [RBAC](/administration/rbac/). |
+| Closes immediately, code **4003** | The authenticated user's role on that project is Viewer. Not a networking fault. | Grant Team Member or above; see [RBAC](/administration/rbac/). |
 | Closes immediately, code **4001** | No valid credential: the ticket is missing, expired, or already redeemed. Tickets are single-use, so a client that reuses one across reconnects fails on the second attempt. | Mint a fresh ticket per connection. |
 | Closes immediately, code **4404** | The path matched no route. | Check the edge is not rewriting or stripping the `/ws` prefix — `/ws/v1/projects/<uuid>/` must arrive intact. |
 | Handshake never completes; you get **HTTP 200 with the SPA's HTML**, or a 400 | The proxy stripped `Upgrade`/`Connection`, or spoke HTTP/1.0 upstream, or `/ws` fell through to the SPA's `try_files` catch-all. | Add the three required headers and `proxy_http_version 1.1`; route `/ws` before `/`. |
@@ -771,6 +771,7 @@ are pulled.
 ## See also
 
 - [Deployment](/administration/deployment/) — Compose, Helm, and single-server walkthroughs
+- [OpenShift Deployment](/administration/openshift/) — Ingress→Route conversion and SCC compatibility
 - [Configuration](/administration/configuration/) — the full environment-variable reference
 - [Helm values](/administration/helm-values/) — every chart key
 - [Sizing](/administration/sizing/) — replica counts and where the bottlenecks are
