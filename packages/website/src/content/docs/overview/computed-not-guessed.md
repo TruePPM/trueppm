@@ -18,18 +18,17 @@ opinion — it is a CPM or Monte Carlo computation the engine performed, carryin
 derivation you can cite. The model's only job is to translate a question into an engine call
 and to phrase the engine's answer back in natural language. It never supplies the number.
 
-```
-Incumbent — the LLM is the answer:
+```mermaid
+flowchart LR
+    subgraph incumbent["Incumbent — the LLM is the answer"]
+        direction LR
+        iq["Question"] --> illm["LLM"] --> ia["Asserted answer<br/>(a plausible guess;<br/>no derivation to check)"]
+    end
 
-    question ─▶ LLM ─▶ asserted answer
-                       (a plausible guess; no derivation to check)
-
-
-TruePPM — the engine is the answer: "computed, not guessed"
-
-    question ─▶ NL layer ─▶ engine call ─▶ provenance-carrying answer
-                (translates   (CPM / Monte    ("P80 is Oct 22, derived from
-                 to a call)    Carlo computes)  this critical chain" — citable)
+    subgraph trueppm["TruePPM — computed, not guessed"]
+        direction LR
+        tq["Question"] --> tnl["NL layer<br/>(translates to a call)"] --> teng["Engine call<br/>(CPM / Monte Carlo<br/>computes)"] --> ta["Provenance-carrying answer<br/>(e.g. P80 is Oct 22, derived<br/>from this critical chain —<br/>citable)"]
+    end
 ```
 
 ## Compute, cite, refuse, reproduce
