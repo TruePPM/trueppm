@@ -6101,8 +6101,8 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
                     // `+ Item`, so listing it as "always in the toolbar" would
                     // be a claim about a control that is not there.
                     label: hasEditRights
-                      ? 'Item, Grid / Timeline, Display, ···, mode'
-                      : 'Grid / Timeline, Display, ···',
+                      ? 'Item, Grid / Timeline, Display, Actions, mode'
+                      : 'Grid / Timeline, Display, Actions',
                     sub: 'Always in the toolbar.',
                     checked: true,
                     where: 'always',
@@ -6193,8 +6193,12 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
       )}
 
       <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-neutral-border shrink-0" />
-      {/* Project actions (···) — always present so Import/Export are discoverable
-          at every width. */}
+      {/* Project actions — always present so Import/Export are discoverable
+          at every width. Labeled `Actions ▾` at lg, because a bare `⋯` names
+          none of the only-entry-point commands behind it; below lg it drops to
+          the glyph, matching the Display trigger, where width is scarcest. The
+          accessible name stays "Project actions", which contains the visible
+          word (WCAG 2.5.3). */}
       {/* Polite, and written to only on a demotion. Mounted unconditionally so
           the region is already in the accessibility tree when its text
           changes — a live region created in the same commit as its content is
@@ -6210,6 +6214,9 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
         <ToolbarOverflowMenu
           triggerRef={overflowSlotRef}
           triggerAriaLabel="Project actions"
+          triggerLabel={
+            breakpoint === 'lg' ? <span className="whitespace-nowrap">Actions</span> : undefined
+          }
           // Widened past the ToolbarOverflowMenu default (240) — this menu's
           // longest rows ("Import from spreadsheet (CSV/Excel)…") wrap at the
           // default width now that the popover no longer shrink-wraps its

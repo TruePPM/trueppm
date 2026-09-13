@@ -1334,6 +1334,21 @@ describe('ScheduleView — project actions menu (role-gated)', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Import from MS Project…' }));
     expect(screen.getByRole('dialog', { name: 'Import modal' })).toBeInTheDocument();
   });
+
+  // #3749: a bare `⋯` names none of the only-entry-point commands behind it.
+  it('labels the trigger "Actions" at lg, inside its accessible name', () => {
+    mockBreakpoint = 'lg';
+    renderSchedule();
+    const trigger = screen.getByRole('button', { name: 'Project actions' });
+    expect(trigger).toHaveTextContent('Actions');
+  });
+
+  it('drops the visible label below lg, keeping the accessible name', () => {
+    mockBreakpoint = 'md';
+    renderSchedule();
+    const trigger = screen.getByRole('button', { name: 'Project actions' });
+    expect(trigger).not.toHaveTextContent('Actions');
+  });
 });
 
 describe('ScheduleView — Monte Carlo forecast surface gating', () => {

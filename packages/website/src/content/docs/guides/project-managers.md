@@ -48,7 +48,7 @@ TruePPM lets you add three-point estimates (optimistic, most likely, pessimistic
 
 ### Baselines
 
-Capture a baseline to freeze the planned dates at a point in time. **Capture baseline** and **Baselines…** ship in the Schedule toolbar's **Project actions (···)** menu with the 0.4 beta, gated at **Admin** or above; the REST API remains available and is the way to script it. Once a baseline is active, the task detail drawer shows a read-only baseline-vs-current comparison so you can see schedule variance. Multiple baselines are supported for rebaseline events. See [Baselines](/features/baselines/) for both the in-app and API workflows.
+Capture a baseline to freeze the planned dates at a point in time. **Capture baseline** and **Baselines…** ship in the Schedule toolbar's **Actions** menu with the 0.4 beta, gated at **Admin** or above; the REST API remains available and is the way to script it. Once a baseline is active, the task detail drawer shows a read-only baseline-vs-current comparison so you can see schedule variance. Multiple baselines are supported for rebaseline events. See [Baselines](/features/baselines/) for both the in-app and API workflows.
 
 ### Working calendars
 
@@ -137,10 +137,10 @@ The fastest way to judge TruePPM as a PM is to watch the schedule react to a cha
 
 5. **Read the forecast.** Look at the **Forecast** bar docked along the bottom of the Schedule — the chips should climb P50 ≤ P80 ≤ P95. Press **Details ›** for the full distribution and the tornado of top drivers. P80 is the date to commit to a client; the gap between P80 and your CPM date is your schedule risk, measured in days.
 
-6. **Compare against the baseline.** Atlas seeds a **Kickoff baseline** on Migration Tooling, superseded by a **Post-dry-run re-plan** — so there is a real re-baseline to read variance against. Click any completed task's row and read the **Baseline** section in the drawer to see planned-vs-actual variance. To see the baselines themselves, open the Schedule toolbar's **Project actions (···)** menu → **Baselines…**.
+6. **Compare against the baseline.** Atlas seeds a **Kickoff baseline** on Migration Tooling, superseded by a **Post-dry-run re-plan** — so there is a real re-baseline to read variance against. Click any completed task's row and read the **Baseline** section in the drawer to see planned-vs-actual variance. To see the baselines themselves, open the Schedule toolbar's **Actions** menu → **Baselines…**.
 
 :::note[Capturing a baseline needs Admin]
-**Capture baseline** and **Baselines…** live in the Schedule's **Project actions (···)** menu and are gated at **Admin** or above. `atlas-sam` is a Scheduler, so he reads baseline variance but cannot capture a new one — sign in as `atlas-priya` (Priya Nair, Engineering Lead, Admin) if you want to try the capture flow.
+**Capture baseline** and **Baselines…** live in the Schedule's **Actions** menu and are gated at **Admin** or above. `atlas-sam` is a Scheduler, so he reads baseline variance but cannot capture a new one — sign in as `atlas-priya` (Priya Nair, Engineering Lead, Admin) if you want to try the capture flow.
 :::
 
 One honest note against your own test — *"does this work on my phone with no signal?"* — not yet. The installable PWA lands in **0.5** (add to home screen, offline time entry and reads), and the native offline mobile editor lands in **0.6**. Today this is a desktop/web evaluation, and that's the right thing to wait for if mobile is your dealbreaker.

@@ -212,7 +212,7 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
     await display.getByRole('menuitemcheckbox', { name: /^Today, in the bar/ }).click();
 
     // The row restates the new location — the whole point of the column.
-    await expect(display.getByRole('menuitemcheckbox', { name: /^Today, in ···/ })).toBeVisible();
+    await expect(display.getByRole('menuitemcheckbox', { name: /^Today, in Actions/ })).toBeVisible();
     await page.keyboard.press('Escape');
 
     await expect(page.getByRole('button', { name: 'Today', exact: true })).toHaveCount(0);
@@ -269,7 +269,7 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
     // The mode is tier-A: always in the bar, and NOT among the things that
     // collapse when narrow. This viewport is the narrow one, so a chip that had
     // collapsed would be visible here.
-    await expect(menu.getByText(/Item, Grid \/ Timeline, Display, ···, mode/)).toBeVisible();
+    await expect(menu.getByText(/Item, Grid \/ Timeline, Display, Actions, mode/)).toBeVisible();
     await expect(menu.getByText('Zoom, engine status', { exact: true })).toBeVisible();
     await expect(menu.getByText(/Zoom, mode, engine status/)).toHaveCount(0);
     await expect(menu.getByText(/collapse to a chip when narrow/)).toHaveCount(0);

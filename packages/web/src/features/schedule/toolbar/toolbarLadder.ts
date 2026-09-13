@@ -268,7 +268,9 @@ export function placementLabel(
     case 'collapsed':
       return 'in the bar';
     case 'overflow':
-      return 'in ···';
+      // Named by the trigger's visible label (#3749), not its old `···` glyph —
+      // a screen reader spoke that as "dot dot dot".
+      return 'in Actions';
     case 'hidden':
       return 'off';
     default:
@@ -296,7 +298,7 @@ export function pinFooterSentence(
   ];
   const asked = pinned.filter(([wanted]) => wanted);
   const honoured = asked.filter(([, got]) => got).length;
-  if (asked.length === 0) return 'Nothing is pinned. Everything above is in ··· .';
+  if (asked.length === 0) return 'Nothing is pinned. Everything above is in Actions.';
   if (honoured === asked.length) {
     return `All ${asked.length} pinned ${asked.length === 1 ? 'control fits' : 'controls fit'} at this width.`;
   }

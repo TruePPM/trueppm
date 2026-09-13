@@ -319,7 +319,7 @@ describe('the Display popover can always account for every control', () => {
   it('names a location for every placement the ladder can produce', () => {
     expect(placementLabel('bar')).toBe('in the bar');
     expect(placementLabel('collapsed')).toBe('in the bar');
-    expect(placementLabel('overflow')).toBe('in ···');
+    expect(placementLabel('overflow')).toBe('in Actions');
     expect(placementLabel('hidden')).toBe('off');
   });
 
