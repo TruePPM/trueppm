@@ -49,7 +49,7 @@ The activate endpoint also surfaces a warnings-only slice via `capacity_check`; 
 
 For each `TaskResource` assigned to a task in the sprint:
 
-```
+```text
 committed_hours = sum(units × working_days × hours_per_day)
 available_hours = max_units × working_days × hours_per_day
 ```
