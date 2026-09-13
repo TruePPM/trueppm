@@ -1132,7 +1132,7 @@ export function ProgramGeneralPage() {
 
           <FieldRow
             label="Export program bundle"
-            hint="Download a complete .tar.gz archive of this program: the JSON seed plus, per project, MS Project XML, attachments, time entries, and change history. Admin+ only; built in the background and the download link expires after a few days."
+            hint="Download a complete .tar.gz archive of this program: the JSON seed plus, per project, MS Project XML, attachments, time entries, and change history. Program Manager or above only; built in the background and the download link expires after a few days."
           >
             {programId ? (
               <ExportProgramBundle programId={programId} code={program?.code} />
