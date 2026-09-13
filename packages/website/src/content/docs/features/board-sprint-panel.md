@@ -29,8 +29,9 @@ sprint is tracking without leaving the board to check the separate Sprints page.
     with the most recent one highlighted. The caption shows the average velocity
     and how much it typically varies. As of 0.3, a sprint flagged to be left out of
     velocity (for example, a one-off "Sprint 0" setup sprint) still appears here
-    but is marked, and does not count toward that average; the panel also reports
-    how many sprints were left out.
+    but is marked, and does not count toward that average. The full
+    [Velocity panel](/features/velocity/) on the Sprints page also reports how
+    many sprints were left out.
   - **Capacity card** — how many points the team planned to take on for this
     sprint, compared with how many are actually committed, shown as on-plan /
     at-risk / over-capacity.
@@ -44,7 +45,7 @@ The panel is hidden in two situations:
 2. The project has no sprint currently active — again, nothing to summarize.
 
 By default, Viewers and Team Members see the panel collapsed, and anyone with the
-Scheduler role or above sees it expanded. Whichever way you leave it, TruePPM
+Resource Manager role or above sees it expanded. Whichever way you leave it, TruePPM
 remembers your choice in this browser and uses it again on your next visit,
 overriding the role-based default.
 
@@ -68,7 +69,7 @@ available?" All three are useful at different points in the cadence.
 - You can change it while the sprint is being planned or is active (a team's
   capacity may shift mid-sprint — time off, a new joiner). It is locked once the
   sprint is completed or cancelled.
-- Only the **Scheduler role or above** can change it — capacity is the team's
+- Only the **Resource Manager role or above** can change it — capacity is the team's
   shared planning artifact, not a per-contributor field. Team Members and below
   can see the panel and the current planned value, but the editor is hidden from
   them, and the server refuses the change even if someone attempts it directly.
@@ -155,14 +156,14 @@ mid-sprint scope-change log. These are the endpoints it reads and writes:
 | Method | Endpoint | Purpose |
 |---|---|---|
 | `GET`  | `/api/v1/projects/{id}/sprints/` | Reads the project's sprint list to find the active one |
-| `PATCH` | `/api/v1/sprints/{id}/` | Updates the planning-capacity field (gated to the Scheduler role and above) |
+| `PATCH` | `/api/v1/sprints/{id}/` | Updates the planning-capacity field (gated to the Resource Manager role and above) |
 | `GET`  | `/api/v1/sprints/{id}/burndown/` | Burndown series for the active sprint |
 | `GET`  | `/api/v1/projects/{id}/velocity/` | Rolling 8-sprint velocity for the sparkline |
 | `GET`  | `/api/v1/sprints/{id}/scope-changes/` | Read-only audit of tasks added to the sprint after activation — backs the mid-sprint scope-change badge and drawer *(added in 0.3)* |
 | `GET`  | `/api/v1/projects/{id}/board/activity?sprint={sprintId}` | Board activity feed narrowed to one sprint's scope — backs the "This sprint" activity rail *(ships in 0.4)* |
 
 The scope-changes endpoint is the one genuinely new addition (added in 0.3); the
-rest of the panel reads data that already existed. 0.4 adds an optional sprint
+rest of the panel reads data that already existed. 0.4 will add an optional sprint
 filter to the board activity feed, plus a notification event fired whenever a
 task enters or leaves an active sprint, sent to everyone authorized to accept or
 decline it.

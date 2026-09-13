@@ -9,7 +9,7 @@ Offline Jira import lands in **TruePPM 0.4**, the first beta. On unreleased
 builds the mapping and endpoint may still be changing.
 :::
 
-This page is for a Project Admin bringing an existing Jira issue set into
+This page is for a Project Manager bringing an existing Jira issue set into
 TruePPM as a real, schedulable plan. TruePPM can turn a **Jira Server / Data
 Center** issue export into a project the scheduling engine can compute dates
 for: upload the XML you get from Jira's issue navigator, and TruePPM creates one
@@ -49,7 +49,7 @@ by what you want at the end:
 | Enters the schedule? | **Yes** — real tasks with durations and Finish-to-Start dependencies, scheduled by CPM | **No** — a read-only pointer; never enters CPM, sprints, the board, or your load |
 | How it connects | An `.xml` file you upload; no connection to Jira | A live, authenticated connection to your own Jira account |
 | Jira Cloud | **Not supported** — Cloud has no XML export | **Supported**, as well as Data Center / Server |
-| Who sets it up | A **Project Admin**, once per file | **You**, for your own account |
+| Who sets it up | A **Project Manager**, once per file | **You**, for your own account |
 | How it refreshes | It doesn't. Importing the same issues again **adds a second set of tasks** rather than updating the first — the import-into-existing-project path is additive | **Sync now**, plus an automatic pull when you open My Work and the cached items have gone stale |
 
 Use the **import** to lift a Jira issue set into a schedule you will manage in
@@ -100,8 +100,8 @@ but it needs no file, and no XML export.
 
 Jira import lands issues into an **existing** project. Upload runs through the
 API described below; the import is enforced server-side to require the
-**Project Admin** role on the destination project — members below Admin cannot
-import.
+**Project Manager** role or above on the destination project — members below
+Project Manager cannot import.
 
 The import runs **asynchronously**. A successful upload returns immediately with
 an `import_request_id`; the worker parses the file, validates the derived graph,
@@ -224,7 +224,7 @@ cycle (or an unparseable file) fails the import outright.
 
 The import authenticates with a bearer token (`$JWT`); `$PROJECT_ID` is the
 destination project UUID. The endpoint accepts a single `.xml` file as multipart
-form-data in the `file` field, and requires **Project Admin**.
+form-data in the `file` field, and requires **Project Manager** or above.
 
 ```bash
 # POST a Jira Server/DC XML export as multipart form-data (field: "file").

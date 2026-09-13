@@ -3,8 +3,7 @@ title: Capacity preflight
 description: Per-person committed/available hours with on-track / at-risk / over-capacity bands.
 ---
 
-This is the Resource Manager's at-a-glance check of an active sprint's workload,
-before the sprint starts: a donut chart showing the team's overall committed hours
+This is the Resource Manager's at-a-glance check of a sprint's workload: a donut chart showing the team's overall committed hours
 against available hours, and a list of what each person is committed to. Three
 color bands flag severity — under, at, or over capacity — so contention shows up
 at planning time rather than partway through the sprint.

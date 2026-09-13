@@ -485,7 +485,7 @@ enforces visibility scope (relevant for the future TEAM_ONLY scope that
 - Attachment pin/unpin toggle — needs a small backend `PATCH` addition
 - IndexedDB offline write queue for comments + attachments — #311 phase 2c
 - Real-time per-user notification push via a `user_{id}` WebSocket channel —
-  still deferred; the 30 s poll has not proved too laggy in practice
+  still deferred; the bell polls every 30 s instead
 - Portfolio-level Decision rollup, audit-trail immutability, and the
   executive weekly digest — all filed in `trueppm-enterprise` as paid-tier
   overlays (#108–#113)

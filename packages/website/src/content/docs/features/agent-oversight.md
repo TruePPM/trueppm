@@ -17,8 +17,9 @@ without turning the log into a performance tool for people.
 
 Every program gets an **Agents** tab — a read-only window onto what your team's
 AI assistants have read in that program, and which of their calls were refused. It
-is a view onto a permanent, tamper-evident record — a log that cannot be edited or
-deleted after the fact, so it stays trustworthy even if something later goes wrong.
+is a view onto a tamper-evident record — each entry is chained to the one before
+it, so any entry edited or removed after the fact shows up as a broken chain when
+the log is checked.
 It is not a separate data store you have to maintain; it just shows you that record.
 It sits in the program rail between **Resources** and **Members**: governance of
 execution next to capacity for it.

@@ -64,7 +64,8 @@ on tasks.
 
 - Your credential is encrypted before it's stored, so it isn't readable in plain
   text even with direct database access. *For your TruePPM administrator:* the
-  encryption key is set as a Helm value; generate one with
+  encryption key is the `INTEGRATION_ENCRYPTION_KEY` environment variable (set it
+  through the Helm values); generate one with
   `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
 - The encrypted value is **never** returned by any API response, not even to the
   credential's owner — only whether a credential exists, when it was created and
