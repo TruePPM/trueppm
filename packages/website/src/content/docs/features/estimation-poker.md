@@ -30,15 +30,16 @@ existing votes so people adjust rather than start over.
 
 ## Live and team-owned
 
-Poker is a live, multi-writer ceremony: everyone votes on their own screen and the room
-stays in sync in real time. The estimate belongs to the team — it feeds the team's own
-velocity, and individual votes are never aggregated into a per-person history.
+Poker is a live team ceremony: everyone votes at once from their own screen, and
+the room stays in sync in real time. The estimate belongs to the team — it feeds
+the team's own **velocity** (how many story points the team typically finishes per
+sprint), and individual votes are never aggregated into a per-person history.
 
 ## Notes
 
 - Poker runs on a **planning** sprint, before activation, so committing an estimate sets the
   story's initial size rather than changing scope mid-sprint.
 - Only the Fibonacci scale is offered — the scale most teams already use.
-- The committed value lands on the same `story_points` field the
-  [sprint backlog](/features/sprint-backlog/) and [velocity](/features/velocity/) read, so no
-  re-entry is needed.
+- The committed value is the story's actual story-points value — the same number
+  the [sprint backlog](/features/sprint-backlog/) and [velocity](/features/velocity/)
+  read, so there's no separate re-entry step.

@@ -3,7 +3,11 @@ title: Capacity preflight
 description: Per-person committed/available hours with on-track / at-risk / over-capacity bands.
 ---
 
-The Resource Manager's view of an active sprint, at-a-glance. A donut chart shows aggregate committed/capacity ratio; a scrollable list shows per-person commitments with avatar initials. Three color bands signal severity: under, at, or over capacity.
+This is the Resource Manager's at-a-glance check of an active sprint's workload,
+before the sprint starts: a donut chart showing the team's overall committed hours
+against available hours, and a list of what each person is committed to. Three
+color bands flag severity — under, at, or over capacity — so contention shows up
+at planning time rather than partway through the sprint.
 
 ## Where this lives in the story
 
@@ -11,12 +15,16 @@ Step 3 ([Capacity preflight](/the-story/#3-capacity-preflight--the-resource-mana
 
 ## What you see
 
-- **Donut chart** — aggregate ratio (`committed_hours / available_hours`), tinted by band:
-  - under 90% → `semantic-on-track`
-  - 90–100% → `semantic-at-risk`
-  - over 100% → `semantic-critical`
-- **Aggregate label** — `{committed} / {capacity} hours committed · On track · {buffer} hours of buffer` (or `overrun` when negative)
-- **Per-person rows** — initials avatar + name + `{committed}/{capacity}` text; over-allocated members get a red avatar tint
+- **Donut chart** — the ratio of hours committed to hours available for the whole
+  team, colored by how tight it is:
+  - under 90% — on track (green)
+  - 90–100% — at risk (amber)
+  - over 100% — over capacity (red)
+- **Aggregate label** — a line like *"32 / 40 hours committed · On track · 8 hours
+  of buffer"* (or *"... hours overrun"* once you're past capacity)
+- **Per-person rows** — each teammate's initials, name, and their own
+  committed-vs-available hours; anyone over-allocated gets a red-tinted avatar so
+  they stand out in the list
 
 ![The Sprints page for Sprint 5: sprint goal, burndown chart, capacity preflight per person, and velocity](../../../assets/screenshots/sprints.webp)
 
@@ -26,12 +34,26 @@ Step 3 ([Capacity preflight](/the-story/#3-capacity-preflight--the-resource-mana
 The points chip and capacity footer below were added in 0.3 (the agile team release), available since the `0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
 
-The per-person hours view answers "who is overcommitted?". A team that plans in story points also needs "are we over the sprint's points ceiling?". When the sprint carries a `capacity_points` value, the panel adds a points-based read alongside the hours view:
+The per-person hours view answers "who is overcommitted?" A team that plans in
+**story points** (the team's own relative-size unit for a piece of work, instead of
+a time estimate) also needs to know "are we over the sprint's points ceiling?" When
+the sprint has a planning-capacity ceiling set, the panel adds a points-based read
+alongside the hours view:
 
-- **Points chip** — `{committed}/{capacity} pts · {pct}%`, summing the story points of every task committed to the sprint. The chip turns red once `committed_points` exceeds the sprint's `capacity_points` ceiling.
-- **Plain-English footer** — a one-line summary the whole team can read without parsing the donut: *"Team is at 75% of capacity. 6 pts free."* (or *"Team is 4 pts over capacity."* when over the ceiling).
+- **Points chip** — shows committed points against the ceiling and the percentage,
+  adding up the story points of every task committed to the sprint. It turns red
+  once the committed points go over the sprint's ceiling.
+- **Plain-English footer** — a one-line summary the whole team can read without
+  parsing the donut: *"Team is at 75% of capacity. 6 pts free."* (or *"Team is 4
+  pts over capacity."* once over the ceiling).
 
-Both are **omitted entirely when no points ceiling is set** — a sprint that plans in hours only never sees an empty or zero-valued points chip. The `capacity_points` ceiling is **not** part of sprint creation — the [Plan Sprint dialog](/features/plan-sprint/) is deliberately minimal (name, dates, optional goal) and has no points field. Set or change it from the **Capacity** card on the Board's active-sprint panel: click the card and type a value, or clear it to go back to hours-only. It is editable for as long as the sprint stays open.
+Both are **left off entirely when no points ceiling is set** — a sprint that plans
+in hours only never sees an empty or zero-valued points chip. The points ceiling is
+**not** part of creating a sprint — the [Plan Sprint dialog](/features/plan-sprint/)
+is deliberately minimal (name, dates, optional goal) and has no points field. Set
+or change it from the **Capacity** card on the Board's active-sprint panel: click
+the card and type a value, or clear it to go back to hours-only. You can change it
+any time while the sprint stays open.
 
 ## Where to find it in the app
 
@@ -43,20 +65,25 @@ Both are **omitted entirely when no points ceiling is set** — a sprint that pl
 |---|---|---|
 | `GET` | `/api/v1/sprints/{id}/capacity/` | Per-member committed/available hours + aggregate totals |
 
-The activate endpoint also surfaces a warnings-only slice via `capacity_check`; this endpoint exposes the broader dataset.
+Activating a sprint also runs a lighter warnings-only version of this same check; this endpoint exposes the full underlying numbers.
 
 ## Where the data comes from
 
-For each `TaskResource` assigned to a task in the sprint:
+For everyone assigned to a task in the sprint, TruePPM works out:
 
-```text
-committed_hours = sum(units × working_days × hours_per_day)
-available_hours = max_units × working_days × hours_per_day
-```
+- **Committed hours** — each person's share of a task (their assignment
+  percentage) multiplied by the working days in the sprint and the hours in a
+  working day, added up across all their tasks in the sprint.
+- **Available hours** — the same calculation, but using each person's full
+  capacity instead of their assignment percentage — i.e., how many hours they
+  could theoretically give the sprint.
 
-Working days span the sprint window honoring the project calendar's `working_days` bitmask. Hours-per-day is read from the calendar (8.0 default).
+"Working days" follows the project's [working-day calendar](/features/calendars/)
+— which days of the week count as working, and how many hours make up a working
+day (8 hours by default).
 
-PTO is a placeholder zero until a dedicated time-off model lands.
+Time off isn't factored in yet — it counts as zero hours until a dedicated
+time-off feature ships.
 
 ## Related ADRs
 

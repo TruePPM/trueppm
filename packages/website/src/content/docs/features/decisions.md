@@ -15,11 +15,12 @@ click away at a Sprint Review instead of buried in a chat thread.
 
 ## How it works
 
-A **note** is the per-author why/decision log on a task (see [task collaboration](/features/task-collaboration/)).
-Marking a note as a **Decision** is a single tap — a chip next to **Pin** on the note row.
-Any team member or project manager can flag a note; flagging is curation, not authorship,
-so you can mark a teammate's note as a decision too. The flag is the only structured
-marker — there is no taxonomy, no required fields, nothing else to fill in.
+A **note** is where anyone can record the reasoning behind a call on a task — see
+[task collaboration](/features/task-collaboration/). Marking a note as a
+**Decision** is a single tap — a chip next to **Pin** on the note row. Any team
+member or project manager can flag a note; flagging is curation, not authorship,
+so you can mark a teammate's note as a decision too. That flag is all there is to
+it — no category to pick, no required fields, nothing else to fill in.
 
 Flagged decisions roll up into the **Decisions** view under **Reports → Decisions**:
 

@@ -11,40 +11,47 @@ no agent-action log to project — nothing on this page describes behavior you c
 exercise on it yet. On unreleased builds the layout may still be changing.
 :::
 
-Every program gets an **Agents** tab — a read-only window onto what your team's
-agents have read in that program, and which of their calls were refused. It is a
-projection of the tamper-evident agent-action log (the same hash-chained record the
-`audit_verify` command validates), never a separate data store. It sits in the
-program rail between **Resources** and **Members**: governance of execution next to
-capacity for it.
+This page is for a PM, Scrum Master, or program lead who wants to know what an AI
+assistant connected to TruePPM has actually looked at, and what it was refused —
+without turning the log into a performance tool for people.
 
-What lands in that log is the agent surface itself: calls made with an
-`mcp:read`-scoped token, and rejections of a token that is revoked or expired. The
-scheduling engine's own feasibility refusals apply to every caller and are *not*
-recorded here — there is no agent write for them to refuse yet. They join the log
-with the gated write surface in a later release, as the **Refusals** view notes
-below.
+Every program gets an **Agents** tab — a read-only window onto what your team's
+AI assistants have read in that program, and which of their calls were refused. It
+is a view onto a permanent, tamper-evident record — a log that cannot be edited or
+deleted after the fact, so it stays trustworthy even if something later goes wrong.
+It is not a separate data store you have to maintain; it just shows you that record.
+It sits in the program rail between **Resources** and **Members**: governance of
+execution next to capacity for it.
+
+What lands in that log is every read an assistant makes with its own read-only
+access token, and every rejection of a token that has been revoked or has expired.
+The scheduling engine's own "this isn't feasible" refusals apply to every caller,
+human or agent, and are *not* recorded here — there is no agent write yet for them
+to refuse. They join the log once assistants can make changes, in a later release,
+as the **Refusals** view notes below.
 
 ## Three views
 
 The tab hosts three sub-views behind a segmented control:
 
-- **Activity** — the chronological log of the recorded agent actions in the program:
-  when it happened, which action and capability, which token acted (by its 8-character
-  prefix, never the token itself), the accountable human it acted on behalf of, and
-  the verdict (allowed / refused). Every column maps to a real recorded field —
-  nothing is inferred. Click a row to open its detail, including the chain fingerprints
-  (`record_hash`, `payload_hash`, `sequence`) you can locate in an `audit_verify` run.
-- **Refusals** — the concentrated view of what was *stopped*, which today means the two
-  refusals the agent surface itself produces: an expired or invalid token (identity), or
-  a denied capability (policy), each with a plain-language reason. When the gated-write
-  surface lands in a later release, a write refused by the engine as schedule-infeasible
-  will appear here too, with the binding constraint and the projected impact on your
-  plan.
-- **Forecast impact** — the program's P80 completion date from the forecast rollup,
-  with a contribution line showing how much of the plan agents have actually
-  completed. Agent-finished work is already folded into the committed schedule the
-  forecast runs on, so this is the agent-conditioned forecast by construction.
+- **Activity** — the chronological log of recorded agent actions in the program:
+  when it happened, which action it was, which token acted (shown only by a short
+  prefix, never the full token), the accountable human it acted on behalf of, and
+  the verdict (allowed / refused). Every column shows a real recorded fact — nothing
+  is guessed or inferred. Click a row to open its detail, including the technical
+  fingerprint values that let an administrator match this row against the result of
+  a full integrity check (see [Verify it yourself](#verify-it-yourself) below).
+- **Refusals** — the concentrated view of what was *stopped*. Today that means one of
+  two things: the assistant's token was expired or invalid, or it tried something its
+  capability doesn't allow — each shown with a plain-language reason. Once assistants
+  can make changes, in a later release, a change the scheduling engine refuses because
+  it isn't feasible will appear here too, with the reason and what it would have done
+  to your plan.
+- **Forecast impact** — your program's **P80 finish date** — the date the schedule's
+  forecast is confident about roughly 8 times out of 10 — together with a line showing
+  how much of the plan your assistants have actually completed. Work an assistant
+  finished is already counted in that forecast, so this view always reflects what
+  agents have contributed.
 
 ## Your own project, on your own tab
 
@@ -71,18 +78,19 @@ you belong to, and an admin sees no more of your project than you do.
 
 ## Verify it yourself
 
-The panel is credible because the rows underneath it are chain-verifiable, not
-because it says so. The **Verify locally** badge explains that every action is one
-link in a tamper-evident chain — each row's fingerprint is computed from the one
-before it, so a removed or altered row breaks the chain — and hands you the command
-to check the full chain on your own instance:
+The panel is credible because the record underneath it can be checked, not because
+it says so. The **Verify locally** badge explains that every action is one link in
+a tamper-evident chain — if any row were ever removed or altered, the chain would
+visibly break — and hands you the command your **TruePPM administrator** can run on
+the server to check the full chain:
 
 ```bash
 python manage.py audit_verify
 ```
 
-The authoritative integrity check runs on your box, against your own data. The panel
-points at it honestly rather than claiming a proof the browser cannot make.
+That check runs on your own server, against your own data — it is the authoritative
+proof, not something the browser can fake. The panel points you to it honestly
+rather than claiming a guarantee it cannot make on its own.
 
 ## Governance of agents, not surveillance of people
 
@@ -90,8 +98,9 @@ This surface governs **agents**. It never becomes a productivity dashboard for
 people. There is no per-person leaderboard, no actions-per-human count, no ranking.
 The accountable human appears only as *attribution* — whose agent took an action —
 exactly as an audit log names who holds a credential, and never as a throughput
-metric. Team-health signals like velocity and pulse are governed separately by their
-own consent model and are not rendered here.
+metric. Team-health signals like **velocity** (how much work the team finishes per
+sprint) and team pulse are governed separately, under their own privacy rules, and
+are not shown here.
 
 ## What stays in the paid edition
 

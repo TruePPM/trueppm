@@ -9,13 +9,15 @@ Offline Jira import lands in **TruePPM 0.4**, the first beta. On unreleased
 builds the mapping and endpoint may still be changing.
 :::
 
-TruePPM can turn a **Jira Server / Data Center** issue export into a
-**CPM-schedulable** project: upload the XML you get from Jira's issue navigator,
-and TruePPM creates one task per issue, sets each task's duration from its
-original estimate, and draws a Finish-to-Start dependency for every **Blocks**
-link. The result is a real critical-path network — durations plus dependencies
-are exactly what the [scheduling engine](/features/scheduler/) needs to compute
-dates.
+This page is for a Project Admin bringing an existing Jira issue set into
+TruePPM as a real, schedulable plan. TruePPM can turn a **Jira Server / Data
+Center** issue export into a project the scheduling engine can compute dates
+for: upload the XML you get from Jira's issue navigator, and TruePPM creates one
+task per issue, sets each task's duration from its original estimate, and draws
+a **Finish-to-Start** dependency (the successor task can't start until its
+predecessor finishes) for every **Blocks** link. The result is a real
+critical-path network — durations plus dependencies are exactly what the
+[scheduling engine](/features/scheduler/) needs to compute dates.
 
 This is the **minimal "get real data in and computable" slice**: enough to lift
 a Jira issue set into a schedule and see a critical path, not a full-fidelity

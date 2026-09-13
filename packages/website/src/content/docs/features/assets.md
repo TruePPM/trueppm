@@ -9,10 +9,12 @@ The **Assets** surface lands in **TruePPM 0.4**, the first beta. Until 0.4 tags,
 task files and links are reachable only from each task's detail drawer.
 :::
 
-Reference material for a project lives scattered across individual tasks — a
-spec attached here, a pull-request link there, a design doc on a third task. The
-**Assets** tab gathers all of it into one place. It is a read-only, newest-first
-feed that unifies two things every task can carry:
+**Assets** is for a PM, Scrum Master, or anyone on the team who needs to find
+reference material without hunting through tasks one by one. Reference material for
+a project lives scattered across individual tasks — a spec attached here, a
+pull-request link there, a design doc on a third task. The **Assets** tab gathers
+all of it into one place. It is a read-only, newest-first feed that unifies two
+things every task can carry:
 
 - **Files** — attachments uploaded to a task (or an external file URL pinned to
   it), from the [task collaboration](/features/task-collaboration) attachment grid.
@@ -50,8 +52,8 @@ Each row shows, at a glance:
 - the owning **task**, who added it, and when;
 - any **labels** on a link.
 
-Files never expose their raw storage path — clicking a file resolves a short-lived
-signed download URL on demand, the same mechanism the task drawer uses.
+Files never expose where they're actually stored — clicking a file generates a
+temporary, secure download link on the spot, the same way the task drawer does.
 
 ## Filtering and search
 
@@ -60,8 +62,8 @@ The feed is filterable without leaving the page:
 - **Kind** — show everything, only **Files**, or only **Links**.
 - **Provider** — narrow links to a single source (GitHub, GitLab, Drive, …).
 - **Label** — narrow to links carrying a given label.
-- **Search** — a substring match across titles and URLs, applied to both files
-  and links so a term is never dropped from one side.
+- **Search** — matches your text anywhere in a title or URL, across both files
+  and links, so a search term never misses one side of the feed.
 
 A **Group by task** toggle switches from the flat chronological list to a
 task-grouped view when you want to see everything attached to one task together.

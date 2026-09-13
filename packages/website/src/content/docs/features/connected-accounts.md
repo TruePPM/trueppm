@@ -62,21 +62,20 @@ on tasks.
 
 ### Security guarantees
 
-- Secrets are encrypted at rest with `INTEGRATION_ENCRYPTION_KEY` (set in the
-  Helm values, generated with
-  `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`).
-- The encrypted ciphertext is **never** returned by any API endpoint, not even
-  to the credential's owner. The list response exposes only metadata: `exists`,
-  `base_url`, `created_at`, `updated_at`, `last_used_at`, `expires_at`, and
-  `requires_credential`.
-- Cross-user access is impossible by construction — the viewset's queryset is
-  scoped to `request.user`, so neither the URL path nor the request body can
-  address another user's row.
-- Token verification and the task-link refresh both make outbound HTTP calls
-  through a single SSRF-guarded egress helper. It resolves the target host and
-  refuses any URL that resolves to a private, loopback, link-local, or
-  cloud-metadata address, so a self-hosted host URL cannot be used to probe
-  internal services. Calls are time-bounded and do not follow redirects.
+- Your credential is encrypted before it's stored, so it isn't readable in plain
+  text even with direct database access. *For your TruePPM administrator:* the
+  encryption key is set as a Helm value; generate one with
+  `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+- The encrypted value is **never** returned by any API response, not even to the
+  credential's owner — only whether a credential exists, when it was created and
+  last used, and when it expires, never the credential itself.
+- You can never see or reach another person's connected accounts — no URL or
+  request can be crafted to address someone else's saved credential.
+- Checking a token and refreshing a task's status both make their outbound
+  requests through a guarded connection that resolves the target address first
+  and refuses anything that points at a private, internal, or cloud-infrastructure
+  address — so a self-hosted host URL cannot be used to probe your own internal
+  network. These requests are time-bounded and never follow redirects.
 
 The connected credential is consumed by **git-aware task links** to fetch live
 status.
@@ -161,7 +160,9 @@ field limits (custom fields are excluded there too).
     needs only the first setting.
 
   Then choose **what to pull** — the issues assigned to you (recommended) or a
-  specific **JQL** filter — and, optionally, limit it to named **projects**. The
+  specific **JQL** filter (JQL is Jira's own search-query language, for anyone who
+  wants a more precise filter than "assigned to me") — and, optionally, limit it
+  to named **projects**. The
   project keys **narrow** whichever filter you chose: they are combined with it
   (`AND`), never substituted for it, so naming `RIV, BAY` means nothing outside
   those two projects is pulled even if your own JQL would have matched it. Leave

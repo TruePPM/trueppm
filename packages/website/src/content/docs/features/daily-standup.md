@@ -52,11 +52,11 @@ A card that has been sitting in its column longer than that column's configured 
 
 ## Real-time updates
 
-Standup mode updates in real time over WebSocket. If a teammate moves a card on their device while the team is discussing someone else, the card reflects in the standup view the moment it moves — no refresh needed.
+Standup mode updates live. If a teammate moves a card on their device while the team is discussing someone else, the card reflects in the standup view the moment it moves — no refresh needed.
 
 ## What standup mode does not do
 
-- **No new data model.** The standup surface derives everything from existing board state, task history, and blocker data. There are no standup-specific records, attendance logs, or notes stored.
+- **No extra records kept.** The standup surface just reads existing board state, task history, and blocker data. There are no standup-specific records, attendance logs, or notes stored anywhere.
 - **No notifications.** The mode is pull-only — it does not send any notifications before, during, or after.
 - **No editing.** Cards shown in standup mode open the task drawer on click (as they do on the regular board), but the standup surface itself has no controls for moving or editing cards. The team focuses on the conversation; moves happen on the board before or after.
 

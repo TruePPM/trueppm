@@ -4,7 +4,7 @@ description: Reference for the project Calendar view — month and week modes, t
 documentedFor: "0.4"
 ---
 
-The **Calendar view** lays your project's dated work over an ordinary Mon–Sun calendar. Where the Schedule view answers "what depends on what", the Calendar answers "what is happening the week of the 24th" — the question you get asked in a status meeting.
+The **Calendar view** is for anyone on the team who needs a familiar week- or month-view answer to "what's happening when" — a PM prepping for a status meeting, or a team member checking their week. It lays your project's dated work over an ordinary Mon–Sun calendar. Where the Schedule view answers "what depends on what", the Calendar answers "what is happening the week of the 24th" — the question you get asked in a status meeting.
 
 It lives in the **Plan** group of the project view bar, at `/projects/{projectId}/calendar`.
 
@@ -20,7 +20,7 @@ The Calendar's nav entry is hidden on **Agile** projects and shown on **Waterfal
 
 Open it on an Agile project with no dated tasks and it says so plainly, with a link across to your iterations rather than an empty grid.
 
-Every task whose date span overlaps the window on screen is drawn. Dates come from the schedule: a task's **computed early start and early finish** (falling back to its planned start if the engine has not produced one). A task with no start date never appears, and a task whose span crosses the edge of the window is drawn clipped to the window rather than dropped.
+Every task whose date span overlaps the window on screen is drawn. Dates come from the schedule: the earliest a task could start and finish, as the scheduling engine has calculated it (falling back to the task's planned start if the engine hasn't computed dates for it yet). A task with no start date never appears, and a task whose span crosses the edge of the window is drawn clipped to the window rather than dropped.
 
 ## Month mode
 
