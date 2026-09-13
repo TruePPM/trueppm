@@ -4,6 +4,8 @@ description: Run TruePPM locally with Docker Compose in a few minutes. For Helm/
 documentedFor: "0.4"
 ---
 
+This page gets you from nothing installed to a running TruePPM instance you can open in a browser, using Docker Compose. If you have never run Docker before, see [Set up a container host](/getting-started/container-host/) first — it explains what a container is and gets one running on your machine.
+
 :::note[Ships in 0.4]
 The `--with-personas` flag shown below ships in **0.4**, alongside the retirement
 of the `seed_demo_project` and `seed_ga_launch_program` Python seeders in favor of
@@ -64,7 +66,7 @@ Docker Compose is the fastest path to a running instance — every service start
 | Docker Compose (below) | Evaluation, development, contributors |
 | [Helm / Kubernetes](/administration/deployment/#kubernetes-with-helm) | Production, horizontal scaling |
 | [Single server with systemd](/administration/deployment/#single-server-with-systemd) | Production without Kubernetes |
-| [Scheduler library](#scheduler-library-only) | Embedding the CPM engine in your own app |
+| [Scheduler library](#scheduler-library-only) | Embedding the CPM (Critical Path Method — the algorithm that computes task dates and the critical path) engine in your own app |
 
 Before you put a real program on it, read the **[tested scale envelope](/administration/sizing/#tested-envelope)** — the scale ceilings measured against the 0.4 beta build, which dimensions are still untested, and the issue behind each ceiling. The short version: plan on the Schedule view staying comfortable up to roughly **1,000 tasks**.
 
@@ -84,6 +86,11 @@ The fastest way to run TruePPM locally. All six services start from a single com
 | Memory available to Docker | 8 GB |
 | Free disk | ~10 GB for images, layers, and the build cache |
 
+New to containers, or don't have Docker installed yet? See
+[Set up a container host](/getting-started/container-host/) first — it explains
+what Docker and Docker Compose actually are and walks through installing Docker
+Desktop, Rancher Desktop, or Podman.
+
 The CPU and memory figures match the smallest tier in
 [Sizing](/administration/sizing/#sizing-tiers) — a single node at ~4 vCPU / 8 GB.
 On Docker Desktop these are set under **Settings → Resources**; the defaults are
@@ -92,25 +99,37 @@ container rather than as an obvious error.
 
 ### Steps
 
-```bash
-git clone https://gitlab.com/trueppm/trueppm.git
-cd trueppm
-docker compose up -d
-```
+1. **Download the code.** This creates a new `trueppm` folder in your current directory.
 
-**The first run builds.** This stack compiles the API and web images from your
-checkout and installs npm dependencies, so budget **several minutes** on a cold
-Docker cache — not seconds. Subsequent starts, with the images and
-`web_node_modules` volume already present, come up in about 15–20 seconds.
+   ```bash
+   git clone https://gitlab.com/trueppm/trueppm.git
+   ```
 
-Watch it finish rather than guessing:
+2. **Move into that folder.**
 
-```bash
-docker compose logs -f web    # wait for Vite's "ready in ..." line
-docker compose ps             # db, valkey, api should read "(healthy)"
-```
+   ```bash
+   cd trueppm
+   ```
 
-Then open the web UI at **http://localhost:5173**.
+3. **Build and start all six services with one command.**
+
+   ```bash
+   docker compose up -d
+   ```
+
+   **The first run builds.** This stack compiles the API and web images from your
+   checkout and installs npm dependencies, so budget **several minutes** on a cold
+   Docker cache — not seconds. Subsequent starts, with the images and
+   `web_node_modules` volume already present, come up in about 15–20 seconds.
+
+4. **Watch it finish rather than guessing.**
+
+   ```bash
+   docker compose logs -f web    # wait for Vite's "ready in ..." line
+   docker compose ps             # db, valkey, api should read "(healthy)"
+   ```
+
+5. **Open the web UI** at **http://localhost:5173**. You should see TruePPM's sign-in page.
 
 **Services started:**
 
@@ -119,11 +138,11 @@ Then open the web UI at **http://localhost:5173**.
 | `db` | 5432 | PostgreSQL 16 |
 | `valkey` | 6379 | Celery broker + Django Channels layer (BSD-licensed Redis fork; wire-compatible) |
 | `api` | 8000 | Django ASGI (uvicorn) |
-| `celery` | — | CPM auto-scheduling worker |
+| `celery` | — | Runs the CPM (Critical Path Method) schedule recalculation in the background |
 | `celery-beat` | — | Periodic task runner |
 | `web` | 5173 | React frontend |
 
-Migrations run automatically on first startup. The `create_admin` management command generates a secure random password and writes it to `/tmp/trueppm_admin_password`:
+**Migrations run automatically on first startup.** A migration is a script that creates or updates TruePPM's database tables to match the current version of the code — you never run one by hand on Compose; the `api` container does it for you before it starts serving requests. The `create_admin` management command generates a secure random password and writes it to `/tmp/trueppm_admin_password`:
 
 ```bash
 docker compose exec api cat /tmp/trueppm_admin_password
@@ -172,24 +191,52 @@ BASE=http://localhost:8000          # Compose
 
 ### 1. PostgreSQL — accepting connections
 
-| Path | Command | Expect |
-|---|---|---|
-| Compose | `docker compose exec db pg_isready -U trueppm` | `/var/run/postgresql:5432 - accepting connections` |
-| Helm | `kubectl exec -n <ns> <release>-postgresql-0 -- pg_isready -U trueppm` | the same |
+PostgreSQL is TruePPM's database. This checks that it is up and taking connections — not yet whether TruePPM can actually read or write data (check 3 covers that).
+
+On Compose:
+
+```bash
+docker compose exec db pg_isready -U trueppm
+```
+
+Expect: `/var/run/postgresql:5432 - accepting connections`
+
+On Helm / Kubernetes:
+
+```bash
+kubectl exec -n <ns> <release>-postgresql-0 -- pg_isready -U trueppm
+```
+
+Expect the same output.
 
 Managed database instead? Skip the pod and trust check 3 — `/readyz` reports the
 database as `ok` only after a real `SELECT 1` succeeds.
 
 ### 2. Valkey — answering PING
 
-| Path | Command | Expect |
-|---|---|---|
-| Compose (dev) | `docker compose exec valkey valkey-cli ping` | `PONG` |
-| Compose (prod) | `docker compose -f docker-compose.prod.yml exec valkey sh -c 'valkey-cli -a "$REDIS_PASSWORD" --no-auth-warning ping'` | `PONG` |
-| Helm | `kubectl exec -n <ns> <release>-valkey-primary-0 -- sh -c 'valkey-cli -a "$VALKEY_PASSWORD" ping'` | `PONG` |
+Valkey is TruePPM's in-memory cache and message broker — an open-source, Redis-compatible project that TruePPM uses in place of Redis itself. This check confirms it responds at all.
 
-An unauthenticated `ping` against a password-protected Valkey returns `NOAUTH`,
-not an error about the server being down.
+On Compose (dev):
+
+```bash
+docker compose exec valkey valkey-cli ping
+```
+
+On Compose (prod):
+
+```bash
+docker compose -f docker-compose.prod.yml exec valkey sh -c 'valkey-cli -a "$REDIS_PASSWORD" --no-auth-warning ping'
+```
+
+On Helm / Kubernetes:
+
+```bash
+kubectl exec -n <ns> <release>-valkey-primary-0 -- sh -c 'valkey-cli -a "$VALKEY_PASSWORD" ping'
+```
+
+Expect `PONG` from any of the three. An unauthenticated `ping` against a
+password-protected Valkey returns `NOAUTH`, not an error about the server
+being down.
 
 ### 3. API — alive, and actually ready
 
@@ -214,13 +261,22 @@ returns `503` with the failing key named if any of them is wrong.
 
 ### 4. Celery worker — consuming the queue
 
-| Path | Command | Expect |
-|---|---|---|
-| Compose | `docker compose exec celery celery -A trueppm_api.celery inspect ping` | `{'celery@<host>': {'ok': 'pong'}}` |
-| Helm | `kubectl exec -n <ns> deploy/<release>-trueppm-celery-worker -c celery-worker -- celery -A trueppm_api.celery inspect ping` | the same |
+Celery is the background worker that runs the schedule recalculation (CPM — Critical Path Method, the algorithm that computes task dates and the critical path) after every edit. This check confirms a worker is listening.
 
-An empty reply means no worker is connected to the broker — the queue will grow
-and nothing will drain it.
+On Compose:
+
+```bash
+docker compose exec celery celery -A trueppm_api.celery inspect ping
+```
+
+On Helm / Kubernetes:
+
+```bash
+kubectl exec -n <ns> deploy/<release>-trueppm-celery-worker -c celery-worker -- celery -A trueppm_api.celery inspect ping
+```
+
+Expect `{'celery@<host>': {'ok': 'pong'}}` from either. An empty reply means no
+worker is connected to the broker — the queue will grow and nothing will drain it.
 
 ### 5. Celery Beat — dispatching periodic work
 

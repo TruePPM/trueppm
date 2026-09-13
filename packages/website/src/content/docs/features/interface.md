@@ -114,6 +114,8 @@ Type to filter; arrow keys move; Enter activates; Escape closes. The palette is 
 pop surface with a focus trap, so keyboard and screen-reader users get the same
 reach as a pointer.
 
+![The command palette, zoomed: the search field, a Current sprint group, a Current project group, and the navigate / open / search keyboard hints along the bottom edge](../../../assets/screenshots/command-palette-panel.webp)
+
 ### Filtering the settings rail
 
 Once you're inside settings, the left navigation rail has a **filter box** at the top.

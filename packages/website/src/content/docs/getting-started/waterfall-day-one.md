@@ -120,7 +120,7 @@ project's history).
 ## 5. Set the status date
 
 The status date is the "as of" date your forecasts compute from — without it,
-Monte Carlo and CPM both default to today, which is fine for an actively-tracked
+Monte Carlo and CPM (Critical Path Method — the engine behind the critical path you just built) both default to today, which is fine for an actively-tracked
 plan but wrong for a report you want reproducible on a specific date.
 
 Open **Project settings → General** and set **Status date (data date)**. Leave

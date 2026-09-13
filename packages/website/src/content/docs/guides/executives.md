@@ -38,7 +38,7 @@ TruePPM runs on your infrastructure. No data leaves your network. The community 
 
 ### API-driven reporting
 
-The REST API provides full access to all project data — tasks, schedules, CPM fields, members, resources. If your BI team needs to pull schedule data into a dashboard, the OpenAPI schema documents every endpoint.
+The REST API provides full access to all project data — tasks, schedules, CPM (Critical Path Method) fields, members, resources. If your BI team needs to pull schedule data into a dashboard, the OpenAPI schema documents every endpoint.
 
 ## What's coming
 
@@ -67,7 +67,7 @@ You don't need to learn the tool to judge it — and you shouldn't have to. Hand
 
 **They run the setup:**
 
-1. **Start the stack and seed the demo.** From the TruePPM checkout:
+1. **Start the stack and seed the demo — load a ready-made sample program with one command.** From the TruePPM checkout:
 
    ```bash
    make up

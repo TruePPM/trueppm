@@ -503,6 +503,10 @@
         "estimate": { "$ref": "#/$defs/estimate" },
         "assignee": { "$ref": "#/$defs/slug" },
         "body": { "type": "string", "maxLength": 10000 },
+        "is_active": {
+          "type": "boolean",
+          "description": "On baseline.capture: whether this capture supersedes the project's current active baseline (deactivating it), collapsing the real app's separate capture + activate steps into one beat. Defaults to false — a captured baseline stays superseded unless authored active."
+        },
         "goal_outcome": { "enum": ["MET", "PARTIAL", "MISSED"] },
         "blocker_type": {
           "enum": ["dependency", "resource", "vendor", "decision", "other"],

@@ -7,7 +7,7 @@ You manage schedules, track progress against commitments, and need to give stake
 
 ## Scheduling fundamentals
 
-### Automatic CPM on every change
+### Automatic CPM (Critical Path Method) on every change
 
 Every time you add a task, change a duration, or modify a dependency, TruePPM recalculates the entire schedule automatically. No "Update Project" button. No manual recalculation. You always see:
 
@@ -120,7 +120,7 @@ When a scheduler or admin changes the plan, all connected browsers update immedi
 
 The fastest way to judge TruePPM as a PM is to watch the schedule react to a change. Run these steps in order — they start from a machine with nothing running.
 
-1. **Start the stack and seed the demo.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
+1. **Start the stack and seed the demo — load a ready-made sample program with one command.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
 
    ```bash
    make up

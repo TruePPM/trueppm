@@ -3,6 +3,20 @@
 ## Status
 Accepted
 
+> **Amended 2026-09-12 (#3553):** the *decision* stands unchanged, but the link
+> **shape** in "Email" and the confirm **route** in "Frontend" below are
+> superseded. Both originally carried `uid`/`token` as path segments; the
+> credential now rides in the URL **fragment**
+> (`{FRONTEND_BASE_URL}/reset-password/confirm#uid=…&token=…`, SPA route
+> `/reset-password/confirm`). The path form was exported three ways — the
+> telemetry envelope's `path`, `RouteErrorBoundary`'s `route`, and `Referer` on a
+> cross-origin navigation — and a fragment is never transmitted to any server, so
+> it closes all three at source. Verified 2026-09-12 against
+> `packages/api/src/trueppm_api/core/password_reset.py::_reset_link`,
+> `packages/web/src/router.tsx`, and
+> `packages/web/src/features/auth/passwordReset/resetLink.ts`. The two sections
+> below are left as originally written; read them through this note.
+
 ## Context
 The community edition has **no self-service password reset**. The only recovery
 path today is an operator running `manage.py changepassword <username>` inside the

@@ -296,6 +296,12 @@ class _SeedImporter:
         # (#3487). Indexed once up front — Pass A builds tasks project by
         # project, but the events timeline is not project-scoped.
         self.earliest_task_event: dict[tuple[str, str], date] = self._index_earliest_task_events()
+        # (project_slug, wbs_path) of every task the timeline dates a status move
+        # against, so ``_build_task`` can tell a task that is *moved* into the
+        # backlog from one that simply lives there (#3488). Indexed here for the
+        # same reason as the map above: Pass A is project-scoped, the timeline is
+        # not.
+        self.authored_status_targets: set[tuple[str, str]] = self._index_authored_status_targets()
         self.working_calendars: dict[str, WorkingCalendar] = {}
         self.risks_by_slug: dict[str, Risk] = {}
         # Desired END states for replay — tasks/sprints are created at a base
@@ -439,6 +445,29 @@ class _SeedImporter:
             if key not in earliest or when < earliest[key]:
                 earliest[key] = when
         return earliest
+
+    def _index_authored_status_targets(self) -> set[tuple[str, str]]:
+        """Tasks the authored events timeline moves with a ``task.status`` beat.
+
+        Unlike :meth:`_index_earliest_task_events`, the action *is* the point
+        here: only a dated column move tells ``_build_task`` that a task's final
+        status is somewhere the timeline walks it to, rather than where it was
+        born. The literal action key is repeated rather than imported from
+        ``replay._TASK_STATUS_ACTION`` — it is private to that module, and the
+        codebase already restates it per-module (see ``validation``'s
+        ``_EVENT_TARGET_KIND``).
+        """
+        targets: set[tuple[str, str]] = set()
+        for event in self.payload.get("events", []):
+            if event.get("action") != "task.status":
+                continue
+            target = event.get("target", "")
+            if not target.startswith("task:"):
+                continue
+            _, _, ref = target.partition(":")
+            project_slug, _, wbs = ref.partition(":")
+            targets.add((project_slug, wbs))
+        return targets
 
     # --- batched inserts (ADR-0726 §8) -------------------------------------
 
@@ -1279,7 +1308,29 @@ class _SeedImporter:
         # walked forward by the timeline + synthesizer; its creation row is
         # backdated to when work could have begun (sprint/planned/project start).
         progresses = self.replay and final_status in ("IN_PROGRESS", "REVIEW", "COMPLETE")
-        base_status = "NOT_STARTED" if progresses else final_status
+
+        # BACKLOG is off the progression spine — an ordinary backlog item is born
+        # there and the synthesizer deliberately refuses to walk anything to it
+        # (``replay._PROGRESSION_INDEX`` has no entry), so it must NOT be folded
+        # into ``progresses``: born NOT_STARTED with nothing to move it, it would
+        # strand at NOT_STARTED forever. But a sprint close that carries an
+        # unfinished task back to the backlog (#3488) *is* an event-driven move
+        # into BACKLOG, and the exporter reconstructs it as a dated ``task.status``
+        # beat. Born already at BACKLOG that beat is a no-op (``_apply_task_status``
+        # returns when the column already matches), so no history row exists and
+        # the re-export drops the event — breaking the #616 byte-identical round
+        # trip. The document itself distinguishes the two cases: only the carried
+        # task has a ``task.status`` beat dated against it.
+        decommits = (
+            self.replay
+            and final_status == "BACKLOG"
+            and (project_slug, data["wbs_path"]) in self.authored_status_targets
+        )
+        base_status = "NOT_STARTED" if (progresses or decommits) else final_status
+        # Progress fields stay keyed on ``progresses`` alone: a carried task walks
+        # only its column, so re-basing its percent/remaining would invent numbers
+        # nothing later restores (``_finalize_tasks`` only rescues IN_PROGRESS and
+        # REVIEW), and the re-export would then disagree about those fields.
         base_percent = 0.0 if progresses else data.get("percent_complete", 0.0)
         base_remaining = story_points if progresses else data.get("remaining_points")
 

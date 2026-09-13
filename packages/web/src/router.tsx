@@ -269,6 +269,11 @@ const ResetPasswordConfirmPage = lazy(() =>
     default: m.ResetPasswordConfirmPage,
   })),
 );
+const ResetPasswordLegacyLinkRedirect = lazy(() =>
+  import('@/features/auth/passwordReset/ResetPasswordLegacyLinkRedirect').then((m) => ({
+    default: m.ResetPasswordLegacyLinkRedirect,
+  })),
+);
 const ResetPasswordDonePage = lazy(() =>
   import('@/features/auth/passwordReset/ResetPasswordDonePage').then((m) => ({
     default: m.ResetPasswordDonePage,
@@ -434,12 +439,28 @@ export const routes: RouteObject[] = [
         ),
         handle: { title: 'Reset Link Sent' } satisfies RouteHandle,
       },
+      // The credential rides in the URL **fragment**, not the path (#3553): the
+      // path is exported by `telemetry.ts`, by `RouteErrorBoundary`, and as
+      // `Referer`, and a reset token is a 30-minute account-takeover credential.
+      // See `passwordReset/resetLink.ts`.
+      {
+        path: '/reset-password/confirm',
+        errorElement: <RouteErrorBoundary />,
+        element: (
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <ResetPasswordConfirmPage />
+          </Suspense>
+        ),
+        handle: { title: 'Reset Password' } satisfies RouteHandle,
+      },
+      // Pre-#3553 link shape. Kept only so a link that was already in an inbox at
+      // deploy time still works; it redirects to the fragment form with `replace`.
       {
         path: '/reset-password/confirm/:uid/:token',
         errorElement: <RouteErrorBoundary />,
         element: (
           <Suspense fallback={<RouteLoadingFallback />}>
-            <ResetPasswordConfirmPage />
+            <ResetPasswordLegacyLinkRedirect />
           </Suspense>
         ),
         handle: { title: 'Reset Password' } satisfies RouteHandle,

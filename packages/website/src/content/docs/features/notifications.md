@@ -36,6 +36,8 @@ small crescent-moon mark on the bell signals it is on — driven by the real
 - **Mobile (< md):** the bell navigates to a full-screen route,
   `/me/notifications`, instead.
 
+![The desktop notification slide-out panel: Do Not Disturb toggle, the read/unread/archived/snoozed tabs, a category filter, and the notification list](../../../assets/screenshots/notification-panel.webp)
+
 The unread count refreshes on a **30-second poll** while the tab is in the
 foreground; a backgrounded tab pauses the poll.
 

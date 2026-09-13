@@ -1486,7 +1486,7 @@ cmd_reserve() {
       ledger_record rule - "$number" "$branch"
       ledger_unlock
       stamp_reservation "$CURRENT_TOPLEVEL" rule "$number"
-      printf "wt: reserved web rule %s for %s — add it to packages/web/CLAUDE.md\n" "$number" "$branch" >&2
+      printf "wt: reserved web rule %s for %s — write its body under docs/design/invariants/ and add its index line to packages/web/CLAUDE.md\n" "$number" "$branch" >&2
       printf '%s\n' "$number"
       ;;
     migration)

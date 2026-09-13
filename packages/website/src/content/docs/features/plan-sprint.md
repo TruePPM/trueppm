@@ -17,6 +17,8 @@ Step 5 ([Sprint planning](/the-story/#5-sprint-planning--the-team-pulls-work)) o
 
 Inline validation on `finish ≤ start`. Submit creates the sprint in `PLANNED` state — activate it later from the timeline strip.
 
+![The Plan Sprint dialog: Name, Start and Finish date fields, an optional Goal textarea, and Cancel / Save changes buttons](../../../assets/screenshots/sprint-plan-dialog.webp)
+
 ## Where to find it in the app
 
 - Trigger: **Plan next sprint** button in the [Sprints workspace](/features/sprints/) header

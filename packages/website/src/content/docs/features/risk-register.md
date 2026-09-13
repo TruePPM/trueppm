@@ -26,6 +26,8 @@ Severity is **probability × impact**, computed from two 1–5 integer fields. A
 
 The severity is read-only in the UI — it is always derived from the two inputs, never stored as a separate value.
 
+![The probability × impact risk matrix, zoomed: each cell shaded by severity band, with risk short-IDs plotted in their cell and the severity legend below](../../../assets/screenshots/risk-matrix.webp)
+
 ## Lifecycle states
 
 | Status | Meaning |
@@ -86,6 +88,8 @@ A risk can be linked to up to **10 tasks** in the same project to indicate which
 ### From the risk
 
 The risk drawer has a **Linked tasks** section. In the read-only detail view it lists each linked task with its board status; selecting one opens that task in the app-wide task drawer so you can act on it. When you create or edit a risk, a **task picker** lets you attach or detach existing project tasks — search by name or ID, and remove a linked task with its chip's **×**. The picker enforces the same 10-task, same-project limit as the API.
+
+![The risk editor: title, status, probability and impact selects, the derived severity chip, description, and the linked-tasks picker](../../../assets/screenshots/risk-editor.webp)
 
 For the common case of a `MITIGATING` risk that has no tracked work yet, **Create mitigation task** (Member and above) creates a new task in one click: it is named from the risk (`Mitigate: <risk title>`), created **unscheduled and not in any sprint**, and assigned to no one — so it lands in the backlog for planning without injecting scope into an active sprint or notifying anyone. The new task is linked to the risk immediately and appears in the Linked tasks list.
 

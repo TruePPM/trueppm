@@ -30,6 +30,11 @@ package-lock.json merge=union
 yarn.lock         merge=union
 uv.lock           merge=union
 
+# Web design-rule index — one line per rule, so branches that each add a rule
+# append independent lines. If both sides edit the SAME line, union keeps both
+# copies; scripts/check-web-rule-numbers.sh fails that as a duplicate number (#3744).
+packages/web/CLAUDE.md merge=union
+
 # Binary files — no diff, no merge
 *.png   binary
 *.jpg   binary

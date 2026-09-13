@@ -17,7 +17,7 @@ Assignments carry **fractional units and work hours**, so a person can be 60% on
 
 ### Assign people in the app — or script it
 
-In the web app you assign people to tasks from the task drawer. If you'd rather build allocation reports the way you build spreadsheets, every resource and task-resource has a full REST endpoint:
+In the web app you assign people to tasks from the task drawer. If you'd rather build allocation reports the way you build spreadsheets, every resource and task-resource has a full REST endpoint. `$TOKEN` below is an API token — see [Quickstart, Route B](/getting-started/quickstart/#route-b--build-a-project-via-the-api) for how to get one:
 
 ```bash
 # Assign a resource to a task
@@ -35,7 +35,7 @@ When a scheduler changes the plan — re-sequences tasks or adjusts durations �
 
 Run these steps in order — they start from a machine with nothing running.
 
-1. **Start the stack and seed the demo.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
+1. **Start the stack and seed the demo — load a ready-made sample program with one command.** From your TruePPM checkout (if you have not installed yet, start with [Installation](/getting-started/installation/)):
 
    ```bash
    make up
@@ -83,4 +83,5 @@ Within a program (one or more related projects), resource management will be ful
 - [Quickstart](/getting-started/quickstart/) — the shortest path from install to a populated project
 - [API reference](/api/reference/) — the Resources and Task-Resources endpoints
 - [Resources](/features/resources/) — roster, capacity profiles, and allocation
-- [RBAC model](/administration/rbac/) — the Admin role or above is needed to manage resources
+- [RBAC model](/administration/rbac/) — editing the Workspace resource catalog needs the Project Manager role or above
+  on at least one active project

@@ -96,6 +96,8 @@ handle. The breach chip appears whenever a column is at or over its limit, wheth
 not **Show WIP limits** is switched on in the **More⋯** menu — a breach is not something
 you should have to opt into seeing.
 
+![A board column header: status dot, column label, board-wide card count, and the collapse control](../../../assets/screenshots/board-column-header.webp)
+
 ### Collapse a column to a stub
 
 Press the **«** button in a column header (*"Collapse In Progress column"*) to fold that
@@ -139,6 +141,8 @@ folds one lane away and leaves the rest, focus hides everything except one.
 Neither column collapse nor lane focus has a keyboard shortcut.
 
 ## Board cards
+
+![A single board card: readiness chip, task name and reference, story points, a signal chip, assignee initials, and the time-in-column footer](../../../assets/screenshots/board-card.webp)
 
 Each card shows:
 

@@ -17,6 +17,9 @@
  *   - **No PII.** The payload carries only the error message + stack + route,
  *     web-vital name/value, app version, and the URL *pathname* (never the query
  *     string, which can hold ids/tokens). No credentials are ever attached.
+ *     The pathname is additionally scrubbed on the credential-bearing auth routes
+ *     — see `scrubSensitivePath` and #3553, which is the counterexample to the
+ *     line above: the path, not only the query string, could hold a token.
  *   - **Zero new dependencies.** Web Vitals are collected from the native
  *     `PerformanceObserver` / navigation-timing APIs rather than pulling a
  *     package into the bundle.
@@ -43,6 +46,52 @@ declare global {
 
 /** Defensive cap on the reported stack so a pathological trace can't bloat a beacon. */
 const MAX_STACK_CHARS = 4096;
+
+/**
+ * Route prefixes whose remaining path segments must never leave the browser.
+ *
+ * The header above says the query string is the risky part — that was only ever
+ * half true, and it is why `/reset-password/confirm/:uid/:token` was not
+ * considered (#3553). A reset credential in the PATH is exported by every
+ * envelope this module sends, so with a collector configured a render error on
+ * the reset screen shipped a live 30-minute account-takeover credential to the
+ * collector URL.
+ *
+ * The credential now rides in the URL fragment, which is never in `pathname` at
+ * all — this scrub is the second, independent gate, and it is what covers a
+ * pre-#3553 link that redirects through the legacy path route.
+ *
+ * `/invite` is here for the same reason at one remove: the invite token itself is
+ * in the query string and so was already excluded, but the prefix identifies a
+ * named individual mid-onboarding, and any future segment added under it would
+ * inherit the defect rather than be noticed.
+ */
+const REDACTED_PATH_PREFIXES = ['/reset-password/confirm', '/invite'] as const;
+
+/**
+ * Replace the credential-bearing tail of a sensitive route with a marker.
+ *
+ * Keeps the prefix so an operator can still tell WHICH flow errored — the point
+ * of the telemetry — while the part that can be replayed against an account never
+ * reaches the collector. Idempotent: scrubbing an already-scrubbed path is a
+ * no-op, so callers may scrub defensively without coordinating.
+ *
+ * Exported so the error boundaries scrub the `route` they pass in as well; this
+ * module scrubs everything it sends regardless, so the two are belt and braces.
+ */
+export function scrubSensitivePath(pathname: string): string {
+  for (const prefix of REDACTED_PATH_PREFIXES) {
+    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
+      return `${prefix}/<redacted>`;
+    }
+  }
+  return pathname;
+}
+
+/** The current pathname, scrubbed. Empty string outside a browser. */
+function currentPath(): string {
+  return typeof window !== 'undefined' ? scrubSensitivePath(window.location.pathname) : '';
+}
 
 /** Context attached to an error report by whichever boundary caught it. */
 export interface ErrorReportContext {
@@ -100,7 +149,7 @@ function baseEnvelope(type: TelemetryEnvelope['type']): TelemetryEnvelope {
     timestamp: new Date().toISOString(),
     appVersion: typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'unknown',
     buildSha: typeof __BUILD_SHA__ === 'string' ? __BUILD_SHA__ : 'unknown',
-    path: typeof window !== 'undefined' ? window.location.pathname : '',
+    path: currentPath(),
   };
 }
 
@@ -160,7 +209,9 @@ export function reportError(error: unknown, context: ErrorReportContext = {}): v
     message,
     stack: err?.stack ? err.stack.slice(0, MAX_STACK_CHARS) : undefined,
     boundary: context.boundary,
-    route: context.route,
+    // Scrubbed here too, not only at the call site: a boundary that forgets must
+    // not be able to reintroduce #3553 through this field.
+    route: context.route === undefined ? undefined : scrubSensitivePath(context.route),
   });
 }
 

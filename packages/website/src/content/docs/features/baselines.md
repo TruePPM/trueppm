@@ -178,6 +178,8 @@ curl -X DELETE -H "Authorization: Bearer $JWT" \
 Once a baseline is **active**, opening a task in the Schedule view shows a **Baseline**
 section in the task detail drawer with the planned-vs-current comparison for that task:
 
+![The Baseline section of a task's detail page, expanded: the active baseline's name and capture date above a Field / Current / Baseline / Delta comparison table](../../../assets/screenshots/task-detail-baseline.webp)
+
 | Planned (baseline) | Current (live) | Delta |
 |---|---|---|
 | Start / finish at capture | Start / finish from the latest CPM run | Variance in days (e.g. `+3 days`) |

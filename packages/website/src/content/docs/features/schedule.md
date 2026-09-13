@@ -514,6 +514,12 @@ The **picker** — a search-and-pick dialog for the same result, and the way to 
 - **Right-click a task row** in the task list and choose **Add dependency…**.
 - **Open the task detail drawer**, expand the **Dependencies** section, and use the same **Add predecessor** / **Add successor** controls — or, for a task in another project, the **Search another project in this program…** link underneath them.
 
+![The dependency picker: a program-scoped task search with the Dependency type direction, the Relationship and lag fields, and the plain-language line restating the link about to be created](../../../assets/screenshots/dependency-editor.webp)
+
+The task detail drawer's own **Dependencies** section lists existing predecessors and successors with their type and lag inline, and offers the same add controls without opening the picker:
+
+![The Dependencies section of a task's detail page, expanded: predecessor and successor lists each with an inline type and lag field, and the cross-project search link below each](../../../assets/screenshots/task-detail-dependencies.webp)
+
 For a standalone project, the picker searches only that project's tasks. For a project that belongs to a program, it gains a **This project / Program** toggle: Program scope searches every sibling project in the program and groups the results by project, so you can gate a task against work owned by another team. A cross-project link you create may land as **pending** rather than immediately active — see [Program schedule](/features/program-schedule/) for how the counterpart team accepts it and how the link is drawn once accepted.
 
 :::note[Ships in 0.4]

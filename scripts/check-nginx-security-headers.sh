@@ -26,11 +26,18 @@
 #
 #   A. Every server block that serves the SPA (identified by a `try_files …
 #      /index.html` fallback — the ACME/redirect listener is correctly exempt)
-#      sets all three of:
+#      sets all four of:
 #        - add_header X-Frame-Options        "DENY"     always
 #        - add_header X-Content-Type-Options "nosniff"  always
+#        - add_header Referrer-Policy        "…"        always
 #        - add_header Content-Security-Policy "…"       always
 #      The CSP must contain `default-src 'self'` and `frame-ancestors 'none'`.
+#      The Referrer-Policy must be one that never discloses a path cross-origin
+#      (`no-referrer`, `same-origin`, `strict-origin`, `origin`, or
+#      `strict-origin-when-cross-origin`) — `unsafe-url` and the
+#      `*-when-downgrade` family send the full URL to other origins, which is the
+#      third of the three export paths #3553 closed for the password-reset
+#      credential and remains open for every other route.
 #      `always` is load-bearing: without it nginx skips the header on 4xx/5xx.
 #   B. Any server block that terminates TLS (`listen … ssl`) additionally sets
 #      Strict-Transport-Security. Plain-HTTP listeners are exempt — HSTS over a
@@ -168,6 +175,19 @@ check_config() {
     printf '%s\n' "$body" | grep -qE 'add_header[ \t]+X-Content-Type-Options[ \t]+"?nosniff"?[ \t]+always' \
       || viol "$label" "SPA server block #$idx does not set \`add_header X-Content-Type-Options \"nosniff\" always\`."
 
+    # Referrer-Policy (#3553). The value matters, not just the presence: a policy
+    # that discloses the path cross-origin is the leak this header exists to stop.
+    local refpol
+    refpol="$(printf '%s\n' "$body" | grep -E 'add_header[ \t]+Referrer-Policy' || true)"
+    if [ -z "$refpol" ]; then
+      viol "$label" "SPA server block #$idx sets no Referrer-Policy — a navigation off any TruePPM page then sends the full URL to the destination origin (#3553)."
+    else
+      printf '%s\n' "$refpol" | grep -q 'always' \
+        || viol "$label" "SPA server block #$idx sets a Referrer-Policy without \`always\` — nginx then omits it on every 4xx/5xx response."
+      printf '%s\n' "$refpol" | grep -qE '"?(no-referrer|same-origin|strict-origin|origin|strict-origin-when-cross-origin)"?[ \t]+always' \
+        || viol "$label" "SPA server block #$idx Referrer-Policy discloses the full URL cross-origin — use one of no-referrer / same-origin / strict-origin / origin / strict-origin-when-cross-origin (#3553)."
+    fi
+
     local csp
     csp="$(printf '%s\n' "$body" | grep -E 'add_header[ \t]+Content-Security-Policy' || true)"
     if [ -z "$csp" ]; then
@@ -267,7 +287,7 @@ run_check() {
     fi
     return 1
   fi
-  note "$checked_blocks SPA server block(s) carry X-Frame-Options + nosniff + CSP (and HSTS where TLS terminates)"
+  note "$checked_blocks SPA server block(s) carry X-Frame-Options + nosniff + Referrer-Policy + CSP (and HSTS where TLS terminates)"
   note "$checked_admin /admin/ location(s) are fail-closed (return, or deny all + limit_req)"
   [ "$skipped_helm" -eq 1 ] && note "helm renders SKIPPED (helm not on PATH)"
   echo "OK: all deployment paths agree on the nginx hardening baseline."
@@ -285,6 +305,7 @@ self_test() {
 
   local GOOD_HEADERS='        add_header X-Frame-Options        "DENY" always;
         add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
         add_header Content-Security-Policy "default-src '"'"'self'"'"'; frame-ancestors '"'"'none'"'"'" always;'
 
   # GOOD: headers present, /admin/ deny+limit_req, plus a redirect-only listener
@@ -388,6 +409,72 @@ server {
 }
 CONF
 
+  # BAD 8: no Referrer-Policy at all — the pre-#3553 shape on every config.
+  cat >"$tmp/bad_noreferrer.conf" <<CONF
+server {
+    listen 8080;
+    add_header X-Frame-Options        "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Content-Security-Policy "default-src 'self'; frame-ancestors 'none'" always;
+    location / { try_files \$uri \$uri/ /index.html; }
+    location /admin/ { return 404; }
+}
+CONF
+
+  # BAD 9: a Referrer-Policy that still hands the full URL to another origin.
+  cat >"$tmp/bad_referrer_value.conf" <<CONF
+server {
+    listen 8080;
+    add_header X-Frame-Options        "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy        "unsafe-url" always;
+    add_header Content-Security-Policy "default-src 'self'; frame-ancestors 'none'" always;
+    location / { try_files \$uri \$uri/ /index.html; }
+    location /admin/ { return 404; }
+}
+CONF
+
+  # BAD 10: `no-referrer-when-downgrade` reads safe and is not — it sends the
+  # full URL to every other origin as long as the scheme does not downgrade,
+  # which over all-HTTPS traffic means always.
+  cat >"$tmp/bad_referrer_downgrade.conf" <<CONF
+server {
+    listen 8080;
+    add_header X-Frame-Options        "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy        "no-referrer-when-downgrade" always;
+    add_header Content-Security-Policy "default-src 'self'; frame-ancestors 'none'" always;
+    location / { try_files \$uri \$uri/ /index.html; }
+    location /admin/ { return 404; }
+}
+CONF
+
+  # BAD 11: Referrer-Policy without `always` — absent on every error page.
+  cat >"$tmp/bad_referrer_notalways.conf" <<CONF
+server {
+    listen 8080;
+    add_header X-Frame-Options        "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy        "no-referrer";
+    add_header Content-Security-Policy "default-src 'self'; frame-ancestors 'none'" always;
+    location / { try_files \$uri \$uri/ /index.html; }
+    location /admin/ { return 404; }
+}
+CONF
+
+  # GOOD: `no-referrer` is the tighter of the two acceptable policies.
+  cat >"$tmp/good_noreferrer.conf" <<CONF
+server {
+    listen 8080;
+    add_header X-Frame-Options        "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy        "no-referrer" always;
+    add_header Content-Security-Policy "default-src 'self'; frame-ancestors 'none'" always;
+    location / { try_files \$uri \$uri/ /index.html; }
+    location /admin/ { return 404; }
+}
+CONF
+
   # BAD 7: /admin/ proxied with the opening brace on the NEXT line — a common
   # nginx style that must not evade the parser.
   cat >"$tmp/bad_nextline.conf" <<CONF
@@ -425,6 +512,11 @@ CONF
   probe bad_nohsts.conf    1 "TLS listener without HSTS rejected"
   probe bad_csp.conf       1 "CSP without frame-ancestors rejected"
   probe bad_nextline.conf  1 "brace-on-next-line /admin/ proxy rejected"
+  probe good_noreferrer.conf        0 "Referrer-Policy: no-referrer accepted"
+  probe bad_noreferrer.conf         1 "SPA served with no Referrer-Policy rejected"
+  probe bad_referrer_value.conf     1 "Referrer-Policy: unsafe-url rejected"
+  probe bad_referrer_downgrade.conf 1 "Referrer-Policy: no-referrer-when-downgrade rejected"
+  probe bad_referrer_notalways.conf 1 "Referrer-Policy without \`always\` rejected"
 
   # The #3146 provenance verdict. It only ever runs on a failure path, so it is
   # precisely the code a typo can hide in indefinitely — the same reason every

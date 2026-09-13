@@ -135,6 +135,8 @@ The overallocation check windows by date against the same calendar-aware engine 
 heatmap, so the two cannot disagree about who is overcommitted: three 80% tasks that never
 share a working day are 80% allocated, not 240%. Two consequences are worth knowing:
 
+![The utilization heatmap grid, zoomed: each cell shows a person's committed percentage for that week, with a lighter cell for a week with no allocation](../../../assets/screenshots/resource-heatmap-cells.webp)
+
 - **Non-working days are not conflicts.** Spans that meet only across a weekend, or only
   on a calendar exception, do not stack. A resource's own calendar wins over the
   project's, exactly as it does on the heatmap.
