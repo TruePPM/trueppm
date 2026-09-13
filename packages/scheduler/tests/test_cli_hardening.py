@@ -381,3 +381,49 @@ def test_monte_carlo_runs_defaults_to_ten_thousand(
     _run(["monte-carlo", "--json", "--seed", "1", _parallel_file(tmp_path)], monkeypatch)
     data = json.loads(capsys.readouterr().out)
     assert data["runs"] == 10_000
+
+
+# ---------------------------------------------------------------------------
+# mutmut 3.8.0 survivors (#3720).
+# ---------------------------------------------------------------------------
+
+
+def test_monte_carlo_seed_reproduces_a_distribution_that_can_vary(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch
+) -> None:
+    # The reproducibility test above runs on _parallel_file, which has no
+    # three-point estimates: every run lands on one date whatever the seed, so it
+    # still passed with --seed dropped on the way to the engine. A spread project
+    # is the only input on which a seed is observable.
+    ef = _estimated_file(tmp_path)
+    args = ["monte-carlo", "--json", "--distribution", "--runs", "300", "--seed", "13", ef]
+    _run(args, monkeypatch)
+    first = json.loads(capsys.readouterr().out)["distribution"]
+    _run(args, monkeypatch)
+    second = json.loads(capsys.readouterr().out)["distribution"]
+    assert len(set(first)) > 1  # the premise: this input actually varies
+    assert first == second
+
+
+def test_monte_carlo_collapsed_explanation_is_exact(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch
+) -> None:
+    _run(["monte-carlo", "--runs", "500", "--seed", "7", _parallel_file(tmp_path)], monkeypatch)
+    out = capsys.readouterr().out
+    assert out.endswith(
+        "\n\n  Every run finished on the same date: no task carries a three-point\n"
+        "  estimate, so the simulation has no uncertainty to model and collapsed\n"
+        "  onto the deterministic CPM finish.\n"
+    )
+
+
+def test_schedule_earliest_feasible_line_sits_directly_above_the_header(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch
+) -> None:
+    _run(["schedule", _parallel_file(tmp_path)], monkeypatch)
+    out = capsys.readouterr().out
+    assert (
+        "\n         (earliest feasible — run 'monte-carlo' for confidence dates)\n\n"
+        + _SCHEDULE_HEADER
+        + "\n"
+    ) in out

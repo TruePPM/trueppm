@@ -57,6 +57,24 @@ def _empty_project() -> Project:
     return Project(id="p", name="P", start_date=date(2026, 1, 1), tasks=[])
 
 
+def _is_mutmut_trampoline_member(name: str) -> bool:
+    """True for a class attribute mutmut's trampoline injected, not one we wrote.
+
+    Under ``scheduler:mutation`` the suite imports the package from mutmut's
+    ``mutants/`` sandbox, where every mutated method gains sibling attributes
+    such as ``xǁDateRangeǁ__post_init____mutmut_orig`` and ``..._mutmut_3``. They
+    do not start with ``_``, and a copy of an exempt dunder carries no docstring,
+    so a ``vars(cls)`` walk reads them as undocumented public API. mutmut's stats
+    pass runs the suite with ``-x`` before mutating anything, so that one false
+    failure measures zero mutants for the whole night (#3720).
+
+    The predicate mirrors mutmut's own ``is_mutated_method_name``
+    (``mutmut/utils/format_utils.py``) rather than a looser ``"mutmut" in name``,
+    so it cannot hide a genuinely undocumented method we shipped.
+    """
+    return name.startswith(("x_", "xǁ")) and "__mutmut" in name
+
+
 class TestExportedNames:
     @pytest.mark.parametrize("name", _VALIDATOR_CAPS)
     def test_validator_caps_are_importable_from_package_root(self, name: str) -> None:
@@ -390,6 +408,8 @@ class TestSerializationDocstrings:
                 for attr, member in vars(obj).items():
                     if attr.startswith("_") or not callable(member):
                         continue
+                    if _is_mutmut_trampoline_member(attr):
+                        continue
                     if not (getattr(member, "__doc__", None) or "").strip():
                         undocumented.append(f"{name}.{attr}()")
             elif callable(obj) and not (obj.__doc__ or "").strip():
@@ -400,6 +420,27 @@ class TestSerializationDocstrings:
             "defines the public API as exactly the __all__ surface:\n  "
             + "\n  ".join(sorted(undocumented))
         )
+
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            # The exact members that broke the stats pass under mutmut 3.8.0.
+            ("xǁDateRangeǁ__post_init____mutmut_orig", True),
+            ("xǁDateRangeǁ__post_init____mutmut_3", True),
+            ("xǁTaskǁto_dict__mutmut_12", True),
+            ("x_derive_value__mutmut_1", True),
+            # Real public members must stay visible to the docstring walk above.
+            ("to_dict", False),
+            ("from_json", False),
+            ("is_working_day", False),
+            ("x_offset", False),
+            ("xǁ", False),
+            ("mutmut_orig", False),
+        ],
+    )
+    def test_trampoline_filter_matches_only_mutmut_members(self, name: str, expected: bool) -> None:
+        """Both bounds: the filter must not widen into hiding a real undocumented method."""
+        assert _is_mutmut_trampoline_member(name) is expected
 
 
 class TestReleaseMetadataConsistency:
