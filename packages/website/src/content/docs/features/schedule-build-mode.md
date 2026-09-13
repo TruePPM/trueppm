@@ -8,7 +8,7 @@ This is for a PM or scheduler laying out a project plan on a desktop and wanting
 
 :::note[Ships in 0.4]
 In the current release, build mode is **off by default** and opt-in per browser — turn it
-on from **Settings → Schedule**. 0.4 removes that toggle and turns build mode on for
+on from **Settings → Schedule**. 0.4 will remove that toggle and turn build mode on for
 everyone on desktop.
 :::
 
@@ -621,7 +621,7 @@ never the only signal.
 - **No mobile signal.** Build mode is desktop-only. On mobile, use the Add Task button as before.
 - **Enter's positional insert is one-directional.** Plain `Enter` appends the new row at the end of its parent's children rather than immediately after the focused row. `Shift + Enter` (insert above) *does* land exactly where you'd expect — it composes the create with a reorder — but the common "type, Enter, type" flow still appends.
 - **No optimistic indent.** Indent / outdent waits ~50ms for the server to confirm before the row position updates.
-- **No fill-down.** Multi-row select and duplicate exist, and 0.4 adds [paste-many from a spreadsheet](#paste-rows-from-a-spreadsheet); a fill-down / fill-series gesture for extending a value down a column does not exist yet.
+- **No fill-down.** Multi-row select and duplicate exist, and 0.4 will add [paste-many from a spreadsheet](#paste-rows-from-a-spreadsheet); a fill-down / fill-series gesture for extending a value down a column does not exist yet.
 - **No Enter-to-create on the Timeline.** Creating rows from the Timeline the way Enter does on the list is tracked separately, not in this release. (Multi-step undo itself *has* landed for structural changes — see [Undoing a structural change](#undoing-a-structural-change) — and a paste, a classification cascade and a spreadsheet import each still undo as one step: [Paste rows from a spreadsheet](#paste-rows-from-a-spreadsheet) above, [Classify a subtree](/features/task-classification/#undo-a-cascade), and [CSV/Excel import](/features/csv-import-export/#undo-an-import).)
 - **A bulk edit is not undoable with `⌘ Z`.** The [bulk-edit sheet](#edit-many-rows-at-once) ships in 0.4, but unlike a paste or a cascade it records no undo step — re-open the sheet and set the field back. Take particular care with **Add owner**, which the sheet cannot reverse at all: remove the assignment from the item's own Assignees editor.
 - **The bulk-edit sheet cannot remove or replace an owner.** Both arms are present and labelled, badged `0.5`; removal goes through a different endpoint that has not been opened to a batch. Until then, remove an assignment from the item's own Assignees editor.

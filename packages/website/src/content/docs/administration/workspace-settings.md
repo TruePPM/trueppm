@@ -257,7 +257,7 @@ three-level hierarchy:
 | **Owner** | 400 | Same capabilities as Admin. At least one Owner must exist at all times (last-Owner guard). |
 
 These role ordinals are distinct from the five project-scoped roles
-(Owner/Admin/Scheduler/Member/Viewer — see [Roles and Permissions](/administration/rbac/)).
+(Project Admin / Project Manager / Resource Manager / Team Member / Viewer — see [Roles and Permissions](/administration/rbac/)).
 A workspace Member may hold any project role; a workspace Admin is not
 automatically an admin on any project.
 

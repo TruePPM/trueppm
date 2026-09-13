@@ -231,8 +231,8 @@ not get it, and today no view except the Board can save a filter by name.
 
 ### Baseline comparison is a table, not a Gantt overlay — planned for 0.5
 
-0.4 brings baseline capture, management, and comparison into the app, but the
-comparison is a text table in the task drawer. The planned-vs-current **ghost-bar
+0.4 will bring baseline capture, management, and comparison into the app, but the
+comparison will be a text table in the task drawer. The planned-vs-current **ghost-bar
 overlay on the Gantt is deliberately not in this release** —
 [ADR-0376](/architecture/decisions/) defers it to 0.5 in its own Consequences section.
 

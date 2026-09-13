@@ -11,7 +11,7 @@ events, the same labels on the **Slack** and **Mobile push** columns, and the
 **TruePPM 0.4**. On the latest release those eight rows are defaulted **on** across
 in-app, email and Slack, the mention row defaults **on** for Slack and mobile push,
 and none of it carries a label — but they are dispatched by nothing either way, so
-no notification is sent for them on any release. 0.4 makes the page say so; it does
+no notification is sent for them on any release. 0.4 will make the page say so; it will
 not change what is delivered.
 :::
 

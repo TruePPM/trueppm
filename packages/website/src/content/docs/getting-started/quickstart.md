@@ -53,11 +53,11 @@ That's it. Sign in at `http://localhost:5173` as any of the personas (password: 
 
 | Username | Persona | What to look at first |
 |---|---|---|
-| `atlas-alex` | Program lead (Owner) | The [program Schedule](/features/schedule/) — the critical path running across all three projects |
-| `atlas-priya` | Engineering Lead (Admin) | The [Sprints workspace](/features/sprints/) — burndown, capacity, backlog, and a retro with a promoted action |
-| `atlas-sam` | Scheduler | The Schedule view — milestones, the actual-date overlay on in-flight tasks, and the calendar exception that moves the finish |
-| `atlas-jordan` | GTM lead (Admin) | The Board for the GTM Readiness project, and its sprint-to-milestone bridge |
-| `atlas-mei` | Engineer (Member) | The Board with her assigned cards and the tasks she is blocked on |
+| `atlas-alex` | Program lead (Project Admin) | The [program Schedule](/features/schedule/) — the critical path running across all three projects |
+| `atlas-priya` | Engineering Lead (Project Manager) | The [Sprints workspace](/features/sprints/) — burndown, capacity, backlog, and a retro with a promoted action |
+| `atlas-sam` | Scheduler (Resource Manager) | The Schedule view — milestones, the actual-date overlay on in-flight tasks, and the calendar exception that moves the finish |
+| `atlas-jordan` | GTM lead (Project Admin on GTM Readiness) | The Board for the GTM Readiness project, and its sprint-to-milestone bridge |
+| `atlas-mei` | Engineer (Team Member) | The Board with her assigned cards and the tasks she is blocked on |
 | `atlas-ada` | Stakeholder (Viewer) | The Overview page with forecast confidence intervals — and everything read-only |
 
 Re-running the command replaces the prior copy of the sample and re-seeds, so you can refresh after pulling new features.

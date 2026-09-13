@@ -96,7 +96,7 @@ creating schedulable tasks, so it is a different outcome from this importer —
 but it needs no file, and no XML export.
 :::
 
-## Import the file into a project (Admin only)
+## Import the file into a project (Project Manager or above)
 
 Jira import lands issues into an **existing** project. Upload runs through the
 API described below; the import is enforced server-side to require the
@@ -245,7 +245,7 @@ retried forever.
 
 Only `.xml` is accepted. A different extension is rejected with `400` before any
 parsing happens; a file above the size cap is rejected with `400` naming the
-configured limit; a caller without the Admin role gets `403`.
+configured limit; a caller below Project Manager gets `403`.
 
 ## Configuration
 

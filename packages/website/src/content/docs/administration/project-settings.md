@@ -72,7 +72,7 @@ The **General** page edits the project's identity:
   land in different places regardless of what is set here. The value is saved, returned
   by the API, and shown on an empty schedule among the project's stated facts.
 - **Public sharing** and **guest access** — these inherit from the workspace (or the
-  project's program) and an Owner/Admin can override them per project. A control with no
+  project's program) and a Project Manager or Project Admin can override them per project. A control with no
   override reads **Inherit (On/Off)**, showing the value that would apply from the parent
   scope. See [Sharing & Access Inheritance](/administration/sharing-and-access/).
 
@@ -84,7 +84,7 @@ the latest release.
 
 - **Sprint planning** — whether the [sprint story picker](/features/sprint-backlog/#story-picker)
   starts filtered to Definition-of-Ready stories for this project. Inherits the program or
-  workspace default unless you override it here (Scheduler role or above may set it — PO/team
+  workspace default unless you override it here (Resource Manager or above may set it — PO/team
   territory, alongside estimation scale). Advisory only: the picker's own "Show all" toggle
   always reveals a not-ready story, and committing one is never blocked.
 
@@ -144,9 +144,9 @@ surfaces (Reports, Time tracking, Baselines, the Monte-Carlo forecast), not Boar
 
 Two things on this page *can* stop an action, and neither is the preset:
 
-- **[Sprint guardrails](#sprint-guardrails)** — a project Owner may escalate a
+- **[Sprint guardrails](#sprint-guardrails)** — a Project Admin may escalate a
   composition rule from **Warn** to **Block**, and a Block has no override. That
-  is a deliberate, Owner-only, per-rule decision, which is the opposite of a
+  is a deliberate, Project Admin-only, per-rule decision, which is the opposite of a
   preset silently deciding for a team.
 - **A phase committed to a sprint** is rejected unconditionally by the API — a
   data-integrity rule, not a preset consequence. See
@@ -264,7 +264,7 @@ lands in the assignee's notification inbox (and, if they opt in, as email) via t
 against the existing unread nudge, so a still-stale task is not notified twice.
 
 The threshold is a board-level setting on the project, editable by a **Project Manager
-(Admin)** or **Owner** via `PATCH /api/v1/projects/{id}/` with
+(Admin)** or **Project Admin** via `PATCH /api/v1/projects/{id}/` with
 `{"stale_task_threshold_days": <1–365>}`. A dedicated settings-page control is planned;
 today it is set through the API. Unassigned stale cards are surfaced by the board card's
 *stalled* chip rather than a notification, since there is no single owner to nudge.
@@ -273,15 +273,15 @@ today it is set through the API. Unassigned stale cards are surfaced by the boar
 
 When a schedule recompute moves the project's overall finish date by more than the
 project's **end-date shift threshold** — `end_date_shift_threshold_days`, default
-**5 days** — the project's **Project Manager (Admin)** and **Owner** members are
+**5 days** — the project's **Project Manager (Admin)** and **Project Admin** members are
 notified. The comparison is against the project's most recently recorded forecast
 snapshot (a background record of the project's schedule finish over time, captured on
 every recompute), so a slip is reported once, not once per recompute — a recompute
 that leaves the finish unchanged produces no repeat notification. Notifies only
-PM/Owner-role members; Scheduler, Member, and Viewer roles do not receive this digest.
+Project Manager and Project Admin members; Resource Manager, Team Member, and Viewer roles do not receive this digest.
 
 The threshold is a board-level setting on the project, editable by a **Project Manager
-(Admin)** or **Owner** via `PATCH /api/v1/projects/{id}/` with
+(Admin)** or **Project Admin** via `PATCH /api/v1/projects/{id}/` with
 `{"end_date_shift_threshold_days": <1–365>}`. A dedicated settings-page control is
 planned; today it is set through the API, the same way as the stale-task threshold
 above.
@@ -291,8 +291,8 @@ above.
 The **Lifecycle** page handles a project's end-of-life:
 
 - **Archive / unarchive** — take a project out of active rotation without deleting it.
-- **Transfer ownership** — hand the Owner role to another member.
-- **Delete** — remove the project (Owner only). Deleting also removes the project's
+- **Transfer ownership** — hand the Project Admin (owner) role to another member.
+- **Delete** — remove the project (Project Admin only). Deleting also removes the project's
   tasks, sprints, risks, and baselines, and the project stops resolving at its URL.
   Deleting a *program* is different: its projects are detached and kept intact rather
   than deleted.

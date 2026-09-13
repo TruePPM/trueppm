@@ -163,8 +163,8 @@ The latest-result endpoint (`GET .../monte-carlo/latest/`) will also fall back t
 this persisted history once the 24-hour cache has expired, so your most recent
 forecast survives past the cache rather than disappearing.
 
-:::note[Attribution is Admin/Owner only]
-`triggered_by_name` will be returned **only** to project Admins and Owners. Every
+:::note[Attribution is Project Manager and above only]
+`triggered_by_name` will be returned **only** to Project Managers and Project Admins. Every
 other member (Viewer and up) will see the drift values without the run-author
 name. This is deliberate: forecast drift is a planning signal about the *project*,
 not a performance signal about a *person*.

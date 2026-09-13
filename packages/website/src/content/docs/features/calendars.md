@@ -63,7 +63,7 @@ A **Working calendars** panel in Project Settings will let anyone with the Resou
 Manager (Scheduler) role or above apply and reorder a project's calendars and preview the
 **effective working time** day-by-day — each non-working day showing *which* applied
 calendar blocked it. Reading the applied set and its preview will be open to any project
-member; changing it will require the Scheduler role, the same gate as editing the
+member; changing it will require the Resource Manager role, the same gate as editing the
 schedule.
 
 Applying calendars to a project draws only on the shared calendar **library** — the same

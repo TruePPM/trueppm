@@ -20,8 +20,8 @@ Public sharing ships in **TruePPM 0.4**, the first beta. It is not present in
 
 You can create a link two ways:
 
-- From the **Schedule** or **Board** toolbar, choose **Share** (Admin or Owner
-  only). The dialog is scoped to the view you launched it from.
+- From the **Schedule** or **Board** toolbar, choose **Share** (Project Manager
+  or above). The dialog is scoped to the view you launched it from.
 - From **Project Settings → Sharing**, choose **Create link…** and pick whether to
   share the **schedule** or the **board**.
 

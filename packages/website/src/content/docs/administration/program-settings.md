@@ -59,7 +59,7 @@ Team Member, and Viewer, and are **separate from project roles**; see
 
 A **closed** program (see [Lifecycle](#lifecycle)) is read-only shell-wide: every
 Add/Edit/Remove-style control across these settings sections is disabled or
-hidden — and says so — even for an Admin/Owner, because the underlying write is
+hidden — and says so — even for a Program Manager or Program Admin, because the underlying write is
 rejected server-side once the program is closed. Reopen the program to resume
 editing. Member removal on the **Access** section is the one exception: it stays
 available on a closed program, since removing a member is not itself blocked.
@@ -176,9 +176,10 @@ by a note that they need a wider screen.
 ## Access
 
 The **Access** section manages **who can see and manage the program**, using the
-5-role model. From here an Owner/Admin can invite members, change a member's
-role, and remove members. The last remaining Owner cannot leave until another
-Owner is assigned. Program membership is independent of the membership on the
+5-role model. From here a Program Admin can invite members, change a member's
+role, and remove members (a Program Manager can tune the program's settings but
+not its membership). The last remaining Program Admin cannot leave until another
+Program Admin is assigned. Program membership is independent of the membership on the
 projects inside the program. See [Roles & Permissions](/administration/rbac/).
 
 ## External stakeholders

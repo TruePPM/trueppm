@@ -7,7 +7,7 @@ documentedFor: "0.4"
 A project's **working calendar** — its working days, hours per day, timezone, and
 holiday/shutdown exceptions — can be set at the **workspace** and **program** scope, not
 just per project. A value set higher **inherits down** to every program and project
-below it, where an Owner or Admin can override it for that scope. This page explains how
+below it, where a Program Manager or Project Manager (or above) can override it for that scope. This page explains how
 the Workspace → Program → Project inheritance model resolves the calendar that actually
 schedules a project, who may override it, and how a calendar change ripples through the
 schedule.

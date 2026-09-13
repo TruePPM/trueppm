@@ -60,7 +60,7 @@ administrative action on someone else's note is removal (below).
 
 ### Pinning
 
-Any team member (Member role and up) can **pin** or unpin any note, not just
+Any team member (Team Member role and up) can **pin** or unpin any note, not just
 its author. Pinned notes sort to the top of the log; everything else sorts
 newest-first beneath them. Pin the decision the team keeps coming back to so
 it doesn't scroll away under day-to-day entries. Pinning is separate from the
@@ -68,7 +68,7 @@ edit window — you can pin a note long after it has locked.
 
 ### Removing a note
 
-A note's **author**, or a project **Admin or Owner**, can remove a note. The
+A note's **author**, or a **Project Manager or Project Admin**, can remove a note. The
 removal is a soft delete: the entry leaves the visible log but is not
 hard-erased. Everyone else sees no delete control on notes they didn't write.
 
@@ -183,7 +183,7 @@ Typing `@` opens an autocomplete popover with two sections:
   the criteria; the people who joined the project *after* a mention was
   posted are not retroactively notified.
 - **Program groups** — when the project belongs to a **program**, the
-  autocomplete also offers `@program-pms` (every Owner/Admin across the
+  autocomplete also offers `@program-pms` (every Project Manager and Project Admin across the
   program's projects), `@program-schedulers`, `@program-stakeholders` (the
   view-only audience), and `@program-all` (everyone in the program). They
   resolve to the combined membership across all of the program's projects, so
@@ -194,9 +194,9 @@ Typing `@` opens an autocomplete popover with two sections:
   discoverable without remembering its exact name.
 - **Individuals** — project members whose username matches your typed prefix.
 
-`@all` is restricted to **Admin and Owner roles** to prevent accidental
+`@all` is restricted to **Project Managers and Project Admins** to prevent accidental
 high-volume mentions. The autocomplete shows it as disabled with an "Admin+
-only" hint for Viewer/Member/Scheduler users; the server enforces the same
+only" hint for Viewers, Team Members, and Resource Managers; the server enforces the same
 gate. There is also a hard cap of **200 users** for `@all` resolution —
 larger projects will need a more targeted group key. `@program-all` carries
 the same Admin gate and 200-user cap.
@@ -441,13 +441,13 @@ Brief tour of the new endpoints:
 - `POST /api/v1/projects/{project_id}/tasks/{task_id}/attachments/` — multipart
   upload OR JSON `{ external_url, external_title }`
 - `DELETE /api/v1/projects/{project_id}/tasks/{task_id}/attachments/{id}/` —
-  soft-delete; uploader OR Admin+ only
+  soft-delete; uploader OR Project Manager+ only
 - `GET .../attachments/{id}/signed-url/?ttl=900` — issue a short-lived
   download URL
 - `GET /api/v1/projects/{project_id}/tasks/{task_id}/comments/` — list
 - `POST .../comments/` — create with `{ body, parent }`
 - `PATCH .../comments/{id}/` — author only, 15-min window
-- `DELETE .../comments/{id}/` — author OR Admin+
+- `DELETE .../comments/{id}/` — author OR Project Manager+
 - `POST/DELETE .../comments/{id}/acknowledge/` — toggle ack
 - `POST/DELETE .../comments/{comment_pk}/reactions/[{id}/]` — toggle reaction
 - `GET /api/v1/me/notifications/` — your inbox; `?unread_only=true`,

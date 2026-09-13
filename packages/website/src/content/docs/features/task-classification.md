@@ -172,7 +172,7 @@ failure — because each of the three reasons points at a different next step.
   matched tasks you may not edit. Permission here is deliberately all-or-nothing:
   applying a split to only the rows you happen to be assigned would leave the plan
   asserting something that is not true. Narrow the scope to a branch you own, or ask a
-  project Admin or Owner to apply it.
+  Project Manager or Project Admin to apply it.
 - **The subtree is above the row cap.** One cascade may resolve at most 2,000 tasks. The
   message names how many it resolved and what the cap is, so you can clear **Cascade to
   descendants** or start from a lower-level parent rather than guessing.
@@ -198,11 +198,11 @@ changed again yourself, is left as it is rather than being stomped; the undo toa
 how many it kept. Undo is a single step per cascade — undoing an older cascade once a
 newer one has landed on the same subtree is not supported.
 
-**Undo is Admin or Owner.** Applying a cascade and reversing one sit on different roles:
+**Undo is Project Manager or above.** Applying a cascade and reversing one sit on different roles:
 a Member may cascade a subtree they are assigned to, but reversing the batch stays with a
-project Admin or Owner. When your role cannot undo, the toast simply reports what the
+Project Manager or Project Admin. When your role cannot undo, the toast simply reports what the
 cascade wrote and carries no **Undo** action — rather than offering one that would be
-refused. The cascade itself is unaffected; to reverse it, ask an Admin or Owner, or
+refused. The cascade itself is unaffected; to reverse it, ask a Project Manager or Project Admin, or
 reclassify the subtree back to its previous values.
 
 **You are told before you apply, not after.** If your role cannot reverse a cascade, the
@@ -211,7 +211,7 @@ reverse this — someone with Project Manager rights can."* It does not disable 
 you may still cascade, and nothing is deleted. What you cannot get back is what each row
 held *before*, which is what the undo replays; reclassifying afterwards sets every row in
 the subtree to one value. This applies on both entry points, and the product backlog is
-where it matters most — that page lets a Product Owner classify without an Admin role, so
+where it matters most — that page lets a Product Owner classify without the Project Manager role, so
 a PO can apply a cascade they cannot themselves reverse.
 
 ## Seeing the split without auditing it

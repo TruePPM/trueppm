@@ -883,7 +883,7 @@ page describes the current release.
 A task's `wbs_path` is the only thing that records its place in the work
 breakdown; there is no `parent_id` column. Before 0.4 nothing stopped two live
 tasks in one project from being written to the same path, and several code paths
-did exactly that. 0.4 adds a database constraint that forbids it.
+did exactly that. 0.4 will add a database constraint that forbids it.
 
 That constraint is **validated against every existing row** when it is created, so
 on a database that already holds a duplicate the upgrade would otherwise fail —
