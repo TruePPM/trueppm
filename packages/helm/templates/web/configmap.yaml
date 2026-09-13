@@ -71,6 +71,10 @@ data:
         # the read-only share pages open no live-collaboration socket (#2849).
         add_header X-Frame-Options        "DENY" always;
         add_header X-Content-Type-Options "nosniff" always;
+        # #3553 — see packages/web/nginx.conf. A literal here for the same reason
+        # as the two above: the demo is public and an operator has no legitimate
+        # reason to widen it.
+        add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
         add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
 
         # Read-only demo: no large upload is ever legitimate. Deliberately
@@ -184,6 +188,12 @@ data:
         {{- end }}
         {{- with .Values.web.securityHeaders.contentTypeOptions }}
         add_header X-Content-Type-Options "{{ . }}" always;
+        {{- end }}
+        {{- with .Values.web.securityHeaders.referrerPolicy }}
+        # #3553. Unlike strictTransportSecurity below, this one has a non-empty
+        # default: it is safe on a plain-HTTP tier, no ingress controller sets it
+        # by default, and the browser default varies by vendor and version.
+        add_header Referrer-Policy        "{{ . }}" always;
         {{- end }}
         {{- with .Values.web.securityHeaders.contentSecurityPolicy }}
         add_header Content-Security-Policy "{{ . | trim | replace "\n" " " }}" always;
