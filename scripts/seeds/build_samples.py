@@ -1328,9 +1328,11 @@ def build_bayside() -> dict:
     The program exercises all four dependency types and both lead/lag: FS/SS/FF
     within a project, an SF and a negative-lag *lead* on the cross-project MEP
     mobilization, and a +7 curing lag on the foundation. It also tells a real
-    baseline story: a Contract baseline captured at award, a Rebaseline after the
-    owner's mezzanine change order pushed the structure right, and a residual
-    two-day weather slip on the current plan that drifts past even the rebaseline.
+    baseline story: a Contract baseline captured at award, and a Rebaseline
+    authored as a live ``baseline.capture`` beat (#3495) the moment the owner's
+    mezzanine change order pushes the structure right — a dated, attributed act
+    in Change History, not a second static row — plus a further two-day weather
+    slip that lands on the current plan after the rebaseline captures.
     """
     ns = "bayside"
 
@@ -1492,7 +1494,11 @@ def build_bayside() -> dict:
     ]
 
     cursor = [0]
-    sw_tasks, sw_deps, sw_contract, sw_rebaseline = _emit_bayside_project(
+    # The rebaseline rows are no longer hand-computed and declared — the
+    # rebaseline is now a `baseline.capture` beat (#3495) that snapshots the
+    # live `planned_start`, which lands on the same dates this function used
+    # to hand-compute via `mezzanine_shift`'s `cur_shift`.
+    sw_tasks, sw_deps, sw_contract, _sw_rebaseline = _emit_bayside_project(
         sitework_phases,
         cursor=cursor,
         slug="bayside-sitework",
@@ -1743,15 +1749,27 @@ def build_bayside() -> dict:
         _ev(
             ts(77, 9, 30), "task.estimate", sw("3.2"), "diego", estimate=three_point(8)
         ),
-        # A subsequent weather delay drifts the roof/inspection tail two days past
-        # even the fresh rebaseline — the residual variance on the current plan.
+        _ev(
+            ts(77, 9, 35),
+            "baseline.capture",
+            "project:bayside-sitework",
+            "diego",
+            body="Rebaseline — mezzanine change order",
+            is_active=True,
+        ),
+        # A subsequent weather delay drifts the roof/inspection tail two more days
+        # (#3495: baked into the current plan's `cur_shift`, which is also what the
+        # rebaseline now captures, since it is a live `baseline.capture` beat rather
+        # than a hand-frozen row — so the residual variance reads against the
+        # Contract baseline, not the rebaseline it superseded moments earlier).
         _ev(
             ts(84, 7, 0),
             "task.comment",
             sw("3.3"),
             "tom",
             body="High winds shut the crane two afternoons this week — roof steel "
-            "and the framing inspection are running two days behind the rebaseline.",
+            "and the framing inspection are running two days behind the mezzanine "
+            "re-plan.",
         ),
         # Cross-project field note: MEP mobilizes ahead of the inspection cert.
         _ev(
@@ -1918,6 +1936,13 @@ def build_bayside() -> dict:
         "labels": SITEWORK_LABELS,
         "tasks": sw_tasks,
         "dependencies": sw_deps,
+        # Only the contract baseline is declared here — a static row list with
+        # no actor and no reason (#3495). The rebaseline is authored as a
+        # `baseline.capture` beat in the events timeline below instead, dated
+        # and attributed to the crew member already narrating the mezzanine
+        # change order, paired with the task.comment that gives the reason. It
+        # supersedes this one (`is_active: True` on the beat deactivates this
+        # baseline) the moment it replays.
         "baselines": [
             {
                 "name": "Contract baseline",
@@ -1926,12 +1951,6 @@ def build_bayside() -> dict:
                 "is_active": False,
                 "captured_at": d(2),
                 "tasks": sw_contract,
-            },
-            {
-                "name": "Rebaseline — mezzanine change order",
-                "is_active": True,
-                "captured_at": d(77),
-                "tasks": sw_rebaseline,
             },
         ],
         "risks": [

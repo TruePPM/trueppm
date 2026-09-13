@@ -444,6 +444,24 @@ def build_ga_launch() -> dict:
             {"account": "sam", "role": "MEMBER"},
             {"account": "janus", "role": "VIEWER"},
         ],
+        # #3495: three of the four GA Launch projects had no baseline at all.
+        # DB failover hardening (3) is the one task that ran longer than
+        # planned — 4 days budgeted, 6 actual, absorbed without moving the
+        # GA-ready gate (2 SS 4, not 3 FS 4, so 3's overrun does not cascade).
+        # The milestone (5) is never baselined, matching every other pack.
+        "baselines": [
+            {
+                "name": "GA plan baseline",
+                "is_active": True,
+                "captured_at": d(2),
+                "tasks": [
+                    {"task": "1", "start": d(0), "finish": d(5), "duration": 5},
+                    {"task": "2", "start": d(7), "finish": d(15), "duration": 8},
+                    {"task": "3", "start": d(7), "finish": d(11), "duration": 4},
+                    {"task": "4", "start": d(7), "finish": d(11), "duration": 4},
+                ],
+            }
+        ],
         "risks": [
             {
                 "slug": "load-ceiling",
@@ -510,6 +528,25 @@ def build_ga_launch() -> dict:
             {"account": "dana", "role": "ADMIN"},
             {"account": "lena", "role": "MEMBER"},
             {"account": "janus", "role": "MEMBER"},
+        ],
+        # #3495: captured before the pen-test triage found the extra criticals
+        # that pushed ga-security's remediation 5 days to 7 (see ga-security's
+        # own "GA plan baseline"). That slip cascades across the workstream
+        # boundary onto evidence collection (3) and everything behind it — the
+        # 2-day gap between this baseline and the current plan on 3-4 is the
+        # cross-project drift, not an independent SOC 2 estimate miss.
+        "baselines": [
+            {
+                "name": "GA plan baseline",
+                "is_active": True,
+                "captured_at": d(2),
+                "tasks": [
+                    {"task": "1", "start": d(0), "finish": d(5), "duration": 5},
+                    {"task": "2", "start": d(7), "finish": d(15), "duration": 8},
+                    {"task": "3", "start": d(54), "finish": d(60), "duration": 6},
+                    {"task": "4", "start": d(62), "finish": d(65), "duration": 3},
+                ],
+            }
         ],
         "risks": [
             {
@@ -659,6 +696,24 @@ def build_ga_launch() -> dict:
             {"account": "dana", "role": "ADMIN"},
             {"account": "lena", "role": "MEMBER"},
             {"account": "bob", "role": "VIEWER"},
+        ],
+        # #3495: captured at Sprint 1 kickoff, before the day-9 carryover (see
+        # the "not going to land this sprint" comment on task 3 below) pushed
+        # Launch blog & docs — and the press outreach behind it — from Sprint 1
+        # into Launch Week. The milestone (5) is never baselined, matching
+        # every other pack.
+        "baselines": [
+            {
+                "name": "GA plan baseline",
+                "is_active": True,
+                "captured_at": d(2),
+                "tasks": [
+                    {"task": "1", "start": d(0), "finish": d(3), "duration": 3},
+                    {"task": "2", "start": d(4), "finish": d(9), "duration": 5},
+                    {"task": "3", "start": d(6), "finish": d(9), "duration": 3},
+                    {"task": "4", "start": d(9), "finish": d(12), "duration": 3},
+                ],
+            }
         ],
         "sprints": [
             {

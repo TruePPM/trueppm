@@ -402,6 +402,50 @@ def test_baseline_capture_creates_baseline_with_tasks(program: Any) -> None:
     assert BaselineTask.objects.filter(baseline=baseline).exists()
     # ...and its created_at is backdated, not stamped at import time.
     assert baseline.created_at.date() <= date.fromisoformat(ANCHOR)
+    # `is_active` is not authored on this beat, so the capture stays superseded
+    # (the model default) rather than silently becoming the overlay.
+    assert baseline.is_active is False
+
+
+def test_baseline_capture_is_active_supersedes_the_prior_active_baseline(
+    owner: Any,
+) -> None:
+    """#3495: `is_active` on a `baseline.capture` beat collapses the real app's
+    separate capture + activate steps into one authored beat — a rebaseline
+    beat can supersede a declared (or previously captured) active baseline
+    without a second, unauthored write and without tripping
+    ``unique_active_baseline_per_project``.
+    """
+    seed = _v2_seed()
+    core = seed["projects"][0]
+    core["baselines"] = [
+        {
+            "name": "Kickoff baseline",
+            "is_active": True,
+            "captured_at": "A-24",
+            "tasks": [{"task": "1", "duration": 3}],
+        }
+    ]
+    seed["events"].append(
+        {
+            "at": "A-10T09:00",
+            "actor": "alex",
+            "action": "baseline.capture",
+            "target": "project:core",
+            "body": "Rebaseline",
+            "is_active": True,
+        }
+    )
+    program = import_seed(seed, owner=owner, create_users=True)
+    project = Project.objects.get(program=program, name="Core")
+
+    kickoff = Baseline.objects.get(project=project, name="Kickoff baseline")
+    rebaseline = Baseline.objects.get(project=project, name="Rebaseline")
+    assert kickoff.is_active is False, "the rebaseline beat did not deactivate it"
+    assert rebaseline.is_active is True
+    # Only one active baseline per project ever existed — the constraint that
+    # would raise IntegrityError if the beat activated before deactivating.
+    assert Baseline.objects.filter(project=project, is_active=True).count() == 1
 
 
 def test_scope_resolve_reject_drops_task_from_sprint(program: Any) -> None:
