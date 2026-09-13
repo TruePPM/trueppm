@@ -4,7 +4,7 @@ description: Reference for the Schedule view toolbar — filter groups, summary 
 documentedFor: "0.4"
 ---
 
-The Schedule view's toolbar gives you the at-a-glance project status (rightmost summary chip), the day-to-day filtering controls (toggle groups), and the authoring actions (`+ Item`, `+ Milestone`, `+ Phase`).
+This is for anyone working in the Schedule view day to day. The toolbar gives you the at-a-glance project status (rightmost summary chip), the day-to-day filtering controls (toggle groups), and the actions for adding to the plan (`+ Item`, `+ Milestone`, `+ Phase`).
 
 Of the three, only **`+ Item`** sits in the bar by default. `+ Milestone` and `+ Phase` start in the `···` menu: each is a one-click structural insert that lands at your current insertion point, and the bar is also where you click while simply reading a plan. Both keep their keyboard shortcuts, and either can be pinned into the bar from **Display → Outline**.
 

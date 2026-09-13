@@ -4,7 +4,7 @@ description: Sprint header, goal, milestone link, and the cadence timeline strip
 documentedFor: "0.4"
 ---
 
-The Sprints workspace is the agile-side surface — Maya the Scrum Master and Tom the engineer live here. It composes five panels (header, goal, milestone link, timeline, backlog) into a single route at `/projects/:id/sprints`.
+The Sprints workspace is where an agile or hybrid team runs its **sprints** — fixed-length iterations of work — day to day: a Scrum Master planning and closing them, and the team tracking progress against them. One page brings together five pieces: the sprint header, its goal, a link to the schedule milestone it advances, a timeline of past and upcoming sprints, and the sprint's task list.
 
 :::note[Ships in 0.4]
 Two items on this page are not in the latest release. The

@@ -3,7 +3,7 @@ title: Velocity panel
 description: Last-8 closed sprints with rolling avg ± stdev and a forecast range chip.
 ---
 
-A bar chart of the last 8 closed sprints, color-coded by completion ratio, with rolling average ± standard deviation and a forecast range chip. The footer links to ADR-0036 — the velocity ↔ CPM feedback decision.
+This is for Scrum Masters, Product Owners, and PMs who want to know how much work a team can realistically get done. **Velocity** is how many story points a team completes per sprint on average — it's the basis for forecasting how many sprints are left to finish the backlog. This panel shows a bar chart of the team's last 8 closed sprints, color-coded by how much of what they committed to they actually finished, along with a rolling average (with its statistical spread) and a forecast range for the next sprint.
 
 :::note[Three different numbers, three different gates]
 This page cites 8, 3, and 2 closed sprints, and [velocity calibration](/features/velocity-calibration/)

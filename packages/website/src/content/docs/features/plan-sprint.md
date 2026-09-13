@@ -3,7 +3,7 @@ title: Plan Sprint dialog
 description: Single-step modal for creating the next sprint — name + dates + optional goal.
 ---
 
-The smallest credible sprint creation flow. Triggered by the "Plan next sprint" button in the Sprints view header, opens a single-step dialog with name + start/finish dates + optional goal, and POSTs to the existing sprint endpoint.
+This is for a Scrum Master opening the next sprint once the current one closes. It's the smallest credible sprint creation flow: the **Plan next sprint** button in the Sprints view header opens a single-step dialog where you enter a name, start and finish dates, and an optional goal.
 
 ## Where this lives in the story
 

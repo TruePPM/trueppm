@@ -3,7 +3,7 @@ title: "Real-Time Collaboration"
 description: "WebSocket broadcasts for all project mutations via Django Channels."
 ---
 
-TruePPM uses Django Channels 4 to push project changes to connected clients over WebSocket.
+**This page is for developers** connecting to TruePPM's live-update channel — end users don't configure anything here; changes just appear on screen as teammates make them. Under the hood, TruePPM pushes project changes to every connected client over a WebSocket connection the moment they happen, so a schedule move or a card drag shows up for everyone else without a page refresh.
 
 ## Connecting
 

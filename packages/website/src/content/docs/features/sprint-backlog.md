@@ -4,7 +4,7 @@ description: Active-sprint tasks grouped by board status, with CP flags and owne
 documentedFor: "0.4"
 ---
 
-The bottom panel of the Sprints view. Every task in the active sprint, grouped by board status (Done · In Review · In Progress · Not Started · Backlog), with CP flags on critical-path tasks and owner avatar chips.
+This is for the team and Scrum Master tracking what's in the current sprint. It's the bottom panel of the Sprints view: every task in the active sprint, grouped by board status (Done · In Review · In Progress · Not Started · Backlog), with a **CP** flag marking tasks on the schedule's critical path — the chain of dependent work that determines the project's finish date — and an avatar chip showing who owns each task.
 
 ## Where this lives in the story
 

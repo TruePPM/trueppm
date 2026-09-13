@@ -7,7 +7,7 @@ description: On sprint close, TruePPM uses team velocity to suggest a more accur
 Velocity calibration (ADR-0065 — `VelocitySuggestion` model and surfacing) shipped in 0.1.
 :::
 
-When a sprint closes, TruePPM computes the team's rolling six-sprint velocity (points completed per working day) and, for each task in the closing sprint with story points set, suggests a new **most-likely duration**. The suggestion appears in the Task Detail Drawer's **Estimates** section as a "Revise estimate from Sprint N?" banner. The PM accepts or dismisses it; the underlying value is never overwritten without consent.
+This is for PMs on a hybrid team, where the schedule's duration estimates and the team's own **velocity** — points completed per sprint — can drift apart. When a sprint closes, TruePPM looks at the team's rolling six-sprint velocity (points completed per working day) and, for each task in the closing sprint that has **story points** (the team's own size estimate) set, suggests a more realistic duration for the schedule. The suggestion appears in the task's detail drawer, in the **Estimates** section, as a "Revise estimate from Sprint N?" banner. The PM accepts or dismisses it; the estimate is never changed without that explicit choice.
 
 This is the agile → CPM half of the [hybrid PM bridge](/the-story/#7-forecast--monte-carlo-across-both-worlds) — sprint reality feeding back into the Monte Carlo forecast.
 
@@ -22,7 +22,7 @@ After Step 6 ([Execute — daily cadence, two worlds in sync](/the-story/)) clos
   > 📈 Revise estimate from Sprint 12? Team velocity suggests **4d** for this task (currently **2d**).
   > [Dismiss] [Accept]
 
-- **Accept** writes the new value to `most_likely_duration` and enqueues a CPM + Monte Carlo recompute so the schedule reflects the calibrated estimate immediately.
+- **Accept** writes the new duration onto the task and re-runs the schedule (**CPM** — the calculation that works out each task's dates from durations and dependencies — plus a Monte Carlo forecast) so the plan reflects the calibrated estimate immediately.
 - **Dismiss** records the PM's decision audit-trail-style; the task estimate is untouched and no further prompts arrive for that (task, sprint) pair.
 - The banner is PM-only (role ≥ Project Manager). Lower roles never see it — TruePPM does not surface CPM language to the delivery team.
 
@@ -33,7 +33,7 @@ A `VelocitySuggestion` row is created when **all** of the following hold:
 1. A sprint has just transitioned to `COMPLETED` (via the sprint close drain).
 2. The project has at least **three** prior completed sprints. Below that threshold the rolling average is too noisy to trust; no suggestion appears.
 3. Rolling team velocity is **non-zero**. A zero-velocity team produces an undefined duration, so suggestions are skipped until the team has delivered something.
-4. The task has `story_points > 0` and `most_likely_duration ≠ suggested_duration` (no point prompting the PM to accept the value already in place).
+4. The task has story points set, and the suggested duration is actually different from its current estimate (no point prompting the PM to accept the value already in place).
 
 The formula is:
 
@@ -44,9 +44,9 @@ suggested_duration    = round(task.story_points / team_velocity_per_day)
 
 A single working day is the minimum — a suggestion of zero is clamped to 1.
 
-## Governance — estimation_mode
+## Governance — the project's estimation mode
 
-When the project's [estimation mode](/features/scheduler/) is `suggest_approve`, the suggestion is marked `flag_for_review = true`. In `pm_only` and `open` modes the PM may accept directly. The estimate is **never** modified silently — the accept decision is always explicit.
+When the project's [estimation mode](/features/scheduler/) is set to **Suggest & approve**, a suggestion is flagged for review before it can be accepted. In the **PM only** and **Open** modes, the PM can accept it directly. Either way, the estimate is **never** changed silently — accepting is always an explicit choice.
 
 ## API endpoints
 

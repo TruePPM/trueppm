@@ -13,7 +13,7 @@ those fields could still show values that no longer described anything. Everythi
 else on this page describes released behavior.
 :::
 
-Most "hybrid" project management tools are two tools bolted together. TruePPM is not. Every view — Schedule, Board, Sprints, WBS — reads and writes the same rows in the same database. There is no sync, no translation, no eventual consistency.
+This page is for anyone curious why switching a project between Waterfall, Agile, and Hybrid never loses data, and for developers who want to understand the model behind the API. Most "hybrid" project management tools are two tools bolted together. TruePPM is not. Every view — Schedule, Board, Sprints, WBS — reads and writes the same rows in the same database. There is no sync, no translation, no eventual consistency.
 
 This page explains the data model that makes this possible.
 

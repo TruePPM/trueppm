@@ -18,7 +18,7 @@ recurrence rules, and project-settings policies, all in one place.
 
 :::note[Edition]
 Project Activity is part of the **Community (OSS)** edition. It is a read-only view
-built on the same `django-simple-history` data as Change History — no new data is
+built on the same change-history data as [Change History](/features/change-history) — no new data is
 recorded. Cross-**portfolio** activity digests and an immutable, cryptographically
 signed audit trail are **Enterprise** features.
 :::

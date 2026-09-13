@@ -4,7 +4,7 @@ description: Maintain a Workspace resource catalog with skills and proficiency, 
 documentedFor: "0.4"
 ---
 
-TruePPM models the people who do the work as **resources**. Resources live in a
+This is for a resource manager or PM who staffs projects and wants to see who's available and who's overloaded. TruePPM models the people who do the work as **resources**. Resources live in a
 Workspace-wide catalog, carry **skills** at a proficiency level, join a **project
 roster**, and get **assigned to tasks** at a fractional capacity. When you assign someone,
 TruePPM surfaces soft warnings if their skills don't match the task or if they're

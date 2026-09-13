@@ -7,7 +7,7 @@ description: One read-only timeline across a program's projects, with the progra
 The program schedule view was added in 0.3 (the agile team release), available since the `0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
 
-The **Schedule** tab on a [program](/features/programs/) shows every member project on one timeline and draws the **program-true critical path** — the longest chain of dependent work across the whole program, even where it crosses a project boundary. It answers the question a single-project Gantt cannot: *which handoff between projects is actually driving the program's finish date?*
+This is for a program manager coordinating several related projects who needs to see how they fit together in time. The **Schedule** tab on a [program](/features/programs/) shows every member project on one timeline and draws the **program-true critical path** — the **critical path** is the longest chain of dependent work in a schedule, the sequence of tasks that determines the earliest possible finish date; here it's calculated across the whole program, even where the chain crosses from one project into another. It answers the question a single-project schedule can't: *which handoff between projects is actually driving the program's finish date?*
 
 This is a **read-only** view. It is the place to see and explain the cross-project schedule; you still edit tasks, dates, and dependencies on each project's own [schedule](/features/schedule/).
 
