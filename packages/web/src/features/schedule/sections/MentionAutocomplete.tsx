@@ -40,9 +40,9 @@ const AUTO_GROUPS: AutoGroupSpec[] = [
     description: () => 'Everyone in this project',
     disabledFor: (r) => r == null || r < ROLE_ADMIN,
   },
-  { key: 'admins', description: () => 'Admins + Owners' },
-  { key: 'schedulers', description: () => 'Schedulers + Admins + Owners' },
-  { key: 'members', description: () => 'Member role' },
+  { key: 'admins', description: () => 'Project Managers + Project Admins' },
+  { key: 'schedulers', description: () => 'Resource Managers and above' },
+  { key: 'members', description: () => 'Team Member role' },
   { key: 'viewers', description: () => 'Viewer role' },
   { key: 'scrum-team', description: () => 'Active sprint assignees' },
 ];
@@ -217,9 +217,9 @@ export function MentionAutocomplete({
             {s.disabled && (
               <span
                 className="text-neutral-text-secondary ml-auto"
-                title="@all requires Admin role"
+                title="@all requires Project Manager or above"
               >
-                Admin+ only
+                Project Manager+ only
               </span>
             )}
           </li>

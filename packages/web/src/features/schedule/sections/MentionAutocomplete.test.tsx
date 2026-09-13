@@ -128,7 +128,7 @@ describe('MentionAutocomplete — component render', () => {
     expect(firstArg?.value).toBe('alice');
   });
 
-  it('shows the Admin+ only badge and does not call onSelect for a disabled @all', () => {
+  it('shows the Project Manager+ only badge and does not call onSelect for a disabled @all', () => {
     const onSelect = vi.fn();
     render(
       <MentionAutocomplete
@@ -140,7 +140,7 @@ describe('MentionAutocomplete — component render', () => {
         onSelect={onSelect}
       />,
     );
-    expect(screen.getByText('Admin+ only')).toBeTruthy();
+    expect(screen.getByText('Project Manager+ only')).toBeTruthy();
     const allOpt = screen.getByText('@all').closest('[role="option"]') as HTMLElement;
     fireEvent.mouseDown(allOpt);
     expect(onSelect).not.toHaveBeenCalled();

@@ -183,7 +183,7 @@ function ExportBundleCard({ projectId, code }: { projectId: string; code?: strin
       </p>
       <ul className="list-disc pl-4 mb-3 space-y-0.5">
         <li className="text-[11px] text-neutral-text-secondary">
-          Admin+ only. The download link expires after a few days.
+          Requires Project Manager or above. The download link expires after a few days.
         </li>
         <li className="text-[11px] text-neutral-text-secondary">
           MS Project artifact is XML (.xml) — binary .mpp is not generated.

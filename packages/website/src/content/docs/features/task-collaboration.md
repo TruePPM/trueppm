@@ -195,7 +195,7 @@ Typing `@` opens an autocomplete popover with two sections:
 - **Individuals** — project members whose username matches your typed prefix.
 
 `@all` is restricted to **Project Managers and Project Admins** to prevent accidental
-high-volume mentions. The autocomplete shows it as disabled with an "Admin+
+high-volume mentions. The autocomplete shows it as disabled with a "Project Manager+
 only" hint for Viewers, Team Members, and Resource Managers; the server enforces the same
 gate. There is also a hard cap of **200 users** for `@all` resolution —
 larger projects will need a more targeted group key. `@program-all` carries

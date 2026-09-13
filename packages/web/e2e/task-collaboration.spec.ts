@@ -104,7 +104,7 @@ const FIXTURE_TASK = {
 // Project member fixture used by /members/ AND /members/?self=true. The
 // composer's @-autocomplete pulls usernames from /members/; the @-all gate
 // reads the caller's role from /members/?self=true. We mark Priya as a
-// MEMBER (role=100) so the @all row renders disabled (Admin+ only).
+// MEMBER (role=100) so the @all row renders disabled (Project Manager+ only).
 const FIXTURE_MEMBERS = [
   { id: 'mem-priya', role: 100, user_detail: { id: 'user-priya', username: 'priya' } },
   { id: 'mem-sarah', role: 300, user_detail: { id: 'user-sarah', username: 'sarah' } },
@@ -778,7 +778,7 @@ test.describe('Task collaboration — comments + @mention (#311)', () => {
     // @all renders but is disabled because Priya is a MEMBER (role=100).
     const allRow = listbox.getByRole('option', { name: /@all/ });
     await expect(allRow).toHaveAttribute('aria-disabled', 'true');
-    await expect(allRow).toContainText(/Admin\+ only/);
+    await expect(allRow).toContainText(/Project Manager\+ only/);
 
     // Individuals present (from /members/ fixture).
     await expect(listbox.getByRole('option', { name: /@sarah/ })).toBeVisible();
@@ -812,7 +812,7 @@ test.describe('Task collaboration — comments + @mention (#311)', () => {
     // @program-all renders but is Admin-gated (Priya is a MEMBER), mirroring @all.
     const programAll = listbox.getByRole('option', { name: /@program-all/ });
     await expect(programAll).toHaveAttribute('aria-disabled', 'true');
-    await expect(programAll).toContainText(/Admin\+ only/);
+    await expect(programAll).toContainText(/Project Manager\+ only/);
   });
 
   test('offers a user-defined project mention group in the autocomplete (#2254)', async ({
