@@ -766,13 +766,20 @@ def _apply_scope_inject(beat: _Beat, ctx: ReplayContext) -> None:
     Creates the SprintScopeChange the drawer chip + Enterprise audit read, and
     flags the task pending — the same row the live ``record_sprint_scope_change``
     path writes — without firing the notify signal (suppressed during replay).
+
+    The injected sprint is ``task.sprint`` whenever the task still holds one;
+    see :func:`_injected_sprint` for the case a re-imported export creates,
+    where it no longer does.
     """
     task = _resolve_task(ctx, beat.target)
-    if task is None or task.sprint is None:
+    if task is None:
+        return
+    sprint = _injected_sprint(task, beat, ctx)
+    if sprint is None:
         return
     scope = SprintScopeChange.objects.create(
         task=task,
-        sprint=task.sprint,
+        sprint=sprint,
         subtask_name=task.name,
         added_by=beat.actor,
         goal_impact=bool(beat.data.get("goal_impact", False)),
@@ -786,6 +793,48 @@ def _apply_scope_inject(beat: _Beat, ctx: ReplayContext) -> None:
     ctx.open_scope[task.pk] = scope
     task.sprint_pending = True
     _save(task, beat.when, beat.actor, ["sprint_pending"])
+
+
+def _injected_sprint(task: Task, beat: _Beat, ctx: ReplayContext) -> Sprint | None:
+    """The sprint a ``sprint.scope_inject`` beat injects ``task`` into.
+
+    Normally read straight off ``task.sprint``: the documented contract (see
+    ``validation._EVENT_TARGET_KIND``) is that the beat targets the task and its
+    sprint is derived, matching ``record_sprint_scope_change(task, sprint)``,
+    where every live call site links the task to the sprint first and records
+    the audit row second. That derivation holds for every hand-authored seed,
+    because a document declares a task's ``sprint`` statically before it can
+    date an injection against it.
+
+    It stops holding for a *re-imported export* (#3488). The exporter writes each
+    task's ``sprint`` from its **current** membership, and a replayed sprint close
+    now carries an unfinished task back to the backlog — so a still-PENDING
+    ``SprintScopeChange``, which the exporter reconstructs as a
+    ``sprint.scope_inject`` beat, can name a task that by export time holds no
+    sprint at all. Born sprintless, the beat wrote no row, the re-export dropped
+    the event, and the #616 byte-identical round trip failed.
+
+    The fallback is a derivation, not a guess: an injection is by definition a
+    link into the sprint that is *running at that moment* (ADR-0102 §4), so the
+    beat's own instant identifies it — the one sprint in the task's project that
+    replay has already activated, has not yet closed, and whose dates contain the
+    beat. Ambiguity is refused rather than resolved: nothing in the schema stops a
+    seed authoring two overlapping active sprints in one project, and picking one
+    of them arbitrarily would file the audit row against the wrong sprint.
+    """
+    if task.sprint_id is not None:
+        return task.sprint
+    _, _, ref = beat.target.partition(":")
+    project_slug, _, _ = ref.partition(":")
+    day = beat.when.date()
+    candidates = [
+        sprint
+        for key, sprint in ctx.sprints.items()
+        if key[0] == project_slug
+        and sprint.state == SprintState.ACTIVE
+        and sprint.start_date <= day <= sprint.finish_date
+    ]
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _apply_scope_resolve(beat: _Beat, ctx: ReplayContext) -> None:

@@ -848,3 +848,136 @@ def test_sprint_close_authored_goal_outcome_overrides_the_derived_default() -> N
 
     sprint.refresh_from_db()
     assert sprint.goal_outcome == "MISSED"
+
+
+# ---------------------------------------------------------------------------
+# #3488 — a document that describes a task the close already carried back to
+# the backlog. That is what an *export* of such a program looks like (the
+# exporter writes each task's current state), and it says two things no
+# hand-authored seed ever said: the task holds no sprint, and its final column
+# is BACKLOG — which is off the progression spine the synthesizer walks.
+# ---------------------------------------------------------------------------
+
+
+def _backlog_seed(*, moved_by_the_timeline: bool) -> dict[str, Any]:
+    """A one-sprint seed whose only task ends at BACKLOG.
+
+    ``moved_by_the_timeline`` picks which of the two kinds of BACKLOG task it
+    is, and the two must import differently: a task the timeline *moves* there
+    has to be born NOT_STARTED so the beat is a real transition, while an
+    ordinary backlog item — which nothing would ever move — has to be born
+    where it belongs, since the synthesizer refuses to walk anything to BACKLOG.
+    """
+    events: list[dict[str, Any]] = [
+        {
+            "at": "A-20T09:00",
+            "actor": "alex",
+            "action": "sprint.activate",
+            "target": "sprint:core:s1",
+        },
+        {
+            "at": "A-6T17:00",
+            "actor": "alex",
+            "action": "sprint.close",
+            "target": "sprint:core:s1",
+        },
+    ]
+    if moved_by_the_timeline:
+        events.append(
+            {
+                "at": "A-6T17:00",
+                "actor": "alex",
+                "action": "task.status",
+                "target": "task:core:1",
+                "from": "NOT_STARTED",
+                "to": "BACKLOG",
+            }
+        )
+    return {
+        "schema_version": "2.0",
+        "anchor": ANCHOR,
+        "program": {"slug": "carried", "name": "Carried", "methodology": "AGILE", "lead": "alex"},
+        "accounts": [
+            {"slug": "alex", "username": "carried-alex", "display_name": "Alex", "role": "OWNER"}
+        ],
+        "projects": [
+            {
+                "slug": "core",
+                "name": "Core",
+                "methodology": "AGILE",
+                "start_date": "A-25",
+                "sprints": [
+                    {
+                        "slug": "s1",
+                        "name": "Sprint 1",
+                        "state": "COMPLETED",
+                        "start_date": "A-20",
+                        "finish_date": "A-6",
+                        "committed_points": 2,
+                    }
+                ],
+                "tasks": [
+                    {
+                        "wbs_path": "1",
+                        "name": "Rate limiting",
+                        "status": "BACKLOG",
+                        "story_points": 2,
+                        "delivery_mode": "scrum",
+                    }
+                ],
+            }
+        ],
+        "events": events,
+    }
+
+
+def test_a_task_the_timeline_moves_to_backlog_is_born_not_started(owner: Any) -> None:
+    # Born already at BACKLOG the beat is a no-op, so no history row exists and
+    # the re-export drops the event — the #616 round-trip break this fixes.
+    program = import_seed(_backlog_seed(moved_by_the_timeline=True), owner=owner, create_users=True)
+    task = _task(program, "1")
+    assert task.status == TaskStatus.BACKLOG
+    assert set(task.history.values_list("status", flat=True)) == {
+        TaskStatus.NOT_STARTED,
+        TaskStatus.BACKLOG,
+    }
+
+
+def test_a_plain_backlog_task_is_born_and_stays_at_backlog(owner: Any) -> None:
+    # The other side of the same widening: nothing would ever move this one, so
+    # birthing it NOT_STARTED would strand it there for good.
+    program = import_seed(
+        _backlog_seed(moved_by_the_timeline=False), owner=owner, create_users=True
+    )
+    task = _task(program, "1")
+    assert task.status == TaskStatus.BACKLOG
+    assert set(task.history.values_list("status", flat=True)) == {TaskStatus.BACKLOG}
+
+
+def test_scope_injection_on_a_task_that_has_left_the_sprint_still_writes_its_row(
+    owner: Any,
+) -> None:
+    """The injected sprint is derived from the beat's instant when the task has none.
+
+    An exported program whose close carried the injected task to the backlog
+    describes it as sprintless, so ``task.sprint`` can no longer name the sprint
+    the still-PENDING audit row belongs to; the sprint running at the beat does.
+    """
+    doc = _backlog_seed(moved_by_the_timeline=True)
+    doc["events"].append(
+        {
+            "at": "A-12T11:00",
+            "actor": "alex",
+            "action": "sprint.scope_inject",
+            "target": "task:core:1",
+            "goal_impact": True,
+        }
+    )
+    program = import_seed(doc, owner=owner, create_users=True)
+    task = _task(program, "1")
+    sprint = Sprint.objects.get(project__program=program, name="Sprint 1")
+    scope = SprintScopeChange.objects.get(task=task)
+    assert scope.sprint_id == sprint.pk
+    assert scope.status == ScopeChangeStatus.PENDING
+    assert scope.goal_impact is True
+    assert task.sprint_id is None  # the row is filed without re-adding the task
