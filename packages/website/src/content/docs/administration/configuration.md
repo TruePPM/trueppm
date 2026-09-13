@@ -224,7 +224,7 @@ controls. See
 | `TRUEPPM_SYNC_MAX_CONCURRENT_BATCHES` | `4` | Maximum offline-sync upload batches one user may have applying **at the same time**. Each accepted batch is a heavy transaction (row locks + a schedule recompute), so this bounds simultaneous heavy writes per user as defense-in-depth over the per-minute upload rate limit. A user exceeding the cap gets an HTTP 429 with a short `Retry-After` and retries once in-flight work drains. If the throttle store (Valkey/Redis) is unreachable the guard degrades to off — the rate limit remains the hard bound. |
 | `TRUEPPM_SYNC_INFLIGHT_TTL_SECONDS` | `120` | Time-to-live (seconds) on the per-user in-flight sync-batch counter that backs `TRUEPPM_SYNC_MAX_CONCURRENT_BATCHES`. Guards against a slot leaking if a worker dies mid-apply: the counter is reclaimed once no further batch refreshes it within this window. Set comfortably above the longest legitimate batch-apply time so an in-progress upload is never counted out from under a live request. |
 | `TRUEPPM_SYNC_BATCH_MAX_ROWS` | `500` | Maximum rows (created + updated + deleted combined) a single mobile sync **upload** batch may contain. The batch applies in one transaction, so this bounds how long that transaction — and its per-task row locks — can be held by a single request. A client with more pending rows splits them across multiple upload batches. |
-| `TRUEPPM_SYNC_BATCH_MAX_OWNERS` | `500` | Maximum inline `owners` entries summed across every `created`/`updated` row in a single mobile sync upload batch. A per-row cap of 100 already applies to each row's own `owners` list; this bounds the batch as a whole, so `TRUEPPM_SYNC_BATCH_MAX_ROWS` rows each naming owners cannot multiply into tens of thousands of entries in one request. Checked before the write transaction opens, alongside the row-count cap above. |
+| `TRUEPPM_SYNC_BATCH_MAX_OWNERS`¹ | `500` | Maximum inline `owners` entries summed across every `created`/`updated` row in a single mobile sync upload batch. A per-row cap of 100 already applies to each row's own `owners` list; this bounds the batch as a whole, so `TRUEPPM_SYNC_BATCH_MAX_ROWS` rows each naming owners cannot multiply into tens of thousands of entries in one request. Checked before the write transaction opens, alongside the row-count cap above. |
 | `TRUEPPM_SYNC_PULL_PAGE_SIZE` | `1000` | Default page size for the offline delta **pull** (`since=` cursor). Bounds a cold-start sync (`since=0`) to this many rows per response instead of materializing an entire project into one unbounded multi-MB payload; the client loops on the returned cursor for the rest. |
 | `TRUEPPM_SYNC_PULL_MAX_PAGE_SIZE` | `5000` | Hard ceiling on a client-requested `page_size` for the sync pull. Clamps a caller-supplied page size so a single request can never re-open the unbounded-response cliff `TRUEPPM_SYNC_PULL_PAGE_SIZE` exists to close. |
 | `RETENTION_PURGE_INFLIGHT_SECONDS` | `600` | Lock TTL (seconds) guarding against overlapping retention-purge runs. See [Retention](/administration/retention/). |
@@ -252,8 +252,18 @@ controls. See
 | `EMAIL_TIMEOUT` | `10` | Seconds. **Not Django's `None`** — an unbounded socket timeout means one unreachable relay can hold a Celery worker indefinitely. |
 | `DEFAULT_FROM_EMAIL` | `notifications@trueppm.local` | **Set this.** `.local` is a reserved TLD that most relays reject outright, so leaving the default silently breaks outbound mail on an otherwise correct SMTP configuration. |
 
-**Every one of these binds directly from the container environment** — set them
-as plain env vars or Helm `env:` values, no settings override needed. See
+¹ `TRUEPPM_SYNC_BATCH_MAX_OWNERS`, above, is the one exception in this table: the
+code reads it only with `getattr(settings, "TRUEPPM_SYNC_BATCH_MAX_OWNERS", 500)`
+and never registers it with `django-environ`, so setting the plain container
+environment variable of that name has **no effect**. To change it from the
+default, override the Django setting in a settings module — the same mechanism
+the [Monte Carlo caps](#monte-carlo-simulation-caps) below use. Wiring it through
+`env.int()` like its `TRUEPPM_SYNC_BATCH_MAX_ROWS` neighbor is tracked as a
+follow-up.
+
+**Every one of the `EMAIL_*` variables below binds directly from the container
+environment** — set them as plain env vars or Helm `env:` values, no settings
+override needed. See
 [Outbound email](/administration/email/) for how they relate to the in-app
 Email & SMTP page.
 
@@ -268,7 +278,7 @@ _(Django default)_ for all of them. Four are overridden, and the
 | `DJANGO_LOG_LEVEL` | `INFO` | Fleet-wide log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). `DEBUG` is verbose enough to matter on a busy instance — Docker's `json-file` driver has no size cap by default, so pair it with log rotation. The Helm chart exposes this as `logging.level`. |
 | `TRUEPPM_LOG_JSON` | `false` | Emit one JSON object per log record instead of human-readable console output, so a collector (Loki, ELK, CloudWatch) can index the fields — including the OTel `trace_id` / `span_id` / `request_id` needed for log-to-trace correlation. **`settings.prod` forces this on regardless**, so it only affects non-production settings modules. |
 | `SQL_LOG_LEVEL` | `WARNING` | Level for the `django.db.backends` logger. **Development settings only** (`settings/dev.py`); production's logging config does not read it. Set to `DEBUG` to print every SQL statement — the fastest way to find an N+1 locally. |
-| `TRUEPPM_POD_NAME` | _(empty)_ | Identifies which replica emitted a record or a metric. Set it from the downward API (`valueFrom.fieldRef.fieldPath: metadata.name`); empty means log lines cannot be attributed to a pod. |
+| `TRUEPPM_POD_NAME` | _(empty)_ | Stable per-pod identity for the OpenTelemetry [export-health record](/administration/observability/#live-export-health) shown on the Telemetry card. Set it from the downward API (`valueFrom.fieldRef.fieldPath: metadata.name`); left empty, the record falls back to `hostname:pid`, which on Kubernetes is already the pod name — this variable is a convenience for a non-Kubernetes deploy or a custom hostname policy, not something export health needs to function. It has no effect on log lines: nothing in the logging pipeline reads it. |
 
 ## OpenTelemetry
 
@@ -406,7 +416,7 @@ The image bundles **S3 only**. `storages.backends.gcloud.GoogleCloudStorage` and
 by the signed-URL action, but their client libraries are not installed — naming
 one fails startup with `trueppm.E007` and the exact package to install:
 
-```
+```text
 (trueppm.E007) STORAGES['default']['BACKEND'] is set to
 'storages.backends.gcloud.GoogleCloudStorage', which cannot be imported:
 Could not load Google Cloud Storage bindings.

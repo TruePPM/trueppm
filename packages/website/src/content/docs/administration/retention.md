@@ -141,6 +141,14 @@ all: there is no program Trash
 ([#2587](https://gitlab.com/trueppm/trueppm/-/issues/2587)).
 :::
 
+**Batch-operation undo records are purged on their own schedule too.**
+`TRUEPPM_BATCH_OPERATION_RETENTION_DAYS` (default `30`) bounds how long the
+⌘Z **undo ledger** for a paste-many or cascade-delete batch operation is kept,
+whether or not it was ever undone. The standalone nightly `purge_expired_batch_operations`
+Beat task (04:40 UTC) deletes rows past the window. Like the export and
+import-job purges above, it is not folded into the retention coordinator: it
+enforces its own knob rather than one of the six the coordinator drives.
+
 **`TRUEPPM_SYNC_BATCH_RETENTION_HOURS` is in hours, not days.** Unlike the other knobs,
 this window is measured in **hours** because it doubles as the mobile sync upload **dedup
 window**: a re-uploaded batch carrying the same `client_batch_id` replays its stored

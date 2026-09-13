@@ -14,7 +14,7 @@
 # declares documentedFor.
 #
 # Regenerate, never hand-edit.
-administration/attachment-policy.md a47b5cbe0ecfa391241c9ed8114ce33005fa8dbe1cd0a5b585e5e39b2c1dca7a
+administration/attachment-policy.md df59edf86c3e432d81cde6e1138532e454e25c766116320f514ae445ca3e4ddd
 administration/beat-liveness.md 63154511d37139a5bbdbba167d64a78c53b4c0472791e8dd8236d01f0f6574cf
 features/capacity-preflight.md e38c6d1002f3e0402e84a0305d46c98e74973a6380e6cb65ba3cc3eba69af861
 features/daily-standup.md 555b07567e8186400b664c3c0933dc61815647ef2d324e77ac126380d00bc67d

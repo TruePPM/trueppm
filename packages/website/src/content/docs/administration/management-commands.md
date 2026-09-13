@@ -272,8 +272,11 @@ user-facing guide.
   and the project / task / resource counts — then lists each diagnostic anchored
   to its JSON path:
 
-  ```console
-  $ python manage.py import_seed atlas.json --check
+  ```bash
+  python manage.py import_seed atlas.json --check
+  ```
+
+  ```text
   Checked atlas.json
     schema_version: 2.0
     program:        Atlas Platform Launch
