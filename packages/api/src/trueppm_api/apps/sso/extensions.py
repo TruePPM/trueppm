@@ -9,7 +9,12 @@ change (the one-way dependency holds: enterprise → OSS, never the reverse).
 1. ``oidc_role_for`` — group→role mapping. OSS ignores claims and returns the
    admin-chosen ``default_role``. Enterprise registers a mapper that reads
    ``groups``/custom claims (requesting the wider scope through its own provider
-   extension) and maps them to roles, with an auth-event audit trail.
+   extension) and maps them to roles, with an auth-event audit trail. The
+   mapper's result is clamped at this seam: any role above
+   ``WorkspaceRole.ADMIN`` (in particular ``OWNER``) or any value that is not a
+   valid ``WorkspaceRole`` ordinal is refused in favor of ``default_role`` —
+   ``OWNER`` is unreachable through this seam regardless of what a mapper
+   returns.
 2. ``local_login_allowed`` — enforced-SSO / disable-local-accounts. OSS always
    returns ``True``; password login is never blocked. Enterprise registers a
    provider that enforces ``allow_password_signin=False`` for non-exempt accounts.
@@ -24,6 +29,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
+
+from trueppm_api.apps.workspace.models import WorkspaceRole
 
 if TYPE_CHECKING:
     from trueppm_api.apps.sso.models import SsoProviderPolicy
@@ -52,9 +59,19 @@ def oidc_role_for(claims: dict[str, Any], config: SsoProviderPolicy) -> int:
 
     OSS default: ignore the claims entirely and return ``config.default_role`` —
     there is no ``groups`` scope and no claim→role logic in the community edition.
-    A registered enterprise mapper may read claims; if it raises or returns a
-    non-int, we fall back to ``default_role`` (fail safe — never grant *more* than
-    the admin-configured floor on a buggy mapper).
+    A registered enterprise mapper may read claims; if it raises, returns a
+    non-int, returns an ordinal that is not a valid :class:`WorkspaceRole`, or
+    returns a role above ``WorkspaceRole.ADMIN``, we fall back to
+    ``default_role`` (fail safe — never grant *more* than the admin-configured
+    floor on a buggy mapper).
+
+    **Enterprise extension-point contract:** this is the enforcement point, not
+    an advisory clamp — ``WorkspaceRole.OWNER`` is categorically unreachable
+    through this seam, regardless of what the registered mapper returns. This
+    mirrors the OSS write serializer's ``default_role`` restriction (SSO
+    auto-create must never mint an Owner) and treats the enterprise mapper's
+    result as untrusted input per the extension-point threat model (Boundary
+    5) — a bug in the mapper is not a privilege-escalation path.
     """
     if _IDENTITY_MAPPER is None:
         return int(config.default_role)
@@ -65,6 +82,13 @@ def oidc_role_for(claims: dict[str, Any], config: SsoProviderPolicy) -> int:
         return int(config.default_role)
     if not isinstance(role, int):
         logger.error("oidc identity mapper returned non-int %r; using default_role", role)
+        return int(config.default_role)
+    if role not in WorkspaceRole.values or role > WorkspaceRole.ADMIN:
+        logger.error(
+            "oidc identity mapper returned unclamped role %r (above ADMIN ceiling "
+            "or not a valid WorkspaceRole); using default_role",
+            role,
+        )
         return int(config.default_role)
     return role
 

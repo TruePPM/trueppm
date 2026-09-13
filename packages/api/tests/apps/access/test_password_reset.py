@@ -12,6 +12,7 @@ Covers the two endpoints and the security properties they must hold:
 
 from __future__ import annotations
 
+import html
 import secrets
 
 import pytest
@@ -76,8 +77,49 @@ def test_request_existing_email_returns_200_and_sends_link(user) -> None:
     assert len(mail.outbox) == 1
     body = mail.outbox[0].body
     uid, _ = _uid_token(user)
-    # The emailed link points at the SPA confirm route and carries the uid.
-    assert f"/reset-password/confirm/{uid}/" in body
+    # The emailed link points at the SPA confirm route and carries the uid — in
+    # the URL FRAGMENT, never the path (#3553).
+    assert f"/reset-password/confirm#uid={uid}&token=" in body
+
+
+@override_settings(EMAIL_BACKEND=_LOCMEM, FRONTEND_BASE_URL="https://ppm.example.com")
+@pytest.mark.django_db
+def test_reset_link_carries_the_credential_only_in_the_fragment(user) -> None:
+    """The uid/token pair must appear after the ``#`` and nowhere else (#3553).
+
+    ``(uid, token)`` is a 30-minute bearer credential for the account. Everything
+    before the fragment is visible to the SPA's own telemetry envelope, to its
+    route-error boundary, to any path-logging proxy, and to any cross-origin
+    destination as ``Referer``. A fragment is never transmitted to a server at
+    all, so none of those can see it.
+
+    Asserted on both MIME parts: the plain-text body and the HTML alternative are
+    rendered separately, so a fix applied to one and not the other would leak
+    through whichever the recipient's client displays.
+    """
+    mail.outbox.clear()
+    APIClient().post(_REQUEST_URL, {"email": "reset@example.com"}, format="json")
+
+    message = mail.outbox[0]
+    uid, _ = _uid_token(user)
+    parts = [message.body, *(content for content, _mimetype in message.alternatives)]
+
+    for part in parts:
+        # Locate the link, then split it at the fragment delimiter. The HTML part
+        # renders the URL inside an href, where `&` is correctly written `&amp;`
+        # (and decoded by every browser) — so unescape before parsing, rather
+        # than asserting something weaker that a real breakage could satisfy.
+        start = part.index("https://ppm.example.com/reset-password/confirm")
+        link = html.unescape(part[start:].split()[0].split('"')[0])
+        before_fragment, _, fragment = link.partition("#")
+
+        assert before_fragment == "https://ppm.example.com/reset-password/confirm"
+        assert "?" not in before_fragment, "a query string is sent to the server too"
+        assert uid not in before_fragment
+        assert fragment.startswith(f"uid={uid}&token=")
+        # The token half must be present and non-empty — a link that lost it is
+        # not "safe", it is broken.
+        assert len(fragment.split("&token=")[1]) > 0
 
 
 @override_settings(EMAIL_BACKEND=_LOCMEM, FRONTEND_BASE_URL="https://ppm.example.com")

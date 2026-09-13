@@ -148,6 +148,13 @@ web:
     frameOptions: DENY
     # Stops a browser from re-typing a response as a script.
     contentTypeOptions: nosniff
+    # How much of the current URL a browser may disclose to another origin
+    # (#3553). Without it, a navigation away from any TruePPM page sends the FULL
+    # URL as `Referer`, and the browser default varies by vendor and version.
+    # `strict-origin-when-cross-origin` keeps the full referrer same-origin and
+    # degrades to the bare origin cross-origin. Tighten to `no-referrer` if you
+    # want nothing disclosed at all; empty omits the header.
+    referrerPolicy: strict-origin-when-cross-origin
     # Matches nginx/app.conf.template verbatim. `connect-src` includes ws:/wss:
     # for the Channels real-time collaboration socket; `style-src` needs
     # 'unsafe-inline' while the build still emits inline critical CSS. Widen

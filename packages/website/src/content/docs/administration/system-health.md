@@ -34,9 +34,15 @@ the retention summary, and the read side of the Dead-letter inspector — descri
 :::
 
 TruePPM runs scheduling, notifications, webhooks, MS Project imports, and retention
-purges as background work via Celery and a transactional outbox. The **System Health**
+purges as **background work** — jobs that run outside the request that triggered
+them, via **Celery** (the worker processes that do the work), **Celery Beat** (the
+single scheduler process that dispatches jobs on a timer), and a **transactional
+outbox** (a database table of pending jobs that survives a crash between "the
+triggering change committed" and "the job actually ran"). The **System Health**
 console gives a workspace administrator a read-only operator view of that machinery —
-without shelling into the cluster or scraping Prometheus by hand.
+without shelling into the cluster or scraping Prometheus by hand. Reach for this page
+first whenever something that should have happened automatically — a schedule
+recompute, a notification email, a webhook delivery — appears not to have.
 
 Find it at **Settings → Workspace → System health**.
 

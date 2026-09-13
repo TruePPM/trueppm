@@ -525,7 +525,56 @@ compose-image-pins-check: ## Fail if a third-party image in a shipped compose fi
 	@# grep + sed over four files; well under a second.
 	@bash scripts/check-compose-image-pins.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering migrations-constraint-safety schema-check sonar-exclusions-check request-body-guards-check summary-duration-units-check extension-signals-check dependency-soft-delete-check membership-live-floor-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check compose-image-pins-check playwright-pins-check nul-bytes-check ci-api-tag-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check anchored-popover-check adr-status-check version-status-check config-doc-links-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check package-licenses-check mobile-version-check prepush-parity-check gate-selftest-parity-check pre-push-wasm pre-push-mobile e2e-schema-guard-check ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+# ONE PREREQUISITE PER LINE (#3743). Make accumulates prerequisites across
+# repeated recipe-less rule lines, so this is the same target as one long line.
+# It is split because every new gate used to append to that one line, so any two
+# branches that each added a gate conflicted on it. Add a gate as its own
+# `pre-push-checks: <target>` line; only the first line carries the `##` help text.
+pre-push-checks: ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint
+pre-push-checks: scheduler-typecheck
+pre-push-checks: api-lint
+pre-push-checks: api-typecheck
+pre-push-checks: web-lint
+pre-push-checks: web-typecheck
+pre-push-checks: migrations-check
+pre-push-checks: migrations-numbering
+pre-push-checks: migrations-constraint-safety
+pre-push-checks: schema-check
+pre-push-checks: sonar-exclusions-check
+pre-push-checks: request-body-guards-check
+pre-push-checks: summary-duration-units-check
+pre-push-checks: extension-signals-check
+pre-push-checks: dependency-soft-delete-check
+pre-push-checks: membership-live-floor-check
+pre-push-checks: enterprise-boundary-check
+pre-push-checks: boundary-doc-check
+pre-push-checks: demo-readonly-check
+pre-push-checks: helm-metric-names-check
+pre-push-checks: nginx-headers-check
+pre-push-checks: compose-image-pins-check
+pre-push-checks: playwright-pins-check
+pre-push-checks: nul-bytes-check
+pre-push-checks: ci-api-tag-check
+pre-push-checks: web-rule-numbers-check
+pre-push-checks: web-row-vocabulary-check
+pre-push-checks: design-system-check
+pre-push-checks: dropdown-scroll-check
+pre-push-checks: anchored-popover-check
+pre-push-checks: adr-status-check
+pre-push-checks: version-status-check
+pre-push-checks: config-doc-links-check
+pre-push-checks: docs-tree-split-check
+pre-push-checks: ws-event-reachability-check
+pre-push-checks: e2e-catchall-check
+pre-push-checks: demo-nginx-allowlist-check
+pre-push-checks: package-licenses-check
+pre-push-checks: mobile-version-check
+pre-push-checks: prepush-parity-check
+pre-push-checks: gate-selftest-parity-check
+pre-push-checks: pre-push-wasm
+pre-push-checks: pre-push-mobile
+pre-push-checks: e2e-schema-guard-check
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

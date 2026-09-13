@@ -263,6 +263,14 @@ change made in a second browser appears in the first without a refresh.
 
 ## Celery is not processing anything
 
+TruePPM runs background work — schedule recalculation, imports, notification
+email — through **Celery**, split across two moving parts: **worker** processes
+that do the work, and **Celery Beat**, a single scheduler process that dispatches
+jobs on a timer (every 30 seconds for most of them). Both talk through a
+**broker** — a message queue, backed by Valkey/Redis — that holds jobs between
+"dispatched" and "picked up by a worker." Any one of the three can fail on its
+own, and each looks different from the outside; this section tells them apart.
+
 **What you see.** Schedules do not recalculate, imports sit at "queued",
 notification email never arrives. Reads all work.
 

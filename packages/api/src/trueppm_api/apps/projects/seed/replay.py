@@ -867,15 +867,28 @@ def _apply_risk_status(beat: _Beat, ctx: ReplayContext) -> None:
 
 
 def _apply_baseline_capture(beat: _Beat, ctx: ReplayContext) -> None:
-    """Capture a baseline of the project's current task dates at the beat time."""
+    """Capture a baseline of the project's current task dates at the beat time.
+
+    ``is_active`` (default False, #3495) collapses the real app's two-step
+    capture-then-activate flow (``BaselineViewSet.perform_create`` +
+    ``BaselineActivateView``) into one beat: when true, any baseline already
+    active for the project is deactivated first — the same swap
+    ``BaselineActivateView`` performs — so an authored rebaseline can supersede
+    the one it replaces in a single timeline entry instead of leaving the
+    project with two inactive baselines or an ``IntegrityError`` from
+    ``unique_active_baseline_per_project``.
+    """
     _, _, project_slug = beat.target.partition(":")
     project = ctx.projects.get(project_slug)
     if project is None:
         return
+    is_active = bool(beat.data.get("is_active", False))
+    if is_active:
+        Baseline.objects.filter(project=project, is_active=True).update(is_active=False)
     baseline = Baseline.objects.create(
         project=project,
         name=beat.data.get("body") or f"Baseline {beat.when.date().isoformat()}",
-        is_active=False,
+        is_active=is_active,
     )
     Baseline.objects.filter(pk=baseline.pk).update(created_at=beat.when)
     rows = [
