@@ -264,8 +264,8 @@ and never registers it with `django-environ`, so setting the plain container
 environment variable of that name has **no effect**. To change it from the
 default, override the Django setting in a settings module — the same mechanism
 the [Monte Carlo caps](#monte-carlo-simulation-caps) below use. Wiring it through
-`env.int()` like its `TRUEPPM_SYNC_BATCH_MAX_ROWS` neighbor is tracked as a
-follow-up.
+`env.int()` like its `TRUEPPM_SYNC_BATCH_MAX_ROWS` neighbor is tracked in
+[#3735](https://gitlab.com/trueppm/trueppm/-/issues/3735).
 
 **Every one of the `EMAIL_*` variables below binds directly from the container
 environment** — set them as plain env vars or Helm `env:` values, no settings
