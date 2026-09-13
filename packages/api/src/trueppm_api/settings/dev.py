@@ -98,6 +98,15 @@ REST_FRAMEWORK = {  # nosemgrep: missing-throttle-config
 # dropped by the browser on http://. Production keeps the base default (True).
 AUTH_REFRESH_COOKIE_SECURE = False
 
+# Django admin is ON in dev and OFF everywhere else (#3557). base.py defaults it
+# to False so that a production deploy that sets nothing does not expose a second
+# password door; a developer workstation is the one place where reaching /admin/
+# with no ceremony is the point. Still env-overridable, so `pytest` can assert the
+# disabled behavior through the same variable an operator would set. This module
+# is fenced by _assert_dev_environment_safe above, so the relaxation cannot load
+# in staging or production.
+DJANGO_ADMIN_ENABLED = env.bool("TRUEPPM_DJANGO_ADMIN_ENABLED", default=True)
+
 # base.py defaults MEDIA_ROOT to /var/lib/trueppm/media — the path the chart and
 # compose mount a writable volume at (#3184). Nothing creates that path on a
 # developer workstation, and pytest runs under this module, so keep uploads
