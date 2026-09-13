@@ -103,6 +103,36 @@ def _reset_throttle_cache() -> Iterator[None]:
     cache.clear()
 
 
+@pytest.fixture(autouse=True)
+def _run_config_notices_inline(settings: Any) -> Iterator[None]:
+    """Run queued config-change notices in place of the broker (#3009, ADR-1174).
+
+    ``config_notice`` writes a ``ConfigNoticeRequest`` outbox row and dispatches
+    ``projects.emit_config_notice`` from ``on_commit``. Celery is not eager under
+    test, so an unpatched dispatch would put a message on the real broker and never
+    write the notice — every test asserting an inbox after a board or preset change
+    would go silently empty. Running the worker's business logic in place keeps those
+    tests about rendering and cohorts; outbox tests patch ``delay`` again locally.
+
+    The cooldown defaults off so no test depends on a live Valkey or on keys another
+    test left behind; the cooldown tests turn it on against a fake client.
+    """
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from trueppm_api.apps.projects.config_notice import run_config_notice_request
+    from trueppm_api.apps.projects.tasks import emit_config_notice
+
+    settings.TRUEPPM_CONFIG_NOTICE_COOLDOWN_SECONDS = 0
+
+    def _inline(request_id: str) -> SimpleNamespace:
+        run_config_notice_request(request_id)
+        return SimpleNamespace(id="inline")
+
+    with patch.object(emit_config_notice, "delay", side_effect=_inline):
+        yield
+
+
 @pytest.fixture
 def django_capture_on_commit_callbacks() -> Callable[..., Any]:
     """Override pytest-django's fixture with the savepoint-safe capture (#2945).

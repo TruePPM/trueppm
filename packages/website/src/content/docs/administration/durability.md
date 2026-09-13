@@ -51,9 +51,10 @@ High Availability](/administration/valkey-ha/), and diagnose a live incident wit
 ### Why losing the broker does not lose the work
 
 The Celery queue is not the record of what needs doing — the database is.
-**Fourteen** outbox drains run every **30 seconds** — `ScheduleRequest`, MS Project
-/ Jira / CSV `ImportRequest`s, `TemplateApplication`, `SprintCloseRequest`, webhook
-deliveries, notification emails, invite emails, the workflow outbox, and the
+**Fifteen** outbox drains run every **30 seconds** — `ScheduleRequest`, MS Project
+/ Jira / CSV `ImportRequest`s, `TemplateApplication`, `SprintCloseRequest`,
+config-change notices, webhook deliveries, notification emails, invite emails, the
+workflow outbox, and the
 workspace / project / program export and import queues. Each dispatches what is
 pending and re-dispatches rows whose worker died mid-flight. On top of that,
 every task in the codebase is registered with `acks_late=True` and

@@ -35,6 +35,146 @@ PURGE_BATCH_SIZE = 500
 
 
 # ---------------------------------------------------------------------------
+# Config-change notices — outbox worker, drain, purge (#3009, ADR-1174)
+# ---------------------------------------------------------------------------
+
+# Pending rows younger than this are left to their own on-commit dispatch, which
+# may still be in flight; the drain only picks up what that dispatch stranded.
+CONFIG_NOTICE_ORPHAN_WINDOW = timedelta(minutes=5)
+# Past this a dispatched or running row is presumed lost. Well clear of the emit's
+# 150 s hard time limit, so a live emit is never re-driven underneath itself.
+CONFIG_NOTICE_RECOVERY_WINDOW = timedelta(minutes=10)
+CONFIG_NOTICE_DRAIN_BATCH_SIZE = 100
+CONFIG_NOTICE_RETENTION = timedelta(days=7)
+
+
+@idempotent_task(
+    lock_key_template="config_notice:{0}",
+    lock_ttl=180,
+    on_contention="skip",
+    soft_time_limit=120,
+    time_limit=150,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="projects.emit_config_notice",
+)
+def emit_config_notice(self: object, request_id: str) -> None:
+    """Emit one queued config-change notice.
+
+    Idempotent on the outbox row: the business logic claims it with a conditional
+    UPDATE and no-ops on a row that is running elsewhere or already finished, so a
+    drain re-dispatch racing the on-commit dispatch sends the notice once.
+
+    Args:
+        request_id: ConfigNoticeRequest UUID string.
+    """
+    from trueppm_api.apps.projects.config_notice import run_config_notice_request
+
+    run_config_notice_request(request_id)
+
+
+@idempotent_task(
+    lock_key_template="drain_config_notice_requests",
+    lock_ttl=60,
+    on_contention="skip",
+    soft_time_limit=25,
+    time_limit=30,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="projects.drain_config_notice_requests",
+)
+def drain_config_notice_requests(self: object) -> None:
+    """Recover lost config-notice rows and dispatch stranded pending ones.
+
+    Runs every 30 seconds via Celery Beat. The singleton lock plus
+    ``on_contention="skip"`` means an overlapping tick is dropped rather than
+    queued — the next tick covers it.
+    """
+    _do_config_notice_drain()
+
+
+@idempotent_task(
+    lock_key_template="purge_old_config_notice_requests",
+    lock_ttl=120,
+    on_contention="skip",
+    soft_time_limit=55,
+    time_limit=90,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="projects.purge_old_config_notice_requests",
+)
+def purge_old_config_notice_requests(self: object) -> None:
+    """Delete done/dead ConfigNoticeRequest rows older than seven days. Nightly."""
+    _do_config_notice_purge()
+
+
+def _do_config_notice_drain() -> None:
+    """Business logic for drain_config_notice_requests — extracted for testability."""
+    from trueppm_api.apps.projects.config_notice import MAX_CONFIG_NOTICE_ATTEMPTS
+    from trueppm_api.apps.projects.models import ConfigNoticeRequest, ConfigNoticeRequestStatus
+
+    now = timezone.now()
+    stale = ConfigNoticeRequest.objects.filter(
+        status__in=[ConfigNoticeRequestStatus.DISPATCHED, ConfigNoticeRequestStatus.RUNNING],
+        claimed_at__lt=now - CONFIG_NOTICE_RECOVERY_WINDOW,
+    )
+    abandoned = stale.filter(attempt_count__gte=MAX_CONFIG_NOTICE_ATTEMPTS).update(
+        status=ConfigNoticeRequestStatus.DEAD, completed_at=now
+    )
+    recovered = stale.filter(attempt_count__lt=MAX_CONFIG_NOTICE_ATTEMPTS).update(
+        status=ConfigNoticeRequestStatus.PENDING, celery_task_id=""
+    )
+    if abandoned:
+        logger.error(
+            "drain_config_notice_requests: abandoned %d notice(s) after %d attempts",
+            abandoned,
+            MAX_CONFIG_NOTICE_ATTEMPTS,
+        )
+    if recovered:
+        logger.warning("drain_config_notice_requests: recovered %d lost notice(s)", recovered)
+
+    pending = list(
+        ConfigNoticeRequest.objects.filter(
+            status=ConfigNoticeRequestStatus.PENDING,
+            requested_at__lt=now - CONFIG_NOTICE_ORPHAN_WINDOW,
+        )
+        .order_by("requested_at")
+        .values_list("pk", flat=True)[:CONFIG_NOTICE_DRAIN_BATCH_SIZE]
+    )
+    dispatched = 0
+    for pk in pending:
+        try:
+            result = emit_config_notice.delay(str(pk))
+        except Exception:
+            logger.warning(
+                "drain_config_notice_requests: broker unavailable — %d notice(s) stay pending",
+                len(pending) - dispatched,
+            )
+            break
+        # Conditional: a concurrent on-commit dispatch may already have moved it.
+        ConfigNoticeRequest.objects.filter(pk=pk, status=ConfigNoticeRequestStatus.PENDING).update(
+            status=ConfigNoticeRequestStatus.DISPATCHED,
+            celery_task_id=str(result.id),
+            claimed_at=now,
+        )
+        dispatched += 1
+
+    if dispatched:
+        logger.info("drain_config_notice_requests: dispatched=%d", dispatched)
+
+
+def _do_config_notice_purge() -> None:
+    """Business logic for purge_old_config_notice_requests — extracted for testability."""
+    from trueppm_api.apps.projects.models import ConfigNoticeRequest, ConfigNoticeRequestStatus
+
+    deleted, _ = ConfigNoticeRequest.objects.filter(
+        status__in=[ConfigNoticeRequestStatus.DONE, ConfigNoticeRequestStatus.DEAD],
+        requested_at__lt=timezone.now() - CONFIG_NOTICE_RETENTION,
+    ).delete()
+    logger.info("purge_old_config_notice_requests: deleted %d row(s)", deleted)
+
+
+# ---------------------------------------------------------------------------
 # close_sprint — applies a single SprintCloseRequest
 # ---------------------------------------------------------------------------
 

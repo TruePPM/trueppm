@@ -25,7 +25,7 @@ This document classifies every `transaction.on_commit` callsite in
 
 ### The outbox machinery (what "protected" means)
 
-Four durable outbox models back every Celery-dispatching callback. Each has a
+Five durable outbox models back every Celery-dispatching callback. Each has a
 Beat drain task that re-dispatches stranded PENDING rows:
 
 | Outbox model | Enqueue helper | Drain task | Consumer |
@@ -34,6 +34,7 @@ Beat drain task that re-dispatches stranded PENDING rows:
 | `WebhookDelivery` (webhooks) | `dispatch_webhooks()` | `drain_webhook_queue` | outbound webhook POST |
 | `ImportRequest` (msproject) | `enqueue_import()` | import drain | MS Project import |
 | `SprintCloseRequest` (projects) | `enqueue_sprint_close()` | `drain_sprint_close_requests` | sprint close transition |
+| `ConfigNoticeRequest` (projects) | `config_notice.notify_board_config_change()` / `notify_surface_changes()` | `drain_config_notice_requests` | config-change inbox notices (ADR-1174) |
 
 Any callback that calls one of these helpers is outbox-protected *by definition*
 — the helper writes the durable row before (or instead of) dispatching.
