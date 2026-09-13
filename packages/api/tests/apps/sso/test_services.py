@@ -670,6 +670,27 @@ def test_oidc_role_for_falls_back_on_raise() -> None:
     assert extensions.oidc_role_for({}, p) == WorkspaceRole.MEMBER
 
 
+def test_oidc_role_for_clamps_owner_to_default_role() -> None:
+    """A buggy (or malicious) mapper must never mint OWNER via SSO auto-create (#3555)."""
+    extensions.register_oidc_identity_mapper(lambda claims, cfg: WorkspaceRole.OWNER)
+    p = SsoProviderPolicy(default_role=WorkspaceRole.MEMBER)
+    assert extensions.oidc_role_for({}, p) == WorkspaceRole.MEMBER
+
+
+def test_oidc_role_for_clamps_unknown_ordinal_to_default_role() -> None:
+    """An ordinal that isn't a valid WorkspaceRole at all must also fall back (#3555)."""
+    extensions.register_oidc_identity_mapper(lambda claims, cfg: 400_000)
+    p = SsoProviderPolicy(default_role=WorkspaceRole.MEMBER)
+    assert extensions.oidc_role_for({}, p) == WorkspaceRole.MEMBER
+
+
+def test_oidc_role_for_honors_admin_from_mapper() -> None:
+    """ADMIN is within the allowed ceiling and must still be honored (#3555)."""
+    extensions.register_oidc_identity_mapper(lambda claims, cfg: WorkspaceRole.ADMIN)
+    p = SsoProviderPolicy(default_role=WorkspaceRole.MEMBER)
+    assert extensions.oidc_role_for({}, p) == WorkspaceRole.ADMIN
+
+
 def test_local_login_allowed_default_true() -> None:
     assert extensions.local_login_allowed(object()) is True
 
