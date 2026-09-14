@@ -2,7 +2,7 @@
 
 The **TruePPM** name and wordmark, the dependency-arrow **mark/logo**, and the
 visual brand identity in this directory (the SVG files under `assets/`, the
-favicon, and the app icon) are **trademarks of TruePPM, Inc.**
+favicon, and the app icon) are **trademarks of MacroDream, LLC.**
 
 ## These assets are NOT covered by the repository's Apache 2.0 license
 
@@ -17,7 +17,7 @@ You **may not**:
   unofficial build;
 - modify, recolor, stretch, rotate, or otherwise alter the marks (see
   `brand-guidelines.html`);
-- imply endorsement by or affiliation with TruePPM, Inc.
+- imply endorsement by or affiliation with TruePPM or MacroDream, LLC.
 
 You **may**:
 
