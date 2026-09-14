@@ -425,6 +425,23 @@ def _build_ga_launch_v20() -> dict:
         "calendar": "standard",
         "lead": "malcolm",
         "default_view": "SCHEDULE",
+        # Forecast-trend + Monte Carlo run history (#3494, ADR-0211): the
+        # signature "slips right while the promise holds" arc — commitment
+        # stays fixed, CPM and the MC band all drift later across the window.
+        "forecast_history": {
+            "days": 60,
+            "commitment_finish": "A+30",
+            "cpm_start": "A+24",
+            "cpm_end": "A+36",
+            "p50_start": "A+27",
+            "p50_end": "A+40",
+            "p80_start": "A+30",
+            "p80_end": "A+46",
+            "p95_start": "A+34",
+            "p95_end": "A+54",
+            "mc_iterations": 1500,
+            "completion_ratio": 0.55,
+        },
         "labels": LABELS,
         "tasks": _tasks(platform),
         # A2 SS A4: observability spins up alongside the rollout rather than after it.
@@ -1037,6 +1054,8 @@ def _build_ga_launch_v20() -> dict:
             "methodology": "HYBRID",
             "color": "#7C3AED",
             "lead": "dana",
+            "mc_history_enabled": True,
+            "mc_history_attribution_audience": "scheduler_plus",
         },
         "accounts": _accounts(),
         "calendars": [

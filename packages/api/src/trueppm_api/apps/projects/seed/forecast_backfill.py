@@ -41,8 +41,15 @@ from zoneinfo import ZoneInfo
 from trueppm_api.apps.projects.seed.reldates import resolve_date
 from trueppm_api.apps.scheduling.models import (
     ForecastSnapshotTrigger,
+    MonteCarloRun,
     ProjectForecastSnapshot,
 )
+
+# Cadence (in days) at which a MonteCarloRun history row is derived from the
+# ProjectForecastSnapshot backfill (#3494). "Roughly weekly" rather than daily:
+# a real Scheduler+ user runs Monte Carlo occasionally, not every day, and the
+# history panel/tornado only need enough points to show drift over time.
+_MC_RUN_CADENCE_DAYS = 7
 
 # Backfilled snapshots are captured at local noon on their historical day — a
 # stable, timezone-neutral hour so ordering by captured_at is unambiguous and the
@@ -164,3 +171,77 @@ def _mc_series(spec: dict[str, Any], pct: str, anchor: date) -> _Series | None:
     if start is None or end is None:
         return None
     return _Series(start, end)
+
+
+def backfill_monte_carlo_run_history(
+    project: Any,
+    snapshots: list[ProjectForecastSnapshot],
+    *,
+    triggered_by: Any,
+) -> list[MonteCarloRun]:
+    """Derive ``MonteCarloRun`` history rows from an already-backfilled snapshot run.
+
+    Reads (never recomputes) the ``ProjectForecastSnapshot`` rows
+    :func:`backfill_forecast_history` just created, so the run history and the
+    trend chart can never disagree (#3494) — no MC history panel/tornado is
+    blank on a freshly-loaded sample that carries ``forecast_history``, and the
+    two views of the same drift are derived from one source.
+
+    Only every ``_MC_RUN_CADENCE_DAYS``th snapshot becomes a run — a real
+    Scheduler+ user clicks "Run" roughly weekly, not once a day, and the panel
+    only needs enough points to show drift. Snapshots with no MC band
+    (``mc_p50_finish is None`` — a CPM-only ``forecast_history`` block) or no
+    recorded iteration count produce no runs: ``MonteCarloRun.n_simulations`` is
+    required and non-null, and a project with no authored percentiles/iteration
+    count has nothing to derive it from.
+
+    Args:
+        project: the ``Project`` the runs belong to.
+        snapshots: the rows returned by ``backfill_forecast_history``, oldest
+            first, each already carrying its historical ``captured_at``.
+        triggered_by: the user attributed as the run author (the seed's
+            Scheduler-role persona for this project, falling back to the
+            program's or the importing owner — see ``importer._scheduler_persona``).
+
+    Returns:
+        The created rows (oldest first), so a caller/test can assert on them.
+    """
+    candidates = [
+        s
+        for s in snapshots[::_MC_RUN_CADENCE_DAYS]
+        if s.mc_p50_finish is not None and s.mc_iterations is not None
+    ]
+    if not candidates:
+        return []
+
+    runs = [
+        MonteCarloRun(
+            project=project,
+            triggered_by=triggered_by,
+            p50=snap.mc_p50_finish,
+            p80=snap.mc_p80_finish,
+            p95=snap.mc_p95_finish,
+            cpm_finish=snap.cpm_finish,
+            # mypy can't carry the `is not None` filter above across the
+            # comprehension boundary; the candidates list already guarantees it.
+            n_simulations=int(snap.mc_iterations),  # type: ignore[arg-type]
+            task_count=snap.task_count,
+            status_date=snap.captured_at.date(),
+            # distribution/diagnostic/plan_version are left null — the same
+            # "Nullable with NO backfill" precedent MonteCarloRun already
+            # documents for pre-feature runs: a seeded historical row has no
+            # stored simulation payload, and the frontend already renders the
+            # empty-state prose for that case.
+        )
+        for snap in candidates
+    ]
+
+    # taken_at is auto_now_add, so bulk_create stamps now() regardless of any
+    # value set on the instance; backdate it in a second pass (the same
+    # pattern backfill_forecast_history uses for captured_at) so each run
+    # sits on its historical day rather than the import moment.
+    MonteCarloRun.objects.bulk_create(runs)
+    for run, snap in zip(runs, candidates, strict=True):
+        run.taken_at = snap.captured_at
+    MonteCarloRun.objects.bulk_update(runs, ["taken_at"])
+    return runs

@@ -124,6 +124,14 @@
           "maxItems": 1000,
           "description": "v2.1, BUNDLED SAMPLES ONLY. An audited agent trail for the agent-oversight panel. Audit evidence must not be authorable by a file a user controls, so every non-sample import rejects this key. Rows are written through the real hash chain and marked as sample data in hashed fields.",
           "items": { "$ref": "#/$defs/agentAction" }
+        },
+        "mc_history_enabled": {
+          "type": "boolean",
+          "description": "Program-level override of the Monte Carlo run-history feature (ADR-0144). Omit to inherit the workspace default; set true on a program whose projects author `forecast_history` so the MC history panel/tornado are populated on load (#3494)."
+        },
+        "mc_history_attribution_audience": {
+          "enum": ["admin_owner", "scheduler_plus", "none"],
+          "description": "Program-level override of who may see the run-author name on Monte Carlo history (ADR-0144). Omit to inherit the workspace default."
         }
       }
     },

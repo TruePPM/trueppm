@@ -76,7 +76,10 @@ from trueppm_api.apps.projects.models import (
     TaskStatus,
     bulk_create_tasks,
 )
-from trueppm_api.apps.projects.seed.forecast_backfill import backfill_forecast_history
+from trueppm_api.apps.projects.seed.forecast_backfill import (
+    backfill_forecast_history,
+    backfill_monte_carlo_run_history,
+)
 from trueppm_api.apps.projects.seed.reldates import (
     WorkingCalendar,
     resolve_anchor,
@@ -1020,7 +1023,26 @@ class _SeedImporter:
         lead = self.users.get(data["lead"]) if data.get("lead") else None
         if lead is not None:
             program.lead = lead
-        program.save(update_fields=["code", "color", "lead", "name", "description", "methodology"])
+        # Per-scope Monte Carlo forecast-history overrides (#3494, ADR-0144).
+        # Both are NULL-means-inherit on the model, so only set them when the
+        # seed authors them explicitly — an absent key must not clobber the
+        # workspace default with a false "explicitly disabled".
+        if "mc_history_enabled" in data:
+            program.mc_history_enabled = data["mc_history_enabled"]
+        if "mc_history_attribution_audience" in data:
+            program.mc_history_attribution_audience = data["mc_history_attribution_audience"]
+        program.save(
+            update_fields=[
+                "code",
+                "color",
+                "lead",
+                "name",
+                "description",
+                "methodology",
+                "mc_history_enabled",
+                "mc_history_attribution_audience",
+            ]
+        )
         self._grant_program_memberships(program)
         return program
 
@@ -1962,11 +1984,14 @@ class _SeedImporter:
                 Baseline.objects.filter(pk=baseline.pk).update(has_cpm_dates=True)
 
     def _backfill_forecast_history(self) -> None:
-        """Synthesize ProjectForecastSnapshot history for projects that author it.
+        """Synthesize ProjectForecastSnapshot + MonteCarloRun history for projects
+        that author a ``forecast_history`` block.
 
         Delegates the drift math to ``forecast_backfill`` (ADR-0211). Keyed off the
         seed's ``forecast_history`` block so it is opt-in and generic — only the
-        history-aware samples carry it, but any v2 seed may.
+        history-aware samples carry it, but any v2 seed may. The MonteCarloRun
+        history (#3494) is derived from the same snapshot rows, not recomputed, so
+        the MC history panel and the forecast-trend chart can never disagree.
         """
         for project_data in self.payload["projects"]:
             spec = project_data.get("forecast_history")
@@ -1979,7 +2004,7 @@ class _SeedImporter:
             # the forecast-trend chart, and a task_count that steps at the join is a
             # discontinuity in demo data with no cause a viewer can find.
             task_count = Task.committed.filter(project=project).count()
-            backfill_forecast_history(
+            snapshots = backfill_forecast_history(
                 project,
                 spec,
                 anchor=self.anchor,
@@ -1987,6 +2012,44 @@ class _SeedImporter:
                 project_slug=project_data["slug"],
                 task_count=task_count,
             )
+            backfill_monte_carlo_run_history(
+                project,
+                snapshots,
+                triggered_by=self._scheduler_persona(project_data),
+            )
+
+    def _scheduler_persona(self, project_data: dict[str, Any]) -> Any:
+        """Resolve the user MonteCarloRun history (#3494) attributes seeded runs to.
+
+        A run's ``triggered_by`` is display/audit metadata (ADR-0175), never
+        access control, so this need not be exact — but it should read as a real
+        person, not the importing owner, when the seed casts one. Only a
+        Scheduler+ role may actually persist an attributed run (``run_monte_carlo``
+        docstring), so preference goes to whichever of that ladder the project
+        casts, project scope first: the project's own ``members`` override (or
+        the program-roster fallback ``_grant_project_memberships`` would apply)
+        for SCHEDULER, then ADMIN, then OWNER; then the same three at program
+        scope; then the importing owner as a last resort (every program has one).
+        """
+        declared = project_data.get("members")
+        project_pairs = (
+            [(entry["account"], entry["role"]) for entry in declared]
+            if declared is not None
+            else [
+                (account["slug"], account.get("role", ""))
+                for account in self.payload.get("accounts", [])
+            ]
+        )
+        program_pairs = [
+            (account["slug"], account.get("role", ""))
+            for account in self.payload.get("accounts", [])
+        ]
+        for role_name in ("SCHEDULER", "ADMIN", "OWNER"):
+            for pairs in (project_pairs, program_pairs):
+                for slug, pair_role in pairs:
+                    if pair_role == role_name and self.users.get(slug) is not None:
+                        return self.users[slug]
+        return self.owner
 
     # --- v2.1 collaboration sections (#3603) --------------------------------
 

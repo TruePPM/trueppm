@@ -7,6 +7,8 @@
     "methodology": "HYBRID",
     "color": "#7C3AED",
     "lead": "dana",
+    "mc_history_enabled": true,
+    "mc_history_attribution_audience": "scheduler_plus",
     "backlog_items": [
       {
         "slug": "public-status-page",
@@ -290,6 +292,20 @@
       "calendar": "standard",
       "lead": "malcolm",
       "default_view": "SCHEDULE",
+      "forecast_history": {
+        "days": 60,
+        "commitment_finish": "A+30",
+        "cpm_start": "A+24",
+        "cpm_end": "A+36",
+        "p50_start": "A+27",
+        "p50_end": "A+40",
+        "p80_start": "A+30",
+        "p80_end": "A+46",
+        "p95_start": "A+34",
+        "p95_end": "A+54",
+        "mc_iterations": 1500,
+        "completion_ratio": 0.55
+      },
       "labels": [
         {
           "slug": "critical-path",

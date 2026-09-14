@@ -143,6 +143,63 @@ program. A `members` entry naming no `accounts[]` slug is a validation error
 rather than a silent skip, because the silent version reproduces exactly the
 blindness the key exists to fix.
 
+### Forecast trend and Monte Carlo run history: `forecast_history` + `mc_history_*`
+
+A freshly-loaded project has no history for the forecast-trend chart or the
+Monte Carlo run panel — both are populated only after a real recompute or a
+real "Run" click, which never happens on a demo that nobody has touched yet. A
+project's `forecast_history` block backfills that history at import time
+instead of hand-authoring dozens of rows:
+
+```json
+{
+  "forecast_history": {
+    "days": 60,
+    "commitment_finish": "A+40",
+    "cpm_start": "A+55",
+    "cpm_end": "A+46",
+    "p50_start": "A+58",
+    "p50_end": "A+50",
+    "p80_start": "A+62",
+    "p80_end": "A+54",
+    "p95_start": "A+68",
+    "p95_end": "A+60",
+    "mc_iterations": 2500,
+    "completion_ratio": 0.6
+  }
+}
+```
+
+One `ProjectForecastSnapshot` is synthesized per day across the window, with
+the deterministic CPM finish and each Monte Carlo percentile interpolated
+linearly from its `*_start` to its `*_end` date while `commitment_finish`
+stays fixed. The percentiles are all-or-none — author the full `p50`/`p80`/`p95`
+start+end set, or omit them entirely for a CPM-only history (the MC lines stay
+null until someone runs Monte Carlo for real).
+
+`MonteCarloRun` history (the run-attribution panel and the top-drivers
+tornado read this, not the snapshot table) is derived from that same backfill
+— never recomputed independently, so the two views of one drift can't
+disagree. Roughly one run is persisted per week across the window (a real
+Scheduler+ user does not click "Run" daily), attributed to the highest-ranking
+Scheduler+ persona the seed casts on that project (SCHEDULER, then ADMIN, then
+OWNER, project scope before program scope). A project whose block omits the MC
+percentiles gets no run history either — `MonteCarloRun.n_simulations` is
+required, and there is nothing to derive it from.
+
+The MC history panel itself is gated per program by two more keys, both
+`null`-means-inherit-the-workspace-default the same way `public_sharing` and
+`allow_guests` do:
+
+- **`mc_history_enabled`** (boolean) — turns the run-history panel on for
+  every project in the program.
+- **`mc_history_attribution_audience`** (`"admin_owner"` / `"scheduler_plus"` /
+  `"none"`) — who may see the run-author name on a history row.
+
+A program with at least one project carrying `forecast_history` should set
+`mc_history_enabled: true`, or the backfilled runs exist but the panel that
+reads them stays off.
+
 ## Worked examples: the bundled fixtures
 
 The prose below explains the format's shape. The five bundled fixtures *are* the
