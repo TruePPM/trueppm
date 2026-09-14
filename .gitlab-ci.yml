@@ -1814,14 +1814,15 @@ api:extension-signals:
   # failure mode this actually has to catch.
   #
   # A fail-closed veto (a receiver raising IS the mechanism) keeps .send() and is
-  # allowed by a FAIL-CLOSED comment above the call. Grep + sed; ~1s.
+  # allowed by a FAIL-CLOSED comment above the call. Grep + sed for Part 1;
+  # Part 2's sender-convention check (#3777) walks the AST with python3.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   before_script:
-    - apk add --no-cache bash grep sed
+    - apk add --no-cache bash grep sed python3
   script:
     # Self-test FIRST: a bare Signal().send() lets an enterprise receiver's
     # exception break the OSS write path that fired it. Prove the gate still

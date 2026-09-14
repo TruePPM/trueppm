@@ -31,6 +31,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from trueppm_api.apps.workspace.models import WorkspaceRole
+from trueppm_api.core.extension_providers import guard_single_provider
 
 if TYPE_CHECKING:
     from trueppm_api.apps.sso.models import SsoProviderPolicy
@@ -51,7 +52,7 @@ def register_oidc_identity_mapper(
 ) -> None:
     """Register (or clear, with ``None``) the claims→role mapper. Enterprise calls this."""
     global _IDENTITY_MAPPER
-    _IDENTITY_MAPPER = provider
+    _IDENTITY_MAPPER = guard_single_provider(_IDENTITY_MAPPER, provider, "oidc identity mapper")
 
 
 def oidc_role_for(claims: dict[str, Any], config: SsoProviderPolicy) -> int:
@@ -96,7 +97,7 @@ def oidc_role_for(claims: dict[str, Any], config: SsoProviderPolicy) -> int:
 def register_local_login_policy_provider(provider: Callable[[Any], bool] | None) -> None:
     """Register (or clear, with ``None``) the password-login policy. Enterprise calls this."""
     global _LOCAL_LOGIN_POLICY
-    _LOCAL_LOGIN_POLICY = provider
+    _LOCAL_LOGIN_POLICY = guard_single_provider(_LOCAL_LOGIN_POLICY, provider, "local login policy")
 
 
 def local_login_policy_enforced() -> bool:

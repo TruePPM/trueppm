@@ -111,6 +111,58 @@ connection-count cost.
 - **Viewer realtime is explicitly a non-goal for 0.3**, with a documented upgrade
   path, closing the "is this a bug?" ambiguity the audit raised.
 
+## Amendment (2026-09-14, #3767) — the layer's default is now DENY
+
+ADR-0184 rests on a premise that was true of the *object* check and not of the
+*permission* check: "every path fails closed". Fourteen role/membership classes
+derived from `_project_pk_from_view` / `_program_pk_from_view` ended `has_permission`
+with a bare `return True` when the URL kwarg did not resolve. Only
+`has_object_permission` failed closed.
+
+That was never a live vulnerability — every call site compensated, and #3767 verified
+all of them — but it made safety a property of the *call sites* rather than of the
+layer, so a newly added `detail=False` write action reopened the hole by existing.
+`TaskViewSet.delete_untouched_seeded` documents the bug class in its own docstring,
+which is the tell: a comment asking future authors to remember something is a gate
+that does not exist.
+
+**The default is inverted.** On an unresolvable scope, `has_permission` now denies,
+with three arms that stay open:
+
+1. **An unknown project id** (a view that declares `project_url_kwarg` naming a
+   project that is not live) still stands down, so the view's own 404 answers.
+   Denying here would rebuild the membership-scoped existence oracle #3129 closed —
+   a real-but-invisible project answering 403 while an unknown id answers 404.
+2. **Safe methods** still fall through. A read on an unscoped route is narrowed by
+   `ProjectScopedViewSet`'s membership-filtered queryset and by the object check;
+   closing this arm would 403 every top-level list rather than tighten anything.
+3. **ViewSet detail routes** still fall through, because `get_object()` runs
+   `check_object_permissions`. This is the same reasoning the route-table invariant
+   already records as `ENFORCED_BY_VIEWSET`.
+
+**Anything else opts in by declaring why.** A view sets
+`resolves_scope_in_body = "<reason>"` — or `{action: reason}` where only some of a
+viewset's actions need it — and the reason must name the in-body call that gates the
+write. Eighteen `(route, action)` pairs across fifteen views carry one today; each is
+pinned by name in `SCOPE_IN_BODY_ENTRIES` in
+`tests/apps/access/test_route_table_invariants.py`, so adding one is a reviewable
+diff rather than a quiet attribute. The declaration lives on the view, not in a list,
+for the same reason `archived_write_exempt` does: the reason travels with the code it
+excuses.
+
+**What this does not fix.** Three classes carry their entire gate in
+`has_object_permission` with `has_permission` being authentication-only —
+`IsProjectMemberWriteOrOwn`, `CanLogTime`, `IsTaskScopeManager`. They are the same
+fragility class and are deliberately out of scope: `CanLogTime` avoids a role check
+in `has_permission` *on purpose*, so that a cross-project task 404s from a
+membership-scoped queryset instead of 403-ing, and moving it would create the
+existence oracle arm 1 above exists to avoid. And a `detail=True` `@action` that
+never calls `get_object()` is admitted by arm 3 and gated by nothing — unchanged from
+before this amendment, but now load-bearing rather than incidental.
+
+This amendment narrows nothing ADR-0184 decided; the additive doctrine stands, and
+every in-body check it added remains authoritative.
+
 ## Alternatives considered
 
 - **Add a permission class to SprintScopeChange too.** Rejected: it breaks the tested
