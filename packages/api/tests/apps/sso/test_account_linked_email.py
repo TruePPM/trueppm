@@ -145,3 +145,46 @@ def test_mail_send_exception_does_not_break_the_link(
 
     assert resolved == local_user
     assert created is False
+
+
+@override_settings(EMAIL_BACKEND=_LOCMEM)
+@pytest.mark.django_db(transaction=True)
+def test_auto_create_sends_no_link_email(provider_ctx: services.ProviderContext) -> None:
+    """Branch 4 (auto-create) never calls the link-notice sender at all.
+
+    There is no pre-existing account to notify — the notice exists to tell an
+    account's *prior* owner a credential was just added to something that already
+    existed, which auto-create is not.
+    """
+    provider_ctx.policy.auto_create_members = True
+    provider_ctx.policy.save(update_fields=["auto_create_members"])
+
+    _resolved, created = services.resolve_user(
+        provider_ctx,
+        {"sub": "sub-new-notify", "email": "new-notify@example.com", "email_verified": True},
+    )
+
+    assert created is True
+    assert mail.outbox == []
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_refused_link_sends_no_email(provider_ctx: services.ProviderContext) -> None:
+    """A deactivated account is refused before the notice is ever registered (#2875).
+
+    ``_require_active`` raises before ``transaction.on_commit`` is reached in branch 3,
+    and the whole ``resolve_user`` transaction rolls back — so even if it had been
+    registered, Django would never fire it. This asserts the observable outcome (no
+    mail), which is what would actually catch a future reordering bug.
+    """
+    User.objects.create_user(
+        username="hank_notify", email="hank-notify@example.com", password="pw", is_active=False
+    )
+
+    with pytest.raises(services.OIDCAccountDisabled):
+        services.resolve_user(
+            provider_ctx,
+            {"sub": "sub-hank-notify", "email": "hank-notify@example.com", "email_verified": True},
+        )
+
+    assert mail.outbox == []
