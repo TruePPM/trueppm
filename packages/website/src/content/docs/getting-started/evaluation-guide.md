@@ -446,13 +446,10 @@ Have them do this while you watch:
    tasks moving P80. That's the difference between "we're on track" and "we're 80%
    likely by this date, and here's what would change it."
 
-:::note[Why not sign in as the sponsor persona?]
-`atlas-alex` drives because the desktop forecast bar needs a Member-or-above
-role. Atlas's executive-sponsor persona, **`atlas-ada`**, seeds as a read-only
-**Viewer** — the right role for a sponsor, but one that currently hides the
-forecast bar on desktop
-([#2492](https://gitlab.com/trueppm/trueppm/-/issues/2492)). Watching over a
-shoulder is the honest path today, and it is how a sponsor uses this anyway.
+:::note[Prefer to drive it yourself?]
+Sign in as Atlas's executive-sponsor persona, **`atlas-ada`** — a read-only
+**Viewer**, the right role for a sponsor. A Viewer sees the same **Forecast**
+bar and **Details ›** breakdown, and cannot change the plan while reading it.
 :::
 
 The portfolio dashboard and pushed weekly digest you'd want next are still

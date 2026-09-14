@@ -189,5 +189,5 @@ scopes cannot override it (**Enforce**) will be a TruePPM Enterprise capability.
 ## If you are…
 
 - **Sarah (construction PM)** — set Waterfall. Sprint chrome disappears; Schedule and Grid (outline mode) dominate.
-- **Maya (Scrum Master)** — set Agile. Schedule and Calendar disappear and Grid defaults to flat mode; Sprints and Board dominate.
-- **Diana (PMO Director)** — leave Hybrid as the default for projects that span teams. Override per project where the team's method is clear.
+- **Alex (Scrum Master)** — set Agile. Schedule and Calendar disappear and Grid defaults to flat mode; Sprints and Board dominate.
+- **Marcus (PMO Director)** — leave Hybrid as the default for projects that span teams. Override per project where the team's method is clear.

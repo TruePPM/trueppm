@@ -1,6 +1,7 @@
 ---
 title: Platform Overview
 description: What TruePPM is, who it's for, and how the open-core model works.
+documentedFor: "0.4"
 ---
 
 TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platform built for teams that run **waterfall, agile, and hybrid programs** — all from a single data model.
@@ -33,14 +34,20 @@ TruePPM is designed around eight roles that exist in real hybrid-delivery organi
 
 | Persona | Role | Primary surface |
 |---------|------|----------------|
-| **Sarah** | Project Manager | Schedule (Gantt), CPM, Monte Carlo |
-| **Alex** | Scrum Master / Agile Delivery Lead | Board, Sprints, Velocity, Retrospective |
+| **Sarah** | Delivery / Program Manager | Schedule (Gantt), CPM, Monte Carlo |
+| **Alex** | Delivery Lead — Scrum Master and agile coach | Board, Sprints, Velocity, Retrospective, team health signals |
 | **Jordan** | Product Owner | Backlog management, velocity-based release forecasting, sprint scope protection |
 | **Priya** | Team Member / Contributor | Board cards, Sprint backlog, My Work |
 | **David** | Resource Manager | Capacity preflight, Allocation |
-| **Marcus** | PMO Director | Programs, Portfolio (Enterprise) |
+| **Marcus** | PMO Director / Portfolio Manager | Programs, Portfolio (Enterprise) |
 | **Janet** | Executive Sponsor | Monte Carlo confidence, RAG status (Enterprise) |
-| **Morgan** | Agile Coach | Team health signals, Practice maturity |
+| **Theo** | AI-Native Technical Operator | The read-only MCP server — questions to the live plan from an agent |
+
+:::note[Ships in 0.4]
+Theo's primary surface, the read-only MCP server, ships in **0.4**, TruePPM's
+first beta. On `v0.3.0-alpha.3`, the latest release, an agent reaches TruePPM
+through the REST API only. See the [roadmap](/overview/roadmap/).
+:::
 
 See [The Story](/the-story/) for an end-to-end walkthrough of how these roles interact on a real hybrid program.
 

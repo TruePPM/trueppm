@@ -12,7 +12,7 @@ This is the home view for a PM planning and tracking a project's timeline. The *
 
 ## Where this lives in the story
 
-Step 2 ([Schedule the skeleton — CPM, milestones, baseline](/the-story/#2-schedule-the-skeleton--cpm-milestones-baseline)) and Step 6 ([Execute](/the-story/#6-execute--daily-cadence-two-worlds-in-sync)) of the [hybrid PM flow](/the-story/) — Raj's home; the view that auto-re-forecasts when the team moves a card on the board.
+Step 2 ([Schedule the skeleton — CPM, milestones, baseline](/the-story/#2-schedule-the-skeleton--cpm-milestones-baseline)) and Step 6 ([Execute](/the-story/#6-execute--daily-cadence-two-worlds-in-sync)) of the [hybrid PM flow](/the-story/) — Sarah's home; the view that auto-re-forecasts when the team moves a card on the board.
 
 ## Where to find it in the app
 
@@ -853,6 +853,6 @@ The [Advancing-to-Milestone card](/features/sprints/) on the Sprints view links 
 
 ## If you are…
 
-- **Raj (PM)** — this is your home. The critical path lights up automatically; a task's actual dates overlay as a dashed bar once you record them; the milestone diamonds are your contractual signal.
-- **Maya (Scrum Master)** — you don't open this day to day. When you do, the sprint windows are where your cadence is visible against Raj's gates — and the one place you can see a gate landing inside one of your sprints.
-- **Tom (engineer)** — you don't open this either. The Schedule auto-re-forecasts off your board moves.
+- **Sarah (PM)** — this is your home. The critical path lights up automatically; a task's actual dates overlay as a dashed bar once you record them; the milestone diamonds are your contractual signal.
+- **Alex (Scrum Master)** — you don't open this day to day. When you do, the sprint windows are where your cadence is visible against Sarah's gates — and the one place you can see a gate landing inside one of your sprints.
+- **Priya (engineer)** — you don't open this either. The Schedule auto-re-forecasts off your board moves.

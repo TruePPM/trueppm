@@ -23,7 +23,7 @@ Turning it on shows one card per project where you have unfinished work in an ac
 
 ## Where this lives in the story
 
-Steps 5–7 of the [hybrid PM flow](/the-story/) — bridges across projects. Single-project users never see the toggle; team leads (Maya supporting two Scrum teams, Sarah balancing across PMs, Diana reviewing the portfolio) all converge here.
+Steps 5–7 of the [hybrid PM flow](/the-story/) — bridges across projects. Single-project users never see the toggle; team leads (Alex supporting two Scrum teams, David balancing across PMs, Marcus reviewing the portfolio) all converge here.
 
 ## What you see
 
@@ -78,6 +78,6 @@ This is a single-team-lead use case (looking across their own assignments within
 
 ## If you are…
 
-- **Maya** — covering two Scrum teams? The toggle gives you both sprints in one screen.
-- **Sarah** — same, across the projects you allocate resources to.
-- **Diana** — your single-project view of how your portfolio is trending today, without leaving the Sprints workspace.
+- **Alex** — covering two Scrum teams? The toggle gives you both sprints in one screen.
+- **David** — same, across the projects you allocate resources to.
+- **Marcus** — your single-project view of how your portfolio is trending today, without leaving the Sprints workspace.

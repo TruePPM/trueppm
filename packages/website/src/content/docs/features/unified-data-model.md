@@ -165,7 +165,7 @@ Typical hybrid task:
   status:            IN_PROGRESS
 ```
 
-Raj sees a Schedule-view bar with float and critical-path coloring. Maya sees a sprint card with story points and remaining effort. They're looking at the same database row. When Maya moves the card to COMPLETE, `actual_finish` is set, CPM re-runs, and Raj's Schedule view updates in real time via WebSocket — without either of them touching a sync button.
+Sarah sees a Schedule-view bar with float and critical-path coloring. Alex sees a sprint card with story points and remaining effort. They're looking at the same database row. When Alex moves the card to COMPLETE, `actual_finish` is set, CPM re-runs, and Sarah's Schedule view updates in real time via WebSocket — without either of them touching a sync button.
 
 ## Why no translation layer
 
@@ -175,7 +175,7 @@ Most hybrid tools are integrations: Jira ↔ MS Project, Azure DevOps ↔ Projec
 |---------|-----------------|---------|
 | **Eventual inconsistency** | "Gantt is as of last sync, 4 hours ago" | Same row — always live |
 | **Lossy translation** | Epic → Project task loses story points; Project task → Jira loses float | No translation; both fields on the same row |
-| **Permission divergence** | Tom has Jira access; Sarah has Project access. Information leaks both ways. | One RBAC check per request, one role per user per project |
+| **Permission divergence** | Priya has Jira access; Sarah has Project access. Information leaks both ways. | One RBAC check per request, one role per user per project |
 
 The data model is the integration. There is nothing to sync.
 
