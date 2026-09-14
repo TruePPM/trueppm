@@ -8,12 +8,14 @@ This is for anyone working in the Schedule view day to day. The toolbar gives yo
 
 Of the three, only **`+ Item`** sits in the bar by default. `+ Milestone` and `+ Phase` start in the `Actions` menu: each is a one-click structural insert that lands at your current insertion point, and the bar is also where you click while simply reading a plan. Both keep their keyboard shortcuts, and either can be pinned into the bar from **Display → Outline**.
 
+The **mode chip** comes first, ahead of `+ Item`, because it decides whether the controls after it are there at all. In **Read** mode it reads **Read only · Switch to Author to edit**, and `+ Item`, `+ Milestone`, `+ Phase`, Group and Ungroup are hidden, both in the bar and in the `Actions` menu. To edit, open the chip and turn on **Author mode**, or press `Alt + A`. If the plan has an active baseline, the chip shows which one your edits are measured against (for example **Author · vs Baseline v1**).
+
 ![The Schedule view toolbar: item and milestone insert controls, the Author mode chip, display and zoom controls, Today, Fit to project, and Export PDF](../../../assets/screenshots/schedule-toolbar.webp)
 
 ## Toolbar layout
 
 ```text
-[ + Item ]   ( + Milestone, + Phase · Group · Ungroup — in the Actions menu by default )   [ Author ▾ ]
+[ Author ▾ ]   [ + Item ]   ( + Milestone, + Phase · Group · Ungroup — in the Actions menu by default )
 [ CP only · Focus chain ]   [ Critical path · Milestones ]
                                  ...
 [ {N} items · {S} in sprints · {C} critical · CPM ✓ ]   [ Grid | Timeline ]   [ Today ]   [ − {level} + ] [ Fit ]

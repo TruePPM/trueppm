@@ -463,8 +463,31 @@ key works normally) and **Read**. Read mode is a personal "look, don't touch" se
 forces the view read-only regardless of your project role, so you can review a plan
 without risking an accidental edit. It is **not a permission change** — the server's
 role-based access control is untouched, and it never restricts anyone else. The choice
-persists per project, per browser, and a toolbar pill always shows which mode is active
-so it is never silently on.
+persists per project, per browser, and the mode chip at the start of the toolbar always
+shows which mode is active so it is never silently on.
+
+In Read mode the chip reads **Read only · Switch to Author to edit**, and the toolbar's
+insert and structure controls (`+ Item`, `+ Milestone`, `+ Phase`, Group, Ungroup) are
+hidden rather than greyed out. Open the chip and turn on **Author mode**, or press
+`Alt + A`, to bring them back.
+
+### Editing a plan that has a baseline
+
+If the project has an active baseline, switching from Read to Author asks first. The
+dialog names the baseline, explains that your changes will show as differences from it,
+and that the baseline itself is not changed. If the changes are a re-agreed plan, capture a
+new baseline once you have finished editing — Admins do this from **Project actions →
+Capture baseline**; anyone else is told to ask a project admin. Choose **Switch to Author** to continue or
+**Stay in Read** to back out.
+
+You are asked **once per baseline**, not every time you switch. When a different
+baseline becomes active, the next switch asks again. While you are in Author mode, the
+chip shows the baseline your edits are measured against, for example
+**Author · vs Baseline v1**. If TruePPM cannot tell whether the plan has a baseline — for
+example because the request failed — it asks anyway rather than assuming there is none.
+
+The acknowledgment is a per-browser preference, like the mode itself. It is not an audit
+record, and it does not apply to changes made through the API.
 
 Switching mode also moves the **layout**. Entering Author switches you to **Grid** — the
 layout the row list, outline controls and inline editing live in — and returning to Read
