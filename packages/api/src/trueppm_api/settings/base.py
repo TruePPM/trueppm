@@ -2000,6 +2000,11 @@ RETENTION_PURGE_INFLIGHT_SECONDS: int = env.int("RETENTION_PURGE_INFLIGHT_SECOND
 # that transaction (and its per-task row locks) can be held by one request.
 TRUEPPM_SYNC_BATCH_MAX_ROWS: int = env.int("TRUEPPM_SYNC_BATCH_MAX_ROWS", default=500)
 
+# Batch-wide cap on inline ``owners`` entries across a sync upload batch (#3643):
+# summed over every created/updated task row's ``owners`` list, independent of
+# the row cap above (few rows can still carry many owners each).
+TRUEPPM_SYNC_BATCH_MAX_OWNERS: int = env.int("TRUEPPM_SYNC_BATCH_MAX_OWNERS", default=500)
+
 # Max simultaneously in-flight sync upload batches per user (#1756, defense in
 # depth over the SyncUploadThrottle rate cap). Each accepted batch is a heavy
 # transaction.atomic() (up to TRUEPPM_SYNC_BATCH_MAX_ROWS row locks + a CPM recalc
