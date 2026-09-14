@@ -85,20 +85,29 @@ must stay **future-tense** in any doc reference, since `$MILESTONE` has not ship
 
 ### 1b. Milestone issues (what's already tracked)
 
+A milestone can carry more than 100 issues, and `--per-page 100` alone silently
+truncates at the first page. Use `--paginate`, which emits one JSON array **per page,
+concatenated** — plain `json.load` rejects that, so read it with this helper:
+
 ```bash
-glab issue list --repo trueppm/trueppm --milestone "$MILESTONE" --per-page 100 -O json 2>/dev/null \
-  | python3 -c "
+read_pages() { python3 -c "
+import json,sys
+raw=sys.stdin.read(); dec=json.JSONDecoder(); i=0; out=[]
+while i<len(raw):
+    while i<len(raw) and raw[i].isspace(): i+=1
+    if i>=len(raw): break
+    o,i=dec.raw_decode(raw,i); out+=o
+json.dump(out,sys.stdout)"; }
+```
+
+```bash
+glab api --paginate "projects/trueppm%2Ftrueppm/issues?milestone=$MILESTONE&state=opened&per_page=100" 2>/dev/null \
+  | read_pages | python3 -c "
 import json,sys
 for i in json.load(sys.stdin):
     labels=','.join(i.get('labels',[]) or [])
     print(f\"#{i['iid']:>4}  [{labels}]  {i['title'][:90]}\")
 "
-```
-
-If `glab issue list --search` returns empty (known gotcha in this repo), fall back to
-the REST search:
-```bash
-glab api "projects/trueppm%2Ftrueppm/issues?scope=all&milestone=$MILESTONE&state=opened&per_page=100" 2>/dev/null
 ```
 
 ### 1c. Deferred findings inherited from the last cycle
@@ -118,9 +127,9 @@ Enterprise-governance persona, is a scope flag for Step 4.
 ### 1e. Existing surface (what already exists to build on)
 
 For each intended theme, locate the existing code surface so you can tell *new* assets
-from *extensions of existing* ones. Use `Explore` (medium breadth) per theme rather than
-reading whole trees — you need the conclusion (does a screen/endpoint/model for this
-exist?), not the file dumps. Typical anchors:
+from *extensions of existing* ones. Search directly (Grep/Glob) per theme; you need the
+conclusion (does a screen/endpoint/model for this exist?), not the file dumps. Typical
+anchors:
 - Screens/flows: `packages/web/src/features/<domain>/`
 - Endpoints/serializers: `packages/api/src/**/views.py`, `serializers.py`
 - Models: `packages/api/src/**/models.py`
@@ -157,10 +166,10 @@ prominently.
 
 > **Boundary check.** For any feature whose scope smells like cross-program coordination,
 > portfolio governance, org identity governance (SAML/SCIM/LDAP/enforced SSO), audit
-> trail, or approval workflows, flag it for the `enterprise-check` agent **before** it
-> gets an issue in the OSS tracker. Basic OIDC/OAuth login is OSS — do not bounce it.
-> (See the Two-Repo Rule in CLAUDE.md.) A misfiled boundary is the most expensive gap to
-> fix after code ships.
+> trail, approval workflows, or cross-region HA/DR, flag it for `enterprise-check`
+> **before** it gets an issue in the OSS tracker. Basic OIDC/OAuth login and
+> single-cluster HA are OSS — do not bounce them. (See the Two-Repo Rule in CLAUDE.md.)
+> A misfiled boundary is the most expensive gap to fix after code ships.
 
 ---
 
