@@ -3255,14 +3255,12 @@ describe('useProjectWebSocket — signal-privacy, velocity-suggestion, task-rela
     });
   }
 
-  function findPredicateCall(invalidateSpy: ReturnType<typeof vi.spyOn>) {
+  function findPredicateCall(invalidateSpy: { mock: { calls: unknown[][] } }) {
     const call = invalidateSpy.mock.calls.find(
-      (c: unknown[]) => typeof (c[0] as { predicate?: unknown } | undefined)?.predicate === 'function',
+      (c) => typeof (c[0] as { predicate?: unknown } | undefined)?.predicate === 'function',
     );
     expect(call).toBeDefined();
-    return (
-      call![0] as unknown as { predicate: (q: { queryKey: readonly unknown[] }) => boolean }
-    ).predicate;
+    return (call![0] as { predicate: (q: { queryKey: readonly unknown[] }) => boolean }).predicate;
   }
 
   // --- #3771: signal-privacy ceiling voting ---
