@@ -381,7 +381,17 @@
       "job_role": "Engineering Lead",
       "max_units": 1.0,
       "calendar": "standard",
-      "account": "priya"
+      "account": "priya",
+      "skills": [
+        {
+          "name": "Security review",
+          "proficiency": "expert"
+        },
+        {
+          "name": "Python",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "jordan",
@@ -405,7 +415,17 @@
       "job_role": "Senior Engineer",
       "max_units": 1.0,
       "calendar": "standard",
-      "account": "mei"
+      "account": "mei",
+      "skills": [
+        {
+          "name": "OAuth and OIDC",
+          "proficiency": "expert"
+        },
+        {
+          "name": "Python",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "diego",
@@ -413,7 +433,17 @@
       "job_role": "Senior Engineer",
       "max_units": 1.0,
       "calendar": "standard",
-      "account": "diego"
+      "account": "diego",
+      "skills": [
+        {
+          "name": "Email delivery",
+          "proficiency": "expert"
+        },
+        {
+          "name": "Python",
+          "proficiency": "intermediate"
+        }
+      ]
     },
     {
       "slug": "nadia",
@@ -421,7 +451,17 @@
       "job_role": "Engineer",
       "max_units": 1.0,
       "calendar": "standard",
-      "account": "nadia"
+      "account": "nadia",
+      "skills": [
+        {
+          "name": "Billing systems",
+          "proficiency": "intermediate"
+        },
+        {
+          "name": "Python",
+          "proficiency": "intermediate"
+        }
+      ]
     },
     {
       "slug": "tom",
@@ -429,7 +469,17 @@
       "job_role": "Engineer",
       "max_units": 1.0,
       "calendar": "standard",
-      "account": "tom"
+      "account": "tom",
+      "skills": [
+        {
+          "name": "Payments",
+          "proficiency": "beginner"
+        },
+        {
+          "name": "Python",
+          "proficiency": "intermediate"
+        }
+      ]
     },
     {
       "slug": "yuki",
@@ -437,7 +487,17 @@
       "job_role": "Data Engineer",
       "max_units": 1.0,
       "calendar": "standard",
-      "account": "yuki"
+      "account": "yuki",
+      "skills": [
+        {
+          "name": "Data pipelines",
+          "proficiency": "expert"
+        },
+        {
+          "name": "SQL",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "omar",
@@ -445,7 +505,17 @@
       "job_role": "Data Engineer",
       "max_units": 1.0,
       "calendar": "standard",
-      "account": "omar"
+      "account": "omar",
+      "skills": [
+        {
+          "name": "Data pipelines",
+          "proficiency": "intermediate"
+        },
+        {
+          "name": "SQL",
+          "proficiency": "intermediate"
+        }
+      ]
     },
     {
       "slug": "lena",
@@ -453,7 +523,13 @@
       "job_role": "QA Engineer",
       "max_units": 1.0,
       "calendar": "standard",
-      "account": "lena"
+      "account": "lena",
+      "skills": [
+        {
+          "name": "Test automation",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "raj",
@@ -461,7 +537,13 @@
       "job_role": "DevOps Engineer",
       "max_units": 0.8,
       "calendar": "standard",
-      "account": "raj"
+      "account": "raj",
+      "skills": [
+        {
+          "name": "Kubernetes",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "clara",
@@ -469,7 +551,13 @@
       "job_role": "Content Strategist",
       "max_units": 1.0,
       "calendar": "gtm-regional",
-      "account": "clara"
+      "account": "clara",
+      "skills": [
+        {
+          "name": "Technical writing",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "ivan",
@@ -1037,7 +1125,7 @@
         {
           "wbs_path": "2.6",
           "name": "Tenant data cutover hook",
-          "type": "story",
+          "type": "tech_debt",
           "status": "ON_HOLD",
           "story_points": 5,
           "parent_epic": "2",
@@ -1055,8 +1143,7 @@
               "note": "Gated on the migration team's Performance tuning — the cross-project predecessor that must land before this hook can cut over."
             }
           ],
-          "notes": "Committed to the active sprint but gated on the migration team's Performance tuning task — a cross-project predecessor whose finish lands after this sprint closes. Demonstrates the dependency-reality at-risk indicator (#372).",
-          "dor": "ready"
+          "notes": "Committed to the active sprint but gated on the migration team's Performance tuning task — a cross-project predecessor whose finish lands after this sprint closes. Demonstrates the dependency-reality at-risk indicator (#372)."
         },
         {
           "wbs_path": "2.7",
@@ -1194,6 +1281,12 @@
               "text": "Progress resumes after a worker restart"
             }
           ],
+          "skill_requirements": [
+            {
+              "skill": "Data pipelines",
+              "min_proficiency": "intermediate"
+            }
+          ],
           "dor": "ready"
         },
         {
@@ -1247,7 +1340,7 @@
         {
           "wbs_path": "3.8",
           "name": "Anomaly detection spike",
-          "type": "story",
+          "type": "spike",
           "status": "BACKLOG",
           "story_points": 3,
           "parent_epic": "3",
@@ -1367,6 +1460,12 @@
             },
             {
               "text": "An out-of-scope jurisdiction is refused at checkout, never taxed at zero"
+            }
+          ],
+          "skill_requirements": [
+            {
+              "skill": "Billing systems",
+              "min_proficiency": "expert"
             }
           ],
           "dor": "ready"
@@ -1516,6 +1615,12 @@
               "text": "A user who opts out receives nothing"
             }
           ],
+          "skill_requirements": [
+            {
+              "skill": "Email delivery",
+              "min_proficiency": "intermediate"
+            }
+          ],
           "dor": "ready"
         },
         {
@@ -1588,6 +1693,67 @@
           "is_milestone": true,
           "delivery_mode": "milestone",
           "planned_start": "A+51"
+        },
+        {
+          "wbs_path": "2.11",
+          "name": "Webhook signature check rejects rotated secrets",
+          "type": "bug",
+          "status": "BACKLOG",
+          "story_points": 2,
+          "parent_epic": "2",
+          "assignee": "tom",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "dor": "refine",
+          "labels": [
+            "customer-request"
+          ]
+        },
+        {
+          "wbs_path": "10",
+          "name": "Daily standup",
+          "status": "NOT_STARTED",
+          "duration": 1,
+          "assignee": "sam",
+          "delivery_mode": "scrum",
+          "recurrence": {
+            "frequency": "WEEKLY",
+            "weekdays": [
+              "mon",
+              "tue",
+              "wed",
+              "thu",
+              "fri"
+            ],
+            "time_of_day": "09:30"
+          }
+        },
+        {
+          "wbs_path": "2.8.1",
+          "name": "Retry history query endpoint",
+          "status": "NOT_STARTED",
+          "duration": 1,
+          "assignee": "tom",
+          "is_subtask": true,
+          "delivery_mode": "scrum"
+        },
+        {
+          "wbs_path": "2.8.2",
+          "name": "Dashboard retry timeline",
+          "status": "NOT_STARTED",
+          "duration": 1,
+          "assignee": "tom",
+          "is_subtask": true,
+          "delivery_mode": "scrum"
+        },
+        {
+          "wbs_path": "2.8.3",
+          "name": "Alert when retries are exhausted",
+          "status": "NOT_STARTED",
+          "duration": 1,
+          "assignee": "diego",
+          "is_subtask": true,
+          "delivery_mode": "scrum"
         }
       ],
       "dependencies": [
@@ -1880,7 +2046,20 @@
             "5.1"
           ]
         }
-      ]
+      ],
+      "team": {
+        "name": "Platform Core Team",
+        "members": [
+          {
+            "account": "sam",
+            "scrum_master": true
+          },
+          {
+            "account": "jordan",
+            "product_owner": true
+          }
+        ]
+      }
     },
     {
       "slug": "migration-tooling",
@@ -3130,7 +3309,20 @@
             "1.3"
           ]
         }
-      ]
+      ],
+      "team": {
+        "name": "GTM Enablement",
+        "members": [
+          {
+            "account": "sam",
+            "scrum_master": true
+          },
+          {
+            "account": "jordan",
+            "product_owner": true
+          }
+        ]
+      }
     }
   ],
   "events": [
@@ -4050,6 +4242,15 @@
       "actor": "clara",
       "minutes": 120,
       "note": "Launch blog, pricing section"
+    },
+    {
+      "at": "A-4T10:10",
+      "action": "task.block",
+      "target": "task:platform-core:2.6",
+      "actor": "omar",
+      "body": "Waiting on Migration's performance tuning (3.2): the cutover hook has nothing to hook into until the tuned pipeline exists.",
+      "blocker_type": "dependency",
+      "blocking_task": "migration-tooling:3.2"
     }
   ]
 }

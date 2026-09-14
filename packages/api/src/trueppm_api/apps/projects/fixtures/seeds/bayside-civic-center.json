@@ -165,7 +165,13 @@
       "job_role": "Site Superintendent",
       "max_units": 1.0,
       "account": "diego",
-      "calendar": "site"
+      "calendar": "site",
+      "skills": [
+        {
+          "name": "Steel erection",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "tom",
@@ -173,7 +179,13 @@
       "job_role": "Concrete Foreman",
       "max_units": 1.0,
       "account": "tom",
-      "calendar": "concrete-crew"
+      "calendar": "concrete-crew",
+      "skills": [
+        {
+          "name": "Concrete",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "nadia",
@@ -181,7 +193,13 @@
       "job_role": "MEP Lead",
       "max_units": 1.0,
       "account": "nadia",
-      "calendar": "site"
+      "calendar": "site",
+      "skills": [
+        {
+          "name": "MEP coordination",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "omar",
@@ -189,7 +207,13 @@
       "job_role": "Inspector",
       "max_units": 0.5,
       "account": "omar",
-      "calendar": "site"
+      "calendar": "site",
+      "skills": [
+        {
+          "name": "Inspection",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "raj",
@@ -197,7 +221,13 @@
       "job_role": "Project Scheduler",
       "max_units": 1.0,
       "account": "raj",
-      "calendar": "site"
+      "calendar": "site",
+      "skills": [
+        {
+          "name": "Scheduling",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "ada",
@@ -545,6 +575,21 @@
           "labels": [
             "critical-path"
           ]
+        },
+        {
+          "wbs_path": "5",
+          "name": "Weekly site status report",
+          "status": "NOT_STARTED",
+          "duration": 1,
+          "assignee": "diego",
+          "delivery_mode": "waterfall",
+          "recurrence": {
+            "frequency": "WEEKLY",
+            "weekdays": [
+              "fri"
+            ],
+            "time_of_day": "15:00"
+          }
         }
       ],
       "dependencies": [
@@ -906,6 +951,12 @@
               "target": "bayside-sitework:3.4",
               "link_type": "relates_to",
               "note": "Electrical rough-in mobilizes three days ahead of this framing inspection — see the structural gate for the cert date."
+            }
+          ],
+          "skill_requirements": [
+            {
+              "skill": "MEP coordination",
+              "min_proficiency": "expert"
             }
           ]
         },
@@ -1745,6 +1796,14 @@
       "actor": "diego",
       "minutes": 360,
       "note": "Re-tie the north face to spec"
+    },
+    {
+      "at": "A-5T10:30",
+      "action": "task.block",
+      "target": "task:bayside-building:1.4",
+      "actor": "tom",
+      "body": "The rooftop-unit manufacturer moved lot two's ship date out three weeks; no firm date until their next production slot is confirmed.",
+      "blocker_type": "vendor"
     }
   ]
 }

@@ -151,7 +151,17 @@
       "job_role": "Platform Engineer",
       "max_units": 1.0,
       "account": "malcolm",
-      "calendar": "standard"
+      "calendar": "standard",
+      "skills": [
+        {
+          "name": "Kubernetes",
+          "proficiency": "expert"
+        },
+        {
+          "name": "Auth systems",
+          "proficiency": "intermediate"
+        }
+      ]
     },
     {
       "slug": "janus",
@@ -159,7 +169,17 @@
       "job_role": "InfoSec Engineer",
       "max_units": 1.0,
       "account": "janus",
-      "calendar": "standard"
+      "calendar": "standard",
+      "skills": [
+        {
+          "name": "Penetration testing",
+          "proficiency": "expert"
+        },
+        {
+          "name": "Auth systems",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "bob",
@@ -167,7 +187,13 @@
       "job_role": "Compliance Officer",
       "max_units": 1.0,
       "account": "bob",
-      "calendar": "standard"
+      "calendar": "standard",
+      "skills": [
+        {
+          "name": "SOC 2",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "jane",
@@ -175,7 +201,13 @@
       "job_role": "Marketing Lead",
       "max_units": 1.0,
       "account": "jane",
-      "calendar": "standard"
+      "calendar": "standard",
+      "skills": [
+        {
+          "name": "Product marketing",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "lena",
@@ -183,7 +215,17 @@
       "job_role": "Technical Writer",
       "max_units": 0.6,
       "account": "lena",
-      "calendar": "standard"
+      "calendar": "standard",
+      "skills": [
+        {
+          "name": "Technical writing",
+          "proficiency": "expert"
+        },
+        {
+          "name": "Policy writing",
+          "proficiency": "intermediate"
+        }
+      ]
     },
     {
       "slug": "sam",
@@ -191,7 +233,13 @@
       "job_role": "Backend Engineer",
       "max_units": 1.0,
       "account": "sam",
-      "calendar": "standard"
+      "calendar": "standard",
+      "skills": [
+        {
+          "name": "Python",
+          "proficiency": "expert"
+        }
+      ]
     }
   ],
   "risks": [
@@ -568,6 +616,12 @@
               "resource": "janus",
               "units": 0.5
             }
+          ],
+          "skill_requirements": [
+            {
+              "skill": "Policy writing",
+              "min_proficiency": "expert"
+            }
           ]
         },
         {
@@ -841,6 +895,12 @@
             {
               "resource": "sam",
               "units": 0.5
+            }
+          ],
+          "skill_requirements": [
+            {
+              "skill": "Auth systems",
+              "min_proficiency": "expert"
             }
           ]
         },
@@ -1187,6 +1247,40 @@
             "critical-path",
             "cross-workstream"
           ]
+        },
+        {
+          "wbs_path": "6",
+          "name": "Marketing standup",
+          "status": "NOT_STARTED",
+          "duration": 1,
+          "assignee": "dana",
+          "delivery_mode": "scrum",
+          "recurrence": {
+            "frequency": "WEEKLY",
+            "weekdays": [
+              "tue",
+              "thu"
+            ],
+            "time_of_day": "10:00"
+          }
+        },
+        {
+          "wbs_path": "4.1",
+          "name": "Analyst briefing deck",
+          "status": "NOT_STARTED",
+          "duration": 1,
+          "assignee": "jane",
+          "is_subtask": true,
+          "delivery_mode": "scrum"
+        },
+        {
+          "wbs_path": "4.2",
+          "name": "Press list and embargo notes",
+          "status": "NOT_STARTED",
+          "duration": 1,
+          "assignee": "jane",
+          "is_subtask": true,
+          "delivery_mode": "scrum"
         }
       ],
       "dependencies": [
@@ -1334,7 +1428,20 @@
             "5"
           ]
         }
-      ]
+      ],
+      "team": {
+        "name": "Launch Marketing",
+        "members": [
+          {
+            "account": "dana",
+            "scrum_master": true
+          },
+          {
+            "account": "jane",
+            "product_owner": true
+          }
+        ]
+      }
     }
   ],
   "events": [
@@ -1762,6 +1869,21 @@
       "actor": "lena",
       "minutes": 240,
       "note": "Blog draft and docs diff"
+    },
+    {
+      "at": "A-3T11:30",
+      "action": "task.block",
+      "target": "task:ga-marketing:4",
+      "actor": "jane",
+      "body": "No embargo time yet, so outreach cannot be scheduled with anyone.",
+      "blocker_type": "other"
+    },
+    {
+      "at": "A-2T10:00",
+      "action": "task.unblock",
+      "target": "task:ga-marketing:4",
+      "actor": "dana",
+      "body": "Embargo set for go-live morning."
     }
   ]
 }

@@ -339,7 +339,10 @@ def test_phase_parents_are_pure_rollups(stem: str, _min: int, _max: int) -> None
     # Mirrors the #1753 API locks: a task with structural children is a phase —
     # a pure rollup that carries no status/estimate/assignee/sprint/points.
     for project in _load(stem)["projects"]:
-        paths = {t["wbs_path"] for t in project["tasks"]}
+        # Only *structural* children make a phase. Drawer subtasks leave their parent
+        # a leaf that keeps its own status, owner and sprint — ``task_is_phase``
+        # excludes ``is_subtask`` children for exactly this reason (#3498).
+        paths = {t["wbs_path"] for t in project["tasks"] if not t.get("is_subtask")}
         parents = {
             t["wbs_path"]: t
             for t in project["tasks"]

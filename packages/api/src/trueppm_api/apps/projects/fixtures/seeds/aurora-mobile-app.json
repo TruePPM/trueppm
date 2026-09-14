@@ -199,7 +199,13 @@
       "job_role": "Product Owner",
       "max_units": 1.0,
       "calendar": "aurora-core",
-      "account": "priya"
+      "account": "priya",
+      "skills": [
+        {
+          "name": "Product discovery",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "sam",
@@ -207,7 +213,13 @@
       "job_role": "Scrum Master",
       "max_units": 0.5,
       "calendar": "aurora-core",
-      "account": "sam"
+      "account": "sam",
+      "skills": [
+        {
+          "name": "Agile coaching",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "raj",
@@ -223,7 +235,17 @@
       "job_role": "Engineer",
       "max_units": 1.0,
       "calendar": "aurora-core",
-      "account": "mei"
+      "account": "mei",
+      "skills": [
+        {
+          "name": "iOS",
+          "proficiency": "expert"
+        },
+        {
+          "name": "Biometrics",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "diego",
@@ -231,7 +253,17 @@
       "job_role": "Engineer",
       "max_units": 1.0,
       "calendar": "aurora-core",
-      "account": "diego"
+      "account": "diego",
+      "skills": [
+        {
+          "name": "Android",
+          "proficiency": "intermediate"
+        },
+        {
+          "name": "iOS",
+          "proficiency": "intermediate"
+        }
+      ]
     },
     {
       "slug": "nadia",
@@ -239,7 +271,17 @@
       "job_role": "Engineer",
       "max_units": 1.0,
       "calendar": "aurora-core",
-      "account": "nadia"
+      "account": "nadia",
+      "skills": [
+        {
+          "name": "Android",
+          "proficiency": "expert"
+        },
+        {
+          "name": "Offline sync",
+          "proficiency": "intermediate"
+        }
+      ]
     },
     {
       "slug": "tom",
@@ -247,7 +289,17 @@
       "job_role": "QA Engineer",
       "max_units": 1.0,
       "calendar": "aurora-core",
-      "account": "tom"
+      "account": "tom",
+      "skills": [
+        {
+          "name": "Test automation",
+          "proficiency": "expert"
+        },
+        {
+          "name": "Crash reporting",
+          "proficiency": "intermediate"
+        }
+      ]
     },
     {
       "slug": "ada",
@@ -255,7 +307,13 @@
       "job_role": "Accessibility Advisor",
       "max_units": 0.1,
       "calendar": "aurora-flex",
-      "account": "ada"
+      "account": "ada",
+      "skills": [
+        {
+          "name": "Accessibility",
+          "proficiency": "expert"
+        }
+      ]
     }
   ],
   "projects": [
@@ -281,7 +339,15 @@
           "status": "IN_PROGRESS",
           "label": "In Progress",
           "visible": true,
-          "wip_limit": 4
+          "wip_limit": 4,
+          "age_threshold_days": 5,
+          "lanes": [
+            {
+              "key": "support",
+              "label": "Support",
+              "wip_limit": 2
+            }
+          ]
         },
         {
           "status": "REVIEW",
@@ -525,6 +591,12 @@
             {
               "text": "Two devices editing notification prefs never lose either change"
             }
+          ],
+          "skill_requirements": [
+            {
+              "skill": "Offline sync",
+              "min_proficiency": "expert"
+            }
           ]
         },
         {
@@ -616,6 +688,12 @@
             },
             {
               "text": "Crash reporting can be turned off in settings"
+            }
+          ],
+          "skill_requirements": [
+            {
+              "skill": "Crash reporting",
+              "min_proficiency": "intermediate"
             }
           ]
         },
@@ -936,6 +1014,100 @@
           "delivery_mode": "scrum",
           "governance_class": "flow",
           "dor": "idea"
+        },
+        {
+          "wbs_path": "7",
+          "name": "Upload spinner never clears on a flaky network",
+          "type": "bug",
+          "status": "IN_PROGRESS",
+          "assignee": "tom",
+          "delivery_mode": "kanban",
+          "governance_class": "flow",
+          "board_lane": "support"
+        },
+        {
+          "wbs_path": "8",
+          "name": "Push token not refreshed after reinstall",
+          "type": "bug",
+          "status": "IN_PROGRESS",
+          "assignee": "nadia",
+          "delivery_mode": "kanban",
+          "governance_class": "flow",
+          "board_lane": "support"
+        },
+        {
+          "wbs_path": "9",
+          "name": "Dark mode contrast on settings toggles",
+          "type": "bug",
+          "status": "IN_PROGRESS",
+          "assignee": "diego",
+          "delivery_mode": "kanban",
+          "governance_class": "flow",
+          "board_lane": "support"
+        },
+        {
+          "wbs_path": "10",
+          "name": "Deep link from email opens a blank screen",
+          "type": "bug",
+          "status": "COMPLETE",
+          "assignee": "tom",
+          "delivery_mode": "kanban",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "11",
+          "name": "Onboarding skip resets after logout",
+          "type": "bug",
+          "status": "NOT_STARTED",
+          "assignee": "mei",
+          "delivery_mode": "kanban",
+          "governance_class": "flow"
+        },
+        {
+          "wbs_path": "12",
+          "name": "Daily standup",
+          "status": "NOT_STARTED",
+          "duration": 1,
+          "assignee": "sam",
+          "delivery_mode": "scrum",
+          "recurrence": {
+            "frequency": "WEEKLY",
+            "weekdays": [
+              "mon",
+              "tue",
+              "wed",
+              "thu",
+              "fri"
+            ],
+            "time_of_day": "09:15"
+          }
+        },
+        {
+          "wbs_path": "1.6.1",
+          "name": "Static shortcuts manifest",
+          "status": "NOT_STARTED",
+          "duration": 1,
+          "assignee": "mei",
+          "is_subtask": true,
+          "delivery_mode": "scrum"
+        },
+        {
+          "wbs_path": "1.6.2",
+          "name": "Resume-last-project dynamic shortcut",
+          "status": "NOT_STARTED",
+          "duration": 1,
+          "assignee": "mei",
+          "is_subtask": true,
+          "delivery_mode": "scrum"
+        },
+        {
+          "wbs_path": "1.6.3",
+          "name": "Shortcut usage analytics event",
+          "status": "NOT_STARTED",
+          "duration": 1,
+          "assignee": "nadia",
+          "is_subtask": true,
+          "delivery_mode": "scrum"
         }
       ],
       "baselines": [
@@ -1210,7 +1382,20 @@
           "created_by": "priya",
           "expires_in_days": 30
         }
-      ]
+      ],
+      "team": {
+        "name": "Aurora Squad",
+        "members": [
+          {
+            "account": "sam",
+            "scrum_master": true
+          },
+          {
+            "account": "priya",
+            "product_owner": true
+          }
+        ]
+      }
     }
   ],
   "events": [
@@ -1775,6 +1960,41 @@
       "actor": "tom",
       "minutes": 150,
       "note": "Crash reporting review: symbol upload"
+    },
+    {
+      "at": "A-12T10:00",
+      "action": "task.status",
+      "target": "task:aurora:7",
+      "actor": "tom",
+      "to": "IN_PROGRESS"
+    },
+    {
+      "at": "A-8T11:00",
+      "action": "task.status",
+      "target": "task:aurora:8",
+      "actor": "nadia",
+      "to": "IN_PROGRESS"
+    },
+    {
+      "at": "A-2T09:30",
+      "action": "task.status",
+      "target": "task:aurora:9",
+      "actor": "diego",
+      "to": "IN_PROGRESS"
+    },
+    {
+      "at": "A-15T10:00",
+      "action": "task.status",
+      "target": "task:aurora:10",
+      "actor": "tom",
+      "to": "IN_PROGRESS"
+    },
+    {
+      "at": "A-11T16:00",
+      "action": "task.status",
+      "target": "task:aurora:10",
+      "actor": "tom",
+      "to": "COMPLETE"
     }
   ]
 }
