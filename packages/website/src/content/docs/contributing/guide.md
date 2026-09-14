@@ -28,6 +28,10 @@ channel today — there is no separate chat or forum yet.
 Be respectful — disagreement about technical choices is fine, disrespect
 toward contributors is not.
 
+**Governance:** who maintains TruePPM, how decisions are made and recorded, whether
+maintainership is open, and how the open-core boundary is decided are set out in
+[GOVERNANCE.md](https://gitlab.com/trueppm/trueppm/-/blob/main/GOVERNANCE.md).
+
 ## Getting set up
 
 ```bash
