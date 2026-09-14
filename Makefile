@@ -458,6 +458,20 @@ ws-event-reachability-check: ## Run the docs:ws-event-reachability CI job locall
 	@# client, or carry a `not deliverable` marker. 50ms.
 	@bash scripts/check-ws-event-reachability.sh
 
+docs-internal-links-check: ## Run the docs:internal-links CI job locally (#2869)
+	@# Every internal docs link must reach a page, heading anchor, asset or repo
+	@# source file that exists. Reads the Markdown source, not dist/, so a
+	@# starlight-versions snapshot cannot trip it. ~1s, no build, no network.
+	@python3 scripts/check-docs-internal-links.py --self-test
+	@python3 scripts/check-docs-internal-links.py
+
+docs-api-routes-check: ## Run the docs:api-routes CI job locally (#3753)
+	@# Every `METHOD /api/v1/…` the docs name must exist in docs/api/openapi.json,
+	@# and schema operations missing from the API reference are a shrink-only
+	@# ratchet (scripts/docs-api-reference-unlisted.txt). ~1s, no network.
+	@python3 scripts/check-docs-api-routes.py --self-test
+	@python3 scripts/check-docs-api-routes.py
+
 e2e-catchall-check: ## Run the lint:e2e-catchall CI job locally (#2941)
 	@bash scripts/check-e2e-catchall.sh --self-test
 	@bash scripts/check-e2e-catchall.sh
@@ -566,6 +580,8 @@ pre-push-checks: version-status-check
 pre-push-checks: config-doc-links-check
 pre-push-checks: docs-tree-split-check
 pre-push-checks: ws-event-reachability-check
+pre-push-checks: docs-internal-links-check
+pre-push-checks: docs-api-routes-check
 pre-push-checks: e2e-catchall-check
 pre-push-checks: demo-nginx-allowlist-check
 pre-push-checks: package-licenses-check

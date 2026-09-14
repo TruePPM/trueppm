@@ -278,7 +278,7 @@ any project and the choice sticks.
 Sorting is a Table/Grid affordance rather than a Schedule one: the outline's row
 order **is** the work breakdown structure, so it cannot be re-ordered by a column
 without destroying the containment it exists to show. To rank tasks by slack, open
-the same two columns on the [Table/Grid view](/features/grid/), where they will be
+the same two columns on the [Table/Grid view](/features/schedule-toolbar/#layout-grid-and-timeline), where they will be
 sortable. Tasks with no computed float sort last in both directions.
 
 ### On a narrow desktop window

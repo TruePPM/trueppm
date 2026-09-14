@@ -106,7 +106,7 @@ categories below, send a real request first and confirm you get an
   (`POST /api/v1/workspace/sso/providers/`, which keys on a unique
   `(workspace, slug)` constraint and answers `409` on a duplicate).
 - **Replaying a stored response would bypass read-time redaction** —
-  notification updates (`PATCH /api/v1/notifications/{id}/` and snooze). A
+  notification updates (`PATCH /api/v1/me/notifications/{id}/` and snooze). A
   notification's subject, body, and project are redacted when the recipient is no
   longer a member of that project; a cached response captured while they still
   were would replay the unredacted content. Both mutations are already naturally

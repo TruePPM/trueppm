@@ -147,7 +147,7 @@ here: a scope change is a fact about the sprint's commitment, not a velocity
 signal, so both audiences read it.
 
 The drawer is backed by
-[`GET /sprints/{id}/scope-changes/`](/features/board-sprint-panel/#api-endpoints-touched) —
+[`GET /sprints/{id}/scope-changes/`](/features/board-sprint-panel/#for-developers-and-integrators) —
 the same endpoint that powers the [Board mid-sprint scope-change
 badge](/features/board-sprint-panel/#mid-sprint-scope-changes). It is a
 visibility surface only; it never accepts or rejects a change.

@@ -1295,6 +1295,54 @@ docs:ws-event-reachability:
     - bash scripts/check-ws-event-reachability.sh
     - bash scripts/check-ws-event-reachability.sh --self-test
 
+docs:internal-links:
+  extends: .fast-job
+  # Internal documentation link gate (#2869). Nothing checked internal links, so
+  # api/reference.md pointed at /features/csv-import/ long after the page became
+  # /features/csv-import-export/ (#2846). Every internal link must reach a page
+  # (or a redirect in astro.config.mjs), a heading anchor derived the way Astro
+  # derives it (github-slugger), an asset, or — for GitLab blob/tree links — a
+  # file in this repository.
+  #
+  # It reads the Markdown source, not dist/, and resolves each link against the
+  # URL its source file publishes at. starlight-versions writes a snapshot and
+  # rewrites that snapshot's links in the same build, so a rewritten link never
+  # exists without its target and the gate cannot fire spuriously during a
+  # release cut — the hazard that deferred this from #2846. Refuses to pass when
+  # it matched no pages, links or anchors. ~1s, no build.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache python3
+  script:
+    - python3 scripts/check-docs-internal-links.py --self-test
+    - python3 scripts/check-docs-internal-links.py
+
+docs:api-routes:
+  extends: .fast-job
+  # API route documentation gate (#3753). The API reference is hand-written and
+  # nothing compared it to docs/api/openapi.json, so api/idempotency.md named
+  # PATCH /api/v1/notifications/{id}/ while the route is /api/v1/me/notifications/.
+  # Forward: every METHOD /api/v1/… the published docs name must be an operation
+  # in the schema, or a path declared removed in scripts/schema-removal-allowlist.txt
+  # (how api/stability.md records removals). Reverse: schema operations the API
+  # reference does not mention are a shrink-only ratchet in
+  # scripts/docs-api-reference-unlisted.txt — a new undocumented operation fails,
+  # and so does a line whose operation is now documented or gone. ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache python3
+  script:
+    - python3 scripts/check-docs-api-routes.py --self-test
+    - python3 scripts/check-docs-api-routes.py
+
 docs:adr-status:
   extends: .fast-job
   # ADR status-drift gate (#2685). An ADR cited by name from packages/*/src must
