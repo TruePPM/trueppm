@@ -253,7 +253,7 @@ window](/features/schedule/#on-a-narrow-desktop-window). An em dash in either ce
 means the scheduler has not reached that row yet, which is not the same as zero
 slack; a negative value reads in the critical color. Neither column sorts here — the
 outline's order is the WBS — but both will be sortable on the
-[Table/Grid view](/features/grid/).
+[Table/Grid view](#layout-grid-and-timeline).
 
 ### The Links column
 
