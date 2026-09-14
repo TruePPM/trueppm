@@ -135,6 +135,11 @@ location_body() {
 }
 
 # ── Per-config assertions ────────────────────────────────────────────────────
+# Every assertion feeds grep with a here-string, never `printf "$x" | grep -q`.
+# Under `set -o pipefail` the pipe form reports a PRESENT line as missing: grep
+# exits on its first match, the still-writing printf takes SIGPIPE (141), and
+# that becomes the pipeline's status. It reded CI on unchanged trees, dropping a
+# different header each time (#3758). The self-test scans for the pattern.
 check_config() {
   local label="$1" text="$2"
 
@@ -155,24 +160,24 @@ check_config() {
     admin="$(printf '%s\n' "$body" | location_body "/admin/" || true)"
     if [ -n "$admin" ]; then
       checked_admin=$((checked_admin + 1))
-      if printf '%s\n' "$admin" | grep -qE '(^|[ \t{])return[ \t]+[0-9]'; then
+      if grep -qE '(^|[ \t{])return[ \t]+[0-9]' <<<"$admin"; then
         : # closed outright — the path does not exist on this listener
       else
-        printf '%s\n' "$admin" | grep -qE '(^|[ \t{])deny[ \t]+all[ \t]*;' \
+        grep -qE '(^|[ \t{])deny[ \t]+all[ \t]*;' <<<"$admin" \
           || viol "$label" "location /admin/ proxies without a \`deny all\` — a default install publishes the Django admin login (#2569)."
-        printf '%s\n' "$admin" | grep -q 'limit_req[ \t]' \
+        grep -q 'limit_req[ \t]' <<<"$admin" \
           || viol "$label" "location /admin/ proxies without a \`limit_req\` — Django admin is a plain Django view, so no DRF throttle covers it (#2569)."
       fi
     fi
 
     # (A) Only blocks that actually serve the SPA document need the header set.
     #     The compose :80 ACME/redirect listener serves no document and is exempt.
-    printf '%s\n' "$body" | grep -q 'try_files.*index\.html' || continue
+    grep -q 'try_files.*index\.html' <<<"$body" || continue
     checked_blocks=$((checked_blocks + 1))
 
-    printf '%s\n' "$body" | grep -qE 'add_header[ \t]+X-Frame-Options[ \t]+"?DENY"?[ \t]+always' \
+    grep -qE 'add_header[ \t]+X-Frame-Options[ \t]+"?DENY"?[ \t]+always' <<<"$body" \
       || viol "$label" "SPA server block #$idx does not set \`add_header X-Frame-Options \"DENY\" always\` — the document is framable for clickjacking."
-    printf '%s\n' "$body" | grep -qE 'add_header[ \t]+X-Content-Type-Options[ \t]+"?nosniff"?[ \t]+always' \
+    grep -qE 'add_header[ \t]+X-Content-Type-Options[ \t]+"?nosniff"?[ \t]+always' <<<"$body" \
       || viol "$label" "SPA server block #$idx does not set \`add_header X-Content-Type-Options \"nosniff\" always\`."
 
     # Referrer-Policy (#3553). The value matters, not just the presence: a policy
@@ -182,9 +187,9 @@ check_config() {
     if [ -z "$refpol" ]; then
       viol "$label" "SPA server block #$idx sets no Referrer-Policy — a navigation off any TruePPM page then sends the full URL to the destination origin (#3553)."
     else
-      printf '%s\n' "$refpol" | grep -q 'always' \
+      grep -q 'always' <<<"$refpol" \
         || viol "$label" "SPA server block #$idx sets a Referrer-Policy without \`always\` — nginx then omits it on every 4xx/5xx response."
-      printf '%s\n' "$refpol" | grep -qE '"?(no-referrer|same-origin|strict-origin|origin|strict-origin-when-cross-origin)"?[ \t]+always' \
+      grep -qE '"?(no-referrer|same-origin|strict-origin|origin|strict-origin-when-cross-origin)"?[ \t]+always' <<<"$refpol" \
         || viol "$label" "SPA server block #$idx Referrer-Policy discloses the full URL cross-origin — use one of no-referrer / same-origin / strict-origin / origin / strict-origin-when-cross-origin (#3553)."
     fi
 
@@ -193,17 +198,17 @@ check_config() {
     if [ -z "$csp" ]; then
       viol "$label" "SPA server block #$idx sets no Content-Security-Policy."
     else
-      printf '%s\n' "$csp" | grep -q 'always' \
+      grep -q 'always' <<<"$csp" \
         || viol "$label" "SPA server block #$idx sets a CSP without \`always\` — nginx then omits it on every 4xx/5xx response."
-      printf '%s\n' "$csp" | grep -q "default-src 'self'" \
+      grep -q "default-src 'self'" <<<"$csp" \
         || viol "$label" "SPA server block #$idx CSP has no \`default-src 'self'\` baseline."
-      printf '%s\n' "$csp" | grep -q "frame-ancestors 'none'" \
+      grep -q "frame-ancestors 'none'" <<<"$csp" \
         || viol "$label" "SPA server block #$idx CSP has no \`frame-ancestors 'none'\` (the modern counterpart to X-Frame-Options)."
     fi
 
     # (B) HSTS only where TLS actually terminates.
-    if printf '%s\n' "$body" | grep -qE '(^|[ \t{])listen[ \t].*ssl'; then
-      printf '%s\n' "$body" | grep -qE 'add_header[ \t]+Strict-Transport-Security' \
+    if grep -qE '(^|[ \t{])listen[ \t].*ssl' <<<"$body"; then
+      grep -qE 'add_header[ \t]+Strict-Transport-Security' <<<"$body" \
         || viol "$label" "SPA server block #$idx terminates TLS but sets no Strict-Transport-Security."
     fi
   done
@@ -216,19 +221,61 @@ check_file() {
     echo "ERROR: expected nginx config not found: $path" >&2
     return 2
   fi
+  local before="$violations"
   check_config "$label" "$(cat "$path")"
+  if [ "$violations" -gt "$before" ]; then
+    file_provenance "$label" "$path"
+  fi
+}
+
+# A file-read target has no render to blame, so the only question is whether the
+# bytes asserted on are the committed bytes (#3331). The helm provenance dump
+# cannot answer that — it examines a different path entirely, and once printed a
+# clean verdict under a file-read violation it had never looked at.
+file_provenance() {
+  local label="$1" path="$2" disk head
+  {
+    echo ""
+    echo "--- file provenance: $label (#3331, #3758) ---"
+    disk="$(git hash-object -- "$path" 2>/dev/null || echo '(unavailable)')"
+    head="$(git rev-parse "HEAD:$path" 2>/dev/null || echo '(unavailable)')"
+    echo "  path              : $path"
+    echo "  on-disk blob      : $disk"
+    echo "  HEAD blob         : $head"
+    if [ "$disk" = "$head" ] && [ "$disk" != "(unavailable)" ]; then
+      echo "  VERDICT: the gate read the committed bytes. If the lines below confirm the"
+      echo "           violation, it is real: fix the config. If the line the violation"
+      echo "           calls missing IS printed below, the assertion itself misfired —"
+      echo "           retry the job and add its URL to #3758."
+    else
+      echo "  VERDICT: the bytes on disk are NOT the committed file. Locally that is an"
+      echo "           uncommitted edit; in CI the checkout is not what the pipeline is"
+      echo "           testing — RETRY THE JOB and add its URL to #3331."
+    fi
+    echo "  listen / try_files / add_header lines on disk:"
+    grep -nE '^[[:space:]]*(listen|try_files|add_header)[[:space:]]' "$path" \
+      | sed 's/^/    /' || true
+    echo "  /admin/ blocks on disk:"
+    sed -n '/location[[:space:]]*\/admin\//,/}/p' "$path" | sed 's/^/    /' || true
+    echo "--- end file provenance ---"
+  } >&2 || true
 }
 
 # Render one branch of the chart's web ConfigMap and check the nginx it emits.
 check_helm() {
   local label="$1"; shift
-  local rendered
+  local rendered err
+  # stderr is kept apart so the provenance dump can compare these exact stdout
+  # bytes against a re-render; a helm warning mixed in would read as a mismatch.
+  err="$(mktemp)"
   if ! rendered="$(helm template trueppm "$CHART" --set image.tag=latest "$@" \
-      --show-only templates/web/configmap.yaml 2>&1)"; then
+      --show-only templates/web/configmap.yaml 2>"$err")"; then
     echo "ERROR: helm template failed for '$label':" >&2
-    printf '%s\n' "$rendered" >&2
+    cat "$err" >&2
+    rm -f "$err"
     return 2
   fi
+  rm -f "$err"
   # The ConfigMap carries the nginx config as a `|` block scalar under
   # data["default.conf"]. Strip the YAML wrapper so brace counting sees only
   # nginx. yq would be cleaner but is not guaranteed on PATH here.
@@ -245,7 +292,19 @@ check_helm() {
     echo "ERROR: could not extract data[\"default.conf\"] from the rendered '$label' ConfigMap." >&2
     return 2
   fi
+  local before="$violations"
   check_config "$label" "$conf"
+  # Dump provenance for THIS render, with THIS render's args, next to the
+  # violation it explains. Handing over the checked bytes is what lets the
+  # verdict decide "the gate read something else" rather than only "helm is
+  # deterministic", which was true on every false red (#3758).
+  if [ "$violations" -gt "$before" ]; then
+    local checked
+    checked="$(mktemp)"
+    printf '%s\n' "$rendered" >"$checked"
+    helm_render_provenance "$CHART" "$checked" "$label" "$@"
+    rm -f "$checked"
+  fi
 }
 
 run_check() {
@@ -278,13 +337,8 @@ run_check() {
       echo "Every deployment path must agree on the SPA security-header baseline and on"
       echo "a fail-closed /admin/. Fixing one path and not its siblings is the exact"
       echo "defect class this gate exists to catch (#2849)."
+      echo "Each failing path printed its own provenance block above, beside its violation."
     } >&2
-    # A violation reported against a `helm …` label may be the chart, or may be a
-    # render that did not read the chart — this gate has hit the latter on an
-    # unchanged tree (#3146), and the message above cannot tell them apart.
-    if [ "$skipped_helm" -eq 0 ]; then
-      helm_render_provenance "$CHART"
-    fi
     return 1
   fi
   note "$checked_blocks SPA server block(s) carry X-Frame-Options + nosniff + Referrer-Policy + CSP (and HSTS where TLS terminates)"
@@ -518,19 +572,72 @@ CONF
   probe bad_referrer_downgrade.conf 1 "Referrer-Policy: no-referrer-when-downgrade rejected"
   probe bad_referrer_notalways.conf 1 "Referrer-Policy without \`always\` rejected"
 
-  # The #3146 provenance verdict. It only ever runs on a failure path, so it is
+  # LARGE fixtures: server blocks padded past the 64 KiB pipe buffer, which makes
+  # the pre-#3758 SIGPIPE race deterministic instead of load-dependent. Under the
+  # old `printf "$body" | grep -q` form grep matched and exited, the still-writing
+  # printf took SIGPIPE, and pipefail turned a PRESENT line into a failed match.
+  # That cuts both ways, so both directions are pinned: the `try_files … || continue`
+  # guard misfired first and silently skipped the whole block — a false GREEN
+  # that the BAD fixture catches — while on a normal-size config the header
+  # assertions lost the same race and reded CI.
+  large_conf() {
+    # shellcheck disable=SC2016  # $uri is nginx syntax, not a shell expansion.
+    printf 'server {\n    listen 8080;\n%s\n    location / { try_files $uri $uri/ /index.html; }\n    location /admin/ { return 404; }\n' "$1"
+    local pad
+    for ((pad = 0; pad < 4000; pad++)); do
+      printf '    # padding line %05d, long enough to overflow a pipe buffer\n' "$pad"
+    done
+    printf '}\n'
+  }
+  large_conf "$GOOD_HEADERS" >"$tmp/good_large.conf"
+  large_conf "$(grep -v 'X-Content-Type-Options' <<<"$GOOD_HEADERS")" >"$tmp/bad_large.conf"
+  probe good_large.conf 0 "correct config larger than a pipe buffer accepted (SIGPIPE false red, #3758)"
+  probe bad_large.conf  1 "config larger than a pipe buffer missing nosniff rejected (SIGPIPE false green, #3758)"
+
+  # The SIGPIPE class itself (#3758): an early-exiting reader (`grep -q`, `head`)
+  # on the far side of a pipe reports a present line as missing under pipefail.
+  # Scanned in every script that shares this failure path, so the pattern cannot
+  # creep back into a gate whose false red reads as a chart regression.
+  local offenders
+  offenders="$(grep -nE '^[^#]*\|[[:space:]]*(grep[[:space:]]+-[A-Za-z]*q|head([[:space:]]|$))' \
+    "$REPO_ROOT/scripts/check-nginx-security-headers.sh" \
+    "$REPO_ROOT/scripts/helm-structure-check.sh" \
+    "$REPO_ROOT/scripts/lib/helm-render-provenance.sh" || true)"
+  if [ -z "$offenders" ]; then
+    echo "SELF-TEST OK: no early-exit reader (grep -q, head) on the far side of a pipe"
+  else
+    echo "SELF-TEST FAILED: early-exit reader behind a pipe — use \`grep -q … <<<\"\$x\"\` instead:" >&2
+    printf '%s\n' "$offenders" | sed 's/^/  /' >&2
+    rc=1
+  fi
+
+  # The provenance verdict. It only ever runs on a failure path, so it is
   # precisely the code a typo can hide in indefinitely — the same reason every
   # fixture above is checked in both directions.
   verdict_probe() {
-    local desc="$1" want="$2" r1="$3" r2="$4" got
-    got="$(_helm_provenance_verdict "$r1" "$r2")"
-    if printf '%s' "$got" | grep -q "$want"; then
+    local desc="$1" want="$2" got
+    shift 2
+    got="$(_helm_provenance_verdict "$@")"
+    if grep -q "$want" <<<"$got"; then
       echo "SELF-TEST OK: $desc"
     else
       echo "SELF-TEST FAILED: $desc (expected /$want/, got: $got)" >&2
       rc=1
     fi
   }
+
+  verdict_probe "a checked render that differs from its re-renders says RETRY THE JOB" \
+    "RETRY THE JOB" "rendered-A" "rendered-A" "rendered-STALE"
+  verdict_probe "a checked render identical to its re-renders clears the render" \
+    "the render is not the cause" "rendered-A" "rendered-A" "rendered-A"
+  verdict_probe "an empty checked render is still compared, not ignored" \
+    "DIFFERS" "rendered-A" "rendered-A" ""
+  if grep -q "RETRY THE JOB" <<<"$(_helm_provenance_verdict rendered-A rendered-A rendered-A)"; then
+    echo "SELF-TEST FAILED: a deterministic render identical to the checked one must not say RETRY THE JOB" >&2
+    rc=1
+  else
+    echo "SELF-TEST OK: a deterministic checked render is not called an environment fault"
+  fi
 
   verdict_probe "two disagreeing renders are called an environment fault" \
     "NOT REPRODUCIBLE" "rendered-A" "rendered-B"
