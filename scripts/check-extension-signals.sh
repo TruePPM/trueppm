@@ -268,6 +268,16 @@ echo "OK: all extension signals dispatch robustly (${checked} annotated fail-clo
 #   type(expr)            a genuinely dynamic model class
 # Rejected: string literals, f-strings, `.__name__`, lowercase names, and any
 # other call. A missing `sender=` is rejected too — it is a required kwarg.
+#
+# python3 is required for the AST walk below. A missing interpreter must be an
+# invocation error, never a silent no-op — `xargs -0 python3` failing under the
+# `2>/dev/null` redirect otherwise leaves sender_hits empty and every reject
+# case above passes as an accept, exactly as happened when the job's image
+# installed bash/grep/sed but not python3 (#3777 self-test failure in CI).
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "ERROR: python3 is required to check the dispatch_extension_signal() sender convention" >&2
+  exit 2
+fi
 
 sender_hits=$(find "$ROOT" -name '*.py' -type f -print0 2>/dev/null \
   | xargs -0 python3 -c '
