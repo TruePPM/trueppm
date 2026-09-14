@@ -22,6 +22,7 @@ import {
   HEALTH_ACTIVE as REPORTED_HEALTH_ACTIVE,
   REPORTED_HEALTH_TITLE,
 } from '@/features/project/projectHealth';
+import { HEALTH_BAND_LABEL } from '@/lib/healthBand';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
 import { formatRelative } from '@/lib/formatRelative';
@@ -70,6 +71,15 @@ interface OverviewData extends AddedTimeFacts {
   open_risk_count?: number;
   high_risk_count?: number;
 }
+
+// Words come from the one health vocabulary (lib/healthBand, #3502) plus the
+// local `unknown` fallback, which is not a band — it means no summary loaded
+// yet. Shared by the header chip below and buildScheduleMetric so the two
+// computed-health surfaces on this page can never drift from each other.
+const SCHEDULE_HEALTH_LABEL: Record<OverviewData['schedule_health'], string> = {
+  ...HEALTH_BAND_LABEL,
+  unknown: 'Unknown',
+};
 
 interface AttentionItem {
   severity: 'critical' | 'warning' | 'info';
@@ -305,12 +315,7 @@ function ProjectHeader({ overview, projectId }: ProjectHeaderProps) {
     unknown: 'border-neutral-border text-neutral-text-secondary',
   }[overview.schedule_health];
 
-  const healthLabel = {
-    on_track: 'On track',
-    at_risk: 'At risk',
-    critical: 'Critical',
-    unknown: 'Unknown',
-  }[overview.schedule_health];
+  const healthLabel = SCHEDULE_HEALTH_LABEL[overview.schedule_health];
 
   const subtitle = [
     `Started ${formatIsoDate(overview.start_date)}`,
@@ -973,13 +978,6 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
 // Overview metric builder
 // ---------------------------------------------------------------------------
 
-const HEALTH_LABEL: Record<OverviewData['schedule_health'], string> = {
-  on_track: 'On track',
-  at_risk: 'At risk',
-  critical: 'Critical',
-  unknown: 'Unknown',
-};
-
 const HEALTH_VARIANT: Record<OverviewData['schedule_health'], OverviewMetric['variant']> = {
   on_track: 'on-track',
   at_risk: 'at-risk',
@@ -1013,7 +1011,7 @@ function buildScheduleMetric(
   return {
     key: 'schedule_health',
     label: 'Schedule health',
-    value: HEALTH_LABEL[health],
+    value: SCHEDULE_HEALTH_LABEL[health],
     sub: scheduleSub,
     variant: HEALTH_VARIANT[health],
     title:

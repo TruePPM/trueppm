@@ -19,17 +19,18 @@
  * do not reintroduce it. If a new payload cannot carry a band, add the field to
  * that payload rather than a second copy of the rule here.
  *
- * Be honest about the coverage that claim currently has: the shell health chip,
- * the program rollup (`ProgramOverviewPage`, which adds `unknown`) and the
- * my-projects summary read this map. Seven surfaces still carry private literal
- * maps over the same three bands — `features/today/SchedulePulse.tsx`,
- * `features/project/ProjectOverviewPage.tsx` (twice in one file),
- * `features/me/myWorkFocus.ts`, `features/programs/ProgramCard.tsx`,
- * `features/programs/UngroupedProjectsSection.tsx`,
- * `features/sprints/CapacityPreflight.tsx` and
- * `features/project/projectHealth.ts` (which keys on the manual override enum
- * and carries a "one source" docstring of its own). Nothing gates them, so
- * converting them is a sweep, not a rule — #3502.
+ * This is the only module that declares the band words. Every surface that
+ * prints one — the shell health chip, the program rollup (`ProgramOverviewPage`,
+ * which adds `unknown`), the my-projects summary, and the seven surfaces #3502
+ * converted (`SchedulePulse`, `ProjectOverviewPage`, `myWorkFocus`,
+ * `ProgramCard`, `UngroupedProjectsSection`, `CapacityPreflight`, and
+ * `projectHealth`, which folds these in and keeps its own `Auto` local — that
+ * is a choice in the override editor, not a band) — reads `HEALTH_BAND_LABEL`
+ * and maps its own key shape onto the band keys at the edge, never restating
+ * the words. `healthBand.conformance.test.ts` enforces this: a module that
+ * declares its own object literal restating two or more of the three words
+ * fails the build, so this claim cannot go stale silently the way the
+ * seven-surface count did.
  *
  * That is not a style preference: the shell health chip used to map the same
  * three states onto its own private words ("At risk" for critical, "On watch"

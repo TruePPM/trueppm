@@ -40,6 +40,7 @@ These rules are enforced at review time. Violations block merge.
 382. **An exported symbol with no importer fails `web:knip`. The fix is to delete it, or to name the real root in `entry` — never to add an `ignore`.** → [rule](../../docs/design/invariants/382-an-exported-symbol-with-no-importer-fails-web-knip-the-fix.md)
 394. **A `QueryErrorState` inside a COLLAPSED `<details>`, accordion, or hidden tab panel satisfies rule 246 and defeats it — a failure must reach the always-visible chrome.** → [rule](../../docs/design/invariants/394-a-queryerrorstate-inside-a-collapsed-details-accordion-or.md)
 395. **When a fix's acceptance is "N surfaces state one message", a source scan for the canonical LITERAL cannot enforce it — the scan sees re-typing, and re-typing is never the failure mode; divergence is.** → [rule](../../docs/design/invariants/395-when-a-fix-s-acceptance-is-n-surfaces-state-one-message-a.md)
+414. **A forbidden-shape source scan must match the code SHAPE the violation takes, not a bare substring search for the forbidden text — a substring search also flags the prose that documents the bug it forbids.** → [rule](../../docs/design/invariants/414-a-forbidden-shape-source-scan-must-match-the-code-shape.md)
 
 ## Accessibility floors
 
