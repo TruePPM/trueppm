@@ -37,7 +37,17 @@ _BROADCAST_HELPERS = frozenset({"broadcast_board_event", "abroadcast_board_event
 # Call sites that build the payload in a variable or splat it. Static analysis
 # cannot read these; the count is pinned so the scanner cannot degrade to
 # covering nothing and still pass.
-_MAX_UNSCANNABLE_SITES = 15
+#
+# Lowered from 15 to 11 by #3776: cpm_complete's two dispatch paths
+# (scheduling/tasks.py) each built the payload as a dict *variable* and both
+# fell into this bucket — which is exactly why the gate could not see they
+# had drifted onto different key sets (one carried status_date, one did not).
+# Both now route through one shared helper that passes a dict *literal* at
+# the broadcast_board_event() call site, collapsing the two unscannable sites
+# into a single scannable one. Ratcheted down rather than left at 15 so a
+# future refactor that reintroduces a dict-variable payload has to raise this
+# number deliberately instead of coasting under unused headroom.
+_MAX_UNSCANNABLE_SITES = 11
 
 # Events that are pure signals — "something in this collection changed, re-read
 # it" — and correctly carry no payload at all. Listed rather than inferred so
