@@ -296,7 +296,7 @@ TruePPM welcomes contributions.
 3. Add a changelog fragment in `changelog.d/` (e.g. `my-change.added.md`) — CI checks for this
 4. All MRs require a green pipeline before merge
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, test-layer expectations, and Developer Certificate of Origin (DCO) sign-off requirement.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, test-layer expectations, and Developer Certificate of Origin (DCO) sign-off requirement, and [GOVERNANCE.md](GOVERNANCE.md) for who maintains the project, how decisions are made, and how the open-core boundary is decided.
 
 ## Repository layout
 
