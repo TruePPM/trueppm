@@ -1391,7 +1391,7 @@
       "action": "task.comment",
       "target": "task:ga-soc2:2",
       "actor": "bob",
-      "body": "Policy authoring needs Lena for the control narratives, but launch content needs her the same week. Flagging it rather than quietly double-booking."
+      "body": "Policy authoring needs @ga-lena for the control narratives, but launch content needs her the same week. Flagging it rather than quietly double-booking."
     },
     {
       "at": "A-33T14:00",
@@ -1440,7 +1440,7 @@
       "action": "task.comment",
       "target": "task:ga-security:2",
       "actor": "janus",
-      "body": "Triage done: seven criticals, not the four we planned for. Two of them are auth-path issues that need a real fix, not a patch.",
+      "body": "Triage done: seven criticals, not the four we planned for. Two of them are auth-path issues that need a real fix, not a patch. @ga-dana",
       "slug": "pentest-triage"
     },
     {
@@ -1476,7 +1476,7 @@
       "action": "task.comment",
       "target": "task:ga-security:3",
       "actor": "dana",
-      "body": "Pulling Malcolm onto the auth-path criticals at half time. He is still carrying the platform rollout, so this is a real over-allocation, not a spare-capacity reassignment — it is the trade we are choosing."
+      "body": "Pulling @ga-malcolm onto the auth-path criticals at half time. He is still carrying the platform rollout, so this is a real over-allocation, not a spare-capacity reassignment — it is the trade we are choosing."
     },
     {
       "at": "A-4T09:30",
