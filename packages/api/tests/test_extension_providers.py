@@ -1,10 +1,13 @@
-"""Single-provider extension hooks reject a silent second registration (#2859).
+"""Single-provider extension hooks reject a silent second registration (#2859, #3779).
 
-Six hooks are a module-global ``Callable | None`` with an unconditional-assignment
-setter, unlike ``ProviderRegistry.register`` which raises on a duplicate key. Two
-registrations used to silently overwrite, making the winner import order — and the
-symptom of losing that race is an enforcement policy that quietly stops applying,
-with nothing in any log.
+Eleven slots across nine modules are a module-global ``Callable | None`` with an
+unconditional-assignment setter, unlike ``ProviderRegistry.register`` which raises
+on a duplicate key. Two registrations used to silently overwrite, making the winner
+import order — and the symptom of losing that race is an enforcement policy that
+quietly stops applying, with nothing in any log. #2859 introduced the guard but
+converted only 6 of the 11 slots; #3779 converted the remaining 5 (three that
+predate the guard, plus the two SSO authorization seams that were re-touched after
+the guard landed and still used the raw setter).
 
 OSS registers none of these, so the realistic conflict is an Enterprise build
 registering twice: an ``AppConfig.ready()`` that runs more than once, or two apps
@@ -17,12 +20,16 @@ import pytest
 
 from trueppm_api.apps.profiles import services as profile_services
 from trueppm_api.apps.projects import (
+    attachment_policy,
     calendar_settings,
     iteration_label,
     methodology,
     sharing_settings,
     signal_privacy_services,
+    task_duration_settings,
 )
+from trueppm_api.apps.scheduling import forecast_history_settings
+from trueppm_api.apps.sso import extensions as sso_extensions
 from trueppm_api.core.extension_providers import DuplicateProviderError, guard_single_provider
 
 # (module, register_fn_name) for each single-provider hook that takes one callable.
@@ -32,6 +39,14 @@ _SINGLE_PROVIDER_HOOKS = [
     (sharing_settings, "register_sharing_enforcement_provider"),
     (methodology, "register_methodology_enforcement_provider"),
     (signal_privacy_services, "register_default_posture_provider"),
+    # #3779: converted from the raw setter — three predate the guard (#2859), two
+    # (the SSO pair) were authored and re-touched after it landed and still used
+    # the raw setter until now.
+    (forecast_history_settings, "register_forecast_history_enforcement_provider"),
+    (task_duration_settings, "register_duration_policy_enforcement_provider"),
+    (attachment_policy, "register_attachment_policy_enforcement_provider"),
+    (sso_extensions, "register_oidc_identity_mapper"),
+    (sso_extensions, "register_local_login_policy_provider"),
 ]
 
 
