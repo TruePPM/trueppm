@@ -1,6 +1,7 @@
 ---
 title: Why now
 description: The ground under project management is shifting — incumbents are winding down self-hosting and bolting on AI that guesses. TruePPM's answer is self-hostable, computed-not-guessed, and built for the team.
+documentedFor: "0.4"
 ---
 
 Three shifts are happening at once under the project-management market. Each one, on its
@@ -19,9 +20,9 @@ dated timelines — from self-hosted and customer-controlled toward vendor cloud
   Server* on-premises remain supported — this is a cloud-line consolidation, not the end of
   the product.)
 - **Atlassian** ended support for **Jira Server** — the affordable self-hosted edition — on
-  **February 15, 2024**. The remaining self-hosted option, **Jira Data Center**, is still
-  sold but is on an announced end-of-life path: no new-customer sales after **March 30,
-  2026** and a full end of life — environments become read-only — on **March 28, 2029**,
+  **February 15, 2024**. The remaining self-hosted option, **Jira Data Center**, is on an
+  announced end-of-life path: sales to new customers ended on **March 30, 2026**, and a full
+  end of life — environments become read-only — on **March 28, 2029**,
   behind a 500-user minimum tier and recurring price increases. [^jira] Self-hosting Jira is
   being wound down and priced for large enterprises, not eliminated today — but the
   direction is unmistakable.
@@ -68,11 +69,12 @@ The pairing of humans and AI that TruePPM aims for is not "let the model run the
 is: the **engine computes**, the **AI translates and explains**, and the **human decides** —
 on infrastructure the team controls.
 
-:::note[Version status]
+:::note[Ships in 0.4]
 The scheduling engine, self-hosting, and Apache 2.0 licensing are **shipped today** (0.3).
 The AI-facing pieces are on the roadmap: basic SSO and the read-only
-[MCP server](/features/mcp-server/) land with the **0.4 beta**, the natural-language query
-layer is planned for 0.5, and safe agent writes for 0.6. Treat every AI capability here as
+[MCP server](/features/mcp-server/) land with the **0.4 beta** — `v0.3.0-alpha.3`, the latest
+release, has neither — while the natural-language query layer and safe agent writes are
+planned for 0.6. Treat every AI capability here as
 forward-looking; the [roadmap](/overview/roadmap/) is the authoritative Shipped / Underway /
 Planned status.
 :::

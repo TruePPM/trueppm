@@ -1,6 +1,7 @@
 ---
 title: What TruePPM Doesn't Do Yet
 description: The maintained list of capability gaps — resource leveling, constraint types, cost and earned value, scale ceilings, and mobile. Read this before you evaluate, not after.
+documentedFor: "0.4"
 ---
 
 Most project-management sites tell you what a tool does. This page tells you what
@@ -20,6 +21,14 @@ TruePPM is pre-GA. The current shipped release is an alpha, and the first beta i
 0.4. Anything below marked for 0.5 or later is planned, not built. The
 [roadmap](/overview/roadmap/) is the authoritative Shipped / Underway / Planned
 record.
+:::
+
+:::note[Ships in 0.4]
+A few things this page names as existing ship in 0.4 and are absent from `v0.3.0-alpha.3`,
+the latest release: CSV / Excel import, Jira XML import, the personal read-only Jira pull,
+the read-only MCP server, the React Native mobile scaffold, the optional Helm
+`PodDisruptionBudget` and `HorizontalPodAutoscaler`, and the experimental Valkey Sentinel
+settings. Every gap on this page applies to the latest release as well.
 :::
 
 ## Scheduling gaps
@@ -105,7 +114,7 @@ around this and TruePPM is not, yet.
 A project carries a four-value health flag (`ON_TRACK` / `AT_RISK` / `CRITICAL` /
 `AUTO`) and nothing else a stakeholder can read. There is no status report, no narrative
 behind the flag, no "what moved since the baseline" view, and no one-page export a
-sponsor could receive. The Reports tab is a burn chart. Every input to a status report
+sponsor could receive. The Reports tab holds burn charts and a decisions log. Every input to a status report
 — milestones with baseline variance, critical path movement, P50 / P80, risk severity,
 completed and slipped counts, decisions — is computed and stored; nothing assembles it.
 
@@ -130,7 +139,7 @@ A baseline has a name and a frozen calendar. It does not record *why* it was tak
 what changed since the previous one, or who agreed to the change. Baseline change
 control — a required reason and a visible changeset when you rebaseline — is
 [#101](https://gitlab.com/trueppm/trueppm/-/issues/101) (0.5) and
-[#3150](https://gitlab.com/trueppm/trueppm/-/issues/3150) (0.4).
+[#3150](https://gitlab.com/trueppm/trueppm/-/issues/3150) (a 0.4 stretch item, not promised for the beta).
 
 A **change request** — a proposed scope or schedule change with an impact analysis and
 a recorded disposition — does not exist for a human proposer.
@@ -214,8 +223,9 @@ today, and we are not going to pretend otherwise.
 
 MS Project XML round-trips today. Beyond that the surface is narrow:
 
-- **0.4:** CSV / Excel import, and a personal, read-only, one-way Jira sync into My
-  Work — coexistence, not migration.
+- **0.4:** CSV / Excel import, a Jira Server / Data Center XML import into an existing
+  project, and a personal, read-only, one-way Jira sync into My Work — coexistence, not
+  migration.
 - **0.6:** a one-time Jira migration import *(returned from 0.5 in the 0.6
   re-triage)*, breadth across the top-10 tools (Asana, Monday, Wrike, ClickUp,
   Trello, Notion, Linear, Basecamp), and full `.mpp` support.
@@ -232,11 +242,11 @@ There is no i18n framework wired into the web app — no i18next, react-intl, or
 equivalent — and UI strings are hardcoded English throughout. There is no locale
 switcher, no translated string catalog, and no RTL support.
 
-- **0.4:** the i18n framework decision itself
+- **0.5:** the i18n framework decision itself
   ([#728](https://gitlab.com/trueppm/trueppm/-/issues/728)) — whether to commit to
   string externalization now or defer, made while the UI surface is still small
   because retrofitting extraction gets more expensive every release.
-- **0.9:** i18n/l10n execution against whatever framework decision is made in 0.4, as part
+- **0.9:** i18n/l10n execution against whatever framework decision is made in 0.5, as part
   of GA hardening.
 
 A framework decision is not a commitment to any particular translated language.

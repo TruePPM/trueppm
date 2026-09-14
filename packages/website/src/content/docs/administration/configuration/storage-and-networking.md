@@ -5,10 +5,12 @@ documentedFor: "0.4"
 ---
 
 :::note[Ships in 0.4]
-This page was split out of [Configuration](/administration/configuration/), which is
-documented for 0.4 as a whole. Settings here that `v0.3.0-alpha.3` does not read are not
-individually marked yet; [#3755](https://gitlab.com/trueppm/trueppm/-/issues/3755)
-reviews them.
+Object storage on S3 or MinIO ships in 0.4: `v0.3.0-alpha.3`, the latest release, reads
+none of the `TRUEPPM_S3_*` settings. `TRUEPPM_PUBLIC_API_BASE_URL` and
+`TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE_NONE_ACK` also ship in 0.4. The TLS redirect and
+split-origin settings named here — `TRUEPPM_SECURE_SSL_REDIRECT`, `TRUEPPM_FRONTEND_BASE_URL`,
+`TRUEPPM_DEFAULT_FILE_STORAGE`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`, `CSP_CONNECT_SRC` and
+`SECURE_PROXY_SSL_HEADER` — are read by the latest release too.
 :::
 
 ## Object storage (S3 / MinIO)
