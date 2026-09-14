@@ -584,7 +584,7 @@ column is mapped to a date field.
 Rows past the task-import cap are **reported back to you** as skipped, not
 silently dropped. A risk import over its cap is **rejected outright** rather
 than partially imported. See
-[CSV / Excel import limits](/administration/configuration/#csv--excel-import-limits)
+[CSV / Excel import limits](/administration/configuration/limits/#csv--excel-import-limits)
 for operator configuration.
 
 :::note[Ships in 0.4 — a separate warning for the Schedule ceiling]

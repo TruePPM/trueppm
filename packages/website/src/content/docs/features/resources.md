@@ -195,7 +195,7 @@ Three details are worth knowing:
 
   The heatmap and the Team utilization card both window a task's assignments
   on its **span** (`scheduled_start` through finish — see [the bar vs. the
-  remaining-work window](/features/schedule/#the-bar-vs-the-remaining-work-window)),
+  remaining-work window](/features/schedule/dates/#the-bar-vs-the-remaining-work-window)),
   not on the narrower *remaining-work* window that `early_start` shrinks
   toward as a task approaches completion. A person's allocation on a task
   does not shrink just because they finished part of it — reporting progress

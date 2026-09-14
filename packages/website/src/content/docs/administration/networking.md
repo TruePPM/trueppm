@@ -195,7 +195,7 @@ on only when TruePPM receives the original scheme reliably *and* nothing in
 front of it already redirects — otherwise you get a redirect loop. The probe
 paths (`/api/v1/health/`, `/api/v1/readyz`, `/api/v1/edition/`) are exempt from
 the redirect regardless, so enabling it never breaks a health check. See
-[TLS redirect posture](/administration/configuration/#tls-redirect-posture).
+[TLS redirect posture](/administration/configuration/storage-and-networking/#tls-redirect-posture).
 
 :::caution[The scheme comes from the proxy; the host does not]
 TruePPM takes the **scheme** from your proxy and the **host** from the request,
@@ -640,7 +640,7 @@ through it before raising `replicaCount`:
       a durability nicety: with attachments on each pod's local disk, a file
       uploaded through replica A returns 404 when the download lands on replica B.
       Set `TRUEPPM_DEFAULT_FILE_STORAGE` and `TRUEPPM_S3_BUCKET_NAME` — see
-      [object storage](/administration/configuration/#object-storage-s3--minio).
+      [object storage](/administration/configuration/storage-and-networking/#object-storage-s3--minio).
 - [ ] **Celery beat stays at exactly one replica.** It fires the periodic drains;
       two overlapping beats double-dispatch every job. The chart pins it to one
       replica with a `Recreate` strategy.

@@ -211,7 +211,7 @@ upgrading **from a pre-hardening release**:
   cookie and a strict CSP header is sent on every response. A standard deploy needs
   no changes: TruePPM is served from a single origin, which is what these
   defaults assume. Splitting the SPA and API across hostnames is not supported —
-  see [Split-origin deploys](/administration/configuration/#split-origin-deploys).
+  see [Split-origin deploys](/administration/configuration/storage-and-networking/#split-origin-deploys).
 
 ## Rollback
 

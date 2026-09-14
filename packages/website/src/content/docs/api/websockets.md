@@ -167,7 +167,7 @@ The set is open-ended and grows as features land; current event types include:
 - **API tokens**: `api_token_minted`, `api_token_revoked` (project/program-scoped
   tokens only — payload carries `token_prefix` + `name`, never the raw token or
   hash; personal access tokens broadcast nothing, see
-  [API reference](/api/reference/#personal-access-tokens-apiv1meapi-tokens-adr-0214))
+  [API reference](/api/reference/authentication/#personal-access-tokens-apiv1meapi-tokens-adr-0214))
 - **Cross-project (ADR-0120)**: `slip_conflict_acknowledged`, `slip_conflicts_updated`
 - **Velocity suggestions**: `velocity_suggestion_accepted`, `velocity_suggestion_dismissed`
   — the suggestion settling. An *accept* also emits a normal `task_updated`

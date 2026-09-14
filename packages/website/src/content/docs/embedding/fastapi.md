@@ -201,6 +201,6 @@ async def schedule_project(req: ScheduleRequest) -> ScheduleResponse:
 
 ## See also
 
-- [Django Integration](/integration/django/) — ORM translation and Celery dispatch
-- [Standalone Usage](/integration/standalone/) — no web framework
+- [Django Integration](/embedding/django/) — ORM translation and Celery dispatch
+- [Standalone Usage](/embedding/standalone/) — no web framework
 - [CPM Scheduler reference](/features/scheduler/) — full API reference

@@ -27,7 +27,7 @@ import { docsUrl } from '@/lib/docsUrl';
 export function HowDatesWorkLink({ className = '' }: { className?: string }) {
   return (
     <a
-      href={docsUrl('features/schedule/#committed-vs-computed-start-dates')}
+      href={docsUrl('features/schedule/dates/#committed-vs-computed-start-dates')}
       target="_blank"
       rel="noopener noreferrer"
       // `min-h-11` gives a real 44px touch target on a phone (rule 5), relaxed

@@ -32,7 +32,7 @@ surface behind it.
 | Artifact | Path | Maintained by |
 |---|---|---|
 | Generated OpenAPI schema | `docs/api/openapi.json` | `scripts/export-openapi.sh` (and the `openapi-schema` pre-commit hook) |
-| Human-facing REST reference | `packages/website/src/content/docs/api/reference.md` | hand-written |
+| Human-facing REST reference | `packages/website/src/content/docs/api/reference/` (an overview plus one page per resource group) | hand-written |
 | Error/status-code contract | `packages/website/src/content/docs/api/errors.md` | hand-written |
 | WebSocket contract | `packages/website/src/content/docs/api/websockets.md` | hand-written |
 | Idempotency protocol | `packages/website/src/content/docs/api/idempotency.md` | hand-written |
