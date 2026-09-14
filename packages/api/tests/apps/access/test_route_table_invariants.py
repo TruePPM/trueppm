@@ -129,13 +129,20 @@ def _wrapped_function_views(cls: type | None) -> list[Any]:
     return found
 
 
-def _project_scoped_permission_classes() -> set[str]:
-    """Permission classes whose ``has_permission`` resolves a project from URL kwargs.
+#: Every idiom a permission class can use to reach a project id from the URL. Both
+#: names must be listed: #3767 moved the fourteen role/membership classes onto
+#: ``_resolve_project_scope`` (which returns the *reason* an id is missing, so the
+#: ABSENT case can fail closed) while the lifecycle classes still call the thin
+#: ``_project_pk_from_view`` wrapper. A reader matching only one name silently halves
+#: the denominator of every invariant in this file — the #2877 failure mode, where a
+#: walker that could not see what it guarded reported "no change" for a ~50-route
+#: widening. `test_the_scope_family_is_discoverable` guards that directly.
+_PROJECT_KWARG_IDIOMS = ("_project_pk_from_view", "_resolve_project_scope")
+_PROGRAM_KWARG_IDIOMS = ("_program_pk_from_view", "_resolve_program_scope")
 
-    Discovered by source inspection rather than hardcoded, so a *new* class written
-    in the same shape is covered the day it is added — the failure mode a frozen
-    list would miss.
-    """
+
+def _permission_classes_matching(*idioms: str) -> set[str]:
+    """Permission class names whose own source contains any of ``idioms``."""
 
     found: set[str] = set()
     for name, obj in vars(permissions_module).items():
@@ -145,9 +152,20 @@ def _project_scoped_permission_classes() -> set[str]:
             source = inspect.getsource(obj)
         except (OSError, TypeError):
             continue
-        if "_project_pk_from_view" in source:
+        if any(idiom in source for idiom in idioms):
             found.add(name)
     return found
+
+
+def _project_scoped_permission_classes() -> set[str]:
+    """Permission classes whose ``has_permission`` resolves a project from URL kwargs.
+
+    Discovered by source inspection rather than hardcoded, so a *new* class written
+    in the same shape is covered the day it is added — the failure mode a frozen
+    list would miss.
+    """
+
+    return _permission_classes_matching(*_PROJECT_KWARG_IDIOMS)
 
 
 def _project_identifying_routes() -> list[tuple[str, URLPattern, str, set[str]]]:
@@ -760,17 +778,9 @@ def _project_resolving_permission_classes() -> set[str]:
     example, and it is the only thing marking `slip-conflicts/<pk>/acknowledge/` as
     project-scoped — has to count here or that route leaves the denominator entirely.
     """
-    found: set[str] = {"IsProjectNotArchived"}
-    for name, obj in vars(permissions_module).items():
-        if not (inspect.isclass(obj) and hasattr(obj, "has_permission")):
-            continue
-        try:
-            source = inspect.getsource(obj)
-        except (OSError, TypeError):
-            continue
-        if "_project_pk_from_view" in source or "_get_project_id_from_obj" in source:
-            found.add(name)
-    return found
+    return {"IsProjectNotArchived"} | _permission_classes_matching(
+        *_PROJECT_KWARG_IDIOMS, "_get_project_id_from_obj"
+    )
 
 
 def _entry_key(path: str, action: str | None, method: str) -> str:
@@ -1064,4 +1074,259 @@ def test_the_archived_scan_is_not_vacuous() -> None:
     assert keys >= ARCHIVED_EXEMPT_ENTRIES, (
         "ARCHIVED_EXEMPT_ENTRIES names entry/entries outside the enumerated surface: "
         f"{sorted(ARCHIVED_EXEMPT_ENTRIES - keys)}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Invariant 4 — no unsafe route fails OPEN on unresolvable scope (#3767)
+# ---------------------------------------------------------------------------
+#
+# Invariant 1 above asks "does a route that NAMES a project enforce it somewhere". That
+# is the #2745 shape and it is the wrong scope for this one: the routes that fail open
+# here overwhelmingly name no project at all — `/api/v1/tasks/` create, `/poker/<pk>/
+# vote/`, `/project-resources/`. Until #3767 the fourteen role/membership classes ended
+# `has_permission` with a bare `return True` whenever the URL kwarg did not resolve, so
+# the layer was safe only as a property of each call site. This asserts the property is
+# now the layer's.
+#
+# Three things make it more than a third frozen list:
+#
+# 1. **It runs the real decision function.** `permissions._unresolved_scope_allows` is
+#    the single place the default lives, and this calls it against a view instance
+#    carrying the route's own kwargs. A test that re-derived the rule could certify a
+#    verdict the running code does not reach — which is exactly what
+#    `_declared_project_kwarg` exists to prevent for invariant 1.
+#
+# 2. **`UNKNOWN_ID` is out of scope by construction, not by omission.** That state needs
+#    a DECLARED kwarg that IS present in the URL, which is structurally resolvable and
+#    therefore never reaches this scan. The permissive arm for an unknown project id
+#    (#3129's 404, not a 403 existence oracle) is tested at the unit level in
+#    `test_unresolvable_scope_fails_closed.py`, where a DB is available.
+#
+# 3. **The denominator is pinned**, so a refactor that stops the walker seeing these
+#    routes fails loudly rather than passing over nothing.
+
+SCOPE_ALLOWED_BY_OBJECT_CHECK = "ViewSet detail route — get_object() runs the object check"
+SCOPE_ALLOWED_BY_DECLARATION = "view declares resolves_scope_in_body"
+SCOPE_DENIED = "denied — the layer refuses an unsafe write it cannot scope"
+
+#: The minimum number of (route, action) pairs that must land in this scan. See
+#: `_MIN_PROJECT_SCOPED_WRITE_ENTRIES` for why a floor is here at all.
+_MIN_UNRESOLVABLE_SCOPE_ENTRIES = 80
+
+
+def _scope_family_classes() -> tuple[set[str], set[str]]:
+    """The project-side and program-side halves of the #3767 family, by source.
+
+    Discovered rather than listed, so a fifteenth class written in the same shape is
+    covered the day it is added. Deliberately keyed on the DISCRIMINATED resolvers
+    only: `IsProjectNotArchived` and `IsProgramNotClosed` still call the thin
+    `_project_pk_from_view` wrapper and are #3587's subject, not this one's — the two
+    issues must not be closed against each other.
+    """
+    return (
+        _permission_classes_matching("_resolve_project_scope"),
+        _permission_classes_matching("_resolve_program_scope"),
+    )
+
+
+def _synthetic_view(cls: type, path: str, action: str | None, method: str) -> Any:
+    """An instance of ``cls`` populated as DRF would populate it for this route."""
+    view = cls()
+    view.action = action
+    view.format_kwarg = None
+    # A probe value per captured kwarg. The VALUE is irrelevant — `_object_permission_
+    # will_run` and `_scope_in_body_reason` read only which keys are present and what
+    # the view declares — but the KEYS have to be the route's real ones or a detail
+    # route would be misread as a list route.
+    view.kwargs = {
+        name: "00000000-0000-0000-0000-000000000000" for name in _archived_kwargs_in(path)
+    }
+    view.request = Request(APIRequestFactory().generic(method, "/"))
+    return view
+
+
+def _unresolvable_scope_write_entries() -> list[tuple[str, str, URLPattern, str | None, Any]]:
+    """Every unsafe (route, action) whose scope the permission layer cannot resolve.
+
+    Returns ``(key, path, entry, action, view)`` — the view instance so the caller can
+    ask the real decision function rather than re-deriving it.
+    """
+    project_classes, program_classes = _scope_family_classes()
+    rows = []
+    for path, entry in _walk():
+        if _FORMAT_SUFFIX.search(path) or path.startswith("admin/"):
+            continue
+        cls = _view_class(entry)
+        if cls is None:
+            continue
+        kwargs = _archived_kwargs_in(path)
+        project_resolvable = _declared_project_kwarg(entry) in kwargs
+        program_resolvable = "program_pk" in kwargs
+        for method, action in _unsafe_pairs(entry, cls):
+            effective = _effective_permission_names(cls, action, method)
+            unresolvable = (effective & project_classes and not project_resolvable) or (
+                effective & program_classes and not program_resolvable
+            )
+            if not unresolvable:
+                continue
+            rows.append(
+                (
+                    _entry_key(path, action, method),
+                    path,
+                    entry,
+                    action,
+                    _synthetic_view(cls, path, action, method),
+                )
+            )
+    return rows
+
+
+def _scope_verdict(view: Any) -> str:
+    """How the RUNNING permission layer answers an unresolvable scope for this view."""
+    if not permissions_module._unresolved_scope_allows(
+        view.request, view, permissions_module.ScopeResolution.ABSENT
+    ):
+        return SCOPE_DENIED
+    if permissions_module._object_permission_will_run(view):
+        return SCOPE_ALLOWED_BY_OBJECT_CHECK
+    return SCOPE_ALLOWED_BY_DECLARATION
+
+
+def test_no_unsafe_route_fails_open_on_unresolvable_scope() -> None:
+    """An unsafe write the permission layer cannot scope must be refused or declared.
+
+    This is the invariant #3767 exists to create. Before it, a new `detail=False` write
+    action on a flat route inherited `return True` from every project- and program-scoped
+    class it declared and was gated by nothing but whatever its author remembered to
+    write in the body — the bug class `TaskViewSet.delete_untouched_seeded` documents in
+    its own docstring, and the reason that docstring had to exist.
+
+    A route reaching this test un-denied and un-declared is not a style issue: it is an
+    authenticated caller reaching a project write with no membership check at all.
+    """
+    failing = [
+        (key, getattr(_view_class(entry), "__name__", "?"))
+        for key, _path, entry, _action, view in _unresolvable_scope_write_entries()
+        if _scope_verdict(view) == SCOPE_ALLOWED_BY_DECLARATION
+        and permissions_module._scope_in_body_reason(view) is None
+    ]
+    assert failing == [], (
+        "route(s) reach an unsafe write with a scope the permission layer cannot "
+        "resolve, and are neither denied nor declared:\n"
+        + "\n".join(f"    {k}  view={v}" for k, v in sorted(failing))
+    )
+
+
+#: The (route, action) pairs whose project/program scope arrives somewhere the permission
+#: layer cannot see it, and which therefore carry a `resolves_scope_in_body` declaration.
+#: Pinned by name for the same reason `ARCHIVED_BODY_ENTRIES` is: the declaration is an
+#: opt-out of the layer's default, and adding one must be a reviewable diff in this file
+#: rather than one more quiet attribute on a view.
+#:
+#: Every entry is here for one of three structural reasons — the project arrives in the
+#: request BODY (the `create`s), the route is keyed by a sibling id rather than a project
+#: id (poker), or declaring `project_url_kwarg` would itself be wrong (`commit/`, whose
+#: 403-vs-404 discrimination #3129 closed).
+SCOPE_IN_BODY_ENTRIES: frozenset[str] = frozenset(
+    {
+        "api/v1/^acceptance-criteria/$::create",
+        "api/v1/^dependencies/$::create",
+        "api/v1/^project-resources/$::create",
+        "api/v1/^projects/$::create",
+        "api/v1/^recurrence-rules/$::create",
+        "api/v1/^task-resources/$::create",
+        "api/v1/^tasks/$::create",
+        "api/v1/^tasks/delete-untouched-seeded/$::delete_untouched_seeded",
+        "api/v1/poker/<pk>/cancel/::post",
+        "api/v1/poker/<pk>/commit/::post",
+        "api/v1/poker/<pk>/reopen/::post",
+        "api/v1/poker/<pk>/reveal/::post",
+        "api/v1/poker/<pk>/vote/::post",
+        "api/v1/projects/<pk>/board-config/::put",
+        "api/v1/projects/<pk>/commit/::post",
+        "api/v1/projects/<str:pk>/monte-carlo/::post",
+        "api/v1/projects/<str:pk>/schedule/::post",
+        "api/v1/sprints/<sprint_pk>/poker/::post",
+    }
+)
+
+
+def test_scope_in_body_declarations_are_pinned_and_state_a_reason() -> None:
+    """Every opt-out names itself, says why, and shows up as a diff here.
+
+    A `resolves_scope_in_body` declaration restores the pre-#3767 fail-open for exactly
+    one (view, action). That is legitimate — a project that does not exist yet cannot be
+    scoped, and neither can one that arrives in the body — but it is a security decision,
+    so it must be a sentence somebody wrote, on the view, and visible in this file.
+    """
+    declared: dict[str, str] = {}
+    for key, _path, _entry, _action, view in _unresolvable_scope_write_entries():
+        reason = permissions_module._scope_in_body_reason(view)
+        if reason is not None:
+            assert len(reason) >= 60, (
+                f"{type(view).__name__}.{view.action} declares "
+                f"{permissions_module.SCOPE_IN_BODY_ATTR} as {reason!r} — it must say "
+                "which in-body call gates the write, not merely claim an exemption."
+            )
+            declared[key] = reason
+
+    added = sorted(set(declared) - SCOPE_IN_BODY_ENTRIES)
+    removed = sorted(SCOPE_IN_BODY_ENTRIES - set(declared))
+    assert not added, (
+        "new scope-in-body declaration(s) not recorded in SCOPE_IN_BODY_ENTRIES:\n"
+        + "\n".join(f"    {k}\n        {declared[k]}" for k in added)
+        + "\n\nAdd them here in the same MR. Prefer removing the need for one: naming "
+        "the project in the URL and declaring `project_url_kwarg` lets has_permission "
+        "do the work instead."
+    )
+    assert not removed, (
+        "SCOPE_IN_BODY_ENTRIES names entry/entries that no longer declare one:\n"
+        + "\n".join(f"    {k}" for k in removed)
+        + "\n\nIf the route gained a resolvable kwarg, drop it from the set. If the "
+        "declaration was deleted, that route is now DENIED — which is safe, but it is "
+        "also a 403 on a working endpoint, so it is probably not what was intended."
+    )
+
+
+def test_the_scope_family_is_discoverable() -> None:
+    """Guard the guard: the fourteen classes must still be found by source inspection.
+
+    Every set in this file is built by grepping permission-class source for a resolver
+    name. Rename the resolver without updating `_PROJECT_KWARG_IDIOMS` and the family
+    empties, the scan covers nothing, and all three assertions above pass forever.
+    """
+    project_classes, program_classes = _scope_family_classes()
+    assert len(project_classes) >= 9, (
+        f"only {sorted(project_classes)} discovered on the project side — expected the "
+        "nine #3767 classes. The resolver was probably renamed."
+    )
+    assert len(program_classes) >= 5, (
+        f"only {sorted(program_classes)} discovered on the program side — expected five."
+    )
+    # #3587's lifecycle classes are a DIFFERENT issue and must not drift into this one's
+    # family: their has_permission is about archived/closed state, not authority.
+    assert "IsProjectNotArchived" not in project_classes
+    assert "IsProgramNotClosed" not in program_classes
+    # And the #2772 denominator must still see both idioms.
+    assert {"IsProjectMember", "IsProjectNotArchived"} <= _project_scoped_permission_classes()
+
+
+def test_the_unresolvable_scope_scan_is_not_vacuous() -> None:
+    """Guard the guard, part two — the walker must still enumerate the surface."""
+    entries = _unresolvable_scope_write_entries()
+    assert len(entries) >= _MIN_UNRESOLVABLE_SCOPE_ENTRIES, (
+        f"only {len(entries)} unresolvable-scope write entries enumerated (expected >= "
+        f"{_MIN_UNRESOLVABLE_SCOPE_ENTRIES}). Fix the discovery rather than the floor."
+    )
+    keys = {key for key, *_ in entries}
+    assert keys >= SCOPE_IN_BODY_ENTRIES, (
+        "SCOPE_IN_BODY_ENTRIES names entry/entries outside the enumerated surface: "
+        f"{sorted(SCOPE_IN_BODY_ENTRIES - keys)}"
+    )
+    # One probe per verdict, so a narrowing of any single arm fails loudly.
+    by_key = {key: view for key, _p, _e, _a, view in entries}
+    assert _scope_verdict(by_key["api/v1/^tasks/$::create"]) == SCOPE_ALLOWED_BY_DECLARATION
+    assert (
+        _scope_verdict(by_key["api/v1/sprints/<pk>/pulse/::pulse"]) == SCOPE_ALLOWED_BY_OBJECT_CHECK
     )

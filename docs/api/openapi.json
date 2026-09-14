@@ -20400,7 +20400,7 @@
                                 }
                             }
                         },
-                        "description": "Monte Carlo simulation result. Includes the engine result fields (P50/P80/P95 finish dates, mean, std dev, etc.) plus cpm_finish (deterministic CPM project finish, ISO 8601 or null), delta_vs_cpm ({p50,p80,p95} signed calendar-day premium vs CPM), confidence_curve ([{date, pct}] cumulative finish-by-date S-curve), histogram_buckets ([{date, count}]), sensitivity ([{task_id, index}] duration tornado — tasks that move the finish most, index 0..1, ADR-0140), forecast_diagnostic ({deterministic, reason, tasks_total, tasks_with_variance, tasks_pending_approval, agile_tasks_without_velocity} — explains a flat forecast; reason is null when a real band exists), last_run_at (ISO 8601), status_date (the data date this run was actually computed against — project.status_date or today when unset, ADR-0132/#2638), and the risk_premium_* family (ADR-0698): risk_premium_state (not_run|unmeasurable|stale|zero|premium|negative — the discriminant every client renders from, never null), risk_premium_days, risk_premium_ratio, risk_premium_band (always null until #2299), risk_premium_as_of, risk_premium_reason, risk_premium_cpm_finish, risk_premium_p80. Derived at response time, never cached, so the ratio never describes a remaining duration that has since elapsed. Plus the forecast-staleness family (#3140): forecast_staleness (current|project_changed|aged|unknown — the discriminant every client renders from, never null; only `current` means the forecast still describes the plan, and clients keep the recompute action reachable on the other three), plan_version (the project's sync version this run was computed against; null for runs recorded before #3140, which classify as `unknown`, never `current`), and plan_version_current (that version as of this response). `project_changed` is deliberately not named `plan_changed`: the underlying counter advances on ANY write in the project, so a description or label edit raises it without moving a date. It is a sound trigger for offering a recompute and NOT evidence that a schedule value changed — do not narrate it as one."
+                        "description": "Monte Carlo simulation result. Includes the engine result fields (P50/P80/P95 finish dates, mean, std dev, etc.) plus cpm_finish (deterministic CPM project finish, ISO 8601 or null), delta_vs_cpm ({p50,p80,p95} signed calendar-day premium vs CPM), confidence_curve ([{date, pct}] cumulative finish-by-date S-curve), histogram_buckets ([{date, count}]), sensitivity ([{task_id, index}] duration tornado — tasks that move the finish most, index 0..1, ADR-0140), forecast_diagnostic ({deterministic, reason, tasks_total, tasks_with_variance, tasks_pending_approval, agile_tasks_without_velocity, tasks_estimates_below_plan} — explains a flat forecast; reason is null when a real band exists), last_run_at (ISO 8601), status_date (the data date this run was actually computed against — project.status_date or today when unset, ADR-0132/#2638), and the risk_premium_* family (ADR-0698): risk_premium_state (not_run|unmeasurable|stale|zero|premium|negative — the discriminant every client renders from, never null), risk_premium_days, risk_premium_ratio, risk_premium_band (always null until #2299), risk_premium_as_of, risk_premium_reason, risk_premium_cpm_finish, risk_premium_p80. Derived at response time, never cached, so the ratio never describes a remaining duration that has since elapsed. Plus the forecast-staleness family (#3140): forecast_staleness (current|project_changed|aged|unknown — the discriminant every client renders from, never null; only `current` means the forecast still describes the plan, and clients keep the recompute action reachable on the other three), plan_version (the project's sync version this run was computed against; null for runs recorded before #3140, which classify as `unknown`, never `current`), and plan_version_current (that version as of this response). `project_changed` is deliberately not named `plan_changed`: the underlying counter advances on ANY write in the project, so a description or label edit raises it without moving a date. It is a sound trigger for offering a recompute and NOT evidence that a schedule value changed — do not narrate it as one."
                     },
                     "400": {
                         "content": {
@@ -57969,6 +57969,10 @@
                     },
                     "agile_tasks_without_velocity": {
                         "type": "integer"
+                    },
+                    "tasks_estimates_below_plan": {
+                        "type": "integer",
+                        "description": "Tasks whose whole three-point range sits at or below their planned duration, which the engine floors every sample at (#3765) — so the range samples to a constant. Absent on a run persisted before #3765 and replayed from history; clients read an absent value as 0, the same way they already treat an absent `diagnostic` as 'no reason known'."
                     }
                 },
                 "required": [
@@ -57984,13 +57988,14 @@
                 "enum": [
                     "no_committed_tasks",
                     "all_complete",
+                    "estimates_below_plan_duration",
                     "estimates_off_critical_path",
                     "estimates_pending_approval",
                     "no_velocity_history",
                     "no_estimates"
                 ],
                 "type": "string",
-                "description": "* `no_committed_tasks` - no_committed_tasks\n* `all_complete` - all_complete\n* `estimates_off_critical_path` - estimates_off_critical_path\n* `estimates_pending_approval` - estimates_pending_approval\n* `no_velocity_history` - no_velocity_history\n* `no_estimates` - no_estimates"
+                "description": "* `no_committed_tasks` - no_committed_tasks\n* `all_complete` - all_complete\n* `estimates_below_plan_duration` - estimates_below_plan_duration\n* `estimates_off_critical_path` - estimates_off_critical_path\n* `estimates_pending_approval` - estimates_pending_approval\n* `no_velocity_history` - no_velocity_history\n* `no_estimates` - no_estimates"
             },
             "MonteCarloHistogramBucket": {
                 "type": "object",
