@@ -39,6 +39,17 @@ const GUARDRAILS_DOC = 'administration/project-settings/#sprint-guardrails';
  * acknowledged, any composition Block is *inert* until the team toggles
  * acknowledgement. The team-ack gate is enforced in OSS code so a custom
  * high-ordinal Enterprise role can't bypass sprint sovereignty.
+ *
+ * unconsumed: the `source === 'external'` branch below (banner, inert-blocks
+ * explainer, acknowledge/withdraw toggle) is **unreachable in a community
+ * install** and that is by design, not a dead surface (#3780). Nothing in OSS
+ * sets `source` to `external`; the only writer is the declared API seam
+ * `guardrail_policy_source.apply_external_guardrail_policy`, whose consumer is
+ * trueppm-enterprise#200. The UI ships ahead of it deliberately — the team-ack
+ * gate is an OSS sovereignty guarantee, so it must not arrive as part of the
+ * Enterprise bundle that it exists to constrain. Covered by vitest
+ * (`ProjectGuardrailsPage.test.tsx`, `sourceLabel: 'PMO'`) rather than E2E,
+ * because no API response a community server can produce reaches this branch.
  */
 export function ProjectGuardrailsPage({ embedded, docsHref }: SettingsBlockProps = {}) {
   const projectId = useProjectId();
