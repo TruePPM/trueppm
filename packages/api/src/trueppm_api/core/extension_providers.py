@@ -1,9 +1,11 @@
-"""Duplicate-registration guard for the single-provider extension hooks (#2859).
+"""Duplicate-registration guard for the single-provider extension hooks (#2859, #3779).
 
 Most extension points are registries keyed by name, and ``ProviderRegistry`` raises
-on a duplicate key. Six hooks are instead a module-global ``Callable | None`` with an
-unconditional-assignment setter — the shape that fits a hook where at most one
+on a duplicate key. Eleven hooks are instead a module-global ``Callable | None`` with
+an unconditional-assignment setter — the shape that fits a hook where at most one
 provider can be meaningful (is enforcement active? what is the default posture?).
+All eleven route through this guard as of #3779 (#2859 introduced it but converted
+only 6 of the 11 slots).
 
 Unconditional assignment makes them **last-write-wins**: two registrations silently
 overwrite, and the winner is import order. That is the wrong failure mode for a

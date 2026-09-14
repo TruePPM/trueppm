@@ -80,6 +80,30 @@ truth.
 
 ---
 
+## Upgrading to 0.4
+
+0.4 has not tagged yet — this section will be filled in from the full set of 0.4
+changelog fragments at release time, per the template above. One known operational
+item is already worth flagging ahead of that, because it is orthogonal to feature
+scope and depends on your replica count:
+
+**Known transient-500 window on multi-replica installs.** 0.4 will ship
+`profiles.0008_remove_userprofile_schedule_in_deliver`, a single-release migration
+that drops the retired `schedule_in_deliver` column outright (ADR-0942 §3, #3137) —
+there is no intervening `null=True`-then-remove deprecation release. If you run the
+API at `replicaCount` >= 2 (the posture [`values-prod.yaml`](/administration/helm-values/)
+sets by default, and the posture 0.4's basic-HA carve-out encourages), Kubernetes'
+default RollingUpdate keeps an old pod serving while the new pod's migration applies.
+For the duration of that rollout, any request that lands on the old pod's
+`get_profile_prefs()` read (used by `/auth/me/`, the web shell's bootstrap call) will
+get a transient `500` — the old pod's code still names the now-dropped column
+explicitly. This is a known, bounded, and accepted trade-off, not a regression to
+report: no crash-loop, no data loss beyond the retired boolean preference itself, and
+the window closes as soon as the rollout finishes. Single-replica installs never see
+it. See #3782 for the full analysis.
+
+---
+
 ## Upgrading to 0.3
 
 0.3 adds new database tables and columns for the agile-team feature set. A
