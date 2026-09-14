@@ -3686,9 +3686,12 @@ class Task(VersionedModel):
             # line, so the failure is contained AND visible (#2606).
             from trueppm_api.core.extension_signals import dispatch_extension_signal
 
+            # sender=Task, not type(self): the literal class is what a receiver
+            # registers against, and it keeps matching if Task is ever
+            # subclassed (#3777).
             dispatch_extension_signal(
                 task_status_changed,
-                sender=type(self),
+                sender=Task,
                 task=self,
                 old_status=old_status,
                 new_status=self.status,
@@ -4576,7 +4579,7 @@ class Risk(VersionedModel):
             # risk_changed is the OSS extension point for the Enterprise portfolio
             # risk rollup. A raising receiver must not propagate out of and break
             # this OSS write path.
-            dispatch_extension_signal(risk_changed, sender=type(self), risk=self, action="saved")
+            dispatch_extension_signal(risk_changed, sender=Risk, risk=self, action="saved")
 
     def soft_delete(self) -> None:
         # VersionedModel.soft_delete() calls self.save(); the save() override
@@ -4588,7 +4591,7 @@ class Risk(VersionedModel):
 
         # A raising Enterprise risk-rollup receiver must not propagate out of and
         # break this OSS soft-delete write path.
-        dispatch_extension_signal(risk_changed, sender=type(self), risk=self, action="deleted")
+        dispatch_extension_signal(risk_changed, sender=Risk, risk=self, action="deleted")
 
 
 class RiskTask(models.Model):

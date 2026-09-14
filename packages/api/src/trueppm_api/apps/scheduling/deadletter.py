@@ -75,9 +75,14 @@ def record_failed_task(
     if created:
         # A misbehaving receiver (incl. enterprise PagerDuty/Slack) must never
         # break the dead-letter recording path.
+        #
+        # sender=None: this signal is about a worker run, not a model row. This
+        # site is also why the Celery family could not use a class even if one
+        # were wanted — the dead-letter recorder has the task's name and no task
+        # object at all. Receivers branch on the task_name kwarg (#3777).
         dispatch_extension_signal(
             celery_task_permanently_failed,
-            sender=task_name,
+            sender=None,
             task_id=task_id,
             task_name=task_name,
             exception=exception,
