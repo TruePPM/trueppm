@@ -1,6 +1,6 @@
 ---
 name: enterprise-check
-model: sonnet
+model: sonnet  # /pre-release full deliberately escalates this agent to Opus for the full-codebase audit (see pre-release/SKILL.md Step 0.6) — sonnet here is the day-to-day default, not a drifted mismatch
 description: >
   OSS vs Enterprise boundary classification for TruePPM features. Use when a new
   feature's classification is unclear before architecture is decided. Moving a feature

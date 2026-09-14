@@ -113,7 +113,7 @@ When launching each agent (via the `Agent` tool with `subagent_type: <name>` and
 | `security-review` | **Opus** | OWASP Top 10 across the full codebase requires reasoning across views → serializers → models → migrations; IDOR and serializer-exposure findings often span 3–5 files. Missing one is a CVE. |
 | `rbac-check` | **Sonnet** | Pattern audit: every endpoint × every HTTP method × the 5-role matrix. Mechanical and exhaustive — Sonnet's strength. |
 | `perf-check` | **Sonnet** | Structural N+1 detection: relations traversed in serializers vs `select_related`/`prefetch_related` on the calling view. Pattern-based and well-defined. |
-| `performance` | **Opus** | Cross-cutting performance: schedule canvas renderer, WebSocket throughput, mobile sync, query-count scaling with project size. Requires reasoning about data shape and access patterns, not just per-endpoint checks. |
+| `performance` | **Opus** | Cross-cutting performance: schedule canvas renderer, WebSocket throughput, mobile sync, query-count scaling with project size. Requires reasoning about data shape and access patterns, not just per-endpoint checks. This is a deliberate escalation above the skill's own `model: sonnet` default (annotated in `performance/SKILL.md`) — do not "fix" it back to Sonnet to match. |
 | `scheduler-engine` | **Opus** | CPM forward/backward correctness, Monte Carlo sampling assumptions, float math — all algorithm-correctness work. Plus public pip-package surface stability is a multi-year commitment once 1.0 ships. |
 | `architect` (contracts) | **Opus** | "What becomes a public commitment?" is the highest-reasoning question in the audit. Requires holding the API + WS + scheduler + Helm + settings surface in mind simultaneously and judging which inconsistencies are cheap-to-fix vs major-bump. |
 | `migration-check` | **Sonnet** | Pattern audit: scan migration files for destructive ops, NOT NULL without default, missing reverse migrations. Mechanical. |
@@ -123,7 +123,7 @@ When launching each agent (via the `Agent` tool with `subagent_type: <name>` and
 | `docs-writer` (audit) | **Sonnet** | Enumerate features in `docs/` vs features in code; flag gaps. Enumeration, not reasoning. |
 | `api-design` (audit) | **Sonnet** | Enumerate endpoints/schemas/events in code vs `docs/api/`; flag gaps. Enumeration. |
 | `dependency` | **Sonnet** | License + CVE scan against pip and npm manifests. Tabular and well-defined. |
-| `enterprise-check` | **Opus** | OSS/Enterprise boundary leaks are subtle (signal hooks, settings includes, view registry). Missing one breaks the Apache 2.0 contract. Reasoning across two repos via extension points. |
+| `enterprise-check` | **Opus** | OSS/Enterprise boundary leaks are subtle (signal hooks, settings includes, view registry). Missing one breaks the Apache 2.0 contract. Reasoning across two repos via extension points. This is a deliberate escalation above the skill's own `model: sonnet` default (annotated in `enterprise-check/SKILL.md`) — do not "fix" it back to Sonnet to match. |
 | `regression-check` | **Sonnet** | Stale mocks, broken test suites, permission regressions — pattern-based. |
 | `test-strategy` (coverage) | **Sonnet** | Enumerate public functions/endpoints/hooks vs tests that cover them. Enumeration. |
 
