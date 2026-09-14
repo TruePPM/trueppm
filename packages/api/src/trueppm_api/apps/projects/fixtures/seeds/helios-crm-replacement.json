@@ -1,96 +1,12 @@
 {
-  "schema_version": "2.1",
+  "schema_version": "2.0",
   "program": {
     "slug": "helios-crm-replacement",
     "name": "Helios CRM Replacement",
     "description": "Hybrid-small sample — a completed waterfall planning phase feeding an agile build phase, with a cross-phase dependency.",
     "methodology": "HYBRID",
     "color": "#2E8B8B",
-    "lead": "jordan",
-    "backlog_items": [
-      {
-        "slug": "territory-assignment-rules",
-        "title": "Territory assignment rules",
-        "item_type": "feature",
-        "tags": [
-          "late-requirement"
-        ],
-        "priority_rank": 1,
-        "story_points": 8,
-        "created_by": "jordan",
-        "created_at": "A-9T10:00"
-      },
-      {
-        "slug": "outlook-calendar-sync",
-        "title": "Outlook calendar sync",
-        "item_type": "story",
-        "tags": [
-          "customer-request"
-        ],
-        "priority_rank": 2,
-        "story_points": 5,
-        "created_by": "mei",
-        "created_at": "A-6T11:00"
-      },
-      {
-        "slug": "search-and-filters",
-        "title": "Search & filters",
-        "description": "Pulled in for Sales, then deferred to protect the Sprint 2 goal.",
-        "item_type": "story",
-        "status": "pulled",
-        "pulled_to": "helios:2.16",
-        "pulled_by": "jordan",
-        "pulled_at": "A-5T08:55",
-        "tags": [
-          "sales-request",
-          "late-requirement"
-        ],
-        "story_points": 8,
-        "created_by": "jordan",
-        "created_at": "A-7T14:00"
-      },
-      {
-        "slug": "pilot-audit-log",
-        "title": "Audit log for the pilot go/no-go",
-        "item_type": "story",
-        "status": "pulled",
-        "pulled_to": "helios:2.13",
-        "pulled_by": "jordan",
-        "pulled_at": "A-1T08:55",
-        "tags": [
-          "compliance",
-          "late-requirement"
-        ],
-        "story_points": 5,
-        "created_by": "jordan",
-        "created_at": "A-2T16:00"
-      },
-      {
-        "slug": "legacy-quote-pdfs",
-        "title": "Legacy quote PDFs in the new CRM",
-        "description": "Rejected: legacy quotes stay in the archive system, per the target architecture (1.3).",
-        "item_type": "feature",
-        "status": "archived",
-        "created_by": "ivan",
-        "created_at": "A-30T10:00"
-      }
-    ],
-    "ceremonies": [
-      {
-        "name": "Steering Committee",
-        "cadence_type": "monthly",
-        "cadence_day": "last-friday",
-        "cadence_time": "14:00",
-        "duration_minutes": 60,
-        "owner_role": "Executive Sponsor"
-      },
-      {
-        "name": "Planning Gate Review",
-        "cadence_type": "on_milestone",
-        "duration_minutes": 90,
-        "owner_role": "Program Manager"
-      }
-    ]
+    "lead": "jordan"
   },
   "accounts": [
     {
@@ -381,16 +297,7 @@
           "sprint": "he-sprint-2",
           "delivery_mode": "scrum",
           "governance_class": "flow",
-          "remaining_points": 2,
-          "acceptance_criteria": [
-            {
-              "text": "Imports accounts with their owners and territories"
-            },
-            {
-              "text": "Duplicate accounts are flagged, never merged silently"
-            }
-          ],
-          "dor": "ready"
+          "remaining_points": 2
         },
         {
           "wbs_path": "2.2",
@@ -419,8 +326,7 @@
           "governance_class": "flow",
           "labels": [
             "core"
-          ],
-          "dor": "ready"
+          ]
         },
         {
           "wbs_path": "2.4",
@@ -436,22 +342,7 @@
           "governance_class": "flow",
           "labels": [
             "integration"
-          ],
-          "acceptance_criteria": [
-            {
-              "text": "Inbound and outbound mail threads onto the contact",
-              "met": true,
-              "met_by": "mei",
-              "met_at": "A-1T15:05"
-            },
-            {
-              "text": "OAuth refresh survives a 30-day idle",
-              "met": true,
-              "met_by": "mei",
-              "met_at": "A-1T15:05"
-            }
-          ],
-          "dor": "ready"
+          ]
         },
         {
           "wbs_path": "2.5",
@@ -477,8 +368,7 @@
           "assignee": "mei",
           "sprint": "he-sprint-1",
           "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
+          "governance_class": "flow"
         },
         {
           "wbs_path": "2.7",
@@ -492,16 +382,7 @@
           "sprint": "he-sprint-2",
           "delivery_mode": "scrum",
           "governance_class": "flow",
-          "remaining_points": 1,
-          "acceptance_criteria": [
-            {
-              "text": "Stage transitions appear on the account timeline"
-            },
-            {
-              "text": "The timeline loads the latest 50 events in under a second"
-            }
-          ],
-          "dor": "ready"
+          "remaining_points": 1
         },
         {
           "wbs_path": "2.8",
@@ -527,8 +408,7 @@
           "assignee": "nadia",
           "sprint": "he-sprint-1",
           "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
+          "governance_class": "flow"
         },
         {
           "wbs_path": "2.10",
@@ -542,13 +422,7 @@
           "sprint": "he-sprint-2",
           "delivery_mode": "scrum",
           "governance_class": "flow",
-          "remaining_points": 4,
-          "acceptance_criteria": [
-            {
-              "text": "A rule can reassign a lead when its stage changes"
-            }
-          ],
-          "dor": "ready"
+          "remaining_points": 4
         },
         {
           "wbs_path": "2.11",
@@ -573,8 +447,7 @@
           "assignee": "mei",
           "sprint": "he-sprint-1",
           "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
+          "governance_class": "flow"
         },
         {
           "wbs_path": "2.13",
@@ -597,8 +470,7 @@
               "link_type": "relates_to",
               "note": "The audit log records the SSO authentication events — align the event schema."
             }
-          ],
-          "dor": "ready"
+          ]
         },
         {
           "wbs_path": "2.14",
@@ -635,8 +507,7 @@
           "assignee": "nadia",
           "sprint": "he-sprint-1",
           "delivery_mode": "scrum",
-          "governance_class": "flow",
-          "dor": "ready"
+          "governance_class": "flow"
         },
         {
           "wbs_path": "2.16",
@@ -680,8 +551,7 @@
           "governance_class": "flow",
           "labels": [
             "migration"
-          ],
-          "dor": "ready"
+          ]
         },
         {
           "wbs_path": "2.19",
@@ -979,8 +849,7 @@
       "action": "task.comment",
       "target": "task:helios:2.3",
       "actor": "mei",
-      "body": "Review: stage transitions don't fire the activity hook, so the timeline misses them. Sending it back.",
-      "slug": "pipeline-review"
+      "body": "Review: @helios-nadia stage transitions don't fire the activity hook, so the timeline misses them. Sending it back."
     },
     {
       "at": "A-14T11:30",
@@ -994,8 +863,7 @@
       "action": "task.comment",
       "target": "task:helios:2.3",
       "actor": "nadia",
-      "body": "Wired stage transitions into the activity stream. Re-review please.",
-      "reply_to": "pipeline-review"
+      "body": "Wired stage transitions into the activity stream. Re-review please."
     },
     {
       "at": "A-11T14:30",
@@ -1009,9 +877,7 @@
       "action": "task.comment",
       "target": "task:helios:2.3",
       "actor": "mei",
-      "body": "Looks good now. Merged.",
-      "reply_to": "pipeline-review",
-      "slug": "pipeline-merged"
+      "body": "Looks good now. Merged."
     },
     {
       "at": "A-10T16:30",
@@ -1081,7 +947,7 @@
       "action": "task.comment",
       "target": "task:helios:2.7",
       "actor": "ivan",
-      "body": "Nadia's carrying three active stories — moving Activity timeline to Mei to keep the sprint flowing."
+      "body": "Nadia's carrying three active stories — @helios-mei moving Activity timeline to you to keep the sprint flowing."
     },
     {
       "at": "A-3T09:05",
@@ -1095,8 +961,7 @@
       "action": "task.comment",
       "target": "task:helios:2.16",
       "actor": "jordan",
-      "body": "Sales is asking for Search & filters now — pulling it into the sprint.",
-      "slug": "search-filters-ask"
+      "body": "Sales is asking for Search & filters now — pulling it into the sprint."
     },
     {
       "at": "A-5T09:05",
@@ -1117,9 +982,7 @@
       "action": "task.comment",
       "target": "task:helios:2.16",
       "actor": "ivan",
-      "body": "This pushes us well past capacity and risks the sprint goal. Deferring it to the next release.",
-      "reply_to": "search-filters-ask",
-      "slug": "search-filters-defer"
+      "body": "This pushes us well past capacity and risks the sprint goal. Deferring it to the next release."
     },
     {
       "at": "A-2T15:05",
@@ -1147,7 +1010,7 @@
       "action": "task.comment",
       "target": "task:helios:2.13",
       "actor": "jordan",
-      "body": "Compliance flagged the audit log for the pilot go/no-go — pulling it into this sprint."
+      "body": "Compliance flagged the audit log for the pilot go/no-go — @helios-ivan pulling it into this sprint."
     },
     {
       "at": "A-1T09:05",
@@ -1183,81 +1046,6 @@
       "target": "task:helios:2.4",
       "actor": "mei",
       "to": "COMPLETE"
-    },
-    {
-      "at": "A-14T11:30",
-      "action": "task.ack",
-      "target": "comment:pipeline-review",
-      "actor": "nadia"
-    },
-    {
-      "at": "A-10T16:15",
-      "action": "task.react",
-      "target": "comment:pipeline-merged",
-      "actor": "nadia",
-      "emoji": "👍"
-    },
-    {
-      "at": "A-2T15:20",
-      "action": "task.react",
-      "target": "comment:search-filters-defer",
-      "actor": "jordan",
-      "emoji": "👍"
-    },
-    {
-      "at": "A-2T15:30",
-      "action": "task.comment",
-      "target": "task:helios:2.16",
-      "actor": "jordan",
-      "reply_to": "search-filters-ask",
-      "body": "@helios-ivan agreed. I will tell Sales it is first in line for the next release."
-    },
-    {
-      "at": "A-3T09:05",
-      "action": "task.comment",
-      "target": "task:helios:2.7",
-      "actor": "ivan",
-      "body": "@helios-mei it is yours now. @helios-nadia please drop your branch notes on the story before you hand it over."
-    },
-    {
-      "at": "A-6T09:05",
-      "action": "task.note",
-      "target": "task:helios:2.17",
-      "actor": "ivan",
-      "body": "Decision: the planning-phase data model (1.5) is frozen as the migration contract. A schema change after this point needs a change request.",
-      "decision": true,
-      "pinned": true
-    },
-    {
-      "at": "A-2T15:10",
-      "action": "task.note",
-      "target": "task:helios:2.16",
-      "actor": "ivan",
-      "body": "Decision: Search & filters is deferred to the next release to protect the Sprint 2 goal.",
-      "decision": true
-    },
-    {
-      "at": "A-1T16:00",
-      "action": "task.ac_met",
-      "target": "task:helios:2.7",
-      "actor": "ivan",
-      "criterion": 0
-    },
-    {
-      "at": "A-1T15:10",
-      "action": "time.log",
-      "target": "task:helios:2.4",
-      "actor": "mei",
-      "minutes": 90,
-      "note": "OAuth refresh soak test"
-    },
-    {
-      "at": "A-1T16:30",
-      "action": "time.log",
-      "target": "task:helios:2.1",
-      "actor": "nadia",
-      "minutes": 240,
-      "note": "Account import: duplicate-detection keys"
     }
   ]
 }
