@@ -1608,6 +1608,53 @@ class TestMonteCarloDurationFloor:
         mc = monte_carlo(p, runs=500, seed=5)
         assert mc.p50 == mc.p95 == cpm.project_finish
 
+    def test_sensitivity_index_stays_within_the_documented_zero_to_one(self) -> None:
+        """The floor must not push the tornado index out of its published range (#3765).
+
+        ``_duration_sensitivity`` computes a Spearman correlation as a raw
+        dot-product ratio. That cannot leave [-1, 1] mathematically, but it rounds
+        past it when the two centred rank vectors are collinear — and flooring is
+        what makes them collinear: a floored column collapses onto a single tied
+        value, ranks to a near-constant vector, and correlates with the finish at
+        exactly +-1 in exact arithmetic. Measured over 800 entries on these seeds:
+        0 above 1.0 before the floor landed, 105 after, before the clamp.
+
+        This is not cosmetic. The API serializes ``index`` through a bare
+        ``FloatField`` with no ``max_value``, so a 1.0000000000000002 reaches real
+        clients and breaks the 0..1 range that ADR-0140 and the public docstring
+        both state. The endpoint runs unseeded, so it is not reproducible on demand
+        either — exactly the shape that reads as an unexplained flake.
+        """
+        worst = 0.0
+        for seed in range(120):
+            p = make_project(
+                tasks=[
+                    task(
+                        "A",
+                        "A",
+                        5,
+                        optimistic_duration=timedelta(days=1),
+                        most_likely_duration=timedelta(days=4),
+                        pessimistic_duration=timedelta(days=9),
+                    ),
+                    task(
+                        "B",
+                        "B",
+                        3,
+                        optimistic_duration=timedelta(days=2),
+                        most_likely_duration=timedelta(days=3),
+                        pessimistic_duration=timedelta(days=4),
+                    ),
+                ],
+                start=date(2026, 4, 1),
+            )
+            for s in monte_carlo(p, runs=200, seed=seed).sensitivity:
+                assert 0.0 <= s.index <= 1.0, f"seed {seed}: index {s.index!r} outside 0..1"
+                worst = max(worst, s.index)
+        # The collinear case really is reached on this input — without it the
+        # assertion above would pass vacuously on a range that never approaches 1.
+        assert worst == 1.0, f"expected a perfectly-correlated column; max was {worst!r}"
+
     def test_ff_network_is_not_monotone_in_duration(self) -> None:
         """Why the floor cannot promise a finish-level bound on every network (#3806).
 

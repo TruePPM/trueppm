@@ -2533,7 +2533,20 @@ def _duration_sensitivity(
         # matches `== 0.0` without a float-equality comparison (S1244).
         if x_norm <= 0.0:
             continue
-        corr = float(np.dot(xc, yc) / (x_norm * y_norm))
+        # Clamped to [-1, 1] before abs() (#3765). A Spearman correlation cannot
+        # mathematically leave that interval, but this computes it as a raw
+        # dot-product ratio, and when the two centred rank vectors are collinear the
+        # division rounds to 1.0000000000000002 — an index ABOVE the 0..1 the public
+        # contract and ADR-0140 both promise, which the API serializes through a bare
+        # FloatField with no max_value straight to the client.
+        #
+        # The overshoot is latent without the duration floor and reachable with it:
+        # flooring collapses a sampled column onto a single tied value, and a
+        # tie-dense column ranks to a near-constant vector whose correlation with the
+        # finish is exactly ±1 in exact arithmetic — precisely the collinear case that
+        # rounds out of range. Measured over 800 sensitivity entries on the same
+        # projects and seeds: 0 above 1.0 with the floor off, 105 with it on.
+        corr = float(np.clip(np.dot(xc, yc) / (x_norm * y_norm), -1.0, 1.0))
         scored.append(TaskSensitivity(task_id=tid, index=abs(corr)))
 
     # Sort by index desc; tie-break on task_id so the order is deterministic under

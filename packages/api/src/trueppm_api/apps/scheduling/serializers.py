@@ -135,7 +135,16 @@ class MonteCarloForecastDiagnosticSerializer(serializers.Serializer[dict[str, An
     tasks_with_variance = serializers.IntegerField()
     tasks_pending_approval = serializers.IntegerField()
     agile_tasks_without_velocity = serializers.IntegerField()
-    tasks_estimates_below_plan = serializers.IntegerField()
+    tasks_estimates_below_plan = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "Tasks whose whole three-point range sits at or below their planned "
+            "duration, which the engine floors every sample at (#3765) — so the "
+            "range samples to a constant. Absent on a run persisted before #3765 "
+            "and replayed from history; clients read an absent value as 0, the same "
+            "way they already treat an absent `diagnostic` as 'no reason known'."
+        ),
+    )
 
 
 class RiskPremiumFieldsSerializer(serializers.Serializer[dict[str, Any]]):
