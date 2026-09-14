@@ -242,6 +242,20 @@ sections: `program.backlog_items` (a pulled item names the task it became in
 `sprint review`, `retrospective` and the other sprint events are rejected, as
 in the API), and `tasks[].acceptance_criteria`.
 
+v2.1 also carries the team and task-shape layer. `projects[].team` names the
+project's default team and sets its Scrum Master and Product Owner facets — at
+most one of each, and only on a member of the project, because team membership
+itself mirrors project membership. `resources[].skills` puts skills on the
+workspace catalog (matched case-insensitively, so two samples share one "Python")
+with a `beginner` / `intermediate` / `expert` proficiency, and
+`tasks[].skill_requirements` states what a task needs, which the assignment fit
+compares. `tasks[].recurrence` makes a task a recurrence template — only the rule
+is seeded, and occurrences spawn on the generator's horizon — with the same
+conditional rules as the API (weekly needs weekdays, monthly a day of month, one
+end at most). `tasks[].is_subtask` marks a drawer subtask: one level under a leaf
+task that holds no structural children, and never a parent itself. `task.type`
+adds `tech_debt`.
+
 Two further v2.1 sections are **sample-only**: `program.agent_actions` and
 `projects[].share_links`. Only the bundled-sample loader honors them; every
 other import path rejects the file. Seeded agent actions go through the real

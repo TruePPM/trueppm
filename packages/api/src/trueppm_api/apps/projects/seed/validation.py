@@ -336,6 +336,7 @@ def _sample_only_errors(payload: Any) -> list[str]:
 def _v21_reference_errors(payload: dict[str, Any], ctx: _RefContext, errors: list[str]) -> None:
     """Cross-references for the v2.1 program/project/task sections (#3603)."""
     program = payload.get("program", {})
+    _v21_depth_errors(payload, ctx, errors)
     _check_backlog_items(program.get("backlog_items", []), ctx, errors)
     _check_ceremonies(program.get("ceremonies", []), errors)
     _check_agent_actions(program.get("agent_actions", []), ctx, errors)
@@ -358,6 +359,113 @@ def _v21_reference_errors(payload: dict[str, Any], ctx: _RefContext, errors: lis
                     "account",
                     errors,
                 )
+
+
+_WEEKDAY_BITS = {"mon": 1, "tue": 2, "wed": 4, "thu": 8, "fri": 16, "sat": 32, "sun": 64}
+
+
+def _v21_depth_errors(payload: dict[str, Any], ctx: _RefContext, errors: list[str]) -> None:
+    """Team facets, drawer subtasks and recurrence rules (v2.1, #3498).
+
+    Mirrors the rules the API enforces on the same writes, so a seed cannot express a
+    team, a subtask tree or a recurrence the product would refuse to create.
+    """
+    accounts_with_role = {
+        a.get("slug", "") for a in payload.get("accounts", []) if a.get("role") is not None
+    }
+    for i, project in enumerate(payload.get("projects", [])):
+        base = f"$.projects[{i}]"
+        if "members" in project:
+            members = {m.get("account", "") for m in project.get("members", [])}
+        else:
+            members = accounts_with_role
+        _check_team(project.get("team"), f"{base}.team", members, ctx, errors)
+        tasks = project.get("tasks", [])
+        by_wbs = {t.get("wbs_path"): t for t in tasks}
+        for j, task in enumerate(tasks):
+            tpath = f"{base}.tasks[{j}]"
+            if task.get("is_subtask"):
+                _check_subtask(task, by_wbs, tpath, errors)
+            if "recurrence" in task:
+                _check_recurrence(task, tpath, errors)
+
+
+def _check_team(
+    team: dict[str, Any] | None,
+    base: str,
+    project_members: set[str],
+    ctx: _RefContext,
+    errors: list[str],
+) -> None:
+    """A facet goes to a project member, and each facet has at most one holder.
+
+    ``TeamMembership`` mirrors ``ProjectMembership`` onto the default team, so a facet
+    on a non-member has no row to land on. The one-holder rule is the soft singleton
+    the team service enforces on reassignment.
+    """
+    if not team:
+        return
+    seen: set[str] = set()
+    holders = {"scrum_master": 0, "product_owner": 0}
+    for k, member in enumerate(team.get("members", [])):
+        mpath = f"{base}.members[{k}]"
+        account = member.get("account", "")
+        _check_ref(account, ctx.account_slugs, f"{mpath}.account", "account", errors)
+        if account in ctx.account_slugs and account not in project_members:
+            errors.append(f"{mpath}.account: {account!r} is not a member of this project")
+        if account in seen:
+            errors.append(f"{mpath}.account: {account!r} is listed twice")
+        seen.add(account)
+        for facet in holders:
+            if member.get(facet):
+                holders[facet] += 1
+    for facet, count in holders.items():
+        if count > 1:
+            errors.append(f"{base}.members: a team has at most one {facet}, found {count}")
+
+
+def _check_subtask(
+    task: dict[str, Any], by_wbs: dict[Any, dict[str, Any]], tpath: str, errors: list[str]
+) -> None:
+    """Drawer subtasks are depth-1 leaves under a decomposable task (ADR-0060, #1750)."""
+    wbs = str(task.get("wbs_path", ""))
+    parent_path, _, _ = wbs.rpartition(".")
+    parent = by_wbs.get(parent_path) if parent_path else None
+    if parent is None:
+        where = parent_path or "?"
+        errors.append(f"{tpath}.is_subtask: a subtask needs a parent task at {where!r}")
+        return
+    if parent.get("is_milestone"):
+        errors.append(f"{tpath}.is_subtask: a milestone cannot hold subtasks")
+    if parent.get("is_subtask"):
+        errors.append(f"{tpath}.is_subtask: a subtask cannot hold subtasks")
+    prefix = f"{parent_path}."
+    for path, sibling in by_wbs.items():
+        child = str(path)
+        is_direct_child = child.startswith(prefix) and "." not in child[len(prefix) :]
+        if is_direct_child and not sibling.get("is_subtask"):
+            errors.append(
+                f"{tpath}.is_subtask: {parent_path!r} groups structural work, and a phase "
+                "cannot also hold subtasks"
+            )
+            break
+    if any(str(path).startswith(f"{wbs}.") for path in by_wbs):
+        errors.append(f"{tpath}.is_subtask: a subtask cannot have children")
+
+
+def _check_recurrence(task: dict[str, Any], tpath: str, errors: list[str]) -> None:
+    """Mirror ``TaskRecurrenceRule.clean()`` plus the template constraints."""
+    rule = task.get("recurrence") or {}
+    rpath = f"{tpath}.recurrence"
+    frequency = rule.get("frequency")
+    if frequency == "WEEKLY" and not rule.get("weekdays"):
+        errors.append(f"{rpath}.weekdays: weekly recurrence requires at least one weekday")
+    if frequency == "MONTHLY" and rule.get("day_of_month") is None:
+        errors.append(f"{rpath}.day_of_month: monthly recurrence requires a day of month")
+    if "end_date" in rule and "end_count" in rule:
+        errors.append(f"{rpath}: give end_date or end_count, not both")
+    if task.get("is_milestone") or task.get("is_subtask"):
+        errors.append(f"{rpath}: a milestone or a subtask cannot be a recurrence template")
 
 
 def _check_backlog_items(items: list[dict[str, Any]], ctx: _RefContext, errors: list[str]) -> None:

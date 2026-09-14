@@ -156,7 +156,17 @@
       "job_role": "Solutions Architect",
       "max_units": 0.5,
       "account": "ivan",
-      "calendar": "helios-core"
+      "calendar": "helios-core",
+      "skills": [
+        {
+          "name": "Solution architecture",
+          "proficiency": "expert"
+        },
+        {
+          "name": "CRM migration",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "jordan",
@@ -164,7 +174,13 @@
       "job_role": "Product Owner",
       "max_units": 1.0,
       "account": "jordan",
-      "calendar": "helios-core"
+      "calendar": "helios-core",
+      "skills": [
+        {
+          "name": "CRM product ownership",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "raj",
@@ -172,7 +188,13 @@
       "job_role": "Delivery Scheduler",
       "max_units": 1.0,
       "account": "raj",
-      "calendar": "helios-core"
+      "calendar": "helios-core",
+      "skills": [
+        {
+          "name": "Scheduling",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "mei",
@@ -180,7 +202,13 @@
       "job_role": "Engineer",
       "max_units": 1.0,
       "account": "mei",
-      "calendar": "helios-core"
+      "calendar": "helios-core",
+      "skills": [
+        {
+          "name": "Integrations",
+          "proficiency": "expert"
+        }
+      ]
     },
     {
       "slug": "nadia",
@@ -188,7 +216,13 @@
       "job_role": "Engineer",
       "max_units": 1.0,
       "account": "nadia",
-      "calendar": "helios-core"
+      "calendar": "helios-core",
+      "skills": [
+        {
+          "name": "Data migration",
+          "proficiency": "intermediate"
+        }
+      ]
     },
     {
       "slug": "ada",
@@ -390,6 +424,12 @@
               "text": "Duplicate accounts are flagged, never merged silently"
             }
           ],
+          "skill_requirements": [
+            {
+              "skill": "Data migration",
+              "min_proficiency": "expert"
+            }
+          ],
           "dor": "ready"
         },
         {
@@ -449,6 +489,12 @@
               "met": true,
               "met_by": "mei",
               "met_at": "A-1T15:05"
+            }
+          ],
+          "skill_requirements": [
+            {
+              "skill": "Integrations",
+              "min_proficiency": "intermediate"
             }
           ],
           "dor": "ready"
@@ -703,6 +749,43 @@
           "planned_start": "A+35",
           "governance_class": "gated",
           "delivery_mode": "milestone"
+        },
+        {
+          "wbs_path": "5",
+          "name": "Build standup",
+          "status": "NOT_STARTED",
+          "duration": 1,
+          "assignee": "ivan",
+          "delivery_mode": "scrum",
+          "recurrence": {
+            "frequency": "WEEKLY",
+            "weekdays": [
+              "mon",
+              "tue",
+              "wed",
+              "thu",
+              "fri"
+            ],
+            "time_of_day": "09:00"
+          }
+        },
+        {
+          "wbs_path": "2.2.1",
+          "name": "Fuzzy match on name and email",
+          "status": "NOT_STARTED",
+          "duration": 1,
+          "assignee": "mei",
+          "is_subtask": true,
+          "delivery_mode": "scrum"
+        },
+        {
+          "wbs_path": "2.2.2",
+          "name": "Merge review queue",
+          "status": "NOT_STARTED",
+          "duration": 1,
+          "assignee": "mei",
+          "is_subtask": true,
+          "delivery_mode": "scrum"
         }
       ],
       "dependencies": [
@@ -908,7 +991,20 @@
             "2.1"
           ]
         }
-      ]
+      ],
+      "team": {
+        "name": "CRM Build Team",
+        "members": [
+          {
+            "account": "ivan",
+            "scrum_master": true
+          },
+          {
+            "account": "jordan",
+            "product_owner": true
+          }
+        ]
+      }
     }
   ],
   "events": [
@@ -1258,6 +1354,21 @@
       "actor": "nadia",
       "minutes": 240,
       "note": "Account import: duplicate-detection keys"
+    },
+    {
+      "at": "A-6T10:00",
+      "action": "task.block",
+      "target": "task:helios:2.10",
+      "actor": "mei",
+      "body": "Approval-rule sign-off needs Ada, and she is only in on Tuesdays and Thursdays.",
+      "blocker_type": "resource"
+    },
+    {
+      "at": "A-4T11:00",
+      "action": "task.unblock",
+      "target": "task:helios:2.10",
+      "actor": "mei",
+      "body": "Ada signed off on Thursday."
     }
   ]
 }

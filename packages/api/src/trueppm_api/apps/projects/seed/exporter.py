@@ -53,9 +53,16 @@ from trueppm_api.apps.projects.models import (
     TaskComment,
     TaskLabel,
     TaskNote,
+    TaskRecurrenceRule,
     TaskRelation,
 )
-from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
+from trueppm_api.apps.resources.models import (
+    ProjectResource,
+    Resource,
+    ResourceSkill,
+    TaskResource,
+    TaskSkillRequirement,
+)
 
 _UTC = ZoneInfo("UTC")
 
@@ -106,14 +113,37 @@ _ROLE_NAME: dict[int, str] = {
 _V21_EVENT_ACTIONS = frozenset({"task.note", "task.react", "task.ack", "time.log"})
 
 
+#: Weekday names in bitmask order — the authoring shape of a recurrence rule (#3498).
+_WEEKDAY_BITS = (
+    ("mon", 1),
+    ("tue", 2),
+    ("wed", 4),
+    ("thu", 8),
+    ("fri", 16),
+    ("sat", 32),
+    ("sun", 64),
+)
+
+#: ``Proficiency`` integer -> the seed's authoring name (#3498).
+_PROFICIENCY_NAME = {1: "beginner", 2: "intermediate", 3: "expert"}
+
+#: Task keys that only exist from schema 2.1.
+_V21_TASK_KEYS = ("acceptance_criteria", "is_subtask", "recurrence", "skill_requirements")
+
+
 def _uses_v21(doc: dict[str, Any]) -> bool:
     """Whether an exported document carries any construct introduced in 2.1."""
     program = doc.get("program", {})
     if program.get("backlog_items") or program.get("ceremonies"):
         return True
+    if any(resource.get("skills") for resource in doc.get("resources", [])):
+        return True
     for project in doc.get("projects", []):
-        if any(task.get("acceptance_criteria") for task in project.get("tasks", [])):
+        if project.get("team"):
             return True
+        for task in project.get("tasks", []):
+            if task.get("type") == "tech_debt" or any(task.get(k) for k in _V21_TASK_KEYS):
+                return True
     return any(
         event.get("action") in _V21_EVENT_ACTIONS or "slug" in event or "reply_to" in event
         for event in doc.get("events", [])
@@ -640,6 +670,20 @@ class _Exporter:
                 block["calendar"] = self._calendar_slug(res.calendar)
             if res.user_id is not None:
                 block["account"] = self._user_slug(res.user)
+            if self.with_events:
+                # v2.1 (#3498). Ordered on the normalized name so the export is stable.
+                skills = [
+                    {
+                        "name": rs.skill.name,
+                        "proficiency": _PROFICIENCY_NAME[rs.proficiency],
+                        **({"category": rs.skill.category} if rs.skill.category else {}),
+                    }
+                    for rs in ResourceSkill.objects.filter(resource=res, is_deleted=False)
+                    .select_related("skill")
+                    .order_by("skill__normalized_name", "pk")
+                ]
+                if skills:
+                    block["skills"] = skills
             blocks.append(block)
         return sorted(blocks, key=lambda r: r["slug"])
 
@@ -711,9 +755,43 @@ class _Exporter:
             ("sprints", sprint_blocks),
             ("baselines", baseline_blocks),
             ("risks", risk_blocks),
+            ("team", self._team_block(project) if self.with_events else {}),
         ):
             if value:
                 block[key] = value
+        return block
+
+    def _team_block(self, project: Project) -> dict[str, Any]:
+        """The default team's name and SM/PO facets (v2.1, #3498). v2 export only.
+
+        Only facet holders are listed: membership itself re-derives from the
+        project's members on import, so listing everyone would restate it. The
+        default name is omitted, so a project nobody configured exports as before.
+        """
+        from trueppm_api.apps.teams.models import Team, TeamMembership
+
+        team = Team.objects.filter(project=project, is_default=True, is_deleted=False).first()
+        if team is None:
+            return {}
+        members: list[dict[str, Any]] = []
+        for membership in (
+            TeamMembership.objects.filter(team=team, is_deleted=False)
+            .exclude(is_scrum_master=False, is_product_owner=False)
+            .select_related("user")
+        ):
+            if membership.user_id not in self._account_user_pks:
+                continue
+            entry: dict[str, Any] = {"account": self._user_slug(membership.user)}
+            if membership.is_scrum_master:
+                entry["scrum_master"] = True
+            if membership.is_product_owner:
+                entry["product_owner"] = True
+            members.append(entry)
+        if not members and team.name == "Default Team":
+            return {}
+        block: dict[str, Any] = {"members": sorted(members, key=lambda e: e["account"])}
+        if team.name != "Default Team":
+            block["name"] = team.name
         return block
 
     def _put_project_scalars(self, block: dict[str, Any], project: Project) -> None:
@@ -853,7 +931,40 @@ class _Exporter:
         self._put_task_labels_and_links(block, task)
         if self.with_events:
             self._put_task_criteria(block, task)
+            self._put_task_depth(block, task)
         return block
+
+    def _put_task_depth(self, block: dict[str, Any], task: Task) -> None:
+        """Subtask flag, recurrence rule and skill requirements (v2.1, #3498). v2 only.
+
+        The rule is exported as its authoring shape (weekday names, not the bitmask)
+        and ``end_type`` is implied by which end key is present, so a re-import
+        reconstructs exactly the row it came from.
+        """
+        if task.is_subtask:
+            block["is_subtask"] = True
+        rule = TaskRecurrenceRule.objects.filter(task=task, is_deleted=False).first()
+        if rule is not None:
+            recurrence: dict[str, Any] = {"frequency": rule.frequency}
+            if rule.interval != 1:
+                recurrence["interval"] = rule.interval
+            days = [name for name, bit in _WEEKDAY_BITS if rule.weekdays & bit]
+            if days:
+                recurrence["weekdays"] = days
+            _put(recurrence, "day_of_month", rule.day_of_month)
+            recurrence["time_of_day"] = rule.time_of_day.strftime("%H:%M")
+            if rule.end_date is not None:
+                recurrence["end_date"] = self._date_str(rule.end_date)
+            _put(recurrence, "end_count", rule.end_count)
+            block["recurrence"] = recurrence
+        requirements = [
+            {"skill": req.skill.name, "min_proficiency": _PROFICIENCY_NAME[req.min_proficiency]}
+            for req in TaskSkillRequirement.objects.filter(task=task, is_deleted=False)
+            .select_related("skill")
+            .order_by("skill__normalized_name", "pk")
+        ]
+        if requirements:
+            block["skill_requirements"] = requirements
 
     def _put_task_criteria(self, block: dict[str, Any], task: Task) -> None:
         """Acceptance criteria in position order (v2.1, #3492). v2 export only.

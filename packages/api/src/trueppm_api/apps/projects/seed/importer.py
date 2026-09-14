@@ -70,6 +70,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskAttachment,
     TaskLabel,
+    TaskRecurrenceRule,
     TaskRelation,
     TaskSource,
     TaskStatus,
@@ -85,7 +86,13 @@ from trueppm_api.apps.projects.seed.reldates import (
 from trueppm_api.apps.projects.seed.replace import resolve_replace_candidates
 from trueppm_api.apps.projects.seed.replay import ReplayContext, replay_timeline
 from trueppm_api.apps.projects.seed.validation import validate_seed
-from trueppm_api.apps.resources.models import Resource, TaskResource
+from trueppm_api.apps.resources.models import (
+    Resource,
+    ResourceSkill,
+    Skill,
+    TaskResource,
+    TaskSkillRequirement,
+)
 from trueppm_api.apps.resources.services import ensure_project_resource
 from trueppm_api.apps.scheduling.services import enqueue_recalculate
 from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -100,6 +107,12 @@ _UTC = ZoneInfo("UTC")
 #: The most recent days of a long waterfall task are what a timesheet shows; an
 #: uncapped fill would write a row per person per working day for months.
 _TIME_FILL_MAX_DAYS = 40
+
+#: The seed's proficiency names -> ``Proficiency`` integers (#3498).
+_PROFICIENCY_BY_NAME = {"beginner": 1, "intermediate": 2, "expert": 3}
+
+#: Weekday names -> the ``TaskRecurrenceRule.weekdays`` bitmask (Mon=1 … Sun=64).
+_WEEKDAY_BIT = {"mon": 1, "tue": 2, "wed": 4, "thu": 8, "fri": 16, "sat": 32, "sun": 64}
 
 #: Rows per INSERT statement in the batched passes (ADR-0726 §8).
 #:
@@ -364,6 +377,8 @@ class _SeedImporter:
             self._resolve_blockers(project_data)
             self._create_attachments(project_data)
             self._create_acceptance_criteria(project_data)
+            self._create_recurrence_rules(project_data)
+            self._create_skill_requirements(project_data)
             self._assign_resources(project, project_data)
             self._capture_baselines(project, project_data)
             self._create_risks(project, project_data.get("risks", []), project_data["slug"])
@@ -944,6 +959,33 @@ class _SeedImporter:
             account = res.get("account")
             if account:
                 self.resources_by_account[account] = obj
+            self._assign_resource_skills(obj, res.get("skills", []))
+
+    def _assign_resource_skills(self, resource: Resource, skills: list[dict[str, Any]]) -> None:
+        """Attach a resource's skills from the workspace catalog (#3498).
+
+        ``Skill`` is de-duplicated on the case-folded name — the normalization
+        ``SkillSerializer.create`` applies — so "Python" authored by two samples lands
+        on one catalog row. On the sample path a resource is reused across reloads,
+        so an existing ``ResourceSkill`` is updated in place rather than duplicated.
+        """
+        for entry in skills:
+            name = entry["name"].strip()
+            skill, _ = Skill.objects.get_or_create(
+                normalized_name=name.casefold(),
+                defaults={"name": name, "category": entry.get("category", "")},
+            )
+            proficiency = _PROFICIENCY_BY_NAME[entry.get("proficiency", "intermediate")]
+            row = ResourceSkill.objects.filter(
+                resource=resource, skill=skill, is_deleted=False
+            ).first()
+            if row is None:
+                ResourceSkill.objects.create(
+                    resource=resource, skill=skill, proficiency=proficiency
+                )
+            elif row.proficiency != proficiency:
+                row.proficiency = proficiency
+                row.save(update_fields=["proficiency"])
 
     def _create_program(self) -> Program:
         """Mint the program, or adopt the shell the caller pre-created (ADR-0726 §4).
@@ -1108,6 +1150,8 @@ class _SeedImporter:
             },
         )
         self._grant_project_memberships(project, data)
+        # After the grants: the default team's membership rows are mirrored from them.
+        self._apply_team(project, data)
         self._create_board_config(project, data)
 
         self._create_project_labels(project, slug, data)
@@ -1408,6 +1452,9 @@ class _SeedImporter:
             # milestones satisfy the canonical invariant like every other path.
             delivery_mode="milestone" if is_milestone else data.get("delivery_mode", "waterfall"),
             color=data.get("color"),
+            # Drawer subtask (ADR-0060, #3498). Validation already held it to a
+            # depth-1 leaf under a decomposable parent, as the create view does.
+            is_subtask=bool(data.get("is_subtask", False)),
             **estimate_fields,
         )
         # The creation-history date (#3487). A sprint-bound task backdates to
@@ -1725,6 +1772,104 @@ class _SeedImporter:
         self._bulk_insert(TaskResource, rows)
         for resource in used.values():
             ensure_project_resource(project, resource)
+
+    def _apply_team(self, project: Project, data: dict[str, Any]) -> None:
+        """Name the project's default team and set its SM/PO facets (ADR-0078, #3498).
+
+        Membership itself comes from the ``ProjectMembership`` mirror
+        (``teams.signals``), which the grants just before this call triggered. This
+        only names the team and sets the facets, which the mirror never infers. A
+        member whose account resolved to nobody is skipped, like every other account
+        reference on the generic path (#1057).
+        """
+        spec = data.get("team")
+        if not spec:
+            return
+        from trueppm_api.apps.teams.models import TeamMembership, TeamRole
+        from trueppm_api.apps.teams.services import ensure_default_team
+
+        team = ensure_default_team(project, created_by=self.owner)
+        if spec.get("name") and team.name != spec["name"]:
+            team.name = spec["name"]
+            team.save(update_fields=["name"])
+        for member in spec.get("members", []):
+            user = self.users.get(member["account"])
+            if user is None:
+                continue
+            membership, _ = TeamMembership.objects.get_or_create(
+                team=team, user=user, is_deleted=False, defaults={"role": TeamRole.MEMBER}
+            )
+            membership.is_scrum_master = bool(member.get("scrum_master", False))
+            membership.is_product_owner = bool(member.get("product_owner", False))
+            membership.save(update_fields=["is_scrum_master", "is_product_owner"])
+
+    def _create_recurrence_rules(self, data: dict[str, Any]) -> None:
+        """Turn each template task's ``recurrence`` into a rule (ADR-0090, #3498).
+
+        Only the rule is written; occurrences spawn on the generator's rolling horizon,
+        exactly as after the API creates one. ``is_recurring`` is set on the template
+        the way ``TaskRecurrenceRuleViewSet.perform_create`` sets it, which takes the
+        template out of CPM and every committed-delivery aggregate.
+        """
+        slug = data["slug"]
+        project = self.projects[slug]
+        tz = project.calendar.timezone if project.calendar is not None else "UTC"
+        for task_data in data.get("tasks", []):
+            spec = task_data.get("recurrence")
+            if not spec:
+                continue
+            task = self.tasks[(slug, task_data["wbs_path"])]
+            end_date = self._date_opt(spec.get("end_date"), slug, snap=False)
+            end_count = spec.get("end_count")
+            if end_date is not None:
+                end_type = "ON_DATE"
+            elif end_count:
+                end_type = "AFTER_N"
+            else:
+                end_type = "NEVER"
+            rule = TaskRecurrenceRule(
+                task=task,
+                frequency=spec["frequency"],
+                interval=spec.get("interval", 1),
+                weekdays=sum(_WEEKDAY_BIT[day] for day in spec.get("weekdays", [])),
+                day_of_month=spec.get("day_of_month"),
+                time_of_day=dt_time.fromisoformat(spec.get("time_of_day", "09:00")),
+                timezone=tz or "UTC",
+                end_type=end_type,
+                end_date=end_date,
+                end_count=end_count,
+            )
+            # The same invariants the serializer enforces; validation already
+            # checked them, so a failure here means the two drifted.
+            rule.clean()
+            rule.save()
+            task.is_recurring = True
+            Task.objects.filter(pk=task.pk).update(is_recurring=True)
+
+    def _create_skill_requirements(self, data: dict[str, Any]) -> None:
+        """Attach each task's skill requirements from the workspace catalog (#3498).
+
+        Matched onto ``Skill`` by case-folded name, so a requirement naming a skill a
+        resource already declared lands on that same catalog row and the assignment
+        fit can compare them.
+        """
+        slug = data["slug"]
+        for task_data in data.get("tasks", []):
+            for entry in task_data.get("skill_requirements", []):
+                name = entry["skill"].strip()
+                skill, _ = Skill.objects.get_or_create(
+                    normalized_name=name.casefold(), defaults={"name": name}
+                )
+                TaskSkillRequirement.objects.get_or_create(
+                    task=self.tasks[(slug, task_data["wbs_path"])],
+                    skill=skill,
+                    is_deleted=False,
+                    defaults={
+                        "min_proficiency": _PROFICIENCY_BY_NAME[
+                            entry.get("min_proficiency", "beginner")
+                        ]
+                    },
+                )
 
     def _create_board_config(self, project: Project, data: dict[str, Any]) -> None:
         """Materialize the project's Kanban board configuration (#3093).

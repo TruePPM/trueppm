@@ -230,6 +230,76 @@
         "expires_in_days": { "type": "integer", "minimum": 1, "maximum": 365 }
       }
     },
+    "recurrence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["frequency"],
+      "description": "v2.1. Makes this task a recurrence template (TaskRecurrenceRule, ADR-0090). Only the rule is seeded; occurrences spawn lazily on the generator's horizon, and the template leaves the CPM graph. end_date or end_count bounds the series; neither means it never ends.",
+      "properties": {
+        "frequency": { "enum": ["DAILY", "WEEKLY", "MONTHLY"] },
+        "interval": { "type": "integer", "minimum": 1, "maximum": 365 },
+        "weekdays": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 7,
+          "description": "WEEKLY only; required for it.",
+          "items": { "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] }
+        },
+        "day_of_month": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 31,
+          "description": "MONTHLY only; required for it."
+        },
+        "time_of_day": { "type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
+        "end_date": { "$ref": "#/$defs/seedDate" },
+        "end_count": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "proficiency": { "enum": ["beginner", "intermediate", "expert"] },
+    "resourceSkill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "proficiency": { "$ref": "#/$defs/proficiency" },
+        "category": { "type": "string", "maxLength": 60 }
+      }
+    },
+    "skillRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skill"],
+      "properties": {
+        "skill": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "min_proficiency": { "$ref": "#/$defs/proficiency" }
+      }
+    },
+    "team": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["members"],
+      "description": "v2.1. The project's default team (ADR-0078): its name and the Scrum Master / Product Owner facets. Membership itself mirrors the project's members; list here only the people whose facets or presence you want to state.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "members": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": { "$ref": "#/$defs/teamMember" }
+        }
+      }
+    },
+    "teamMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["account"],
+      "properties": {
+        "account": { "$ref": "#/$defs/slug" },
+        "scrum_master": { "type": "boolean" },
+        "product_owner": { "type": "boolean" }
+      }
+    },
     "acceptanceCriterion": {
       "type": "object",
       "additionalProperties": false,
@@ -408,6 +478,12 @@
         "account": {
           "$ref": "#/$defs/slug",
           "description": "Optional account slug linking this resource to a user login (Resource.user)."
+        },
+        "skills": {
+          "type": "array",
+          "maxItems": 50,
+          "description": "v2.1. Skills on the workspace catalog (Skill, de-duplicated case-insensitively) with this resource's proficiency.",
+          "items": { "$ref": "#/$defs/resourceSkill" }
         }
       }
     },
@@ -429,7 +505,21 @@
       "properties": {
         "wbs_path": { "$ref": "#/$defs/wbsPath" },
         "name": { "type": "string", "minLength": 1, "maxLength": 512 },
-        "type": { "enum": ["epic", "story", "task", "bug", "spike"] },
+        "type": {
+          "enum": ["epic", "story", "task", "bug", "spike", "tech_debt"],
+          "description": "TaskType. tech_debt (2.1) is schedulable work that counts toward velocity like a story."
+        },
+        "is_subtask": {
+          "type": "boolean",
+          "description": "v2.1. A drawer subtask (ADR-0060): its wbs_path is one level under a leaf task that has no structural children, and it cannot itself have children."
+        },
+        "recurrence": { "$ref": "#/$defs/recurrence" },
+        "skill_requirements": {
+          "type": "array",
+          "maxItems": 20,
+          "description": "v2.1. Skills this task needs (TaskSkillRequirement), matched against resources[].skills by name, case-insensitively.",
+          "items": { "$ref": "#/$defs/skillRequirement" }
+        },
         "status": {
           "enum": ["BACKLOG", "NOT_STARTED", "IN_PROGRESS", "REVIEW", "ON_HOLD", "COMPLETE"],
           "description": "Final state at import. The events timeline + synthesizer reconstruct how the task reached it."
@@ -743,6 +833,7 @@
           "description": "Accepted and ignored. The model field was removed in migration 0123 and the value is now derived from the project's own sprints; a document carrying this key still imports so an existing hand-authored seed does not break on upgrade."
         },
         "forecast_history": { "$ref": "#/$defs/forecastHistory" },
+        "team": { "$ref": "#/$defs/team" },
         "share_links": {
           "type": "array",
           "maxItems": 20,

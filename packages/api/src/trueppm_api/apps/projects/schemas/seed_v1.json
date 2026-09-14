@@ -254,7 +254,10 @@
       "properties": {
         "wbs_path": { "$ref": "#/$defs/wbsPath" },
         "name": { "type": "string", "minLength": 1, "maxLength": 512 },
-        "type": { "enum": ["epic", "story", "task", "bug", "spike"] },
+        "type": {
+          "enum": ["epic", "story", "task", "bug", "spike", "tech_debt"],
+          "description": "TaskType. tech_debt is accepted here too: the v1 (final-state) exporter writes Task.type verbatim, so without it a program holding tech-debt work exported a document its own schema rejected (#3496)."
+        },
         "status": {
           "enum": ["BACKLOG", "NOT_STARTED", "IN_PROGRESS", "REVIEW", "ON_HOLD", "COMPLETE"]
         },

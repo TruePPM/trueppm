@@ -122,6 +122,9 @@ def _finish(
         if links:
             project["share_links"] = links
     seed["events"].extend(events)
+    # Depth layer (#3496 flow lane, task types, blockers; #3498 teams, skills,
+    # recurrence, subtasks), defined per program at the bottom of this module.
+    _DEPTH_LAYERS[program["slug"]](seed)
     _ready_live_stories(seed)
     return seed
 
@@ -1343,3 +1346,466 @@ def apply_helios(seed: dict[str, Any]) -> dict[str, Any]:
     return _finish(
         seed, backlog=backlog, ceremonies=ceremonies, criteria=criteria, events=events
     )
+
+
+# ---------------------------------------------------------------------------
+# Depth layer — #3496 (flow lane, task types, every blocker type) and #3498
+# (team facets, skills, a recurring task, subtasks)
+# ---------------------------------------------------------------------------
+
+_WEEKDAYS = ["mon", "tue", "wed", "thu", "fri"]
+
+
+def _project(seed: dict[str, Any], slug: str) -> dict[str, Any]:
+    for project in seed["projects"]:
+        if project["slug"] == slug:
+            return project
+    raise LookupError(f"no project {slug}")
+
+
+def _resource(seed: dict[str, Any], slug: str) -> dict[str, Any]:
+    for resource in seed.get("resources", []):
+        if resource["slug"] == slug:
+            return resource
+    raise LookupError(f"no resource {slug}")
+
+
+def _next_root(project: dict[str, Any]) -> str:
+    return str(
+        1 + max(int(t["wbs_path"]) for t in project["tasks"] if t["wbs_path"].isdigit())
+    )
+
+
+def _skills(seed: dict[str, Any], table: dict[str, list[tuple[str, str]]]) -> None:
+    for slug, rows in table.items():
+        _resource(seed, slug)["skills"] = [
+            {"name": name, "proficiency": level} for name, level in rows
+        ]
+
+
+def _requires(
+    seed: dict[str, Any], project: str, wbs: str, skill: str, level: str
+) -> None:
+    _task(seed, project, wbs).setdefault("skill_requirements", []).append(
+        {"skill": skill, "min_proficiency": level}
+    )
+
+
+def _recurring(
+    project: dict[str, Any],
+    name: str,
+    assignee: str,
+    *,
+    weekdays: list[str],
+    time_of_day: str,
+    delivery_mode: str,
+) -> None:
+    """One recurrence template; only the rule is seeded, occurrences spawn lazily."""
+    project["tasks"].append(
+        {
+            "wbs_path": _next_root(project),
+            "name": name,
+            "status": "NOT_STARTED",
+            "duration": 1,
+            "assignee": assignee,
+            "delivery_mode": delivery_mode,
+            "recurrence": {
+                "frequency": "WEEKLY",
+                "weekdays": weekdays,
+                "time_of_day": time_of_day,
+            },
+        }
+    )
+
+
+def _subtasks(
+    seed: dict[str, Any],
+    project_slug: str,
+    parent_wbs: str,
+    rows: list[tuple[str, str]],
+) -> None:
+    """Drawer subtasks under a leaf story: (name, assignee), all still to do."""
+    parent = _task(seed, project_slug, parent_wbs)
+    project = _project(seed, project_slug)
+    for n, (name, assignee) in enumerate(rows, start=1):
+        project["tasks"].append(
+            {
+                "wbs_path": f"{parent_wbs}.{n}",
+                "name": name,
+                "status": "NOT_STARTED",
+                "duration": 1,
+                "assignee": assignee,
+                "is_subtask": True,
+                "delivery_mode": parent.get("delivery_mode", "waterfall"),
+            }
+        )
+
+
+def _team(
+    project: dict[str, Any], name: str, *, scrum_master: str, product_owner: str
+) -> None:
+    project["team"] = {
+        "name": name,
+        "members": [
+            {"account": scrum_master, "scrum_master": True},
+            {"account": product_owner, "product_owner": True},
+        ],
+    }
+
+
+def _depth_atlas(seed: dict[str, Any]) -> None:
+    core = _project(seed, "platform-core")
+    gtm = _project(seed, "gtm-readiness")
+
+    # #3496 — the labels already said it; now the type does.
+    _task(seed, "platform-core", "2.6")["type"] = "tech_debt"
+    _task(seed, "platform-core", "3.8")["type"] = "spike"
+    core["tasks"].append(
+        {
+            "wbs_path": "2.11",
+            "name": "Webhook signature check rejects rotated secrets",
+            "type": "bug",
+            "status": "BACKLOG",
+            "story_points": 2,
+            "parent_epic": "2",
+            "assignee": "tom",
+            "delivery_mode": "scrum",
+            "governance_class": "flow",
+            "dor": "refine",
+            "labels": ["customer-request"],
+        }
+    )
+    seed["events"].append(
+        _ev(
+            "A-4T10:10",
+            "task.block",
+            "task:platform-core:2.6",
+            "omar",
+            body="Waiting on Migration's performance tuning (3.2): the cutover hook "
+            "has nothing to hook into until the tuned pipeline exists.",
+            blocker_type="dependency",
+            blocking_task="migration-tooling:3.2",
+        )
+    )
+
+    # #3498
+    _team(core, "Platform Core Team", scrum_master="sam", product_owner="jordan")
+    _team(gtm, "GTM Enablement", scrum_master="sam", product_owner="jordan")
+    _skills(
+        seed,
+        {
+            "priya": [("Security review", "expert"), ("Python", "expert")],
+            "mei": [("OAuth and OIDC", "expert"), ("Python", "expert")],
+            "diego": [("Email delivery", "expert"), ("Python", "intermediate")],
+            "nadia": [("Billing systems", "intermediate"), ("Python", "intermediate")],
+            "tom": [("Payments", "beginner"), ("Python", "intermediate")],
+            "yuki": [("Data pipelines", "expert"), ("SQL", "expert")],
+            "omar": [("Data pipelines", "intermediate"), ("SQL", "intermediate")],
+            "raj": [("Kubernetes", "expert")],
+            "lena": [("Test automation", "expert")],
+            "clara": [("Technical writing", "expert")],
+        },
+    )
+    # A fit (yuki on the backfill) and a gap (tom on the tax engine).
+    _requires(seed, "platform-core", "3.4", "Data pipelines", "intermediate")
+    _requires(seed, "platform-core", "4.5", "Billing systems", "expert")
+    _requires(seed, "platform-core", "5.3", "Email delivery", "intermediate")
+    _recurring(
+        core,
+        "Daily standup",
+        "sam",
+        weekdays=_WEEKDAYS,
+        time_of_day="09:30",
+        delivery_mode="scrum",
+    )
+    _subtasks(
+        seed,
+        "platform-core",
+        "2.8",
+        [
+            ("Retry history query endpoint", "tom"),
+            ("Dashboard retry timeline", "tom"),
+            ("Alert when retries are exhausted", "diego"),
+        ],
+    )
+
+
+def _depth_aurora(seed: dict[str, Any]) -> None:
+    aurora = _project(seed, "aurora")
+
+    # #3496 — a continuous-flow support lane beside the sprint: no sprint, a lane
+    # WIP limit of 2 carrying 3 cards, and two cards past the 5-day age threshold.
+    for column in aurora["board_columns"]:
+        if column["status"] == "IN_PROGRESS":
+            column["age_threshold_days"] = 5
+            column["lanes"] = [{"key": "support", "label": "Support", "wip_limit": 2}]
+    flow = [
+        (
+            "Upload spinner never clears on a flaky network",
+            "IN_PROGRESS",
+            "tom",
+            "A-12T10:00",
+        ),
+        (
+            "Push token not refreshed after reinstall",
+            "IN_PROGRESS",
+            "nadia",
+            "A-8T11:00",
+        ),
+        ("Dark mode contrast on settings toggles", "IN_PROGRESS", "diego", "A-2T09:30"),
+    ]
+    for name, status, assignee, started in flow:
+        wbs = _next_root(aurora)
+        aurora["tasks"].append(
+            {
+                "wbs_path": wbs,
+                "name": name,
+                "type": "bug",
+                "status": status,
+                "assignee": assignee,
+                "delivery_mode": "kanban",
+                "governance_class": "flow",
+                "board_lane": "support",
+            }
+        )
+        seed["events"].append(
+            _ev(
+                started, "task.status", f"task:aurora:{wbs}", assignee, to="IN_PROGRESS"
+            )
+        )
+    closed = _next_root(aurora)
+    aurora["tasks"].append(
+        {
+            "wbs_path": closed,
+            "name": "Deep link from email opens a blank screen",
+            "type": "bug",
+            "status": "COMPLETE",
+            "assignee": "tom",
+            "delivery_mode": "kanban",
+            "governance_class": "flow",
+        }
+    )
+    seed["events"].extend(
+        [
+            _ev(
+                "A-15T10:00",
+                "task.status",
+                f"task:aurora:{closed}",
+                "tom",
+                to="IN_PROGRESS",
+            ),
+            _ev(
+                "A-11T16:00",
+                "task.status",
+                f"task:aurora:{closed}",
+                "tom",
+                to="COMPLETE",
+            ),
+        ]
+    )
+    aurora["tasks"].append(
+        {
+            "wbs_path": _next_root(aurora),
+            "name": "Onboarding skip resets after logout",
+            "type": "bug",
+            "status": "NOT_STARTED",
+            "assignee": "mei",
+            "delivery_mode": "kanban",
+            "governance_class": "flow",
+        }
+    )
+
+    # #3498
+    _team(aurora, "Aurora Squad", scrum_master="sam", product_owner="priya")
+    _skills(
+        seed,
+        {
+            "priya": [("Product discovery", "expert")],
+            "sam": [("Agile coaching", "expert")],
+            "mei": [("iOS", "expert"), ("Biometrics", "expert")],
+            "diego": [("Android", "intermediate"), ("iOS", "intermediate")],
+            "nadia": [("Android", "expert"), ("Offline sync", "intermediate")],
+            "tom": [("Test automation", "expert"), ("Crash reporting", "intermediate")],
+            "ada": [("Accessibility", "expert")],
+        },
+    )
+    _requires(seed, "aurora", "2.5", "Offline sync", "expert")
+    _requires(seed, "aurora", "3.5", "Crash reporting", "intermediate")
+    _recurring(
+        aurora,
+        "Daily standup",
+        "sam",
+        weekdays=_WEEKDAYS,
+        time_of_day="09:15",
+        delivery_mode="scrum",
+    )
+    _subtasks(
+        seed,
+        "aurora",
+        "1.6",
+        [
+            ("Static shortcuts manifest", "mei"),
+            ("Resume-last-project dynamic shortcut", "mei"),
+            ("Shortcut usage analytics event", "nadia"),
+        ],
+    )
+
+
+def _depth_bayside(seed: dict[str, Any]) -> None:
+    site = _project(seed, "bayside-sitework")
+
+    # #3496 — the supply-chain risk, arriving as a live vendor blocker.
+    seed["events"].append(
+        _ev(
+            "A-5T10:30",
+            "task.block",
+            "task:bayside-building:1.4",
+            "tom",
+            body="The rooftop-unit manufacturer moved lot two's ship date out three weeks; "
+            "no firm date until their next production slot is confirmed.",
+            blocker_type="vendor",
+        )
+    )
+
+    # #3498 — a waterfall program has no sprint roles, but it has skills and cadence.
+    _skills(
+        seed,
+        {
+            "diego": [("Steel erection", "expert")],
+            "tom": [("Concrete", "expert")],
+            "nadia": [("MEP coordination", "expert")],
+            "omar": [("Inspection", "expert")],
+            "raj": [("Scheduling", "expert")],
+        },
+    )
+    _requires(seed, "bayside-building", "1.1", "MEP coordination", "expert")
+    _recurring(
+        site,
+        "Weekly site status report",
+        "diego",
+        weekdays=["fri"],
+        time_of_day="15:00",
+        delivery_mode="waterfall",
+    )
+
+
+def _depth_ga_launch(seed: dict[str, Any]) -> None:
+    marketing = _project(seed, "ga-marketing")
+
+    # #3496 — the one blocker that fits no category, raised and cleared.
+    seed["events"].extend(
+        [
+            _ev(
+                "A-3T11:30",
+                "task.block",
+                "task:ga-marketing:4",
+                "jane",
+                body="No embargo time yet, so outreach cannot be scheduled with anyone.",
+                blocker_type="other",
+            ),
+            _ev(
+                "A-2T10:00",
+                "task.unblock",
+                "task:ga-marketing:4",
+                "dana",
+                body="Embargo set for go-live morning.",
+            ),
+        ]
+    )
+
+    # #3498
+    _team(marketing, "Launch Marketing", scrum_master="dana", product_owner="jane")
+    _skills(
+        seed,
+        {
+            "malcolm": [("Kubernetes", "expert"), ("Auth systems", "intermediate")],
+            "janus": [("Penetration testing", "expert"), ("Auth systems", "expert")],
+            "bob": [("SOC 2", "expert")],
+            "jane": [("Product marketing", "expert")],
+            "lena": [
+                ("Technical writing", "expert"),
+                ("Policy writing", "intermediate"),
+            ],
+            "sam": [("Python", "expert")],
+        },
+    )
+    _requires(seed, "ga-security", "3", "Auth systems", "expert")
+    _requires(seed, "ga-soc2", "2", "Policy writing", "expert")
+    _recurring(
+        marketing,
+        "Marketing standup",
+        "dana",
+        weekdays=["tue", "thu"],
+        time_of_day="10:00",
+        delivery_mode="scrum",
+    )
+    _subtasks(
+        seed,
+        "ga-marketing",
+        "4",
+        [("Analyst briefing deck", "jane"), ("Press list and embargo notes", "jane")],
+    )
+
+
+def _depth_helios(seed: dict[str, Any]) -> None:
+    helios = _project(seed, "helios")
+
+    # #3496 — the Tue/Thu advisor as a resource blocker, raised and cleared.
+    seed["events"].extend(
+        [
+            _ev(
+                "A-6T10:00",
+                "task.block",
+                "task:helios:2.10",
+                "mei",
+                body="Approval-rule sign-off needs Ada, and she is only in on Tuesdays "
+                "and Thursdays.",
+                blocker_type="resource",
+            ),
+            _ev(
+                "A-4T11:00",
+                "task.unblock",
+                "task:helios:2.10",
+                "mei",
+                body="Ada signed off on Thursday.",
+            ),
+        ]
+    )
+
+    # #3498
+    _team(helios, "CRM Build Team", scrum_master="ivan", product_owner="jordan")
+    _skills(
+        seed,
+        {
+            "ivan": [("Solution architecture", "expert"), ("CRM migration", "expert")],
+            "jordan": [("CRM product ownership", "expert")],
+            "mei": [("Integrations", "expert")],
+            "nadia": [("Data migration", "intermediate")],
+            "raj": [("Scheduling", "expert")],
+        },
+    )
+    _requires(seed, "helios", "2.1", "Data migration", "expert")
+    _requires(seed, "helios", "2.4", "Integrations", "intermediate")
+    _recurring(
+        helios,
+        "Build standup",
+        "ivan",
+        weekdays=_WEEKDAYS,
+        time_of_day="09:00",
+        delivery_mode="scrum",
+    )
+    _subtasks(
+        seed,
+        "helios",
+        "2.2",
+        [("Fuzzy match on name and email", "mei"), ("Merge review queue", "mei")],
+    )
+
+
+_DEPTH_LAYERS = {
+    "atlas-platform-launch": _depth_atlas,
+    "aurora-mobile-app": _depth_aurora,
+    "bayside-civic-center": _depth_bayside,
+    "ga-launch": _depth_ga_launch,
+    "helios-crm-replacement": _depth_helios,
+}
