@@ -1,6 +1,6 @@
 ---
 name: performance
-model: sonnet
+model: sonnet  # /pre-release full deliberately escalates this agent to Opus for the full-codebase audit (see pre-release/SKILL.md Step 0.6) — sonnet here is the day-to-day default, not a drifted mismatch
 description: >
   Performance auditing and optimization for TruePPM. Use when investigating slow
   endpoints, optimizing database queries, improving Gantt rendering performance,
