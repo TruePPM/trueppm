@@ -117,3 +117,9 @@ each tagged release. One-time setup, then repeatable per release.
   this repo + `paper.md`) and shepherding the review.
 - Backfilling the real ORCID and DOIs into `CITATION.cff`, `paper.md`, and
   `.zenodo.json` once assigned.
+- **Deciding the author affiliation.** `paper.md` carries "Independent Researcher"
+  as a placeholder, because JOSS requires one. MacroDream, LLC sells a commercial
+  edition built on this library, so before submitting either name MacroDream, LLC
+  as the affiliation or keep "Independent Researcher" and add a sentence
+  disclosing that commercial interest. The JOSS paper and the Zenodo record are
+  permanent once published, so this cannot be corrected afterward.

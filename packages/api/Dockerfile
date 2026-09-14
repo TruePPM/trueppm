@@ -92,6 +92,11 @@ COPY licenses /app/licenses
 # requires recipients to receive (#2632).
 COPY LICENSE /app/LICENSE
 
+# TruePPM's own copyright notice. Apache 2.0 §4(d) requires a distribution to carry
+# the Work's NOTICE file, and NOTICES (third-party only) does not name the copyright
+# holder (#3761).
+COPY NOTICE /app/NOTICE
+
 # Create a non-root user (uid=1000) to run the application, and pre-create every
 # directory a named volume gets mounted onto.
 #
