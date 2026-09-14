@@ -15,6 +15,13 @@ from typing import Any
 import pytest
 from django.contrib.auth import get_user_model
 
+from trueppm_api.apps.notifications.models import (
+    Mention,
+    Notification,
+    NotificationEventType,
+    NotificationPreference,
+    ProjectNotificationPreference,
+)
 from trueppm_api.apps.projects.models import (
     Baseline,
     BaselineTask,
@@ -1037,3 +1044,492 @@ def test_scope_injection_on_a_task_that_has_left_the_sprint_still_writes_its_row
     assert scope.status == ScopeChangeStatus.PENDING
     assert scope.goal_impact is True
     assert task.sprint_id is None  # the row is filed without re-adding the task
+
+
+# ---------------------------------------------------------------------------
+# Notification emission (#3489) — replay handlers now call the notification
+# service instead of writing straight through the ORM.
+# ---------------------------------------------------------------------------
+
+
+def test_task_assign_notifies_the_new_assignee_not_the_previous_one(program: Any) -> None:
+    task = _task(program, "2")  # task.assign beat reassigns priya -> alex
+    alex = User.objects.get(username="demo-alex")
+    priya = User.objects.get(username="demo-priya")
+    notif = Notification.objects.get(event_type=NotificationEventType.TASK_ASSIGNED, task=task)
+    assert notif.recipient_id == alex.pk
+    assert task.name in notif.subject
+    assert not Notification.objects.filter(
+        event_type=NotificationEventType.TASK_ASSIGNED, recipient=priya
+    ).exists()
+
+
+def test_comment_on_my_task_notifies_the_assignee_not_the_author(program: Any) -> None:
+    task = _task(program, "1")  # alex comments on priya's task
+    priya = User.objects.get(username="demo-priya")
+    notif = Notification.objects.get(event_type=NotificationEventType.COMMENT_ON_MY_TASK, task=task)
+    assert notif.recipient_id == priya.pk
+    assert task.name in notif.subject
+
+
+def test_scope_inject_notifies_project_leads_not_the_actor(program: Any) -> None:
+    task = _task(program, "3")  # priya injects it mid-sprint
+    alex = User.objects.get(username="demo-alex")
+    priya = User.objects.get(username="demo-priya")
+    notifs = Notification.objects.filter(
+        event_type=NotificationEventType.SPRINT_MEMBERSHIP_CHANGED, task=task
+    )
+    recipients = set(notifs.values_list("recipient_id", flat=True))
+    assert alex.pk in recipients  # OWNER — a project lead
+    assert priya.pk not in recipients  # priya raised the injection herself
+
+
+def test_notification_preferences_are_seeded_for_every_persona(program: Any) -> None:
+    alex = User.objects.get(username="demo-alex")
+    priya = User.objects.get(username="demo-priya")
+    assert NotificationPreference.objects.filter(user=alex).exists()
+    assert NotificationPreference.objects.filter(user=priya).exists()
+
+    pref = ProjectNotificationPreference.objects.get(project__program=program, user=alex)
+    # Non-default window (the model default is 20:00-07:00) proves a real
+    # seeded row, not one a lazy get_or_create would produce.
+    assert pref.quiet_hours_enabled is True
+    assert pref.quiet_hours_from.hour == 18
+    assert pref.quiet_hours_until.hour == 8
+
+
+def test_notification_realism_pass_produces_a_mix_of_states(program: Any) -> None:
+    notifs = Notification.objects.all()
+    assert notifs.exists()
+    assert notifs.filter(is_read=True).exists()
+    assert notifs.filter(is_read=False).exists()
+    assert notifs.filter(is_archived=True).exists()
+    assert notifs.filter(snoozed_until__isnull=False).exists()
+
+
+def test_program_digest_notifies_the_viewer_persona_account_scoped(owner: Any) -> None:
+    """The sponsor persona (the sample's VIEWER account) gets one account-scoped
+    ``program.health_digest`` row — nullable ``project`` per ADR-0663, since a
+    digest spans the recipient's whole membership rather than one project.
+    """
+    doc = _v2_seed()
+    doc["accounts"].append(
+        {"slug": "vic", "username": "demo-vic", "display_name": "Vic", "role": "VIEWER"}
+    )
+    import_seed(doc, owner=owner, create_users=True)
+    vic = User.objects.get(username="demo-vic")
+    notif = Notification.objects.get(
+        event_type=NotificationEventType.PROGRAM_HEALTH_DIGEST, recipient=vic
+    )
+    assert notif.project_id is None
+
+
+def test_fan_out_mentions_backdates_mention_and_notification_rows() -> None:
+    """#3489: `Mention`/`Notification` are ``auto_now_add`` — both must be
+    rewritten to the beat's time, not left at real import wall-clock time.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.projects.models import Calendar
+    from trueppm_api.apps.projects.seed.replay import ReplayContext, _apply_task_comment, _Beat
+
+    calendar = Calendar.objects.create(name="Standard")
+    project = Project.objects.create(
+        name="Mentions", start_date=date(2026, 1, 1), calendar=calendar
+    )
+    author = User.objects.create_user(username="mention-author")
+    mentioned = User.objects.create_user(username="mention-target")
+    ProjectMembership.objects.create(project=project, user=author, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=project, user=mentioned, role=Role.MEMBER)
+    task = Task.objects.create(project=project, name="Reviewed task", duration=1)
+
+    ctx = ReplayContext(
+        anchor=date(2026, 2, 1),
+        program_code="p",
+        default_actor=author,
+        users={},
+        tasks={("p", "1"): task},
+        sprints={},
+        projects={"p": project},
+        project_calendars={},
+        risks={},
+        final_status={},
+        final_sprint={},
+    )
+    when = datetime(2026, 1, 10, 9, 0, tzinfo=ZoneInfo("UTC"))
+    beat = _Beat(
+        when=when,
+        order=0,
+        action="task.comment",
+        target="task:p:1",
+        actor=author,
+        data={"body": "@mention-target please take a look"},
+    )
+
+    _apply_task_comment(beat, ctx)
+
+    comment = TaskComment.objects.get(task=task)
+    mention = Mention.objects.get(task_comment=comment)
+    assert mention.created_at == when  # not real import time
+    notif = Notification.objects.get(mention=mention)
+    assert notif.created_at == when
+    assert notif.recipient_id == mentioned.pk
+    # The @mentioned assignee-of-comment de-dup never fires here (no assignee).
+    assert not Notification.objects.filter(
+        event_type=NotificationEventType.COMMENT_ON_MY_TASK
+    ).exists()
+
+
+def test_task_block_notifies_assignee_and_leads_not_the_actor() -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.projects.models import Calendar
+    from trueppm_api.apps.projects.seed.replay import ReplayContext, _apply_task_block, _Beat
+
+    calendar = Calendar.objects.create(name="Standard")
+    project = Project.objects.create(
+        name="Blocker test", start_date=date(2026, 1, 1), calendar=calendar
+    )
+    pm = User.objects.create_user(username="blocker-pm")
+    assignee = User.objects.create_user(username="blocker-assignee")
+    reporter = User.objects.create_user(username="blocker-reporter")
+    ProjectMembership.objects.create(project=project, user=pm, role=Role.ADMIN)
+    ProjectMembership.objects.create(project=project, user=assignee, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=project, user=reporter, role=Role.MEMBER)
+    task = Task.objects.create(
+        project=project, name="Waiting on vendor", duration=1, assignee=assignee
+    )
+
+    ctx = ReplayContext(
+        anchor=date(2026, 2, 1),
+        program_code="p",
+        default_actor=reporter,
+        users={},
+        tasks={("p", "1"): task},
+        sprints={},
+        projects={"p": project},
+        project_calendars={},
+        risks={},
+        final_status={},
+        final_sprint={},
+    )
+    when = datetime(2026, 1, 15, 10, 0, tzinfo=ZoneInfo("UTC"))
+    beat = _Beat(
+        when=when,
+        order=0,
+        action="task.block",
+        target="task:p:1",
+        actor=reporter,
+        data={"body": "waiting on a vendor response — private reason text"},
+    )
+
+    _apply_task_block(beat, ctx)
+
+    notifs = Notification.objects.filter(event_type=NotificationEventType.TASK_BLOCKED)
+    recipients = set(notifs.values_list("recipient_id", flat=True))
+    assert recipients == {pm.pk, assignee.pk}
+    assert reporter.pk not in recipients  # the reporter already knows
+    for notif in notifs:
+        assert notif.created_at == when
+        # Morgan boundary (ADR-0124): the free-text reason never reaches the
+        # SM/PM notification body, only the structured type/age/actor signal.
+        assert "vendor response" not in notif.body
+
+
+def test_sprint_close_carry_over_notifies_the_assignee() -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from trueppm_api.apps.projects.models import Calendar
+    from trueppm_api.apps.projects.seed.replay import ReplayContext, _apply_sprint_close, _Beat
+
+    calendar = Calendar.objects.create(name="Standard")
+    project = Project.objects.create(
+        name="Carry-over notify", start_date=date(2026, 1, 1), calendar=calendar
+    )
+    closing = Sprint.objects.create(
+        project=project,
+        name="Sprint 1",
+        start_date=date(2026, 1, 1),
+        finish_date=date(2026, 1, 14),
+        state=SprintState.ACTIVE,
+        committed_points=5,
+    )
+    next_sprint = Sprint.objects.create(
+        project=project,
+        name="Sprint 2",
+        start_date=date(2026, 1, 15),
+        finish_date=date(2026, 1, 28),
+        state=SprintState.PLANNED,
+    )
+    assignee = User.objects.create_user(username="carried-assignee")
+    closer = User.objects.create_user(username="carry-closer")
+    carried = Task.objects.create(
+        project=project,
+        name="Carried story",
+        duration=1,
+        status=TaskStatus.NOT_STARTED,
+        story_points=3,
+        sprint=closing,
+        assignee=assignee,
+    )
+
+    ctx = ReplayContext(
+        anchor=date(2026, 2, 1),
+        program_code="p",
+        default_actor=closer,
+        users={},
+        tasks={},
+        sprints={("p", "s1"): closing, ("p", "s2"): next_sprint},
+        projects={"p": project},
+        project_calendars={},
+        risks={},
+        final_status={},
+        # The next sprint actually runs — the implied carry-over destination.
+        final_sprint={("p", "s2"): {"state": SprintState.ACTIVE}},
+    )
+    when = datetime(2026, 1, 14, 17, 0, tzinfo=ZoneInfo("UTC"))
+    beat = _Beat(
+        when=when, order=0, action="sprint.close", target="sprint:p:s1", actor=closer, data={}
+    )
+
+    _apply_sprint_close(beat, ctx)
+
+    notif = Notification.objects.get(event_type=NotificationEventType.TASK_MOVED_SPRINT)
+    assert notif.recipient_id == assignee.pk
+    assert notif.created_at == when
+    assert carried.name in notif.subject
+
+
+def test_synthesize_stale_notifications_flags_an_untouched_task() -> None:
+    from datetime import datetime
+
+    from django.utils import timezone as dj_timezone
+
+    from trueppm_api.apps.projects.models import Calendar
+    from trueppm_api.apps.projects.seed.replay import ReplayContext, _synthesize_stale_notifications
+
+    calendar = Calendar.objects.create(name="Standard")
+    project = Project.objects.create(
+        name="Stale sweep",
+        start_date=date(2026, 1, 1),
+        calendar=calendar,
+        stale_task_threshold_days=7,
+    )
+    assignee = User.objects.create_user(username="stale-assignee")
+    task = Task.objects.create(
+        project=project,
+        name="Forgotten card",
+        duration=1,
+        status=TaskStatus.IN_PROGRESS,
+        assignee=assignee,
+    )
+    Task.objects.filter(pk=task.pk).update(
+        status_changed_at=dj_timezone.make_aware(datetime(2026, 1, 1, 9, 0))
+    )
+    task.refresh_from_db()
+
+    ctx = ReplayContext(
+        anchor=date(2026, 2, 1),
+        program_code="p",
+        default_actor=assignee,
+        users={},
+        tasks={("p", "1"): task},
+        sprints={},
+        projects={"p": project},
+        project_calendars={},
+        risks={},
+        final_status={},
+        final_sprint={},
+    )
+
+    _synthesize_stale_notifications(ctx)
+
+    notif = Notification.objects.get(event_type=NotificationEventType.TASK_STALE)
+    assert notif.recipient_id == assignee.pk
+    assert notif.created_at.date() == date(2026, 1, 8)  # status_changed_at + 7d
+    assert task.name in notif.subject
+
+
+def test_synthesize_stale_notifications_skips_a_recently_touched_task() -> None:
+    from datetime import datetime
+
+    from django.utils import timezone as dj_timezone
+
+    from trueppm_api.apps.projects.models import Calendar
+    from trueppm_api.apps.projects.seed.replay import ReplayContext, _synthesize_stale_notifications
+
+    calendar = Calendar.objects.create(name="Standard")
+    project = Project.objects.create(
+        name="Stale sweep 2",
+        start_date=date(2026, 1, 1),
+        calendar=calendar,
+        stale_task_threshold_days=7,
+    )
+    assignee = User.objects.create_user(username="fresh-assignee")
+    task = Task.objects.create(
+        project=project,
+        name="Recently moved card",
+        duration=1,
+        status=TaskStatus.IN_PROGRESS,
+        assignee=assignee,
+    )
+    Task.objects.filter(pk=task.pk).update(
+        status_changed_at=dj_timezone.make_aware(datetime(2026, 1, 30, 9, 0))
+    )
+    task.refresh_from_db()
+
+    ctx = ReplayContext(
+        anchor=date(2026, 2, 1),
+        program_code="p",
+        default_actor=assignee,
+        users={},
+        tasks={("p", "1"): task},
+        sprints={},
+        projects={"p": project},
+        project_calendars={},
+        risks={},
+        final_status={},
+        final_sprint={},
+    )
+
+    _synthesize_stale_notifications(ctx)
+
+    assert not Notification.objects.filter(event_type=NotificationEventType.TASK_STALE).exists()
+
+
+def test_program_digest_is_skipped_without_a_viewer_persona(owner: Any) -> None:
+    """No VIEWER account in the seed -> no sponsor to dispatch to -> no digest.
+
+    Defensive path: `_synthesize_program_digest` must not raise or fabricate a
+    recipient when a sample carries no read-only executive persona.
+    """
+    import_seed(_v2_seed(), owner=owner, create_users=True)  # accounts: OWNER + MEMBER only
+    assert not Notification.objects.filter(
+        event_type=NotificationEventType.PROGRAM_HEALTH_DIGEST
+    ).exists()
+
+
+def test_comment_on_my_task_is_not_duplicated_when_the_assignee_is_mentioned() -> None:
+    """A comment that both @mentions the assignee and is on their own task must
+    notify them exactly once (via the mention), not twice (#639's own de-dup,
+    mirroring ``views.TaskCommentViewSet._notify_assignee_of_comment``).
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.projects.models import Calendar
+    from trueppm_api.apps.projects.seed.replay import ReplayContext, _apply_task_comment, _Beat
+
+    calendar = Calendar.objects.create(name="Standard")
+    project = Project.objects.create(
+        name="Dedup test", start_date=date(2026, 1, 1), calendar=calendar
+    )
+    author = User.objects.create_user(username="dedup-author")
+    assignee = User.objects.create_user(username="dedup-assignee")
+    ProjectMembership.objects.create(project=project, user=author, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=project, user=assignee, role=Role.MEMBER)
+    task = Task.objects.create(project=project, name="Shared task", duration=1, assignee=assignee)
+
+    ctx = ReplayContext(
+        anchor=date(2026, 2, 1),
+        program_code="p",
+        default_actor=author,
+        users={},
+        tasks={("p", "1"): task},
+        sprints={},
+        projects={"p": project},
+        project_calendars={},
+        risks={},
+        final_status={},
+        final_sprint={},
+    )
+    when = datetime(2026, 1, 10, 9, 0, tzinfo=ZoneInfo("UTC"))
+    beat = _Beat(
+        when=when,
+        order=0,
+        action="task.comment",
+        target="task:p:1",
+        actor=author,
+        data={"body": "@dedup-assignee can you take a look at this"},
+    )
+
+    _apply_task_comment(beat, ctx)
+
+    assert not Notification.objects.filter(
+        event_type=NotificationEventType.COMMENT_ON_MY_TASK
+    ).exists()
+    mention_notif = Notification.objects.get(mention__isnull=False)
+    assert mention_notif.recipient_id == assignee.pk
+
+
+def test_task_assign_clearing_the_assignee_does_not_notify() -> None:
+    """``assignee: null`` is a clear, not an assignment — #638/#639 only notify a
+    landed assignee, mirroring ``views._emit_assignee_change_events``.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from trueppm_api.apps.projects.models import Calendar
+    from trueppm_api.apps.projects.seed.replay import ReplayContext, _apply_task_assign, _Beat
+
+    calendar = Calendar.objects.create(name="Standard")
+    project = Project.objects.create(
+        name="Clear assignee test", start_date=date(2026, 1, 1), calendar=calendar
+    )
+    former_assignee = User.objects.create_user(username="former-assignee")
+    actor = User.objects.create_user(username="clearer")
+    task = Task.objects.create(
+        project=project, name="Unassigned now", duration=1, assignee=former_assignee
+    )
+
+    ctx = ReplayContext(
+        anchor=date(2026, 2, 1),
+        program_code="p",
+        default_actor=actor,
+        users={},  # beat.data has no "assignee" key -> resolves to None
+        tasks={("p", "1"): task},
+        sprints={},
+        projects={"p": project},
+        project_calendars={},
+        risks={},
+        final_status={},
+        final_sprint={},
+    )
+    when = datetime(2026, 1, 10, 9, 0, tzinfo=ZoneInfo("UTC"))
+    beat = _Beat(when=when, order=0, action="task.assign", target="task:p:1", actor=actor, data={})
+
+    _apply_task_assign(beat, ctx)
+
+    task.refresh_from_db()
+    assert task.assignee_id is None
+    assert not Notification.objects.filter(event_type=NotificationEventType.TASK_ASSIGNED).exists()
+
+
+def test_only_live_dispatcher_event_types_are_emitted(program: Any) -> None:
+    """#3489's scope boundary: emit only event types `NotificationEventType`
+    already has a live dispatcher for — never fake the #3016 project-matrix
+    rows the issue explicitly carves out.
+    """
+    live_dispatchers = {
+        NotificationEventType.MENTION_INDIVIDUAL.value,
+        NotificationEventType.MENTION_GROUP.value,
+        NotificationEventType.TASK_ASSIGNED.value,
+        NotificationEventType.COMMENT_ON_MY_TASK.value,
+        NotificationEventType.TASK_BLOCKED.value,
+        NotificationEventType.TASK_MOVED_SPRINT.value,
+        NotificationEventType.SPRINT_MEMBERSHIP_CHANGED.value,
+        NotificationEventType.MILESTONE_FORECAST_SHIFTED.value,
+        NotificationEventType.PROJECT_END_DATE_SHIFTED.value,
+        NotificationEventType.TASK_STALE.value,
+        NotificationEventType.PROGRAM_HEALTH_DIGEST.value,
+    }
+    emitted = set(Notification.objects.exclude(event_type="").values_list("event_type", flat=True))
+    assert emitted <= live_dispatchers, (
+        f"undispatched event type emitted: {emitted - live_dispatchers}"
+    )

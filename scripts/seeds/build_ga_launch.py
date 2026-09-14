@@ -820,8 +820,9 @@ def _build_ga_launch_v20() -> dict:
             "task.comment",
             "task:ga-soc2:2",
             "bob",
-            body="Policy authoring needs Lena for the control narratives, but launch content "
-            "needs her the same week. Flagging it rather than quietly double-booking.",
+            body="Policy authoring needs @ga-lena for the control narratives, but launch "
+            "content needs her the same week. Flagging it rather than quietly "
+            "double-booking.",
         ),
         _ev(ts(12, 14, 0), "task.assign", "task:ga-soc2:2", "dana", assignee="bob"),
         _ev(
@@ -843,8 +844,8 @@ def _build_ga_launch_v20() -> dict:
             "task.comment",
             c("2"),
             "janus",
-            body="Triage done: seven criticals, not the four we planned for. Two of them are "
-            "auth-path issues that need a real fix, not a patch.",
+            body="Triage done: seven criticals, not the four we planned for. Two of "
+            "them are auth-path issues that need a real fix, not a patch. @ga-dana",
         ),
         _ev(
             ts(32, 16, 30),
@@ -870,9 +871,9 @@ def _build_ga_launch_v20() -> dict:
             "task.comment",
             c("3"),
             "dana",
-            body="Pulling Malcolm onto the auth-path criticals at half time. He is still "
-            "carrying the platform rollout, so this is a real over-allocation, not a "
-            "spare-capacity reassignment — it is the trade we are choosing.",
+            body="Pulling @ga-malcolm onto the auth-path criticals at half time. He is "
+            "still carrying the platform rollout, so this is a real over-allocation, "
+            "not a spare-capacity reassignment — it is the trade we are choosing.",
         ),
         _ev(ts(41, 9, 30), "task.assign", c("3"), "dana", assignee="janus"),
         _ev(

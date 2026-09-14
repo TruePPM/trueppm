@@ -617,7 +617,7 @@ def _build_aurora_v20() -> dict:
             task(wbs["Onboarding flow"]),
             "tom",
             body="Review: the skip button doesn't persist the 'seen' flag on a cold "
-            "start, so onboarding re-shows. Sending it back.",
+            "start, so onboarding re-shows. Sending it back. @aurora-mei",
         ),
         _ev(
             T(6, 11, 30),
@@ -669,8 +669,8 @@ def _build_aurora_v20() -> dict:
             "task.comment",
             task(wbs["Biometric login"]),
             "priya",
-            body="Biometric know-how is concentrated in Mei — reassigning so we don't "
-            "bottleneck a launch-critical story on a single spike.",
+            body="Biometric know-how is concentrated in Mei — @aurora-mei reassigning "
+            "so we don't bottleneck a launch-critical story on a single spike.",
         ),
         _ev(
             T(4, 13, 5),
@@ -776,8 +776,8 @@ def _build_aurora_v20() -> dict:
             "task.comment",
             task(wbs["Push notifications"]),
             "sam",
-            body="Mei is out for two days — Nadia to cover push notifications so the "
-            "increment goal holds.",
+            body="Mei is out for two days — @aurora-nadia to cover push notifications "
+            "so the increment goal holds.",
         ),
         _ev(
             T(19, 10, 5),
@@ -1757,7 +1757,7 @@ def _build_bayside_v20() -> dict:
             sw("2.2"),
             "omar",
             body="Inspection: bar spacing on the north face is out of tolerance per "
-            "the spec. Failing it — needs a re-tie.",
+            "the spec. Failing it — needs a re-tie. @bayside-diego",
         ),
         _ev(ts(44, 10, 30), "task.status", sw("2.2"), "omar", to="IN_PROGRESS"),
         _ev(
@@ -1805,7 +1805,8 @@ def _build_bayside_v20() -> dict:
             "task.comment",
             sw("2.4"),
             "diego",
-            body="The pours belong with the concrete crew — moving the west pour to Tom.",
+            body="The pours belong with the concrete crew — @bayside-tom moving the "
+            "west pour to you.",
         ),
         _ev(ts(56, 8, 5), "task.assign", sw("2.4"), "diego", assignee="tom"),
         _ev(
@@ -1868,8 +1869,8 @@ def _build_bayside_v20() -> dict:
             "task.comment",
             sw("3.1"),
             "diego",
-            body="Steel is going up. Owner is still weighing a mezzanine design "
-            "change — holding the final connections until it's resolved.",
+            body="Steel is going up. @bayside-sam is still weighing a mezzanine "
+            "design change — holding the final connections until it's resolved.",
         ),
         _ev(
             ts(76, 10, 45),
@@ -2867,7 +2868,7 @@ def _build_helios_v20() -> dict:
             task("2.3"),
             "mei",
             body="Review: stage transitions don't fire the activity hook, so the "
-            "timeline misses them. Sending it back.",
+            "timeline misses them. Sending it back. @helios-nadia",
         ),
         _ev(T(67, 11, 30), "task.status", task("2.3"), "mei", to="IN_PROGRESS"),
         _ev(
@@ -2971,8 +2972,8 @@ def _build_helios_v20() -> dict:
             "task.comment",
             task("2.7"),
             "ivan",
-            body="Nadia's carrying three active stories — moving Activity timeline to "
-            "Mei to keep the sprint flowing.",
+            body="Nadia's carrying three active stories — @helios-mei moving "
+            "Activity timeline to you to keep the sprint flowing.",
         ),
         _ev(T(78, 9, 5), "task.assign", task("2.7"), "ivan", assignee="mei"),
         _ev(
@@ -3023,7 +3024,7 @@ def _build_helios_v20() -> dict:
             task("2.13"),
             "jordan",
             body="Compliance flagged the audit log for the pilot go/no-go — "
-            "pulling it into this sprint.",
+            "@helios-ivan pulling it into this sprint.",
         ),
         _ev(
             T(80, 9, 5),

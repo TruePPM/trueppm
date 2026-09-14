@@ -1253,7 +1253,7 @@
       "action": "task.comment",
       "target": "task:aurora:1.1",
       "actor": "tom",
-      "body": "Review: the skip button doesn't persist the 'seen' flag on a cold start, so onboarding re-shows. Sending it back.",
+      "body": "Review: the skip button doesn't persist the 'seen' flag on a cold start, so onboarding re-shows. Sending it back. @aurora-mei",
       "slug": "onboarding-review"
     },
     {
@@ -1306,7 +1306,7 @@
       "action": "task.comment",
       "target": "task:aurora:1.5",
       "actor": "priya",
-      "body": "Biometric know-how is concentrated in Mei — reassigning so we don't bottleneck a launch-critical story on a single spike."
+      "body": "Biometric know-how is concentrated in Mei — @aurora-mei reassigning so we don't bottleneck a launch-critical story on a single spike."
     },
     {
       "at": "A-59T13:05",
@@ -1401,7 +1401,7 @@
       "action": "task.comment",
       "target": "task:aurora:1.2",
       "actor": "sam",
-      "body": "Mei is out for two days — Nadia to cover push notifications so the increment goal holds."
+      "body": "Mei is out for two days — @aurora-nadia to cover push notifications so the increment goal holds."
     },
     {
       "at": "A-44T10:05",

@@ -1403,7 +1403,7 @@
       "action": "task.comment",
       "target": "task:bayside-sitework:2.2",
       "actor": "omar",
-      "body": "Inspection: bar spacing on the north face is out of tolerance per the spec. Failing it — needs a re-tie.",
+      "body": "Inspection: bar spacing on the north face is out of tolerance per the spec. Failing it — needs a re-tie. @bayside-diego",
       "slug": "footing-inspection-fail"
     },
     {
@@ -1463,7 +1463,7 @@
       "action": "task.comment",
       "target": "task:bayside-sitework:2.4",
       "actor": "diego",
-      "body": "The pours belong with the concrete crew — moving the west pour to Tom."
+      "body": "The pours belong with the concrete crew — @bayside-tom moving the west pour to you."
     },
     {
       "at": "A-34T08:05",
@@ -1526,7 +1526,7 @@
       "action": "task.comment",
       "target": "task:bayside-sitework:3.1",
       "actor": "diego",
-      "body": "Steel is going up. Owner is still weighing a mezzanine design change — holding the final connections until it's resolved."
+      "body": "Steel is going up. @bayside-sam is still weighing a mezzanine design change — holding the final connections until it's resolved."
     },
     {
       "at": "A-14T10:45",

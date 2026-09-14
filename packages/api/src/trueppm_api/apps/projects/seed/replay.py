@@ -24,12 +24,17 @@ A single CPM recalc per project is enqueued by the importer after commit.
 
 from __future__ import annotations
 
+import functools
 import logging
 import random
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
+
+from django.db.models import F, Q
+from django.utils import timezone
 
 from trueppm_api.apps.projects.actual_date_rules import check_actual_dates
 from trueppm_api.apps.projects.models import (
@@ -56,6 +61,9 @@ from trueppm_api.apps.projects.seed.reldates import WorkingCalendar, resolve_tim
 from trueppm_api.apps.projects.seed.replay_ctx import seed_replay
 from trueppm_api.apps.projects.services import upsert_burndown_for_sprint
 from trueppm_api.apps.timetracking.models import TimeEntry
+
+if TYPE_CHECKING:
+    from trueppm_api.apps.notifications.services import ParsedMention
 
 logger = logging.getLogger(__name__)
 
@@ -128,12 +136,21 @@ def replay_timeline(payload: dict[str, Any], ctx: ReplayContext) -> None:
     Idempotent within an import: the caller wipes-and-recreates the program, so
     the timeline is always replayed from a clean base. Determinism comes from a
     seed derived from ``program_code`` + the task wbs path.
+
+    Also seeds every persona's notification preferences, then — beside the
+    per-beat notifications individual handlers below emit — synthesizes the two
+    event types with no single triggering beat: a ``task.stale`` sweep and the
+    sponsor persona's ``program.health_digest`` (#3489).
     """
     with seed_replay():
+        _seed_notification_preferences(payload, ctx)
         beats = _resolve_authored(payload, ctx)
         beats.extend(_synthesize(ctx, beats))
         beats.sort()
         _run_sim_clock(beats, ctx)
+        _synthesize_stale_notifications(ctx)
+        _synthesize_program_digest(payload, ctx)
+        _apply_notification_realism(ctx)
 
 
 # --- resolution --------------------------------------------------------------
@@ -488,9 +505,46 @@ def _apply_task_assign(beat: _Beat, ctx: ReplayContext) -> None:
     task = _resolve_task(ctx, beat.target)
     if task is None:
         return
+    previous_assignee_id = task.assignee_id
     assignee = ctx.users.get(beat.data["assignee"]) if beat.data.get("assignee") else None
     task.assignee = assignee
     _save(task, beat.when, beat.actor, ["assignee"])
+    _notify_task_assigned(task, previous_assignee_id, assignee, beat)
+
+
+def _notify_task_assigned(
+    task: Task, previous_assignee_id: Any, assignee: Any, beat: _Beat
+) -> None:
+    """``task.assigned`` to the new assignee (#638/#639), mirroring
+    ``views._emit_assignee_change_events``'s notification half.
+
+    Fires on any change that lands a real assignee — a fresh None→user
+    assignment or a user→user reassignment alike — except a clear (assignee
+    set to None) and never to the actor who made the assignment.
+    """
+    if assignee is None or assignee.pk == previous_assignee_id:
+        return
+    if assignee.pk == getattr(beat.actor, "pk", None):
+        return
+    from trueppm_api.apps.notifications.models import NotificationEventType
+    from trueppm_api.apps.notifications.services import create_event_notifications
+
+    subject = f"You were assigned to {task.name}"
+    body = f'You were assigned to the task "{task.name}" in TruePPM.'
+    _dispatch_and_backdate(
+        beat.when,
+        event_type=NotificationEventType.TASK_ASSIGNED.value,
+        project_id=task.project_id,
+        recipient_ids=[assignee.pk],
+        dispatch=lambda: create_event_notifications(
+            event_type=NotificationEventType.TASK_ASSIGNED.value,
+            recipient_ids=[assignee.pk],
+            subject=subject,
+            body=body,
+            project_id=task.project_id,
+            task_id=task.pk,
+        ),
+    )
 
 
 def _apply_task_estimate(beat: _Beat, ctx: ReplayContext) -> None:
@@ -579,6 +633,45 @@ def _apply_task_block(beat: _Beat, ctx: ReplayContext) -> None:
     _save(task, beat.when, beat.actor, fields)
     Task.objects.filter(pk=task.pk).update(blocked_since=beat.when)
     task.blocked_since = beat.when
+    _notify_task_blocked(task, beat)
+
+
+def _notify_task_blocked(task: Task, beat: _Beat) -> None:
+    """``task.blocked`` to the assignee + project leads (#855/#476/ADR-0124),
+    reusing the real recipient resolver and renderer so the content matches the
+    live path exactly (``views._emit_blocked_notification``).
+
+    The rendered body's age line reads "just now" for a freshly-flagged task —
+    it always does here too, since this fires in the same beat that sets
+    ``blocked_since``.
+    """
+    from trueppm_api.apps.notifications.models import NotificationEventType
+    from trueppm_api.apps.notifications.services import create_event_notifications
+    from trueppm_api.apps.projects.blocker_services import (
+        render_blocker_notification,
+        resolve_impediment_recipients,
+    )
+
+    recipients = resolve_impediment_recipients(task)
+    recipients.discard(getattr(beat.actor, "pk", None))
+    if not recipients:
+        return
+    subject, body = render_blocker_notification(task)
+    recipient_ids = list(recipients)
+    _dispatch_and_backdate(
+        beat.when,
+        event_type=NotificationEventType.TASK_BLOCKED.value,
+        project_id=task.project_id,
+        recipient_ids=recipient_ids,
+        dispatch=lambda: create_event_notifications(
+            event_type=NotificationEventType.TASK_BLOCKED.value,
+            recipient_ids=recipient_ids,
+            subject=subject,
+            body=body,
+            project_id=task.project_id,
+            task_id=task.pk,
+        ),
+    )
 
 
 def _apply_task_unblock(beat: _Beat, ctx: ReplayContext) -> None:
@@ -625,10 +718,14 @@ def _apply_task_comment(beat: _Beat, ctx: ReplayContext) -> None:
     TaskComment.objects.filter(pk=comment.pk).update(created_at=beat.when)
     if beat.data.get("slug"):
         ctx.comments[beat.data["slug"]] = comment
-    _fan_out_mentions(comment, task, beat)
+    # A reply is still a comment on the task, and the live product's own
+    # _notify_assignee_of_comment applies uniformly regardless of parent — so
+    # this fires for a reply beat exactly as it does for a top-level one (#3489).
+    parsed = _fan_out_mentions(comment, task, beat)
+    _notify_comment_on_assignee(task, comment, beat, parsed)
 
 
-def _fan_out_mentions(comment: TaskComment, task: Task, beat: _Beat) -> None:
+def _fan_out_mentions(comment: TaskComment, task: Task, beat: _Beat) -> list[ParsedMention]:
     """Create Mention + Notification rows for an @mention in a seeded comment.
 
     Only the live view path parsed mentions, so a seeded ``@mei`` was plain text:
@@ -643,7 +740,18 @@ def _fan_out_mentions(comment: TaskComment, task: Task, beat: _Beat) -> None:
     comment rather than stamping import day; a mention of a non-member resolves
     to ``skipped_users`` and is silently dropped, exactly as the live path
     reports it.
+
+    Both ``Mention.created_at`` and ``Notification.created_at`` are
+    ``auto_now_add`` — always real wall-clock time — so the rows this call
+    writes are backdated to the beat afterward, scoped to this exact comment's
+    (freshly-created, unique) pk so a concurrent import elsewhere can never be
+    touched (#3489).
+
+    Returns the parsed mentions so the caller can de-dup the sibling
+    ``comment_on_my_task`` notification against an assignee who was also
+    directly @mentioned.
     """
+    from trueppm_api.apps.notifications.models import Mention, Notification
     from trueppm_api.apps.notifications.services import (
         create_mention_notifications,
         parse_mentions,
@@ -652,16 +760,63 @@ def _fan_out_mentions(comment: TaskComment, task: Task, beat: _Beat) -> None:
 
     parsed = parse_mentions(comment.body)
     if not parsed:
-        return
+        return []
     resolved = resolve_parsed_mentions(parsed, task.project_id)
     if not resolved.user_targets and not resolved.group_targets:
-        return
+        return list(parsed)
+    t0 = timezone.now()
     create_mention_notifications(
         task_comment=comment,
         mentioner=beat.actor,
         parsed_result=resolved,
         project_id=task.project_id,
         now=beat.when,
+    )
+    Mention.objects.filter(task_comment=comment, created_at__gte=t0).update(created_at=beat.when)
+    Notification.objects.filter(mention__task_comment=comment, created_at__gte=t0).update(
+        created_at=beat.when
+    )
+    return parsed
+
+
+def _notify_comment_on_assignee(
+    task: Task, comment: TaskComment, beat: _Beat, parsed: list[ParsedMention]
+) -> None:
+    """``comment_on_my_task`` to the task's assignee (#639), mirroring
+    ``views.TaskCommentViewSet._notify_assignee_of_comment``.
+
+    Skipped when there is no assignee, the assignee wrote the comment, or the
+    assignee was already @mentioned in it — the mention path already notified
+    them, and this de-dups so one comment never pings the same person twice.
+    """
+    assignee = task.assignee
+    if assignee is None or assignee.pk == getattr(beat.actor, "pk", None):
+        return
+    mentioned_usernames = {p.value for p in parsed if p.kind == "user"}
+    if assignee.username in mentioned_usernames:
+        return
+
+    from trueppm_api.apps.notifications.models import NotificationEventType
+    from trueppm_api.apps.notifications.services import create_event_notifications
+
+    actor = beat.actor
+    full_name = getattr(actor, "get_full_name", lambda: "")()
+    author_name = full_name or getattr(actor, "username", "") or "Someone"
+    subject = f"New comment on {task.name}"
+    body = f'{author_name} commented on your task "{task.name}" in TruePPM.'
+    _dispatch_and_backdate(
+        beat.when,
+        event_type=NotificationEventType.COMMENT_ON_MY_TASK.value,
+        project_id=task.project_id,
+        recipient_ids=[assignee.pk],
+        dispatch=lambda: create_event_notifications(
+            event_type=NotificationEventType.COMMENT_ON_MY_TASK.value,
+            recipient_ids=[assignee.pk],
+            subject=subject,
+            body=body,
+            project_id=task.project_id,
+            task_id=task.pk,
+        ),
     )
 
 
@@ -758,12 +913,13 @@ def _apply_sprint_close(beat: _Beat, ctx: ReplayContext) -> None:
     # "what didn't ship" set would already be gone by the time this reads it.
     carry_over_to = _implied_carry_over_target(ctx, sprint)
     snapshot_sprint_task_outcomes(sprint, carry_over_to=carry_over_to)
-    _replay_carry_over(sprint, carry_over_to, beat.when, beat.actor)
+    carried_task_ids = _replay_carry_over(sprint, carry_over_to, beat.when, beat.actor)
+    _notify_carry_over(sprint, carry_over_to, carried_task_ids, beat)
 
     compute_velocity_suggestions(sprint.pk)
 
 
-def _replay_carry_over(sprint: Sprint, carry_over_to: str, when: datetime, actor: Any) -> None:
+def _replay_carry_over(sprint: Sprint, carry_over_to: str, when: datetime, actor: Any) -> list[str]:
     """Mirror ``services.apply_carry_over`` (ADR-0176) with a backdated write.
 
     The real close's ``task.save()`` has no beat to backdate to — correct
@@ -773,6 +929,10 @@ def _replay_carry_over(sprint: Sprint, carry_over_to: str, when: datetime, actor
     tuples the real service reads (imported, not copied by value, so this
     stays in sync if the close contract's carry-over policy changes) — only
     *how* the result is saved differs.
+
+    Returns the moved tasks' ids so the caller can fan out the
+    ``task.moved_sprint`` notification (#3489) against exactly the set this
+    call actually carried.
     """
     from trueppm_api.apps.projects.services import (
         _CARRY_OVER_INCOMPLETE_STATUSES,
@@ -780,11 +940,12 @@ def _replay_carry_over(sprint: Sprint, carry_over_to: str, when: datetime, actor
     )
 
     if carry_over_to == "none":
-        return
+        return []
 
     incomplete = Task.objects.filter(
         sprint_id=sprint.pk, status__in=_CARRY_OVER_INCOMPLETE_STATUSES, is_deleted=False
     )
+    carried_ids: list[str] = []
     for task in incomplete:
         fields = ["sprint"]
         if carry_over_to == "backlog":
@@ -795,6 +956,50 @@ def _replay_carry_over(sprint: Sprint, carry_over_to: str, when: datetime, actor
         else:
             task.sprint_id = carry_over_to
         _save(task, when, actor, fields)
+        carried_ids.append(str(task.pk))
+    return carried_ids
+
+
+def _notify_carry_over(
+    sprint: Sprint, carry_over_to: str, carried_task_ids: list[str], beat: _Beat
+) -> None:
+    """``task.moved_sprint`` to each carried task's assignee (#1470/ADR-0232),
+    reusing the real grouping/copy helpers (``services._carried_tasks_by_assignee``
+    / ``_carryover_row``) so a demo persona with several carried tasks gets the
+    same one-row-per-assignee summary the live close produces.
+    """
+    if not carried_task_ids:
+        return
+
+    from trueppm_api.apps.notifications.models import NotificationEventType
+    from trueppm_api.apps.notifications.services import create_event_notifications_batch
+    from trueppm_api.apps.projects.services import (
+        _carried_tasks_by_assignee,
+        _carry_over_destination_label,
+        _carryover_row,
+    )
+
+    actor_pk = getattr(beat.actor, "pk", None)
+    by_assignee = _carried_tasks_by_assignee(carried_task_ids, actor_pk)
+    if not by_assignee:
+        return
+    destination = _carry_over_destination_label(carry_over_to)
+    rows = [
+        _carryover_row(assignee_id, tasks, origin=sprint.name, destination=destination)
+        for assignee_id, tasks in by_assignee.items()
+    ]
+    recipient_ids = list(by_assignee.keys())
+    _dispatch_and_backdate(
+        beat.when,
+        event_type=NotificationEventType.TASK_MOVED_SPRINT.value,
+        project_id=sprint.project_id,
+        recipient_ids=recipient_ids,
+        dispatch=lambda: create_event_notifications_batch(
+            event_type=NotificationEventType.TASK_MOVED_SPRINT.value,
+            project_id=sprint.project_id,
+            rows=rows,
+        ),
+    )
 
 
 def _apply_scope_inject(beat: _Beat, ctx: ReplayContext) -> None:
@@ -830,6 +1035,50 @@ def _apply_scope_inject(beat: _Beat, ctx: ReplayContext) -> None:
     ctx.open_scope[task.pk] = scope
     task.sprint_pending = True
     _save(task, beat.when, beat.actor, ["sprint_pending"])
+    _notify_scope_inject(task, sprint, beat)
+
+
+def _notify_scope_inject(task: Task, sprint: Sprint, beat: _Beat) -> None:
+    """``sprint.membership_changed`` to the project lead cohort (#1946/ADR-0412),
+    reusing the real recipient/copy helpers (``services._sprint_lead_recipient_ids``
+    / ``_sprint_change_body``).
+
+    Fires only when the injected sprint is currently ACTIVE, mirroring the live
+    trigger's "a live-commitment change" gate — a scope change into a
+    PLANNED/COMPLETED/CANCELLED sprint carries no accountability signal.
+    """
+    if sprint.state != SprintState.ACTIVE:
+        return
+
+    from trueppm_api.apps.notifications.models import NotificationEventType
+    from trueppm_api.apps.notifications.services import create_event_notifications_batch
+    from trueppm_api.apps.projects.services import _sprint_change_body, _sprint_lead_recipient_ids
+
+    actor_pk = getattr(beat.actor, "pk", None)
+    recipient_ids = _sprint_lead_recipient_ids(task.project_id, actor_pk)
+    if not recipient_ids:
+        return
+    actor_name = getattr(beat.actor, "username", "") or "Someone"
+    body = _sprint_change_body(
+        actor_name,
+        task.name,
+        None,
+        {"name": sprint.name},
+        entered_active=True,
+        left_active=False,
+    )
+    rows = [(rid, "Sprint scope changed", body, str(task.pk)) for rid in recipient_ids]
+    _dispatch_and_backdate(
+        beat.when,
+        event_type=NotificationEventType.SPRINT_MEMBERSHIP_CHANGED.value,
+        project_id=task.project_id,
+        recipient_ids=recipient_ids,
+        dispatch=lambda: create_event_notifications_batch(
+            event_type=NotificationEventType.SPRINT_MEMBERSHIP_CHANGED.value,
+            project_id=task.project_id,
+            rows=rows,
+        ),
+    )
 
 
 def _injected_sprint(task: Task, beat: _Beat, ctx: ReplayContext) -> Sprint | None:
@@ -1020,6 +1269,240 @@ def _apply_retro_promote(beat: _Beat, ctx: ReplayContext) -> None:
     _save_new_backdated(task, beat.when, beat.actor)
     item.promoted_task_id = task.pk
     item.save(update_fields=["promoted_task_id"])
+
+
+# --- notifications -------------------------------------------------------------
+#
+# #3489: fresh samples produced notifications only from the mention fan-out
+# above (`_fan_out_mentions`) — every other beat wrote through the ORM and
+# never touched `notifications.services`, so a persona signing in saw an
+# empty bell. The handlers above call the small `_notify_*` functions added
+# alongside them; this section holds the cross-cutting backdating helper plus
+# the two event types with no single triggering beat (a synthesized
+# `task.stale` sweep and the sponsor's `program.health_digest`) and the final
+# read/unread/archived/snoozed realism pass.
+
+
+def _dispatch_and_backdate(
+    when: datetime,
+    *,
+    event_type: str,
+    project_id: Any,
+    recipient_ids: Sequence[Any],
+    dispatch: Callable[[], Any],
+) -> None:
+    """Run a ``notifications.services`` dispatch, then backdate the rows it wrote.
+
+    Every dispatcher in that module stamps ``Notification.created_at`` via
+    ``auto_now_add`` — always real wall-clock time, correct for the live
+    product and wrong for a replayed beat. This captures the instant right
+    before dispatch and rewrites every matching row to ``when`` afterward.
+
+    The filter is scoped to ``(recipient, project, event_type, created_at >= t0)``.
+    ``project_id`` is always a project this same import just created (or
+    ``None`` for the one account-scoped digest, whose recipient is likewise a
+    user this import just created), so the window can never reach a row a
+    concurrent, unrelated import or request wrote in the same instant.
+    """
+    ids = [rid for rid in recipient_ids if rid is not None]
+    if not ids:
+        return
+
+    from trueppm_api.apps.notifications.models import Notification
+
+    t0 = timezone.now()
+    dispatch()
+    Notification.objects.filter(
+        recipient_id__in=ids,
+        project_id=project_id,
+        event_type=event_type,
+        created_at__gte=t0,
+    ).update(created_at=when)
+
+
+def _seed_notification_preferences(payload: dict[str, Any], ctx: ReplayContext) -> None:
+    """Backfill every persona's default ``NotificationPreference`` rows, plus one
+    ``ProjectNotificationPreference`` with a non-default quiet-hours window for
+    the program's OWNER persona (#3489's "preference pages render seeded rows,
+    not defaults" acceptance bar).
+    """
+    import datetime as _dt
+
+    from trueppm_api.apps.notifications.models import ProjectNotificationPreference
+    from trueppm_api.apps.notifications.services import get_or_create_default_preferences
+
+    for user in ctx.users.values():
+        if user is not None:
+            get_or_create_default_preferences(user)
+
+    owner_slug = next(
+        (a["slug"] for a in payload.get("accounts", []) if a.get("role") == "OWNER"), None
+    )
+    owner = ctx.users.get(owner_slug) if owner_slug else None
+    project = next(iter(ctx.projects.values()), None)
+    if owner is None or project is None:
+        return
+    ProjectNotificationPreference.objects.update_or_create(
+        project=project,
+        user=owner,
+        defaults={
+            "quiet_hours_enabled": True,
+            "quiet_hours_from": _dt.time(18, 0),
+            "quiet_hours_until": _dt.time(8, 0),
+        },
+    )
+
+
+def _synthesize_stale_notifications(ctx: ReplayContext) -> None:
+    """Seed-local ``task.stale`` sweep (ADR-0200), scoped to this program's own tasks.
+
+    Deliberately NOT ``notifications.services.create_stale_task_notifications``:
+    that function scans every project in the install against the real wall
+    clock, which would (a) sweep already-imported, unrelated samples and (b)
+    stamp ``created_at`` at real import time rather than a date this replay
+    can own. This mirrors its eligibility rule (every non-``COMPLETE`` status,
+    an assignee set, untouched past the project's ``stale_task_threshold_days``)
+    but dates each notification to when the task actually went stale.
+    """
+    from trueppm_api.apps.notifications.models import NotificationEventType
+    from trueppm_api.apps.notifications.services import (
+        DEFAULT_STALE_TASK_THRESHOLD_DAYS,
+        create_event_notifications_batch,
+    )
+
+    for (project_slug, _wbs), task in ctx.tasks.items():
+        if task.status == TaskStatus.COMPLETE or task.assignee_id is None:
+            continue
+        if task.status_changed_at is None:
+            continue
+        project = ctx.projects[project_slug]
+        threshold = project.stale_task_threshold_days or DEFAULT_STALE_TASK_THRESHOLD_DAYS
+        stale_since = task.status_changed_at.date() + timedelta(days=threshold)
+        if stale_since > ctx.anchor:
+            continue
+        display_name = task.name if len(task.name) <= 200 else task.name[:200].rstrip() + "…"
+        subject = f'"{display_name}" has gone stale'
+        body = (
+            f'Your task "{display_name}" has sat in the same status for more than '
+            f"{threshold} days. If it is still active, move it forward; "
+            f"otherwise update its status so the board reflects reality."
+        )
+        when = _aware_dt(ctx, stale_since, 8, 0)
+        rows = [(task.assignee_id, subject, body, str(task.pk))]
+        _dispatch_and_backdate(
+            when,
+            event_type=NotificationEventType.TASK_STALE.value,
+            project_id=task.project_id,
+            recipient_ids=[task.assignee_id],
+            # functools.partial (not a lambda closing over the loop variables)
+            # so each call is bound to THIS iteration's rows/project, not
+            # whatever the loop variable holds by the time it runs.
+            dispatch=functools.partial(
+                create_event_notifications_batch,
+                event_type=NotificationEventType.TASK_STALE.value,
+                project_id=task.project_id,
+                rows=rows,
+            ),
+        )
+
+
+def _synthesize_program_digest(payload: dict[str, Any], ctx: ReplayContext) -> None:
+    """One ``program.health_digest`` row for the sponsor persona — the seed's
+    VIEWER account, the read-only executive role every sample carries exactly
+    one of — dated to the most recent Sunday evening on/before the anchor,
+    matching the real weekly send slot (ADR-0663).
+
+    ``PROGRAM_HEALTH_DIGEST`` defaults OFF on both channels (a weekly send
+    nobody asked for is exactly the noise the default guards against), so the
+    sponsor is opted in explicitly here first — otherwise the dispatch below
+    would silently create nothing.
+    """
+    accounts = payload.get("accounts", [])
+    sponsor_slug = next((a["slug"] for a in accounts if a.get("role") == "VIEWER"), None)
+    if sponsor_slug is None:
+        return
+    sponsor = ctx.users.get(sponsor_slug)
+    if sponsor is None:
+        return
+
+    from trueppm_api.apps.notifications.digests import build_program_health_digest
+    from trueppm_api.apps.notifications.models import (
+        NotificationChannel,
+        NotificationEventType,
+        NotificationPreference,
+    )
+    from trueppm_api.apps.notifications.services import create_event_notifications
+
+    # `_seed_notification_preferences` already backfilled the sponsor's default
+    # rows earlier in `replay_timeline`; only the digest event's opt-in (below)
+    # needs an explicit override.
+    NotificationPreference.objects.update_or_create(
+        user=sponsor,
+        event_type=NotificationEventType.PROGRAM_HEALTH_DIGEST.value,
+        channel=NotificationChannel.IN_APP.value,
+        defaults={"enabled": True},
+    )
+
+    digest_day = ctx.anchor - timedelta(days=(ctx.anchor.weekday() + 1) % 7)
+    when = _aware_dt(ctx, digest_day, 18, 0)
+    subject, body = build_program_health_digest(sponsor, when)
+    _dispatch_and_backdate(
+        when,
+        event_type=NotificationEventType.PROGRAM_HEALTH_DIGEST.value,
+        project_id=None,
+        recipient_ids=[sponsor.pk],
+        dispatch=lambda: create_event_notifications(
+            event_type=NotificationEventType.PROGRAM_HEALTH_DIGEST.value,
+            recipient_ids=[sponsor.pk],
+            subject=subject,
+            body=body,
+            project_id=None,
+        ),
+    )
+
+
+def _apply_notification_realism(ctx: ReplayContext) -> None:
+    """Age the freshly-emitted inbox into a mix of read / unread / archived /
+    snoozed rows (#3489) — a batch created in one instant and left untouched
+    would all read as equally fresh, which is its own tell.
+
+    Rows backdated more than ~5 days before the anchor are marked read; a
+    deterministic handful of those are archived; one still-unread row is
+    snoozed into the demo's near future. Recent rows are left unread so the
+    bell has something to show. Scoped to this program's own projects (plus,
+    for the one account-scoped digest, this program's own users) so a
+    re-import of a different sample can never be touched.
+    """
+    from trueppm_api.apps.notifications.models import Notification
+
+    project_ids = [p.pk for p in ctx.projects.values()]
+    user_ids = [u.pk for u in ctx.users.values() if u is not None]
+    qs = Notification.objects.filter(
+        Q(project_id__in=project_ids) | Q(project_id__isnull=True, recipient_id__in=user_ids)
+    )
+
+    read_cutoff = _aware(ctx, ctx.anchor - timedelta(days=5))
+    qs.filter(created_at__lt=read_cutoff, is_read=False).update(
+        is_read=True, read_at=F("created_at") + timedelta(hours=2)
+    )
+
+    archive_ids = list(
+        qs.filter(is_read=True, is_archived=False)
+        .order_by("created_at")
+        .values_list("pk", flat=True)[:3]
+    )
+    if archive_ids:
+        Notification.objects.filter(pk__in=archive_ids).update(is_archived=True)
+
+    snooze_candidate = (
+        qs.filter(is_read=False, is_archived=False, snoozed_until__isnull=True)
+        .order_by("-created_at")
+        .first()
+    )
+    if snooze_candidate is not None:
+        Notification.objects.filter(pk=snooze_candidate.pk).update(
+            snoozed_until=_aware_dt(ctx, ctx.anchor + timedelta(days=2), 9, 0)
+        )
 
 
 # --- helpers -----------------------------------------------------------------

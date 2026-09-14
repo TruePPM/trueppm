@@ -995,7 +995,7 @@
       "action": "task.comment",
       "target": "task:helios:2.3",
       "actor": "mei",
-      "body": "Review: stage transitions don't fire the activity hook, so the timeline misses them. Sending it back.",
+      "body": "Review: stage transitions don't fire the activity hook, so the timeline misses them. Sending it back. @helios-nadia",
       "slug": "pipeline-review"
     },
     {
@@ -1109,7 +1109,7 @@
       "action": "task.comment",
       "target": "task:helios:2.7",
       "actor": "ivan",
-      "body": "Nadia's carrying three active stories — moving Activity timeline to Mei to keep the sprint flowing."
+      "body": "Nadia's carrying three active stories — @helios-mei moving Activity timeline to you to keep the sprint flowing."
     },
     {
       "at": "A-3T09:05",
@@ -1182,7 +1182,7 @@
       "action": "task.comment",
       "target": "task:helios:2.13",
       "actor": "jordan",
-      "body": "Compliance flagged the audit log for the pilot go/no-go — pulling it into this sprint."
+      "body": "Compliance flagged the audit log for the pilot go/no-go — @helios-ivan pulling it into this sprint."
     },
     {
       "at": "A-1T09:05",
