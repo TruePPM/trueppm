@@ -282,6 +282,26 @@ name if you would rather not read URLs.
 | Persona comments | every sample | Same tab → filter the event list to **Comments** | Standup, blocker, handoff, and review-rework notes by named people, dated |
 | Backdated, attributed history | every sample | Any Done card on the Board → drawer → **Activity** | "Moved to Done by … N days ago", not everything stamped "today" |
 
+### Collaboration layer
+
+:::note[Ships in 0.4]
+The rows below need the 0.4 samples (seed schema 2.1). On 0.3 the samples load
+with none of this data: the backlog, the Decisions list, the timesheet, the
+agent-oversight panel and the share list all open empty.
+:::
+
+| Capability | Sample · persona | Look here | Expect |
+|---|---|---|---|
+| Program backlog | Atlas · `atlas-alex` / Aurora · `aurora-priya` / Helios · `helios-jordan` | Program rail **Backlog** (`/programs/:id/backlog`) | Proposed intake with tags and ranks, items already pulled into the task they became (Helios "Search & filters"), and archived rejects with the reason written down |
+| Threaded review | every sample | ⌘K the hero task (Atlas "SSO login", Aurora "Onboarding flow", Bayside "Rebar & formwork", Helios "Lead pipeline") → drawer **Comments** | A reviewer's comment with the fix and the approval as replies under it, a 👍 reaction, and an "I saw this" acknowledgement |
+| @mentions that resolve | every sample | Same drawer **Comments** — e.g. Atlas "Digest scheduler", Aurora "Settings sync" | Mentions that link to real project members, not plain text |
+| Acceptance criteria | Aurora · `aurora-priya` / Atlas · `atlas-jordan` | Board → "Crash reporting" (Aurora) or "Dunning flow" (Atlas) → drawer | Criteria on in-sprint stories, some ticked with who ticked them and when, some still open |
+| Decisions log | Atlas · `atlas-priya` | Project rail **Track → Reports** on Platform Core → **Decisions** | Several dated decisions by name — the SSO callback rule, multi-jurisdiction tax leaving 1.0, the backfill injection — and at least one in every other sample |
+| Logged time and submitted weeks | Atlas · `atlas-mei` / Aurora · `aurora-tom` | User menu → **Timesheet** (`/me/timesheet`) → step back a week | A populated grid on completed and in-flight work, marked submitted for fully elapsed weeks |
+| Agent oversight | Atlas · `atlas-alex` | Program rail **Agents** (`/programs/:id/agents`) | Reads, one computed answer that shows its derivation (what drives the cutover date), and one **refused** write — every row labeled `[Sample data]` |
+| Share link | Aurora · `aurora-priya` | Project **Settings → Sharing** | One live, revocable board link. Its token is generated at load and never shown; mint an openable link with `create_demo_share_link` |
+| Program ceremonies | Atlas · `atlas-alex` | Program **Settings → Cadence** (`/programs/:id/settings/cadence`) | Program Sync, Cross-team Dependency Review, Steering Committee and an on-milestone Launch Readiness Review — program-level ceremonies, not sprint events |
+
 ### Schedule (CPM) & forecasting
 
 | Capability | Sample · persona | Look here | Expect |

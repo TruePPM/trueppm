@@ -28,6 +28,8 @@ from django.utils import timezone
 
 from trueppm_api.apps.agents.canonical import canonical_fields, compute_record_hash
 from trueppm_api.apps.agents.models import (
+    SAMPLE_SUMMARY_PREFIX,
+    SAMPLE_TOKEN_PREFIX,
     AgentAction,
     AgentActionChainHead,
     AgentActionCheckpoint,
@@ -130,8 +132,20 @@ def record_agent_action(
     source_ip: str | None = None,
     engine_version_str: str | None = None,
     occurred_at: datetime | None = None,
+    sample: bool = False,
 ) -> AgentAction:
     """Append one hash-chained ``AgentAction`` row and advance the chain head.
+
+    ``sample=True`` is for the bundled-sample loader only (#3603). The row still
+    goes through the real chain — the agent-oversight panel reads nothing else —
+    but is marked as demo data in **hashed** fields: ``actor_token_prefix`` is
+    :data:`SAMPLE_TOKEN_PREFIX` and ``summary`` leads with
+    :data:`SAMPLE_SUMMARY_PREFIX`. The marker must live in the hash because the
+    row outlives its project (a sample reload SET_NULLs ``project``), and a marker
+    anyone could strip would let fabricated history pass as evidence; stripping
+    this one breaks ``audit_verify``. Sample rows also skip the
+    ``agent_action_recorded`` extension signal, so nothing downstream notarizes
+    them.
 
     Serializes on the singleton chain head so the ``sequence`` is gap-free and each row
     links to the true predecessor. Must be called inside a DB transaction (the request's
@@ -155,6 +169,9 @@ def record_agent_action(
 
     occurred = occurred_at or timezone.now()
     token_prefix = actor_token.token_prefix if actor_token is not None else ""
+    if sample:
+        token_prefix = SAMPLE_TOKEN_PREFIX
+        summary = f"{SAMPLE_SUMMARY_PREFIX}{summary or ''}"
     resolved_engine = engine_version_str or engine_version()
     # Sanitize the client IP: a spoofed/malformed X-Forwarded-For must not raise on the
     # GenericIPAddressField save and 500 an otherwise-valid (fail-closed) read.
@@ -206,9 +223,12 @@ def record_agent_action(
                 projected_impact=projected_impact or {},
             )
 
-    transaction.on_commit(
-        lambda: dispatch_extension_signal(agent_action_recorded, sender=AgentAction, action=entry)
-    )
+    if not sample:
+        transaction.on_commit(
+            lambda: dispatch_extension_signal(
+                agent_action_recorded, sender=AgentAction, action=entry
+            )
+        )
     return entry
 
 

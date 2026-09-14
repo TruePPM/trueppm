@@ -194,7 +194,7 @@ def _tasks(rows: list, *, agile: bool = False) -> list[dict]:
     return [_task_row(row, agile=agile) for row in rows]
 
 
-def build_ga_launch() -> dict:
+def _build_ga_launch_v20() -> dict:
     """Assemble the whole pack."""
     # (wbs, name, day, duration, status, pct, labels, assignee, [(resource, units)])
     # Milestones carry duration 0 and no allocation.
@@ -1039,6 +1039,23 @@ def build_ga_launch() -> dict:
     }
 
 
+def _collab_layer():
+    """Load ``seed_collab_v21.py`` by path — ``scripts/seeds`` is not a package."""
+    import importlib.util
+
+    path = Path(__file__).resolve().parent / "seed_collab_v21.py"
+    spec = importlib.util.spec_from_file_location("_seed_collab_v21", path)
+    assert spec is not None and spec.loader is not None, f"cannot load {path}"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def build_ga_launch() -> dict:
+    """The GA Launch fixture: the program above plus its v2.1 collaboration layer (#3603)."""
+    return _collab_layer().apply_ga_launch(_build_ga_launch_v20())
+
+
 def main() -> int:
     repo_root = Path(__file__).resolve().parents[2]
     api_src = repo_root / "packages" / "api" / "src"
@@ -1052,7 +1069,8 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     seed = build_ga_launch()
     try:
-        validate_seed(seed)
+        # Bundled fixtures may carry the sample-only sections (#3603).
+        validate_seed(seed, allow_sample_sections=True)
     except SeedValidationError as exc:
         print(f"ga-launch.json FAILED validation:\n{exc}", file=sys.stderr)
         return 1

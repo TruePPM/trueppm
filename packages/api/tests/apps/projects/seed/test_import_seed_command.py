@@ -150,10 +150,23 @@ def test_check_needs_no_superuser(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("fixture_path", sorted(_SEEDS_DIR.glob("*.json")), ids=lambda p: p.name)
-def test_every_committed_fixture_passes_check(fixture_path: Path) -> None:
+def test_every_committed_fixture_passes_check(fixture_path: Path, tmp_path: Path) -> None:
     """A new bundled sample cannot be added without passing the validator.
 
     Asserted against the files on disk rather than a hard-coded list, so the
     guard extends to fixtures that do not exist yet.
+
+    ``import_seed`` is a generic path, so it refuses a fixture's sample-only
+    sections (#3603). The guard is that those are the *only* problems: stripped of
+    them, every fixture passes the same check a user's file would.
     """
-    call_command("import_seed", str(fixture_path), "--check", stdout=StringIO())
+    from trueppm_api.apps.projects.seed import inspect_seed
+
+    from .sample_sections import without_sample_only_sections
+
+    raw = json.loads(fixture_path.read_text(encoding="utf-8"))
+    report = inspect_seed(raw)
+    assert all("only bundled sample" in e for e in report.errors), report.errors
+
+    path = _write_seed(tmp_path, without_sample_only_sections(raw))
+    call_command("import_seed", path, "--check", stdout=StringIO())

@@ -258,6 +258,17 @@ seed. Because a native TruePPM export is a whole program, this creates a program
 round-trip counterpart to **Export to JSON**. The same dialog imports MS Project
 `.xml` files as a single project; pick the format that matches your file.
 
+:::caution[Two sections only the sample loader accepts]
+A seed file can describe an agent-action trail (`program.agent_actions`) and
+public share links (`projects[].share_links`), but **only the bundled-sample
+loader honors them**. The web import, the dry run, the API and `import_seed` all
+reject a file that carries either one, naming the JSON path: the first would
+write audit history and the second would publish a board, and neither may be
+authored by a file you upload. Bundled sample files carry both, so to import a
+downloaded sample through the importer, delete those two keys first — or load it
+with **Load demo data** instead. An export never contains them.
+:::
+
 ### From the command line
 
 ```bash

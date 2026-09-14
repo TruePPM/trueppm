@@ -283,7 +283,7 @@ def _aurora_backlog_tasks(wbs: dict[str, str]) -> list[dict]:
     return tasks
 
 
-def build_aurora() -> dict:
+def _build_aurora_v20() -> dict:
     ns = "aurora"
     people = [
         ("priya", "Priya Nair", "OWNER"),
@@ -1310,7 +1310,7 @@ def _bayside_building_shift(_wbs: str) -> tuple[int, int]:
     return 9, 9
 
 
-def build_bayside() -> dict:
+def _build_bayside_v20() -> dict:
     """Bayside Civic Center — a two-project waterfall PROGRAM (#2003).
 
     Split from a single project into a program of two phased waterfall projects
@@ -2237,7 +2237,7 @@ def build_bayside() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def build_helios() -> dict:
+def _build_helios_v20() -> dict:
     ns = "helios"
     tasks, deps = [], []
 
@@ -2986,6 +2986,33 @@ def build_helios() -> dict:
     }
 
 
+def _collab_layer():
+    """Load ``seed_collab_v21.py`` by path — ``scripts/seeds`` is not a package."""
+    import importlib.util
+
+    path = Path(__file__).resolve().parent / "seed_collab_v21.py"
+    spec = importlib.util.spec_from_file_location("_seed_collab_v21", path)
+    assert spec is not None and spec.loader is not None, f"cannot load {path}"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def build_aurora() -> dict:
+    """The Aurora fixture: the program above plus its v2.1 collaboration layer (#3603)."""
+    return _collab_layer().apply_aurora(_build_aurora_v20())
+
+
+def build_bayside() -> dict:
+    """The Bayside fixture: the program above plus its v2.1 collaboration layer (#3603)."""
+    return _collab_layer().apply_bayside(_build_bayside_v20())
+
+
+def build_helios() -> dict:
+    """The Helios fixture: the program above plus its v2.1 collaboration layer (#3603)."""
+    return _collab_layer().apply_helios(_build_helios_v20())
+
+
 def main() -> int:
     repo_root = Path(__file__).resolve().parents[2]
     api_src = repo_root / "packages" / "api" / "src"
@@ -3006,7 +3033,8 @@ def main() -> int:
     for filename, builder in builders.items():
         seed = builder()
         try:
-            validate_seed(seed)
+            # Bundled fixtures may carry the sample-only sections (#3603).
+            validate_seed(seed, allow_sample_sections=True)
         except SeedValidationError as exc:
             print(f"{filename} FAILED validation:\n{exc}", file=sys.stderr)
             return 1

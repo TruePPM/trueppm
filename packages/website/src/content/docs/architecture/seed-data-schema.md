@@ -225,8 +225,37 @@ comment, AC-met, block/unblock, sprint activate/close, scope inject/resolve,
 baseline capture, risk status and notes, and the retrospective pair
 `retro.action` / `retro.promote` — an action item on the target sprint's retro,
 and its promotion (matched by `body`) into a `BACKLOG` task with no sprint,
-exactly what the live promote endpoint produces. There is no `time.log` action:
-time entries are not part of the seed format.
+exactly what the live promote endpoint produces.
+
+**v2.1 adds the collaboration layer** (`schema_version: "2.1"`, same
+`seed_v2.json`; every 2.0 document is still valid). New events: `task.note` (a
+dated task note, `decision`/`pinned` optional — decisions feed the Decisions
+view), `task.react` and `task.ack` (a reaction or acknowledgement on a comment,
+addressed as `comment:<slug>`), and `time.log` (a `TimeEntry` of `minutes`,
+dated to the beat and rejected if forward-dated). `task.comment` gains `slug`
+and `reply_to` — replies are one level deep and stay on their thread's task —
+and `task.ac_met` gains an optional `criterion` index. `time.log`,
+`task.react` and `task.ack` must name their `actor`: an hour or a reaction by
+nobody in particular is never re-attributed to the importing user. New
+sections: `program.backlog_items` (a pulled item names the task it became in
+`pulled_to`), `program.ceremonies` (program-level only — `standup`,
+`sprint review`, `retrospective` and the other sprint events are rejected, as
+in the API), and `tasks[].acceptance_criteria`.
+
+Two further v2.1 sections are **sample-only**: `program.agent_actions` and
+`projects[].share_links`. Only the bundled-sample loader honors them; every
+other import path rejects the file. Seeded agent actions go through the real
+hash-chained audit log, marked as sample data in hashed fields
+(`actor_token_prefix: "sample"`, a `[Sample data]` summary prefix), and
+share-link tokens are generated at load, never read from the file. On the
+sample path the importer also synthesizes logged time on completed and
+in-flight work and submits each fully elapsed week; a generic import writes
+only the `time.log` beats the file authors.
+
+The v2 exporter round-trips backlog items, ceremonies, criteria, notes,
+threads, reactions and acknowledgements. It never exports agent actions,
+share links or `time.log`: the first two are evidence and credentials, and
+per-person hours would reach anyone who can run an export.
 
 **`baseline.capture` snapshots the project's live task state at the beat's
 time, dated and attributed** — the events-timeline counterpart to a declared

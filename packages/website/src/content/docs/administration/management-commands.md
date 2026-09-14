@@ -254,6 +254,11 @@ user-facing guide.
   mints any accounts the seed references that do not yet exist (intended for local
   demos, not production).
 
+  A file carrying `program.agent_actions` or `projects[].share_links` is rejected,
+  here and by `--check`: those sections write audit history and public share links,
+  and only `load_sample_project` (the bundled samples) may carry them. To import a
+  downloaded sample file with this command, delete those two keys first.
+
   The command **defaults to replacing** a live program of the owner's that already
   uses the seed's slug — re-running `make seed` in place is what it is for, and an
   operator at a shell has `--check` (below) available to look first. `--no-replace`

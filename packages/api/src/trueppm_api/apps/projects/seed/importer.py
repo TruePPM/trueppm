@@ -29,10 +29,13 @@ free — ``server_version``, ``sync_seq``, and the ``simple_history`` row.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import random
 import uuid
 from collections import defaultdict
 from datetime import date, datetime, timedelta
+from datetime import time as dt_time
 from decimal import Decimal
 from functools import partial
 from typing import Any
@@ -47,11 +50,14 @@ from simple_history.utils import bulk_create_with_history
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.access.services import create_program
 from trueppm_api.apps.projects.models import (
+    AcceptanceCriterion,
+    BacklogItem,
     Baseline,
     BaselineTask,
     BoardColumnConfig,
     Calendar,
     CalendarException,
+    CeremonyTemplate,
     Dependency,
     DorState,
     EstimateStatus,
@@ -84,8 +90,16 @@ from trueppm_api.apps.resources.services import ensure_project_resource
 from trueppm_api.apps.scheduling.services import enqueue_recalculate
 from trueppm_api.apps.sync.broadcast import broadcast_board_event
 from trueppm_api.apps.sync.sequence import allocate_for_projects, coalesce_sync_seq
+from trueppm_api.apps.timetracking.models import TimeEntry, TimesheetSubmission
 
 logger = logging.getLogger(__name__)
+
+_UTC = ZoneInfo("UTC")
+
+#: Most days of synthesized time one task contributes on the sample path (#3490).
+#: The most recent days of a long waterfall task are what a timesheet shows; an
+#: uncapped fill would write a row per person per working day for months.
+_TIME_FILL_MAX_DAYS = 40
 
 #: Rows per INSERT statement in the batched passes (ADR-0726 §8).
 #:
@@ -216,7 +230,10 @@ def import_seed(
         SeedReplaceRequired: if a live program collides and ``replace`` is False.
         SeedReplaceMismatch: if ``expected_program_id`` names a different program.
     """
-    validate_seed(payload)
+    # Agent actions and share links are evidence and credentials: only the
+    # server-curated sample path (``load_sample``, the one caller that passes
+    # is_sample) may carry them, the same trust line ``persona_password`` uses.
+    validate_seed(payload, allow_sample_sections=is_sample)
     importer = _SeedImporter(
         payload,
         owner=owner,
@@ -312,6 +329,9 @@ class _SeedImporter:
         # by replay's ``_finalize_tasks`` (#3486, widened #3518). Holds only
         # the keys the document wrote.
         self.final_progress: dict[tuple[str, str], dict[str, Any]] = {}
+        # (project_slug, wbs_path) -> the task's acceptance criteria in position
+        # order (#3492); built in Pass B, handed to replay for task.ac_met ticks.
+        self.criteria: dict[tuple[str, str], list[AcceptanceCriterion]] = {}
 
     def run(self) -> Program:
         # Adopting a pre-created shell means the caller already resolved and
@@ -343,11 +363,16 @@ class _SeedImporter:
             self._link_task_relations(project_data["slug"], project_data)
             self._resolve_blockers(project_data)
             self._create_attachments(project_data)
+            self._create_acceptance_criteria(project_data)
             self._assign_resources(project, project_data)
             self._capture_baselines(project, project_data)
             self._create_risks(project, project_data.get("risks", []), project_data["slug"])
 
         self._create_program_risks(program)
+        # v2.1 program sections (#3603). After Pass B so a pulled backlog item can
+        # link a task in any project.
+        self._create_backlog_items(program)
+        self._create_ceremonies(program)
 
         # Pass C (v2 only): replay the events timeline + synthesized fill so the
         # demo reads as a program that has run for months — backdated history,
@@ -356,11 +381,25 @@ class _SeedImporter:
         if self.replay:
             replay_timeline(self.payload, self._replay_context())
 
+        # Sample-only v2.1 passes (#3603), after replay: time fills the *actual*
+        # windows replay stamped, submissions read the time just written, and the
+        # agent trail and share links reference the finished program. Each method
+        # returns immediately off the sample path.
+        self._synthesize_time()
+        self._synthesize_timesheet_submissions()
+        self._create_share_links()
+
         # Pass D (#376): backfill ProjectForecastSnapshot history for any project
         # that authored a forecast_history block. Runs after replay so task_count /
         # completed_task_count reflect the final replayed state, and still inside the
         # import transaction so a failure rolls the whole import back (ADR-0211).
         self._backfill_forecast_history()
+
+        # Last write of the import, deliberately. record_agent_action takes the
+        # instance-wide chain-head row lock and holds it to commit, so every live MCP
+        # read that must record an audit row waits behind it. Anything written after
+        # it would widen that window for no reason.
+        self._record_sample_agent_actions()
 
         project_ids = [str(p.pk) for p in self.projects.values()]
         # Seeded tasks have no CPM dates; recompute so the schedule renders.
@@ -621,6 +660,7 @@ class _SeedImporter:
             final_sprint=self.final_sprint,
             final_progress=self.final_progress,
             tz=tz,
+            criteria=self.criteria,
         )
 
     # --- idempotency -------------------------------------------------------
@@ -1802,6 +1842,277 @@ class _SeedImporter:
                 project_slug=project_data["slug"],
                 task_count=task_count,
             )
+
+    # --- v2.1 collaboration sections (#3603) --------------------------------
+
+    def _ts(self, value: str | None) -> datetime | None:
+        """Resolve an optional seed timestamp. Timestamps are never weekend-snapped."""
+        return resolve_timestamp(value, anchor=self.anchor) if value else None
+
+    def _create_acceptance_criteria(self, data: dict[str, Any]) -> None:
+        """Materialize each task's acceptance criteria in authored order (#3492).
+
+        A criterion authored ``met`` carries its own trail. One ticked later, on a
+        dated ``task.ac_met`` beat, is born unmet and replay flips it — so the rows
+        are also indexed per task for the replay context to address by position.
+        """
+        slug = data["slug"]
+        rows: list[AcceptanceCriterion] = []
+        for task_data in data.get("tasks", []):
+            authored = task_data.get("acceptance_criteria")
+            if not authored:
+                continue
+            key = (slug, task_data["wbs_path"])
+            per_task = self.criteria.setdefault(key, [])
+            for position, entry in enumerate(authored):
+                met = bool(entry.get("met", False))
+                row = AcceptanceCriterion(
+                    task=self.tasks[key],
+                    text=entry["text"],
+                    given=entry.get("given", ""),
+                    when=entry.get("when", ""),
+                    then=entry.get("then", ""),
+                    met=met,
+                    position=position,
+                    met_by=(
+                        self.users.get(entry["met_by"]) if met and entry.get("met_by") else None
+                    ),
+                    met_at=self._ts(entry.get("met_at")) if met else None,
+                )
+                rows.append(row)
+                per_task.append(row)
+        self._bulk_insert(AcceptanceCriterion, rows, project_ids=[self.projects[slug].pk])
+
+    def _create_backlog_items(self, program: Program) -> None:
+        """Seed the program backlog — the intake pool (ADR-0069, #3491).
+
+        Per-row saves rather than the batched path: a program carries a handful of
+        items, and ``BacklogItem`` is program-scoped, so there is no project cursor
+        to draw. A pulled item links the task it became, which is what the
+        backlog's "pulled into …" chip and the task's source link both read.
+        """
+        for data in self.payload["program"].get("backlog_items", []):
+            target = data.get("pulled_to")
+            item = BacklogItem(
+                program=program,
+                title=data["title"],
+                description=data.get("description", ""),
+                item_type=data.get("item_type", "task"),
+                status=data.get("status", "proposed"),
+                tags=list(data.get("tags", [])),
+                priority_rank=data.get("priority_rank"),
+                story_points=data.get("story_points"),
+                pulled_task=self._resolve_task_ref(target, "") if target else None,
+                pulled_at=self._ts(data.get("pulled_at")) if target else None,
+                pulled_by=(
+                    self.users.get(data["pulled_by"]) if target and data.get("pulled_by") else None
+                ),
+                created_by=(
+                    self.users.get(data["created_by"]) if data.get("created_by") else self.owner
+                ),
+            )
+            item.save()
+            created = self._ts(data.get("created_at"))
+            if created is not None:
+                # auto_now_add stamped import time; an intake item was raised when
+                # the seed says it was.
+                BacklogItem.objects.filter(pk=item.pk).update(created_at=created)
+
+    def _create_ceremonies(self, program: Program) -> None:
+        """Seed the program's recurring ceremonies (ADR-0079, #3603).
+
+        Validation already refused sprint-event names and a missing clock anchor,
+        mirroring ``CeremonyTemplateSerializer``; an on-milestone ceremony drops
+        any day/time exactly as the serializer strips them.
+        """
+        for data in self.payload["program"].get("ceremonies", []):
+            on_milestone = data["cadence_type"] == "on_milestone"
+            CeremonyTemplate(
+                program=program,
+                name=data["name"].strip(),
+                cadence_type=data["cadence_type"],
+                cadence_day="" if on_milestone else data.get("cadence_day", ""),
+                cadence_time=None if on_milestone else dt_time.fromisoformat(data["cadence_time"]),
+                duration_minutes=data.get("duration_minutes", 60),
+                owner_role=data.get("owner_role", ""),
+                enabled=data.get("enabled", True),
+                created_by=self.owner,
+            ).save()
+
+    def _create_share_links(self) -> None:
+        """Mint each sample project's share links (ADR-0245, #3603). Sample path only.
+
+        The token comes from ``mint_share_link`` here, at load; nothing in any file
+        can choose it, and the raw value is discarded — only its hash is stored, as
+        for every link. The link is live and revocable from the project's share
+        settings, so the share surface is populated; ``create_demo_share_link`` is
+        still how an operator obtains an openable URL.
+        """
+        if not self.is_sample:
+            return
+        from trueppm_api.apps.projects.share_services import mint_share_link
+
+        for project_data in self.payload["projects"]:
+            project = self.projects[project_data["slug"]]
+            for data in project_data.get("share_links", []):
+                days = data.get("expires_in_days")
+                creator = self.users.get(data["created_by"]) if data.get("created_by") else None
+                mint_share_link(
+                    project,
+                    creator or self.owner,
+                    label=data.get("label", ""),
+                    show_assignees=data.get("show_assignees", False),
+                    show_milestone_dates=data.get("show_milestone_dates", True),
+                    content_kind=data.get("content_kind", "board"),
+                    expires_at=timezone.now() + timedelta(days=days) if days else None,
+                )
+
+    def _record_sample_agent_actions(self) -> None:
+        """Write the sample's agent trail through the real audit chain (#3603). Sample only.
+
+        ``record_agent_action(sample=True)`` marks each row in hashed fields, because
+        the row outlives its project: a reload hard-deletes the sample and SET_NULLs
+        ``project``, after which only the marker says the row is demo data. Appended
+        in ``at`` order so the chain's sequence and the narrated timeline agree.
+        """
+        if not self.is_sample:
+            return
+        from trueppm_api.apps.agents.services import record_agent_action
+
+        authored = self.payload["program"].get("agent_actions", [])
+        ordered = sorted(
+            range(len(authored)),
+            key=lambda i: (resolve_timestamp(authored[i]["at"], anchor=self.anchor), i),
+        )
+        for i in ordered:
+            data = authored[i]
+            obj = data.get("object")
+            task = self._resolve_task_ref(obj, "") if obj else None
+            project = self.projects.get(data["project"]) if data.get("project") else None
+            if project is None and task is not None:
+                project = task.project
+            record_agent_action(
+                actor_token=None,
+                principal=self.users.get(data["principal"]) if data.get("principal") else None,
+                action=data["action"],
+                method=data.get("method", "GET"),
+                capability_used=data.get("capability", "mcp:read"),
+                verdict=data["verdict"],
+                payload_hash=hashlib.sha256(
+                    json.dumps(data, sort_keys=True).encode("utf-8")
+                ).hexdigest(),
+                refusal_reason=data.get("refusal_reason", ""),
+                refusal_constraint=data.get("refusal_constraint", ""),
+                projected_impact=data.get("projected_impact"),
+                object_type=data.get("object_type", "task" if task is not None else ""),
+                object_id=str(task.pk) if task is not None else "",
+                project_id=project.pk if project is not None else None,
+                summary=data.get("summary", ""),
+                occurred_at=resolve_timestamp(data["at"], anchor=self.anchor),
+                sample=True,
+            )
+
+    def _synthesize_time(self) -> None:
+        """Fill logged time on sample work the timeline left unlogged (#3490). Sample only.
+
+        On a real import this would invent actuals in somebody's program, so it is
+        confined to the bundled samples. For each COMPLETE or IN_PROGRESS work task
+        with no authored ``time.log`` beat, every allocated person who has a login
+        gets entries on most working days of the task's *actual* window (the dates
+        replay stamped), sized ``hours_per_day × units`` with jitter — so the
+        Timesheet page, the log-time popover and actual-vs-estimate read as a team
+        that has been working.
+
+        Three bounds keep it honest: no entry on or after the anchor ("today"); a
+        person's synthesized day never exceeds their calendar day, however many
+        tasks overlap; and a task contributes at most ``_TIME_FILL_MAX_DAYS``. The
+        RNG is seeded on program, task and username — never a UUID or the clock —
+        so a reload reproduces the same hours.
+        """
+        if not (self.is_sample and self.replay):
+            return
+        authored: set[tuple[str, str]] = set()
+        for event in self.payload.get("events", []):
+            if event.get("action") == "time.log":
+                _, _, ref = event.get("target", "").partition(":")
+                project_slug, _, wbs = ref.partition(":")
+                authored.add((project_slug, wbs))
+
+        allocations: dict[Any, list[TaskResource]] = defaultdict(list)
+        for row in TaskResource.objects.filter(
+            task_id__in=[task.pk for task in self.tasks.values()],
+            resource__user__isnull=False,
+        ).select_related("resource__user"):
+            allocations[row.task_id].append(row)
+
+        program_code = self.payload["program"]["slug"]
+        last_day = self.anchor - timedelta(days=1)
+        used: dict[tuple[Any, date], int] = defaultdict(int)
+        by_project: dict[Any, list[TimeEntry]] = defaultdict(list)
+        for key, task in self.tasks.items():
+            if key in authored or self.final_status.get(key) not in ("COMPLETE", "IN_PROGRESS"):
+                continue
+            if task.actual_start is None or getattr(task, "structure_role", "work") != "work":
+                continue
+            end = min(task.actual_finish or last_day, last_day)
+            if end < task.actual_start:
+                continue
+            project = self.projects[key[0]]
+            calendar = self._wc(key[0])
+            hours = float(project.calendar.hours_per_day) if project.calendar is not None else 8.0
+            day_cap = int(hours * 60 * 1.1)
+            for allocation in allocations.get(task.pk, []):
+                user = allocation.resource.user
+                if user is None:  # filtered out by the query; narrows the type
+                    continue
+                rng = random.Random(f"{program_code}:{key[0]}:{key[1]}:{user.get_username()}")
+                day = max(task.actual_start, end - timedelta(days=_TIME_FILL_MAX_DAYS))
+                while day <= end:
+                    if calendar.is_working_day(day) and rng.random() < 0.85:
+                        wanted = hours * 60 * float(allocation.units) * rng.uniform(0.6, 1.1)
+                        minutes = min(round(wanted / 15) * 15, day_cap - used[(user.pk, day)])
+                        if minutes >= 15:
+                            used[(user.pk, day)] += minutes
+                            by_project[project.pk].append(
+                                TimeEntry(task=task, user=user, minutes=minutes, entry_date=day)
+                            )
+                    day += timedelta(days=1)
+        for project_id, rows in by_project.items():
+            self._bulk_insert(TimeEntry, rows, project_ids=[project_id])
+
+    def _synthesize_timesheet_submissions(self) -> None:
+        """Submit every fully elapsed week a sample persona logged time in (#3490). Sample only.
+
+        ``TimesheetSubmission`` is per user and week, not per program, and personas
+        persist across reloads — so an existing row is kept, never duplicated. The
+        week containing the anchor is never submitted: it has not ended.
+        """
+        if not self.is_sample:
+            return
+        this_monday = self.anchor - timedelta(days=self.anchor.weekday())
+        logged = TimeEntry.objects.filter(
+            task__project__in=list(self.projects.values()),
+            entry_date__lt=this_monday,
+            is_deleted=False,
+        ).values_list("user_id", "entry_date")
+        weeks = {(user_id, day - timedelta(days=day.weekday())) for user_id, day in logged}
+        existing = set(
+            TimesheetSubmission.objects.filter(
+                user_id__in={user_id for user_id, _ in weeks}
+            ).values_list("user_id", "week_start")
+        )
+        rows = [
+            TimesheetSubmission(
+                user_id=user_id,
+                week_start=monday,
+                # Friday 17:00 UTC of that week — submitted when the week closed.
+                submitted_at=datetime(monday.year, monday.month, monday.day, 17, 0, tzinfo=_UTC)
+                + timedelta(days=4),
+            )
+            for user_id, monday in sorted(weeks, key=lambda pair: (str(pair[0]), pair[1]))
+            if (user_id, monday) not in existing
+        ]
+        TimesheetSubmission.objects.bulk_create(rows, batch_size=_BULK_BATCH_SIZE)
 
     def _create_program_risks(self, program: Program) -> None:
         """Program-scoped risks attach to the first project (Risk is project-FK).

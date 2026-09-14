@@ -1,12 +1,118 @@
 {
-  "schema_version": "2.0",
+  "schema_version": "2.1",
   "program": {
     "slug": "aurora-mobile-app",
     "name": "Aurora Mobile App",
     "description": "Agile-only sample — a mobile product team running the sprint lifecycle.",
     "methodology": "AGILE",
     "color": "#7A3FB0",
-    "lead": "priya"
+    "lead": "priya",
+    "backlog_items": [
+      {
+        "slug": "crash-on-rotate",
+        "title": "Crash when rotating during a photo upload",
+        "item_type": "bug",
+        "tags": [
+          "bug",
+          "beta-feedback"
+        ],
+        "priority_rank": 0,
+        "story_points": 2,
+        "created_by": "tom",
+        "created_at": "A-6T10:00"
+      },
+      {
+        "slug": "watch-companion",
+        "title": "Apple Watch companion",
+        "item_type": "feature",
+        "tags": [
+          "customer-request"
+        ],
+        "priority_rank": 1,
+        "story_points": 13,
+        "created_by": "priya",
+        "created_at": "A-40T10:00"
+      },
+      {
+        "slug": "sync-conflict-ui",
+        "title": "Show sync conflicts instead of resolving them silently",
+        "item_type": "story",
+        "tags": [
+          "offline"
+        ],
+        "priority_rank": 2,
+        "story_points": 5,
+        "created_by": "sam",
+        "created_at": "A-25T09:00"
+      },
+      {
+        "slug": "portuguese-localization",
+        "title": "Portuguese localization",
+        "item_type": "story",
+        "tags": [
+          "growth"
+        ],
+        "priority_rank": 3,
+        "story_points": 3,
+        "created_by": "clara",
+        "created_at": "A-12T14:00"
+      },
+      {
+        "slug": "widget-gallery",
+        "title": "Widget gallery for the launch campaign",
+        "item_type": "story",
+        "status": "pulled",
+        "pulled_to": "aurora:4.4",
+        "pulled_by": "priya",
+        "pulled_at": "A-18T09:25",
+        "tags": [
+          "marketing"
+        ],
+        "story_points": 5,
+        "created_by": "clara",
+        "created_at": "A-22T11:00"
+      },
+      {
+        "slug": "app-shortcuts",
+        "title": "App shortcuts",
+        "item_type": "story",
+        "status": "pulled",
+        "pulled_to": "aurora:1.6",
+        "pulled_by": "sam",
+        "pulled_at": "A-3T11:05",
+        "story_points": 3,
+        "created_by": "tom",
+        "created_at": "A-10T10:00"
+      },
+      {
+        "slug": "paywall-redesign",
+        "title": "Paywall redesign",
+        "description": "Archived with the Sprint 3 pivot: 4% of the beta cohort opened the paywall.",
+        "item_type": "feature",
+        "status": "archived",
+        "tags": [
+          "monetization"
+        ],
+        "created_by": "priya",
+        "created_at": "A-45T10:00"
+      }
+    ],
+    "ceremonies": [
+      {
+        "name": "Stakeholder Demo",
+        "cadence_type": "biweekly",
+        "cadence_day": "friday",
+        "cadence_time": "15:00",
+        "duration_minutes": 45,
+        "owner_role": "Product Owner"
+      },
+      {
+        "name": "Release Go/No-Go",
+        "cadence_type": "on_milestone",
+        "duration_minutes": 30,
+        "owner_role": "Product Owner"
+      }
+    ]
   },
   "accounts": [
     {
@@ -303,6 +409,20 @@
           "dor": "ready",
           "labels": [
             "must-have"
+          ],
+          "acceptance_criteria": [
+            {
+              "text": "Face ID and fingerprint both unlock the app",
+              "met": true,
+              "met_by": "mei",
+              "met_at": "A-5T14:30"
+            },
+            {
+              "text": "Falls back to the passcode after three failures",
+              "met": true,
+              "met_by": "mei",
+              "met_at": "A-5T14:30"
+            }
           ]
         },
         {
@@ -353,7 +473,15 @@
           "delivery_mode": "scrum",
           "governance_class": "flow",
           "dor": "ready",
-          "remaining_points": 2
+          "remaining_points": 2,
+          "acceptance_criteria": [
+            {
+              "text": "Shares a link, an image, or both through the system sheet"
+            },
+            {
+              "text": "Cancelling the sheet leaves no draft behind"
+            }
+          ]
         },
         {
           "wbs_path": "2.4",
@@ -389,7 +517,15 @@
           "delivery_mode": "scrum",
           "governance_class": "flow",
           "dor": "ready",
-          "remaining_points": 1
+          "remaining_points": 1,
+          "acceptance_criteria": [
+            {
+              "text": "An offline change syncs within a minute of reconnecting"
+            },
+            {
+              "text": "Two devices editing notification prefs never lose either change"
+            }
+          ]
         },
         {
           "wbs_path": "3",
@@ -467,7 +603,21 @@
           "delivery_mode": "scrum",
           "governance_class": "flow",
           "dor": "ready",
-          "remaining_points": 1
+          "remaining_points": 1,
+          "acceptance_criteria": [
+            {
+              "text": "Release-build crashes arrive symbolicated"
+            },
+            {
+              "text": "No personal data leaves the device in a crash report",
+              "met": true,
+              "met_by": "nadia",
+              "met_at": "A-2T14:05"
+            },
+            {
+              "text": "Crash reporting can be turned off in settings"
+            }
+          ]
         },
         {
           "wbs_path": "4",
@@ -718,7 +868,12 @@
           "delivery_mode": "scrum",
           "governance_class": "flow",
           "dor": "ready",
-          "remaining_points": 2
+          "remaining_points": 2,
+          "acceptance_criteria": [
+            {
+              "text": "Every list screen has an empty state with a next action"
+            }
+          ]
         },
         {
           "wbs_path": "1.6",
@@ -1045,6 +1200,14 @@
             "4.5"
           ]
         }
+      ],
+      "share_links": [
+        {
+          "label": "Stakeholder board — current sprint",
+          "content_kind": "board",
+          "created_by": "priya",
+          "expires_in_days": 30
+        }
       ]
     }
   ],
@@ -1088,7 +1251,8 @@
       "action": "task.comment",
       "target": "task:aurora:1.1",
       "actor": "tom",
-      "body": "Review: the skip button doesn't persist the 'seen' flag on a cold start, so onboarding re-shows. Sending it back."
+      "body": "Review: the skip button doesn't persist the 'seen' flag on a cold start, so onboarding re-shows. Sending it back.",
+      "slug": "onboarding-review"
     },
     {
       "at": "A-57T11:30",
@@ -1102,7 +1266,8 @@
       "action": "task.comment",
       "target": "task:aurora:1.1",
       "actor": "mei",
-      "body": "Fixed — onboarding-complete now persists to secure storage. Re-requesting review."
+      "body": "Fixed — onboarding-complete now persists to secure storage. Re-requesting review.",
+      "reply_to": "onboarding-review"
     },
     {
       "at": "A-55T14:30",
@@ -1116,7 +1281,9 @@
       "action": "task.comment",
       "target": "task:aurora:1.1",
       "actor": "tom",
-      "body": "QA pass on iOS and Android. Merging."
+      "body": "QA pass on iOS and Android. Merging.",
+      "reply_to": "onboarding-review",
+      "slug": "onboarding-qa"
     },
     {
       "at": "A-54T16:30",
@@ -1372,7 +1539,8 @@
       "action": "task.comment",
       "target": "task:aurora:4.4",
       "actor": "priya",
-      "body": "Marketing needs the widget gallery in this increment for launch — pulling it into the sprint."
+      "body": "Marketing needs the widget gallery in this increment for launch — pulling it into the sprint.",
+      "slug": "widget-gallery-ask"
     },
     {
       "at": "A-18T09:35",
@@ -1386,7 +1554,9 @@
       "action": "task.comment",
       "target": "task:aurora:4.4",
       "actor": "sam",
-      "body": "We have the room this time — the re-plan left us under capacity on purpose. Accepting the injection."
+      "body": "We have the room this time — the re-plan left us under capacity on purpose. Accepting the injection.",
+      "reply_to": "widget-gallery-ask",
+      "slug": "widget-gallery-accept"
     },
     {
       "at": "A-17T11:05",
@@ -1448,7 +1618,8 @@
       "action": "task.comment",
       "target": "task:aurora:3.5",
       "actor": "nadia",
-      "body": "Crash reporting is wired to the symbolication service — PR up for review."
+      "body": "Crash reporting is wired to the symbolication service — PR up for review.",
+      "slug": "crash-reporting-pr"
     },
     {
       "at": "A-2T14:30",
@@ -1462,7 +1633,105 @@
       "action": "task.comment",
       "target": "task:aurora:2.5",
       "actor": "diego",
-      "body": "Settings sync conflict resolution is the fiddly part — last-write-wins is wrong for the notification prefs."
+      "body": "Settings sync conflict resolution is the fiddly part — last-write-wins is wrong for the notification prefs.",
+      "slug": "settings-sync-lww"
+    },
+    {
+      "at": "A-57T11:15",
+      "action": "task.ack",
+      "target": "comment:onboarding-review",
+      "actor": "mei"
+    },
+    {
+      "at": "A-54T16:10",
+      "action": "task.react",
+      "target": "comment:onboarding-qa",
+      "actor": "mei",
+      "emoji": "👍"
+    },
+    {
+      "at": "A-17T11:30",
+      "action": "task.react",
+      "target": "comment:widget-gallery-accept",
+      "actor": "clara",
+      "emoji": "👍"
+    },
+    {
+      "at": "A-2T15:30",
+      "action": "task.comment",
+      "target": "task:aurora:3.5",
+      "actor": "sam",
+      "reply_to": "crash-reporting-pr",
+      "body": "@aurora-tom can you take this review? Symbolication is new to the team and you set up the release pipeline."
+    },
+    {
+      "at": "A-2T15:45",
+      "action": "task.ack",
+      "target": "comment:crash-reporting-pr",
+      "actor": "tom"
+    },
+    {
+      "at": "A-1T11:00",
+      "action": "task.comment",
+      "target": "task:aurora:2.5",
+      "actor": "priya",
+      "reply_to": "settings-sync-lww",
+      "body": "@aurora-diego @aurora-mei agreed — pair on a per-field merge for the notification prefs. I would rather slip this story than ship a sync that drops an offline edit."
+    },
+    {
+      "at": "A-59T13:05",
+      "action": "task.note",
+      "target": "task:aurora:1.5",
+      "actor": "priya",
+      "body": "Decision: biometric login moves to Mei, so launch-critical auth does not wait on a learning curve.",
+      "decision": true
+    },
+    {
+      "at": "A-31T11:10",
+      "action": "task.note",
+      "target": "task:aurora:5.3",
+      "actor": "priya",
+      "body": "Decision: pull the monetization slice (receipt export, activity feed, bookmark sync) after the 4% paywall open rate in beta. Revisit once onboarding completion clears 60%.",
+      "decision": true,
+      "pinned": true
+    },
+    {
+      "at": "A-3T11:10",
+      "action": "task.note",
+      "target": "task:aurora:1.6",
+      "actor": "sam",
+      "body": "Decision: cancel Sprint 6 — holiday week, 8 points of capacity against a 30-point commitment — and fold its scope into Sprint 7.",
+      "decision": true
+    },
+    {
+      "at": "A-2T16:00",
+      "action": "task.ac_met",
+      "target": "task:aurora:2.3",
+      "actor": "diego",
+      "criterion": 0
+    },
+    {
+      "at": "A-1T15:30",
+      "action": "task.ac_met",
+      "target": "task:aurora:3.5",
+      "actor": "tom",
+      "criterion": 0
+    },
+    {
+      "at": "A-5T16:00",
+      "action": "time.log",
+      "target": "task:aurora:1.5",
+      "actor": "mei",
+      "minutes": 180,
+      "note": "Secure-enclave path, second attempt"
+    },
+    {
+      "at": "A-1T15:00",
+      "action": "time.log",
+      "target": "task:aurora:3.5",
+      "actor": "tom",
+      "minutes": 150,
+      "note": "Crash reporting review: symbol upload"
     }
   ]
 }

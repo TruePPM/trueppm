@@ -38,7 +38,11 @@ def owner() -> Any:
 
 
 def _pack(stem: str) -> dict[str, Any]:
-    return json.loads((_SEEDS_DIR / f"{stem}.json").read_text(encoding="utf-8"))
+    from tests.apps.projects.seed.sample_sections import without_sample_only_sections
+
+    return without_sample_only_sections(
+        json.loads((_SEEDS_DIR / f"{stem}.json").read_text(encoding="utf-8"))
+    )
 
 
 # --- baseline.captured_at ---------------------------------------------------

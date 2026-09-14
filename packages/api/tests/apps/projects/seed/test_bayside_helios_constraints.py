@@ -53,8 +53,10 @@ def owner(db):
 
 
 def _import_and_schedule(doc, owner):
+    from tests.apps.projects.seed.sample_sections import without_sample_only_sections
     from trueppm_api.apps.scheduling.tasks import _run_program_schedule
 
+    doc = without_sample_only_sections(doc)
     program = import_seed(doc, owner=owner, create_users=True, replace=True)
     _run_program_schedule(str(program.id))
     return program

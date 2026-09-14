@@ -60,8 +60,9 @@ def _risks(doc: dict) -> list[dict]:
 @pytest.mark.parametrize("stem,_min,_max", SAMPLES)
 def test_sample_is_valid_v2(stem: str, _min: int, _max: int) -> None:
     doc = _load(stem)
-    assert doc["schema_version"] == "2.0"
-    validate_seed(doc)  # does not raise
+    assert doc["schema_version"] == "2.1"
+    # Bundled fixtures are the one source allowed agent actions and share links.
+    validate_seed(doc, allow_sample_sections=True)  # does not raise
 
 
 @pytest.mark.parametrize("stem,lo,hi", SAMPLES)

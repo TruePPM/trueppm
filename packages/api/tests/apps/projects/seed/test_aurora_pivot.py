@@ -27,8 +27,13 @@ def aurora(db):
     owner = get_user_model().objects.create_user(
         username="aurora-pivot-owner", email="pivot@example.com", password="pw"
     )
+    from tests.apps.projects.seed.sample_sections import without_sample_only_sections
+
     program = import_seed(
-        json.loads(FIXTURE.read_text()), owner=owner, create_users=True, replace=True
+        without_sample_only_sections(json.loads(FIXTURE.read_text())),
+        owner=owner,
+        create_users=True,
+        replace=True,
     )
     return Project.objects.get(program=program)
 

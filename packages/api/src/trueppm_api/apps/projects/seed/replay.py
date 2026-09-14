@@ -33,8 +33,11 @@ from zoneinfo import ZoneInfo
 
 from trueppm_api.apps.projects.actual_date_rules import check_actual_dates
 from trueppm_api.apps.projects.models import (
+    AcceptanceCriterion,
     Baseline,
     BaselineTask,
+    CommentAcknowledgement,
+    CommentReaction,
     EstimateStatus,
     RetroActionItem,
     Risk,
@@ -46,11 +49,13 @@ from trueppm_api.apps.projects.models import (
     SprintState,
     Task,
     TaskComment,
+    TaskNote,
     TaskStatus,
 )
 from trueppm_api.apps.projects.seed.reldates import WorkingCalendar, resolve_timestamp
 from trueppm_api.apps.projects.seed.replay_ctx import seed_replay
 from trueppm_api.apps.projects.services import upsert_burndown_for_sprint
+from trueppm_api.apps.timetracking.models import TimeEntry
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +102,11 @@ class ReplayContext:
     tz: Any = None  # program timezone for synthesized timestamps (defaults to UTC)
     # Scope-change rows opened during replay, so a later resolve can close them.
     open_scope: dict[Any, SprintScopeChange] = field(default_factory=dict)
+    # v2.1 (#3603): acceptance criteria per task in position order, so a
+    # ``task.ac_met`` beat can tick one by index; and comments by the slug their
+    # ``task.comment`` beat declared, so a reply/reaction/ack can find them.
+    criteria: dict[tuple[str, str], list[AcceptanceCriterion]] = field(default_factory=dict)
+    comments: dict[str, TaskComment] = field(default_factory=dict)
 
 
 @dataclass(order=True)
@@ -516,8 +526,27 @@ def _apply_task_points(beat: _Beat, ctx: ReplayContext) -> None:
 
 
 def _apply_task_ac_met(beat: _Beat, ctx: ReplayContext) -> None:
+    """Tick one acceptance criterion (v2.1 ``criterion``), else mark the story ready.
+
+    With ``criterion`` the beat records the review trail on that row —
+    ``met_by``/``met_at`` dated to the beat — and leaves Definition of Ready alone:
+    ticking a criterion during sprint review is not a readiness decision. Without
+    it the beat keeps its v2.0 meaning.
+    """
     task = _resolve_task(ctx, beat.target)
     if task is None:
+        return
+    index = beat.data.get("criterion")
+    if index is not None:
+        _, _, ref = beat.target.partition(":")
+        project_slug, _, wbs = ref.partition(":")
+        rows = ctx.criteria.get((project_slug, wbs), [])
+        if index < len(rows):
+            row = rows[index]
+            row.met = True
+            row.met_by = beat.actor
+            row.met_at = beat.when
+            row.save(update_fields=["met", "met_by", "met_at"])
         return
     task.dor = "ready"
     _save(task, beat.when, beat.actor, ["dor"])
@@ -585,9 +614,17 @@ def _apply_task_comment(beat: _Beat, ctx: ReplayContext) -> None:
     body = beat.data.get("body")
     if task is None or not body:
         return
-    comment = TaskComment.objects.create(task=task, author=beat.actor, body=body)
+    # v2.1 threading (#3493). Validation holds a reply to a top-level comment on
+    # the same task; the task check is repeated because a parent on another task
+    # would render the reply under a thread it is not part of.
+    parent = ctx.comments.get(beat.data["reply_to"]) if beat.data.get("reply_to") else None
+    if parent is not None and (parent.task_id != task.pk or parent.parent_id is not None):
+        parent = None
+    comment = TaskComment.objects.create(task=task, author=beat.actor, body=body, parent=parent)
     # created_at is auto_now_add (stamped now() on insert); backdate it.
     TaskComment.objects.filter(pk=comment.pk).update(created_at=beat.when)
+    if beat.data.get("slug"):
+        ctx.comments[beat.data["slug"]] = comment
     _fan_out_mentions(comment, task, beat)
 
 
@@ -1049,7 +1086,100 @@ def _implied_carry_over_target(ctx: ReplayContext, sprint: Sprint) -> str:
     return str(candidates[0][1])
 
 
+def _named_actor(beat: _Beat, ctx: ReplayContext) -> Any:
+    """The account a beat names, without the importing-owner fallback.
+
+    ``_Beat.actor`` falls back to the importing owner, which is right for a
+    status move or a comment but wrong for a fact whose attribution *is* the
+    fact: an hour logged, a reaction, an acknowledgement. On the generic import
+    path a pre-existing real account resolves to ``None`` (#1057); crediting its
+    hours to the importer instead would fabricate the importer's own timesheet.
+    """
+    slug = beat.data.get("actor")
+    return ctx.users.get(slug) if slug else None
+
+
+def _comment_for(ctx: ReplayContext, target: str) -> TaskComment | None:
+    _, _, slug = target.partition(":")
+    return ctx.comments.get(slug)
+
+
+def _apply_task_note(beat: _Beat, ctx: ReplayContext) -> None:
+    """Append a dated ``TaskNote`` — the task's why/decision log (ADR-0143, #3492).
+
+    ``decision`` is what the Decisions view reads. ``created_at`` is
+    ``auto_now_add``, so it is backdated after insert like a comment.
+    """
+    task = _resolve_task(ctx, beat.target)
+    body = beat.data.get("body")
+    if task is None or not body:
+        return
+    note = TaskNote.objects.create(
+        task=task,
+        author=beat.actor,
+        body=body,
+        pinned=bool(beat.data.get("pinned", False)),
+        decision=bool(beat.data.get("decision", False)),
+    )
+    TaskNote.objects.filter(pk=note.pk).update(created_at=beat.when)
+
+
+def _apply_task_react(beat: _Beat, ctx: ReplayContext) -> None:
+    """Add a reaction to a slugged comment (ADR-0075 §A.4). Never notifies."""
+    comment = _comment_for(ctx, beat.target)
+    user = _named_actor(beat, ctx)
+    emoji = beat.data.get("emoji")
+    if comment is None or user is None or not emoji:
+        return
+    reaction, created = CommentReaction.objects.get_or_create(
+        comment=comment, user=user, emoji=emoji
+    )
+    if created:
+        CommentReaction.objects.filter(pk=reaction.pk).update(created_at=beat.when)
+
+
+def _apply_task_ack(beat: _Beat, ctx: ReplayContext) -> None:
+    """Acknowledge a slugged comment — "I saw this / I'm on it" (ADR-0075 §A.3)."""
+    comment = _comment_for(ctx, beat.target)
+    user = _named_actor(beat, ctx)
+    if comment is None or user is None:
+        return
+    ack, created = CommentAcknowledgement.objects.get_or_create(comment=comment, user=user)
+    if created:
+        CommentAcknowledgement.objects.filter(pk=ack.pk).update(created_at=beat.when)
+
+
+def _apply_time_log(beat: _Beat, ctx: ReplayContext) -> None:
+    """Write a ``TimeEntry`` dated to the beat (ADR-0185, #3490).
+
+    Never forward-dated: a beat after the anchor is dropped, because logged time
+    records work that happened and the demo's "today" is the anchor. Validation
+    already rejects a relative ``A+N`` beat; this also covers an ISO literal.
+    """
+    task = _resolve_task(ctx, beat.target)
+    user = _named_actor(beat, ctx)
+    minutes = beat.data.get("minutes")
+    if task is None or user is None or not minutes:
+        return
+    entry_date = beat.when.date()
+    if entry_date > ctx.anchor:
+        return
+    entry = TimeEntry.objects.create(
+        task=task,
+        user=user,
+        minutes=minutes,
+        entry_date=entry_date,
+        note=beat.data.get("note", ""),
+        source=beat.data.get("source", "manual"),
+    )
+    TimeEntry.objects.filter(pk=entry.pk).update(created_at=beat.when)
+
+
 _HANDLERS = {
+    "task.note": _apply_task_note,
+    "task.react": _apply_task_react,
+    "task.ack": _apply_task_ack,
+    "time.log": _apply_time_log,
     _TASK_STATUS_ACTION: _apply_task_status,
     "task.assign": _apply_task_assign,
     "task.estimate": _apply_task_estimate,

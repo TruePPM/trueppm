@@ -1,12 +1,225 @@
 {
-  "schema_version": "2.0",
+  "schema_version": "2.1",
   "program": {
     "slug": "atlas-platform-launch",
     "name": "Atlas Platform Launch",
     "description": "Fictional B2B SaaS launch program — the hybrid bridge demo. One program, three projects spanning agile, waterfall, and hybrid delivery.",
     "methodology": "HYBRID",
     "color": "#2E5AAC",
-    "lead": "alex"
+    "lead": "alex",
+    "backlog_items": [
+      {
+        "slug": "scim-provisioning",
+        "title": "SCIM provisioning for enterprise tenants",
+        "description": "Three design-partner customers asked for automated user provisioning from their identity provider before rollout.",
+        "item_type": "feature",
+        "tags": [
+          "customer-request",
+          "identity"
+        ],
+        "priority_rank": 1,
+        "story_points": 13,
+        "created_by": "priya",
+        "created_at": "A-35T10:00"
+      },
+      {
+        "slug": "usage-alerts",
+        "title": "Usage alerts at 80% of plan",
+        "item_type": "story",
+        "tags": [
+          "customer-request",
+          "billing"
+        ],
+        "priority_rank": 2,
+        "story_points": 5,
+        "created_by": "jordan",
+        "created_at": "A-28T14:00"
+      },
+      {
+        "slug": "invoice-csv-export",
+        "title": "CSV export of invoices",
+        "item_type": "story",
+        "tags": [
+          "billing"
+        ],
+        "priority_rank": 3,
+        "story_points": 3,
+        "created_by": "nadia",
+        "created_at": "A-20T11:00"
+      },
+      {
+        "slug": "webhook-secret-rotation",
+        "title": "Webhook signing-secret rotation",
+        "item_type": "spike",
+        "tags": [
+          "security"
+        ],
+        "priority_rank": 4,
+        "story_points": 2,
+        "created_by": "tom",
+        "created_at": "A-9T16:00"
+      },
+      {
+        "slug": "dunning-notice-copy",
+        "title": "Dunning notice copy",
+        "item_type": "story",
+        "status": "pulled",
+        "pulled_to": "platform-core:4.10",
+        "pulled_by": "priya",
+        "pulled_at": "A-20T09:30",
+        "tags": [
+          "billing"
+        ],
+        "story_points": 2,
+        "created_by": "jordan",
+        "created_at": "A-24T15:00"
+      },
+      {
+        "slug": "backfill-tool",
+        "title": "Backfill tool for warehouse schema churn",
+        "item_type": "story",
+        "status": "pulled",
+        "pulled_to": "platform-core:3.4",
+        "pulled_by": "jordan",
+        "pulled_at": "A-3T09:25",
+        "tags": [
+          "data"
+        ],
+        "story_points": 5,
+        "created_by": "yuki",
+        "created_at": "A-12T10:00"
+      },
+      {
+        "slug": "multi-jurisdiction-tax",
+        "title": "Multi-jurisdiction tax",
+        "description": "Archived by the scope decision: multi-jurisdiction tax moves out of 1.0 rather than being deferred inside it.",
+        "item_type": "feature",
+        "status": "archived",
+        "tags": [
+          "billing",
+          "out-of-1.0"
+        ],
+        "story_points": 21,
+        "created_by": "jordan",
+        "created_at": "A-45T10:00"
+      },
+      {
+        "slug": "partner-referral-tracking",
+        "title": "Partner referral tracking",
+        "description": "Rejected for launch: the partner program starts after GA.",
+        "item_type": "feature",
+        "status": "archived",
+        "tags": [
+          "gtm"
+        ],
+        "created_by": "clara",
+        "created_at": "A-25T13:00"
+      }
+    ],
+    "ceremonies": [
+      {
+        "name": "Program Sync",
+        "cadence_type": "weekly",
+        "cadence_day": "tuesday",
+        "cadence_time": "10:00",
+        "duration_minutes": 30,
+        "owner_role": "Program Manager"
+      },
+      {
+        "name": "Cross-team Dependency Review",
+        "cadence_type": "biweekly",
+        "cadence_day": "wednesday",
+        "cadence_time": "14:00",
+        "duration_minutes": 45,
+        "owner_role": "Delivery Lead"
+      },
+      {
+        "name": "Steering Committee",
+        "cadence_type": "monthly",
+        "cadence_day": "1st-thursday",
+        "cadence_time": "15:00",
+        "duration_minutes": 60,
+        "owner_role": "Executive Sponsor"
+      },
+      {
+        "name": "Launch Readiness Review",
+        "cadence_type": "on_milestone",
+        "duration_minutes": 90,
+        "owner_role": "Program Manager"
+      }
+    ],
+    "agent_actions": [
+      {
+        "at": "A-5T09:00",
+        "principal": "sam",
+        "action": "get_program_schedule",
+        "method": "GET",
+        "capability": "mcp:read",
+        "project": "platform-core",
+        "object_type": "program",
+        "verdict": "allowed",
+        "summary": "Read the Atlas program schedule across Platform Core, Migration Tooling and GTM Readiness."
+      },
+      {
+        "at": "A-5T09:02",
+        "principal": "sam",
+        "action": "get_critical_path",
+        "method": "GET",
+        "capability": "mcp:read",
+        "object": "migration-tooling:3.2",
+        "verdict": "allowed",
+        "summary": "Answered \"what drives the cutover date?\": Platform Core 2.1 Tenant model -> Migration 2.1 ETL framework (FS +5 days) -> 3.1 Dry-run -> 3.2 Performance tuning -> cutover. The dry-run re-plan moved phases 3-5 out 6-7 days, so 3.2 now carries zero total float: any further slip in the dry-run moves the cutover milestone day for day."
+      },
+      {
+        "at": "A-4T14:30",
+        "principal": "priya",
+        "action": "get_task",
+        "method": "GET",
+        "capability": "mcp:read",
+        "object": "platform-core:5.3",
+        "verdict": "allowed",
+        "summary": "Read Digest scheduler: blocked four days on vendor DKIM verification, unblocked, back in progress."
+      },
+      {
+        "at": "A-3T10:15",
+        "principal": "jordan",
+        "action": "list_risks",
+        "method": "GET",
+        "capability": "mcp:read",
+        "project": "platform-core",
+        "object_type": "risk",
+        "verdict": "allowed",
+        "summary": "Listed the open and mitigating risks on Platform Core."
+      },
+      {
+        "at": "A-2T15:20",
+        "principal": "sam",
+        "action": "update_task",
+        "method": "PATCH",
+        "capability": "mcp:read",
+        "object": "migration-tooling:3.2",
+        "verdict": "refused",
+        "refusal_reason": "policy",
+        "refusal_constraint": "capability_scope",
+        "projected_impact": {
+          "requested_change": "planned_start 6 working days earlier",
+          "violates": "FS dependency on 3.1 Dry-run migration",
+          "critical_path": true
+        },
+        "summary": "Refused a write: the agent tried to pull Performance tuning's start forward six working days, ahead of its Dry-run predecessor. The token is read-only, and the change would have broken a finish-to-start dependency on the critical path."
+      },
+      {
+        "at": "A-1T08:45",
+        "principal": "alex",
+        "action": "get_project_overview",
+        "method": "GET",
+        "capability": "mcp:read",
+        "project": "platform-core",
+        "object_type": "project",
+        "verdict": "allowed",
+        "summary": "Read the Platform Core overview: Sprint 5 progress and the milestone forecast."
+      }
+    ]
   },
   "accounts": [
     {
@@ -575,7 +788,8 @@
               "external_title": "Security review finding SR-0142 (CSRF on callback)",
               "uploaded_by": "priya"
             }
-          ]
+          ],
+          "dor": "ready"
         },
         {
           "wbs_path": "1.2",
@@ -591,7 +805,8 @@
           "governance_class": "flow",
           "labels": [
             "security"
-          ]
+          ],
+          "dor": "ready"
         },
         {
           "wbs_path": "1.3",
@@ -604,7 +819,8 @@
           "assignee": "nadia",
           "sprint": "pc-sprint-2",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "1.4",
@@ -617,7 +833,8 @@
           "assignee": "mei",
           "sprint": "pc-sprint-3",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "1.5",
@@ -641,7 +858,28 @@
               "link_type": "relates_to",
               "note": "Audit log captures the authentication events emitted by SSO login."
             }
-          ]
+          ],
+          "acceptance_criteria": [
+            {
+              "text": "Every admin role change writes an entry with actor, before and after",
+              "met": true,
+              "met_by": "priya",
+              "met_at": "A-3T15:30"
+            },
+            {
+              "text": "Entries cannot be edited or deleted through the API",
+              "met": true,
+              "met_by": "priya",
+              "met_at": "A-3T15:30"
+            },
+            {
+              "text": "The log exports as CSV for the security review",
+              "met": true,
+              "met_by": "priya",
+              "met_at": "A-3T15:30"
+            }
+          ],
+          "dor": "ready"
         },
         {
           "wbs_path": "1.6",
@@ -654,7 +892,8 @@
           "assignee": "diego",
           "sprint": "pc-sprint-4",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "1.7",
@@ -720,7 +959,8 @@
               "external_title": "Fallback IdP spike — findings",
               "uploaded_by": "mei"
             }
-          ]
+          ],
+          "dor": "ready"
         },
         {
           "wbs_path": "2.1",
@@ -733,7 +973,8 @@
           "assignee": "omar",
           "sprint": "pc-sprint-1",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "2.2",
@@ -746,7 +987,8 @@
           "assignee": "tom",
           "sprint": "pc-sprint-2",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "2.3",
@@ -759,7 +1001,8 @@
           "assignee": "diego",
           "sprint": "pc-sprint-2",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "2.4",
@@ -772,7 +1015,8 @@
           "assignee": "tom",
           "sprint": "pc-sprint-2",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "2.5",
@@ -785,7 +1029,8 @@
           "assignee": "yuki",
           "sprint": "pc-sprint-3",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "2.6",
@@ -808,7 +1053,8 @@
               "note": "Gated on the migration team's Performance tuning — the cross-project predecessor that must land before this hook can cut over."
             }
           ],
-          "notes": "Committed to the active sprint but gated on the migration team's Performance tuning task — a cross-project predecessor whose finish lands after this sprint closes. Demonstrates the dependency-reality at-risk indicator (#372)."
+          "notes": "Committed to the active sprint but gated on the migration team's Performance tuning task — a cross-project predecessor whose finish lands after this sprint closes. Demonstrates the dependency-reality at-risk indicator (#372).",
+          "dor": "ready"
         },
         {
           "wbs_path": "2.7",
@@ -821,7 +1067,8 @@
           "assignee": "tom",
           "sprint": "pc-sprint-4",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "2.8",
@@ -870,7 +1117,8 @@
           "assignee": "yuki",
           "sprint": "pc-sprint-1",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "3.2",
@@ -883,7 +1131,8 @@
           "assignee": "omar",
           "sprint": "pc-sprint-2",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "3.3",
@@ -896,7 +1145,8 @@
           "assignee": "yuki",
           "sprint": "pc-sprint-3",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "3.4",
@@ -927,7 +1177,22 @@
               "resource": "ivan",
               "units": 0.2
             }
-          ]
+          ],
+          "acceptance_criteria": [
+            {
+              "text": "Backfills one tenant at a time without locking the warehouse"
+            },
+            {
+              "text": "Re-running a backfill never duplicates rows",
+              "given": "a backfill that already completed for a tenant",
+              "when": "it runs again after a schema change",
+              "then": "no row is written twice"
+            },
+            {
+              "text": "Progress resumes after a worker restart"
+            }
+          ],
+          "dor": "ready"
         },
         {
           "wbs_path": "3.5",
@@ -940,7 +1205,8 @@
           "assignee": "omar",
           "sprint": "pc-sprint-4",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "3.6",
@@ -1005,7 +1271,8 @@
           "governance_class": "flow",
           "labels": [
             "compliance"
-          ]
+          ],
+          "dor": "ready"
         },
         {
           "wbs_path": "4.2",
@@ -1018,7 +1285,8 @@
           "assignee": "tom",
           "sprint": "pc-sprint-4",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "4.3",
@@ -1031,7 +1299,8 @@
           "assignee": "nadia",
           "sprint": "pc-sprint-4",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "4.4",
@@ -1044,7 +1313,19 @@
           "assignee": "nadia",
           "sprint": "pc-sprint-5",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "acceptance_criteria": [
+            {
+              "text": "Retries follow the 1-3-7 day ladder"
+            },
+            {
+              "text": "Paying an invoice cancels its pending retries"
+            },
+            {
+              "text": "Access is suspended only after the last retry fails"
+            }
+          ],
+          "dor": "ready"
         },
         {
           "wbs_path": "4.5",
@@ -1077,7 +1358,16 @@
               "resource": "ivan",
               "units": 0.2
             }
-          ]
+          ],
+          "acceptance_criteria": [
+            {
+              "text": "Tax is calculated for every launch jurisdiction"
+            },
+            {
+              "text": "An out-of-scope jurisdiction is refused at checkout, never taxed at zero"
+            }
+          ],
+          "dor": "ready"
         },
         {
           "wbs_path": "4.10",
@@ -1091,7 +1381,16 @@
           "assignee": "jordan",
           "sprint": "pc-sprint-5",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "acceptance_criteria": [
+            {
+              "text": "Legal has reviewed the copy for each notice"
+            },
+            {
+              "text": "Every notice names the amount due and the next retry date"
+            }
+          ],
+          "dor": "ready"
         },
         {
           "wbs_path": "4.6",
@@ -1104,7 +1403,8 @@
           "assignee": "nadia",
           "sprint": "pc-sprint-4",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "4.7",
@@ -1163,7 +1463,8 @@
           "assignee": "tom",
           "sprint": "pc-sprint-1",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "5.2",
@@ -1176,7 +1477,8 @@
           "assignee": "diego",
           "sprint": "pc-sprint-2",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "5.3",
@@ -1200,7 +1502,19 @@
               "resource": "ivan",
               "units": 0.2
             }
-          ]
+          ],
+          "acceptance_criteria": [
+            {
+              "text": "Digests send in the recipient's timezone",
+              "met": true,
+              "met_by": "diego",
+              "met_at": "A-6T12:00"
+            },
+            {
+              "text": "A user who opts out receives nothing"
+            }
+          ],
+          "dor": "ready"
         },
         {
           "wbs_path": "5.4",
@@ -1213,7 +1527,8 @@
           "assignee": "mei",
           "sprint": "pc-sprint-4",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "5.5",
@@ -1226,7 +1541,8 @@
           "assignee": "diego",
           "sprint": "pc-sprint-4",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "dor": "ready"
         },
         {
           "wbs_path": "5.6",
@@ -2505,7 +2821,8 @@
           "delivery_mode": "scrum",
           "labels": [
             "content"
-          ]
+          ],
+          "dor": "ready"
         },
         {
           "wbs_path": "2.2",
@@ -2517,7 +2834,8 @@
           "assignee": "clara",
           "sprint": "gtm-sprint-1",
           "governance_class": "flow",
-          "delivery_mode": "scrum"
+          "delivery_mode": "scrum",
+          "dor": "ready"
         },
         {
           "wbs_path": "2.3",
@@ -2529,7 +2847,8 @@
           "assignee": "jordan",
           "sprint": "gtm-sprint-1",
           "governance_class": "flow",
-          "delivery_mode": "scrum"
+          "delivery_mode": "scrum",
+          "dor": "ready"
         },
         {
           "wbs_path": "2.4",
@@ -2541,7 +2860,8 @@
           "assignee": "clara",
           "sprint": "gtm-sprint-2",
           "governance_class": "flow",
-          "delivery_mode": "scrum"
+          "delivery_mode": "scrum",
+          "dor": "ready"
         },
         {
           "wbs_path": "2.5",
@@ -2557,7 +2877,8 @@
           "delivery_mode": "scrum",
           "labels": [
             "content"
-          ]
+          ],
+          "dor": "ready"
         },
         {
           "wbs_path": "2.6",
@@ -2568,7 +2889,8 @@
           "assignee": "clara",
           "sprint": "gtm-sprint-2",
           "governance_class": "flow",
-          "delivery_mode": "scrum"
+          "delivery_mode": "scrum",
+          "dor": "ready"
         },
         {
           "wbs_path": "2.9",
@@ -2579,7 +2901,8 @@
           "assignee": "jordan",
           "sprint": "gtm-sprint-2",
           "governance_class": "flow",
-          "delivery_mode": "scrum"
+          "delivery_mode": "scrum",
+          "dor": "ready"
         },
         {
           "wbs_path": "2.7",
@@ -2859,7 +3182,8 @@
       "action": "task.comment",
       "target": "task:platform-core:1.1",
       "actor": "priya",
-      "body": "Security review: the state param isn't validated on the callback — that's a login CSRF hole. Sending it back, and logging it as an audit finding."
+      "body": "Security review: the state param isn't validated on the callback — that's a login CSRF hole. Sending it back, and logging it as an audit finding.",
+      "slug": "sso-security-review"
     },
     {
       "at": "A-55T11:30",
@@ -2901,7 +3225,8 @@
       "action": "task.comment",
       "target": "task:platform-core:1.1",
       "actor": "mei",
-      "body": "Validated state and nonce on the callback and added a regression test. Re-review please."
+      "body": "Validated state and nonce on the callback and added a regression test. Re-review please.",
+      "reply_to": "sso-security-review"
     },
     {
       "at": "A-52T14:30",
@@ -2915,7 +3240,9 @@
       "action": "task.comment",
       "target": "task:platform-core:1.1",
       "actor": "priya",
-      "body": "Solid now. Approving."
+      "body": "Solid now. Approving.",
+      "reply_to": "sso-security-review",
+      "slug": "sso-approval"
     },
     {
       "at": "A-51T16:30",
@@ -3011,7 +3338,8 @@
       "action": "task.comment",
       "target": "task:migration-tooling:2.2",
       "actor": "omar",
-      "body": "Review: the account-type enum maps three legacy codes to one, which silently drops a distinction Finance relies on. Sending it back."
+      "body": "Review: the account-type enum maps three legacy codes to one, which silently drops a distinction Finance relies on. Sending it back.",
+      "slug": "mt-enum-review"
     },
     {
       "at": "A-34T11:30",
@@ -3032,7 +3360,8 @@
       "action": "task.comment",
       "target": "task:migration-tooling:2.2",
       "actor": "yuki",
-      "body": "Split the enum mapping and added a reconciliation check. Re-review."
+      "body": "Split the enum mapping and added a reconciliation check. Re-review.",
+      "reply_to": "mt-enum-review"
     },
     {
       "at": "A-31T14:30",
@@ -3053,7 +3382,8 @@
       "action": "task.comment",
       "target": "task:migration-tooling:2.2",
       "actor": "omar",
-      "body": "Reconciles now. Approved."
+      "body": "Reconciles now. Approved.",
+      "reply_to": "mt-enum-review"
     },
     {
       "at": "A-30T16:30",
@@ -3274,14 +3604,17 @@
       "action": "task.comment",
       "target": "task:platform-core:5.3",
       "actor": "diego",
-      "body": "@atlas-priya this is a vendor wait, not an estimate miss — the scheduler itself is done. Flagging it so the burndown reads honestly if it slips past Friday."
+      "body": "@atlas-priya this is a vendor wait, not an estimate miss — the scheduler itself is done. Flagging it so the burndown reads honestly if it slips past Friday.",
+      "slug": "digest-vendor-wait"
     },
     {
       "at": "A-8T16:30",
       "action": "task.comment",
       "target": "task:platform-core:5.3",
       "actor": "priya",
-      "body": "Acknowledged. @atlas-alex I'd rather carry this than fake a close — it's four days of vendor latency, not scope."
+      "body": "Acknowledged. @atlas-alex I'd rather carry this than fake a close — it's four days of vendor latency, not scope.",
+      "reply_to": "digest-vendor-wait",
+      "slug": "digest-carry-call"
     },
     {
       "at": "A-6T11:00",
@@ -3455,6 +3788,139 @@
       "target": "risk:pc-data-platform",
       "actor": "priya",
       "to": "MITIGATING"
+    },
+    {
+      "at": "A-55T11:20",
+      "action": "task.ack",
+      "target": "comment:sso-security-review",
+      "actor": "mei"
+    },
+    {
+      "at": "A-51T16:20",
+      "action": "task.react",
+      "target": "comment:sso-approval",
+      "actor": "mei",
+      "emoji": "👍"
+    },
+    {
+      "at": "A-34T11:20",
+      "action": "task.ack",
+      "target": "comment:mt-enum-review",
+      "actor": "yuki"
+    },
+    {
+      "at": "A-9T10:30",
+      "action": "task.ack",
+      "target": "comment:digest-vendor-wait",
+      "actor": "priya"
+    },
+    {
+      "at": "A-8T17:00",
+      "action": "task.react",
+      "target": "comment:digest-carry-call",
+      "actor": "alex",
+      "emoji": "👍"
+    },
+    {
+      "at": "A-5T10:00",
+      "action": "task.comment",
+      "target": "task:platform-core:4.4",
+      "actor": "alex",
+      "body": "@atlas-nadia @atlas-jordan the dunning flow and its notice copy (4.10) ship together — keep them in one review so the retry ladder and the wording cannot drift apart."
+    },
+    {
+      "at": "A-51T16:10",
+      "action": "task.note",
+      "target": "task:platform-core:1.1",
+      "actor": "priya",
+      "body": "Decision: every OIDC callback validates state and nonce. A login CSRF finding blocks release; it is not a follow-up ticket.",
+      "decision": true
+    },
+    {
+      "at": "A-30T11:05",
+      "action": "task.note",
+      "target": "task:platform-core:4.5",
+      "actor": "jordan",
+      "body": "Decision: multi-jurisdiction tax moves out of 1.0 rather than being deferred inside it. The tax engine covers the launch jurisdictions only.",
+      "decision": true,
+      "pinned": true
+    },
+    {
+      "at": "A-30T16:10",
+      "action": "task.note",
+      "target": "task:migration-tooling:2.2",
+      "actor": "omar",
+      "body": "Decision: legacy account-type codes map one-to-one, and the reconciliation check fails the run on any lossy mapping.",
+      "decision": true
+    },
+    {
+      "at": "A-10T09:10",
+      "action": "task.note",
+      "target": "task:migration-tooling:3.1",
+      "actor": "sam",
+      "body": "The active baseline is now the post-dry-run re-plan. Slip against the kickoff plan lives on the superseded baseline — compare both before calling a date.",
+      "pinned": true
+    },
+    {
+      "at": "A-2T11:10",
+      "action": "task.note",
+      "target": "task:platform-core:3.4",
+      "actor": "priya",
+      "body": "Decision: accept the Backfill tool injection and hold Webhook retries dashboard (2.8) for Sprint 6 to protect the sprint goal.",
+      "decision": true
+    },
+    {
+      "at": "A-1T10:00",
+      "action": "task.ac_met",
+      "target": "task:platform-core:4.4",
+      "actor": "jordan",
+      "criterion": 0
+    },
+    {
+      "at": "A-1T10:05",
+      "action": "task.ac_met",
+      "target": "task:platform-core:4.4",
+      "actor": "jordan",
+      "criterion": 1
+    },
+    {
+      "at": "A-1T15:00",
+      "action": "task.ac_met",
+      "target": "task:platform-core:3.4",
+      "actor": "yuki",
+      "criterion": 0
+    },
+    {
+      "at": "A-52T17:30",
+      "action": "time.log",
+      "target": "task:platform-core:1.1",
+      "actor": "mei",
+      "minutes": 240,
+      "note": "State and nonce validation plus the regression test"
+    },
+    {
+      "at": "A-2T16:30",
+      "action": "time.log",
+      "target": "task:platform-core:4.4",
+      "actor": "nadia",
+      "minutes": 180,
+      "note": "Retry ladder and grace-period edge cases"
+    },
+    {
+      "at": "A-2T17:00",
+      "action": "time.log",
+      "target": "task:migration-tooling:3.1",
+      "actor": "yuki",
+      "minutes": 300,
+      "note": "Dry-run: tenant shard fan-out profiling"
+    },
+    {
+      "at": "A-2T12:00",
+      "action": "time.log",
+      "target": "task:gtm-readiness:2.5",
+      "actor": "clara",
+      "minutes": 120,
+      "note": "Launch blog, pricing section"
     }
   ]
 }

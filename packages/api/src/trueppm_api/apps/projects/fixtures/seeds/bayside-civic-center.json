@@ -1,12 +1,77 @@
 {
-  "schema_version": "2.0",
+  "schema_version": "2.1",
   "program": {
     "slug": "bayside-civic-center",
     "name": "Bayside Civic Center Construction",
     "description": "Waterfall-only sample — a two-project program (structure + fit-out) joined by cross-project dependencies, with all four dependency types, three-point estimates, a contract baseline plus a change-order rebaseline, and a resource calendar.",
     "methodology": "WATERFALL",
     "color": "#B5651D",
-    "lead": "sam"
+    "lead": "sam",
+    "backlog_items": [
+      {
+        "slug": "ev-charging-conduit",
+        "title": "EV charging conduit in the parking structure",
+        "description": "Owner request: rough in conduit now so chargers can be added without trenching later.",
+        "item_type": "task",
+        "tags": [
+          "owner-request"
+        ],
+        "priority_rank": 1,
+        "created_by": "sam",
+        "created_at": "A-15T10:00"
+      },
+      {
+        "slug": "mezzanine-grid-c",
+        "title": "Mezzanine at grid C",
+        "description": "Owner change request, taken as one change order.",
+        "item_type": "task",
+        "status": "pulled",
+        "pulled_to": "bayside-sitework:3.2",
+        "pulled_by": "sam",
+        "pulled_at": "A-13T09:00",
+        "tags": [
+          "change-order"
+        ],
+        "created_by": "sam",
+        "created_at": "A-20T10:00"
+      },
+      {
+        "slug": "low-e-lobby-glazing",
+        "title": "Low-E lobby glazing upgrade",
+        "description": "Rejected by the owner: over the remaining contingency.",
+        "item_type": "task",
+        "status": "archived",
+        "tags": [
+          "owner-request"
+        ],
+        "created_by": "diego",
+        "created_at": "A-30T10:00"
+      }
+    ],
+    "ceremonies": [
+      {
+        "name": "OAC Meeting",
+        "cadence_type": "weekly",
+        "cadence_day": "thursday",
+        "cadence_time": "09:00",
+        "duration_minutes": 60,
+        "owner_role": "Project Manager"
+      },
+      {
+        "name": "Safety Stand-down",
+        "cadence_type": "monthly",
+        "cadence_day": "1st-monday",
+        "cadence_time": "07:00",
+        "duration_minutes": 30,
+        "owner_role": "Site Superintendent"
+      },
+      {
+        "name": "Substantial Completion Walkthrough",
+        "cadence_type": "on_milestone",
+        "duration_minutes": 120,
+        "owner_role": "Project Manager"
+      }
+    ]
   },
   "accounts": [
     {
@@ -1244,7 +1309,8 @@
       "action": "task.comment",
       "target": "task:bayside-sitework:2.1",
       "actor": "tom",
-      "body": "Hit a soft layer at the east footing — ordering a geotech survey before we set rebar."
+      "body": "Hit a soft layer at the east footing — ordering a geotech survey before we set rebar.",
+      "slug": "east-soft-layer"
     },
     {
       "at": "A-59T09:30",
@@ -1265,7 +1331,8 @@
       "action": "task.comment",
       "target": "task:bayside-sitework:2.1",
       "actor": "tom",
-      "body": "Over-excavating the soft zone and backfilling with engineered fill to take the east footing to competent strata. Re-estimating excavation at 8 days against the 5 we contracted — the delta comes out of the foundation contingency allowance, not a change order."
+      "body": "Over-excavating the soft zone and backfilling with engineered fill to take the east footing to competent strata. Re-estimating excavation at 8 days against the 5 we contracted — the delta comes out of the foundation contingency allowance, not a change order.",
+      "reply_to": "east-soft-layer"
     },
     {
       "at": "A-56T08:30",
@@ -1325,7 +1392,8 @@
       "action": "task.comment",
       "target": "task:bayside-sitework:2.2",
       "actor": "omar",
-      "body": "Inspection: bar spacing on the north face is out of tolerance per the spec. Failing it — needs a re-tie."
+      "body": "Inspection: bar spacing on the north face is out of tolerance per the spec. Failing it — needs a re-tie.",
+      "slug": "footing-inspection-fail"
     },
     {
       "at": "A-46T10:30",
@@ -1339,7 +1407,8 @@
       "action": "task.comment",
       "target": "task:bayside-sitework:2.2",
       "actor": "diego",
-      "body": "Re-tied to spec and re-shot the spacing. Ready for re-inspection."
+      "body": "Re-tied to spec and re-shot the spacing. Ready for re-inspection.",
+      "reply_to": "footing-inspection-fail"
     },
     {
       "at": "A-44T14:30",
@@ -1353,7 +1422,9 @@
       "action": "task.comment",
       "target": "task:bayside-sitework:2.2",
       "actor": "omar",
-      "body": "Re-inspection passed. Cleared to pour."
+      "body": "Re-inspection passed. Cleared to pour.",
+      "reply_to": "footing-inspection-fail",
+      "slug": "footing-reinspection-pass"
     },
     {
       "at": "A-43T09:30",
@@ -1492,6 +1563,100 @@
       "target": "task:bayside-building:2.5",
       "actor": "sam",
       "body": "Loaded the contract winter weather allowance onto the site calendar. It lands squarely on final inspection and handover, which is the thinnest float we have left, so the certificate of occupancy moves with it. Better to carry it in the plan than to argue it afterwards."
+    },
+    {
+      "at": "A-59T09:30",
+      "action": "task.ack",
+      "target": "comment:east-soft-layer",
+      "actor": "sam"
+    },
+    {
+      "at": "A-46T10:30",
+      "action": "task.ack",
+      "target": "comment:footing-inspection-fail",
+      "actor": "diego"
+    },
+    {
+      "at": "A-43T09:30",
+      "action": "task.react",
+      "target": "comment:footing-reinspection-pass",
+      "actor": "sam",
+      "emoji": "👍"
+    },
+    {
+      "at": "A-12T10:00",
+      "action": "task.comment",
+      "target": "task:bayside-sitework:3.2",
+      "actor": "sam",
+      "body": "@bayside-diego @bayside-raj re-estimate decking with the mezzanine framing in before we re-baseline — I want one change order, not two."
+    },
+    {
+      "at": "A-5T11:00",
+      "action": "task.comment",
+      "target": "task:bayside-building:1.1",
+      "actor": "raj",
+      "body": "@bayside-nadia the crane inspection moves decking, which moves your rough-in start. Check the new date before you confirm the electrician."
+    },
+    {
+      "at": "A-3T10:00",
+      "action": "task.comment",
+      "target": "task:bayside-building:1.2",
+      "actor": "omar",
+      "body": "Plumbing rough-in materials are staged. Waiting on the framing inspection like everyone else."
+    },
+    {
+      "at": "A-2T09:00",
+      "action": "task.comment",
+      "target": "task:bayside-building:1.4",
+      "actor": "tom",
+      "body": "Rooftop units ship in two lots — the second lot lands the week after decking."
+    },
+    {
+      "at": "A-1T10:00",
+      "action": "task.comment",
+      "target": "task:bayside-building:1.3",
+      "actor": "diego",
+      "body": "HVAC submittals came back approved as noted: two duct sizes change at the mezzanine."
+    },
+    {
+      "at": "A-1T15:00",
+      "action": "task.comment",
+      "target": "task:bayside-building:1.5",
+      "actor": "nadia",
+      "body": "Booked the MEP inspector tentatively; I will firm it up once rough-in has a start date."
+    },
+    {
+      "at": "A-56T08:10",
+      "action": "task.note",
+      "target": "task:bayside-sitework:2.1",
+      "actor": "sam",
+      "body": "Decision: over-excavate and backfill the east soft zone with engineered fill rather than redesign the footing. Accepts the excavation re-estimate and keeps the structural design unchanged.",
+      "decision": true,
+      "pinned": true
+    },
+    {
+      "at": "A-13T09:10",
+      "action": "task.note",
+      "target": "task:bayside-sitework:3.2",
+      "actor": "sam",
+      "body": "Decision: the mezzanine goes in as one change order, with decking re-estimated and the schedule re-baselined against it.",
+      "decision": true
+    },
+    {
+      "at": "A-57T16:00",
+      "action": "time.log",
+      "target": "task:bayside-sitework:2.1",
+      "actor": "omar",
+      "minutes": 480,
+      "note": "Over-excavation, east soft zone"
+    },
+    {
+      "at": "A-44T15:30",
+      "action": "time.log",
+      "target": "task:bayside-sitework:2.2",
+      "actor": "diego",
+      "minutes": 360,
+      "note": "Re-tie the north face to spec"
     }
   ]
 }
