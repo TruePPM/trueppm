@@ -77,7 +77,7 @@ documentedFor: "0.4"
 | `TRUEPPM_SYNC_MAX_CONCURRENT_BATCHES` | `4` | Maximum offline-sync upload batches one user may have applying **at the same time**. Each accepted batch is a heavy transaction (row locks + a schedule recompute), so this bounds simultaneous heavy writes per user as defense-in-depth over the per-minute upload rate limit. A user exceeding the cap gets an HTTP 429 with a short `Retry-After` and retries once in-flight work drains. If the throttle store (Valkey/Redis) is unreachable the guard degrades to off — the rate limit remains the hard bound. |
 | `TRUEPPM_SYNC_INFLIGHT_TTL_SECONDS` | `120` | Time-to-live (seconds) on the per-user in-flight sync-batch counter that backs `TRUEPPM_SYNC_MAX_CONCURRENT_BATCHES`. Guards against a slot leaking if a worker dies mid-apply: the counter is reclaimed once no further batch refreshes it within this window. Set comfortably above the longest legitimate batch-apply time so an in-progress upload is never counted out from under a live request. |
 | `TRUEPPM_SYNC_BATCH_MAX_ROWS` | `500` | Maximum rows (created + updated + deleted combined) a single mobile sync **upload** batch may contain. The batch applies in one transaction, so this bounds how long that transaction — and its per-task row locks — can be held by a single request. A client with more pending rows splits them across multiple upload batches. |
-| `TRUEPPM_SYNC_BATCH_MAX_OWNERS`¹ | `500` | Maximum inline `owners` entries summed across every `created`/`updated` row in a single mobile sync upload batch. A per-row cap of 100 already applies to each row's own `owners` list; this bounds the batch as a whole, so `TRUEPPM_SYNC_BATCH_MAX_ROWS` rows each naming owners cannot multiply into tens of thousands of entries in one request. Checked before the write transaction opens, alongside the row-count cap above. |
+| `TRUEPPM_SYNC_BATCH_MAX_OWNERS` | `500` | Ships in 0.4: now registered via `env.int()`, like its `TRUEPPM_SYNC_BATCH_MAX_ROWS` neighbor above, so setting the container environment variable takes effect (previously it was read only via `getattr(settings, …)` with nothing wiring the env var to it — #3735). Maximum inline `owners` entries summed across every `created`/`updated` row in a single mobile sync upload batch. A per-row cap of 100 already applies to each row's own `owners` list; this bounds the batch as a whole, so `TRUEPPM_SYNC_BATCH_MAX_ROWS` rows each naming owners cannot multiply into tens of thousands of entries in one request. Checked before the write transaction opens, alongside the row-count cap above. |
 | `TRUEPPM_SYNC_PULL_PAGE_SIZE` | `1000` | Default page size for the offline delta **pull** (`since=` cursor). Bounds a cold-start sync (`since=0`) to this many rows per response instead of materializing an entire project into one unbounded multi-MB payload; the client loops on the returned cursor for the rest. |
 | `TRUEPPM_SYNC_PULL_MAX_PAGE_SIZE` | `5000` | Hard ceiling on a client-requested `page_size` for the sync pull. Clamps a caller-supplied page size so a single request can never re-open the unbounded-response cliff `TRUEPPM_SYNC_PULL_PAGE_SIZE` exists to close. |
 | `RETENTION_PURGE_INFLIGHT_SECONDS` | `600` | Lock TTL (seconds) guarding against overlapping retention-purge runs. See [Retention](/administration/retention/). |
@@ -105,16 +105,6 @@ documentedFor: "0.4"
 | `EMAIL_USE_SSL` | `false` | Implicit TLS (port 465). Set exactly one of this and `EMAIL_USE_TLS`. |
 | `EMAIL_TIMEOUT` | `10` | Seconds. **Not Django's `None`** — an unbounded socket timeout means one unreachable relay can hold a Celery worker indefinitely. |
 | `DEFAULT_FROM_EMAIL` | `notifications@trueppm.local` | **Set this.** `.local` is a reserved TLD that most relays reject outright, so leaving the default silently breaks outbound mail on an otherwise correct SMTP configuration. |
-
-¹ `TRUEPPM_SYNC_BATCH_MAX_OWNERS`, in the table above, is the one variable in it
-that is not read from the environment: the code reads it only with
-`getattr(settings, "TRUEPPM_SYNC_BATCH_MAX_OWNERS", 500)` and never registers it
-with `django-environ`, so setting the plain container environment variable of that
-name has **no effect**. To change it from the default, override the Django setting
-in a settings module — the same mechanism the
-[Monte Carlo caps](/administration/configuration/limits/#monte-carlo-simulation-caps) below use. Wiring it through
-`env.int()` like its `TRUEPPM_SYNC_BATCH_MAX_ROWS` neighbor is tracked in
-[#3735](https://gitlab.com/trueppm/trueppm/-/issues/3735).
 
 **Every one of the `EMAIL_*` variables above binds directly from the container
 environment** — set them as plain env vars or Helm `env:` values, no settings

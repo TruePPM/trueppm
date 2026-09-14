@@ -8,6 +8,7 @@ unsupported-collection guard.
 
 from __future__ import annotations
 
+import importlib
 import uuid
 from contextlib import nullcontext
 from datetime import date, timedelta
@@ -37,6 +38,7 @@ from trueppm_api.apps.projects.models import (
 from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 from trueppm_api.apps.sync.models import SyncBatch, SyncBatchStatus
 from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
+from trueppm_api.settings import base
 
 User = get_user_model()
 
@@ -654,6 +656,28 @@ def test_batch_owners_budget_accepted_at_the_cap(
     assert resp.status_code == 200, resp.data
     assert Task.objects.filter(project=project).count() == 2
     assert TaskResource.objects.filter(resource=ana).count() == 2
+
+
+def test_batch_max_owners_env_var_reaches_the_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TRUEPPM_SYNC_BATCH_MAX_OWNERS must be registered via ``env.int()``, not only
+    settable in-test via ``django.conf.settings`` (#3735) — the two tests above
+    override the live Django setting directly and would stay green even if
+    ``settings/base.py`` never read the env var at all. Reload ``settings/base``
+    with the var set/unset and assert its module attribute picks up the value,
+    the same technique ``test_env_namespace.py`` uses for other TRUEPPM_ vars.
+    """
+    monkeypatch.setenv("TRUEPPM_SYNC_BATCH_MAX_OWNERS", "42")
+    try:
+        importlib.reload(base)
+        assert base.TRUEPPM_SYNC_BATCH_MAX_OWNERS == 42
+    finally:
+        importlib.reload(base)  # restore module state for other tests
+
+
+def test_batch_max_owners_defaults_to_500_when_env_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TRUEPPM_SYNC_BATCH_MAX_OWNERS", raising=False)
+    importlib.reload(base)
+    assert base.TRUEPPM_SYNC_BATCH_MAX_OWNERS == 500
 
 
 @pytest.mark.django_db
