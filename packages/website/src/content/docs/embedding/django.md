@@ -174,6 +174,6 @@ for a runnable example of building a `Calendar` object from database records.
 
 ## See also
 
-- [FastAPI Integration](/integration/fastapi/) — lighter wrapper for microservices
-- [Standalone Usage](/integration/standalone/) — no web framework
+- [FastAPI Integration](/embedding/fastapi/) — lighter wrapper for microservices
+- [Standalone Usage](/embedding/standalone/) — no web framework
 - [CPM Scheduler reference](/features/scheduler/) — full API reference

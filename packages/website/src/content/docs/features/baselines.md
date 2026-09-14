@@ -198,7 +198,7 @@ a task added after the baseline was taken, or a full comparison row with
 
 `current_start` and `start_delta_days` compare against the task's **span**
 (`scheduled_start` — see [the bar vs. the remaining-work
-window](/features/schedule/#the-bar-vs-the-remaining-work-window)), not the
+window](/features/schedule/dates/#the-bar-vs-the-remaining-work-window)), not the
 narrower *remaining-work* window that `early_start` shrinks toward as an
 in-progress task approaches completion. Comparing against the remaining-work
 window would make `start_delta_days` grow purely from progress being

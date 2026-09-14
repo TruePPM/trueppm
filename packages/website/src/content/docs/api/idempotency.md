@@ -121,7 +121,7 @@ covered by it.
 ## Retention
 
 Stored idempotency responses are retained for **24 hours** (configurable via
-[`TRUEPPM_IDEMPOTENCY_RETENTION_HOURS`](/administration/configuration/#optional--advanced-settings);
+[`TRUEPPM_IDEMPOTENCY_RETENTION_HOURS`](/administration/configuration/advanced/#optional--advanced-settings);
 set the Django setting to `None` to disable purging — the legacy bare
 `IDEMPOTENCY_RETENTION_HOURS` is still read as a fallback when the prefixed variable is
 unset) and removed by an hourly maintenance task. After expiry the key is free to be

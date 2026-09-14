@@ -287,7 +287,7 @@ test.describe('No-committed-start chip — point-of-fix popover (#2313)', () => 
     // navigation would take the run off-origin (and off-network in CI).
     await expect(help).toHaveAttribute(
       'href',
-      'https://docs.trueppm.com/features/schedule/#committed-vs-computed-start-dates',
+      'https://docs.trueppm.com/features/schedule/dates/#committed-vs-computed-start-dates',
     );
     await expect(help).toHaveAttribute('target', '_blank');
     await expect(help).toHaveAttribute('rel', 'noopener noreferrer');
