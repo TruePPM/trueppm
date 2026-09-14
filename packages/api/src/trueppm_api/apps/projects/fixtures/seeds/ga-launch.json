@@ -1,12 +1,73 @@
 {
-  "schema_version": "2.0",
+  "schema_version": "2.1",
   "program": {
     "slug": "ga-launch",
     "name": "1.0 GA Launch",
     "description": "Ship 1.0 to GA: platform scale, security sign-off, SOC 2 audit-readiness, and a coordinated launch — four workstreams, one outcome, joined by cross-project dependencies and shared people.",
     "methodology": "HYBRID",
     "color": "#7C3AED",
-    "lead": "dana"
+    "lead": "dana",
+    "backlog_items": [
+      {
+        "slug": "public-status-page",
+        "title": "Public status page",
+        "item_type": "feature",
+        "tags": [
+          "customer-request"
+        ],
+        "priority_rank": 1,
+        "story_points": 8,
+        "created_by": "malcolm",
+        "created_at": "A-18T10:00"
+      },
+      {
+        "slug": "analyst-briefing-kit",
+        "title": "Analyst briefing kit",
+        "item_type": "story",
+        "status": "pulled",
+        "pulled_to": "ga-marketing:4",
+        "pulled_by": "dana",
+        "pulled_at": "A-14T10:00",
+        "created_by": "jane",
+        "created_at": "A-20T10:00"
+      },
+      {
+        "slug": "bug-bounty-program",
+        "title": "Bug bounty program",
+        "description": "Deferred past GA: triage capacity is consumed by pen-test remediation.",
+        "item_type": "feature",
+        "status": "archived",
+        "tags": [
+          "security"
+        ],
+        "created_by": "janus",
+        "created_at": "A-10T10:00"
+      }
+    ],
+    "ceremonies": [
+      {
+        "name": "Launch Readiness Sync",
+        "cadence_type": "weekly",
+        "cadence_day": "monday",
+        "cadence_time": "11:00",
+        "duration_minutes": 30,
+        "owner_role": "Launch Lead"
+      },
+      {
+        "name": "Audit Readiness Check-in",
+        "cadence_type": "biweekly",
+        "cadence_day": "wednesday",
+        "cadence_time": "16:00",
+        "duration_minutes": 30,
+        "owner_role": "Compliance Lead"
+      },
+      {
+        "name": "Security Sign-off Board",
+        "cadence_type": "on_milestone",
+        "duration_minutes": 60,
+        "owner_role": "Security Lead"
+      }
+    ]
   },
   "accounts": [
     {
@@ -1016,7 +1077,16 @@
               "resource": "jane",
               "units": 1.0
             }
-          ]
+          ],
+          "acceptance_criteria": [
+            {
+              "text": "Positioning is approved by the launch lead",
+              "met": true,
+              "met_by": "dana",
+              "met_at": "A-30T10:00"
+            }
+          ],
+          "dor": "ready"
         },
         {
           "wbs_path": "2",
@@ -1040,7 +1110,8 @@
               "resource": "lena",
               "units": 0.5
             }
-          ]
+          ],
+          "dor": "ready"
         },
         {
           "wbs_path": "3",
@@ -1061,7 +1132,16 @@
               "resource": "lena",
               "units": 0.5
             }
-          ]
+          ],
+          "acceptance_criteria": [
+            {
+              "text": "Blog and docs describe only what ships in GA"
+            },
+            {
+              "text": "The security-disclosure paragraph is reviewed by the security lead"
+            }
+          ],
+          "dor": "ready"
         },
         {
           "wbs_path": "4",
@@ -1080,7 +1160,16 @@
               "resource": "jane",
               "units": 1.0
             }
-          ]
+          ],
+          "acceptance_criteria": [
+            {
+              "text": "Every briefing uses the approved positioning"
+            },
+            {
+              "text": "No outreach goes out before the embargo lifts"
+            }
+          ],
+          "dor": "ready"
         },
         {
           "wbs_path": "5",
@@ -1351,7 +1440,8 @@
       "action": "task.comment",
       "target": "task:ga-security:2",
       "actor": "janus",
-      "body": "Triage done: seven criticals, not the four we planned for. Two of them are auth-path issues that need a real fix, not a patch."
+      "body": "Triage done: seven criticals, not the four we planned for. Two of them are auth-path issues that need a real fix, not a patch.",
+      "slug": "pentest-triage"
     },
     {
       "at": "A-13T16:30",
@@ -1526,6 +1616,111 @@
       "target": "task:ga-marketing:5",
       "actor": "dana",
       "body": "Go-live still gates on both the platform milestone (clear) and security sign-off (in remediation). Holding the embargo time until sign-off forecasts."
+    },
+    {
+      "at": "A-12T09:00",
+      "action": "task.comment",
+      "target": "task:ga-security:2",
+      "actor": "dana",
+      "reply_to": "pentest-triage",
+      "slug": "triage-ask",
+      "body": "Seven is the number we plan against now. @ga-malcolm can you take the two auth-path criticals?"
+    },
+    {
+      "at": "A-12T11:00",
+      "action": "task.comment",
+      "target": "task:ga-security:2",
+      "actor": "malcolm",
+      "reply_to": "pentest-triage",
+      "body": "Yes, half time from Monday. Platform on-call stays with me."
+    },
+    {
+      "at": "A-13T16:30",
+      "action": "task.ack",
+      "target": "comment:pentest-triage",
+      "actor": "malcolm"
+    },
+    {
+      "at": "A-12T09:30",
+      "action": "task.react",
+      "target": "comment:triage-ask",
+      "actor": "janus",
+      "emoji": "👍"
+    },
+    {
+      "at": "A-30T10:00",
+      "action": "task.comment",
+      "target": "task:ga-soc2:2",
+      "actor": "bob",
+      "body": "@ga-lena the control narratives for CC6 and CC7 are the two I need first; the rest can follow."
+    },
+    {
+      "at": "A-20T14:00",
+      "action": "task.comment",
+      "target": "task:ga-soc2:3",
+      "actor": "bob",
+      "body": "Evidence collection is gated on security sign-off, so I am starting with the controls that do not depend on it."
+    },
+    {
+      "at": "A-8T10:00",
+      "action": "task.comment",
+      "target": "task:ga-soc2:3",
+      "actor": "bob",
+      "body": "Access-review evidence is pulled for the quarter. Change-management evidence waits on the remediation tickets."
+    },
+    {
+      "at": "A-6T15:00",
+      "action": "task.comment",
+      "target": "task:ga-soc2:4",
+      "actor": "malcolm",
+      "body": "Readiness review slot is held with the auditor. It moves if sign-off moves."
+    },
+    {
+      "at": "A-1T16:00",
+      "action": "task.comment",
+      "target": "task:ga-marketing:4",
+      "actor": "jane",
+      "body": "@ga-lena @ga-dana press outreach waits on the blog draft. I would rather slip outreach a day than send it without the disclosure paragraph."
+    },
+    {
+      "at": "A-33T10:05",
+      "action": "task.note",
+      "target": "task:ga-soc2:2",
+      "actor": "bob",
+      "body": "Decision: Lena drafts the control narratives first and launch content second. The blog slips rather than the audit.",
+      "decision": true
+    },
+    {
+      "at": "A-4T09:05",
+      "action": "task.note",
+      "target": "task:ga-security:3",
+      "actor": "dana",
+      "body": "Decision: Malcolm splits half time onto the two auth-path criticals; platform on-call stays with him rather than rotating mid-launch.",
+      "decision": true,
+      "pinned": true
+    },
+    {
+      "at": "A-1T15:00",
+      "action": "task.ac_met",
+      "target": "task:ga-marketing:3",
+      "actor": "jane",
+      "criterion": 0
+    },
+    {
+      "at": "A-2T14:00",
+      "action": "time.log",
+      "target": "task:ga-security:3",
+      "actor": "janus",
+      "minutes": 300,
+      "note": "Verify the auth-path critical fixes"
+    },
+    {
+      "at": "A-1T13:30",
+      "action": "time.log",
+      "target": "task:ga-marketing:3",
+      "actor": "lena",
+      "minutes": 240,
+      "note": "Blog draft and docs diff"
     }
   ]
 }

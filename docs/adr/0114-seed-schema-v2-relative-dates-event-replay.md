@@ -17,6 +17,25 @@ Accepted
 > #926. The paragraphs below are left as written: they record why v2.0 drew the
 > line where it did.
 
+> **Amended — 2026-09-13, schema v2.1 (#3603, #3490-#3493).** `time.log` has
+> landed, in an additive **v2.1** (`schema_version` `"2.0"` or `"2.1"`, same
+> major, same `seed_v2.json`). The §2 taxonomy gains `task.note` (dated
+> `TaskNote`, optional `decision`/`pinned`), `task.react` and `task.ack`
+> (addressed as `comment:<slug>` to a `task.comment` that declared a `slug`;
+> `task.comment` gains `reply_to`, one level deep), `time.log` (a `TimeEntry`
+> dated to the beat, never after the anchor), and an optional `criterion` index
+> on `task.ac_met`. New document sections: `program.backlog_items`,
+> `program.ceremonies`, `task.acceptance_criteria`, and two **sample-only**
+> sections — `program.agent_actions` and `projects[].share_links` — that every
+> non-sample import rejects, because one writes hash-chained audit evidence and
+> the other a bearer credential. §5's labeling rule is extended for the one row
+> that outlives its sample project: a seeded `AgentAction` carries its sample
+> marker in hashed fields (`actor_token_prefix="sample"`, a `[Sample data]`
+> summary prefix). Synthesized time fill and weekly timesheet submissions run on
+> the sample path only. The §7 exporter emits the new sections and events except
+> `time.log`, agent actions and share links, and declares `"2.1"` only when the
+> document uses a 2.1 construct.
+
 ## Context
 ADR-0109 shipped the canonical JSON seed format (`schema_version: "1.0"`) and the
 `validate_seed → import_seed → export_program` machinery behind the one-click sample

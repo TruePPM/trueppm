@@ -142,7 +142,9 @@ def sample_metadata(sample: Sample) -> SampleMetadata:
         payload = None
 
     if isinstance(payload, dict):
-        report = inspect_seed(payload)
+        # A registered bundled fixture is the trusted source the sample-only
+        # sections exist for, so the catalog summarizes it on those terms.
+        report = inspect_seed(payload, allow_sample_sections=True)
         metadata = SampleMetadata(
             available=True,
             size_bytes=len(raw),

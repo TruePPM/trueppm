@@ -30,9 +30,14 @@ from zoneinfo import ZoneInfo
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
+    AcceptanceCriterion,
+    BacklogItem,
     Baseline,
     BaselineTask,
     BoardColumnConfig,
+    CeremonyTemplate,
+    CommentAcknowledgement,
+    CommentReaction,
     Dependency,
     Label,
     Program,
@@ -47,6 +52,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskComment,
     TaskLabel,
+    TaskNote,
     TaskRelation,
 )
 from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
@@ -94,6 +100,24 @@ _ROLE_NAME: dict[int, str] = {
     Role.ADMIN: "ADMIN",
     Role.OWNER: "OWNER",
 }
+
+
+#: Event actions that only exist from schema 2.1 (#3603).
+_V21_EVENT_ACTIONS = frozenset({"task.note", "task.react", "task.ack", "time.log"})
+
+
+def _uses_v21(doc: dict[str, Any]) -> bool:
+    """Whether an exported document carries any construct introduced in 2.1."""
+    program = doc.get("program", {})
+    if program.get("backlog_items") or program.get("ceremonies"):
+        return True
+    for project in doc.get("projects", []):
+        if any(task.get("acceptance_criteria") for task in project.get("tasks", [])):
+            return True
+    return any(
+        event.get("action") in _V21_EVENT_ACTIONS or "slug" in event or "reply_to" in event
+        for event in doc.get("events", [])
+    )
 
 
 def dump_seed(payload: dict[str, Any]) -> str:
@@ -253,6 +277,10 @@ class _Exporter:
         self.account_slug = _SlugAllocator()
         self.calendar_slug = _SlugAllocator()
         self.resource_slug = _SlugAllocator()
+        # v2.1 comment slugs (#3493), minted only for a comment something refers to
+        # (a reply, reaction or acknowledgement). Document-wide, so two tasks'
+        # comments can never collide after the 40-char truncation.
+        self.comment_slug = _SlugAllocator()
 
         # pk -> slug maps, built once so cross-references resolve consistently.
         self.user_slugs: dict[Any, str] = {}
@@ -340,10 +368,74 @@ class _Exporter:
             doc["resources"] = resources
         doc["projects"] = [self._project_block(p) for p in self.projects]
         if self.with_events:
+            self._put_program_v21(doc["program"])
             events = self._events_block()
             if events:
                 doc["events"] = events
+            # Declare 2.1 only when the document uses a 2.1 construct, so a program
+            # with none still exports as 2.0 and stays importable by a 2.0 build.
+            if _uses_v21(doc):
+                doc["schema_version"] = "2.1"
         return doc
+
+    def _put_program_v21(self, block: dict[str, Any]) -> None:
+        """Program backlog and ceremonies (v2.1, #3491/#3603). v2 export only.
+
+        Built after account identity is captured, so ``pulled_by``/``created_by``
+        can be restricted to users that already hold an account slug. Agent actions
+        and share links are deliberately never exported: one is audit evidence and
+        the other a credential, and every non-sample import rejects both.
+        """
+        if self.program is None:
+            return
+        items = sorted(
+            BacklogItem.objects.filter(program=self.program, is_deleted=False),
+            key=lambda i: (i.priority_rank is None, i.priority_rank or 0, i.created_at, i.title),
+        )
+        allocator = _SlugAllocator()
+        backlog: list[dict[str, Any]] = []
+        for item in items:
+            entry: dict[str, Any] = {"slug": allocator.take(item.title), "title": item.title}
+            _put(entry, "description", item.description)
+            entry["item_type"] = item.item_type
+            entry["status"] = item.status
+            if item.tags:
+                entry["tags"] = list(item.tags)
+            _put(entry, "priority_rank", item.priority_rank)
+            _put(entry, "story_points", item.story_points)
+            ref = self.task_ref.get(item.pulled_task_id) if item.pulled_task_id else None
+            if ref is not None:
+                entry["pulled_to"] = f"{ref[0]}:{ref[1]}"
+                if item.pulled_at is not None:
+                    entry["pulled_at"] = self._rel_ts(item.pulled_at)
+                if item.pulled_by_id in self._account_user_pks:
+                    entry["pulled_by"] = self._user_slug(item.pulled_by)
+            elif item.status == "pulled":
+                # The task it became is gone or unexportable; a "pulled" item that
+                # names no task would fail validation, so it re-imports as archived.
+                entry["status"] = "archived"
+            if item.created_by_id in self._account_user_pks:
+                entry["created_by"] = self._user_slug(item.created_by)
+            entry["created_at"] = self._rel_ts(item.created_at)
+            backlog.append(entry)
+        if backlog:
+            block["backlog_items"] = backlog
+
+        ceremonies: list[dict[str, Any]] = []
+        for ceremony in CeremonyTemplate.objects.filter(
+            program=self.program, is_deleted=False
+        ).order_by("name", "pk"):
+            entry = {"name": ceremony.name, "cadence_type": ceremony.cadence_type}
+            _put(entry, "cadence_day", ceremony.cadence_day)
+            if ceremony.cadence_time is not None:
+                entry["cadence_time"] = ceremony.cadence_time.strftime("%H:%M")
+            entry["duration_minutes"] = ceremony.duration_minutes
+            _put(entry, "owner_role", ceremony.owner_role)
+            if not ceremony.enabled:
+                entry["enabled"] = False
+            ceremonies.append(entry)
+        if ceremonies:
+            block["ceremonies"] = ceremonies
 
     # --- top-level blocks --------------------------------------------------
 
@@ -759,7 +851,36 @@ class _Exporter:
         self._put_task_estimate(block, task)
         self._put_task_assignments(block, task)
         self._put_task_labels_and_links(block, task)
+        if self.with_events:
+            self._put_task_criteria(block, task)
         return block
+
+    def _put_task_criteria(self, block: dict[str, Any], task: Task) -> None:
+        """Acceptance criteria in position order (v2.1, #3492). v2 export only.
+
+        Emitted as final state — ``met`` with its ``met_by``/``met_at`` trail — and
+        never as ``task.ac_met`` beats, the same reason the exporter already skips
+        that action: the end value rides the row, so a beat would apply it twice.
+        ``met_by`` is emitted only for a user who is already an account; minting a
+        slug here would reorder allocation and break the byte-stable round-trip.
+        """
+        rows = AcceptanceCriterion.objects.filter(task=task, is_deleted=False).order_by(
+            "position", "pk"
+        )
+        criteria: list[dict[str, Any]] = []
+        for row in rows:
+            entry: dict[str, Any] = {"text": row.text}
+            for key in ("given", "when", "then"):
+                _put(entry, key, getattr(row, key))
+            if row.met:
+                entry["met"] = True
+                if row.met_by_id is not None and row.met_by_id in self._account_user_pks:
+                    entry["met_by"] = self._user_slug(row.met_by)
+                if row.met_at is not None:
+                    entry["met_at"] = self._rel_ts(row.met_at)
+            criteria.append(entry)
+        if criteria:
+            block["acceptance_criteria"] = criteria
 
     def _put_task_core(self, block: dict[str, Any], task: Task) -> None:
         """Scalar schedule/status fields, each emitted only when non-default."""
@@ -1170,18 +1291,95 @@ class _Exporter:
             prev_remaining = row.remaining_points
 
     def _emit_task_comments(self, task: Task, pslug: str, emit: _Emit) -> None:
+        """Emit comments — and under v2.1, their threads, reactions, acks, and notes.
+
+        A comment gets a ``slug`` only when something refers to it (a reply, a
+        reaction or an acknowledgement), so a program with flat comments exports
+        exactly as it did under 2.0. Reactions and acknowledgements are emitted
+        only for users who already hold an account: attributing them to the
+        fallback actor would invent a reaction nobody gave.
+        """
         target = f"task:{pslug}:{task.wbs_path}"
-        for c in (
+        comments = list(
             TaskComment.objects.filter(task=task)
             .select_related("author")
             .order_by("created_at", "pk")
-        ):
-            emit(
-                c.created_at,
-                "task.comment",
-                target,
-                {"actor": self._actor_slug(c.author), "body": c.body},
+        )
+        if not self.with_events or not comments:
+            for c in comments:
+                emit(
+                    c.created_at,
+                    "task.comment",
+                    target,
+                    {"actor": self._actor_slug(c.author), "body": c.body},
+                )
+            self._emit_task_notes(task, target, emit)
+            return
+
+        reactions = list(
+            CommentReaction.objects.filter(comment__in=comments, user_id__in=self._account_user_pks)
+            .select_related("user")
+            .order_by("created_at", "pk")
+        )
+        acks = list(
+            CommentAcknowledgement.objects.filter(
+                comment__in=comments, user_id__in=self._account_user_pks
             )
+            .select_related("user")
+            .order_by("created_at", "pk")
+        )
+        referenced = {c.parent_id for c in comments if c.parent_id is not None}
+        referenced |= {r.comment_id for r in reactions} | {a.comment_id for a in acks}
+        slugs: dict[Any, str] = {}
+        for n, c in enumerate(comments, start=1):
+            if c.pk in referenced:
+                slugs[c.pk] = self.comment_slug.take(f"{pslug}-{task.wbs_path}-comment-{n}")
+
+        for c in comments:
+            data: dict[str, Any] = {"actor": self._actor_slug(c.author), "body": c.body}
+            if c.pk in slugs:
+                data["slug"] = slugs[c.pk]
+            if c.parent_id in slugs:
+                data["reply_to"] = slugs[c.parent_id]
+            emit(c.created_at, "task.comment", target, data)
+        for r in reactions:
+            emit(
+                r.created_at,
+                "task.react",
+                f"comment:{slugs[r.comment_id]}",
+                {"actor": self._user_slug(r.user), "emoji": r.emoji},
+            )
+        for a in acks:
+            emit(
+                a.created_at,
+                "task.ack",
+                f"comment:{slugs[a.comment_id]}",
+                {"actor": self._user_slug(a.user)},
+            )
+        self._emit_task_notes(task, target, emit)
+
+    def _emit_task_notes(self, task: Task, target: str, emit: _Emit) -> None:
+        """Emit ``task.note`` beats from live ``TaskNote`` rows (v2.1, #3492). v2 only.
+
+        A note is append-only like a comment, so replaying it reproduces the row it
+        came from. Per-person logged time is deliberately *not* reconstructed the
+        same way: exporting ``time.log`` would hand every program Admin who can run
+        an export each contributor's hours, which ADR-0104 keeps off management
+        surfaces.
+        """
+        if not self.with_events:
+            return
+        for note in (
+            TaskNote.objects.filter(task=task, is_deleted=False)
+            .select_related("author")
+            .order_by("created_at", "pk")
+        ):
+            data: dict[str, Any] = {"actor": self._actor_slug(note.author), "body": note.body}
+            if note.pinned:
+                data["pinned"] = True
+            if note.decision:
+                data["decision"] = True
+            emit(note.created_at, "task.note", target, data)
 
     def _emit_risk_notes(self, project: Project, emit: _Emit) -> None:
         """Emit ``risk.note`` events from RiskComment rows (#3094).

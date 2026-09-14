@@ -121,7 +121,7 @@ class SeedReport:
     resource_count: int
 
 
-def inspect_seed(payload: Any) -> SeedReport:
+def inspect_seed(payload: Any, *, allow_sample_sections: bool = False) -> SeedReport:
     """Inspect a parsed seed document and report every problem found.
 
     Total by construction — a document this rejects still yields a report
@@ -131,6 +131,10 @@ def inspect_seed(payload: Any) -> SeedReport:
     Args:
         payload: the already-parsed JSON, not a raw string. Any type is
             accepted; a non-object is itself reported as a diagnostic.
+        allow_sample_sections: accept the sections that create audit evidence or
+            credentials (see :func:`_sample_only_errors`). Only the bundled-sample
+            path may pass ``True``; the default rejects them, so a new caller is
+            fail-closed.
 
     Returns:
         A :class:`SeedReport` whose ``valid`` is ``True`` only when ``errors``
@@ -149,6 +153,8 @@ def inspect_seed(payload: Any) -> SeedReport:
         )
 
     errors = _document_errors(payload)
+    if not allow_sample_sections:
+        errors = _sample_only_errors(payload) + errors
     return SeedReport(
         valid=not errors,
         errors=errors,
@@ -255,28 +261,289 @@ def _schema_errors(payload: dict[str, Any], major: str) -> list[str]:
         errors.extend(_node_budget_errors(payload))
         if major == "2":
             errors.extend(_event_errors(payload))
+            errors.extend(_v21_event_errors(payload))
 
     return errors
 
 
-def validate_seed(payload: Any) -> None:
+def validate_seed(payload: Any, *, allow_sample_sections: bool = False) -> None:
     """Validate a parsed seed document. Returns ``None`` on success.
 
     Args:
         payload: the already-parsed JSON (a ``dict``), not a raw string.
+        allow_sample_sections: see :func:`inspect_seed`. Default ``False``.
 
     Raises:
         SeedValidationError: with one message per problem found.
     """
-    report = inspect_seed(payload)
+    report = inspect_seed(payload, allow_sample_sections=allow_sample_sections)
     if not report.valid:
         raise SeedValidationError(report.errors)
+
+
+# Restated, not imported: this module must stay importable without Django (the
+# fixture build scripts in scripts/seeds call validate_seed with no settings), so it
+# cannot reach projects.models. test_seed_v21 pins this copy to
+# ``RESERVED_SCRUM_CEREMONY_NAMES``, and the schema's reaction ``emoji`` enum to
+# ``ALLOWED_REACTION_EMOJI``, so neither can drift silently.
+RESERVED_CEREMONY_NAMES = frozenset(
+    {
+        "sprint planning",
+        "sprint review",
+        "sprint retrospective",
+        "retrospective",
+        "retro",
+        "daily scrum",
+        "standup",
+        "daily standup",
+        "scrum of scrums",
+    }
+)
+
+
+def _sample_only_errors(payload: Any) -> list[str]:
+    """Reject the sections only a bundled sample may carry (#3603).
+
+    ``agent_actions`` writes rows into the instance's hash-chained audit log and
+    ``share_links`` mints public bearer credentials. A user who can import a file
+    must be able to do neither: the first would forge audit history, the second
+    would publish a board. Rejected rather than dropped, because a dropped section
+    reports success for a document that did not import as written.
+
+    Reads defensively — this runs even on a document that fails the schema, so the
+    one diagnostic that explains *why* the section is refused is never hidden.
+    """
+    if not isinstance(payload, dict):
+        return []
+    errors: list[str] = []
+    program = payload.get("program")
+    if isinstance(program, dict) and "agent_actions" in program:
+        errors.append(
+            "$.program.agent_actions: only bundled sample programs may carry agent "
+            "actions — audit evidence cannot be imported from a file"
+        )
+    projects = payload.get("projects")
+    if isinstance(projects, list):
+        for i, project in enumerate(projects):
+            if isinstance(project, dict) and "share_links" in project:
+                errors.append(
+                    f"$.projects[{i}].share_links: only bundled sample programs may carry "
+                    "share links — a public access credential cannot be imported from a file"
+                )
+    return errors
+
+
+def _v21_reference_errors(payload: dict[str, Any], ctx: _RefContext, errors: list[str]) -> None:
+    """Cross-references for the v2.1 program/project/task sections (#3603)."""
+    program = payload.get("program", {})
+    _check_backlog_items(program.get("backlog_items", []), ctx, errors)
+    _check_ceremonies(program.get("ceremonies", []), errors)
+    _check_agent_actions(program.get("agent_actions", []), ctx, errors)
+    for i, project in enumerate(payload.get("projects", [])):
+        pbase = f"$.projects[{i}]"
+        for k, link in enumerate(project.get("share_links", [])):
+            _check_ref(
+                link.get("created_by"),
+                ctx.account_slugs,
+                f"{pbase}.share_links[{k}].created_by",
+                "account",
+                errors,
+            )
+        for j, task in enumerate(project.get("tasks", [])):
+            for k, criterion in enumerate(task.get("acceptance_criteria", [])):
+                _check_ref(
+                    criterion.get("met_by"),
+                    ctx.account_slugs,
+                    f"{pbase}.tasks[{j}].acceptance_criteria[{k}].met_by",
+                    "account",
+                    errors,
+                )
+
+
+def _check_backlog_items(items: list[dict[str, Any]], ctx: _RefContext, errors: list[str]) -> None:
+    """A pulled item names exactly the one task it became (``pulled_task`` is 1:1)."""
+    _collect_slugs(items, "$.program.backlog_items", errors)
+    pulled: set[str] = set()
+    for i, item in enumerate(items):
+        base = f"$.program.backlog_items[{i}]"
+        for key in ("pulled_by", "created_by"):
+            _check_ref(item.get(key), ctx.account_slugs, f"{base}.{key}", "account", errors)
+        status = item.get("status", "proposed")
+        target = item.get("pulled_to")
+        if target is None:
+            if status == "pulled":
+                errors.append(f"{base}.pulled_to: a pulled item must name the task it became")
+            continue
+        if status != "pulled":
+            errors.append(
+                f"{base}.pulled_to: only a pulled item may name a task (status {status!r})"
+            )
+        _check_task_ref(target, "", ctx.task_index, f"{base}.pulled_to", errors)
+        if target in pulled:
+            errors.append(f"{base}.pulled_to: task {target!r} is already another item's pull")
+        pulled.add(target)
+
+
+def _check_ceremonies(items: list[dict[str, Any]], errors: list[str]) -> None:
+    """Mirror ``CeremonyTemplateSerializer``: no sprint events, unique names, a clock anchor."""
+    seen: set[str] = set()
+    for i, ceremony in enumerate(items):
+        base = f"$.program.ceremonies[{i}]"
+        name = str(ceremony.get("name", "")).strip().casefold()
+        if name in RESERVED_CEREMONY_NAMES:
+            errors.append(
+                f"{base}.name: {ceremony.get('name')!r} is a team-level sprint event, "
+                "not a program ceremony (ADR-0079)"
+            )
+        if name in seen:
+            errors.append(f"{base}.name: duplicate ceremony name {ceremony.get('name')!r}")
+        seen.add(name)
+        cadence = ceremony.get("cadence_type")
+        if cadence != "on_milestone":
+            for key in ("cadence_day", "cadence_time"):
+                if not ceremony.get(key):
+                    errors.append(f"{base}.{key}: required for a {cadence} cadence")
+
+
+def _check_agent_actions(items: list[dict[str, Any]], ctx: _RefContext, errors: list[str]) -> None:
+    """Agent actions resolve to real accounts/projects/tasks; only refusals carry a refusal."""
+    for i, action in enumerate(items):
+        base = f"$.program.agent_actions[{i}]"
+        _check_ref(
+            action.get("principal"), ctx.account_slugs, f"{base}.principal", "account", errors
+        )
+        _check_ref(action.get("project"), ctx.project_slugs, f"{base}.project", "project", errors)
+        _check_task_ref(action.get("object"), "", ctx.task_index, f"{base}.object", errors)
+        if action.get("verdict") != "refused":
+            for key in ("refusal_reason", "refusal_constraint"):
+                if key in action:
+                    errors.append(f"{base}.{key}: only a refused action carries a refusal")
+
+
+# Actions whose attribution is the whole fact: a time entry, a reaction or an
+# acknowledgement by nobody in particular is not something to fall back to the
+# importing owner for, so each must name its actor.
+_ACTOR_REQUIRED = frozenset({"time.log", "task.react", "task.ack"})
+
+
+def _v21_event_errors(payload: dict[str, Any]) -> list[str]:
+    """Comment threading, comment-targeted beats, criterion ticks and time beats (#3603)."""
+    errors: list[str] = []
+    events = payload.get("events", [])
+    # Top-level comment slug -> the task target it was posted on, so a reply can be
+    # held to the same task. Replies keep only their slug: nothing may answer them.
+    roots: dict[str, str] = {}
+    replies: set[str] = set()
+    for i, event in enumerate(events):
+        if event.get("action") != "task.comment" or "slug" not in event:
+            continue
+        slug = event["slug"]
+        if slug in roots or slug in replies:
+            errors.append(f"$.events[{i}].slug: duplicate comment slug {slug!r}")
+            continue
+        if event.get("reply_to"):
+            replies.add(slug)
+        else:
+            roots[slug] = str(event.get("target", ""))
+
+    criteria_count = {
+        (project.get("slug", ""), task.get("wbs_path")): len(task.get("acceptance_criteria", []))
+        for project in payload.get("projects", [])
+        for task in project.get("tasks", [])
+    }
+
+    for i, event in enumerate(events):
+        base = f"$.events[{i}]"
+        action = event.get("action")
+        _check_reply_to(event, action, base, roots, replies, errors)
+        if action in ("task.react", "task.ack"):
+            _, _, slug = str(event.get("target", "")).partition(":")
+            if slug and slug not in roots and slug not in replies:
+                errors.append(f"{base}.target: no comment with slug {slug!r}")
+        if action in _ACTOR_REQUIRED and not event.get("actor"):
+            errors.append(f"{base}.actor: {action} must name the account it is attributed to")
+        if action == "task.react" and "emoji" not in event:
+            errors.append(f"{base}.emoji: task.react requires an emoji")
+        if action == "task.note" and not event.get("body"):
+            errors.append(f"{base}.body: task.note requires a body")
+        if action == "time.log":
+            _check_time_log(event, base, errors)
+        if "criterion" in event:
+            _check_criterion(event, action, base, criteria_count, errors)
+    return errors
+
+
+def _check_reply_to(
+    event: dict[str, Any],
+    action: Any,
+    base: str,
+    roots: dict[str, str],
+    replies: set[str],
+    errors: list[str],
+) -> None:
+    """Replies are one level deep and stay on their thread's task, as the API enforces."""
+    reply_to = event.get("reply_to")
+    if reply_to is None:
+        return
+    if action != "task.comment":
+        errors.append(f"{base}.reply_to: only task.comment may reply to a comment")
+    elif reply_to in replies:
+        errors.append(
+            f"{base}.reply_to: {reply_to!r} is itself a reply; replies are one level deep"
+        )
+    elif reply_to not in roots:
+        errors.append(f"{base}.reply_to: no comment with slug {reply_to!r}")
+    elif roots[reply_to] != event.get("target"):
+        errors.append(
+            f"{base}.reply_to: comment {reply_to!r} is on {roots[reply_to]!r}, "
+            "and a reply must be posted on the same task"
+        )
+
+
+def _check_time_log(event: dict[str, Any], base: str, errors: list[str]) -> None:
+    """Logged time needs minutes and cannot be dated after the anchor ("today")."""
+    if "minutes" not in event:
+        errors.append(f"{base}.minutes: time.log requires minutes")
+    at = str(event.get("at", ""))
+    if at.startswith("A+"):
+        digits = at[2:].split("T")[0]
+        if digits.isdigit() and int(digits) > 0:
+            errors.append(
+                f"{base}.at: time.log cannot be forward-dated ({at!r} is after the anchor)"
+            )
+
+
+def _check_criterion(
+    event: dict[str, Any],
+    action: Any,
+    base: str,
+    criteria_count: dict[tuple[str, Any], int],
+    errors: list[str],
+) -> None:
+    """A ``criterion`` index must address a criterion the target task declares."""
+    if action != "task.ac_met":
+        errors.append(f"{base}.criterion: only task.ac_met may tick a criterion")
+        return
+    _, _, ref = str(event.get("target", "")).partition(":")
+    project_slug, _, wbs = ref.partition(":")
+    count = criteria_count.get((project_slug, wbs))
+    if count is not None and event["criterion"] >= count:
+        errors.append(
+            f"{base}.criterion: task {ref!r} declares {count} acceptance criteria, "
+            f"so index {event['criterion']} does not exist"
+        )
 
 
 # Which target kind each event action addresses. Every replayed action carries a
 # target; an unknown action (should never reach here — the schema enum gates it)
 # is treated as target-optional so validation degrades gracefully.
 _EVENT_TARGET_KIND = {
+    "task.note": "task",
+    "time.log": "task",
+    # A reaction/acknowledgement lands on a comment, addressed by the slug a
+    # task.comment beat declared. Resolution is checked in _v21_event_errors.
+    "task.react": "comment",
+    "task.ack": "comment",
     "task.status": "task",
     "task.assign": "task",
     "task.estimate": "task",
@@ -420,12 +687,17 @@ def _node_budget_errors(payload: dict[str, Any]) -> list[str]:
     through ``ensure_project_resource`` — both were invisible to the ceiling
     while a document of nothing but empty projects scored zero.
     """
+    program = payload.get("program", {})
     total = (
         len(payload.get("projects", []))
         + len(payload.get("resources", []))
         + len(payload.get("accounts", []))
         + len(payload.get("calendars", []))
         + len(payload.get("risks", []))
+        # v2.1 program sections (#3603) each materialize one row per entry.
+        + len(program.get("backlog_items", []))
+        + len(program.get("ceremonies", []))
+        + len(program.get("agent_actions", []))
     )
     for project in payload.get("projects", []):
         total += (
@@ -435,6 +707,8 @@ def _node_budget_errors(payload: dict[str, Any]) -> list[str]:
             + len(project.get("risks", []))
             + len(project.get("baselines", []))
             + len(project.get("labels", []))
+            + len(project.get("share_links", []))
+            + sum(len(t.get("acceptance_criteria", [])) for t in project.get("tasks", []))
             # TaskRelation rows materialize like dependencies, so they count
             # toward the per-import ceiling (ADR-0455).
             + sum(len(t.get("links", [])) for t in project.get("tasks", []))
@@ -491,6 +765,7 @@ def _referential_errors(payload: dict[str, Any]) -> list[str]:
     for i, project in enumerate(projects):
         _project_reference_errors(i, project, ctx, errors)
 
+    _v21_reference_errors(payload, ctx, errors)
     return errors
 
 

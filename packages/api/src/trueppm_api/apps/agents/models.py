@@ -39,6 +39,14 @@ AGENT_ACTION_SCHEMA_VERSION = 1
 #: instances (it is not secret — it anchors the chain, it does not authenticate it).
 GENESIS_PREV_HASH = hashlib.sha256(b"trueppm/agents/agent-action/genesis/v1").hexdigest()
 
+#: ``actor_token_prefix`` of a row the bundled-sample loader wrote (#3603). No real
+#: token prefix can equal it: real prefixes are 8 hex chars, this is 6 non-hex ones.
+SAMPLE_TOKEN_PREFIX = "sample"
+
+#: Leading text of a sample row's ``summary``. Both markers are hashed fields, so a
+#: sample row cannot be relabeled as real evidence without failing ``audit_verify``.
+SAMPLE_SUMMARY_PREFIX = "[Sample data] "
+
 
 class AgentActorKind(models.TextChoices):
     """What kind of actor performed the action.

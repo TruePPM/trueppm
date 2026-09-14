@@ -1471,7 +1471,7 @@ def build_gtm_readiness() -> dict:
     }
 
 
-def build_atlas() -> dict:
+def _build_atlas_v20() -> dict:
     pc = build_platform_core()
     # Cross-project dependency: Platform Core's Tenant model (a Sprint 1 story,
     # COMPLETE well before the ETL work begins) gates Migration's Build phase.
@@ -2130,6 +2130,23 @@ def build_atlas() -> dict:
     }
 
 
+def _collab_layer():
+    """Load ``seed_collab_v21.py`` by path — ``scripts/seeds`` is not a package."""
+    import importlib.util
+
+    path = Path(__file__).resolve().parent / "seed_collab_v21.py"
+    spec = importlib.util.spec_from_file_location("_seed_collab_v21", path)
+    assert spec is not None and spec.loader is not None, f"cannot load {path}"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def build_atlas() -> dict:
+    """The Atlas fixture: the program above plus its v2.1 collaboration layer (#3603)."""
+    return _collab_layer().apply_atlas(_build_atlas_v20())
+
+
 def main() -> int:
     seed = build_atlas()
 
@@ -2143,7 +2160,9 @@ def main() -> int:
     )
 
     try:
-        validate_seed(seed)
+        # A bundled fixture is the one document allowed to carry agent actions and
+        # share links (#3603), so it is validated on the sample path's terms.
+        validate_seed(seed, allow_sample_sections=True)
     except SeedValidationError as exc:
         print("Generated Atlas seed FAILED validation:\n" + str(exc), file=sys.stderr)
         return 1

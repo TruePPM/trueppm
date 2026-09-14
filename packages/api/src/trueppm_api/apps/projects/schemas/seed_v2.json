@@ -9,8 +9,8 @@
   "properties": {
     "schema_version": {
       "type": "string",
-      "description": "Schema major.minor. validate_seed() rejects unsupported majors.",
-      "const": "2.0"
+      "description": "Schema major.minor. validate_seed() rejects unsupported majors. 2.1 is an additive minor (#3603): program backlog_items / ceremonies / agent_actions, project share_links, task acceptance_criteria, and the task.note / task.react / task.ack / time.log events. A 2.0 document is valid unchanged.",
+      "enum": ["2.0", "2.1"]
     },
     "anchor": {
       "type": "string",
@@ -106,7 +106,142 @@
         "lead": {
           "$ref": "#/$defs/slug",
           "description": "Account slug of the program lead."
+        },
+        "backlog_items": {
+          "type": "array",
+          "maxItems": 5000,
+          "description": "v2.1. Program backlog (BacklogItem, ADR-0069) — the intake pool work is proposed into before any project commits to it.",
+          "items": { "$ref": "#/$defs/backlogItem" }
+        },
+        "ceremonies": {
+          "type": "array",
+          "maxItems": 100,
+          "description": "v2.1. Recurring program ceremonies (CeremonyTemplate, ADR-0079). Sprint events — standup, sprint review, retrospective — are team-level and rejected here, exactly as the API rejects them.",
+          "items": { "$ref": "#/$defs/ceremony" }
+        },
+        "agent_actions": {
+          "type": "array",
+          "maxItems": 1000,
+          "description": "v2.1, BUNDLED SAMPLES ONLY. An audited agent trail for the agent-oversight panel. Audit evidence must not be authorable by a file a user controls, so every non-sample import rejects this key. Rows are written through the real hash chain and marked as sample data in hashed fields.",
+          "items": { "$ref": "#/$defs/agentAction" }
         }
+      }
+    },
+    "backlogItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slug", "title"],
+      "properties": {
+        "slug": { "$ref": "#/$defs/slug" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "description": { "type": "string", "maxLength": 100000 },
+        "item_type": { "enum": ["epic", "feature", "story", "task", "bug", "spike", "chore"] },
+        "status": {
+          "enum": ["proposed", "pulled", "archived"],
+          "description": "Default proposed. pulled requires pulled_to."
+        },
+        "tags": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+        },
+        "priority_rank": { "type": "integer", "minimum": 0 },
+        "story_points": { "type": "integer", "minimum": 0, "maximum": 32767 },
+        "pulled_to": {
+          "type": "string",
+          "description": "The task this item became, as \"<project-slug>:<wbs-path>\". Only valid with status pulled.",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*:[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)*$"
+        },
+        "pulled_by": { "$ref": "#/$defs/slug" },
+        "pulled_at": { "$ref": "#/$defs/seedTimestamp" },
+        "created_by": { "$ref": "#/$defs/slug" },
+        "created_at": { "$ref": "#/$defs/seedTimestamp" }
+      }
+    },
+    "ceremony": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "cadence_type"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "cadence_type": { "enum": ["weekly", "biweekly", "monthly", "on_milestone"] },
+        "cadence_day": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "weekly/biweekly: a weekday (\"tuesday\"); monthly: ordinal-weekday (\"1st-thursday\"); omit for on_milestone."
+        },
+        "cadence_time": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+          "description": "HH:MM. Required for weekly/biweekly/monthly."
+        },
+        "duration_minutes": { "type": "integer", "minimum": 5, "maximum": 1440 },
+        "owner_role": { "type": "string", "maxLength": 64 },
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "agentAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "action", "verdict"],
+      "description": "One audited agent decision (AgentAction, ADR-0112). Sample-only — see program.agent_actions.",
+      "properties": {
+        "at": { "$ref": "#/$defs/seedTimestamp" },
+        "principal": {
+          "$ref": "#/$defs/slug",
+          "description": "Account on whose behalf the agent acted."
+        },
+        "action": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+        "capability": { "type": "string", "maxLength": 64 },
+        "project": { "$ref": "#/$defs/slug" },
+        "object_type": { "type": "string", "maxLength": 64 },
+        "object": {
+          "type": "string",
+          "description": "Task the action addressed, as \"<project-slug>:<wbs-path>\".",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*:[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)*$"
+        },
+        "verdict": { "enum": ["allowed", "refused", "requires_approval"] },
+        "refusal_reason": { "enum": ["identity", "policy"] },
+        "refusal_constraint": {
+          "enum": [
+            "capability_scope",
+            "token_identity",
+            "graph_validation",
+            "sprint_sovereignty",
+            "rollup_lock",
+            "engine_referee"
+          ]
+        },
+        "projected_impact": { "type": "object", "maxProperties": 20 },
+        "summary": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "shareLink": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "v2.1, BUNDLED SAMPLES ONLY. A public read-only link (ShareLink, ADR-0245). The token is always minted at load and never read from the file; every non-sample import rejects this key.",
+      "properties": {
+        "content_kind": { "enum": ["board", "schedule"] },
+        "label": { "type": "string", "maxLength": 120 },
+        "show_assignees": { "type": "boolean" },
+        "show_milestone_dates": { "type": "boolean" },
+        "created_by": { "$ref": "#/$defs/slug" },
+        "expires_in_days": { "type": "integer", "minimum": 1, "maximum": 365 }
+      }
+    },
+    "acceptanceCriterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "given": { "type": "string", "maxLength": 1000 },
+        "when": { "type": "string", "maxLength": 1000 },
+        "then": { "type": "string", "maxLength": 1000 },
+        "met": { "type": "boolean" },
+        "met_by": { "$ref": "#/$defs/slug" },
+        "met_at": { "$ref": "#/$defs/seedTimestamp" }
       }
     },
     "account": {
@@ -334,6 +469,12 @@
           "description": "Named lane WITHIN this task's status column (#2967); must match a lane key on the project's board_columns entry for that status."
         },
         "blocked": { "$ref": "#/$defs/taskBlocker" },
+        "acceptance_criteria": {
+          "type": "array",
+          "maxItems": 50,
+          "description": "v2.1. Tickable acceptance criteria (AcceptanceCriterion, ADR-0105), in display order. A task.ac_met beat carrying `criterion` ticks one by index on a dated beat.",
+          "items": { "$ref": "#/$defs/acceptanceCriterion" }
+        },
         "attachments": {
           "type": "array",
           "maxItems": 50,
@@ -483,14 +624,48 @@
             "risk.status",
             "risk.note",
             "retro.action",
-            "retro.promote"
+            "retro.promote",
+            "task.note",
+            "task.react",
+            "task.ack",
+            "time.log"
           ],
-          "description": "v2.0 replayed actions. retro.action creates a RetroActionItem on the target sprint's retro; retro.promote promotes an existing action item (matched by `body`) into a project-backlog task (ADR-0114 §7 / #1109). task.block/task.unblock raise and clear the explicit blocker flag, so a blocked span has a real duration on the timeline rather than a field that reads \"blocked 0 days\". risk.note appends a RiskComment, giving a risk.status flip its reason. time.log (needs the #926 time-entry model) is still deferred — see ADR-0114."
+          "description": "Replayed actions. retro.action creates a RetroActionItem on the target sprint's retro; retro.promote promotes an existing action item (matched by `body`) into a project-backlog task (ADR-0114 §7 / #1109). task.block/task.unblock raise and clear the explicit blocker flag, so a blocked span has a real duration on the timeline rather than a field that reads \"blocked 0 days\". risk.note appends a RiskComment, giving a risk.status flip its reason. v2.1 (#3603): task.note appends a dated TaskNote (`decision`/`pinned` optional); task.react / task.ack add a reaction or an acknowledgement to a comment declared with a `slug`; time.log writes a TimeEntry dated to the beat and is never forward-dated."
         },
         "target": {
           "type": "string",
-          "description": "What the event mutates: \"task:<project-slug>:<wbs-path>\" (task.*, scope_inject/resolve), \"sprint:<project-slug>:<sprint-slug>\" (sprint.activate/close, retro.action/promote), \"project:<project-slug>\" (baseline.capture), or \"risk:<slug>\" (risk.status, risk.note).",
+          "description": "What the event mutates: \"task:<project-slug>:<wbs-path>\" (task.*, scope_inject/resolve, time.log), \"sprint:<project-slug>:<sprint-slug>\" (sprint.activate/close, retro.action/promote), \"project:<project-slug>\" (baseline.capture), \"risk:<slug>\" (risk.status, risk.note), or \"comment:<slug>\" (task.react, task.ack).",
           "maxLength": 320
+        },
+        "slug": {
+          "$ref": "#/$defs/slug",
+          "description": "On task.comment: a document-unique comment id that reply_to, task.react and task.ack can refer to."
+        },
+        "reply_to": {
+          "$ref": "#/$defs/slug",
+          "description": "On task.comment: the slug of the top-level comment this one replies to. Replies are one level deep."
+        },
+        "criterion": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "On task.ac_met: zero-based index into the target task's acceptance_criteria to tick. Omit to mark the story ready instead."
+        },
+        "emoji": {
+          "enum": ["👍"],
+          "description": "On task.react. Mirrors the API's reaction allow-list."
+        },
+        "minutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440,
+          "description": "On time.log: logged effort."
+        },
+        "note": { "type": "string", "maxLength": 500 },
+        "source": { "enum": ["manual", "timer"] },
+        "pinned": { "type": "boolean" },
+        "decision": {
+          "type": "boolean",
+          "description": "On task.note: mark the note as a decision so it appears in the Decisions view."
         },
         "from": { "type": "string", "maxLength": 64 },
         "to": { "type": "string", "maxLength": 64 },
@@ -568,6 +743,12 @@
           "description": "Accepted and ignored. The model field was removed in migration 0123 and the value is now derived from the project's own sprints; a document carrying this key still imports so an existing hand-authored seed does not break on upgrade."
         },
         "forecast_history": { "$ref": "#/$defs/forecastHistory" },
+        "share_links": {
+          "type": "array",
+          "maxItems": 20,
+          "description": "v2.1, BUNDLED SAMPLES ONLY. Public read-only links on this project; see $defs/shareLink.",
+          "items": { "$ref": "#/$defs/shareLink" }
+        },
         "board_columns": {
           "type": "array",
           "maxItems": 5,
