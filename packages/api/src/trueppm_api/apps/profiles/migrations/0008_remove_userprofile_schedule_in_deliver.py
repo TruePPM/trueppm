@@ -25,11 +25,25 @@ class Migration(migrations.Migration):
     an old pod's ``get_profile_prefs`` — which names its columns explicitly in
     ``.only(...)``, ``schedule_in_deliver`` among them — selects a column that no longer
     exists and 500s on ``/auth/me/``, the web shell's bootstrap call. The window is
-    bounded by rollout duration and does not exist on single-replica installs, which is
-    every self-hosted deployment we know of at pre-1.0 alpha. The rolling-safe shape
-    would have been two releases (drop the code references in N, the column in N+1);
-    this is deliberately one, and this note is the record of that trade rather than an
-    oversight.
+    bounded by rollout duration.
+
+    **This window is not confined to single-replica installs.** An earlier draft of
+    this note said it "does not exist on single-replica installs, which is every
+    self-hosted deployment we know of at pre-1.0 alpha" — that premise shifted inside
+    this same release: ``packages/helm/values-prod.yaml``, the shipped production
+    reference values, sets ``replicaCount: 2``, and the API Deployment has no explicit
+    ``strategy:`` overriding Kubernetes' default RollingUpdate, which surges a pod at
+    any replica count >= 1. The 0.4 basic-HA carve-out (epic #3408) makes a 2-replica
+    API tier a realistic, encouraged self-hosted posture for 0.4, not a hypothetical —
+    so this window is expected to fire on that posture, not merely a theoretical edge
+    case (#3782). The trade is still accepted knowingly: the blast radius stays bounded
+    to transient 500s on ``/auth/me/`` for requests landing on an old pod during the
+    rollout window, with no crash-loop and no data loss beyond the already-accepted
+    loss of the boolean preference itself. The rolling-safe shape would have been two
+    releases (drop the code references in N, the column in N+1); this is deliberately
+    one. See the 0.4 upgrade notes
+    (``packages/website/src/content/docs/getting-started/upgrade.md``) for the
+    operator-facing disclosure of this window.
 
     **What happens to a user who had it on.** Their column is dropped and their
     preference is gone; the rail renders the calm default (Schedule in PLAN only), which
