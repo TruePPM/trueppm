@@ -23,6 +23,19 @@ You are auditing Django migrations for a TruePPM branch before merge.
   - Correct process: deprecate in release N (null=True), remove in release N+1
 - [ ] No table renamed or dropped without a data migration preserving existing data
 - [ ] No index removed that active queries depend on (check `wbs_path` GiST, all FK indexes)
+- [ ] If a single-release destructive `RemoveField`/`RemoveIndex`/etc. is justified in
+  its docstring by "single-replica install" (or equivalent — "no install runs multiple
+  replicas"), that justification is checked against `packages/helm/values-prod.yaml`'s
+  current `replicaCount` and the affected Deployment's `strategy:` block, not asserted
+  from memory. `values-prod.yaml` ships `replicaCount: 2` and the API Deployment has no
+  `strategy:` overriding Kubernetes' default RollingUpdate — so "single-replica" does
+  not describe the chart's own production reference posture, and a docstring resting on
+  it is stale the moment a values file ships >1 replica (#3782, CLAUDE.md Migration
+  discipline rule 8). Accept the migration only if the docstring instead shows one of:
+  a `null=True`-then-remove deprecation window, a read-path shim shipped in the same or
+  an earlier release than the drop (a shim in the *dropping* release cannot help a pod
+  already running the old image), or an explicitly disclosed and accepted transient
+  window in the release's upgrade notes.
 
 ### NOT NULL Safety
 - [ ] Every new non-nullable column has a `default=` in the migration

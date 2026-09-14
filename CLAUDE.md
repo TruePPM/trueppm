@@ -231,7 +231,7 @@ Django migrations are cheap to create and cheap to throw away while we are pre-1
 alpha. The goal is **not** to minimize migration count day-to-day — fighting the
 count leads to hand-edited migrations, which are far more dangerous than many clean
 ones. The goal is that each migration stays clean and the overall history stays
-short enough to be signal. Six rules:
+short enough to be signal. Eight rules:
 
 1. **Batch model edits, then run `makemigrations` once per feature.** The biggest
    source of sprawl is re-running `makemigrations` while iterating on a model in a
@@ -291,6 +291,25 @@ short enough to be signal. Six rules:
    #3068 migration and that green read as evidence about the migration when it was
    evidence about something else entirely. `makemigrations --check` never opens a
    database, so the class had no gate at all.
+8. **"Single-replica install" stops being an available migration-safety argument once
+   a shipped values file ships multiple replicas.** A single-release destructive
+   change (a `RemoveField` with no `null=True`-then-remove deprecation window, in
+   particular) is only rollout-safe if no old pod can serve requests against the new
+   schema — and that argument only holds while every reference install genuinely runs
+   one API replica. `packages/helm/values-prod.yaml` sets `replicaCount: 2`, and the
+   API Deployment carries no explicit `strategy:` block, so Kubernetes' default
+   RollingUpdate surges a pod at any replica count >= 1: the population "single-replica
+   install" describes does not include the chart's own production reference values
+   (#3782). Before writing that argument into a migration docstring, check
+   `packages/helm/values-prod.yaml`'s current `replicaCount` and the affected
+   Deployment's `strategy:` block — do not assert "every self-hosted deployment we know
+   of" from memory. Treat a single-release destructive `RemoveField` as HA-unsafe
+   unless one of: (a) a `null=True`-then-remove two-release deprecation window; (b) the
+   *old* code's read path already tolerates the missing column — a shim only helps if
+   it ships in the same release as, or earlier than, the drop, since it cannot
+   retroactively patch a pod already running the old image; or (c) the transient
+   window is explicitly accepted and disclosed in that release's upgrade notes
+   (`packages/website/src/content/docs/getting-started/upgrade.md`).
 
 **Why `replaces=` and not a regenerated `0001_initial`.** `makemigrations` cannot
 reproduce operations that live outside model state, so a hand-regenerated initial
