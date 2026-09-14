@@ -402,7 +402,7 @@ describe('TaskScheduleStrip', () => {
       // must resolve to the identical anchor (web-rule 212).
       expect(help).toHaveAttribute(
         'href',
-        'https://docs.trueppm.com/features/schedule/#committed-vs-computed-start-dates',
+        'https://docs.trueppm.com/features/schedule/dates/#committed-vs-computed-start-dates',
       );
       expect(help).toHaveAttribute('rel', 'noopener noreferrer');
     });
@@ -554,7 +554,7 @@ describe('TaskScheduleStrip', () => {
       render(<TaskScheduleStrip task={uncommitted()} {...editableProps} />);
       expect(screen.getByRole('link', { name: /how dates work/i })).toHaveAttribute(
         'href',
-        'https://docs.trueppm.com/features/schedule/#committed-vs-computed-start-dates',
+        'https://docs.trueppm.com/features/schedule/dates/#committed-vs-computed-start-dates',
       );
     });
 

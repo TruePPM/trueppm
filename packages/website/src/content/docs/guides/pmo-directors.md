@@ -1,6 +1,7 @@
 ---
 title: For PMO Directors
 description: What the community edition gives a PMO at the program level today — rollup, roles, and an operational audit log — and where the line to enterprise portfolio governance sits.
+documentedFor: "0.4"
 ---
 
 You run a program office. You need visibility across the work, capacity you can plan against, and a compliance story you can defend — and you evaluate tools professionally, so you want the line drawn honestly. Here it is up front: **the community edition is built for the program level — one or more related projects run by a team. Portfolio governance across many programs is the enterprise edition, by design.**
@@ -42,6 +43,13 @@ Each project carries a Monte Carlo forecast — P50 / P80 / P95 — instead of a
 → See [Scheduler engine — Monte Carlo](/features/scheduler/)
 
 ## Evaluate it yourself (~10 minutes)
+
+:::note[Ships in 0.4]
+The `--with-personas` flag in the walkthrough below ships in 0.4. On `v0.3.0-alpha.3`, the
+latest release, run `load_sample_project` without it: that release creates the same
+`atlas-*` logins unconditionally and does not accept the flag.
+:::
+
 
 Run these steps in order — they start from a machine with nothing running.
 

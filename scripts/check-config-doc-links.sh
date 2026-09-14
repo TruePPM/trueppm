@@ -68,8 +68,11 @@ run_check() {
       esac
       path="${path#/}"; path="${path%/}"
       md="$root/$DOCS_ROOT/$path.md"
+      # A page split into a directory publishes at the same URL from its index.md
+      # (administration/configuration/ since #3754).
+      [ -f "$md" ] || md="$root/$DOCS_ROOT/$path/index.md"
       if [ ! -f "$md" ]; then
-        echo "VIOLATION: $file links to $url — no such page ($DOCS_ROOT/$path.md)"
+        echo "VIOLATION: $file links to $url — no such page ($DOCS_ROOT/$path.md or $path/index.md)"
         violations=$((violations + 1))
         continue
       fi

@@ -47,7 +47,7 @@ Use the zoom stepper to move between day, week, month, and quarter scales, or **
 
 ## When a cross-project slip threatens a sprint
 
-Because an accepted cross-project dependency now recomputes across the boundary on every member project — not just in this view — an upstream slip can push a downstream task in an **active sprint** past its sprint boundary. When that happens, the program records a **cross-project slip conflict** for the downstream team. The schedule stays honest: the firewall never moves the sprint, its membership, or its commitment math — it only surfaces the conflict so the team can decide how to handle it (move the task out, extend the sprint, or accept the risk) and acknowledge it. Only the threatened team's Scrum Master / Product Owner (or an Admin) can acknowledge. See the [API reference](/api/reference/#cross-project-slip-conflicts).
+Because an accepted cross-project dependency now recomputes across the boundary on every member project — not just in this view — an upstream slip can push a downstream task in an **active sprint** past its sprint boundary. When that happens, the program records a **cross-project slip conflict** for the downstream team. The schedule stays honest: the firewall never moves the sprint, its membership, or its commitment math — it only surfaces the conflict so the team can decide how to handle it (move the task out, extend the sprint, or accept the risk) and acknowledge it. Only the threatened team's Scrum Master / Product Owner (or an Admin) can acknowledge. See the [API reference](/api/reference/tasks/#cross-project-slip-conflicts).
 
 ## Not included yet
 
@@ -56,4 +56,4 @@ A couple of related surfaces are planned for a later release and are not part of
 - **Accepting a proposed cross-project dependency** from the program schedule. For now, accept pending links on the affected project.
 - **Surfacing slip conflicts inside this view** — slip conflicts are detected and acknowledgeable through the API today; drawing them on the program timeline (and a sprint-header badge) is planned for a later release.
 
-See [Creating a dependency](/features/schedule/#creating-a-dependency) for how the underlying links are created, and "accept pending links on the affected project" above for how a downstream team accepts one.
+See [Creating a dependency](/features/schedule/editing/#creating-a-dependency) for how the underlying links are created, and "accept pending links on the affected project" above for how a downstream team accepts one.

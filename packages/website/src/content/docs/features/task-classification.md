@@ -260,7 +260,7 @@ Where a subtree is driven by a sprint, the Schedule also paints the sprint's **w
 a band across that subtree's rows — the same violet and the same diagonal hatch, at a
 region's scale. So the delivery mode says *how* the work executes and the band says *when*
 the cadence puts it, both on the timeline that already carries the gated critical path. See
-[Sprint windows](/features/schedule/#sprint-windows).
+[Sprint windows](/features/schedule/sprint-windows/#sprint-windows).
 
 ## Why this matters
 

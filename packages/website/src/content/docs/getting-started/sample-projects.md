@@ -333,7 +333,7 @@ confirm. To be certain you are replacing the program you were shown, also send
 replaced, the request is refused again with `code: "seed_replace_mismatch"`
 rather than following the change.
 
-See the [API reference](/api/reference/#programs) for the full request and
+See the [API reference](/api/reference/programs/#programs) for the full request and
 response shapes.
 
 ## Export a program

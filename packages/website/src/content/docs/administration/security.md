@@ -166,7 +166,7 @@ every cross-origin request from a SPA served elsewhere, and no combination of
 `CSRF_TRUSTED_ORIGINS`, `AUTH_REFRESH_COOKIE_SAMESITE`, or `CSP_CONNECT_SRC`
 changes that. The secure defaults — `SameSite=Strict` on the refresh cookie and
 `connect-src 'self' wss:` — are correct as shipped for that topology and need no
-relaxing. See [Split-origin deploys](/administration/configuration/#split-origin-deploys)
+relaxing. See [Split-origin deploys](/administration/configuration/storage-and-networking/#split-origin-deploys)
 and [One origin, four variables](/administration/networking/#one-origin-four-variables).
 
 ## Content-Security-Policy
@@ -181,7 +181,7 @@ That default is complete for the supported single-origin topology. Widen
 `CSP_CONNECT_SRC` only for a genuinely external destination — an analytics
 endpoint, or an object store you serve attachment downloads from directly.
 Serving the SPA from a different origin than the API is not supported and cannot
-be fixed here; see [Configuration](/administration/configuration/#split-origin-deploys).
+be fixed here; see [Configuration](/administration/configuration/storage-and-networking/#split-origin-deploys).
 
 ### The SPA document is a separate control
 
