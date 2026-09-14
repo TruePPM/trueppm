@@ -12,6 +12,7 @@ from trueppm_scheduler import (
     CycleCheck,
     CyclicDependencyError,
     DateRange,
+    DeliveryMode,
     Dependency,
     DependencyType,
     InvalidScheduleInput,
@@ -1472,6 +1473,168 @@ class TestMonteCarloActualStartFloor:
         mc = monte_carlo(p, runs=50, seed=0)
         assert cpm.project_finish == date(2026, 3, 20)
         assert mc.p50 == mc.p95 == cpm.project_finish
+
+
+class TestMonteCarloDurationFloor:
+    """Sampled durations are floored at ``Task.duration`` (#3765).
+
+    ``schedule()`` lays a task out at ``Task.duration``; ``monte_carlo()`` replaced
+    that with a sample from the three-point estimate and never looked at
+    ``Task.duration`` again. A triple below the planned duration therefore forecast a
+    finish the deterministic pass had already ruled infeasible — the same
+    under-reporting as #2833, reached through a different input.
+    """
+
+    def test_triple_below_duration_no_longer_precedes_cpm(self) -> None:
+        """The issue's own repro: a 20-day task estimated at (1, 2, 3) days.
+
+        Before the floor this returned P50/P80/P95 of 2026-04-02 / 04-02 / 04-03
+        against a CPM finish of 2026-04-28 — P95 landing 25 days *before* the
+        earliest feasible date.
+        """
+        p = make_project(
+            tasks=[
+                task(
+                    "A",
+                    "A",
+                    20,
+                    optimistic_duration=timedelta(days=1),
+                    most_likely_duration=timedelta(days=2),
+                    pessimistic_duration=timedelta(days=3),
+                )
+            ],
+            start=date(2026, 4, 1),
+        )
+        cpm = schedule(p)
+        mc = monte_carlo(p, runs=2000, seed=1)
+        assert cpm.project_finish == date(2026, 4, 28)
+        assert mc.p50 >= cpm.project_finish
+        assert mc.p95 >= cpm.project_finish
+        # Every sample is clamped to the plan, so the whole distribution collapses
+        # onto the CPM date rather than merely clearing it.
+        assert mc.p50 == mc.p95 == cpm.project_finish
+
+    def test_ordered_triple_bracketing_the_duration_is_not_enough(self) -> None:
+        """Bracketing is why the floor is not a validation rule (#3765).
+
+        ``(1, 1, 20)`` satisfies ``optimistic <= duration <= pessimistic`` for a
+        20-day task, so a guard requiring the triple to bracket the duration accepts
+        it — and the PERT-Beta mass piles onto ``most_likely``, putting P95 ~13
+        working days before the CPM finish. Only a comparison against ``duration``
+        itself binds the two passes.
+        """
+        p = make_project(
+            tasks=[
+                task(
+                    "A",
+                    "A",
+                    20,
+                    optimistic_duration=timedelta(days=1),
+                    most_likely_duration=timedelta(days=1),
+                    pessimistic_duration=timedelta(days=20),
+                )
+            ],
+            start=date(2026, 4, 1),
+        )
+        cpm = schedule(p)
+        mc = monte_carlo(p, runs=2000, seed=7)
+        assert mc.p50 >= cpm.project_finish
+        assert mc.p95 >= cpm.project_finish
+
+    def test_triple_above_duration_still_expresses_risk(self) -> None:
+        """The floor is one-way — the risk premium above the plan is untouched."""
+        p = make_project(
+            tasks=[
+                task(
+                    "A",
+                    "A",
+                    5,
+                    optimistic_duration=timedelta(days=5),
+                    most_likely_duration=timedelta(days=10),
+                    pessimistic_duration=timedelta(days=30),
+                )
+            ],
+            start=date(2026, 4, 1),
+        )
+        cpm = schedule(p)
+        mc = monte_carlo(p, runs=2000, seed=3)
+        assert mc.p50 > cpm.project_finish
+        assert mc.p95 > mc.p50
+
+    def test_velocity_sample_below_duration_is_floored_too(self) -> None:
+        """The velocity path takes the same floor — it is the other sampled path.
+
+        A SCRUM task whose throughput distribution burns its points down faster than
+        its planned duration produced the identical inversion; scoping the floor to
+        the PERT branch would have left half the defect standing.
+        """
+        p = make_project(
+            tasks=[
+                task("A", "A", 30, delivery_mode=DeliveryMode.SCRUM, story_points=5),
+            ],
+            start=date(2026, 4, 1),
+        )
+        p.velocity_samples = [20.0, 25.0, 30.0]
+        p.sprint_length_days = 10
+        cpm = schedule(p)
+        mc = monte_carlo(p, runs=500, seed=3)
+        assert mc.p50 >= cpm.project_finish
+        assert mc.p95 >= cpm.project_finish
+
+    def test_in_progress_task_floors_on_remaining_work(self) -> None:
+        """The floor is applied to the full sampled duration, before the elapsed cut.
+
+        ``_mc_effective_duration`` subtracts the elapsed portion of an in-progress
+        task using the same integer rule ``_effective_duration_days`` applies to
+        ``duration``, so flooring the sampled value at the full ``duration`` floors
+        the *remaining* work by exactly the same amount — the simulation must land on
+        the CPM finish, not past it.
+        """
+        p = make_project(
+            tasks=[
+                task(
+                    "A",
+                    "A",
+                    20,
+                    percent_complete=50.0,
+                    optimistic_duration=timedelta(days=1),
+                    most_likely_duration=timedelta(days=2),
+                    pessimistic_duration=timedelta(days=3),
+                )
+            ],
+            start=date(2026, 4, 1),
+        )
+        cpm = schedule(p)
+        mc = monte_carlo(p, runs=500, seed=5)
+        assert mc.p50 == mc.p95 == cpm.project_finish
+
+    def test_ff_network_is_not_monotone_in_duration(self) -> None:
+        """Why the floor cannot promise a finish-level bound on every network (#3806).
+
+        An FF edge pins a task's finish, so its start is placed back from there and a
+        LONGER task starts EARLIER — which an SS successor keyed on that start
+        inherits. This is ``schedule()`` alone, no simulation involved: raising every
+        duration moves the deterministic finish *back*. Pinned here so the
+        non-monotonicity is a recorded property rather than a surprise the next time
+        someone asserts the finish-level binding unconditionally.
+        """
+
+        def _finish(t2_days: int) -> date:
+            p = make_project(
+                tasks=[
+                    task("t0", "t0", 37),
+                    task("t2", "t2", t2_days),
+                    task("t4", "t4", 34),
+                ],
+                dependencies=[
+                    Dependency("t0", "t2", dep_type=DependencyType.FF),
+                    Dependency("t2", "t4", dep_type=DependencyType.SS, lag=timedelta(days=5)),
+                ],
+                start=date(2026, 4, 1),
+            )
+            return schedule(p).project_finish
+
+        assert _finish(39) < _finish(3)
 
 
 class TestMcEsFloorsUnit:

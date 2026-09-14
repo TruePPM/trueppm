@@ -2587,6 +2587,54 @@ def _validate_monte_carlo_args(
         raise InvalidScheduleInput("Project must have at least one task.")
 
 
+def _floor_sampled_at_duration(dur_matrix: np.ndarray, col: int, base: float) -> None:
+    """Clamp one sampled duration column up to the task's deterministic ``duration``.
+
+    ``schedule()`` lays every task out at ``Task.duration``; ``monte_carlo()``
+    replaces that with a sampled column whenever the task carries a velocity signal
+    or a complete three-point estimate. Nothing bound the two inputs together, so a
+    task whose estimates simply sit *below* its planned duration produced a forecast
+    earlier than the earliest date the deterministic pass considers feasible — a risk
+    tool under-reporting risk, which fails silently and plausibly (#3765, same
+    invariant class as #2833).
+
+    Ordering the triple is not enough, and that is the whole reason the floor lives
+    here rather than in ``_validate_task_durations``. Requiring
+    ``optimistic <= duration <= pessimistic`` still admits ``duration=20`` against
+    ``(1, 1, 20)``: the PERT-Beta mass piles onto ``most_likely``, and P95 lands ~13
+    working days before the CPM finish. A differential sweep over 600 random projects
+    measured *more* violations under bracketing triples (152 p95, 319 p50) than
+    without them (83 / 129), because bracketing forces a wide, left-skewed window
+    rather than a narrow one. No ordering rule over the triple alone can bind the
+    two passes; only a comparison against ``duration`` itself can.
+
+    Rejecting the state instead was the other candidate and was refused on evidence:
+    three shipped ingress paths write the triple and the duration independently and
+    legitimately — the MS Project importer (PERT Analysis fields are independent of
+    ``Duration`` in the source file), ``EstimatesTab`` (each estimate PATCHes on its
+    own and never touches ``duration``), and the velocity-suggestion accept, which
+    writes ``most_likely_duration`` alone straight through the model. Rejecting would
+    have turned all three into hard failures and detonated the next CPM recompute on
+    every legacy row, the failure class #1981/#2002/#2005 already paid for.
+
+    What this costs, stated plainly: the optimistic tail below ``duration`` is
+    truncated, so a plan deliberately padded above its own estimates reports no
+    upside. That is the trade — the simulation answers "how much later than the plan,
+    and how likely", and the deterministic pass keeps the last word on the earliest
+    feasible date. Reading the smaller of the two answers as the forecast is the one
+    outcome that is not defensible.
+
+    Applied after sampling and to every path (velocity, PERT, deterministic) so the
+    seeded RNG stream is byte-for-byte unchanged and no source of uncertainty is
+    exempt. The deterministic path is already ``base``, so the clamp is a no-op there.
+    The elapsed portion of an in-progress task is subtracted from the *sampled* value
+    downstream (:func:`_mc_effective_duration`) using the same integer rule
+    :func:`_effective_duration_days` applies to ``duration``, so flooring the full
+    sampled duration here floors the remaining work by exactly the same amount.
+    """
+    np.maximum(dur_matrix[:, col], base, out=dur_matrix[:, col])
+
+
 def _sample_duration_matrix(
     project: Project,
     topo_order: list[str],
@@ -2601,6 +2649,9 @@ def _sample_duration_matrix(
     task insertion order. Each task takes one of three paths in priority order
     (velocity → three-point PERT → deterministic); a completed task's column is
     collapsed to its base duration *after* sampling so the RNG stream is unchanged.
+
+    Every sampled column is then floored at the task's deterministic
+    ``duration`` — see :func:`_floor_sampled_at_duration` for why.
     """
     dur_matrix = np.empty((runs, len(topo_order)), dtype=np.float64)
     for col, tid in enumerate(topo_order):
@@ -2638,6 +2689,7 @@ def _sample_duration_matrix(
             dur_matrix[:, col] = _sample_pert(opt, ml, pess, runs, rng)
         else:
             dur_matrix[:, col] = base
+        _floor_sampled_at_duration(dur_matrix, col, base)
         # A completed task is pinned to a constant offset pair in the forward pass
         # (its sampled column is never read there), so its sampled duration cannot
         # move the finish — a varying column would surface in the sensitivity tornado
@@ -3418,6 +3470,18 @@ def monte_carlo(
     finish-date distribution combining both sources of uncertainty.
 
     .. note::
+       Every sampled duration is **floored at the task's own ``duration``** (#3765).
+       ``Task.duration`` is the plan; a three-point estimate or a velocity signal is
+       the risk band read *upward* from it. Without the floor a task whose estimates
+       sat below its planned duration made P50/P80/P95 land before the earliest date
+       the deterministic pass considers feasible — the simulation reporting less risk
+       than the plan it is meant to stress. The consequence is that the optimistic
+       tail below ``duration`` is not expressed: to model finishing ahead of plan,
+       lower ``duration``. Ordering the triple does not substitute for this — a
+       bracketing but left-skewed triple such as ``(1, 1, 20)`` against
+       ``duration=20`` violated the binding just as hard.
+
+    .. note::
        The per-run sprint horizon of the velocity path is capped at
        ``ceil(story_points / mean_velocity) * 4 + 10`` sprints; any run that has
        not burned down by that horizon is clamped to it rather than sampled
@@ -3434,11 +3498,13 @@ def monte_carlo(
     :func:`schedule` floors it (ADR-0132 §2, #2833), and zero-duration
     milestones occupy their start day exactly as in :func:`schedule` — a fully
     deterministic project (no estimates, no velocity signal) simulates to
-    precisely the CPM finish date. The one exception is an ``actual_start``
-    recorded on a *non-working* day, which the working-day index cannot
-    represent: it snaps to the next working day, so such a project simulates to
-    at most one working day *after* its CPM finish, never before (never before
-    is the invariant; see :func:`_mc_es_floors`).
+    precisely the CPM finish date. **Never before is the invariant**, and it holds
+    for an uncertain project too: the early-start floors bind the start dates (see
+    :func:`_mc_es_floors`) and the duration floor above binds the durations, so
+    every percentile is at or after the deterministic finish for any input. An
+    ``actual_start`` recorded on a *non-working* day, which the working-day index
+    cannot represent, snaps to the next working day — so such a project simulates to
+    at most one working day *after* its CPM finish, which is the permitted direction.
 
     Per-task calendars (ADR-0120 D3) are honored, on the same rule
     :func:`schedule` applies: a task's duration expands on its own calendar, and

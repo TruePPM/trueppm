@@ -8,6 +8,8 @@ export interface ForecastDiagnosticWire {
   tasks_with_variance: number;
   tasks_pending_approval: number;
   agile_tasks_without_velocity: number;
+  /** Absent on a payload predating issue 3765; treated as 0. */
+  tasks_estimates_below_plan?: number;
 }
 
 /**
@@ -26,6 +28,7 @@ export function mapForecastDiagnostic(
     tasksWithVariance: wire.tasks_with_variance,
     tasksPendingApproval: wire.tasks_pending_approval,
     agileTasksWithoutVelocity: wire.agile_tasks_without_velocity,
+    tasksEstimatesBelowPlan: wire.tasks_estimates_below_plan ?? 0,
   };
 }
 
@@ -77,6 +80,8 @@ export function forecastRemedyForReason(reason: ForecastReason | null): string {
       return 'Task estimates are awaiting approval — approve them to fold their range into the forecast.';
     case 'no_velocity_history':
       return 'Close a sprint to build the velocity history this agile forecast samples from.';
+    case 'estimates_below_plan_duration':
+      return 'Task estimates sit at or below their planned durations, which the forecast never samples under — lower the planned durations, or raise the pessimistic estimates, to open a range.';
     case 'no_estimates':
     default:
       return MISSING_ESTIMATES;

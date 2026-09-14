@@ -15,6 +15,7 @@ from trueppm_api.apps.scheduling.models import (
 )
 from trueppm_api.apps.scheduling.services import (
     FORECAST_ALL_COMPLETE,
+    FORECAST_ESTIMATES_BELOW_PLAN_DURATION,
     FORECAST_ESTIMATES_OFF_CRITICAL_PATH,
     FORECAST_ESTIMATES_PENDING_APPROVAL,
     FORECAST_NO_COMMITTED_TASKS,
@@ -122,6 +123,7 @@ class MonteCarloForecastDiagnosticSerializer(serializers.Serializer[dict[str, An
         choices=[
             FORECAST_NO_COMMITTED_TASKS,
             FORECAST_ALL_COMPLETE,
+            FORECAST_ESTIMATES_BELOW_PLAN_DURATION,
             FORECAST_ESTIMATES_OFF_CRITICAL_PATH,
             FORECAST_ESTIMATES_PENDING_APPROVAL,
             FORECAST_NO_VELOCITY_HISTORY,
@@ -133,6 +135,7 @@ class MonteCarloForecastDiagnosticSerializer(serializers.Serializer[dict[str, An
     tasks_with_variance = serializers.IntegerField()
     tasks_pending_approval = serializers.IntegerField()
     agile_tasks_without_velocity = serializers.IntegerField()
+    tasks_estimates_below_plan = serializers.IntegerField()
 
 
 class RiskPremiumFieldsSerializer(serializers.Serializer[dict[str, Any]]):
