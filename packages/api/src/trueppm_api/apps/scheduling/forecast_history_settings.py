@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any
 from django.conf import settings
 
 from trueppm_api.apps.scheduling.models import MCAttributionAudience
+from trueppm_api.core.extension_providers import guard_single_provider
 
 if TYPE_CHECKING:
     from trueppm_api.apps.projects.models import Program, Project
@@ -55,7 +56,9 @@ _ENFORCEMENT_PROVIDER: Callable[[], bool] | None = None
 def register_forecast_history_enforcement_provider(provider: Callable[[], bool] | None) -> None:
     """Register (or clear) the forecast-history enforcement provider. Enterprise calls this."""
     global _ENFORCEMENT_PROVIDER
-    _ENFORCEMENT_PROVIDER = provider
+    _ENFORCEMENT_PROVIDER = guard_single_provider(
+        _ENFORCEMENT_PROVIDER, provider, "forecast history enforcement"
+    )
 
 
 def forecast_history_enforcement_active(workspace: Workspace | None = None) -> bool:
