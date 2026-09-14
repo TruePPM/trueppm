@@ -218,6 +218,7 @@
       "impact": 4,
       "category": "ORGANIZATIONAL",
       "response": "MITIGATE",
+      "mitigation_due_date": "A+8",
       "owner": "sam",
       "trigger": "Framing inspection (sitework 3.4) forecasts later than its rebaseline finish, or fails and needs a re-inspection cycle.",
       "contingency": "Mobilize electrical rough-in against a partial structural release for the completed bays — the -3 day lead on that cross-project edge already assumes the overlap; widening it is the lever if the gate slips further.",
@@ -740,6 +741,7 @@
           "impact": 3,
           "category": "EXTERNAL",
           "response": "MITIGATE",
+          "mitigation_due_date": "A+45",
           "owner": "sam",
           "trigger": "NWS issues a hazardous-weather outlook covering a scheduled pour or steel-pick window, or sustained winds forecast above 25 mph.",
           "contingency": "Stand the site down and reschedule into the next clear window. The contract's winter weather allowance is already carried on the site calendar; it is the constraint that pushes the certificate of occupancy, and days beyond it are the ones that become a time-extension request.",
@@ -804,6 +806,7 @@
           "impact": 4,
           "category": "PROJECT_MANAGEMENT",
           "response": "MITIGATE",
+          "mitigation_due_date": "A+2",
           "owner": "diego",
           "tasks": [
             "3.1"
@@ -1251,6 +1254,7 @@
           "impact": 3,
           "category": "TECHNICAL",
           "response": "MITIGATE",
+          "mitigation_due_date": "A+12",
           "owner": "nadia",
           "tasks": [
             "1.5"
@@ -1296,6 +1300,13 @@
       "target": "task:bayside-sitework:1.4",
       "actor": "tom",
       "body": "Survey package is ready, but the municipal permit is still in review — that's gating the site-prep sign-off."
+    },
+    {
+      "at": "A-67T09:45",
+      "action": "risk.note",
+      "target": "risk:permit-delay",
+      "actor": "sam",
+      "body": "Permit office confirmed still in review this week, and it's now the long pole ahead of site-prep sign-off — the survey package itself has been ready since last week. Raising to mitigating; the partial foundation-only permit in the contingency is what we'd request if this runs 10 more working days."
     },
     {
       "at": "A-66T10:00",
@@ -1403,6 +1414,13 @@
       "to": "IN_PROGRESS"
     },
     {
+      "at": "A-46T10:45",
+      "action": "risk.note",
+      "target": "risk:inspection-fail",
+      "actor": "diego",
+      "body": "Program-level risk, tracked here on Sitework because the register has no program-level risk model yet — it's really the schedule that both projects share. The east-footing rebar failure above is a small, absorbable version of it: one re-tie cycle, no float lost. Accepting for now; the real exposure is a failure on the framing inspection itself, which is what cascades into fit-out."
+    },
+    {
       "at": "A-44T14:00",
       "action": "task.comment",
       "target": "task:bayside-sitework:2.2",
@@ -1455,11 +1473,25 @@
       "assignee": "tom"
     },
     {
+      "at": "A-34T08:15",
+      "action": "risk.note",
+      "target": "risk:labor",
+      "actor": "diego",
+      "body": "Tom is now carrying both the east and west pours after the reassignment above — stretched, but not yet short. If a third pour lands in the same window this becomes the trigger for bringing on a second crew rather than a hypothetical one."
+    },
+    {
       "at": "A-20T09:00",
       "action": "risk.status",
       "target": "risk:crane-availability",
       "actor": "tom",
       "to": "MITIGATING"
+    },
+    {
+      "at": "A-13T20:45",
+      "action": "risk.note",
+      "target": "risk:crane-availability",
+      "actor": "tom",
+      "body": "Leasing yard confirmed and locked the tower crane booking through the end of the structural phase — no scheduling gap opened. The annual-inspection stand-down already carried on the site calendar is the only planned down time, and framing has the float to absorb it. Resolving; the mobile-crane fallback in the contingency wasn't needed."
     },
     {
       "at": "A-12T09:00",
@@ -1483,11 +1515,25 @@
       "to": "IN_PROGRESS"
     },
     {
+      "at": "A-18T08:45",
+      "action": "risk.note",
+      "target": "risk:material-escalation",
+      "actor": "omar",
+      "body": "This steel delivery came in at the price locked in the early procurement buy, so the escalation hasn't hit us yet on this pour. Accepting the risk as scoped — the buy-ahead on the remaining structural steel is what's carrying it, not a price hedge."
+    },
+    {
       "at": "A-16T09:00",
       "action": "task.comment",
       "target": "task:bayside-sitework:3.1",
       "actor": "diego",
       "body": "Steel is going up. Owner is still weighing a mezzanine design change — holding the final connections until it's resolved."
+    },
+    {
+      "at": "A-14T10:45",
+      "action": "risk.note",
+      "target": "risk:design-change",
+      "actor": "diego",
+      "body": "The owner's mezzanine design change is now confirmed rather than under consideration — deck framing at grid C is added scope. Raising to mitigating; holding final steel connections until the change locked (rather than guessing) is what kept this from becoming rework."
     },
     {
       "at": "A-14T11:00",
@@ -1537,11 +1583,32 @@
       "body": "Framing inspection is on the municipal calendar; electrical rough-in mobilizes three days ahead of the certificate so the fit-out project doesn't lose the overlap."
     },
     {
+      "at": "A-2T14:15",
+      "action": "risk.note",
+      "target": "risk:structure-cascade",
+      "actor": "sam",
+      "body": "Program-level risk — the register has no program-level risk model yet, so it sits on Sitework, but it's really the cross-project edge above: electrical rough-in (Building 1.1) mobilizing three days ahead of the framing certificate. That -3 day lead already assumes the overlap in the contingency; widening it is the lever if the inspection date moves."
+    },
+    {
+      "at": "A-2T14:30",
+      "action": "risk.note",
+      "target": "risk:electrical-inspection",
+      "actor": "nadia",
+      "body": "Rough-in mobilizes three days ahead of the framing certificate per the cross-project schedule above, which leaves no slack for a failed first inspection. Raising to mitigating; pre-walking the rough-in with the inspector before the formal call is the mitigation."
+    },
+    {
       "at": "A-3T07:30",
       "action": "task.comment",
       "target": "task:bayside-sitework:3.1",
       "actor": "tom",
       "body": "Final steel delivery hit the laydown yard this morning — crane picks resume at first light."
+    },
+    {
+      "at": "A-1T10:45",
+      "action": "risk.note",
+      "target": "risk:weather",
+      "actor": "sam",
+      "body": "NWS is showing a hazardous-weather outlook over the site for the coming pour window on 2.3/2.4 — sustained gusts near the 25 mph trigger. Raising to mitigating; holding the pour a day if the outlook firms up rather than working through it, per the site calendar's weather allowance."
     },
     {
       "at": "A-1T11:00",
@@ -1563,6 +1630,27 @@
       "target": "task:bayside-building:2.5",
       "actor": "sam",
       "body": "Loaded the contract winter weather allowance onto the site calendar. It lands squarely on final inspection and handover, which is the thinnest float we have left, so the certificate of occupancy moves with it. Better to carry it in the plan than to argue it afterwards."
+    },
+    {
+      "at": "A-4T09:15",
+      "action": "risk.note",
+      "target": "risk:commissioning-delay",
+      "actor": "diego",
+      "body": "Final inspection and handover is now the thinnest float on the project per the weather-allowance load above — commissioning has no room left to absorb its own slip on top of that. Watching the MEP rough-in finish dates most closely; that's what sets the earliest commissioning can start."
+    },
+    {
+      "at": "A-4T09:30",
+      "action": "risk.note",
+      "target": "risk:subcontractor-default",
+      "actor": "sam",
+      "body": "No new signal this period — the bond is in place and the sub's payment applications are current. Leaving this open at probability 2 / impact 5 rather than closing it, since the bond transfers the financial exposure but not the 4-6 week schedule cost a replacement would carry."
+    },
+    {
+      "at": "A-4T09:45",
+      "action": "risk.note",
+      "target": "risk:supply-chain",
+      "actor": "nadia",
+      "body": "Rooftop-unit vendor confirmed a ship date inside the 16-week quote — no trigger fired yet. Holding the alternate-manufacturer submittal ready in case that slips; the units still set after the building is dried in either way."
     },
     {
       "at": "A-59T09:30",

@@ -680,6 +680,18 @@ def _build_aurora_v20() -> dict:
             assignee="mei",
         ),
         _ev(
+            T(4, 13, 15),
+            "risk.note",
+            "risk:key-person",
+            "priya",
+            body="This is the risk showing up in real time — Diego's spike "
+            "stalled on the secure-enclave path and the story moved to "
+            "Mei, the only other engineer who has done biometric work "
+            "here. Accepting the concentration for launch; pairing Diego "
+            "with Mei on the next biometric story is the actual fix, and "
+            "it's backlogged for after 1.0.",
+        ),
+        _ev(
             T(7, 10, 0),
             "task.comment",
             task(wbs["Biometric login"]),
@@ -710,6 +722,8 @@ def _build_aurora_v20() -> dict:
             "retro.action",
             sprint("au-sprint-1"),
             "sam",
+            assignee="sam",
+            points=1,
             body="Right-size sprint commitments to recent velocity — Profile "
             "editor carried after we committed 26 against a 21-point run rate.",
         ),
@@ -718,6 +732,15 @@ def _build_aurora_v20() -> dict:
             "retro.action",
             sprint("au-sprint-1"),
             "sam",
+            assignee="mei",
+            points=3,
+            notes="Sprint 1 closed PARTIAL. Two things drove it: we "
+            "committed 26 points against a 21-point run rate with no "
+            "discount for a first sprint, and the biometric-auth spike "
+            "stalled two days on a secure-enclave path Diego hadn't "
+            "touched before. Right-sizing commitments and spiking "
+            "unfamiliar integrations ahead of commitment are the two "
+            "changes going into Sprint 2.",
             body=promoted_action,
         ),
         _ev(
@@ -736,6 +759,16 @@ def _build_aurora_v20() -> dict:
             "mei",
             body="Push vendor had an overnight outage — integration tests are flaky. "
             "Watching their status page before I trust the happy path.",
+        ),
+        _ev(
+            T(16, 11, 45),
+            "risk.note",
+            "risk:external-api",
+            "sam",
+            body="Vendor had another overnight outage — on top of the two "
+            "already logged this quarter. Mei's watching their status page "
+            "before trusting the happy path. Raising to mitigating; the "
+            "retry-with-backoff work below is the actual mitigation.",
         ),
         _ev(T(16, 12, 0), "risk.status", "risk:external-api", "sam", to="MITIGATING"),
         _ev(
@@ -770,6 +803,17 @@ def _build_aurora_v20() -> dict:
         ),
         # Store-review risk resolves over the sprint as the checklist lands.
         _ev(T(15, 11, 0), "risk.status", "risk:store-review", "sam", to="MITIGATING"),
+        _ev(
+            T(26, 15, 45),
+            "risk.note",
+            "risk:store-review",
+            "sam",
+            body="Pre-review checklist caught the two things that sank our "
+            "last submission — the missing privacy-nutrition labels and an "
+            "undeclared background-location entitlement. First submission "
+            "with the checklist applied was approved on the first pass. "
+            "Closing this out.",
+        ),
         _ev(T(26, 16, 0), "risk.status", "risk:store-review", "sam", to="RESOLVED"),
         _ev(
             T(27, 17, 0),
@@ -841,6 +885,18 @@ def _build_aurora_v20() -> dict:
             "sprint this late. Share sheet and pull-to-refresh move to the "
             "re-plan rather than get half-started here.",
         ),
+        _ev(
+            T(33, 14, 30),
+            "risk.note",
+            "risk:scope-creep",
+            "priya",
+            body="The monetization descope above is this risk, not a "
+            "separate problem — three 'must-have' stories arrived "
+            "mid-sprint after the beta data said otherwise, and we pulled "
+            "them rather than protect the original plan. Raising to "
+            "mitigating; re-planning from the surviving backlog is the "
+            "retro action below.",
+        ),
         _ev(T(34, 9, 0), "risk.status", "risk:scope-creep", "priya", to="MITIGATING"),
         _ev(
             T(36, 15, 0),
@@ -862,6 +918,8 @@ def _build_aurora_v20() -> dict:
             "retro.action",
             sprint("au-sprint-3"),
             "sam",
+            assignee="priya",
+            points=2,
             body=pivot_action,
         ),
         _ev(
@@ -869,6 +927,17 @@ def _build_aurora_v20() -> dict:
             "retro.action",
             sprint("au-sprint-3"),
             "sam",
+            assignee="sam",
+            points=1,
+            notes="Sprint 3 goal MISSED. The monetization increment we "
+            "planned around turned out to be a bad bet — the beta "
+            "cohort's 4% paywall open rate and zero completed purchases "
+            "surfaced mid-sprint, and pulling receipt export, activity "
+            "feed, and bookmark sync back to the backlog left nothing to "
+            "refill the sprint with this late. Validating demand before "
+            "committing, and re-planning from the surviving backlog rather "
+            "than defaulting to the old plan, are both going into "
+            "Sprint 4.",
             body="Re-plan the next sprint from the surviving backlog before "
             "committing, instead of carrying the old plan forward by default.",
         ),
@@ -934,6 +1003,15 @@ def _build_aurora_v20() -> dict:
             "retro.action",
             sprint("au-sprint-4"),
             "sam",
+            assignee="sam",
+            points=1,
+            notes="Sprint 4 goal MET — 23 committed, 23 delivered, no "
+            "carryover. Coming off a MISSED sprint, the re-plan from the "
+            "surviving backlog held: dark mode landed first per the beta "
+            "feedback, and the marketing widget-gallery injection was "
+            "absorbed on purpose because the re-plan had left intentional "
+            "headroom. Keep sizing to the trailing two-sprint average "
+            "rather than the best one — this is the pattern to repeat.",
             body="Keep sizing to the trailing two-sprint average rather than the "
             "best one — 23 committed and 23 delivered is the pattern to repeat.",
         ),
@@ -1079,6 +1157,7 @@ def _build_aurora_v20() -> dict:
                         "impact": 3,
                         "category": "ORGANIZATIONAL",
                         "response": "MITIGATE",
+                        "mitigation_due_date": D(38),
                         "owner": "priya",
                         "tasks": [wbs["Share sheet"], wbs["Widget gallery"]],
                     },
@@ -1091,6 +1170,7 @@ def _build_aurora_v20() -> dict:
                         "impact": 4,
                         "category": "EXTERNAL",
                         "response": "MITIGATE",
+                        "mitigation_due_date": D(23),
                         "owner": "sam",
                         # Linked to the vendor's blast radius: push delivery and
                         # the in-app chat that rides the same messaging API.
@@ -1592,6 +1672,18 @@ def _build_bayside_v20() -> dict:
             body="Survey package is ready, but the municipal permit is still in "
             "review — that's gating the site-prep sign-off.",
         ),
+        _ev(
+            ts(23, 9, 45),
+            "risk.note",
+            "risk:permit-delay",
+            "sam",
+            body="Permit office confirmed still in review this week, and "
+            "it's now the long pole ahead of site-prep sign-off — the "
+            "survey package itself has been ready since last week. Raising "
+            "to mitigating; the partial foundation-only permit in the "
+            "contingency is what we'd request if this runs 10 more working "
+            "days.",
+        ),
         _ev(ts(24, 10, 0), "risk.status", "risk:permit-delay", "sam", to="MITIGATING"),
         # The realized risk (#3097). The mitigation — a spot geotech survey ahead
         # of rebar — finds the soft layer but cannot prevent it, so the
@@ -1669,6 +1761,19 @@ def _build_bayside_v20() -> dict:
         ),
         _ev(ts(44, 10, 30), "task.status", sw("2.2"), "omar", to="IN_PROGRESS"),
         _ev(
+            ts(44, 10, 45),
+            "risk.note",
+            "risk:inspection-fail",
+            "diego",
+            body="Program-level risk, tracked here on Sitework because the "
+            "register has no program-level risk model yet — it's really "
+            "the schedule that both projects share. The east-footing "
+            "rebar failure above is a small, absorbable version of it: one "
+            "re-tie cycle, no float lost. Accepting for now; the real "
+            "exposure is a failure on the framing inspection itself, which "
+            "is what cascades into fit-out.",
+        ),
+        _ev(
             ts(46, 14, 0),
             "task.comment",
             sw("2.2"),
@@ -1703,6 +1808,16 @@ def _build_bayside_v20() -> dict:
             body="The pours belong with the concrete crew — moving the west pour to Tom.",
         ),
         _ev(ts(56, 8, 5), "task.assign", sw("2.4"), "diego", assignee="tom"),
+        _ev(
+            ts(56, 8, 15),
+            "risk.note",
+            "risk:labor",
+            "diego",
+            body="Tom is now carrying both the east and west pours after "
+            "the reassignment above — stretched, but not yet short. If a "
+            "third pour lands in the same window this becomes the trigger "
+            "for bringing on a second crew rather than a hypothetical one.",
+        ),
         # Crane risk booked and resolved ahead of the structural phase.
         _ev(
             ts(70, 9, 0),
@@ -1710,6 +1825,18 @@ def _build_bayside_v20() -> dict:
             "risk:crane-availability",
             "tom",
             to="MITIGATING",
+        ),
+        _ev(
+            ts(77, 20, 45),
+            "risk.note",
+            "risk:crane-availability",
+            "tom",
+            body="Leasing yard confirmed and locked the tower crane "
+            "booking through the end of the structural phase — no "
+            "scheduling gap opened. The annual-inspection stand-down "
+            "already carried on the site calendar is the only planned down "
+            "time, and framing has the float to absorb it. Resolving; the "
+            "mobile-crane fallback in the contingency wasn't needed.",
         ),
         _ev(
             ts(78, 9, 0), "risk.status", "risk:crane-availability", "tom", to="RESOLVED"
@@ -1726,12 +1853,34 @@ def _build_bayside_v20() -> dict:
         ),
         _ev(ts(72, 8, 30), "task.status", sw("3.1"), "diego", to="IN_PROGRESS"),
         _ev(
+            ts(72, 8, 45),
+            "risk.note",
+            "risk:material-escalation",
+            "omar",
+            body="This steel delivery came in at the price locked in the "
+            "early procurement buy, so the escalation hasn't hit us yet on "
+            "this pour. Accepting the risk as scoped — the buy-ahead on "
+            "the remaining structural steel is what's carrying it, not a "
+            "price hedge.",
+        ),
+        _ev(
             ts(74, 9, 0),
             "task.comment",
             sw("3.1"),
             "diego",
             body="Steel is going up. Owner is still weighing a mezzanine design "
             "change — holding the final connections until it's resolved.",
+        ),
+        _ev(
+            ts(76, 10, 45),
+            "risk.note",
+            "risk:design-change",
+            "diego",
+            body="The owner's mezzanine design change is now confirmed "
+            "rather than under consideration — deck framing at grid C is "
+            "added scope. Raising to mitigating; holding final steel "
+            "connections until the change locked (rather than guessing) "
+            "is what kept this from becoming rework.",
         ),
         _ev(
             ts(76, 11, 0), "risk.status", "risk:design-change", "diego", to="MITIGATING"
@@ -1781,6 +1930,29 @@ def _build_bayside_v20() -> dict:
             "rough-in mobilizes three days ahead of the certificate so the fit-out "
             "project doesn't lose the overlap.",
         ),
+        _ev(
+            ts(88, 14, 15),
+            "risk.note",
+            "risk:structure-cascade",
+            "sam",
+            body="Program-level risk — the register has no program-level "
+            "risk model yet, so it sits on Sitework, but it's really the "
+            "cross-project edge above: electrical rough-in (Building 1.1) "
+            "mobilizing three days ahead of the framing certificate. That "
+            "-3 day lead already assumes the overlap in the contingency; "
+            "widening it is the lever if the inspection date moves.",
+        ),
+        _ev(
+            ts(88, 14, 30),
+            "risk.note",
+            "risk:electrical-inspection",
+            "nadia",
+            body="Rough-in mobilizes three days ahead of the framing "
+            "certificate per the cross-project schedule above, which "
+            "leaves no slack for a failed first inspection. Raising to "
+            "mitigating; pre-walking the rough-in with the inspector "
+            "before the formal call is the mitigation.",
+        ),
         # Recent beats — the field log reaches import day.
         _ev(
             ts(87, 7, 30),
@@ -1789,6 +1961,17 @@ def _build_bayside_v20() -> dict:
             "tom",
             body="Final steel delivery hit the laydown yard this morning — crane "
             "picks resume at first light.",
+        ),
+        _ev(
+            ts(89, 10, 45),
+            "risk.note",
+            "risk:weather",
+            "sam",
+            body="NWS is showing a hazardous-weather outlook over the site "
+            "for the coming pour window on 2.3/2.4 — sustained gusts near "
+            "the 25 mph trigger. Raising to mitigating; holding the pour "
+            "a day if the outlook firms up rather than working through "
+            "it, per the site calendar's weather allowance.",
         ),
         _ev(ts(89, 11, 0), "risk.status", "risk:weather", "sam", to="MITIGATING"),
         # The two site-calendar windows, explained where a viewer will meet them.
@@ -1811,6 +1994,39 @@ def _build_bayside_v20() -> dict:
             "calendar. It lands squarely on final inspection and handover, which is "
             "the thinnest float we have left, so the certificate of occupancy moves "
             "with it. Better to carry it in the plan than to argue it afterwards.",
+        ),
+        _ev(
+            ts(86, 9, 15),
+            "risk.note",
+            "risk:commissioning-delay",
+            "diego",
+            body="Final inspection and handover is now the thinnest float "
+            "on the project per the weather-allowance load above — "
+            "commissioning has no room left to absorb its own slip on top "
+            "of that. Watching the MEP rough-in finish dates most closely; "
+            "that's what sets the earliest commissioning can start.",
+        ),
+        _ev(
+            ts(86, 9, 30),
+            "risk.note",
+            "risk:subcontractor-default",
+            "sam",
+            body="No new signal this period — the bond is in place and the "
+            "sub's payment applications are current. Leaving this open at "
+            "probability 2 / impact 5 rather than closing it, since the "
+            "bond transfers the financial exposure but not the 4-6 week "
+            "schedule cost a replacement would carry.",
+        ),
+        _ev(
+            ts(86, 9, 45),
+            "risk.note",
+            "risk:supply-chain",
+            "nadia",
+            body="Rooftop-unit vendor confirmed a ship date inside the "
+            "16-week quote — no trigger fired yet. Holding the "
+            "alternate-manufacturer submittal ready in case that slips; "
+            "the units still set after the building is dried in either "
+            "way.",
         ),
     ]
 
@@ -1962,6 +2178,7 @@ def _build_bayside_v20() -> dict:
                 "impact": 3,
                 "category": "EXTERNAL",
                 "response": "MITIGATE",
+                "mitigation_due_date": d(135),
                 "owner": "sam",
                 "trigger": "NWS issues a hazardous-weather outlook covering a scheduled pour "
                 "or steel-pick window, or sustained winds forecast above 25 mph.",
@@ -2040,6 +2257,7 @@ def _build_bayside_v20() -> dict:
                 "impact": 4,
                 "category": "PROJECT_MANAGEMENT",
                 "response": "MITIGATE",
+                "mitigation_due_date": d(92),
                 "owner": "diego",
                 "tasks": ["3.1"],
             },
@@ -2124,6 +2342,7 @@ def _build_bayside_v20() -> dict:
                 "impact": 3,
                 "category": "TECHNICAL",
                 "response": "MITIGATE",
+                "mitigation_due_date": d(102),
                 "owner": "nadia",
                 "tasks": ["1.5"],
             },
@@ -2207,6 +2426,7 @@ def _build_bayside_v20() -> dict:
                 "impact": 4,
                 "category": "ORGANIZATIONAL",
                 "response": "MITIGATE",
+                "mitigation_due_date": d(98),
                 "owner": "sam",
                 "trigger": "Framing inspection (sitework 3.4) forecasts later than its rebaseline "
                 "finish, or fails and needs a re-inspection cycle.",
@@ -2561,6 +2781,30 @@ def _build_helios_v20() -> dict:
         return f"sprint:helios:{slug}"
 
     events: list[dict] = [
+        # Risks identified at kickoff, before any sprint opens.
+        _ev(
+            T(2, 10, 0),
+            "risk.note",
+            "risk:vendor-lockin",
+            "ivan",
+            body="Identified at kickoff, not new: the platform's "
+            "custom-object model (1.4) and the workflow-automation layer "
+            "(2.14) are both proprietary to this vendor. Mitigating by "
+            "keeping the data-export path documented and current as we "
+            "build, so a future migration off the platform isn't blocked "
+            "on figuring that out from scratch.",
+        ),
+        _ev(
+            T(2, 10, 15),
+            "risk.note",
+            "risk:team-ramp",
+            "ivan",
+            body="Two of four build engineers are new to this platform's "
+            "scripting model. Accepting the ramp cost rather than "
+            "resequencing the plan around it — pairing the two new "
+            "engineers with Mei on the first sprint's stories is the "
+            "informal mitigation, not a tracked task.",
+        ),
         # The plan-to-build bridge: the data model from planning is the contract
         # the migration story will build against.
         _ev(
@@ -2651,6 +2895,16 @@ def _build_helios_v20() -> dict:
             to="MITIGATING",
         ),
         _ev(
+            T(72, 15, 45),
+            "risk.note",
+            "risk:integration-defects",
+            "mei",
+            body="All three field-mapping defects from the integration "
+            "suite are fixed and re-verified against the sandbox org — "
+            "the rework cost the ~4 days already logged, nothing further. "
+            "Closing this out.",
+        ),
+        _ev(
             T(72, 16, 0),
             "risk.status",
             "risk:integration-defects",
@@ -2680,6 +2934,8 @@ def _build_helios_v20() -> dict:
             "retro.action",
             sprint("he-sprint-1"),
             "jordan",
+            assignee="mei",
+            points=2,
             body="Pad estimates for third-party integrations — Email sync carried "
             "over on IMAP provider quirks.",
         ),
@@ -2688,6 +2944,14 @@ def _build_helios_v20() -> dict:
             "retro.action",
             sprint("he-sprint-1"),
             "ivan",
+            assignee="ivan",
+            points=1,
+            notes="Sprint 1 closed PARTIAL. Email sync carried over on IMAP "
+            "provider quirks nobody had budgeted estimate slack for, and "
+            "the review queue backed up in the last two days because "
+            "nothing was reviewed earlier in the sprint. Padding "
+            "third-party integration estimates and starting the review "
+            "pass by mid-sprint are both going into Sprint 2's plan.",
             body="Start the review pass by mid-sprint so stories don't stack up on "
             "the final two days.",
         ),
@@ -2738,6 +3002,17 @@ def _build_helios_v20() -> dict:
             "risk:scope-injection",
             "jordan",
             to="MITIGATING",
+        ),
+        _ev(
+            T(79, 15, 35),
+            "risk.note",
+            "risk:scope-injection",
+            "jordan",
+            body="Search & filters landing mid-sprint is exactly this risk "
+            "— Sales asked for it and it went in before anyone checked "
+            "capacity. Rejecting the injection and sending it to the "
+            "backlog held the sprint goal; raising to mitigating to make "
+            "the pattern visible rather than let it repeat quietly.",
         ),
         # Recent beats — the demo reaches import day: the carryover completes,
         # and a second injection (the audit log) is accepted because the freed
@@ -2914,6 +3189,7 @@ def _build_helios_v20() -> dict:
                         "impact": 4,
                         "category": "EXTERNAL",
                         "response": "MITIGATE",
+                        "mitigation_due_date": D(96),
                         "owner": "ivan",
                         "tasks": ["1.4", "2.14"],
                     },
@@ -2965,6 +3241,7 @@ def _build_helios_v20() -> dict:
                         "impact": 3,
                         "category": "PROJECT_MANAGEMENT",
                         "response": "MITIGATE",
+                        "mitigation_due_date": D(78),
                         "owner": "jordan",
                         "tasks": ["2.16"],
                     },

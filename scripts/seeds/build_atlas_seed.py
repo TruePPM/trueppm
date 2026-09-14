@@ -817,6 +817,7 @@ def build_platform_core() -> dict:
                 "impact": 4,
                 "category": "TECHNICAL",
                 "response": "MITIGATE",
+                "mitigation_due_date": d(108),
                 "owner": "yuki",
                 "tasks": ["3.1", "3.2"],
             },
@@ -1104,6 +1105,7 @@ def build_migration_tooling() -> dict:
                 "impact": 5,
                 "category": "EXTERNAL",
                 "response": "MITIGATE",
+                "mitigation_due_date": d(115),
                 "owner": "sam",
                 "tasks": ["5.2"],
             },
@@ -1140,6 +1142,7 @@ def build_migration_tooling() -> dict:
                 "impact": 3,
                 "category": "TECHNICAL",
                 "response": "MITIGATE",
+                "mitigation_due_date": d(62),
                 "owner": "omar",
                 "tasks": ["1.3"],
             },
@@ -1511,6 +1514,50 @@ def _build_atlas_v20() -> dict:
         return f"sprint:gtm-readiness:{slug}"
 
     events: list[dict] = [
+        # --- Program risks noted at kickoff, before Sprint 1 opens ----------
+        _ev(
+            ts(1, 10, 0),
+            "risk.note",
+            "risk:prog-cross-team-dependency",
+            "alex",
+            body="Tracked at the program level — the register has no "
+            "program-level risk model yet, so this sits on Platform Core, but "
+            "it spans all three projects: a slip on the Core API (2.1) "
+            "ripples into the migration cutover (2.1) and then the GTM "
+            "launch gate (3). Weekly cross-team sync is the mitigation for "
+            "now.",
+        ),
+        _ev(
+            ts(1, 10, 15),
+            "risk.note",
+            "risk:prog-budget",
+            "ada",
+            body="Program-level risk, materialized here on Platform Core for "
+            "the same reason as the others above — no program-level risk "
+            "model yet. The contractor rate increase is confirmed for the "
+            "back half of the program; holding it against the existing "
+            "contingency rather than requesting more budget.",
+        ),
+        _ev(
+            ts(1, 10, 30),
+            "risk.note",
+            "risk:prog-regulatory",
+            "alex",
+            body="Program-level risk sitting on Platform Core in the "
+            "register — it actually gates two projects: billing go-live "
+            "(Platform Core 4.1) and the production cutover (Migration "
+            "Tooling 5.2). Compliance review is scheduled; no findings yet.",
+        ),
+        _ev(
+            ts(1, 10, 45),
+            "risk.note",
+            "risk:prog-resource-contention",
+            "sam",
+            body="Program-level risk on Platform Core by the same "
+            "convention. The actual contention is Sam pulled across Core API "
+            "(3.1) and GTM readiness (2.1) in the same sprint — sequencing "
+            "rather than adding people, per the contingency.",
+        ),
         # --- Sprint 1 (A-62..A-49): identity + the tenant core ------------
         _ev(ts(28, 9, 0), "sprint.activate", pc_sprint("pc-sprint-1"), "sam"),
         # Hero: SSO login (1.1) is built, fails security review on a real CSRF
@@ -1535,6 +1582,17 @@ def _build_atlas_v20() -> dict:
         ),
         _ev(ts(32, 9, 5), "task.assign", pc_task("2.1"), "priya", assignee="diego"),
         _ev(
+            ts(32, 9, 10),
+            "risk.note",
+            "risk:pc-velocity-dip",
+            "priya",
+            body="Two new engineers ramped onto Core API this sprint — the "
+            "Tenant model reassignment above is exactly the kind of shuffle "
+            "this risk expects. Velocity held at 90% of the pre-expansion "
+            "baseline; watching one more sprint before deciding whether the "
+            "re-baseline in the contingency is actually needed.",
+        ),
+        _ev(
             ts(34, 15, 0),
             "task.comment",
             pc_task("1.1"),
@@ -1552,6 +1610,17 @@ def _build_atlas_v20() -> dict:
             "audit finding.",
         ),
         _ev(ts(35, 11, 30), "task.status", pc_task("1.1"), "priya", to="IN_PROGRESS"),
+        _ev(
+            ts(35, 11, 45),
+            "risk.note",
+            "risk:prog-security-audit",
+            "priya",
+            body="Program-level risk sitting on Platform Core because "
+            "there's no program risk model — the audit actually covers the "
+            "SSO work (1.1) Mei and I are pairing on. Third-party audit "
+            "flagged two findings; both are inside the SSO hardening already "
+            "in flight, not new work.",
+        ),
         _ev(
             ts(35, 12, 0),
             "risk.status",
@@ -1632,6 +1701,35 @@ def _build_atlas_v20() -> dict:
             body="Positioning is locked; the pricing review with Finance is the long "
             "pole now.",
         ),
+        _ev(
+            ts(46, 10, 15),
+            "risk.note",
+            "risk:gtm-pricing",
+            "jordan",
+            body="Finance pricing review is booked but not yet held. "
+            "Packaging tiers are drafted and don't block enablement "
+            "content, so this doesn't gate anything else yet — just "
+            "watching the calendar.",
+        ),
+        _ev(
+            ts(46, 10, 30),
+            "risk.note",
+            "risk:gtm-launch-slip",
+            "alex",
+            body="Migration is still tracking to the committed cutover "
+            "date, so the quarter-end launch date holds for now. This is "
+            "the one to watch if the cutover-window risk on Migration "
+            "Tooling fires.",
+        ),
+        _ev(
+            ts(46, 10, 45),
+            "risk.note",
+            "risk:gtm-enablement",
+            "clara",
+            body="Accepting the enablement lag as scoped — the sales deck "
+            "ships a week behind GA rather than day-of. Sales ops confirmed "
+            "that's workable against the pipeline.",
+        ),
         # Hero: Schema transformer (2.2) fails review on a lossy enum mapping, is
         # split and reconciled, and passes — the mapping risk moving to mitigated.
         _ev(
@@ -1671,6 +1769,17 @@ def _build_atlas_v20() -> dict:
         _ev(ts(56, 11, 30), "task.status", mt_task("2.2"), "omar", to="IN_PROGRESS"),
         _ev(ts(56, 12, 0), "risk.status", "risk:mt-mapping", "omar", to="MITIGATING"),
         _ev(
+            ts(56, 12, 15),
+            "risk.note",
+            "risk:mt-mapping",
+            "omar",
+            body="The account-type enum collapse I caught in review is "
+            "exactly this risk landing — three legacy codes into one "
+            "dropped a distinction Finance relies on. Yuki split the "
+            "mapping and added a reconciliation check; watching for other "
+            "collapsed enums in the remaining tables.",
+        ),
+        _ev(
             ts(59, 14, 0),
             "task.comment",
             mt_task("2.2"),
@@ -1678,6 +1787,17 @@ def _build_atlas_v20() -> dict:
             body="Split the enum mapping and added a reconciliation check. Re-review.",
         ),
         _ev(ts(59, 14, 30), "task.status", mt_task("2.2"), "yuki", to="REVIEW"),
+        _ev(
+            ts(59, 20, 0),
+            "risk.note",
+            "risk:prog-exec-sponsor",
+            "ada",
+            body="Program-level risk on Platform Core, though the "
+            "transition itself was organizational rather than "
+            "project-specific: the new sponsor completed onboarding and "
+            "reconfirmed launch funding in writing. Resolving — no "
+            "follow-up needed from any of the three projects.",
+        ),
         _ev(
             ts(60, 9, 0), "risk.status", "risk:prog-exec-sponsor", "ada", to="RESOLVED"
         ),
@@ -1689,6 +1809,14 @@ def _build_atlas_v20() -> dict:
             body="Reconciles now. Approved.",
         ),
         _ev(ts(60, 16, 30), "task.status", mt_task("2.2"), "omar", to="COMPLETE"),
+        _ev(
+            ts(64, 9, 45),
+            "risk.note",
+            "risk:gtm-analyst",
+            "ada",
+            body="Embargo dates confirmed with both analyst firms against "
+            "the launch gate — no conflict after all. Closing this out.",
+        ),
         _ev(ts(64, 10, 0), "risk.status", "risk:gtm-analyst", "ada", to="CLOSED"),
         # Carryover behind the PARTIAL verdict: both 3-pointers move to Sprint 4.
         _ev(
@@ -1714,6 +1842,8 @@ def _build_atlas_v20() -> dict:
             "retro.action",
             pc_sprint("pc-sprint-3"),
             "priya",
+            assignee="priya",
+            points=1,
             body="Cap review WIP at 2",
         ),
         _ev(
@@ -1721,6 +1851,14 @@ def _build_atlas_v20() -> dict:
             "retro.action",
             pc_sprint("pc-sprint-3"),
             "sam",
+            assignee="sam",
+            points=2,
+            notes="Sprint 3 closed PARTIAL — billing sandbox access blocked "
+            "both Credit memo flow and Notification templates, and they "
+            "carried into Sprint 4. Review WIP was also running high enough "
+            "that stories sat in review longer than they were in progress. "
+            "Two changes: cap review WIP at 2, and split anything estimated "
+            "over 8 points before it enters a sprint.",
             body="Split stories larger than 8 points",
         ),
         _ev(
@@ -1736,6 +1874,46 @@ def _build_atlas_v20() -> dict:
             "risk:pc-notif-throttle",
             "tom",
             to="MITIGATING",
+        ),
+        _ev(
+            ts(77, 9, 0),
+            "risk.note",
+            "risk:mt-data-quality",
+            "yuki",
+            body="Profiling pass on the legacy export confirms the null "
+            "rate in the customer-address fields is worse than the "
+            "original sample suggested, but still inside the transform "
+            "effort we budgeted. Holding at open ahead of the dry-run.",
+        ),
+        _ev(
+            ts(77, 9, 15),
+            "risk.note",
+            "risk:mt-cutover-window",
+            "sam",
+            body="The freeze window is fixed by the vendor's own change "
+            "window and can't move. Building the rollback rehearsal into "
+            "the cutover rehearsal task (5.3) so a failed first attempt "
+            "still has an exit inside the same window.",
+        ),
+        _ev(
+            ts(77, 9, 30),
+            "risk.note",
+            "risk:mt-perf",
+            "omar",
+            body="Second load test came in at 82% of production write "
+            "volume. Accepting the gap for now — closing it fully would "
+            "mean re-architecting the sync workers this late in the "
+            "migration.",
+        ),
+        _ev(
+            ts(77, 9, 45),
+            "risk.note",
+            "risk:mt-rollback",
+            "sam",
+            body="No rollback rehearsal scheduled yet — the cutover "
+            "dry-run (3.1) starting today is the vehicle for it. This "
+            "stays open until that rehearsal actually exercises a "
+            "rollback, not just a forward cutover.",
         ),
         _ev(
             ts(79, 9, 0),
@@ -2003,6 +2181,16 @@ def _build_atlas_v20() -> dict:
             body="Draft launch blog is with brand review; hero image still open.",
         ),
         _ev(
+            ts(89, 10, 45),
+            "risk.note",
+            "risk:pc-data-platform",
+            "yuki",
+            body="Schema churn hit two of the three data-platform tasks "
+            "this week — the customer-events table changed shape twice "
+            "under us. Moving to mitigating and locking a schema freeze "
+            "date for the remaining epics.",
+        ),
+        _ev(
             ts(89, 11, 0),
             "risk.status",
             "risk:pc-data-platform",
@@ -2057,6 +2245,7 @@ def _build_atlas_v20() -> dict:
                 "impact": 5,
                 "category": "ORGANIZATIONAL",
                 "response": "MITIGATE",
+                "mitigation_due_date": d(100),
                 "owner": "alex",
                 "tasks": [
                     "platform-core:2.1",
@@ -2096,6 +2285,7 @@ def _build_atlas_v20() -> dict:
                 "impact": 4,
                 "category": "TECHNICAL",
                 "response": "MITIGATE",
+                "mitigation_due_date": d(65),
                 "owner": "priya",
                 "tasks": ["platform-core:1.1"],
             },
