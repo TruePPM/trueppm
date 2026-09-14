@@ -3,13 +3,18 @@ import type { HealthState } from '@/types';
 import { useUngroupedProjects, type UngroupedProject } from '@/hooks/useUngroupedProjects';
 import { MoveToProgramModal } from './MoveToProgramModal';
 import { PinToggle } from '@/components/PinToggle';
+import { HEALTH_BAND_LABEL } from '@/lib/healthBand';
 
-/** Health dot color + screen-reader label (rule 6: dot is aria-hidden, state is
- * also conveyed as text; rule 7: semantic health tokens). */
+/**
+ * Health dot color + screen-reader label (rule 6: dot is aria-hidden, state is
+ * also conveyed as text; rule 7: semantic health tokens). The label maps this
+ * kebab-case state onto the one health vocabulary (lib/healthBand, #3502) at
+ * the edge; `unknown` is local — it is not a band, it means no health data.
+ */
 const HEALTH: Record<HealthState, { dot: string; label: string }> = {
-  'on-track': { dot: 'bg-semantic-on-track', label: 'On track' },
-  'at-risk': { dot: 'bg-semantic-at-risk', label: 'At risk' },
-  critical: { dot: 'bg-semantic-critical', label: 'Critical' },
+  'on-track': { dot: 'bg-semantic-on-track', label: HEALTH_BAND_LABEL.on_track },
+  'at-risk': { dot: 'bg-semantic-at-risk', label: HEALTH_BAND_LABEL.at_risk },
+  critical: { dot: 'bg-semantic-critical', label: HEALTH_BAND_LABEL.critical },
   unknown: { dot: 'bg-neutral-text-disabled', label: 'Health unknown' },
 };
 
