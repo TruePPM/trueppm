@@ -2920,6 +2920,28 @@ function depIsAncestor(
   return false;
 }
 
+/**
+ * Walk `id`'s parent chain ONCE, returning every ancestor id.
+ *
+ * `obstaclesFor`'s target-transparent obstacle filter (below) used to call
+ * {@link depIsAncestor} — a fresh parent-chain walk — inside the per-row `skip`
+ * closure, re-walking the same target's chain once for every row in the arrow's
+ * span (#3769). The ancestor set of one target is loop-invariant across that
+ * span, so callers now compute it once per link/group via `ancestorsOf` and
+ * probe it with `Set.has` per row instead.
+ */
+function ancestorIdsOf(nodes: Map<string, DepNode>, id: string): ReadonlySet<string> {
+  const ancestors = new Set<string>();
+  let parentId = nodes.get(id)?.parentId ?? null;
+  while (parentId) {
+    ancestors.add(parentId);
+    const parent = nodes.get(parentId);
+    if (!parent) break;
+    parentId = parent.parentId;
+  }
+  return ancestors;
+}
+
 const isFsLink = (l: TaskLink): boolean =>
   l.type !== 'SS' && l.type !== 'FF' && l.type !== 'SF';
 
@@ -3155,19 +3177,58 @@ interface DepPaintContext {
   getScreen: (id: string) => DepScreenNode | undefined;
   rowY: (rowIndex: number) => number;
   /**
-   * Per-arrow obstacle filter, row-banded (#1000). Every bar in the arrow's row
-   * span (±1 for endcap overhang) is a WALL except the arrow's own source/target
-   * and any ancestor of the target (transparent rollups). Restricting to the span is
-   * exact: findBlockingBar only crosses bars whose y overlaps the V-drop, which lies
-   * within these rows — replacing the prior O(N) allBars.filter run once per link.
+   * `id`'s ancestor id set, for the target-transparent obstacle skip below.
+   * Callers compute this ONCE per link (or once per merge-junction group, since
+   * every predecessor in a group shares the same target) and reuse it across
+   * every row `obstaclesFor` scans — see {@link ancestorIdsOf} (#3769).
    */
-  obstaclesFor: (srcId: string, tgtId: string, rA: number, rB: number) => RoutingBox[];
+  ancestorsOf: (id: string) => ReadonlySet<string>;
   /**
-   * Screen-space bars in a row band for the halo channel cut. Includes ALL bars in
-   * range (the halo cuts across any bar a line overlaps, including the arrow's own
-   * endpoints).
+   * Per-arrow obstacle filter, row-banded (#1000) AND intersected with the
+   * caller-supplied visible row range (#3769). Every bar in that intersection is
+   * a WALL except the arrow's own source/target and any id in `tgtAncestors`
+   * (transparent rollups). Restricting to the row span is exact: findBlockingBar
+   * only crosses bars whose y overlaps the V-drop, which lies within these rows
+   * — replacing the prior O(N) allBars.filter run once per link. Further
+   * restricting to the visible range drops obstacle rows that are never
+   * rendered as bars at all (so they cannot visibly block anything) for an
+   * on-screen arrow whose OTHER endpoint is thousands of rows off-screen;
+   * arrows fully inside the visible range are unaffected since their whole span
+   * is already a subset of it.
+   */
+  obstaclesFor: (
+    srcId: string,
+    tgtId: string,
+    tgtAncestors: ReadonlySet<string>,
+    rA: number,
+    rB: number,
+  ) => RoutingBox[];
+  /**
+   * Screen-space bars in a row band for the halo channel cut, intersected with
+   * the visible row range (#3769) — a bar outside that range is never painted
+   * as a bar in the first place (see `_paintAllBars`'s `firstRow..lastRow` bar
+   * loop), so it can never need a channel cut through it. Includes ALL bars in
+   * range (the halo cuts across any bar a line overlaps, including the arrow's
+   * own endpoints).
    */
   screenBarsInRows: (rMin: number, rMax: number) => RoutingBox[];
+}
+
+/**
+ * Total {@link RoutingBox} entries built across every `boxesInRows` call
+ * (routing obstacle scans + halo band scans) in the most recent
+ * `paintDependencyLayout` frame. Reset at the top of that function.
+ *
+ * Exposed for tests only, via {@link getLastObstacleBoxCount} — it is the
+ * falsification line from #3769 turned into an assertion: the count must
+ * scale with the visible row range passed to `paintDependencyLayout`, not
+ * with any individual arrow's row span.
+ */
+let _lastObstacleBoxCount = 0;
+
+/** See {@link _lastObstacleBoxCount}. Test-only. */
+export function getLastObstacleBoxCount(): number {
+  return _lastObstacleBoxCount;
 }
 
 function makeDepPaintContext(
@@ -3177,12 +3238,16 @@ function makeDepPaintContext(
   scrollTop: number,
   selectedTaskIds: ReadonlySet<string>,
   hoverChain: DepArrowHoverChain | null,
+  visibleFirstRow: number,
+  visibleLastRow: number,
 ): DepPaintContext {
   const { nodes, barByRow, anyDriving } = layout;
 
   const boxesInRows = (lo: number, hi: number, skip?: (id: string) => boolean): RoutingBox[] => {
     const out: RoutingBox[] = [];
-    for (let r = Math.max(0, lo); r <= Math.min(barByRow.length - 1, hi); r++) {
+    const start = Math.max(0, lo, visibleFirstRow);
+    const end = Math.min(barByRow.length - 1, hi, visibleLastRow);
+    for (let r = start; r <= end; r++) {
       const bar = barByRow[r];
       if (!bar) continue;
       if (skip?.(bar.id)) continue;
@@ -3193,6 +3258,7 @@ function makeDepPaintContext(
         height: bar.height,
       });
     }
+    _lastObstacleBoxCount += out.length;
     return out;
   };
 
@@ -3216,11 +3282,12 @@ function makeDepPaintContext(
       };
     },
     rowY: (rowIndex) => rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop,
-    obstaclesFor: (srcId, tgtId, rA, rB) =>
+    ancestorsOf: (id) => ancestorIdsOf(nodes, id),
+    obstaclesFor: (srcId, tgtId, tgtAncestors, rA, rB) =>
       boxesInRows(
         Math.min(rA, rB) - 1,
         Math.max(rA, rB) + 1,
-        (id) => id === srcId || id === tgtId || depIsAncestor(nodes, id, tgtId),
+        (id) => id === srcId || id === tgtId || tgtAncestors.has(id),
       ),
     screenBarsInRows: (rMin, rMax) => boxesInRows(rMin - 1, rMax + 1),
   };
@@ -3247,7 +3314,15 @@ function pushSingleFS(
   const tipX = tgt.isMilestone ? tgt.barLeft : tgt.barLeft - 1;
   const srcBox = boxFor(src, srcY, pc.milestoneHalfDiag);
   const tgtBox = boxFor(tgt, tgtY, pc.milestoneHalfDiag);
-  const obstacles = pc.obstaclesFor(link.sourceId, link.targetId, src.rowIndex, tgt.rowIndex);
+  // Computed once for this link, not per row — see `ancestorsOf` (#3769).
+  const tgtAncestors = pc.ancestorsOf(link.targetId);
+  const obstacles = pc.obstaclesFor(
+    link.sourceId,
+    link.targetId,
+    tgtAncestors,
+    src.rowIndex,
+    tgt.rowIndex,
+  );
   pendingPaths.push({
     pts: calculateDependencyPath(srcBox, tgtBox, obstacles, pc.cpHeight, tipX - arrowSize),
     stroke,
@@ -3289,6 +3364,9 @@ function pushMergeJunction(
   }
   const junctionX = Math.min(maxExitX, trunkLimit);
   const junctionY = tgtY;
+  // Computed once for the whole group — every predecessor shares this target,
+  // so its ancestor set is the same for each iteration below (#3769).
+  const tgtAncestors = pc.ancestorsOf(targetId);
 
   for (const { link, src } of validPreds) {
     const srcY = pc.rowY(src.rowIndex);
@@ -3302,6 +3380,7 @@ function pushMergeJunction(
     const obstaclesForLink = pc.obstaclesFor(
       link.sourceId,
       link.targetId,
+      tgtAncestors,
       src.rowIndex,
       tgt.rowIndex,
     );
@@ -3476,9 +3555,18 @@ function paintMergeJunctions(
  * the per-scroll-frame hot path: it re-projects the cached canvas-origin
  * geometry by scroll and re-routes only the on-screen arrows. Obstacle and halo
  * lookups query `barByRow` over each arrow's row span (exact — findBlockingBar
- * and the halo cut only ever touch bars whose rows overlap the path), so the
- * cost is O(visible_rows + visible_links + visible_links²) with the O(N) setup
+ * and the halo cut only ever touch bars whose rows overlap the path) intersected
+ * with `visibleRowRange` (#3769), so the cost no longer scales with a long-span
+ * arrow's row distance, only with the visible band — leaving
+ * O(visible_rows + visible_links + visible_links²) with the O(N) setup
  * amortized to `prepareDependencyLayout`.
+ *
+ * `visibleRowRange` defaults to the layout's full row extent (no truncation) —
+ * callers that don't virtualize (tests, {@link drawDependencyArrows}) get the
+ * exact pre-#3769 behavior. The real hot path ({@link GanttEngineImpl}) passes
+ * its already-computed `_visibleRange()` (with the same overscan the bars layer
+ * itself paints against), so a bar dropped from the obstacle/halo scan here is
+ * always a bar `_paintAllBars` also does not paint this frame.
  */
 export function paintDependencyLayout(
   ctx: CanvasRenderingContext2D,
@@ -3487,9 +3575,22 @@ export function paintDependencyLayout(
   scrollTop: number,
   selectedTaskIds: ReadonlySet<string> = EMPTY_SELECTION,
   hoverChain: DepArrowHoverChain | null = null,
+  visibleRowRange?: { firstRow: number; lastRow: number },
 ): void {
   if (layout.empty) return;
-  const pc = makeDepPaintContext(ctx, layout, scrollLeft, scrollTop, selectedTaskIds, hoverChain);
+  _lastObstacleBoxCount = 0;
+  const visibleFirstRow = visibleRowRange?.firstRow ?? 0;
+  const visibleLastRow = visibleRowRange?.lastRow ?? layout.barByRow.length - 1;
+  const pc = makeDepPaintContext(
+    ctx,
+    layout,
+    scrollLeft,
+    scrollTop,
+    selectedTaskIds,
+    hoverChain,
+    visibleFirstRow,
+    visibleLastRow,
+  );
 
   // PHASE 1 — collect every drawable path without stroking. The collect-then-draw
   // pattern is required for Rule 15 Type A bridge hops: every Manhattan segment must

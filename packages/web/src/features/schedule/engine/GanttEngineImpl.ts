@@ -1282,6 +1282,9 @@ export class GanttEngineImpl implements GanttEngine {
     // _fullRepaintPending; it never invalidates _depLayout, so panning re-projects
     // the cache instead of rebuilding the full-N routing structures every frame.
     this._depLayout ??= prepareDependencyLayout(this._tasks, this._links, this._scales);
+    // Row range intersected into the obstacle/halo scan (#3769) — a long-span
+    // arrow no longer builds a RoutingBox[] sized by its own row distance, only
+    // by what this frame's viewport (plus overscan) actually paints as bars.
     paintDependencyLayout(
       ctx,
       this._depLayout,
@@ -1289,6 +1292,7 @@ export class GanttEngineImpl implements GanttEngine {
       this._scrollTop,
       this._selectedTaskIds,
       this._hoverChain,
+      { firstRow, lastRow },
     );
 
     for (let i = firstRow; i <= lastRow; i++) {

@@ -31,6 +31,7 @@ import {
   getFontScale,
   setRendererRowModes,
   SUMMARY_BAR_HEIGHT,
+  getLastObstacleBoxCount,
 } from './GanttRenderer';
 import { buildScaleData, dateToLeft, dateToRight } from './GanttScaleData';
 import { CADENCE_RAIL_HEIGHT, HEADER_HEIGHT } from '../scheduleConstants';
@@ -3051,6 +3052,97 @@ describe('dependency layer — merge junction fallbacks (#2459)', () => {
     );
     // Junction + trunk are still emitted even though both feeders were culled.
     expect(calls.filter((c) => c.name === 'arc').length).toBeGreaterThan(0);
+  });
+
+  it('treats a summary ancestor of the merge target as transparent for EVERY predecessor (#3769)', () => {
+    // pushMergeJunction hoists the target's ancestor set ONCE for the whole
+    // group instead of re-walking the parent chain per predecessor per row —
+    // this pins that both mp1's and mp2's feeder paths still get the
+    // ancestor exclusion after that hoist, not just whichever feeder happens
+    // to be scanned first.
+    //
+    // 's' sits in the row between BOTH predecessors and the target and spans
+    // an X range wide enough to cover each predecessor's exit column, so a
+    // NOT-excluded 's' is picked up as `blockerAtExit` for both feeders and
+    // forces the longer 5-segment detour (exit stub → V past its right edge
+    // → gutter sweep back → V into the target row); an excluded 's' lets
+    // both feeders take the short direct route instead. The two scenarios
+    // below differ ONLY in whether 's' is the target's ancestor, so a
+    // shorter polyline (fewer `lineTo` calls) is the tell that the
+    // exclusion reached both feeders.
+    const mp1 = depTask('mp1', '2026-04-06', '2026-04-10');
+    const mp2 = depTask('mp2', '2026-04-08', '2026-04-14');
+    const s = depTask('s', '2026-04-01', '2026-05-20', { isSummary: true });
+    const links = [depLink('mp1', 't2'), depLink('mp2', 't2')];
+    const lineToCount = (calls: SpyCall[]) => calls.filter((c) => c.name === 'lineTo').length;
+
+    const asAncestor = paint(
+      [mp1, mp2, s, depTask('t2', '2026-05-04', '2026-05-08', { parentId: 's' })],
+      links,
+    );
+    const notAncestor = paint(
+      [mp1, mp2, s, depTask('t2', '2026-05-04', '2026-05-08', { parentId: null })],
+      links,
+    );
+    expect(lineToCount(asAncestor)).toBeLessThan(lineToCount(notAncestor));
+  });
+});
+
+describe('dependency layer — obstacle/halo scan intersects the visible row range (#3769)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-06-01');
+
+  it('does not grow the per-frame obstacle+halo box count with an arrow spanning thousands of off-screen rows', () => {
+    // Reproduces the issue's own reported shape: source row 0, target row
+    // 2,999 — the same short-range task repeated so every row carries a bar,
+    // maximizing candidate obstacles in the (previously unbounded) row band.
+    const ROW_COUNT = 3000;
+    const tasks = Array.from({ length: ROW_COUNT }, (_, i) =>
+      depTask(`row${i}`, '2026-04-06', '2026-04-10'),
+    );
+    const links = [depLink('row0', `row${ROW_COUNT - 1}`)];
+    const layout = prepareDependencyLayout(tasks, links, scales);
+    const { ctx } = makeFullCtx(800, 600);
+
+    // Baseline: no visible-row-range supplied (the pre-#3769 shape, and the
+    // shape every non-virtualized caller — including this file's other
+    // `paintDependencyLayout` calls — still exercises) scans the FULL row
+    // band, exactly reproducing the reported blow-up.
+    paintDependencyLayout(ctx, layout, 0, 0);
+    const unclamped = getLastObstacleBoxCount();
+    expect(unclamped).toBeGreaterThan(2000);
+
+    // Fixed shape: the caller passes the actual visible row band, the same
+    // shape GanttEngineImpl's `_visibleRange()` supplies every frame.
+    paintDependencyLayout(ctx, layout, 0, 0, undefined, undefined, { firstRow: 0, lastRow: 30 });
+    const clamped = getLastObstacleBoxCount();
+
+    // Falsification line from #3769: a p95 frame total under ~2,000 boxes
+    // would have closed the issue without work. The fix must land far under
+    // that floor and scale with the viewport window, not the row span.
+    expect(clamped).toBeLessThan(200);
+    expect(clamped).toBeLessThan(unclamped / 10);
+  });
+
+  it('does not drop a single box for an arrow that is fully inside the visible range', () => {
+    // Correctness invariant: intersecting with the visible range must not
+    // change anything for an arrow whose whole row span already fits inside
+    // it — the fix must be a no-op for the common (non-long-span) case.
+    const tasks = [
+      depTask('a', '2026-04-06', '2026-04-10'),
+      depTask('mid', '2026-04-13', '2026-04-17'),
+      depTask('b', '2026-04-20', '2026-04-24'),
+    ];
+    const links = [depLink('a', 'b')];
+    const layout = prepareDependencyLayout(tasks, links, scales);
+    const { ctx } = makeFullCtx(800, 600);
+
+    paintDependencyLayout(ctx, layout, 0, 0);
+    const unclamped = getLastObstacleBoxCount();
+
+    paintDependencyLayout(ctx, layout, 0, 0, undefined, undefined, { firstRow: 0, lastRow: 2 });
+    const clamped = getLastObstacleBoxCount();
+
+    expect(clamped).toBe(unclamped);
   });
 });
 
