@@ -1,6 +1,7 @@
 ---
 title: For Agile Coaches
 description: How to evaluate TruePPM the way a coach does — for team autonomy, low ceremony, and voluntary adoption, not a feature checklist.
+documentedFor: "0.4"
 ---
 
 You don't evaluate tools by feature count. You evaluate them by what they do to a team. Every "hybrid" tool you've tried is really waterfall with a board bolted on, where the PM still controls the sprint and the PMO turns velocity into a pressure gauge — and within a quarter the team fills in the minimum, data quality rots, and the dashboards become fiction.
@@ -38,6 +39,13 @@ WIP overload is a team-health signal: when a column passes its limit, the board 
 The fastest way to kill adoption is to add "fill this in for the PMO" steps. The agile surface here is the team's daily working surface — board, sprint, retro — not a reporting form. A team member moves a card and the schedule updates itself; nobody files a status report. That's the difference between a tool teams adopt and a tool teams endure.
 
 ## Evaluate it yourself (~10 minutes): the autonomy test
+
+:::note[Ships in 0.4]
+The `--with-personas` flag in the walkthrough below ships in 0.4. On `v0.3.0-alpha.3`, the
+latest release, run `load_sample_project` without it: that release creates the same
+`atlas-*` logins unconditionally and does not accept the flag.
+:::
+
 
 The real test isn't what a feature does — it's what *each role can see and do*. So evaluate it as a contrast: run the same instance as two different people and compare. Run these steps in order — they start from a machine with nothing running.
 

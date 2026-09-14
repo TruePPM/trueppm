@@ -5,10 +5,10 @@ documentedFor: "0.4"
 ---
 
 :::note[Ships in 0.4]
-This page was split out of [Configuration](/administration/configuration/), which is
-documented for 0.4 as a whole. Settings here that `v0.3.0-alpha.3` does not read are not
-individually marked yet; [#3755](https://gitlab.com/trueppm/trueppm/-/issues/3755)
-reviews them.
+Nearly everything on this page ships in 0.4. `v0.3.0-alpha.3`, the latest release, reads
+none of the OpenTelemetry settings (`TRUEPPM_OTEL_*`, `OTEL_*`), none of the retention
+settings named here, `TRUEPPM_LOG_JSON`, `DJANGO_LOG_LEVEL` or `TRUEPPM_POD_NAME`. Of the
+settings on this page it reads only `SQL_LOG_LEVEL`.
 :::
 
 ## Logging
