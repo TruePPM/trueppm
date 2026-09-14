@@ -13,7 +13,7 @@ import { ScheduleModeChip } from './ScheduleModeChip';
 
 afterEach(cleanup);
 
-function renderChip(mode: 'read' | 'author' = 'author') {
+function renderChip(mode: 'read' | 'author' = 'author', baselineName?: string) {
   const onToggleMode = vi.fn();
   const onShowCheatsheet = vi.fn();
   render(
@@ -21,6 +21,7 @@ function renderChip(mode: 'read' | 'author' = 'author') {
       mode={mode}
       onToggleMode={onToggleMode}
       onShowCheatsheet={onShowCheatsheet}
+      baselineName={baselineName}
     />,
   );
   return { onToggleMode, onShowCheatsheet };
@@ -32,17 +33,43 @@ describe('ScheduleModeChip', () => {
     expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Author');
     cleanup();
     renderChip('read');
-    expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Read');
+    expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Read only');
+  });
+
+  it('tells a sighted reader in Read how to start editing (#3748)', () => {
+    // Authoring controls are absent in Read, so the chip is the only thing on the
+    // bar that says editing exists. The words match the menu row they lead to.
+    renderChip('read');
+    expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent(
+      'Read only · Switch to Author to edit',
+    );
   });
 
   it('names the consequence and the chord, not just the state', () => {
     // "Read" alone does not tell a screen-reader user that their edits are
     // blocked, and Alt+A is the one-keystroke way out that the pointer path
-    // costs two clicks.
+    // costs two clicks. The visible text sits inside the name verbatim (2.5.3).
     renderChip('read');
     expect(screen.getByTestId('schedule-mode-chip')).toHaveAccessibleName(
-      'Mode: Read — edits are blocked. Alt+A switches to Author.',
+      'Mode: Read only — edits are blocked. Switch to Author to edit (Alt+A).',
     );
+  });
+
+  it('carries the active baseline in Author as a readout (#3748)', () => {
+    renderChip('author', 'Baseline v1');
+    const chip = screen.getByTestId('schedule-mode-chip');
+    expect(chip).toHaveTextContent('Author · vs Baseline v1');
+    expect(chip).toHaveAccessibleName(
+      'Mode: Author vs Baseline v1 — edits are allowed and show as differences from Baseline v1. Alt+A switches to Read.',
+    );
+  });
+
+  it('shows no baseline readout in Read, or when there is no baseline', () => {
+    renderChip('read', 'Baseline v1');
+    expect(screen.getByTestId('schedule-mode-chip')).not.toHaveTextContent('Baseline v1');
+    cleanup();
+    renderChip('author');
+    expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent(/^Author$/);
   });
 
   it('says nothing about build mode (#3263)', () => {

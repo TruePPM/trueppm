@@ -386,6 +386,14 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   );
   await page.route('**/api/v1/auth/me/', (route) => route.fulfill(jsonResponse(user)));
   await page.route('**/api/v1/calendars/', (route) => route.fulfill(jsonResponse(paginated([]))));
+  // No baselines by default (#3748). The Schedule's Read → Author gate asks
+  // whenever this read is unsettled, and the catch-all's 404 is unsettled — so
+  // without a default every spec that toggles into Author meets a confirm it
+  // never asked for. A spec that needs a baseline registers its own route after
+  // this call, which takes precedence.
+  await page.route('**/api/v1/projects/*/baselines/', (route) =>
+    route.fulfill(jsonResponse(paginated([]))),
+  );
   // WebSocket connection ticket (ADR-0141, #818). The project socket mints a
   // single-use ticket via this POST before opening; without the mock it
   // 404s through setupCatchAll and the socket never opens (connection pill never

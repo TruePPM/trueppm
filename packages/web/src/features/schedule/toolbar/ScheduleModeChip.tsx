@@ -19,7 +19,7 @@
  * job — being the always-on way in to the keyboard cheatsheet — is carried by
  * the `Keyboard shortcuts…` item below.
  *
- * The cluster has no `overflow` state and never demotes into `···`: a mode you
+ * The cluster has no `overflow` state and never demotes into `Actions`: a mode you
  * must open a menu to *read* is a mode you forget you are in, and the cost of
  * that is typing into a plan you believe is read-only (rule 343(e)). The
  * trigger therefore always shows its value, and the accessible name carries the
@@ -33,19 +33,37 @@ export interface ScheduleModeChipProps {
   mode: ScheduleAuthorMode;
   onToggleMode: () => void;
   onShowCheatsheet: () => void;
+  /**
+   * The active baseline's name, when the plan has one (#3748). In Author it
+   * rides on the chip as the thing edits are measured against — a readout, so
+   * the fact the confirm stated does not leave the screen with the dialog.
+   */
+  baselineName?: string;
 }
 
 export function ScheduleModeChip({
   mode,
   onToggleMode,
   onShowCheatsheet,
+  baselineName,
 }: ScheduleModeChipProps) {
   const isRead = mode === 'read';
-  const modeWord = isRead ? 'Read' : 'Author';
   // Derived, never spelled — the same rule 326(b)/339(b) reason as the menu row
   // below. A hard-coded "Alt+A" here would have a Mac user HEAR "Alt+A" from the
   // trigger and READ "⌥A" from the row two lines down, for one binding.
   const chord = formatChord('alt+a');
+  // Read says what it is AND how to leave it, in text a sighted user reads
+  // (#3748). "Read" alone was a state with no next step: authoring controls are
+  // absent in Read now, so nothing else on the bar hints that editing exists.
+  // The hint names the menu row it leads to ("Author mode") rather than a
+  // gesture, so the words match the thing you will click. Visible text sits
+  // inside the accessible name verbatim (WCAG 2.5.3, label in name).
+  const primary = isRead ? 'Read only' : 'Author';
+  const secondary = isRead
+    ? 'Switch to Author to edit'
+    : baselineName
+      ? `vs ${baselineName}`
+      : null;
 
   return (
     <ToolbarOverflowMenu
@@ -60,15 +78,35 @@ export function ScheduleModeChip({
       // one-keystroke way out that the pointer path costs two interactions.
       triggerAriaLabel={
         isRead
-          ? `Mode: Read — edits are blocked. ${chord} switches to Author.`
-          : `Mode: Author — edits are allowed. ${chord} switches to Read.`
+          ? `Mode: Read only — edits are blocked. Switch to Author to edit (${chord}).`
+          : baselineName
+            ? `Mode: Author vs ${baselineName} — edits are allowed and show as differences from ${baselineName}. ${chord} switches to Read.`
+            : `Mode: Author — edits are allowed. ${chord} switches to Read.`
       }
       // No leading glyph. The word *is* the signal (rule 6 — colour is never
       // the sole carrier), and there is no house icon for "read" —
       // `EyeOffIcon` means hidden, and an emoji is a rule-242 violation, so a
       // chip that needed one would have to mint a glyph to say what the label
       // already says.
-      triggerLabel={<span className="whitespace-nowrap">{modeWord}</span>}
+      triggerLabel={
+        <>
+          <span className="whitespace-nowrap">{primary}</span>
+          {secondary && (
+            // A baseline name is user-authored and unbounded, so the readout is
+            // capped and truncated with the full value on `title` (rule 255); the
+            // accessible name above already carries it whole.
+            <span
+              className="max-w-[14rem] truncate whitespace-nowrap font-normal"
+              title={isRead ? undefined : secondary}
+            >
+              {/* Leading space collapses visually at the flex item's line start
+                  but keeps the text content readable as "Author · vs …". */}
+              <span aria-hidden="true"> · </span>
+              {secondary}
+            </span>
+          )}
+        </>
+      }
       triggerClassName={[
         'inline-flex shrink-0 items-center gap-1.5 h-7 px-2 rounded-control border',
         'text-xs font-medium whitespace-nowrap',

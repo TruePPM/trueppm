@@ -95,7 +95,9 @@ import {
 } from '@/lib/roles';
 import { BaselineManagerModal } from './BaselineManagerModal';
 import { TaskTrashDialog } from '@/features/project/TaskTrashDialog';
+import { BaselinedAuthorConfirmDialog } from './BaselinedAuthorConfirmDialog';
 import { CaptureBaselineConfirmDialog } from './CaptureBaselineConfirmDialog';
+import { useBaselinedAuthorGate } from './useBaselinedAuthorGate';
 import { SubtreeDeleteConfirmDialog } from './SubtreeDeleteConfirmDialog';
 import { MoveToDialog } from './MoveToDialog';
 import type { OutlineDragRow, OutlineMovePlan } from './outlineDrag';
@@ -1795,8 +1797,10 @@ export function ScheduleView() {
   //   hasEditRights=false  a viewer. There is no mode to be in, because nothing
   //                        is on offer — the authoring apparatus is ABSENT, not
   //                        disabled, and a refused gesture stays silent.
-  //   hasEditRights=true,  an editor who pressed ⌥A. The apparatus is PRESENT
-  //   mode==='read'        and inert, and one key gets them back.
+  //   hasEditRights=true,  an editor who pressed ⌥A. The mode chip is PRESENT
+  //   mode==='read'        and says how to get back; the toolbar's create and
+  //                        structure controls are absent (#3748), while row-level
+  //                        refusals still explain themselves.
   //
   // Offering a control and then refusing it teaches a viewer the product is
   // broken; explaining a refusal to someone who never should have seen the
@@ -2162,6 +2166,15 @@ export function ScheduleView() {
   // is already active is a plain snapshot that does not reactivate (#2215).
   const { data: baselines } = useBaselines(projectIdUndef);
   const activeBaselineName = baselines?.find((b) => b.is_active)?.name;
+  // Read → Author on a baselined plan asks once per baseline (#3748). Both
+  // entry points — the chip and ⌥A — go through `requestToggle`, so neither can
+  // skip the sentence the other shows.
+  const baselinedAuthorGate = useBaselinedAuthorGate(
+    projectIdUndef,
+    authorMode.mode,
+    toggleAuthorMode,
+  );
+  const { requestToggle: requestAuthorToggle } = baselinedAuthorGate;
   const handleCaptureBaseline = useCallback(() => {
     // The overflow menu closes on select, so the educational confirm dialog
     // (not the menu item) carries the in-flight "Capturing…" state (web-rule
@@ -4000,13 +4013,15 @@ export function ScheduleView() {
         // the consequence is that every authoring control silently goes
         // `disabled`, is the shape rule 311(c) exists to stop.
         const next = authorMode.mode === 'read' ? 'author' : 'read';
+        // A baselined plan may ask first (#3748). Nothing is announced until
+        // the mode actually changes — the confirm announces its own outcome.
+        if (!requestAuthorToggle()) return;
         const said =
           next === 'read'
             ? 'Read mode. Edits are blocked.'
             : 'Author mode. Edits are allowed.';
         if (ariaLiveRef.current) ariaLiveRef.current.textContent = said;
         setScheduleActionToast({ message: said });
-        toggleAuthorMode();
       };
       // ⌘⇧M / Ctrl+Shift+M (#2736): declare the hybrid split for the focused
       // row's subtree. Targets the FOCUSED row, not the multi-row selection:
@@ -4184,8 +4199,8 @@ export function ScheduleView() {
     handleGroupRows,
     handleUngroupRow,
     buildModeActive,
-    toggleAuthorMode,
     authorMode.mode,
+    requestAuthorToggle,
     setScheduleActionToast,
     focus,
     visibleTasks,
@@ -4380,7 +4395,8 @@ export function ScheduleView() {
         createPending={createTaskMut.isPending}
         buildModeActive={buildModeActive}
         authorMode={authorMode.mode}
-        onToggleAuthorMode={authorMode.toggle}
+        onToggleAuthorMode={requestAuthorToggle}
+        activeBaselineName={baselinedAuthorGate.activeBaselineName}
         setCheatsheetOpen={setCheatsheetOpen}
         pendingCount={pendingTaskIds.size}
         projectDetail={projectDetail}
@@ -4731,6 +4747,8 @@ export function ScheduleView() {
         setBaselineManagerOpen={setBaselineManagerOpen}
         taskTrashOpen={taskTrashOpen}
         setTaskTrashOpen={setTaskTrashOpen}
+        baselinedAuthorGate={baselinedAuthorGate}
+        canCaptureBaseline={canCaptureBaseline}
         captureBaselineConfirmOpen={captureBaselineConfirmOpen}
         setCaptureBaselineConfirmOpen={setCaptureBaselineConfirmOpen}
         activeBaselineName={activeBaselineName}
@@ -4856,6 +4874,9 @@ interface ScheduleOverlayLayerProps {
   setBaselineManagerOpen: (v: boolean) => void;
   taskTrashOpen: boolean;
   setTaskTrashOpen: (v: boolean) => void;
+  /** Read → Author on a baselined plan (#3748) — owns the confirm's state. */
+  baselinedAuthorGate: ReturnType<typeof useBaselinedAuthorGate>;
+  canCaptureBaseline: boolean;
   captureBaselineConfirmOpen: boolean;
   setCaptureBaselineConfirmOpen: (v: boolean) => void;
   activeBaselineName: string | undefined;
@@ -4926,6 +4947,8 @@ function ScheduleOverlayLayer({
   setBaselineManagerOpen,
   taskTrashOpen,
   setTaskTrashOpen,
+  baselinedAuthorGate,
+  canCaptureBaseline,
   captureBaselineConfirmOpen,
   setCaptureBaselineConfirmOpen,
   activeBaselineName,
@@ -5144,6 +5167,20 @@ function ScheduleOverlayLayer({
             if (!createBaselineMut.isPending) setCaptureBaselineConfirmOpen(false);
           }}
           onConfirm={onCaptureBaseline}
+        />
+      )}
+
+      {/* Read → Author on a baselined plan (#3748). */}
+      {baselinedAuthorGate.confirmOpen && (
+        <BaselinedAuthorConfirmDialog
+          baselineName={baselinedAuthorGate.confirmBaselineName}
+          canCaptureBaseline={canCaptureBaseline}
+          onCancel={baselinedAuthorGate.cancel}
+          onConfirm={() => {
+            const said = 'Author mode. Edits are allowed.';
+            if (ariaLiveRef.current) ariaLiveRef.current.textContent = said;
+            baselinedAuthorGate.confirm();
+          }}
         />
       )}
 
@@ -5532,7 +5569,8 @@ function buildDemotedItems(ctx: {
   scheduleExport: ReturnType<typeof useScheduleExport>;
   pins: ToolbarPins;
 }): { crowdedOut: ToolbarOverflowItem[]; unpinned: ToolbarOverflowItem[] } {
-  const authoring = ctx.projectId !== null && ctx.hasEditRights;
+  // Read hides authoring rows here exactly as it does in the bar (#3748).
+  const authoring = ctx.projectId !== null && ctx.hasEditRights && !ctx.readOnly;
   const rows: Array<{ pinned: boolean; item: ToolbarOverflowItem }> = [
     ...(ctx.composition.today === 'overflow'
       ? [
@@ -5555,7 +5593,7 @@ function buildDemotedItems(ctx: {
               kind: 'action' as const,
               id: 'add-milestone',
               label: 'Add milestone',
-              disabled: ctx.readOnly || ctx.createPending,
+              disabled: ctx.createPending,
               onSelect: ctx.handleAddMilestone,
               // ⌘M, matching the only binding that exists (`keyBindings['mod+m']`)
               // and the bar button's own label. This read ⌥⌘M until #3115 — a
@@ -5663,6 +5701,8 @@ interface ScheduleToolbarProps {
   onBulkEdit?: () => void;
   authorMode: ScheduleAuthorMode;
   onToggleAuthorMode: () => void;
+  /** The active baseline's name once settled (#3748) — the chip's Author readout. */
+  activeBaselineName: string | undefined;
   setCheatsheetOpen: Dispatch<SetStateAction<boolean>>;
   pendingCount: number;
   projectDetail: ReturnType<typeof useProject>['data'];
@@ -5731,6 +5771,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     buildModeActive,
     authorMode,
     onToggleAuthorMode,
+    activeBaselineName,
     setCheatsheetOpen,
     pendingCount,
     projectDetail,
@@ -5800,6 +5841,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     readOnly,
     buildModeActive,
     authorMode,
+    activeBaselineName ?? '',
     projectId ?? '',
     pendingCount > 0,
     visibleTasks.length,
@@ -5816,7 +5858,10 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
   const composition = resolveComposition(pins, fitStep);
   // Structure is edit-rights gated independently of the pin: without rights the
   // apparatus is absent, not demoted (web rule 302), so it never reaches `···`.
-  const structurePlacement = hasEditRights && projectId ? composition.structure : 'absent';
+  // Absent in Read too (#3748): the mode chip leads the bar and says how to get
+  // to Author, so an inert structure control would only repeat that, dimmed.
+  const structurePlacement =
+    hasEditRights && !readOnly && projectId ? composition.structure : 'absent';
 
   // The whole toolbar is desktop-only (mobile is forced to full-width Timeline,
   // #1670), so it renders nothing on a phone.
@@ -5834,16 +5879,38 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
       // label came to wrap inside this 40px strip.
       className="flex flex-nowrap items-center gap-2 px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0"
     >
-      {/* "+ Item" button — shown when a project is selected AND the user may
-          author. A viewer never sees it (#2949); an editor who chose Read sees
-          it disabled, on the same `readOnly` gate as its "+ Milestone" /
-          "+ Phase" peers (#2145).
+      {/* The mode control (#3076 rung 8, merged to one control in #3263). One
+          chip at every width, always showing its value. It has no `overflow`
+          state at all — a mode you have to open a menu to read is a mode you
+          forget you are in, and the cost of that is typing into a plan you
+          believe is read-only. Absent without edit rights: a Read/Author toggle
+          is meaningless when there is no mode to leave, and the View-only badge
+          takes its place.
+
+          First in the bar since #3748: it decides whether every authoring
+          control after it exists, so it is read before them, not after. */}
+      {buildModeActive && hasEditRights && (
+        <ScheduleModeChip
+          mode={authorMode}
+          onToggleMode={onToggleAuthorMode}
+          onShowCheatsheet={() => setCheatsheetOpen(true)}
+          baselineName={activeBaselineName}
+        />
+      )}
+      {buildModeActive && !hasEditRights && (
+        <ScheduleViewOnlyBadge canLinkDependencies={canLinkDependencies} />
+      )}
+      {/* "+ Item" button — shown when a project is selected AND the user is
+          authoring. A viewer never sees it (#2949), and since #3748 neither
+          does an editor who chose Read: the mode chip ahead of it states how to
+          get to Author, and a dimmed button beside that sentence would only
+          repeat it with less information.
 
           Since #2957 it performs whatever `insertTarget` names, and the
           statement beside it says which — so the toolbar's insert is the
           cursor's bidding *declared* rather than guessed at. `aria-expanded`
           is only meaningful on the branch that still opens the create form. */}
-      {projectId && hasEditRights && (
+      {projectId && hasEditRights && !readOnly && (
         <button
           type="button"
           onClick={onAddTask}
@@ -5854,7 +5921,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           // observable would be worse. The user has rights here, so this is
           // present-and-inert with a refusal that explains itself, which is what
           // web rule 302 asks for on that side of the split.
-          disabled={readOnly || insertTarget.kind === 'unnamed'}
+          disabled={insertTarget.kind === 'unnamed'}
           aria-label={ROW_VOCABULARY.create.toolbarLabel}
           // The accessible NAME stays stable across all three branches — a
           // control renaming itself as the cursor moves is disorienting. The
@@ -5866,7 +5933,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
               : undefined
           }
           aria-expanded={insertTarget.kind === 'none' ? showAddForm : undefined}
-          title={readOnly ? 'Read-only access' : (describeInsertTarget(insertTarget) ?? undefined)}
+          title={describeInsertTarget(insertTarget) ?? undefined}
           className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
               hover:border-brand-primary hover:text-brand-primary
@@ -5884,17 +5951,16 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           mode, not one control's outcome. Absent without edit rights. */}
       <ScheduleInsertTargetStatement
         target={insertTarget}
-        hasEditRights={hasEditRights}
+        hasEditRights={hasEditRights && !readOnly}
         density={composition.sentence}
       />
-      {/* "+ Milestone" peer button (#340). Absent without edit rights (#2949),
-          disabled for an editor who chose Read — the two are different states.
+      {/* "+ Milestone" peer button (#340). Absent without edit rights (#2949)
+          and, since #3748, in Read.
           Unpinned or demoted it moves into `···` (#3076) rather than
           disappearing; the entry there carries the same name and chord. */}
-      {projectId && hasEditRights && composition.milestone === 'bar' && (
+      {projectId && hasEditRights && !readOnly && composition.milestone === 'bar' && (
         <ScheduleAddMilestoneButton
           onAddMilestone={handleAddMilestone}
-          disabled={readOnly}
           pending={createPending}
         />
       )}
@@ -5907,7 +5973,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           restores them, which is also the pointer-only user's way *in* — the chords are
           a complete keyboard path, and turning the group on once is a complete pointer
           path. Same edit-rights gate as "+ Item" / "+ Milestone": absent without
-          rights, present-and-inert for an editor who chose Read (#2949, rule 302). */}
+          rights and in Read (#2949, #3748). */}
       {structurePlacement === 'bar' && (
         <>
           <ScheduleAddPhaseButton
@@ -5944,23 +6010,6 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
             pending: createPending || restructurePending,
           })}
         />
-      )}
-      {/* The mode control (#3076 rung 8, merged to one control in #3263). One
-          chip at every width, always showing its value. It has no `overflow`
-          state at all — a mode you have to open a menu to read is a mode you
-          forget you are in, and the cost of that is typing into a plan you
-          believe is read-only. Absent without edit rights: a Read/Author toggle
-          is meaningless when there is no mode to leave, and the View-only badge
-          takes its place. */}
-      {buildModeActive && hasEditRights && (
-        <ScheduleModeChip
-          mode={authorMode}
-          onToggleMode={onToggleAuthorMode}
-          onShowCheatsheet={() => setCheatsheetOpen(true)}
-        />
-      )}
-      {buildModeActive && !hasEditRights && (
-        <ScheduleViewOnlyBadge canLinkDependencies={canLinkDependencies} />
       )}
       {/* Session trail (#2948). Lives in the toolbar rather than the Forecast
           strip the prototype drew it in: that strip early-returns whenever there
@@ -6100,9 +6149,12 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
                     // Named for what this reader actually has: a viewer has no
                     // `+ Item`, so listing it as "always in the toolbar" would
                     // be a claim about a control that is not there.
-                    label: hasEditRights
-                      ? 'Item, Grid / Timeline, Display, ···, mode'
-                      : 'Grid / Timeline, Display, ···',
+                    // …and an editor in Read has no `+ Item` either (#3748).
+                    label: !hasEditRights
+                      ? 'Grid / Timeline, Display, Actions'
+                      : readOnly
+                        ? 'Grid / Timeline, Display, Actions, mode'
+                        : 'Item, Grid / Timeline, Display, Actions, mode',
                     sub: 'Always in the toolbar.',
                     checked: true,
                     where: 'always',
@@ -6129,7 +6181,8 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
                   // "pinned but crowded out" — they are not applicable, and
                   // counting them would report a shortfall that no amount of
                   // widening could fix.
-                  hasEditRights ? pins : { ...pins, milestone: false, structure: false },
+                  // Same for an editor in Read, whose authoring controls are absent (#3748).
+                  !readOnly ? pins : { ...pins, milestone: false, structure: false },
                   composition,
                 ),
               }
@@ -6193,8 +6246,12 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
       )}
 
       <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-neutral-border shrink-0" />
-      {/* Project actions (···) — always present so Import/Export are discoverable
-          at every width. */}
+      {/* Project actions — always present so Import/Export are discoverable
+          at every width. Labeled `Actions ▾` at lg, because a bare `⋯` names
+          none of the only-entry-point commands behind it; below lg it drops to
+          the glyph, matching the Display trigger, where width is scarcest. The
+          accessible name stays "Project actions", which contains the visible
+          word (WCAG 2.5.3). */}
       {/* Polite, and written to only on a demotion. Mounted unconditionally so
           the region is already in the accessibility tree when its text
           changes — a live region created in the same commit as its content is
@@ -6210,6 +6267,9 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
         <ToolbarOverflowMenu
           triggerRef={overflowSlotRef}
           triggerAriaLabel="Project actions"
+          triggerLabel={
+            breakpoint === 'lg' ? <span className="whitespace-nowrap">Actions</span> : undefined
+          }
           // Widened past the ToolbarOverflowMenu default (240) — this menu's
           // longest rows ("Import from spreadsheet (CSV/Excel)…") wrap at the
           // default width now that the popover no longer shrink-wraps its

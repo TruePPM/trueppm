@@ -23,6 +23,10 @@ export async function toggleAuthorMode(page: Page): Promise<void> {
   await page.getByRole('menuitemcheckbox', { name: /Author mode/ }).click();
   // The popover keeps checkbox items open on purpose (multi-toggle), so it has
   // to be dismissed or it covers whatever the spec asserts on next.
+  //
+  // On a plan with an active baseline, Read → Author opens a confirm instead
+  // (#3748), and this Escape CANCELS it — the spec stays in Read. Drive that
+  // path without this helper (see `schedule-author-mode-baseline.spec.ts`).
   await page.keyboard.press('Escape');
 }
 

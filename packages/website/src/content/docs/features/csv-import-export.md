@@ -332,7 +332,7 @@ on the sidebar and the My Work screen when you have no projects yet — the two
 places you land as a brand-new user.
 
 **Importing into a project you already have.** Open its **Schedule**, then
-**Project actions → Import from spreadsheet (CSV/Excel)…**.
+**Actions → Import from spreadsheet (CSV/Excel)…**.
 
 Both routes open the same wizard. The import always needs a project to import
 *into*, which is why the first route creates one for you rather than deferring it

@@ -6,14 +6,16 @@ documentedFor: "0.4"
 
 This is for anyone working in the Schedule view day to day. The toolbar gives you the at-a-glance project status (rightmost summary chip), the day-to-day filtering controls (toggle groups), and the actions for adding to the plan (`+ Item`, `+ Milestone`, `+ Phase`).
 
-Of the three, only **`+ Item`** sits in the bar by default. `+ Milestone` and `+ Phase` start in the `···` menu: each is a one-click structural insert that lands at your current insertion point, and the bar is also where you click while simply reading a plan. Both keep their keyboard shortcuts, and either can be pinned into the bar from **Display → Outline**.
+Of the three, only **`+ Item`** sits in the bar by default. `+ Milestone` and `+ Phase` start in the `Actions` menu: each is a one-click structural insert that lands at your current insertion point, and the bar is also where you click while simply reading a plan. Both keep their keyboard shortcuts, and either can be pinned into the bar from **Display → Outline**.
+
+The **mode chip** comes first, ahead of `+ Item`, because it decides whether the controls after it are there at all. In **Read** mode it reads **Read only · Switch to Author to edit**, and `+ Item`, `+ Milestone`, `+ Phase`, Group and Ungroup are hidden, both in the bar and in the `Actions` menu. To edit, open the chip and turn on **Author mode**, or press `Alt + A`. If the plan has an active baseline, the chip shows which one your edits are measured against (for example **Author · vs Baseline v1**).
 
 ![The Schedule view toolbar: item and milestone insert controls, the Author mode chip, display and zoom controls, Today, Fit to project, and Export PDF](../../../assets/screenshots/schedule-toolbar.webp)
 
 ## Toolbar layout
 
 ```text
-[ + Item ]   ( + Milestone, + Phase · Group · Ungroup — in the ··· menu by default )   [ Author ▾ ]
+[ Author ▾ ]   [ + Item ]   ( + Milestone, + Phase · Group · Ungroup — in the Actions menu by default )
 [ CP only · Focus chain ]   [ Critical path · Milestones ]
                                  ...
 [ {N} items · {S} in sprints · {C} critical · CPM ✓ ]   [ Grid | Timeline ]   [ Today ]   [ − {level} + ] [ Fit ]
@@ -32,10 +34,14 @@ It concedes in two stages, and the first is always spent before the second:
    shortens, and the zoom stepper becomes a `Month ▾` menu. Nothing has left the
    toolbar at this point — each control still shows its current value, and the parts
    that no longer fit are in its own menu.
-2. **Then commands move into `···`.** Export PDF goes first, then Milestone, and
+2. **Then commands move into `Actions`.** Export PDF goes first, then Milestone, and
    **Today** last of all. A control that moves keeps its name and its keyboard shortcut,
    and the menu says why it moved: **From the toolbar — no room at this width** for one
    the window squeezed out, **Not in the toolbar** for one you unpinned yourself.
+
+The **Actions** menu itself is always in the toolbar. At 1024px and wider its button
+reads `Actions ▾`; below that it shrinks to a `⋯` button, the same width tier at
+which `Display` drops its label.
 
 The mode chip is never one of them, and it never collapses either — it is one control,
 the same size, at every width. Whether you are in Read or Author mode stays visible in
@@ -48,19 +54,19 @@ Widening the window gives everything back, in reverse.
 ## Choosing what stays
 
 **Display → In the toolbar** is where you decide which controls get toolbar width.
-Each row states where that control is **right now** — `in the bar` or `in ···` — which
+Each row states where that control is **right now** — `in the bar` or `in Actions` — which
 makes this the one place that answers "where did my button go".
 
 | Control | Default |
 | --- | --- |
-| Milestone | in `···` |
-| Phase, Group and Ungroup buttons | in `···` |
+| Milestone | in `Actions` |
+| Phase, Group and Ungroup buttons | in `Actions` |
 | Export PDF | in the toolbar |
 | Task and critical counts | in the toolbar |
 | Today | in the toolbar |
 
 Two rows at the bottom are shown but cannot be changed: `+ Item`, `Grid / Timeline`,
-`Display`, `···` and the mode chip are always in the toolbar, and zoom and the engine
+`Display`, `Actions` and the mode chip are always in the toolbar, and zoom and the engine
 status are always present but collapse when the bar is narrow. They are listed so the
 inventory is complete rather than leaving you to guess what happened to them.
 
@@ -144,7 +150,7 @@ When space runs short, `in sprints` is the first token to go — the critical co
 ## Adding a milestone
 
 Two paths:
-- **Choose `Add milestone`** from the toolbar's `···` menu — or click `+ Milestone` in the bar, if you have pinned it there from **Display → Outline**.
+- **Choose `Add milestone`** from the toolbar's `Actions` menu — or click `+ Milestone` in the bar, if you have pinned it there from **Display → Outline**.
 - **Press ⌘M (macOS) / Ctrl + M (Windows / Linux)** when the Schedule view has focus.
 
 Both open the milestone dialog, where you set the name, date, and parent before anything is created — nothing is saved until you submit. The parent is pre-filled from your currently-focused row: if you have a phase summary selected (or any task inside it), the new milestone lands under that phase. Otherwise it lands at the project root.

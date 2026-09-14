@@ -542,19 +542,19 @@ describe('ScheduleDisplayMenu — Outline chrome section (#2959, #2955)', () => 
             id: 'structure-buttons',
             label: 'Phase, Group and Ungroup buttons',
             checked: false,
-            where: 'in ···',
+            where: 'in Actions',
             onToggle: () => {
               onToggle('structureButtons');
             },
           },
         ],
-        footer: 'Nothing is pinned. Everything above is in ··· .',
+        footer: 'Nothing is pinned. Everything above is in Actions.',
       },
     });
     const menu = openMenu();
     const item = within(menu).getByRole('menuitemcheckbox', {
       // The location is part of the NAME, not a visual-only column (#3076).
-      name: 'Phase, Group and Ungroup buttons, in ···',
+      name: 'Phase, Group and Ungroup buttons, in Actions',
     });
     expect(item).toHaveAttribute('aria-checked', 'false');
     fireEvent.click(item);
@@ -567,10 +567,10 @@ describe('ScheduleDisplayMenu — Outline chrome section (#2959, #2955)', () => 
       toolbarPins: {
         rows: [
           { id: 'pin-today', label: 'Today', checked: true, where: 'in the bar' },
-          { id: 'pin-milestone', label: 'Milestone', checked: true, where: 'in ···' },
+          { id: 'pin-milestone', label: 'Milestone', checked: true, where: 'in Actions' },
           {
             id: 'locked-tier-a',
-            label: 'Item, Grid / Timeline, Display, ···',
+            label: 'Item, Grid / Timeline, Display, Actions',
             sub: 'Always in the toolbar.',
             checked: true,
             where: 'always',
@@ -585,7 +585,7 @@ describe('ScheduleDisplayMenu — Outline chrome section (#2959, #2955)', () => 
       within(menu).getByRole('menuitemcheckbox', { name: 'Today, in the bar' }),
     ).toBeInTheDocument();
     expect(
-      within(menu).getByRole('menuitemcheckbox', { name: 'Milestone, in ···' }),
+      within(menu).getByRole('menuitemcheckbox', { name: 'Milestone, in Actions' }),
     ).toBeInTheDocument();
     // A pin the ladder could not honour says so in words rather than being
     // silently dropped or allowed to clip the bar.
@@ -595,7 +595,7 @@ describe('ScheduleDisplayMenu — Outline chrome section (#2959, #2955)', () => 
     // Tier-A rows are shown, inert, and explained — a complete inventory, so
     // the user learns that zoom and the mode chip collapse rather than vanish.
     const locked = within(menu).getByRole('menuitemcheckbox', {
-      name: 'Item, Grid / Timeline, Display, ···, always',
+      name: 'Item, Grid / Timeline, Display, Actions, always',
     });
     expect(locked).toHaveAttribute('aria-disabled', 'true');
   });

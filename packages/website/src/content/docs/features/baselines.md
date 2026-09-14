@@ -104,7 +104,7 @@ Structured rebaseline reasons and a post-commit changeset view also ship in 0.5.
 Beyond the automatic `Baseline v1`, you can capture further baselines at any time — for
 example one per phase gate.
 
-From the **Schedule** view, open the Actions (**···**) menu:
+From the **Schedule** view, open the toolbar's **Actions** menu:
 
 - **Capture baseline** takes a snapshot of every task's current planned dates. It
   requires the Project Manager role, auto-names the snapshot (`Baseline N`), and makes it

@@ -106,8 +106,11 @@ test.describe('Schedule toolbar — clustered layout (#1741)', () => {
     }
     await page.keyboard.press('Escape');
 
-    // Actions menu is present (Import/Export/Share fold in here).
-    await expect(toolbar.getByRole('button', { name: 'Project actions' })).toBeVisible();
+    // Actions menu is present (Import/Export/Share fold in here), and at lg it
+    // says so in words rather than as an anonymous `⋯` (#3749).
+    const actions = toolbar.getByRole('button', { name: 'Project actions' });
+    await expect(actions).toBeVisible();
+    await expect(actions).toHaveText(/Actions/);
   });
 
   test('at 900px (md) the Display trigger collapses to icon-only but keeps its accessible name', async ({ page }) => {
@@ -119,6 +122,10 @@ test.describe('Schedule toolbar — clustered layout (#1741)', () => {
     // Icon-only: the visible "Display" label is dropped; the accessible name
     // (used by the role+name query above) is retained via aria-label (rule 114).
     await expect(display).not.toHaveText(/Display/);
+    // The Actions trigger collapses on the same tier, and keeps its name (#3749).
+    const actions = toolbar.getByRole('button', { name: 'Project actions' });
+    await expect(actions).toBeVisible();
+    await expect(actions).not.toHaveText(/Actions/);
 
     // Filters are still reachable via the Display popover at md.
     await display.click();

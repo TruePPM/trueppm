@@ -124,7 +124,7 @@ Nothing TruePPM reads is lost in that conversion.
 
 Use this when the destination project already exists. From the project's **Schedule** view:
 
-1. Open the **Project actions** (`···`) overflow menu in the toolbar.
+1. Open the **Actions** menu at the right end of the Schedule toolbar.
 2. Choose **Import from MS Project…**.
 3. Drop a `.xml` file on the dropzone. A `.mpp` is rejected here with the Save-As-XML instruction; see [`.mpp` — what actually works](#mpp--what-actually-works).
 4. Confirm. The modal shows **"Import started"** and closes.
@@ -151,7 +151,7 @@ into an existing one.
 
 ## Export a project
 
-Open the **Project actions** (`···`) overflow menu in the Schedule view and choose **Export to MS Project (.xml)**. The browser downloads the current schedule as MS Project XML 2003+. Export is allowed for **any project member** — Viewer role and above.
+Open the **Actions** menu in the Schedule toolbar and choose **Export to MS Project (.xml)**. The browser downloads the current schedule as MS Project XML 2003+. Export is allowed for **any project member** — Viewer role and above.
 
 When the project has [three-point estimates](#three-point--pert-estimates) set on at least one work task, the export emits the standard PERT custom-field definitions and per-task values so the file round-trips with a `.xml` re-import (your own or another tool's).
 
