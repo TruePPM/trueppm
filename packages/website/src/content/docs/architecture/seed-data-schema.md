@@ -272,6 +272,17 @@ authored `planned_start`) for their dates will still show `has_cpm_dates:
 false` on a beat-captured baseline, same as it would on the equivalent
 declared row.
 
+**`retro.action`'s optional `notes` sets the retro's own summary, not the
+action item.** `SprintRetro.notes` is a plain free-text field with no
+dedicated beat of its own — the retro is only ever created lazily, the first
+time a `retro.action` targets its sprint (#3497). Put `notes` on any one of
+that sprint's `retro.action` beats — the last one is the natural place, once
+the meeting has something to summarize — and it sets/updates the parent
+retro's notes; every other `retro.action` on the same sprint still only
+carries its own action item's `body`/`assignee`/`points`. A retro with notes
+but zero action items has no way to reach the database through replay: there
+is no standalone "open retro" beat.
+
 ## Authoring a new sample
 
 The bundled samples are **generated** by developer scripts, then committed as

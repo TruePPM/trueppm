@@ -842,6 +842,7 @@
           "impact": 4,
           "category": "EXTERNAL",
           "response": "MITIGATE",
+          "mitigation_due_date": "A+15",
           "owner": "ivan",
           "tasks": [
             "1.4",
@@ -890,6 +891,7 @@
           "impact": 3,
           "category": "PROJECT_MANAGEMENT",
           "response": "MITIGATE",
+          "mitigation_due_date": "A-3",
           "owner": "jordan",
           "tasks": [
             "2.16"
@@ -912,6 +914,20 @@
     }
   ],
   "events": [
+    {
+      "at": "A-79T10:00",
+      "action": "risk.note",
+      "target": "risk:vendor-lockin",
+      "actor": "ivan",
+      "body": "Identified at kickoff, not new: the platform's custom-object model (1.4) and the workflow-automation layer (2.14) are both proprietary to this vendor. Mitigating by keeping the data-export path documented and current as we build, so a future migration off the platform isn't blocked on figuring that out from scratch."
+    },
+    {
+      "at": "A-79T10:15",
+      "action": "risk.note",
+      "target": "risk:team-ramp",
+      "actor": "ivan",
+      "body": "Two of four build engineers are new to this platform's scripting model. Accepting the ramp cost rather than resequencing the plan around it — pairing the two new engineers with Mei on the first sprint's stories is the informal mitigation, not a tracked task."
+    },
     {
       "at": "A-6T09:00",
       "action": "task.comment",
@@ -1028,6 +1044,13 @@
       "to": "MITIGATING"
     },
     {
+      "at": "A-9T15:45",
+      "action": "risk.note",
+      "target": "risk:integration-defects",
+      "actor": "mei",
+      "body": "All three field-mapping defects from the integration suite are fixed and re-verified against the sandbox org — the rework cost the ~4 days already logged, nothing further. Closing this out."
+    },
+    {
       "at": "A-9T16:00",
       "action": "risk.status",
       "target": "risk:integration-defects",
@@ -1053,6 +1076,8 @@
       "action": "retro.action",
       "target": "sprint:helios:he-sprint-1",
       "actor": "jordan",
+      "assignee": "mei",
+      "points": 2,
       "body": "Pad estimates for third-party integrations — Email sync carried over on IMAP provider quirks."
     },
     {
@@ -1060,6 +1085,9 @@
       "action": "retro.action",
       "target": "sprint:helios:he-sprint-1",
       "actor": "ivan",
+      "assignee": "ivan",
+      "points": 1,
+      "notes": "Sprint 1 closed PARTIAL. Email sync carried over on IMAP provider quirks nobody had budgeted estimate slack for, and the review queue backed up in the last two days because nothing was reviewed earlier in the sprint. Padding third-party integration estimates and starting the review pass by mid-sprint are both going into Sprint 2's plan.",
       "body": "Start the review pass by mid-sprint so stories don't stack up on the final two days."
     },
     {
@@ -1141,6 +1169,13 @@
       "target": "risk:scope-injection",
       "actor": "jordan",
       "to": "MITIGATING"
+    },
+    {
+      "at": "A-2T15:35",
+      "action": "risk.note",
+      "target": "risk:scope-injection",
+      "actor": "jordan",
+      "body": "Search & filters landing mid-sprint is exactly this risk — Sales asked for it and it went in before anyone checked capacity. Rejecting the injection and sending it to the backlog held the sprint goal; raising to mitigating to make the pattern visible rather than let it repeat quietly."
     },
     {
       "at": "A-1T09:00",

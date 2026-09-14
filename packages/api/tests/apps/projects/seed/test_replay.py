@@ -572,6 +572,8 @@ def _retro_seed() -> dict[str, Any]:
                 "action": "retro.action",
                 "target": "sprint:core:s1",
                 "body": "Document the auth flow",
+                "notes": "Sprint 1 closed on plan. Auth landed without a rehearsed "
+                "rollback path, so integration tests and docs are the two follow-ups.",
             },
             {
                 "at": "A-5T09:00",
@@ -599,6 +601,16 @@ def test_retro_action_creates_retro_and_items(retro_program: Any) -> None:
     assert first.text == "Add integration tests"
     assert first.assignee is not None and first.assignee.username == "retro-priya"
     assert first.story_points == 3
+
+
+def test_retro_action_notes_land_on_the_sprint_retro(retro_program: Any) -> None:
+    # #3497: SprintRetro.notes is a plain field with no dedicated beat — a
+    # ``notes`` key on any retro.action for the sprint sets it, so a seed
+    # authors the meeting summary alongside its action items rather than
+    # leaving every retro's notes empty.
+    sprint = Sprint.objects.get(project__program=retro_program, name="Sprint 1")
+    retro = SprintRetro.objects.get(sprint=sprint)
+    assert retro.notes.startswith("Sprint 1 closed on plan.")
 
 
 def test_retro_action_item_is_backdated(retro_program: Any) -> None:

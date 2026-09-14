@@ -630,7 +630,7 @@
             "task.ack",
             "time.log"
           ],
-          "description": "Replayed actions. retro.action creates a RetroActionItem on the target sprint's retro; retro.promote promotes an existing action item (matched by `body`) into a project-backlog task (ADR-0114 §7 / #1109). task.block/task.unblock raise and clear the explicit blocker flag, so a blocked span has a real duration on the timeline rather than a field that reads \"blocked 0 days\". risk.note appends a RiskComment, giving a risk.status flip its reason. v2.1 (#3603): task.note appends a dated TaskNote (`decision`/`pinned` optional); task.react / task.ack add a reaction or an acknowledgement to a comment declared with a `slug`; time.log writes a TimeEntry dated to the beat and is never forward-dated."
+          "description": "Replayed actions. retro.action creates a RetroActionItem on the target sprint's retro, lazily creating the parent SprintRetro on first use; an optional `notes` on any retro.action beat sets/updates that SprintRetro's meeting-summary notes (typically authored once, on the retro's last action-item beat). retro.promote promotes an existing action item (matched by `body`) into a project-backlog task (ADR-0114 §7 / #1109). task.block/task.unblock raise and clear the explicit blocker flag, so a blocked span has a real duration on the timeline rather than a field that reads \"blocked 0 days\". risk.note appends a RiskComment, giving a risk.status flip its reason. v2.1 (#3603): task.note appends a dated TaskNote (`decision`/`pinned` optional); task.react / task.ack add a reaction or an acknowledgement to a comment declared with a `slug`; time.log writes a TimeEntry dated to the beat and is never forward-dated."
         },
         "target": {
           "type": "string",
@@ -678,6 +678,11 @@
         "estimate": { "$ref": "#/$defs/estimate" },
         "assignee": { "$ref": "#/$defs/slug" },
         "body": { "type": "string", "maxLength": 10000 },
+        "notes": {
+          "type": "string",
+          "maxLength": 10000,
+          "description": "On retro.action: sets the target sprint's SprintRetro.notes (the meeting-summary text) rather than the RetroActionItem itself. Optional and typically authored once per retro."
+        },
         "is_active": {
           "type": "boolean",
           "description": "On baseline.capture: whether this capture supersedes the project's current active baseline (deactivating it), collapsing the real app's separate capture + activate steps into one beat. Defaults to false — a captured baseline stays superseded unless authored active."

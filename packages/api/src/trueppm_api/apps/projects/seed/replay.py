@@ -1200,7 +1200,11 @@ def _apply_retro_action(beat: _Beat, ctx: ReplayContext) -> None:
 
     The parent ``SprintRetro`` is created lazily the first time an action item
     attaches to the sprint (mirroring the live ``_get_or_create_retro`` path),
-    so a seed authors retro outcomes without a separate "open retro" event.
+    so a seed authors retro outcomes without a separate "open retro" event. An
+    optional ``notes`` on the beat sets the retro's own meeting-summary text
+    (distinct from the action item's ``body``) — a seed typically carries it on
+    the last action-item beat for that sprint, once the retro has something to
+    summarize (#3497).
     """
     sprint = _resolve_sprint(ctx, beat.target)
     body = beat.data.get("body")
@@ -1213,6 +1217,10 @@ def _apply_retro_action(beat: _Beat, ctx: ReplayContext) -> None:
         # created_at is auto_now_add; backdate the retro to its first action so
         # the demo's retro is dated to the ceremony, not import time.
         SprintRetro.objects.filter(pk=retro.pk).update(created_at=beat.when)
+    notes = beat.data.get("notes")
+    if notes:
+        retro.notes = notes
+        _save(retro, beat.when, beat.actor, ["notes"])
     assignee = ctx.users.get(beat.data["assignee"]) if beat.data.get("assignee") else None
     item = RetroActionItem.objects.create(
         retro=retro,
