@@ -59,5 +59,5 @@ Columns with `wip_limit=null` render the unchanged neutral count chip. The defau
 
 ## If you are…
 
-- **Tom (engineer)** — the over-limit chip says "this column is full." Don't pile on; finish what's in flight first.
-- **Maya** — the at-limit / over-limit chips are your standup signal. If REVIEW is over-limit two days running, something downstream is blocked.
+- **Priya (engineer)** — the over-limit chip says "this column is full." Don't pile on; finish what's in flight first.
+- **Alex** — the at-limit / over-limit chips are your standup signal. If REVIEW is over-limit two days running, something downstream is blocked.

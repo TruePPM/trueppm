@@ -50,10 +50,12 @@ The Project Manager has to write a status report on Monday. The team finished 23
 Hybrid PM is not abstract. It happens because six specific humans need different views of the same work. Build for all six and the tool wins. Build for any one of them and you become someone else's incumbent — the thing the next-generation tool will replace.
 
 :::note[Persona names]
-The six characters below are the narrative protagonists for this walkthrough. The demo logins created by `load_sample_project --with-personas` are the bundled sample's own personas (`atlas-alex`, `atlas-priya`, `atlas-sam`, …) rather than these names. TruePPM's [full product persona set](/overview/) expands these six to eight roles with more precise naming (Alex for Scrum Master, Sarah for PM, etc.). The story characters map directly to those eight personas.
+The six characters below are six of TruePPM's [eight product personas](/overview/#the-eight-personas) — the ones a hybrid program puts in the same room. The other two are Jordan, the Product Owner (see the [product owners guide](/guides/product-owners/)), and Theo, the AI-native technical operator whose agent is the AI client further down.
+
+None of them is a demo login. `load_sample_project --with-personas` creates the bundled sample's own accounts (`atlas-alex`, `atlas-priya`, `atlas-sam`, …), and some of those share a first name with a persona here without being the same person — `atlas-alex` is the Atlas sample's program manager, not the Delivery Lead below. Treat the two sets as unrelated.
 :::
 
-### Maya — Scrum Master
+### Alex — Delivery Lead (Scrum Master)
 > "I just want my team to focus on this sprint. I don't want to fill in 14 fields every time the PM panics."
 
 - **Cares about:** sprint health, blockers, WIP limits, velocity stability, retro actions
@@ -61,15 +63,15 @@ The six characters below are the narrative protagonists for this walkthrough. Th
 - **Won't tolerate:** a tool slower than Jira; won't open a Gantt voluntarily
 - **Reads next:** [Sprints workspace](/features/sprints/), [Burndown](/features/sprint-burndown/), [Retrospective](/features/retrospective/)
 
-### Raj — Project Manager
+### Sarah — Project Manager
 > "I have a contractual milestone October 15th. I need to know — today — whether we're going to make it."
 
 - **Cares about:** critical path, milestone dates, schedule variance, dependency risk, EVM
 - **Hates:** sprint reports that don't translate to a date; "on track" with no math behind it
-- **Won't tolerate:** a tool that can't produce a baselined Gantt his exec sponsor recognizes
+- **Won't tolerate:** a tool that can't produce a baselined Gantt her exec sponsor recognizes
 - **Reads next:** [Gantt](/features/schedule/), [Scheduler engine](/features/scheduler/), [Velocity panel](/features/velocity/)
 
-### Diana — PMO Director
+### Marcus — PMO Director
 > "I need to know which two projects are about to slip and where to move resources before they do."
 
 - **Cares about:** portfolio health, resource contention, dependency cascades, governance
@@ -77,15 +79,15 @@ The six characters below are the narrative protagonists for this walkthrough. Th
 - **Won't tolerate:** a view that takes 20 minutes to assemble from 6 spreadsheets
 - **Reads next:** [Multi-team Sprints lens](/features/multi-team-lens/), [Methodology preset](/features/methodology-preset/)
 
-### Sarah — Resource Manager
-> "Three PMs just told me they need Priya next week. She has 12 hours."
+### David — Resource Manager
+> "Three PMs just told me they need Aisha next week. She has 12 hours."
 
 - **Cares about:** allocation conflicts, utilization, skills coverage, hiring forecast
 - **Hates:** every PM running their own resource plan in their head
 - **Won't tolerate:** a capacity tool that doesn't reflect actual sprint commitments
 - **Reads next:** [Capacity preflight](/features/capacity-preflight/), [Multi-team lens](/features/multi-team-lens/)
 
-### Carlos — Executive Sponsor
+### Janet — Executive Sponsor
 > "Are we shipping the platform migration on time? One sentence."
 
 - **Cares about:** outcomes, confidence intervals, financial exposure, go/no-go signals
@@ -93,12 +95,12 @@ The six characters below are the narrative protagonists for this walkthrough. Th
 - **Won't tolerate:** reading a 40-page status; will check on phone, in the elevator, twice a week
 - **Reads next:** [Velocity panel](/features/velocity/), [Burndown](/features/sprint-burndown/)
 
-### Tom — Team Member
+### Priya — Team Member
 > "Just tell me what I'm doing today. Don't make me hunt for it across three tools."
 
-- **Cares about:** today's tasks, what's blocking him, what's actually due
+- **Cares about:** today's tasks, what's blocking her, what's actually due
 - **Hates:** logging time, updating status fields, anything that isn't building
-- **Won't tolerate:** an app that's slow on his phone or asks him to "fill in the WBS code"
+- **Won't tolerate:** an app that's slow on her phone or asks her to "fill in the WBS code"
 - **Reads next:** [Sprint backlog](/features/sprint-backlog/), [WIP overload detection](/features/wip-overload/)
 
 And with the 0.4 beta, a seventh actor will join the six — not a human, and not one of the demo logins:
@@ -118,9 +120,9 @@ This is the actual sequence of events from the day a program is chartered throug
 
 ### 1. Charter & decompose — the PM builds the WBS
 
-**Actors:** Raj (PM), Diana (PMO)
+**Actors:** Sarah (PM), Marcus (PMO)
 
-Raj kicks off the platform-migration project. He builds a Work Breakdown Structure using TruePPM's `ltree`-backed hierarchy. Top-level phases (Discovery, Build, Migration, Cutover) become summary tasks. Each phase decomposes into deliverables, then into work packages.
+Sarah kicks off the platform-migration project. She builds a Work Breakdown Structure using TruePPM's `ltree`-backed hierarchy. Top-level phases (Discovery, Build, Migration, Cutover) become summary tasks. Each phase decomposes into deliverables, then into work packages.
 
 The WBS is not stored in a separate "schedule" object that the team never sees. Every node is a row in `projects_task` — same table, same UUID, same `server_version` for sync. The team's future stories will live as leaf descendants of these work packages.
 
@@ -128,23 +130,23 @@ The WBS is not stored in a separate "schedule" object that the team never sees. 
 
 ### 2. Schedule the skeleton — CPM, milestones, baseline
 
-**Actors:** Raj (PM)
+**Actors:** Sarah (PM)
 
-Raj enters durations and dependencies on the work packages — not the leaves yet. The scheduler runs a forward and backward pass; the critical path lights up. He sets contractual milestones (UAT signoff, Cutover) and baselines the schedule.
+Sarah enters durations and dependencies on the work packages — not the leaves yet. The scheduler runs a forward and backward pass; the critical path lights up. She sets contractual milestones (UAT signoff, Cutover) and baselines the schedule.
 
-- **Raj's view:** Gantt with critical path highlighted, slack visualized per task, milestone diamonds on the contractual dates, and — once a task has actual dates recorded — a dashed actual-vs-planned overlay below its bar (see [Schedule](/features/schedule/#bar-types); the persisted baseline-vs-current ghost overlay is a separate, later surface, see [Baselines](/features/baselines/)).
-- **Maya's view:** Nothing yet. Stories don't exist. The board is empty. She sees a project name in the sidebar and ignores it.
+- **Sarah's view:** Gantt with critical path highlighted, slack visualized per task, milestone diamonds on the contractual dates, and — once a task has actual dates recorded — a dashed actual-vs-planned overlay below its bar (see [Schedule](/features/schedule/#bar-types); the persisted baseline-vs-current ghost overlay is a separate, later surface, see [Baselines](/features/baselines/)).
+- **Alex's view:** Nothing yet. Stories don't exist. The board is empty. They see a project name in the sidebar and ignore it.
 
 → See [Gantt](/features/schedule/), [Scheduler engine](/features/scheduler/)
 
 ### 3. Capacity preflight — the Resource Manager vetoes
 
-**Actors:** Sarah (RM), Raj (PM)
+**Actors:** David (RM), Sarah (PM)
 
-Raj staffs the work packages from the project roster, at fractional units — Priya at 0.5 on the migration phase, not "a DBA, TBD". Sarah opens the project's week × person capacity heat map (**Team → Heatmap**), groups it by job role, and immediately flags a contention: the migration phase needs two senior database engineers in October and the heat map shows Priya at 140% for three straight weeks. Raj reschedules the phase or escalates for hire — before the sprint team has touched a single story.
+Sarah staffs the work packages from the project roster, at fractional units — Aisha at 0.5 on the migration phase, not "a DBA, TBD". David opens the project's week × person capacity heat map (**Team → Heatmap**), groups it by job role, and immediately flags a contention: the migration phase needs two senior database engineers in October and the heat map shows Aisha at 140% for three straight weeks. Sarah reschedules the phase or escalates for hire — before the sprint team has touched a single story.
 
 :::tip[This is the win]
-Capacity contention is caught at plan time, not discovered three sprints in. Most agile-first tools have no notion of this. Most waterfall-first tools don't reflect actual sprint commitments. TruePPM models both, so Sarah's view is real.
+Capacity contention is caught at plan time, not discovered three sprints in. Most agile-first tools have no notion of this. Most waterfall-first tools don't reflect actual sprint commitments. TruePPM models both, so David's view is real.
 :::
 
 :::note[Read the heat map at the scope it has]
@@ -155,9 +157,9 @@ The heat map is **per project** — it sums the assignment units on one project'
 
 ### 4. Decompose to stories — hand off to the team
 
-**Actors:** Maya (SM), Raj (PM)
+**Actors:** Alex (SM), Sarah (PM)
 
-Raj walks Maya through the work packages in the Build phase. Maya breaks each package down into user stories — but here's the twist: every story she creates is a child task in TruePPM, automatically inheriting the work package as its parent in the WBS. Story points get assigned. Acceptance criteria are written on the story itself.
+Sarah walks Alex through the work packages in the Build phase. Alex breaks each package down into user stories — but here's the twist: every story they create is a child task in TruePPM, automatically inheriting the work package as its parent in the WBS. Story points get assigned. Acceptance criteria are written on the story itself.
 
 A story is just a leaf task with a `sprint` FK, a `story_points` field, and a parent pointing to a work package. Roll-ups happen automatically: the work package's remaining work is the sum of its story descendants. CPM keeps working because the work package still has its dependencies and a duration that is now forecast rather than estimated.
 
@@ -165,22 +167,22 @@ A story is just a leaf task with a `sprint` FK, a `story_points` field, and a pa
 
 ### 5. Sprint planning — the team pulls work
 
-**Actors:** Maya (SM), Tom (engineer)
+**Actors:** Alex (SM), Priya (engineer)
 
-Sprint 1 opens. Maya runs sprint planning on the board view. She drags stories from the backlog into the sprint. The team discusses, splits, estimates. Tom and his peers commit to 38 points based on a 3-sprint rolling average velocity of 41.
+Sprint 1 opens. Alex runs sprint planning on the board view. They drag stories from the backlog into the sprint. The team discusses, splits, estimates. Priya and her peers commit to 38 points based on a 3-sprint rolling average velocity of 41.
 
-- **Maya's view:** standard Scrum board with WIP limits per column, daily standup view, [Plan Sprint dialog](/features/plan-sprint/) for the next iteration.
-- **Raj's view:** the same stories, rolled up to their parent work package. Once the sprint is linked to a milestone, that milestone's percent complete rolls up live from sprint state, and a **sprint-plan variance chip** reads the latest planned or active sprint's finish date against the milestone's CPM date — `Sprint plan: +3d slip`. The variance is display only: sprint dates are never mutated and there is no "shift the milestone" button. When the sprint closes, TruePPM offers Raj a revised most-likely duration for each pointed story — one suggestion at a time, and nothing is written until he accepts.
+- **Alex's view:** standard Scrum board with WIP limits per column, daily standup view, [Plan Sprint dialog](/features/plan-sprint/) for the next iteration.
+- **Sarah's view:** the same stories, rolled up to their parent work package. Once the sprint is linked to a milestone, that milestone's percent complete rolls up live from sprint state, and a **sprint-plan variance chip** reads the latest planned or active sprint's finish date against the milestone's CPM date — `Sprint plan: +3d slip`. The variance is display only: sprint dates are never mutated and there is no "shift the milestone" button. When the sprint closes, TruePPM offers Sarah a revised most-likely duration for each pointed story — one suggestion at a time, and nothing is written until she accepts.
 
 → See [Sprints workspace](/features/sprints/), [Sprint backlog](/features/sprint-backlog/), [Plan Sprint dialog](/features/plan-sprint/), [Sprint → milestone rollup](/features/sprint-milestone-rollup/)
 
 ### 6. Execute — daily cadence, two worlds in sync
 
-**Actors:** Tom, Maya, Raj, Sarah
+**Actors:** Priya, Alex, Sarah, David
 
-During sprint execution, Tom moves cards across the board. He never opens the Gantt. Maya runs standup against the board. Raj watches the bound milestone's rollup and its variance chip move as stories close. Sarah's heat map holds steady while they do — load is the assignment's full allocation rate across the task's span, deliberately not scaled down by percent complete, because a person's real commitment to a task does not shrink because they finished part of it.
+During sprint execution, Priya moves cards across the board. She never opens the Gantt. Alex runs standup against the board. Sarah watches the bound milestone's rollup and its variance chip move as stories close. David's heat map holds steady while they do — load is the assignment's full allocation rate across the task's span, deliberately not scaled down by percent complete, because a person's real commitment to a task does not shrink because they finished part of it.
 
-When Tom marks a story done, the API:
+When Priya marks a story done, the API:
 
 ```
 1. Update task.status, task.actual_finish, task.server_version
@@ -192,7 +194,7 @@ When Tom marks a story done, the API:
    subscribed view
 ```
 
-None of that rewrites the plan. The rollup advises; the durations on Raj's Gantt are still the ones he entered.
+None of that rewrites the plan. The rollup advises; the durations on Sarah's Gantt are still the ones she entered.
 
 #### What closing a sprint actually does
 
@@ -200,35 +202,35 @@ This is the bridge, and it is the claim most easily overstated — so here is th
 
 1. **It recomputes the milestone rollup.** The bound milestone's percent complete and its sprint-plan variance chip pick up the closing sprint's final committed/completed snapshot.
 2. **It writes a forecast band.** TruePPM takes the milestone's *existing* CPM finish date, wraps a **P50/P80 band** around it from the team's velocity re-paced over the remaining bound backlog, and stores that as a forecast snapshot with a confidence label. If the band materially moves the likely finish or the confidence, the project's manager cohort is notified. The milestone's own CPM date is **read**, not written.
-3. **It offers velocity-calibration suggestions.** Each pointed story in the closing sprint gets a proposed revised most-likely duration, waiting in the task drawer as a banner Raj can accept or dismiss.
+3. **It offers velocity-calibration suggestions.** Each pointed story in the closing sprint gets a proposed revised most-likely duration, waiting in the task drawer as a banner Sarah can accept or dismiss.
 
-A routine CPM recompute is queued after the close, as after any write — it recalculates dates from the durations already on the plan. **Closing a sprint never rewrites a duration.** An estimate changes only when Raj accepts a suggestion, which writes that task's most-likely duration and queues a CPM and Monte Carlo recompute; that value is the one Monte Carlo samples, so it moves the confidence dates on the forecast. The deterministic duration on the bar stays the PM's to set.
+A routine CPM recompute is queued after the close, as after any write — it recalculates dates from the durations already on the plan. **Closing a sprint never rewrites a duration.** An estimate changes only when Sarah accepts a suggestion, which writes that task's most-likely duration and queues a CPM and Monte Carlo recompute; that value is the one Monte Carlo samples, so it moves the confidence dates on the forecast. The deterministic duration on the bar stays the PM's to set.
 
 Live per-bar Gantt forecasts and amber/red schedule-variance indicators driven by *mid-sprint* velocity are part of the deep CPM-aware bridge planned for 0.5 (#372) — they do not exist yet.
 
 :::note[One source of truth]
-Tom updated one card. Maya's burndown moved. Raj's milestone rollup moved with it. Sarah's heat map picked up whatever dates the CPM shifted downstream. Diana's portfolio dashboard updates the same way (roadmap: Enterprise portfolio dashboard), as will Carlos's exec view (roadmap: mobile exec view). **Zero status meetings to keep them consistent.**
+Priya updated one card. Alex's burndown moved. Sarah's milestone rollup moved with it. David's heat map picked up whatever dates the CPM shifted downstream. Marcus's portfolio dashboard updates the same way (roadmap: Enterprise portfolio dashboard), as will Janet's exec view (roadmap: mobile exec view). **Zero status meetings to keep them consistent.**
 :::
 
 → See [Sprint backlog](/features/sprint-backlog/), [Burndown chart](/features/sprint-burndown/), [WIP overload detection](/features/wip-overload/), [Real-time sync](/features/real-time/)
 
 ### 7. Forecast — Monte Carlo across both worlds
 
-**Actors:** Raj, Diana, Carlos
+**Actors:** Sarah, Marcus, Janet
 
-Mid-program, Raj runs a Monte Carlo on the milestone forecast. The simulation pulls historical sprint velocity (real, not estimated) for the team-driven nodes and PERT-style three-point estimates for the deterministic ones. The result is a probability distribution on the milestone date.
+Mid-program, Sarah runs a Monte Carlo on the milestone forecast. The simulation pulls historical sprint velocity (real, not estimated) for the team-driven nodes and PERT-style three-point estimates for the deterministic ones. The result is a probability distribution on the milestone date.
 
-**P50: Oct 12. P80: Oct 22. P95: Nov 1.** Carlos opens his exec view on his phone (roadmap: the mobile exec view ships with the native app at 0.6). He sees a single sentence: *"82% likely to make Oct 15. Risk: velocity has been declining 4 sprints running."* No watermelon. No false precision. A defensible probability backed by the team's actual history.
+**P50: Oct 12. P80: Oct 22. P95: Nov 1.** Janet opens her exec view on her phone (roadmap: the mobile exec view ships with the native app at 0.6). She sees a single sentence: *"82% likely to make Oct 15. Risk: velocity has been declining 4 sprints running."* No watermelon. No false precision. A defensible probability backed by the team's actual history.
 
-And Raj is no longer the only one who can run that question. With the read-only MCP server that lands in the 0.4 beta, an engineer can put the same what-if to an agent — *"slip the migration three days, do we still make October 15th?"* — and get the identical distribution, because the agent calls the same Monte Carlo the button does. The model phrases the answer; the engine computes it.
+And Sarah is no longer the only one who can run that question. With the read-only MCP server that lands in the 0.4 beta, an engineer can put the same what-if to an agent — *"slip the migration three days, do we still make October 15th?"* — and get the identical distribution, because the agent calls the same Monte Carlo the button does. The model phrases the answer; the engine computes it.
 
 → See [Velocity panel](/features/velocity/), [Scheduler engine](/features/scheduler/), [Computed, not guessed](/architecture/overview/#computed-not-guessed)
 
 ### 8. Close — retro, lessons learned, baseline variance
 
-**Actors:** Maya, Raj, Diana
+**Actors:** Alex, Sarah, Marcus
 
-Sprint retros feed into the team's continuous improvement — and each action item carries an explicit **Promote to backlog**, so last sprint's lessons become real work items rather than a document nobody reopens. Raj gets schedule variance against the plan he committed: a baseline is a frozen snapshot of the schedule, and every task reports its start/finish drift in days against it (in-app capture and the baseline manager ship in 0.4; on the latest release baselines are reachable over the REST API only). The team's closed-sprint velocity history is there for the next program to plan against.
+Sprint retros feed into the team's continuous improvement — and each action item carries an explicit **Promote to backlog**, so last sprint's lessons become real work items rather than a document nobody reopens. Sarah gets schedule variance against the plan she committed: a baseline is a frozen snapshot of the schedule, and every task reports its start/finish drift in days against it (in-app capture and the baseline manager ship in 0.4; on the latest release baselines are reachable over the REST API only). The team's closed-sprint velocity history is there for the next program to plan against.
 
 **What closeout does not include today.** Cost variance against a budget is not one of these numbers — TruePPM has no cost model. Resource costs (#73) and EV-lite (PV/EV/AC with SPI/CPI, #2139) are sequenced for 0.8; past 0.6 a version number records how work is currently sequenced in the tracker, not a date we have committed to. There is no generated closeout report either: the retro, the baseline variance table, the risk register, and the change history are each their own surface, and assembling a closeout pack out of them is still a manual exercise. What the shared data model buys you is that every one of those surfaces reads the same rows — not that a report writes itself.
 
@@ -242,15 +244,15 @@ The reason this works is structural, not cosmetic. A "translation layer" between
 
 - **Eventual inconsistency.** Two databases drift. The Gantt is "as of last sync, 4 hours ago." Decisions are made on stale data.
 - **Lossy translation.** A Jira epic doesn't have a CPM duration. A Project task doesn't have story points. Each side fills in defaults that nobody trusts.
-- **Permission divergence.** The agile tool and the schedule tool have separate user/role models. Tom has access to Jira but not Project; Raj has the inverse. Information leaks both ways.
+- **Permission divergence.** The agile tool and the schedule tool have separate user/role models. Priya has access to Jira but not Project; Sarah has the inverse. Information leaks both ways.
 
-TruePPM has one Postgres row per task, one permissions check per request, one `server_version` for sync, one outbox for real-time broadcast. Maya and Raj are looking at the same row from two angles.
+TruePPM has one Postgres row per task, one permissions check per request, one `server_version` for sync, one outbox for real-time broadcast. Alex and Sarah are looking at the same row from two angles.
 
 ## Computed, not guessed — the same truth, now answerable by an agent
 
 The single data model has a second payoff, and it is what the 0.4 beta will lead with. Because every date, float value, and P80 is *computed* by one scheduling engine over one task hierarchy — not stored as an opinion, not reconciled from a second system — there is a single authoritative answer to any question about the plan. That is exactly what an AI agent needs.
 
-The 0.4 beta lands a **read-only MCP server**: point any Model Context Protocol client (Claude Desktop, Cursor, Zed) at your self-hosted instance and ask the live schedule real questions — *"what's on the critical path?"*, *"slip the migration three days, do we still make Oct 15?"*, *"how is Sprint 7 tracking?"* Every answer is produced by the same CPM and Monte Carlo engine that draws Raj's Gantt and Maya's burndown. The language model translates the question into an engine call and the result into a sentence; it never invents the number. This is the principle we call **computed, not guessed**, and it is the rule for everything AI-facing on the roadmap.
+The 0.4 beta lands a **read-only MCP server**: point any Model Context Protocol client (Claude Desktop, Cursor, Zed) at your self-hosted instance and ask the live schedule real questions — *"what's on the critical path?"*, *"slip the migration three days, do we still make Oct 15?"*, *"how is Sprint 7 tracking?"* Every answer is produced by the same CPM and Monte Carlo engine that draws Sarah's Gantt and Alex's burndown. The language model translates the question into an engine call and the result into a sentence; it never invents the number. This is the principle we call **computed, not guessed**, and it is the rule for everything AI-facing on the roadmap.
 
 This is only possible because of the bridge. An "AI for project management" bolted onto two drifting systems has to guess which database is right and interpolate the fields neither one has. TruePPM has one row per task, one engine, and — with the provenance graph that also lands at 0.4 — a server-side derivation behind every computed value, so an agent's answer is not just fluent, it is *auditable*: it can cite how the date was reached, not assert a plausible one. Read-only by design in the beta; plan-mode dry runs arrive at 0.5 (an agent proposes, the engine answers with verdict and impact, nothing commits) and the committing write surface at 0.6 with the engine as referee, so an agent can act on the plan without ever being able to create an impossible one.
 
@@ -262,12 +264,12 @@ The proof of hybrid PM is what each persona *doesn't* have to do anymore.
 
 | Persona | Pain in today's stack | What TruePPM gives them | Time saved / week |
 |---|---|---|---|
-| Maya | Re-entering sprint summary into a status doc the PMO requested. Explaining velocity to a PM who just wants a date. | Board view she lives in. Velocity automatically informs a forecast date her PM can read. No status doc. | ~3 hours |
-| Raj | Reconciling sprint progress to his Gantt every Monday. Estimating "done-ness" of stories he can't see. | A milestone rollup that moves as the team works, and a P50/P80 forecast band written from real velocity every time a sprint closes. Critical path auto-recomputes on every write. | ~5 hours |
-| Diana | Begging 12 PMs for status decks every other Friday. Drift between what the deck says and what the team is actually doing. | Live portfolio dashboard (roadmap: Enterprise portfolio dashboard). Health computed, not reported. Drill-through to any team's actual board. | ~6 hours + meetings |
-| Sarah | Maintaining a separate spreadsheet of who's allocated where, never trusting any PM's number. | Per-project demand auto-aggregated from sprint commitments + waterfall assignments. Conflicts surfaced before they happen. (The cross-portfolio view is Enterprise.) | ~8 hours |
-| Carlos | Reading watermelon decks. Asking "how confident?" and getting a shrug. | Phone view: 3 programs, P50/P80 confidence, one-line risk. Trend arrows on velocity, scope, burn (roadmap: mobile exec view). | Meetings he doesn't have to take |
-| Tom | Three tools, two of which his manager's manager makes him update. | One mobile-first card view. Updates propagate everywhere. He never opens the Gantt. | ~2 hours + frustration |
+| Alex | Re-entering sprint summary into a status doc the PMO requested. Explaining velocity to a PM who just wants a date. | Board view they live in. Velocity automatically informs a forecast date their PM can read. No status doc. | ~3 hours |
+| Sarah | Reconciling sprint progress to her Gantt every Monday. Estimating "done-ness" of stories she can't see. | A milestone rollup that moves as the team works, and a P50/P80 forecast band written from real velocity every time a sprint closes. Critical path auto-recomputes on every write. | ~5 hours |
+| Marcus | Begging 12 PMs for status decks every other Friday. Drift between what the deck says and what the team is actually doing. | Live portfolio dashboard (roadmap: Enterprise portfolio dashboard). Health computed, not reported. Drill-through to any team's actual board. | ~6 hours + meetings |
+| David | Maintaining a separate spreadsheet of who's allocated where, never trusting any PM's number. | Per-project demand auto-aggregated from sprint commitments + waterfall assignments. Conflicts surfaced before they happen. (The cross-portfolio view is Enterprise.) | ~8 hours |
+| Janet | Reading watermelon decks. Asking "how confident?" and getting a shrug. | Phone view: 3 programs, P50/P80 confidence, one-line risk. Trend arrows on velocity, scope, burn (roadmap: mobile exec view). | Meetings she doesn't have to take |
+| Priya | Three tools, two of which her manager's manager makes her update. | One mobile-first card view. Updates propagate everywhere. She never opens the Gantt. | ~2 hours + frustration |
 
 ## See it for yourself
 
@@ -277,7 +279,7 @@ The [`load_sample_project`](/getting-started/quickstart/) management command loa
 docker compose exec api python manage.py load_sample_project --with-personas
 ```
 
-Then sign in as one of the sample's own personas — `atlas-alex` (Program Manager, Owner), `atlas-jordan` (Product Owner), `atlas-sam` (Project Scheduler), `atlas-priya` (Engineering Lead, Admin), `atlas-tom` (Engineer), or `atlas-ada` (Executive Sponsor, Viewer) — and walk the story end-to-end on your own machine. The command prints the full list and the shared password when it finishes; on a local Docker stack (`DEBUG=True`) that password is `demo`.
+Then sign in as one of the sample's own accounts — `atlas-alex` (Alex Rivera, Program Manager — Project Admin on all three projects), `atlas-jordan` (Jordan Blake, Product Owner — Project Admin on GTM Readiness), `atlas-sam` (Sam Okafor, Project Scheduler — Resource Manager), `atlas-priya` (Priya Nair, Engineering Lead — Project Manager on Platform Core), `atlas-tom` (Tom Becker, Engineer — Team Member), or `atlas-ada` (Ada Boyega, Executive Sponsor — Viewer) — and walk the story end-to-end on your own machine. The command prints the full list and the shared password when it finishes; on a local Docker stack (`DEBUG=True`) that password is `demo`.
 
 Prefer not to install at all? A hosted read-only demo lands with the 0.4 beta — the same sample program, preloaded, one click from the docs. And once your own instance is running, the read-only MCP server (0.4 beta) will let you point Claude Desktop or any MCP client at it and ask the story's questions in your own words.
 

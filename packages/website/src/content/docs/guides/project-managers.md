@@ -1,6 +1,7 @@
 ---
 title: For Project Managers
 description: How TruePPM helps project managers build reliable schedules, track the critical path, run probabilistic risk analysis, and stay in sync with agile delivery teams.
+documentedFor: "0.4"
 ---
 
 You manage schedules, track progress against commitments, and need to give stakeholders delivery dates they can trust. TruePPM gives you real scheduling math — not just bars on a timeline — and connects that schedule to your team's actual agile delivery without any manual reconciliation.
@@ -48,7 +49,14 @@ TruePPM lets you add three-point estimates (optimistic, most likely, pessimistic
 
 ### Baselines
 
-Capture a baseline to freeze the planned dates at a point in time. **Capture baseline** and **Baselines…** ship in the Schedule toolbar's **Actions** menu with the 0.4 beta, gated at **Admin** or above; the REST API remains available and is the way to script it. Once a baseline is active, the task detail drawer shows a read-only baseline-vs-current comparison so you can see schedule variance. Multiple baselines are supported for rebaseline events. See [Baselines](/features/baselines/) for both the in-app and API workflows.
+Capture a baseline to freeze the planned dates at a point in time. **Capture baseline** and **Baselines…** ship in the Schedule toolbar's **Actions** menu with the 0.4 beta, gated at **Project Manager** or above; the REST API remains available and is the way to script it. Once a baseline is active, the task detail drawer shows a read-only baseline-vs-current comparison so you can see schedule variance. Multiple baselines are supported for rebaseline events. See [Baselines](/features/baselines/) for both the in-app and API workflows.
+
+:::note[Ships in 0.4]
+**Capture baseline** and the **Baselines…** manager in the Schedule's
+**Actions** menu ship in **0.4**, TruePPM's first beta. On `v0.3.0-alpha.3`,
+the latest release, baselines are captured and compared over the REST API only,
+so the in-app capture step in the walkthrough below applies from 0.4.
+:::
 
 ### Working calendars
 
@@ -129,7 +137,7 @@ The fastest way to judge TruePPM as a PM is to watch the schedule react to a cha
 
    The command prints the sample's persona logins (`atlas-alex`, `atlas-priya`, …) and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
 
-2. **Sign in as the PM.** Open `http://localhost:5173` and sign in as **`atlas-sam`** — Sam Okafor, Project Scheduler, seeded with the **Scheduler** role and holding the Migration Tooling CPM plan.
+2. **Sign in as the scheduler who holds the plan.** Open `http://localhost:5173` and sign in as **`atlas-sam`** — Sam Okafor, Project Scheduler, seeded as **Resource Manager** on every Atlas project and holding the Migration Tooling CPM plan.
 
 3. **Open the Schedule.** In the left navigation rail, under **Plan**, click **Schedule** (`/projects/:id/schedule`). The critical path is lit up and milestones are marked. This is the plan TruePPM keeps current for you — no "Update Project" button anywhere.
 
@@ -140,7 +148,7 @@ The fastest way to judge TruePPM as a PM is to watch the schedule react to a cha
 6. **Compare against the baseline.** Atlas seeds a **Kickoff baseline** on Migration Tooling, superseded by a **Post-dry-run re-plan** — so there is a real re-baseline to read variance against. Click any completed task's row and read the **Baseline** section in the drawer to see planned-vs-actual variance. To see the baselines themselves, open the Schedule toolbar's **Actions** menu → **Baselines…**.
 
 :::note[Capturing a baseline needs Admin]
-**Capture baseline** and **Baselines…** live in the Schedule's **Actions** menu and are gated at **Admin** or above. `atlas-sam` is a Scheduler, so he reads baseline variance but cannot capture a new one — sign in as `atlas-priya` (Priya Nair, Engineering Lead, Admin) if you want to try the capture flow.
+**Capture baseline** and **Baselines…** live in the Schedule's **Actions** menu and are gated at **Project Manager** or above. `atlas-sam` is a Resource Manager, so Sam reads baseline variance but cannot capture a new one — sign in as `atlas-alex` (Alex Rivera, Program Manager, **Project Admin** on all three Atlas projects) to try the capture flow on the same plan.
 :::
 
 One honest note against your own test — *"does this work on my phone with no signal?"* — not yet. The installable PWA lands in **0.5** (add to home screen, offline time entry and reads), and the native offline mobile editor lands in **0.6**. Today this is a desktop/web evaluation, and that's the right thing to wait for if mobile is your dealbreaker.

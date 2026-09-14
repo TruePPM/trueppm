@@ -10,7 +10,7 @@ at planning time rather than partway through the sprint.
 
 ## Where this lives in the story
 
-Step 3 ([Capacity preflight](/the-story/#3-capacity-preflight--the-resource-manager-vetoes)) of the [hybrid PM flow](/the-story/) — Sarah's veto surface. Catches contention at plan time before sprint execution starts.
+Step 3 ([Capacity preflight](/the-story/#3-capacity-preflight--the-resource-manager-vetoes)) of the [hybrid PM flow](/the-story/) — David's veto surface. Catches contention at plan time before sprint execution starts.
 
 ## What you see
 
@@ -90,6 +90,6 @@ time-off feature ships.
 
 ## If you are…
 
-- **Sarah (Resource Manager)** — this is your veto surface. If the aggregate is over 100% before activate, escalate before the sprint starts.
-- **Maya (Scrum Master)** — the per-person list answers "who's overcommitted?" without a separate spreadsheet. The points footer (0.3) gives you the one-line "are we over the ceiling?" answer to read out at planning.
-- **Raj (PM)** — capacity warnings on activate inform whether to pull scope before the sprint window opens.
+- **David (Resource Manager)** — this is your veto surface. If the aggregate is over 100% before activate, escalate before the sprint starts.
+- **Alex (Scrum Master)** — the per-person list answers "who's overcommitted?" without a separate spreadsheet. The points footer (0.3) gives you the one-line "are we over the ceiling?" answer to read out at planning.
+- **Sarah (PM)** — capacity warnings on activate inform whether to pull scope before the sprint window opens.

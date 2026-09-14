@@ -42,6 +42,6 @@ The capacity preflight runs at *activate* time, not creation, so a planning-time
 
 ## If you are…
 
-- **Maya** — fires this dialog to open the next iteration. After closing a sprint, the "Plan next sprint" slot appears at the end of the timeline strip.
-- **Tom** — rarely; Maya creates sprints. You'll see the sprint appear in the timeline once she creates it.
-- **Raj** — sprint start/finish dates here need to fit within the milestone window you set on the Schedule view.
+- **Alex** — fires this dialog to open the next iteration. After closing a sprint, the "Plan next sprint" slot appears at the end of the timeline strip.
+- **Priya** — rarely; Alex creates sprints. You'll see the sprint appear in the timeline once they create it.
+- **Sarah** — sprint start/finish dates here need to fit within the milestone window you set on the Schedule view.
