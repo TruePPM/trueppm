@@ -919,6 +919,9 @@ export interface McSensitivity {
  * - `estimates_off_critical_path` — estimated work exists but doesn't move the finish
  * - `estimates_pending_approval` — three-point estimates entered but withheld until approved
  * - `no_velocity_history` — agile (story-point) tasks but no closed-sprint velocity yet
+ * - `estimates_below_plan_duration` — estimates entered, but the whole range sits at or
+ *   below the task's planned duration, which the engine floors every sample at (issue 3765),
+ *   so the spread samples to a constant. "Add estimates" is the one remedy that cannot help.
  * - `no_estimates` — committed tasks carry only a single duration
  */
 export type ForecastReason =
@@ -927,6 +930,7 @@ export type ForecastReason =
   | 'estimates_off_critical_path'
   | 'estimates_pending_approval'
   | 'no_velocity_history'
+  | 'estimates_below_plan_duration'
   | 'no_estimates';
 
 /** Diagnostic explaining the forecast's uncertainty band (or lack of one). */
@@ -943,6 +947,8 @@ export interface ForecastDiagnostic {
   tasksPendingApproval: number;
   /** Story-point tasks with no completed-sprint velocity to sample from. */
   agileTasksWithoutVelocity: number;
+  /** Tasks whose whole three-point range sits at or below their planned duration. */
+  tasksEstimatesBelowPlan: number;
 }
 
 /**

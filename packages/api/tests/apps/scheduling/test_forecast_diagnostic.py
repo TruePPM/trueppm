@@ -110,6 +110,57 @@ def test_helper_no_estimates() -> None:
 
 
 @pytest.mark.django_db
+def test_helper_estimates_below_plan_duration() -> None:
+    """#3765: a real spread that sits entirely at or below the planned duration.
+
+    The engine floors every sampled duration at ``Task.duration``, so this triple
+    samples to a constant no matter how wide it is. Before the floor existed this
+    task counted as variance and the flat forecast was blamed on
+    ``estimates_off_critical_path`` — telling a PM their estimates miss the critical
+    path when the real cause is that they sit under the plan.
+    """
+    cal = Calendar.objects.create(name="C3b")
+    project = Project.objects.create(name="P3b", start_date=date(2026, 1, 5), calendar=cal)
+    t = Task.objects.create(
+        project=project,
+        name="padded",
+        duration=20,
+        optimistic_duration=1,
+        most_likely_duration=2,
+        pessimistic_duration=3,
+    )
+    basis = forecast_diagnostic(
+        [t], suggest_approve=False, has_velocity_signal=False, deterministic=True
+    )
+    assert basis["reason"] == "estimates_below_plan_duration"
+    assert basis["tasks_estimates_below_plan"] == 1
+    # It contributes no variance to the simulation, so it must not be counted as if
+    # it did — that miscount is what produced the wrong reason.
+    assert basis["tasks_with_variance"] == 0
+
+
+@pytest.mark.django_db
+def test_helper_estimate_bracketing_the_duration_still_counts_as_variance() -> None:
+    """Sampling room ABOVE the floor is what matters, not the whole range."""
+    cal = Calendar.objects.create(name="C3c")
+    project = Project.objects.create(name="P3c", start_date=date(2026, 1, 5), calendar=cal)
+    t = Task.objects.create(
+        project=project,
+        name="real spread",
+        duration=3,
+        optimistic_duration=1,
+        most_likely_duration=3,
+        pessimistic_duration=9,
+    )
+    basis = forecast_diagnostic(
+        [t], suggest_approve=False, has_velocity_signal=False, deterministic=True
+    )
+    assert basis["tasks_with_variance"] == 1
+    assert basis["tasks_estimates_below_plan"] == 0
+    assert basis["reason"] == "estimates_off_critical_path"
+
+
+@pytest.mark.django_db
 def test_helper_no_velocity_history() -> None:
     cal = Calendar.objects.create(name="C4")
     project = Project.objects.create(name="P4", start_date=date(2026, 1, 5), calendar=cal)

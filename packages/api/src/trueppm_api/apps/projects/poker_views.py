@@ -150,6 +150,18 @@ class CommitPokerSerializer(serializers.Serializer[Any]):
 class _PokerBase(APIView):
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]  # noqa: RUF012
 
+    #: Every poker route is keyed by a session or sprint id, never a project id, so
+    #: `IsProjectMember.has_permission` has nothing to resolve. The gate is the
+    #: `check_object_permissions(project)` call in `_project`/`_sprint`/`_session`
+    #: below, which every handler on every subclass goes through to reach its row —
+    #: the object check runs against the resolved Project, so the declared classes do
+    #: fire, just one hop later than the URL would allow (#3767).
+    resolves_scope_in_body = (
+        "Poker routes are keyed by session/sprint id, not project id. _project(), "
+        "_sprint() and _session() each call check_object_permissions() on the "
+        "resolved Project, and every handler reaches its row through one of them."
+    )
+
     def _project(self, project_id: Any) -> Project:
         project = get_object_or_404(Project, pk=project_id, is_deleted=False)
         self.check_object_permissions(self.request, project)

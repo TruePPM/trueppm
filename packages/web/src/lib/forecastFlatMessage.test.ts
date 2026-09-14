@@ -14,6 +14,7 @@ function basis(overrides: Partial<ForecastDiagnostic>): ForecastDiagnostic {
     tasksWithVariance: 0,
     tasksPendingApproval: 0,
     agileTasksWithoutVelocity: 0,
+    tasksEstimatesBelowPlan: 0,
     ...overrides,
   };
 }
@@ -63,6 +64,16 @@ describe('forecastFlatGuidance', () => {
     const msg = forecastFlatGuidance(basis({ reason: 'estimates_pending_approval', tasksPendingApproval: 2 }));
     expect(msg).not.toMatch(/Add PERT estimates/i);
   });
+
+  it('explains estimates that sit at or below the planned duration', () => {
+    const msg = forecastFlatGuidance(
+      basis({ reason: 'estimates_below_plan_duration', tasksEstimatesBelowPlan: 3 }),
+    );
+    expect(msg).toMatch(/planned duration/i);
+    // The #1340 rule applied to the #3765 cause: this user HAS estimates, and adding
+    // more is the one remedy guaranteed not to open a range.
+    expect(msg).not.toMatch(/Add PERT estimates/i);
+  });
 });
 
 describe('mapForecastDiagnostic', () => {
@@ -78,6 +89,7 @@ describe('mapForecastDiagnostic', () => {
       tasks_with_variance: 0,
       tasks_pending_approval: 8,
       agile_tasks_without_velocity: 0,
+      tasks_estimates_below_plan: 2,
     };
     expect(mapForecastDiagnostic(wire)).toEqual({
       deterministic: true,
@@ -86,6 +98,19 @@ describe('mapForecastDiagnostic', () => {
       tasksWithVariance: 0,
       tasksPendingApproval: 8,
       agileTasksWithoutVelocity: 0,
+      tasksEstimatesBelowPlan: 2,
     });
+  });
+
+  it('defaults tasksEstimatesBelowPlan to 0 on a payload predating #3765', () => {
+    const wire: ForecastDiagnosticWire = {
+      deterministic: true,
+      reason: 'no_estimates',
+      tasks_total: 3,
+      tasks_with_variance: 0,
+      tasks_pending_approval: 0,
+      agile_tasks_without_velocity: 0,
+    };
+    expect(mapForecastDiagnostic(wire)?.tasksEstimatesBelowPlan).toBe(0);
   });
 });

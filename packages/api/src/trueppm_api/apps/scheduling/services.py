@@ -701,6 +701,7 @@ def build_sched_calendar(cal: Calendar | None) -> Any:
 # Exposed so the API contract and tests reference one source rather than literals.
 FORECAST_NO_COMMITTED_TASKS = "no_committed_tasks"
 FORECAST_ALL_COMPLETE = "all_complete"
+FORECAST_ESTIMATES_BELOW_PLAN_DURATION = "estimates_below_plan_duration"
 FORECAST_ESTIMATES_OFF_CRITICAL_PATH = "estimates_off_critical_path"
 FORECAST_ESTIMATES_PENDING_APPROVAL = "estimates_pending_approval"
 FORECAST_NO_VELOCITY_HISTORY = "no_velocity_history"
@@ -709,13 +710,13 @@ FORECAST_NO_ESTIMATES = "no_estimates"
 
 def _forecast_task_signal(
     t: Any, *, suggest_approve: bool, has_velocity_signal: bool
-) -> tuple[bool, bool, bool, bool]:
+) -> tuple[bool, bool, bool, bool, bool]:
     """Classify one committed task for :func:`forecast_diagnostic`.
 
     Returns ``(is_incomplete, has_variance, is_pending_approval,
-    is_agile_without_velocity)`` — mirroring the exact sampling gate the engine
-    applies (``build_sched_tasks._pert`` plus the velocity condition) so the
-    diagnostic explains what the forecast actually did.
+    is_agile_without_velocity, is_estimate_below_plan)`` — mirroring the exact
+    sampling gate the engine applies (``build_sched_tasks._pert`` plus the velocity
+    condition) so the diagnostic explains what the forecast actually did.
     """
     from trueppm_api.apps.projects.models import DeliveryMode, EstimateStatus
 
@@ -732,7 +733,17 @@ def _forecast_task_signal(
     # engine until it is ACCEPTED — a withheld triple is "pending", not variance.
     withheld = suggest_approve and t.estimate_status != EstimateStatus.ACCEPTED
     # A real spread needs opt != pess; a degenerate triple samples to a constant.
-    pert_variance = has_triple and not withheld and t.optimistic_duration != t.pessimistic_duration
+    pert_spread = has_triple and not withheld and t.optimistic_duration != t.pessimistic_duration
+    # ...and, since #3765, sampling room ABOVE the floor. The engine clamps every
+    # sampled duration up to ``Task.duration``, so a triple whose pessimistic value
+    # sits at or below the planned duration collapses to a constant column no matter
+    # how wide its spread is. Counting it as variance made the flat-forecast reason
+    # resolve to ``estimates_off_critical_path`` — telling a PM their estimates miss
+    # the critical path when the real cause is that they sit under the plan. This
+    # function's whole contract is to mirror the sampling gate; the gate moved, so
+    # it moves with it.
+    below_plan = bool(pert_spread and t.pessimistic_duration <= (t.duration or 0))
+    pert_variance = pert_spread and not below_plan
     is_scrum_pointed = t.delivery_mode == DeliveryMode.SCRUM and t.story_points is not None
     velocity_variance = is_scrum_pointed and has_velocity_signal
 
@@ -741,6 +752,7 @@ def _forecast_task_signal(
         bool(pert_variance or velocity_variance),
         bool(has_triple and withheld),
         bool(is_scrum_pointed and not has_velocity_signal),
+        below_plan,
     )
 
 
@@ -751,6 +763,7 @@ def _forecast_reason(
     with_variance: int,
     pending_approval: int,
     agile_without_velocity: int,
+    estimates_below_plan: int,
 ) -> str:
     """Derive the single most-actionable flat-forecast reason code, in precedence order."""
     if total == 0:
@@ -766,6 +779,14 @@ def _forecast_reason(
         return FORECAST_ESTIMATES_PENDING_APPROVAL
     if agile_without_velocity > 0:
         return FORECAST_NO_VELOCITY_HISTORY
+    if estimates_below_plan > 0:
+        # Last before the fallback, so it strictly narrows ``no_estimates`` rather
+        # than displacing any existing explanation. The task DOES carry a spread —
+        # it just sits at or below the planned duration the engine floors at
+        # (#3765), so it samples to a constant. "Add estimates" is the one piece of
+        # advice guaranteed not to help here, and it is exactly what the fallback
+        # would have said.
+        return FORECAST_ESTIMATES_BELOW_PLAN_DURATION
     return FORECAST_NO_ESTIMATES
 
 
@@ -803,23 +824,25 @@ def forecast_diagnostic(
         A diagnostic dict with ``deterministic``, a ``reason`` code (``None`` when the
         forecast has a real band), and supporting counts (``tasks_total``,
         ``tasks_with_variance``, ``tasks_pending_approval``,
-        ``agile_tasks_without_velocity``). ``reason`` is one of the ``FORECAST_*``
-        codes above.
+        ``agile_tasks_without_velocity``, ``tasks_estimates_below_plan``).
+        ``reason`` is one of the ``FORECAST_*`` codes above.
     """
     total = len(db_tasks)
     incomplete = 0
     with_variance = 0
     pending_approval = 0
     agile_without_velocity = 0
+    estimates_below_plan = 0
 
     for t in db_tasks:
-        t_incomplete, t_variance, t_pending, t_agile = _forecast_task_signal(
+        t_incomplete, t_variance, t_pending, t_agile, t_below_plan = _forecast_task_signal(
             t, suggest_approve=suggest_approve, has_velocity_signal=has_velocity_signal
         )
         incomplete += t_incomplete
         with_variance += t_variance
         pending_approval += t_pending
         agile_without_velocity += t_agile
+        estimates_below_plan += t_below_plan
 
     reason: str | None = None
     if deterministic:
@@ -829,6 +852,7 @@ def forecast_diagnostic(
             with_variance=with_variance,
             pending_approval=pending_approval,
             agile_without_velocity=agile_without_velocity,
+            estimates_below_plan=estimates_below_plan,
         )
 
     return {
@@ -838,6 +862,7 @@ def forecast_diagnostic(
         "tasks_with_variance": with_variance,
         "tasks_pending_approval": pending_approval,
         "agile_tasks_without_velocity": agile_without_velocity,
+        "tasks_estimates_below_plan": estimates_below_plan,
     }
 
 
