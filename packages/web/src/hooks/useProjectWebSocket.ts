@@ -27,11 +27,17 @@
  *   task_comment_created / task_comment_updated / task_comment_deleted / task_comment_reaction_added / task_comment_reaction_removed / task_comment_ack_changed → invalidate task-comments[taskId]
  *   task_attachment_created / task_attachment_deleted → invalidate task-attachments[taskId]
  *   task_note_created / task_note_updated / task_note_deleted / task_note_pinned → invalidate task-notes[taskId] + tasks (latest_note_at freshness chip)
+ *   task_relation_created / task_relation_updated / task_relation_deleted → invalidate every
+ *                  mounted task-relations query (payload is relation-id-only, no task id, #2068/#3774)
  *   sprint_created / sprint_updated / sprint_deleted / sprint_activated / sprint_cancelled / sprint_closed → invalidate sprints
  *   sprint_close_failed → invalidate sprints + ['sprint', id, 'close-request'] (a queued close was
  *                  abandoned and the sprint stays open); invalidate-only, never renders on receipt
  *                  because the event is replayed on reconnect (#2992)
  *   sprint_retro_updated → invalidate ['sprint', id, 'retro'] (notes/action-item upsert or visibility toggle, issue 1359)
+ *   velocity_suggestion_accepted / velocity_suggestion_dismissed → invalidate velocity-suggestions
+ *                  (every task-scoped + pending-list query) + sprint-backlog (#2845, #3772)
+ *   signal_privacy_changed / signal_ceiling_proposal_changed → invalidate signal-privacy + ceiling-proposals
+ *   signal_ceiling_vote_cast → invalidate ceiling-proposals + signal-privacy (tally lives in both, #3771)
  *   retro_item_created / retro_item_updated / retro_item_deleted / retro_item_moved → invalidate retro-board (ADR-0117)
  *   slip_conflict_acknowledged / slip_conflicts_updated → invalidate slip-conflicts (ADR-0120 D4, issue 1359)
  *   assignment_created / assignment_updated / assignment_deleted / roster_changed → invalidate tasks
@@ -662,6 +668,24 @@ function registerCollaborationHandlers(on: OnFn, deps: WsHandlerDeps): void {
     }
   });
 
+  // --- Task relation events (#2068, #3774) ---
+  // TaskRelationViewSet._broadcast fans a create/update/delete to both endpoint
+  // projects, but the payload is relation-id-only ({id: rel_id}) — it carries
+  // neither the source nor target task id, so a handler here cannot target one
+  // ['task-relations', taskId] cache the way task_link's handler above does.
+  // Invalidate every mounted relations query instead; RelatedLinksSection only
+  // ever mounts the one for the task detail drawer that is open, so this is a
+  // single refetch in practice. task_relation_created is included here even
+  // though #2847 (open, 0.5) also tracks it, because the stated preferred
+  // disposition is registering all three task_relation_* names together —
+  // #2847's remaining scope (label_*, sprint_reranked, project_restored) is
+  // untouched by this handler.
+  on(['task_relation_created', 'task_relation_updated', 'task_relation_deleted'], () => {
+    void queryClient.invalidateQueries({
+      predicate: (q) => q.queryKey[0] === 'task-relations',
+    });
+  });
+
   // --- Task suggestion lifecycle (retro promotion + decline/revoke) ---
   // A promoted action item creates a TaskSuggestedAssignee; a decline or revoke
   // resolves it (issue 1323). Either way refresh the task feed and the suggested
@@ -878,6 +902,23 @@ function registerSprintHandlers(on: OnFn, deps: WsHandlerDeps): void {
       predicate: (q) => q.queryKey[0] === 'reforecast-preview',
     });
   });
+
+  // --- Velocity-suggestion settlement (#2845, #3772) ---
+  // _broadcast_settled's payload is {id: suggestion_id} only — no task_id, no
+  // project_id — so this cannot target ['velocity-suggestions', taskId]
+  // precisely. Invalidate every velocity-suggestions query (the task-scoped
+  // banner key AND usePendingVelocitySuggestions' ['velocity-suggestions',
+  // 'pending']) so EstimatesTab and SprintReforecastCard both drop the settled
+  // row instead of showing it as pending indefinitely — this was #2845's own
+  // motivating example. Also refresh the planning backlog, mirroring
+  // poker_session_updated's shape below: an accept writes most_likely_duration,
+  // which the reforecast card's estimate math reads.
+  on(['velocity_suggestion_accepted', 'velocity_suggestion_dismissed'], () => {
+    void queryClient.invalidateQueries({
+      predicate: (q) => q.queryKey[0] === 'velocity-suggestions',
+    });
+    void queryClient.invalidateQueries({ queryKey: ['sprint-backlog', projectIdRef.current] });
+  });
 }
 
 // --- Resource, membership, mention-group, team, board-config, project events ---
@@ -991,6 +1032,38 @@ function registerMembershipAndBoardHandlers(on: OnFn, deps: WsHandlerDeps): void
   );
 }
 
+// --- Signal-privacy ceiling-voting events (ADR-0104 Amendment A, #2845, #3771) ---
+function registerSignalPrivacyHandlers(on: OnFn, deps: WsHandlerDeps): void {
+  const { queryClient, projectIdRef } = deps;
+
+  // signal_privacy_services.py emits all three on transaction.on_commit and all
+  // three are live in FROZEN_WS_EVENT_TYPES, but this multi-member live-voting
+  // UI (useSignalPrivacy's 60s/30s staleTime, no refetchInterval) had no
+  // frontend handler — a peer's audience change, ceiling proposal, or cast vote
+  // did not reach an open Settings → Signal privacy panel until a manual
+  // reload. Architecturally the same shape as poker_session_updated above.
+  // signal_privacy_changed (an audience/ceiling posture write) and
+  // signal_ceiling_proposal_changed (a raise proposed/ratified/rejected/
+  // expired) both move the policy payload's `signals`/`open_proposals`, so
+  // both invalidate the policy query; a proposal transition additionally
+  // invalidates the lazily-fetched decision-history list. A cast vote doesn't
+  // change the posture itself — only the live tally on the open proposal — so
+  // it invalidates just the proposal caches, not the policy.
+  on(['signal_privacy_changed', 'signal_ceiling_proposal_changed'], () => {
+    void queryClient.invalidateQueries({ queryKey: ['signal-privacy', projectIdRef.current] });
+    void queryClient.invalidateQueries({
+      queryKey: ['ceiling-proposals', projectIdRef.current],
+    });
+  });
+  on('signal_ceiling_vote_cast', () => {
+    void queryClient.invalidateQueries({
+      queryKey: ['ceiling-proposals', projectIdRef.current],
+    });
+    // The tally embedded in the policy's open_proposals also moves per vote.
+    void queryClient.invalidateQueries({ queryKey: ['signal-privacy', projectIdRef.current] });
+  });
+}
+
 /**
  * Register every event_type → handler binding on `on`, grouped into focused
  * families. Each `register*` call is self-contained (it closes only over its
@@ -1006,6 +1079,7 @@ function registerEventHandlers(on: OnFn, deps: WsHandlerDeps): void {
   registerTokenAndFieldHandlers(on, deps);
   registerSprintHandlers(on, deps);
   registerMembershipAndBoardHandlers(on, deps);
+  registerSignalPrivacyHandlers(on, deps);
 }
 
 // The hook-owned refs backing the trailing-invalidation debounce (#773).
