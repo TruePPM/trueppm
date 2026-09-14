@@ -404,8 +404,11 @@ class SignalCeilingProposalVoteView(_SignalPrivacyBase):
             409: OpenApiResponse(
                 description=(
                     "The proposal is no longer open for voting (already resolved, or "
-                    "lazily expired under the lock). Body: "
-                    '``{code: "proposal_closed", detail: ...}``.'
+                    "lazily expired under the lock; body: "
+                    '``{code: "proposal_closed", detail: ...}``), or — a narrow race '
+                    "since this view already confirmed the proposal exists — it was "
+                    "deleted between that check and the locked re-read (``{code: "
+                    '"not_found", detail: ...}``).'
                 )
             ),
         },
@@ -441,8 +444,11 @@ class SignalCeilingProposalWithdrawView(_SignalPrivacyBase):
             200: OpenApiResponse(CeilingProposalSerializer),
             409: OpenApiResponse(
                 description=(
-                    "The proposal is no longer open. Body: "
-                    '``{code: "proposal_closed", detail: ...}``.'
+                    "The proposal is no longer open (body: "
+                    '``{code: "proposal_closed", detail: ...}``), or — a narrow race '
+                    "since this view already confirmed the proposal exists — it was "
+                    "deleted between that check and the locked re-read (``{code: "
+                    '"not_found", detail: ...}``).'
                 )
             ),
         },

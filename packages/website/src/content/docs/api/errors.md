@@ -321,6 +321,7 @@ capped sample naming them:
 | `sprint_already_bound` | `409` | The milestone is already bound to a sprint | — |
 | `sync_conflict` | `409` | A stale write overlapped a concurrent writer | see below |
 | `proposal_closed` | `409` | The ceiling proposal is no longer open | — |
+| `proposal_already_open` | `409` | A ceiling-raise proposal is already open for this signal — vote on it instead of raising again | — |
 | `not_open` | `409` | The planning-poker round is not open for votes | — |
 | `not_live` | `409` | The planning-poker session is not live | — |
 | `not_revealed` | `409` | The planning-poker round has not been revealed yet | — |
@@ -328,6 +329,10 @@ capped sample naming them:
 | `name_taken` | `409` | A template with this name already exists in the pool you can see. Resend `publish` with `new_version: true` to extend that template's chain instead | `template`, `version`, `next_version` |
 | `seed_replace_required` | `409` | A live program you own already uses this seed's slug as its code, and the import did not confirm the replacement | `conflict` |
 | `seed_replace_mismatch` | `409` | `expected_program_id` does not name the program that would actually be replaced | `conflict` |
+| `seed_replace_ambiguous` | `409` | Two live programs you own already share this seed's slug as their `code` — a reload can't tell which one to replace | — |
+| `too_large` | `409` | The structural act affected too many rows to be reversed automatically | — |
+| `not_top_of_stack` | `409` | A more recent structural act sits above this one — undo that first | `blocking_operation_id` |
+| `shape_changed` | `409` | The outline has changed in the affected region since the act ran — it can no longer be undone | `changed` |
 | `not_found` | `404` | The targeted poker round or ceiling proposal does not exist | — |
 
 A `sync_conflict` carries the field-level divergence so the client can render a
