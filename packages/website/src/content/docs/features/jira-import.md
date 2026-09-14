@@ -251,7 +251,7 @@ configured limit; a caller below Project Manager gets `403`.
 
 The only operator-facing knob is the upload size cap, `JIRA_IMPORT_MAX_UPLOAD_MB`
 (default **25** MB), documented in the
-[configuration reference](/administration/configuration/#jira-import-limit).
+[configuration reference](/administration/configuration/limits/#jira-import-limit).
 
 Like the MS Project importer, Jira XML is parsed through `defusedxml`, which
 refuses entity declarations and external-entity resolution — a "billion laughs"

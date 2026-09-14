@@ -1,6 +1,7 @@
 ---
 title: For Resource Managers
 description: How TruePPM helps resource managers track allocations, assign people to tasks, and plan capacity.
+documentedFor: "0.4"
 ---
 
 You allocate people across projects and need to spot conflicts before they become problems. TruePPM gives you per-task resource assignment within projects today, with cross-project visibility on the enterprise roadmap.
@@ -32,6 +33,13 @@ curl -s -X POST http://localhost:8000/api/v1/task-resources/ \
 When a scheduler changes the plan — re-sequences tasks or adjusts durations — the schedule recalculates automatically and connected clients get a WebSocket update. You see allocation changes as they happen.
 
 ## Evaluate it yourself (~10 minutes)
+
+:::note[Ships in 0.4]
+The `--with-personas` flag in the walkthrough below ships in 0.4. On `v0.3.0-alpha.3`, the
+latest release, run `load_sample_project` without it: that release creates the same
+`atlas-*` logins unconditionally and does not accept the flag.
+:::
+
 
 Run these steps in order — they start from a machine with nothing running.
 

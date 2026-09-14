@@ -1,6 +1,7 @@
 ---
 title: For Product Owners
 description: How TruePPM helps Product Owners manage the backlog, forecast releases with velocity, and protect sprint scope — without losing sight of the program schedule.
+documentedFor: "0.4"
 ---
 
 You own the backlog and the release forecast. You make prioritization calls, protect the team's sprint capacity, and answer the executive question: "When does this feature ship?" TruePPM connects your backlog directly to the program schedule so those answers are data-driven, not guesswork.
@@ -76,6 +77,13 @@ The most important interface between the PO and the PM:
 → Read the full hybrid walkthrough in [The Story](/the-story/)
 
 ## Evaluate it yourself (~10 minutes)
+
+:::note[Ships in 0.4]
+The `--with-personas` flag in the walkthrough below ships in 0.4. On `v0.3.0-alpha.3`, the
+latest release, run `load_sample_project` without it: that release creates the same
+`atlas-*` logins unconditionally and does not accept the flag.
+:::
+
 
 Run these steps in order — they start from a machine with nothing running.
 

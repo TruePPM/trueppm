@@ -1,6 +1,7 @@
 ---
 title: For Scrum Masters
 description: How TruePPM supports sprint facilitation, WIP management, velocity tracking, and hybrid delivery — without forcing you to learn CPM.
+documentedFor: "0.4"
 ---
 
 You run sprints. You care about the board, velocity, and whether your team is healthy. You don't want to learn CPM (Critical Path Method — the scheduling math behind a PM's Gantt chart), and you shouldn't have to. TruePPM is built so your agile surface is fully native — and the translation to the PM's Gantt happens automatically, behind the scenes.
@@ -131,6 +132,13 @@ Your job is still just: run good sprints, protect the team, facilitate retrospec
 → Read the full walkthrough in [The Story](/the-story/)
 
 ## Evaluate it yourself (~10 minutes)
+
+:::note[Ships in 0.4]
+The `--with-personas` flag in the walkthrough below ships in 0.4. On `v0.3.0-alpha.3`, the
+latest release, run `load_sample_project` without it: that release creates the same
+`atlas-*` logins unconditionally and does not accept the flag.
+:::
+
 
 The test: you should never need to open the Gantt. Run these steps in order — they start from a machine with nothing running.
 

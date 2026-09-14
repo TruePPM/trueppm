@@ -371,7 +371,7 @@ result = schedule(project)
 print(result.tasks[1].early_finish)   # 2026-01-23
 ```
 
-See the [Scheduler integration guide](/integration/standalone/) for full API reference.
+See the [Scheduler integration guide](/embedding/standalone/) for full API reference.
 
 ---
 

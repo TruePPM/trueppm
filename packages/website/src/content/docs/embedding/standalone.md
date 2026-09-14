@@ -123,7 +123,7 @@ except CyclicDependencyError as exc:
 
 ## See also
 
-- [Django Integration](/integration/django/) — ORM translation and Celery dispatch
-- [FastAPI Integration](/integration/fastapi/) — async thread-pool pattern
+- [Django Integration](/embedding/django/) — ORM translation and Celery dispatch
+- [FastAPI Integration](/embedding/fastapi/) — async thread-pool pattern
 - [CPM Scheduler reference](/features/scheduler/) — full API reference
 - [Interactive notebooks](https://gitlab.com/trueppm/trueppm/-/tree/main/packages/scheduler/notebooks/) — runnable examples

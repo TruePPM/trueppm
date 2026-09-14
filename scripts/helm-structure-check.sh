@@ -105,7 +105,7 @@ if [ "${1:-}" = "--self-test" ]; then
     # independent assertions, and a fixture that broke the chart in some
     # unrelated way would also exit non-zero and would read exactly like
     # detection. Pin the message, or the probe proves only that helm ran.
-    if [ -n "$want" ] && ! printf '%s\n' "$out" | grep -qF "$want"; then
+    if [ -n "$want" ] && ! grep -qF "$want" <<<"$out"; then
       got="$(printf '%s\n' "$out" | grep '^FAIL:' | sed -n '1p' || true)"
       echo "SELF-TEST FAILED: $desc was rejected, but not by the assertion under test." >&2
       echo "  expected a message containing: $want" >&2
@@ -199,8 +199,8 @@ metadata:
   st_expr='select(.kind == "NetworkPolicy") | .metadata.name'
   st_shimmed="$(printf '%s\n' "$st_stream" | PATH="$st_shim:$PATH" \
                 TRUEPPM_SELFTEST_REAL_YQ="$st_real_yq" yq "$st_expr")"
-  if printf '%s\n' "$st_shimmed" | grep -qx -- '---' \
-     && printf '%s\n' "$st_shimmed" | grep -qx 'probe-postgresql'; then
+  if grep -qx -- '---' <<<"$st_shimmed" \
+     && grep -qx 'probe-postgresql' <<<"$st_shimmed"; then
     echo "SELF-TEST OK: the v4.35.2-style yq shim is live (separators present in the stream)."
   else
     echo "SELF-TEST FAILED: the yq shim did not emit '---' separators, so the two cases" >&2
@@ -315,9 +315,9 @@ api_mount="$(echo "$DEP" | yq '.spec.template.spec.containers[0].volumeMounts[] 
 WEB_CM="$(helm template trueppm "$CHART" --set image.tag=latest \
   --show-only templates/web/configmap.yaml)"
 web_upstream="$(echo "$WEB_CM" | yq '.data["default.conf"]')"
-echo "$web_upstream" | grep -q 'proxy_pass http://trueppm-api:' \
+grep -q 'proxy_pass http://trueppm-api:' <<<"$web_upstream" \
   || fail "web nginx ConfigMap does not proxy to the release-scoped 'trueppm-api' Service"
-echo "$web_upstream" | grep -q 'proxy_pass http://api:' \
+grep -q 'proxy_pass http://api:' <<<"$web_upstream" \
   && fail "web nginx ConfigMap still proxies to the compose-only host 'api' (won't resolve in k8s)"
 
 WEB_DEP="$(helm template trueppm "$CHART" --set image.tag=latest \
@@ -342,12 +342,12 @@ cm_mount="$(echo "$WEB_DEP" | yq '.spec.template.spec.containers[0].volumeMounts
 for hdr in \
   'add_header X-Frame-Options        "DENY" always;' \
   'add_header X-Content-Type-Options "nosniff" always;'; do
-  echo "$web_upstream" | grep -qF "$hdr" \
+  grep -qF "$hdr" <<<"$web_upstream" \
     || fail "web nginx ConfigMap does not set '$hdr' on a default install — the SPA document carries no such protection, and Django cannot add it (#2849)"
 done
-echo "$web_upstream" | grep -q 'add_header Content-Security-Policy .*always;' \
+grep -q 'add_header Content-Security-Policy .*always;' <<<"$web_upstream" \
   || fail "web nginx ConfigMap sets no Content-Security-Policy on a default install (#2849)"
-echo "$web_upstream" | grep -q "frame-ancestors 'none'" \
+grep -q "frame-ancestors 'none'" <<<"$web_upstream" \
   || fail "web nginx ConfigMap's default CSP has no \`frame-ancestors 'none'\` (#2849)"
 
 #     …and the knob must actually be a knob: an operator behind their own WAF
@@ -356,13 +356,13 @@ echo "$web_upstream" | grep -q "frame-ancestors 'none'" \
 custom_csp="$(helm template trueppm "$CHART" --set image.tag=latest \
   --set "web.securityHeaders.contentSecurityPolicy=default-src 'self' https://cdn.example" \
   --show-only templates/web/configmap.yaml | yq '.data["default.conf"]')"
-echo "$custom_csp" | grep -q "default-src 'self' https://cdn.example" \
+grep -q "default-src 'self' https://cdn.example" <<<"$custom_csp" \
   || fail "web.securityHeaders.contentSecurityPolicy is not honored — the CSP is effectively hardcoded (#2849)"
 
 off_csp="$(helm template trueppm "$CHART" --set image.tag=latest \
   --set web.securityHeaders.enabled=false \
   --show-only templates/web/configmap.yaml | yq '.data["default.conf"]')"
-echo "$off_csp" | grep -q 'add_header X-Frame-Options' \
+grep -q 'add_header X-Frame-Options' <<<"$off_csp" \
   && fail "web.securityHeaders.enabled=false still renders headers (#2849)"
 
 # 5. NetworkPolicy allow-lists must cover every datastore client (#2560).
@@ -492,34 +492,35 @@ prod_admin_block() {
 # 6a. Default values (empty allowlist) must fail CLOSED with a bare `deny all`.
 admin_default="$(prod_admin_block)"
 [ -n "$admin_default" ] || fail "could not extract the /admin/ block from the production web ConfigMap"
-echo "$admin_default" | grep -qE '^[[:space:]]*deny all;' \
+grep -qE '^[[:space:]]*deny all;' <<<"$admin_default" \
   || fail "production nginx /admin/ block has no 'deny all' on default values — a default install publishes Django admin to the internet (#2569)"
-echo "$admin_default" | grep -qE '^[[:space:]]*allow ' \
+grep -qE '^[[:space:]]*allow ' <<<"$admin_default" \
   && fail "production nginx /admin/ renders an 'allow' directive on DEFAULT values — the allowlist must be empty (deny-by-default) unless the operator sets web.adminAccess.allowCIDRs"
 
 # 6b. The admin surface must be rate-limited, and the zone it references must
 #     actually be declared — nginx refuses to start on an unknown limit_req zone,
 #     so a half-rendered pair is a crash-loop, not a soft failure.
-echo "$admin_default" | grep -q 'limit_req zone=admin_login' \
+grep -q 'limit_req zone=admin_login' <<<"$admin_default" \
   || fail "production nginx /admin/ block has no 'limit_req' — admin login is unthrottled (#2569)"
-helm template trueppm "$CHART" --set image.tag=latest --show-only templates/web/configmap.yaml \
-  | yq '.data["default.conf"]' | grep -q 'limit_req_zone .* zone=admin_login:' \
+limit_zone_conf="$(helm template trueppm "$CHART" --set image.tag=latest --show-only templates/web/configmap.yaml \
+  | yq '.data["default.conf"]')"
+grep -q 'limit_req_zone .* zone=admin_login:' <<<"$limit_zone_conf" \
   || fail "the admin_login limit_req zone is referenced but never declared — nginx will refuse to start"
 
 # 6c. A supplied CIDR must render an `allow` BEFORE the `deny all`. nginx takes
 #     the first matching allow/deny rule, so an allow emitted after `deny all` is
 #     dead config and the operator's allowlist would silently do nothing.
 admin_cidr="$(prod_admin_block --set 'web.adminAccess.allowCIDRs={10.42.0.0/16}')"
-echo "$admin_cidr" | grep -qE '^[[:space:]]*allow 10\.42\.0\.0/16;' \
+grep -qE '^[[:space:]]*allow 10\.42\.0\.0/16;' <<<"$admin_cidr" \
   || fail "web.adminAccess.allowCIDRs did not render a matching 'allow' directive"
-allow_ln="$(echo "$admin_cidr" | grep -nE '^[[:space:]]*allow ' | head -1 | cut -d: -f1)"
-deny_ln="$(echo "$admin_cidr" | grep -nE '^[[:space:]]*deny all;' | head -1 | cut -d: -f1)"
+allow_ln="$(grep -m1 -nE '^[[:space:]]*allow ' <<<"$admin_cidr" | cut -d: -f1 || true)"
+deny_ln="$(grep -m1 -nE '^[[:space:]]*deny all;' <<<"$admin_cidr" | cut -d: -f1 || true)"
 [ -n "$allow_ln" ] && [ -n "$deny_ln" ] && [ "$allow_ln" -lt "$deny_ln" ] \
   || fail "'allow' (line $allow_ln) must precede 'deny all' (line $deny_ln) — nginx honors the first match, so this allowlist is inert"
 
 # 6d. adminAccess.enabled=false removes the surface entirely.
 admin_off="$(prod_admin_block --set web.adminAccess.enabled=false)"
-echo "$admin_off" | grep -q 'return 404' \
+grep -q 'return 404' <<<"$admin_off" \
   || fail "web.adminAccess.enabled=false must render 'return 404' for /admin/"
 
 # 7. The Celery worker must run with a PINNED --concurrency (#2571).
@@ -537,7 +538,7 @@ worker_cmd() {
 }
 
 wc_default="$(worker_cmd)"
-echo "$wc_default" | grep -qE -- '--concurrency=[0-9]+' \
+grep -qE -- '--concurrency=[0-9]+' <<<"$wc_default" \
   || fail "celery worker command has no explicit --concurrency — Celery falls back to cpu_count() and OOMKills the background tier on any multi-core node (#2571)"
 
 # The default must be a small pinned value, NOT the node's core count.
@@ -545,12 +546,12 @@ wc_n="$(echo "$wc_default" | sed -nE 's/.*--concurrency=([0-9]+).*/\1/p')"
 [ "$wc_n" -ge 1 ] || fail "default --concurrency is '$wc_n' — must be >= 1"
 
 # The knob must actually be wired, not just present with a default.
-worker_cmd --set celeryWorker.concurrency=4 | grep -q -- '--concurrency=4' \
+grep -q -- '--concurrency=4' <<<"$(worker_cmd --set celeryWorker.concurrency=4)" \
   || fail "celeryWorker.concurrency=4 did not render '--concurrency=4' — the values knob is not wired"
 
 # extraArgs must append verbatim AND in the declared order.
 wc_extra="$(worker_cmd --set 'celeryWorker.extraArgs={--queues=exports,--prefetch-multiplier=1}')"
-echo "$wc_extra" | grep -q -- '--queues=exports' \
+grep -q -- '--queues=exports' <<<"$wc_extra" \
   || fail "celeryWorker.extraArgs did not render into the worker command"
 case "$wc_extra" in
   *"--queues=exports"*"--prefetch-multiplier=1"*) ;;
@@ -628,9 +629,9 @@ EOF
 # every one of them.
 override_images="$(default_images --set image.tag=1.2.3-rc1 \
   | grep -E "^(${API_REPO}|${WEB_REPO}):" || true)"
-echo "$override_images" | grep -q ":1.2.3-rc1\$" \
+grep -q ":1.2.3-rc1\$" <<<"$override_images" \
   || fail "an explicit image.tag override did not render verbatim — trueppm.imageTag must pass .Values.image.tag straight through"
-echo "$override_images" | grep -q ":v1.2.3-rc1\$" \
+grep -q ":v1.2.3-rc1\$" <<<"$override_images" \
   && fail "an explicit image.tag override was rewritten with a 'v' prefix — the prefix belongs to the appVersion fallback only"
 
 # 9. Connection URLs are ALWAYS injected by reference, never rendered in
@@ -748,7 +749,7 @@ assert_url_env_bindings "secretKeyRef map form" "$map_split"
 
 # The failure this replaces rendered a stringified Go map into the Secret. It is
 # valid YAML, so only an explicit check catches it.
-if echo "$MAP_RENDER" | grep -q 'map\[secretKeyRef'; then
+if grep -q 'map\[secretKeyRef' <<<"$MAP_RENDER"; then
   fail "the secretKeyRef map form stringified into the manifest as map[secretKeyRef:…] — the documented external-Secret form is broken (#2810)"
 fi
 
@@ -825,21 +826,21 @@ notes() {
 
 bare_notes="$(notes)"
 for key in SECRET_KEY ALLOWED_HOSTS INTEGRATION_ENCRYPTION_KEY TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE; do
-  echo "$bare_notes" | grep -q "$key" \
+  grep -q "$key" <<<"$bare_notes" \
     || fail "NOTES.txt on a bare install does not name '$key' — the operator is not told why the pod will crash-loop (#2812)"
 done
-echo "$bare_notes" | grep -q "WILL NOT START" \
+grep -q "WILL NOT START" <<<"$bare_notes" \
   || fail "NOTES.txt on a bare install does not warn that the release will not start (#2812)"
 
 # Configured via envFrom (the README quickstart) — the warning must go away.
-if notes --set "envFrom[0].secretRef.name=${ENV_SECRET}" | grep -q "WILL NOT START"; then
+if grep -q "WILL NOT START" <<<"$(notes --set "envFrom[0].secretRef.name=${ENV_SECRET}")"; then
   fail "NOTES.txt still warns about missing secrets when envFrom is configured (#2812)"
 fi
 
 # Configured via env.* (the values-file idiom) — same.
-if notes --set env.SECRET_KEY=x --set env.ALLOWED_HOSTS=h \
+if grep -q "WILL NOT START" <<<"$(notes --set env.SECRET_KEY=x --set env.ALLOWED_HOSTS=h \
      --set env.INTEGRATION_ENCRYPTION_KEY=k \
-     --set env.TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true | grep -q "WILL NOT START"; then
+     --set env.TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true)"; then
   fail "NOTES.txt still warns about missing secrets when every key is set under env.* (#2812)"
 fi
 
@@ -875,9 +876,9 @@ PFPROBE
 for pf_web in true false; do
   pf_notice="$(helm template trueppm "$PROBE_DIR/chart" --set image.tag=latest \
     --set "web.enabled=$pf_web" --show-only templates/zz-portfwd-notice-probe.yaml 2>&1)"
-  echo "$pf_notice" | grep -q "ALLOWED_HOSTS" \
+  grep -q "ALLOWED_HOSTS" <<<"$pf_notice" \
     || fail "the port-forward notice does not name ALLOWED_HOSTS with web.enabled=$pf_web (#3238)"
-  echo "$pf_notice" | grep -q "localhost" \
+  grep -q "localhost" <<<"$pf_notice" \
     || fail "the port-forward notice does not name 'localhost' with web.enabled=$pf_web — that is the Host Django actually receives (#3238)"
 done
 
@@ -914,9 +915,9 @@ done
 #    crash-loops. The chart cannot read a Secret's keys at render time, so the honest
 #    check is to print the list rather than only measure it.
 trusted_notes="$(notes --set "envFrom[0].secretRef.name=${ENV_SECRET}")"
-echo "$trusted_notes" | grep -q "Secret/${ENV_SECRET}" \
+grep -q "Secret/${ENV_SECRET}" <<<"$trusted_notes" \
   || fail "NOTES.txt does not name the envFrom sources it trusts for the boot-guard keys — an operator whose list was replaced by another values file has nothing to notice (#2879)"
-echo "$trusted_notes" | grep -qi 'replaces it wholesale' \
+grep -qi 'replaces it wholesale' <<<"$trusted_notes" \
   || fail "NOTES.txt does not say envFrom is replace-not-merge — that is the mechanism by which the list silently loses the app-env Secret (#2879)"
 
 # 12. values.schema.json must exist and REJECT an unknown top-level key (#2879).
@@ -1118,13 +1119,13 @@ BACKUP_CMD="$(helm template trueppm "$CHART" --set image.tag=latest \
 [ -n "$BACKUP_CMD" ] || fail "could not extract the backup CronJob's inline command (#3185)"
 manifest_fields_checked=0
 for field in created_utc run_context pg_dump_version db_included media_included redis_included s3_destination; do
-  echo "$BACKUP_CMD" | grep -q "echo \"$field:" \
+  grep -q "echo \"$field:" <<<"$BACKUP_CMD" \
     || fail "the CronJob's MANIFEST omits '$field', which scripts/backup.sh writes — a restorer cannot read one artifact the way they read the other (#3185)"
   grep -q "echo \"$field:" "$(cd "$(dirname "$0")" && pwd)/backup.sh" \
     || fail "scripts/backup.sh no longer writes MANIFEST field '$field' but the CronJob still does — the two producers have drifted (#3185)"
   manifest_fields_checked=$((manifest_fields_checked + 1))
 done
-echo "$BACKUP_CMD" | grep -q 'tar -czf "$STAGE/media.tar.gz".*|| true' \
+grep -q 'tar -czf "$STAGE/media.tar.gz".*|| true' <<<"$BACKUP_CMD" \
   && fail "the CronJob's media tar swallows failure with '|| true' — it would ship an artifact whose MANIFEST claims media it does not carry (#3185)"
 
 # N+4. Placement knobs exist and reach every workload (#3188).
@@ -1192,7 +1193,7 @@ hpa_replicas="$(helm template trueppm "$CHART" --set image.tag=latest \
   --set autoscaling.enabled=true --set autoscaling.worker.enabled=true \
   | yq eval 'select(.kind == "Deployment") | .metadata.name + "=" + (.spec.replicas // "unset" | tostring)' - \
   | grep -E 'api|celery-worker')"
-echo "$hpa_replicas" | grep -qv 'unset' && {
+grep -qv 'unset' <<<"$hpa_replicas" && {
   case "$hpa_replicas" in
     *api=unset*) ;;
     *) fail "the api Deployment still sets .spec.replicas while an HPA owns the tier (#3188): $hpa_replicas" ;;
@@ -1366,7 +1367,7 @@ case "$cp_startup_cmd" in
   *"test -e"*) ;;
   *) fail "celery worker startup command does not look like the heartbeat-file existence check (#3346): $cp_startup_cmd" ;;
 esac
-echo "$cp_worker" | grep -q "TRUEPPM_CELERY_WORKER_HEARTBEAT_FILE" \
+grep -q "TRUEPPM_CELERY_WORKER_HEARTBEAT_FILE" <<<"$cp_worker" \
   || fail "celery-worker container does not export TRUEPPM_CELERY_WORKER_HEARTBEAT_FILE — the app's signal handler and the chart's exec probes could disagree on the heartbeat file path (#3346)"
 
 # N+5.j — the worker's liveness probe must still be `inspect ping` (#3346 left

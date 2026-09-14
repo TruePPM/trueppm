@@ -376,7 +376,7 @@ may follow in a later release.
   denies every `mcp:read` token read across the whole instance (`403`), even for
   tokens that already exist, while leaving human session/JWT traffic on the same
   endpoints untouched. This is the "no agent access, period" operator lever; see
-  [Disabling MCP access entirely](/administration/configuration/#disabling-mcp-access-entirely).
+  [Disabling MCP access entirely](/administration/configuration/limits/#disabling-mcp-access-entirely).
 - **Team-level opt-out.** A project (or program, or the workspace) can close
   itself to agent reads independently of the operator's switch — see
   [Team-level opt-out](#team-level-opt-out) below.

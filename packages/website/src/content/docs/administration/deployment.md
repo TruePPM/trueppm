@@ -233,7 +233,7 @@ and the api, worker, and beat pods all mount it. See
 It is a reasonable choice for a first install you are evaluating and the wrong
 one for anything you intend to keep on a multi-node cluster — swap it for the S3
 pair when you are ready (see
-[object storage](/administration/configuration/#object-storage-s3--minio)).
+[object storage](/administration/configuration/storage-and-networking/#object-storage-s3--minio)).
 
 At minimum, your values file then needs:
 

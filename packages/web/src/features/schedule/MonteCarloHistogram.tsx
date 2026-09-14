@@ -10,7 +10,16 @@ const BAR_W = 8;
 const BAR_GAP = 2;
 const CHART_H = 72;
 const RULE_H = CHART_H + 4; // rules extend slightly beyond bars
-const PADDING = { top: 8, right: 12, bottom: 20, left: 12 };
+const PADDING = { top: 8, right: 12, left: 12 };
+
+// Label row layout (#3736). The label row used to be a fixed offset below the
+// chart (PADDING.bottom = 20, label baseline at svgH - 2). That still holds
+// for row 0; LABEL_ROW_H is the extra vertical space each additional row adds
+// when percentile markers land on adjacent (or the same) bucket and their
+// labels would otherwise render on top of each other.
+const LABEL_BASE_Y = CHART_H + PADDING.top + 18;
+const LABEL_ROW_H = 13;
+const LABEL_ROW_GAP = 4; // minimum horizontal gap between two labels' edges
 
 /** Clamp a date string to the bucket that contains it */
 function findBucketIndex(buckets: McBucket[], isoDate: string): number {
@@ -22,6 +31,57 @@ function findBucketIndex(buckets: McBucket[], isoDate: string): number {
     else break;
   }
   return best;
+}
+
+/**
+ * Estimate a label's rendered width from its character count. We cannot
+ * measure real glyph metrics without a DOM layout pass (and SVG text has no
+ * layout-effect hook cheap enough to run on every render), so this is a
+ * deliberately generous approximation for 12px medium-weight sans-serif —
+ * good enough to decide "would these two labels' boxes overlap," which is
+ * all collision detection needs.
+ */
+function estimateLabelWidth(text: string): number {
+  return text.length * 7 + 4;
+}
+
+interface PercentileLabel {
+  key: string;
+  x: number;
+  text: string;
+}
+
+/**
+ * Greedy interval-packing row assignment (the same shape as calendar
+ * event-layout algorithms): sort labels by their true x-coordinate, then walk
+ * left to right placing each label in the first row whose last-placed label
+ * doesn't overlap it. Handles any number of percentile markers, not just a
+ * P80/P95 pair — a project whose P50 and P80 collapse onto the same bucket
+ * needs exactly the same handling.
+ *
+ * The x-coordinate a label reports is never touched by row assignment — only
+ * which row (i.e. which y) it renders in. The dashed/dotted/solid rule lines
+ * always stay at their true data x-position; this function only ever moves
+ * text.
+ */
+function assignLabelRows(labels: PercentileLabel[]): Map<string, number> {
+  const sorted = [...labels].sort((a, b) => a.x - b.x);
+  const rowRightEdge: number[] = [];
+  const rowOf = new Map<string, number>();
+  for (const label of sorted) {
+    const halfWidth = estimateLabelWidth(label.text) / 2;
+    const left = label.x - halfWidth;
+    const right = label.x + halfWidth;
+    let row = rowRightEdge.findIndex((edge) => left >= edge + LABEL_ROW_GAP);
+    if (row === -1) {
+      row = rowRightEdge.length;
+      rowRightEdge.push(right);
+    } else {
+      rowRightEdge[row] = right;
+    }
+    rowOf.set(label.key, row);
+  }
+  return rowOf;
 }
 
 /**
@@ -97,7 +157,6 @@ export function MonteCarloHistogram({ result }: Props) {
   const maxCount = Math.max(...buckets.map((b) => b.count));
   const innerW = buckets.length * (BAR_W + BAR_GAP) - BAR_GAP;
   const svgW = innerW + PADDING.left + PADDING.right;
-  const svgH = CHART_H + PADDING.top + PADDING.bottom;
 
   const p50Idx = findBucketIndex(buckets, p50);
   const p80Idx = findBucketIndex(buckets, p80);
@@ -105,6 +164,22 @@ export function MonteCarloHistogram({ result }: Props) {
 
   // X centre of a bucket bar
   const barX = (i: number) => PADDING.left + i * (BAR_W + BAR_GAP) + BAR_W / 2;
+
+  // Collision handling for the percentile labels (#3736): when two (or all
+  // three) percentile markers fall on adjacent — or the same — bucket, their
+  // labels are wide relative to the bar pitch and would render on top of each
+  // other ("P80P95"). assignLabelRows keeps every rule line at its true data
+  // x-coordinate and only ever moves the label — colliding labels drop to
+  // their own row below the first, so the reader can still tell which label
+  // belongs to which dashed/dotted/solid line by matching color and x.
+  const labelRow = assignLabelRows([
+    { key: 'p50', x: barX(p50Idx), text: 'P50' },
+    { key: 'p80', x: barX(p80Idx), text: 'P80' },
+    { key: 'p95', x: barX(p95Idx), text: 'P95' },
+  ]);
+  const rowCount = Math.max(...labelRow.values()) + 1;
+  const labelY = (key: string) => LABEL_BASE_Y + (labelRow.get(key) ?? 0) * LABEL_ROW_H;
+  const svgH = LABEL_BASE_Y + (rowCount - 1) * LABEL_ROW_H + 2;
 
   return (
     <svg
@@ -179,10 +254,11 @@ export function MonteCarloHistogram({ result }: Props) {
         strokeWidth={1}
       />
 
-      {/* P50/P80/P95 date labels */}
+      {/* P50/P80/P95 date labels — y is row-assigned by assignLabelRows above;
+          x always matches the rule line's true data position. */}
       <text
         x={barX(p50Idx)}
-        y={svgH - 2}
+        y={labelY('p50')}
         textAnchor="middle"
         fontSize={12}
         className="fill-semantic-on-track font-medium"
@@ -191,7 +267,7 @@ export function MonteCarloHistogram({ result }: Props) {
       </text>
       <text
         x={barX(p80Idx)}
-        y={svgH - 2}
+        y={labelY('p80')}
         textAnchor="middle"
         fontSize={12}
         className="fill-semantic-at-risk font-medium"
@@ -200,7 +276,7 @@ export function MonteCarloHistogram({ result }: Props) {
       </text>
       <text
         x={barX(p95Idx)}
-        y={svgH - 2}
+        y={labelY('p95')}
         textAnchor="middle"
         fontSize={12}
         className="fill-semantic-critical font-medium"

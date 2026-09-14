@@ -38,7 +38,10 @@ from allauth.socialaccount.models import SocialApp
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
+from django.utils import timezone
+from django.utils.html import escape
 from jwt import PyJWK, PyJWKSet
 from jwt.exceptions import PyJWKError, PyJWKSetError
 
@@ -920,6 +923,127 @@ def _audit_account_linked(user: Any, ctx: ProviderContext, *, subject: str, emai
     )
 
 
+def _render_sso_account_linked_email(
+    *, greeting_name: str, provider_name: str, linked_at: Any
+) -> tuple[str, str, str]:
+    """Render (subject, plain-text body, html body) for the account-linked notice (#3554).
+
+    Follows the inline-render idiom used by password-reset/invites/notifications (no
+    templates directory exists in the API). Names the provider and the approximate time
+    of the link so the recipient — who, unlike a password-reset request, is guaranteed to
+    already hold this mailbox — has enough to judge whether the sign-in was theirs, without
+    a link or token that would need its own expiry/replay handling.
+
+    Takes plain strings rather than the ``User``/``ProviderContext`` objects they were
+    read from — see :func:`_send_sso_account_linked_email`.
+    """
+    subject = "A new sign-in method was added to your TruePPM account"
+    when = linked_at.strftime("%Y-%m-%d %H:%M UTC")
+
+    text_body = "\n".join(
+        [
+            f"Hi {greeting_name},",
+            "",
+            f"Your TruePPM account was just linked to a {provider_name} sign-in, at "
+            f"{when}. From now on you can sign in with either your password or "
+            f"{provider_name}.",
+            "",
+            "If this was you, no action is needed.",
+            "",
+            "If you did not do this, someone who controls a mailbox matching your "
+            "account's email address may have signed in through your identity "
+            "provider. Contact your workspace administrator right away so they can "
+            "review your account.",
+        ]
+    )
+
+    html_body = "".join(
+        [
+            f"<p>Hi {escape(greeting_name)},</p>",
+            f"<p>Your TruePPM account was just linked to a {escape(provider_name)} "
+            f"sign-in, at {escape(when)}. From now on you can sign in with either "
+            f"your password or {escape(provider_name)}.</p>",
+            "<p>If this was you, no action is needed.</p>",
+            "<p>If you did not do this, someone who controls a mailbox matching your "
+            "account's email address may have signed in through your identity "
+            "provider. Contact your workspace administrator right away so they can "
+            "review your account.</p>",
+        ]
+    )
+    return subject, text_body, html_body
+
+
+def _send_sso_account_linked_email(
+    *, user_id: Any, recipient: str, greeting_name: str, provider_name: str, linked_at: Any
+) -> bool:
+    """Best-effort notify the linked account that an SSO identity was just bound to it (#3554).
+
+    Called only from :func:`resolve_user` branch 3 (first-time link by verified email),
+    deferred with ``transaction.on_commit`` by the caller so a link that is rolled back
+    (e.g. :func:`_require_active` raising) never sends a notice for a binding that was
+    never actually created. Never called on branch 1 (repeat login by durable
+    ``(issuer, subject)``), so an established SSO user is not re-notified on every sign-in.
+
+    Takes plain strings, not the ``User``/``ProviderContext`` the caller read them from:
+    an ``on_commit`` closure that instead captured those live objects would be reading
+    them well after the transaction that produced them closed, and — though this one
+    fires synchronously in the same request, not via Celery — nothing about the
+    ``on_commit`` contract promises that stays true, so the closure must not depend on it.
+    The caller resolves ``greeting_name``/``recipient``/``provider_name`` before
+    registering this call.
+
+    Mirrors ``core.password_reset.send_password_reset_email``'s failure posture: a mail
+    transport that is unconfigured, unusable, or errors mid-send is logged and swallowed
+    rather than raised. The caller runs this from an ``on_commit`` hook fired at the tail
+    of the SSO callback view, so an unhandled exception here would surface as a 500 on a
+    login that has, from the user's perspective, already succeeded — worse than a
+    best-effort notice that occasionally does not arrive.
+    """
+    if not recipient:
+        return False
+
+    from trueppm_api.apps.notifications.delivery_limits import (
+        note_unbudgeted_send,
+        workspace_throttle_per_min,
+    )
+    from trueppm_api.apps.notifications.email_backend import (
+        resolve_email_connection,
+        resolve_from_email,
+        resolve_reply_to,
+    )
+
+    try:
+        connection = resolve_email_connection()
+    except Exception:
+        logger.warning("sso account-linked email: mail transport unusable")
+        return False
+
+    # A one-time security notice tied to a specific login event: like the password-reset
+    # email, it charges the shared per-minute delivery budget but is never refused by it
+    # (#2887 item 3) — a batch of invites spending the minute must not suppress a notice
+    # about who can now sign in to this account.
+    note_unbudgeted_send(workspace_throttle_per_min())
+
+    subject, text_body, html_body = _render_sso_account_linked_email(
+        greeting_name=greeting_name, provider_name=provider_name, linked_at=linked_at
+    )
+    msg = EmailMultiAlternatives(
+        subject=subject,
+        body=text_body,
+        from_email=resolve_from_email(),
+        to=[recipient],
+        reply_to=resolve_reply_to() or None,
+        connection=connection,
+    )
+    msg.attach_alternative(html_body, "text/html")
+    try:
+        msg.send(fail_silently=False)
+    except Exception:
+        logger.warning("sso account-linked email failed for user %s", user_id, exc_info=True)
+        return False
+    return True
+
+
 @transaction.atomic
 def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, bool]:
     """Resolve (and possibly create/link) the local user for a validated identity.
@@ -942,7 +1066,10 @@ def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, boo
     2. **Verified email** — require ``email`` present and ``email_verified is True``
        and the domain in the allow-list; otherwise fail closed.
     3. **Link** — exactly one existing local user with that email → bind a new
-       ``SocialAccount`` and sign in. (Ambiguous: 0 or >1 → not a link.)
+       ``SocialAccount`` and sign in. (Ambiguous: 0 or >1 → not a link.) A best-effort
+       notice email is deferred to commit (#3554) so the local account learns a new
+       sign-in method was just added — this is the one branch that hands a federated
+       credential to an account whose owner may not have expected it.
     4. **Auto-create** — no existing user, ``auto_create_members`` on → create the
        user + one ``WorkspaceMembership`` at the resolved role, bind the identity.
     5. Otherwise → :class:`OIDCNoMember`.
@@ -1004,6 +1131,27 @@ def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, boo
             user=existing[0], provider=provider_key, uid=subject, extra_data={"iss": issuer}
         )
         _audit_account_linked(existing[0], ctx, subject=subject, email=email)
+        # Notify the local account that an SSO identity was just bound to it (#3554).
+        # Deferred to commit so a link that unwinds (e.g. a later error in this same
+        # transaction) never sends a notice for a binding that was never persisted.
+        # Every value the closure needs is resolved to a plain string/datetime *now*,
+        # before it is registered — not read from `existing[0]`/`ctx` inside the lambda —
+        # so the callback cannot depend on either row still reflecting live state (or
+        # still existing at all) by the time it actually runs.
+        notify_user_id = existing[0].pk
+        notify_recipient = existing[0].email
+        notify_greeting_name = existing[0].get_short_name() or existing[0].get_username()
+        notify_provider_name = ctx.display_name
+        notify_linked_at = timezone.now()
+        transaction.on_commit(
+            lambda: _send_sso_account_linked_email(
+                user_id=notify_user_id,
+                recipient=notify_recipient,
+                greeting_name=notify_greeting_name,
+                provider_name=notify_provider_name,
+                linked_at=notify_linked_at,
+            )
+        )
         return existing[0], False
     if len(existing) > 1:
         # Email is not unique in Django's auth model; an ambiguous match must not

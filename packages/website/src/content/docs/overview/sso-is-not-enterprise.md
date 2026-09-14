@@ -1,6 +1,7 @@
 ---
 title: SSO Is Not an Enterprise Feature
 description: Identity federation is table stakes for self-hosting. TruePPM ships OIDC/OAuth2 login in the OSS core — here is how that compares to the open-core competition, and where the enterprise line actually falls.
+documentedFor: "0.4"
 ---
 
 Single sign-on is the most-cited grievance in self-hosted communities: you stand up an
@@ -16,9 +17,10 @@ Microsoft Entra ID, Google, GitLab, and GitHub — and **any** other standards-c
 provider (Authelia, for example) works through the Generic OIDC option by entering its issuer URL.
 No plugin to hunt down, no enterprise license, no per-seat upcharge for the login screen.
 
-:::note[Version status]
-Basic OIDC / OAuth2 login federation **ships in 0.4**, TruePPM's first beta. Until 0.4 tags,
-treat this page as a statement of intent, not of shipped behavior. See the
+:::note[Ships in 0.4]
+Basic OIDC / OAuth2 login federation **ships in 0.4**, TruePPM's first beta. `v0.3.0-alpha.3`,
+the latest release, has no single sign-on: people sign in with local TruePPM accounts only.
+Until 0.4 tags, treat this page as a statement of intent, not of shipped behavior. See the
 [roadmap](/overview/roadmap/) for the authoritative Shipped / Underway / Planned status.
 :::
 

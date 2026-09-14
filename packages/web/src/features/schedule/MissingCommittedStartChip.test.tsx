@@ -117,7 +117,7 @@ describe('MissingCommittedStartChip', () => {
     // and anchored at the provenance section the popover copy is about.
     expect(help).toHaveAttribute(
       'href',
-      'https://docs.trueppm.com/features/schedule/#committed-vs-computed-start-dates',
+      'https://docs.trueppm.com/features/schedule/dates/#committed-vs-computed-start-dates',
     );
     expect(help).toHaveAttribute('target', '_blank');
     expect(help).toHaveAttribute('rel', 'noopener noreferrer');

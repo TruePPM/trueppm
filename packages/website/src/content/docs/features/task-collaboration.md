@@ -151,7 +151,7 @@ no signed URL is involved.
 
 Issuing a real signed URL requires an object-storage backend that supports
 signing (S3/MinIO, GCS, or Azure Blob via `django-storages`) — see
-[Attachment storage](/administration/configuration/#optional--advanced-settings).
+[Attachment storage](/administration/configuration/advanced/#optional--advanced-settings).
 On the default `FileSystemStorage` backend, Download returns an error instead
 of a link, because that backend has no way to produce a URL that actually
 expires.

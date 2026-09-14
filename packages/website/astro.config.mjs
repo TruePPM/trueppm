@@ -89,6 +89,11 @@ export default defineConfig({
     "/features/csv-import/": "/features/csv-import-export/",
     // Renamed to lead with Valkey, which is what actually ships (#2555).
     "/administration/redis-ha": "/administration/valkey-ha",
+    // The scheduler-library embedding guides moved out of /integration/, which is
+    // the URL an operator guesses for product integrations (#3253).
+    "/integration/standalone/": "/embedding/standalone/",
+    "/integration/django/": "/embedding/django/",
+    "/integration/fastapi/": "/embedding/fastapi/",
   },
   // Build-time (SSR) Mermaid rendering (ADR-0198). `rehype-mermaid` renders each
   // ```mermaid fence to a static inline <svg> at build time using a headless
@@ -331,7 +336,17 @@ export default defineConfig({
             { slug: "administration/sizing" },
             { slug: "administration/helm-values" },
             { slug: "administration/probes" },
-            { slug: "administration/configuration" },
+            {
+              label: "Configuration",
+              collapsed: true,
+              items: [
+                { slug: "administration/configuration", label: "Overview" },
+                { slug: "administration/configuration/advanced" },
+                { slug: "administration/configuration/limits" },
+                { slug: "administration/configuration/storage-and-networking" },
+                { slug: "administration/configuration/logging-and-telemetry" },
+              ],
+            },
             { slug: "administration/admin-password" },
             { slug: "administration/rbac" },
             { slug: "administration/security" },
@@ -383,7 +398,16 @@ export default defineConfig({
               label: "Scheduling",
               collapsed: false,
               items: [
-                { slug: "features/schedule" },
+                {
+                  label: "Schedule view",
+                  collapsed: true,
+                  items: [
+                    { slug: "features/schedule", label: "Overview" },
+                    { slug: "features/schedule/dates" },
+                    { slug: "features/schedule/editing" },
+                    { slug: "features/schedule/sprint-windows" },
+                  ],
+                },
                 { slug: "features/program-schedule" },
                 { slug: "features/schedule-toolbar" },
                 { slug: "features/calendar-view" },
@@ -442,17 +466,10 @@ export default defineConfig({
                 { slug: "features/project-activity" },
                 { slug: "features/assets" },
                 { slug: "features/offline-sync" },
-                { slug: "features/webhooks" },
-                { slug: "features/inbound-task-sync" },
-                { slug: "features/connected-accounts" },
-                { slug: "features/personal-access-tokens" },
-                { slug: "features/mcp-server" },
-                { slug: "features/mcp-connect" },
                 { slug: "features/agent-oversight" },
                 { slug: "features/project-templates" },
                 { slug: "features/msproject-import-export" },
                 { slug: "features/csv-import-export" },
-                { slug: "features/jira-import" },
               ],
             },
             {
@@ -469,25 +486,59 @@ export default defineConfig({
             },
           ],
         },
+        // --- Integrations (#3253) ---
+        // Every surface TruePPM connects to, gathered in one findable group instead of
+        // scattered through Collaboration. The index states direction and ownership per
+        // surface. The operator-side pages (Git-event automation, SSO, MCP server
+        // operation) stay under Administration and are linked from the index.
+        {
+          label: "Integrations",
+          items: [
+            { slug: "integrations", label: "Overview" },
+            { slug: "features/connected-accounts" },
+            { slug: "features/webhooks" },
+            { slug: "features/inbound-task-sync" },
+            { slug: "features/personal-access-tokens" },
+            { slug: "features/mcp-server" },
+            { slug: "features/mcp-connect" },
+            { slug: "features/jira-import" },
+          ],
+        },
         // --- API ---
         {
           label: "API",
           items: [
-            { slug: "api/reference" },
+            {
+              label: "API reference",
+              collapsed: true,
+              items: [
+                { slug: "api/reference", label: "Overview" },
+                { slug: "api/reference/authentication" },
+                { slug: "api/reference/projects" },
+                { slug: "api/reference/programs" },
+                { slug: "api/reference/tasks" },
+                { slug: "api/reference/sprints" },
+                { slug: "api/reference/resources" },
+                { slug: "api/reference/templates" },
+                { slug: "api/reference/collaboration" },
+              ],
+            },
             { slug: "api/errors" },
             { slug: "api/stability" },
             { slug: "api/websockets" },
             { slug: "api/idempotency" },
           ],
         },
-        // --- Scheduler Library (standalone PyPI package + platform integration) ---
+        // --- Scheduler Library (standalone PyPI package, embedded in your own app) ---
+        // Lived at /integration/ until #3253, which gave that URL's obvious meaning
+        // to product integrations; the old paths redirect.
         {
           label: "Scheduler Library",
           items: [
             { slug: "features/scheduler" },
-            { slug: "integration/standalone" },
-            { slug: "integration/django" },
-            { slug: "integration/fastapi" },
+            { slug: "embedding/standalone" },
+            { slug: "embedding/django" },
+            { slug: "embedding/fastapi" },
           ],
         },
         // --- Architecture (evaluators + contributors) ---

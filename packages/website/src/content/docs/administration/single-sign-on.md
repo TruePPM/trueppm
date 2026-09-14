@@ -240,6 +240,22 @@ successfully. Deactivating a member in **Workspace → Settings → Members** th
 closes the SSO path as well as password login; reactivating them restores it with no
 extra step.
 
+**The first time an existing account is linked to a provider, TruePPM will email
+that account to say so.** This is the case where a user's verified IdP email
+matches a local account that already existed before they ever signed in with
+SSO — including an account with the **Owner** role. Because that link happens
+automatically, with no re-authentication step, the account owner will get a
+message naming the provider and roughly when it happened, so they can tell
+whether it was them. If it was not, the message asks them to contact their
+workspace administrator right away. This notice is sent only **once**, at the
+moment the identity is first linked — a later sign-in through the same
+provider resolves by the durable identity already on file (see above), not by
+email, so it will not send the notice again. Sending the email is best-effort:
+a mail delivery problem will never block or fail the sign-in itself. A member
+provisioned by **auto-create** (no pre-existing account) will not get this
+email — there is no existing owner to notify, and that path is covered by the
+workspace [audit log](/administration/audit-log/) instead.
+
 ## Removing a provider
 
 Use **Remove** on a provider to delete its configuration. This also unlinks

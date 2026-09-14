@@ -112,6 +112,7 @@ These rules are enforced at review time. Violations block merge.
 407. **Promoting a client constant to a server fact does not end the drift — it MOVES it to every prose restatement of that constant, and those are louder than the control they contradict.** → [rule](../../docs/design/invariants/407-promoting-a-client-constant-to-a-server-fact-does-not-end.md)
 408. **A "previous value" ref that drives an announcement, a change badge, or a diff highlight must be keyed to the ENTITY the value describes — a component that outlives the entity turns NAVIGATION into a change event.** → [rule](../../docs/design/invariants/408-a-previous-value-ref-that-drives-an-announcement-a-change.md)
 410. **A value read from an async query that SEEDS a mount-frozen draft must be gated on that query RESOLVING — every other consumer of the same value self-corrects on re-render, and that is exactly what hides the one that cannot.** → [rule](../../docs/design/invariants/410-a-value-read-from-an-async-query-that-seeds-a-mount-frozen.md)
+413. **A chart label that collides with its neighbor moves to a new ROW — the marker it names never moves, and the packing is a generic N-label layout problem, not a special case for one named pair.** → [rule](../../docs/design/invariants/413-a-chart-label-that-collides-with-its-neighbor-moves-to-a.md)
 
 ## Redundancy
 
