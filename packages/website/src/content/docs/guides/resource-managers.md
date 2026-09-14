@@ -44,7 +44,7 @@ Run these steps in order — they start from a machine with nothing running.
 
    The command prints the sample's persona logins (`atlas-alex`, `atlas-priya`, …) and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
 
-2. **Sign in as the resource manager.** Open `http://localhost:5173` and sign in as **`atlas-sam`** — Sam Okafor, Project Scheduler, seeded with the **Scheduler** role. Atlas has no dedicated resource-manager persona; the Scheduler seat is the one that holds the plan and its assignments.
+2. **Sign in as the resource manager.** Open `http://localhost:5173` and sign in as **`atlas-sam`** — Sam Okafor, Project Scheduler, seeded as **Resource Manager** on every Atlas project — the role that holds the plan and its assignments. No Atlas persona has resource manager as a job title.
 
 3. **Open capacity preflight.** In the left navigation rail, under **Deliver**, click **Sprints** (`/projects/:id/sprints`). The **capacity preflight** panel is in the top half of the metrics row's right column. It surfaces an over-allocated member before the sprint is activated — that's your core test, *catch the conflict before it's locked in*, at project scope.
 

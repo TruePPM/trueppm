@@ -8,7 +8,7 @@ This is for the team and Scrum Master tracking what's in the current sprint. It'
 
 ## Where this lives in the story
 
-Step 6 ([Execute](/the-story/#6-execute--daily-cadence-two-worlds-in-sync)) of the [hybrid PM flow](/the-story/) — the table Tom and Maya scan during standup; the table Raj never opens but whose contents drive his Gantt re-forecast.
+Step 6 ([Execute](/the-story/#6-execute--daily-cadence-two-worlds-in-sync)) of the [hybrid PM flow](/the-story/) — the table Priya and Alex scan during standup; the table Sarah never opens but whose contents drive her Gantt re-forecast.
 
 ## What you see
 
@@ -85,5 +85,5 @@ Reads right-to-left through the board flow — the team's most recent wins are t
 
 ## If you are…
 
-- **Tom (engineer)** — the rows assigned to you with CP flags are the work that delays the project end date. Treat them first.
-- **Maya** — collapse Done at standup so the active rows dominate the screen.
+- **Priya (engineer)** — the rows assigned to you with CP flags are the work that delays the project end date. Treat them first.
+- **Alex** — collapse Done at standup so the active rows dominate the screen.

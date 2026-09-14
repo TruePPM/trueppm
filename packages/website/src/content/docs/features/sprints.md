@@ -196,6 +196,6 @@ moves anything.
 
 ## If you are…
 
-- **Maya (Scrum Master)** — the Sprint header is your home. Set a goal at planning, watch the day-of-N counter during execution, fire Close sprint at retro time. As of 0.3, selecting a planned sprint gives you the whole planning screen — backlog, capacity, carryover, and the milestone bridge — in one place.
-- **Tom (engineer)** — you'll mostly see the [Sprint backlog table](/features/sprint-backlog/) below. The header tells you which sprint you're in and how many days are left.
-- **Raj (PM)** — the Advancing-to-Milestone card links directly into the Schedule view scrolled to the milestone task. The bridge between sprint cadence and contract dates lives there.
+- **Alex (Scrum Master)** — the Sprint header is your home. Set a goal at planning, watch the day-of-N counter during execution, fire Close sprint at retro time. As of 0.3, selecting a planned sprint gives you the whole planning screen — backlog, capacity, carryover, and the milestone bridge — in one place.
+- **Priya (engineer)** — you'll mostly see the [Sprint backlog table](/features/sprint-backlog/) below. The header tells you which sprint you're in and how many days are left.
+- **Sarah (PM)** — the Advancing-to-Milestone card links directly into the Schedule view scrolled to the milestone task. The bridge between sprint cadence and contract dates lives there.

@@ -50,13 +50,13 @@ The real test isn't what a feature does — it's what *each role can see and do*
 
    The command prints the sample's persona logins (`atlas-alex`, `atlas-priya`, …) and their shared password when it finishes. On a local Docker stack (`DEBUG=True`) that password is `demo`; anywhere else it is `$TRUEPPM_DEMO_PASSWORD` if you set it, otherwise a random token printed once — copy it before you clear the terminal.
 
-**First, as the team.** Sign in at `http://localhost:5173` as **`atlas-mei`** — Mei Tanaka, Senior Engineer, seeded with the **Member** role and working the active sprint:
+**First, as the team.** Sign in at `http://localhost:5173` as **`atlas-mei`** — Mei Tanaka, Senior Engineer, a **Team Member** on Platform Core and working the active sprint:
 
 2. Open **Deliver → Sprints** in the left navigation rail (`/projects/:id/sprints`), select **Sprint 3** — the closed sprint whose retro the sample seeds — and scroll to the **retrospective** panel below the timeline. "Split stories larger than 8 points" was promoted to the backlog; follow its `→ T-XXXXXX` chip and confirm the pipeline actually carried it forward into a real task.
 3. Open **Deliver → Board** and walk to the WIP-overload column (amber or red). The team sees its own pressure without anyone reporting it.
 4. Open **Settings → Signal privacy** and note that velocity's audience is the team's own choice — it is not published upward by default.
 
-**Then, as management.** Sign out and sign back in as **`atlas-priya`** (Priya Nair, Engineering Lead, **Admin**) or **`atlas-ada`** (Ada Boyega, Executive Sponsor, **Viewer**):
+**Then, as management.** Sign out and sign back in as **`atlas-priya`** (Priya Nair, Engineering Lead, **Project Manager** on Platform Core) or **`atlas-ada`** (Ada Boyega, Executive Sponsor, **Viewer**):
 
 5. Retrace steps 2–4 and confirm what management **cannot** reach: per-person hours, edit counts, or a velocity scoreboard. They see milestone and schedule health; the sprint internals stay with the team. `atlas-ada` in particular is read-only everywhere — a sponsor who cannot quietly reshape a sprint.
 

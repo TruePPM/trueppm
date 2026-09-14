@@ -66,16 +66,18 @@ docker compose exec api python manage.py load_sample_project --with-personas
 
 The command prints the shared persona password when it finishes — in the default local dev stack (Django `DEBUG` on) that's `demo`. To pick your own, set `TRUEPPM_DEMO_PASSWORD` before seeding; on a non-debug (e.g. production) instance the seed generates a random password and prints it once instead.
 
-Sign in at **http://localhost:5173** as the role you want to explore:
+Sign in at **http://localhost:5173** as one of the Atlas sample's people. Roles are set per project, so what each account can open and change depends on who they are:
 
-| Username | Role | Open this first |
-|---|---|---|
-| `maya` | Scrum Master | Sprints workspace — burndown, capacity, retrospective |
-| `raj` | Project Manager | Schedule view — critical path lit up |
-| `diana` | PMO Director | Multi-team sprints lens across projects |
-| `sarah` | Resource Manager | Capacity preflight with an over-allocated member |
-| `carlos` | Executive | Overview with forecast confidence intervals |
-| `tom` | Team Member | Board with the WIP-overload chip and his cards |
+| Username | Who | Role in the sample | Open this first |
+|---|---|---|---|
+| `atlas-alex` | Alex Rivera, Program Manager | Project Admin on all three projects | Program Schedule — the critical path running across all three projects |
+| `atlas-priya` | Priya Nair, Engineering Lead | Project Manager on Platform Core, Team Member on Migration Tooling | Sprints workspace — burndown, capacity, and a retro with a promoted action |
+| `atlas-jordan` | Jordan Blake, Product Owner | Project Admin on GTM Readiness, Team Member on Platform Core | Board for GTM Readiness and its sprint-to-milestone bridge |
+| `atlas-sam` | Sam Okafor, Project Scheduler | Resource Manager on all three projects | Schedule view — milestones and the calendar exception that moves the finish |
+| `atlas-mei` | Mei Tanaka, Senior Engineer | Team Member on Platform Core | Board — their assigned cards and the tasks they are blocked on |
+| `atlas-ada` | Ada Boyega, Executive Sponsor | Viewer on all three projects | Overview — forecast confidence intervals, and everything read-only |
+
+The other bundled samples load with `--sample <key>` and print their own accounts; the [evaluation guide](https://docs.trueppm.com/getting-started/evaluation-guide/) names which login to use for each walkthrough.
 
 Need the admin account (username `admin`)? Its password is generated on first startup and written to a file — read it with `docker compose exec api cat /tmp/trueppm_admin_password`.
 

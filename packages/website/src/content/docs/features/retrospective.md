@@ -7,7 +7,7 @@ This is for a Scrum Master and team wrapping up a sprint together. It's the retr
 
 ## Where this lives in the story
 
-Step 8 ([Close — retro, lessons learned, baseline variance](/the-story/#8-close--retro-lessons-learned-baseline-variance)) of the [hybrid PM flow](/the-story/). Closes the loop on Maya's switching criterion: *"Retro action items get logged and forgotten."*
+Step 8 ([Close — retro, lessons learned, baseline variance](/the-story/#8-close--retro-lessons-learned-baseline-variance)) of the [hybrid PM flow](/the-story/). Closes the loop on Alex's switching criterion: *"Retro action items get logged and forgotten."*
 
 ## What you see
 
@@ -78,5 +78,5 @@ Promotion is **explicit, per item** — saving the retro never creates tasks (sp
 
 ## If you are…
 
-- **Maya** — own this. Action items you promote become real backlog tasks; items you don't will be forgotten by Friday. The prior-retro section keeps last sprint's lessons in view.
-- **Tom (engineer)** — promoted action items show up in the project backlog; your Scrum Master or PM pulls them into a planned sprint when the team commits to them.
+- **Alex** — own this. Action items you promote become real backlog tasks; items you don't will be forgotten by Friday. The prior-retro section keeps last sprint's lessons in view.
+- **Priya (engineer)** — promoted action items show up in the project backlog; your Scrum Master or PM pulls them into a planned sprint when the team commits to them.

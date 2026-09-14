@@ -67,6 +67,6 @@ When the project's [estimation mode](/features/scheduler/) is set to **Suggest &
 
 ## If you are…
 
-- **Raj (PM)** — read the banner when it appears. Accept when the team's pace genuinely differs from the original estimate; dismiss when the difference is a one-off (Black-Friday-week noise, a contractor onboarding, etc.). Either way, your decision is preserved in the audit trail.
-- **Maya (Scrum Master)** — you don't see this surface. Sprint reality is yours; CPM calibration is the PM's.
-- **Carlos (Exec)** — calibrated estimates feed Monte Carlo, which feeds your portfolio forecast. The honesty of the forecast depends on the PM keeping up with these suggestions.
+- **Sarah (PM)** — read the banner when it appears. Accept when the team's pace genuinely differs from the original estimate; dismiss when the difference is a one-off (Black-Friday-week noise, a contractor onboarding, etc.). Either way, your decision is preserved in the audit trail.
+- **Alex (Scrum Master)** — you don't see this surface. Sprint reality is yours; CPM calibration is the PM's.
+- **Janet (Exec)** — calibrated estimates feed Monte Carlo, which feeds your portfolio forecast. The honesty of the forecast depends on the PM keeping up with these suggestions.

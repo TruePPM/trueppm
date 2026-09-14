@@ -256,8 +256,8 @@ project admins can delete anyone's.
 Two structurally distinct signals sit on every comment:
 
 - **✅ Acknowledge** is an active "I'm on it" / "I've seen this" stance. The
-  count is visible to the team but **not** to the PMO (Morgan-Lee blocker
-  from the V2 VoC pass). Members and above can acknowledge; viewers cannot.
+  count is visible to the team but **not** to the PMO — an acknowledgement is
+  a team signal, never a management metric. Members and above can acknowledge; viewers cannot.
 - **👍 React** is a lightweight social signal. The count is visible to anyone
   with project access. Neither reactions nor acknowledgements ever trigger a
   notification — they're soft signals, not pings.

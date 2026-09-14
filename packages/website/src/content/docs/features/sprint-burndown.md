@@ -7,7 +7,7 @@ This is for anyone tracking how a sprint is progressing — the Scrum Master wat
 
 ## Where this lives in the story
 
-Step 6 ([Execute](/the-story/#6-execute--daily-cadence-two-worlds-in-sync)) of the [hybrid PM flow](/the-story/) — this is the chart Maya watches during the standup and the chart Carlos's exec view derives confidence from at Step 7.
+Step 6 ([Execute](/the-story/#6-execute--daily-cadence-two-worlds-in-sync)) of the [hybrid PM flow](/the-story/) — this is the chart Alex watches during the standup and the chart Janet's exec view derives confidence from at Step 7.
 
 ## What you see
 
@@ -53,5 +53,5 @@ The ideal line is computed client-side from `committed_points`; the API does not
 
 ## If you are…
 
-- **Maya** — your at-a-glance sprint health. The trending callout tells you whether to escalate at standup.
-- **Carlos** — you don't open this directly. You read the aggregate milestone-health and schedule-confidence signals; the [velocity forecast](/features/velocity/) it feeds is team-private by default (ADR-0104) and visible to you only when the team's signal audience includes your tier.
+- **Alex** — your at-a-glance sprint health. The trending callout tells you whether to escalate at standup.
+- **Janet** — you don't open this directly. You read the aggregate milestone-health and schedule-confidence signals; the [velocity forecast](/features/velocity/) it feeds is team-private by default (ADR-0104) and visible to you only when the team's signal audience includes your tier.

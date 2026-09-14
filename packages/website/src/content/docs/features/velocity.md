@@ -22,7 +22,7 @@ cites 6 — these are not in tension, they answer different questions:
 
 ## Where this lives in the story
 
-Step 7 ([Forecast — Monte Carlo across both worlds](/the-story/#7-forecast--monte-carlo-across-both-worlds)) of the [hybrid PM flow](/the-story/) — the velocity history that turns sprint cadence into a defensible probability for Carlos's exec view.
+Step 7 ([Forecast — Monte Carlo across both worlds](/the-story/#7-forecast--monte-carlo-across-both-worlds)) of the [hybrid PM flow](/the-story/) — the velocity history that turns sprint cadence into a defensible probability for Janet's exec view.
 
 ## What you see
 
@@ -108,6 +108,6 @@ The terminology is **forecast range**, not "velocity confidence band" — confid
 
 ## If you are…
 
-- **Carlos** — when the team's signal audience includes your tier, read the forecast range chip; otherwise velocity stays team-private (ADR-0104) and you work from the aggregate milestone-health signals. The footer ADR link explains why the range is defensible.
-- **Raj** — the rolling avg drives the work package re-forecast on the Schedule view at Step 6.
-- **Maya** — own the trajectory. If the bar color is shifting amber over multiple sprints, the team is signaling something.
+- **Janet** — when the team's signal audience includes your tier, read the forecast range chip; otherwise velocity stays team-private (ADR-0104) and you work from the aggregate milestone-health signals. The footer ADR link explains why the range is defensible.
+- **Sarah** — the rolling avg drives the work package re-forecast on the Schedule view at Step 6.
+- **Alex** — own the trajectory. If the bar color is shifting amber over multiple sprints, the team is signaling something.
