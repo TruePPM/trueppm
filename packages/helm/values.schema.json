@@ -331,25 +331,32 @@
           "type": "object"
         },
         "sentinel": {
+          "description": "EXPERIMENTAL in 0.4 (#2554, ADR-0716): wiring is unit-tested but has NOT been verified against a live Sentinel quorum performing a real failover — there is no end-to-end promotion test. Do not treat failover as proven until #3778/#3404 close. Shape may still change before 0.5.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "enabled": {
+              "description": "EXPERIMENTAL in 0.4: enables the external-Sentinel topology, which has not been exercised against a real failover. See the parent `sentinel` description.",
               "type": "boolean"
             },
             "nodes": {
+              "description": "EXPERIMENTAL in 0.4: comma-separated host:port list of the Sentinel nodes. See the parent `sentinel` description.",
               "type": "string"
             },
             "masterName": {
+              "description": "EXPERIMENTAL in 0.4: the name the Sentinels monitor the primary under. See the parent `sentinel` description.",
               "type": "string"
             },
             "password": {
+              "description": "EXPERIMENTAL in 0.4: password for the Sentinel-managed data nodes (primary/replicas). See the parent `sentinel` description.",
               "type": "string"
             },
             "sentinelPassword": {
+              "description": "EXPERIMENTAL in 0.4: password for the Sentinel nodes themselves. See the parent `sentinel` description.",
               "type": "string"
             },
             "tls": {
+              "description": "EXPERIMENTAL in 0.4: use TLS to the Sentinel-managed data nodes. See the parent `sentinel` description.",
               "type": "boolean"
             }
           }
