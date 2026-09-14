@@ -174,6 +174,45 @@ rather than an in-place edit: an in-place issuer change would otherwise let an
 unrelated account at the new issuer, whose subject happens to collide with an
 old binding, take over that binding.
 
+### Silent account linking is notified, not blocked (2026-09-14, #3554)
+
+The one case above where an OIDC/OAuth identity binds to a TruePPM account the
+IdP did not create — the durable-identity resolution failing to find a match
+by `(issuer, subject)`, then a verified email matching an *existing* local
+user — grants a federated credential to that account with no
+re-authentication step. ADR-0517 (see [Architecture Decision
+Records](/architecture/decisions/)) already named this as a risk it
+deliberately re-verified rather than closed (its Consequences section:
+"Account-linking-by-verified-email takeover is the same risk as ADR-0187 and
+must be re-verified on the new models"). Issue #3554
+is that re-verification, run as a `threat-model` + `ai-review` gate pass
+against this surface, and it forced an explicit choice among three responses:
+notify the account, block the link for admin/owner roles pending a one-time
+re-auth, or accept the risk and only document it.
+
+**Decision: notify, not block.** The bar for this link is control of a
+verified mailbox at an allowed domain (or an IdP that mis-asserts
+`email_verified`) — the same bar password reset already accepts, with one
+difference: a password reset is visible to the account it targets (an email,
+revoked sessions), and this link was not. Closing that gap only needed a
+notification, not a new authentication step, so TruePPM emails the linked
+account — naming the provider and the approximate time — the first time this
+branch runs, deferred until the database transaction that creates the binding
+commits (so a link that is rolled back never sends a notice for a binding
+that was never persisted), and sent best-effort (a mail-transport failure
+never fails the sign-in). It applies to every workspace role the linked
+account may hold, Owner included — the risk does not vary by role, only its
+blast radius does. See
+[Single sign-on](/administration/single-sign-on/#how-users-sign-in) for what
+the account owner sees.
+
+Blocking the link outright for Admin/Owner roles — requiring a one-time
+password re-auth on the completion page before the identity binds — was
+considered and deliberately deferred rather than rejected: it is a real
+additional control for the highest-privilege accounts, just not one the
+owner asked for in this pass. It remains open as a follow-up if the team
+decides the notification alone is not enough.
+
 ## The WebSocket ticket
 
 A browser cannot attach an `Authorization` header to a WebSocket upgrade

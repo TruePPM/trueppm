@@ -3,6 +3,7 @@ import type { Program, ProgramHealth } from '@/api/types';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { PinToggle } from '@/components/PinToggle';
 import { ProgramIdentitySquare } from './ProgramIdentitySquare';
+import { HEALTH_BAND_LABEL } from '@/lib/healthBand';
 
 interface Props {
   program: Program;
@@ -17,11 +18,15 @@ interface Props {
  * color and the word carries the meaning (rule 6/7/120). AUTO is omitted — it
  * means "defer to the rollup", and the computed worst-of-children value lives on
  * the program overview (it is not recomputed per card to keep the list cheap).
+ *
+ * The label maps this SCREAMING-case override enum onto the one health
+ * vocabulary (lib/healthBand, #3502) at the edge — the words themselves live
+ * only in `HEALTH_BAND_LABEL`.
  */
 const HEALTH_DOT: Record<Exclude<ProgramHealth, 'AUTO'>, { dot: string; label: string }> = {
-  ON_TRACK: { dot: 'bg-semantic-on-track', label: 'On track' },
-  AT_RISK: { dot: 'bg-semantic-at-risk', label: 'At risk' },
-  CRITICAL: { dot: 'bg-semantic-critical', label: 'Critical' },
+  ON_TRACK: { dot: 'bg-semantic-on-track', label: HEALTH_BAND_LABEL.on_track },
+  AT_RISK: { dot: 'bg-semantic-at-risk', label: HEALTH_BAND_LABEL.at_risk },
+  CRITICAL: { dot: 'bg-semantic-critical', label: HEALTH_BAND_LABEL.critical },
 };
 
 /**

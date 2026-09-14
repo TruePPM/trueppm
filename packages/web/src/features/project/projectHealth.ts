@@ -1,4 +1,5 @@
 import type { ProjectHealth } from '@/api/types';
+import { HEALTH_BAND_LABEL } from '@/lib/healthBand';
 
 /**
  * Shared health-override presentation for the manual PM health signal
@@ -8,13 +9,18 @@ import type { ProjectHealth } from '@/api/types';
  * KPI badge. Both the Settings > General editor and the Overview "Update
  * project status" dialog render from this one source so their labels and
  * colors never drift.
+ *
+ * The three band words come from the one health vocabulary (lib/healthBand,
+ * #3502), mapped onto this SCREAMING-case override enum at the edge. `Auto`
+ * is not a band — it is a choice in this override editor ("defer to the
+ * computed rollup") — so it stays local to this module.
  */
 
 /** Pill options in display order — the three explicit reports first, Auto last. */
 export const HEALTH_OPTIONS: Array<{ id: ProjectHealth; label: string }> = [
-  { id: 'ON_TRACK', label: 'On track' },
-  { id: 'AT_RISK', label: 'At risk' },
-  { id: 'CRITICAL', label: 'Critical' },
+  { id: 'ON_TRACK', label: HEALTH_BAND_LABEL.on_track },
+  { id: 'AT_RISK', label: HEALTH_BAND_LABEL.at_risk },
+  { id: 'CRITICAL', label: HEALTH_BAND_LABEL.critical },
   { id: 'AUTO', label: 'Auto' },
 ];
 
@@ -40,8 +46,8 @@ export const REPORTED_HEALTH_TITLE =
   'Status reported by the project manager — separate from the schedule signal.';
 
 export const HEALTH_LABEL: Record<ProjectHealth, string> = {
-  ON_TRACK: 'On track',
-  AT_RISK: 'At risk',
-  CRITICAL: 'Critical',
+  ON_TRACK: HEALTH_BAND_LABEL.on_track,
+  AT_RISK: HEALTH_BAND_LABEL.at_risk,
+  CRITICAL: HEALTH_BAND_LABEL.critical,
   AUTO: 'Auto',
 };

@@ -40,6 +40,7 @@ These rules are enforced at review time. Violations block merge.
 382. **An exported symbol with no importer fails `web:knip`. The fix is to delete it, or to name the real root in `entry` — never to add an `ignore`.** → [rule](../../docs/design/invariants/382-an-exported-symbol-with-no-importer-fails-web-knip-the-fix.md)
 394. **A `QueryErrorState` inside a COLLAPSED `<details>`, accordion, or hidden tab panel satisfies rule 246 and defeats it — a failure must reach the always-visible chrome.** → [rule](../../docs/design/invariants/394-a-queryerrorstate-inside-a-collapsed-details-accordion-or.md)
 395. **When a fix's acceptance is "N surfaces state one message", a source scan for the canonical LITERAL cannot enforce it — the scan sees re-typing, and re-typing is never the failure mode; divergence is.** → [rule](../../docs/design/invariants/395-when-a-fix-s-acceptance-is-n-surfaces-state-one-message-a.md)
+414. **A forbidden-shape source scan must match the code SHAPE the violation takes, not a bare substring search for the forbidden text — a substring search also flags the prose that documents the bug it forbids.** → [rule](../../docs/design/invariants/414-a-forbidden-shape-source-scan-must-match-the-code-shape.md)
 
 ## Accessibility floors
 
@@ -111,6 +112,7 @@ These rules are enforced at review time. Violations block merge.
 407. **Promoting a client constant to a server fact does not end the drift — it MOVES it to every prose restatement of that constant, and those are louder than the control they contradict.** → [rule](../../docs/design/invariants/407-promoting-a-client-constant-to-a-server-fact-does-not-end.md)
 408. **A "previous value" ref that drives an announcement, a change badge, or a diff highlight must be keyed to the ENTITY the value describes — a component that outlives the entity turns NAVIGATION into a change event.** → [rule](../../docs/design/invariants/408-a-previous-value-ref-that-drives-an-announcement-a-change.md)
 410. **A value read from an async query that SEEDS a mount-frozen draft must be gated on that query RESOLVING — every other consumer of the same value self-corrects on re-render, and that is exactly what hides the one that cannot.** → [rule](../../docs/design/invariants/410-a-value-read-from-an-async-query-that-seeds-a-mount-frozen.md)
+413. **A chart label that collides with its neighbor moves to a new ROW — the marker it names never moves, and the packing is a generic N-label layout problem, not a special case for one named pair.** → [rule](../../docs/design/invariants/413-a-chart-label-that-collides-with-its-neighbor-moves-to-a.md)
 
 ## Redundancy
 

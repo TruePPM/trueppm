@@ -2,6 +2,7 @@ import { useActiveSprint } from '@/hooks/useSprints';
 import { useProject } from '@/hooks/useProject';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { registry } from '@/lib/widget-registry';
+import { HEALTH_BAND_LABEL } from '@/lib/healthBand';
 import {
   useProjectScheduleSummary,
   type ProjectScheduleSummary,
@@ -17,10 +18,10 @@ const HEALTH_PILL: Record<Health, string> = {
   critical: 'border-semantic-critical/40 text-semantic-critical',
   unknown: 'border-neutral-border text-neutral-text-secondary',
 };
+// Words come from the one health vocabulary (lib/healthBand, #3502) plus the
+// local `unknown` fallback, which is not a band — it means no summary loaded.
 const HEALTH_LABEL: Record<Health, string> = {
-  on_track: 'On track',
-  at_risk: 'At risk',
-  critical: 'Critical',
+  ...HEALTH_BAND_LABEL,
   unknown: 'Unknown',
 };
 

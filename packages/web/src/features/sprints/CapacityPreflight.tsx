@@ -1,6 +1,7 @@
 import type { SprintCapacity } from '@/hooks/useSprints';
 import { capacityPointsChip } from './sprintMath';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { HEALTH_BAND_LABEL } from '@/lib/healthBand';
 
 interface Props {
   capacity: SprintCapacity;
@@ -19,9 +20,12 @@ const DONUT_RADIUS = 32;
 const STROKE = 8;
 const CIRCUMFERENCE = 2 * Math.PI * DONUT_RADIUS;
 
+// `on_track`/`at_risk` are the shared health vocabulary (lib/healthBand,
+// #3502); `over_capacity` is not a health band — it is this card's own
+// capacity-threshold state — so its word stays local.
 const LABEL_COPY: Record<SprintCapacity['totals']['label'], string> = {
-  on_track: 'On track',
-  at_risk: 'At risk',
+  on_track: HEALTH_BAND_LABEL.on_track,
+  at_risk: HEALTH_BAND_LABEL.at_risk,
   over_capacity: 'Over capacity',
 };
 

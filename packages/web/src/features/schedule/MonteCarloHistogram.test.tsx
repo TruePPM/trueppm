@@ -152,6 +152,110 @@ describe('MonteCarloHistogram', () => {
     });
   });
 
+  describe('percentile label collision handling (#3736)', () => {
+    function textByContent(container: HTMLElement, content: string) {
+      return Array.from(container.querySelectorAll('text')).find(
+        (el) => el.textContent === content,
+      );
+    }
+
+    // Buckets one week apart; P80 and P95 land on adjacent buckets — the same
+    // shape that produced the "P80P95" overlap on the Atlas sample program.
+    // P50 sits several buckets to the left so it never collides with either.
+    const ADJACENT: typeof FIXTURE_MC_RESULT = {
+      ...FIXTURE_MC_RESULT,
+      p50: '2026-09-07',
+      p80: '2026-10-05',
+      p95: '2026-10-12',
+      buckets: [
+        { weekStart: '2026-08-31', count: 5 },
+        { weekStart: '2026-09-07', count: 40 },
+        { weekStart: '2026-09-14', count: 80 },
+        { weekStart: '2026-09-21', count: 120 },
+        { weekStart: '2026-09-28', count: 150 },
+        { weekStart: '2026-10-05', count: 90 },
+        { weekStart: '2026-10-12', count: 40 },
+        { weekStart: '2026-10-19', count: 10 },
+      ],
+    };
+
+    it('renders P80 and P95 labels on different rows when their buckets are adjacent', () => {
+      const { container } = renderWithProviders(<MonteCarloHistogram result={ADJACENT} />);
+      const p80Label = textByContent(container, 'P80');
+      const p95Label = textByContent(container, 'P95');
+      expect(p80Label).toBeTruthy();
+      expect(p95Label).toBeTruthy();
+      const p80X = Number(p80Label!.getAttribute('x'));
+      const p95X = Number(p95Label!.getAttribute('x'));
+      const p80Y = Number(p80Label!.getAttribute('y'));
+      const p95Y = Number(p95Label!.getAttribute('y'));
+      // The rule lines stay one bucket pitch (10px) apart — close enough that
+      // ~25px-wide "P80"/"P95" labels centered on them would overlap.
+      expect(Math.abs(p80X - p95X)).toBeLessThan(15);
+      // Without collision handling both labels sit at the same y and read as
+      // "P80P95" — this is the assertion that must fail on the unpatched
+      // component (verified: reverting the fix turns this red).
+      expect(p80Y).not.toBe(p95Y);
+    });
+
+    it('keeps each rule line at its true bucket x-coordinate even when its label moves to a new row', () => {
+      const { container } = renderWithProviders(<MonteCarloHistogram result={ADJACENT} />);
+      const p95Line = container.querySelector('line[stroke-dasharray="1 2"]');
+      const p95Label = textByContent(container, 'P95');
+      expect(p95Line).toBeTruthy();
+      expect(p95Label).toBeTruthy();
+      // Same x as its label — collision handling may move a label's row (y)
+      // but must never move the dashed/dotted/solid marker off the data x.
+      expect(p95Line!.getAttribute('x1')).toBe(p95Label!.getAttribute('x'));
+    });
+
+    it('still renders the non-colliding P50 label at a valid row', () => {
+      const { container } = renderWithProviders(<MonteCarloHistogram result={ADJACENT} />);
+      const p50Label = textByContent(container, 'P50');
+      expect(p50Label).toBeTruthy();
+      expect(Number(p50Label!.getAttribute('y'))).toBeGreaterThan(0);
+    });
+
+    it('spreads all three labels across rows (not just a P80/P95 special case) when every percentile is adjacent', () => {
+      // General N-label case: P50, P80 and P95 all fall on consecutive
+      // buckets, so no two labels may safely share a row.
+      const TIGHT: typeof FIXTURE_MC_RESULT = {
+        ...FIXTURE_MC_RESULT,
+        p50: '2026-09-28',
+        p80: '2026-10-05',
+        p95: '2026-10-12',
+        buckets: [
+          { weekStart: '2026-09-21', count: 20 },
+          { weekStart: '2026-09-28', count: 150 },
+          { weekStart: '2026-10-05', count: 90 },
+          { weekStart: '2026-10-12', count: 40 },
+          { weekStart: '2026-10-19', count: 10 },
+        ],
+      };
+      const { container } = renderWithProviders(<MonteCarloHistogram result={TIGHT} />);
+      const rows = ['P50', 'P80', 'P95'].map(
+        (t) => Number(textByContent(container, t)!.getAttribute('y')),
+      );
+      // Three labels at one bucket pitch apart cannot all share a row without
+      // overlapping — at least one must move.
+      expect(new Set(rows).size).toBeGreaterThan(1);
+    });
+
+    it('keeps a single shared row when percentiles are spread far enough apart not to collide', () => {
+      // Regression guard: the default fixture's percentiles are already spaced
+      // wide enough (P50/P80/P95 several buckets apart) that no row change
+      // should occur — the SVG height must stay at its original, single-row
+      // size rather than always reserving extra vertical space.
+      const { container } = renderWithProviders(
+        <MonteCarloHistogram result={FIXTURE_MC_RESULT} />,
+      );
+      const rows = ['P50', 'P80', 'P95'].map(
+        (t) => Number(textByContent(container, t)!.getAttribute('y')),
+      );
+      expect(new Set(rows).size).toBe(1);
+    });
+  });
+
   describe('cold / not-persisted case — empty buckets (#1231)', () => {
     it('shows a "run a fresh simulation" prompt, NOT the misleading converged-date prose', () => {
       // Distinct from the genuine zero-spread collapse: here there is no

@@ -17,6 +17,7 @@
 
 import type { OverviewMetricVariant } from '@/features/project/overviewMetrics';
 import type { MyWorkTask, MyWorkActiveSprint, MyWorkSignals } from '@/hooks/useMyWork';
+import { HEALTH_BAND_LABEL } from '@/lib/healthBand';
 
 /** A single focus card on the My Work home. */
 export interface MyWorkFocusCard {
@@ -47,14 +48,18 @@ export interface MyWorkFocusCard {
   detail?: { text: string; tone: OverviewMetricVariant };
 }
 
-/** Schedule-health band → focus-card tone + human label. */
+/**
+ * Schedule-health band → focus-card tone + human label. The label is the one
+ * health vocabulary (lib/healthBand, #3502); only the card's tone mapping is
+ * local to this card shape.
+ */
 const HEALTH_BAND: Record<
   NonNullable<MyWorkSignals['schedule_health']>['band'],
   { tone: OverviewMetricVariant; label: string }
 > = {
-  on_track: { tone: 'on-track', label: 'On track' },
-  at_risk: { tone: 'at-risk', label: 'At risk' },
-  critical: { tone: 'critical', label: 'Critical' },
+  on_track: { tone: 'on-track', label: HEALTH_BAND_LABEL.on_track },
+  at_risk: { tone: 'at-risk', label: HEALTH_BAND_LABEL.at_risk },
+  critical: { tone: 'critical', label: HEALTH_BAND_LABEL.critical },
 };
 
 export type TimeOfDay = 'morning' | 'afternoon' | 'evening';

@@ -36,11 +36,15 @@ import type {
 } from '@/api/types';
 import { MC_HISTORY_RETENTION_MAX, MC_HISTORY_RETENTION_MIN } from '@/api/types';
 import { PROGRAM_ACCENT_SWATCHES, contrastText } from '@/features/programs/programColor';
+import { HEALTH_BAND_LABEL } from '@/lib/healthBand';
 
+// The three band words come from the one health vocabulary (lib/healthBand,
+// #3502), mapped onto this SCREAMING-case override enum at the edge. `Auto`
+// is not a band — it is a choice in this override editor — so it stays local.
 const HEALTH_OPTIONS: Array<{ id: ProgramHealth; label: string }> = [
-  { id: 'ON_TRACK', label: 'On track' },
-  { id: 'AT_RISK', label: 'At risk' },
-  { id: 'CRITICAL', label: 'Critical' },
+  { id: 'ON_TRACK', label: HEALTH_BAND_LABEL.on_track },
+  { id: 'AT_RISK', label: HEALTH_BAND_LABEL.at_risk },
+  { id: 'CRITICAL', label: HEALTH_BAND_LABEL.critical },
   { id: 'AUTO', label: 'Auto' },
 ];
 
