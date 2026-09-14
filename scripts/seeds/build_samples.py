@@ -2150,6 +2150,26 @@ def _build_bayside_v20() -> dict:
         "start_date": d(0),
         "calendar": "site",
         "default_view": "SCHEDULE",
+        # Forecast-trend + Monte Carlo run history (#3494, ADR-0211): the
+        # window opens already past the mezzanine change order (the CPM
+        # finish has crossed the fixed contract date) and drifts BACK toward
+        # it — never fully recovering — through the rebaseline. cpm/p50/p80/p95
+        # keep the same start->end ordering throughout so the MC band stays
+        # ordered at every point in the window.
+        "forecast_history": {
+            "days": 60,
+            "commitment_finish": "A+40",
+            "cpm_start": "A+55",
+            "cpm_end": "A+46",
+            "p50_start": "A+58",
+            "p50_end": "A+50",
+            "p80_start": "A+62",
+            "p80_end": "A+54",
+            "p95_start": "A+68",
+            "p95_end": "A+60",
+            "mc_iterations": 2500,
+            "completion_ratio": 0.6,
+        },
         "labels": SITEWORK_LABELS,
         "tasks": sw_tasks,
         "dependencies": sw_deps,
@@ -2398,6 +2418,8 @@ def _build_bayside_v20() -> dict:
             "methodology": "WATERFALL",
             "color": "#B5651D",
             "lead": "sam",
+            "mc_history_enabled": True,
+            "mc_history_attribution_audience": "scheduler_plus",
         },
         "accounts": _accounts(
             [

@@ -7,6 +7,8 @@
     "methodology": "WATERFALL",
     "color": "#B5651D",
     "lead": "sam",
+    "mc_history_enabled": true,
+    "mc_history_attribution_audience": "scheduler_plus",
     "backlog_items": [
       {
         "slug": "ev-charging-conduit",
@@ -280,6 +282,20 @@
       "start_date": "A-90",
       "calendar": "site",
       "default_view": "SCHEDULE",
+      "forecast_history": {
+        "days": 60,
+        "commitment_finish": "A+40",
+        "cpm_start": "A+55",
+        "cpm_end": "A+46",
+        "p50_start": "A+58",
+        "p50_end": "A+50",
+        "p80_start": "A+62",
+        "p80_end": "A+54",
+        "p95_start": "A+68",
+        "p95_end": "A+60",
+        "mc_iterations": 2500,
+        "completion_ratio": 0.6
+      },
       "labels": [
         {
           "slug": "critical-path",

@@ -12,7 +12,8 @@ the load is a module-scoped fixture.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -26,14 +27,18 @@ from trueppm_api.apps.projects.models import (
     SprintState,
     Task,
 )
+from trueppm_api.apps.projects.seed.forecast_backfill import backfill_monte_carlo_run_history
 from trueppm_api.apps.projects.seed.samples import load_sample
-from trueppm_api.apps.scheduling.models import ProjectForecastSnapshot
+from trueppm_api.apps.scheduling.models import MonteCarloRun, ProjectForecastSnapshot
 
 pytestmark = pytest.mark.django_db
 
 User = get_user_model()
 
 FORECAST_DAYS = 60
+#: backfill_monte_carlo_run_history._MC_RUN_CADENCE_DAYS, duplicated so this
+#: module fails loudly (not silently) if the cadence constant ever changes.
+MC_RUN_CADENCE_DAYS = 7
 
 
 @pytest.fixture
@@ -109,6 +114,109 @@ def test_completed_task_count_ramps_up(program: Any) -> None:
     assert rows[-1].completed_task_count > rows[0].completed_task_count
     # task_count is held constant across the window (schedule shape, not progress).
     assert len({r.task_count for r in rows}) == 1
+
+
+# --- Monte Carlo run history (#3494) -----------------------------------------
+
+
+def test_monte_carlo_run_history_seeded_for_every_forecast_project(program: Any) -> None:
+    # Every Atlas project authors forecast_history with a full MC band, so every
+    # one gets weekly MonteCarloRun history — the panel is never blank on load.
+    for project in Project.objects.filter(program=program):
+        count = MonteCarloRun.objects.filter(project=project).count()
+        expected = len(range(0, FORECAST_DAYS, MC_RUN_CADENCE_DAYS))
+        assert count == expected, f"{project.name}: expected {expected} runs, got {count}"
+
+
+def test_monte_carlo_run_history_matches_the_forecast_snapshot_it_was_derived_from(
+    program: Any,
+) -> None:
+    # Derived from the SAME backfill, not recomputed (#3494 design) — the run
+    # history and the trend chart must never disagree on a given historical day.
+    project = _project(program, "Platform Core")
+    snapshots = {
+        s.captured_at.date(): s for s in ProjectForecastSnapshot.objects.filter(project=project)
+    }
+    runs = MonteCarloRun.objects.filter(project=project).order_by("taken_at")
+    assert runs.exists()
+    for run in runs:
+        snap = snapshots[run.taken_at.date()]
+        assert run.p50 == snap.mc_p50_finish
+        assert run.p80 == snap.mc_p80_finish
+        assert run.p95 == snap.mc_p95_finish
+        assert run.cpm_finish == snap.cpm_finish
+        assert run.n_simulations == snap.mc_iterations
+        assert run.task_count == snap.task_count
+        assert run.status_date == run.taken_at.date()
+
+
+def test_monte_carlo_run_history_ordered_and_bounded_by_the_window(program: Any) -> None:
+    project = _project(program, "Platform Core")
+    runs = list(MonteCarloRun.objects.filter(project=project).order_by("taken_at"))
+    for r in runs:
+        assert r.p50 <= r.p80 <= r.p95, r.taken_at
+    # Oldest run sits on the window's first day; none can predate it or land
+    # after the anchor (today) — a seeded run is history, not a future promise.
+    oldest_snapshot = (
+        ProjectForecastSnapshot.objects.filter(project=project).order_by("captured_at").first()
+    )
+    assert oldest_snapshot is not None
+    assert runs[0].taken_at.date() == oldest_snapshot.captured_at.date()
+    assert runs[-1].taken_at.date() <= date.today()
+
+
+def test_monte_carlo_run_attributed_to_the_project_scheduler_persona(program: Any) -> None:
+    # Platform Core casts `sam` as project-level SCHEDULER (atlas-platform-launch.json);
+    # a seeded run must read as that real person, not the importing owner.
+    project = _project(program, "Platform Core")
+    run = MonteCarloRun.objects.filter(project=project).order_by("taken_at").first()
+    assert run is not None
+    assert run.triggered_by is not None
+    assert run.triggered_by.username == "atlas-sam"
+
+
+def test_monte_carlo_run_history_is_deterministic_on_reload(django_user_model: Any) -> None:
+    owner = django_user_model.objects.create_user(username="mc-det", email="mc@example.com")
+    p1 = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    proj1 = _project(p1, "Platform Core")
+    runs1 = list(
+        MonteCarloRun.objects.filter(project=proj1)
+        .order_by("taken_at")
+        .values_list("taken_at", "p50", "p80", "p95", "cpm_finish", "n_simulations")
+    )
+
+    p2 = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    proj2 = _project(p2, "Platform Core")
+    runs2 = list(
+        MonteCarloRun.objects.filter(project=proj2)
+        .order_by("taken_at")
+        .values_list("taken_at", "p50", "p80", "p95", "cpm_finish", "n_simulations")
+    )
+
+    assert runs1 == runs2
+    assert len(runs1) > 0
+
+
+def test_a_forecast_history_block_with_no_mc_band_seeds_no_monte_carlo_runs(
+    program: Any,
+) -> None:
+    # MonteCarloRun.n_simulations is required and non-null; a CPM-only snapshot
+    # (no authored percentiles) has nothing to derive it from, so it must be
+    # skipped rather than crash or write a run with a guessed simulation count.
+    project = _project(program, "Platform Core")
+    before = MonteCarloRun.objects.filter(project=project).count()
+    cpm_only_snapshot = SimpleNamespace(
+        mc_p50_finish=None,
+        mc_p80_finish=None,
+        mc_p95_finish=None,
+        cpm_finish=date.today(),
+        mc_iterations=None,
+        task_count=10,
+        captured_at=datetime.combine(date.today(), datetime.min.time()),
+    )
+    runs = backfill_monte_carlo_run_history(project, [cpm_only_snapshot], triggered_by=project.lead)
+    assert runs == []
+    assert MonteCarloRun.objects.filter(project=project).count() == before
 
 
 def test_forecast_backfill_is_deterministic_on_reload(django_user_model: Any) -> None:
