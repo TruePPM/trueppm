@@ -92,6 +92,16 @@ celery_task_failed    = Signal()   # sender=task_name, task_id, exception, trace
 celery_task_retried   = Signal()   # sender=task_name, task_id, attempt, exception
 ```
 
+> **Superseded 2026-09-14 (#3777) — the `sender=task_name` above is no longer the
+> contract.** A string sender is unusable: Django filters receivers on sender
+> *identity*, so `@receiver(celery_task_started, sender=SomeTask)` never fired
+> against it, silently. These four signals (and `celery_task_permanently_failed`
+> from ADR-0084) are now dispatched with **`sender=None`** — they are about a
+> worker run, not a model row — and are discriminated by the **`task_name`
+> kwarg**, which every payload already carried. Connect with no sender filter and
+> branch on `task_name`. The rest of this section stands. See the module docstring
+> of `trueppm_api.core.extension_signals` for the project-wide convention.
+
 Wired via Celery's `task_prerun`, `task_postrun`, `task_failure`, and `task_retry` framework signals in `SchedulingConfig.ready()`. Enterprise connects receivers for PagerDuty/Slack alerting without modifying OSS code.
 
 ### 6. Structured logging

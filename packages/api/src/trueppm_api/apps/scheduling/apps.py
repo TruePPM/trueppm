@@ -66,9 +66,12 @@ class SchedulingConfig(AppConfig):
         @task_prerun.connect(weak=False, dispatch_uid="scheduling.on_task_prerun")  # type: ignore[untyped-decorator]
         def _on_task_prerun(sender: Any, task_id: str, task: Any, **kwargs: Any) -> None:
             _task_start_times[task_id] = time.monotonic()
+            # sender=None: these signals are about a worker run, not a model row,
+            # so there is no class for the dispatcher to filter on. Receivers
+            # branch on the task_name kwarg (#3777).
             dispatch_extension_signal(
                 celery_task_started,
-                sender=type(task).__name__,
+                sender=None,
                 task_id=task_id,
                 task_name=getattr(task, "name", ""),
                 args=kwargs.get("args", ()),
@@ -95,7 +98,7 @@ class SchedulingConfig(AppConfig):
             if state == "SUCCESS":
                 dispatch_extension_signal(
                     celery_task_succeeded,
-                    sender=type(task).__name__,
+                    sender=None,
                     task_id=task_id,
                     task_name=task_name,
                     runtime_seconds=duration,
@@ -109,7 +112,7 @@ class SchedulingConfig(AppConfig):
 
             dispatch_extension_signal(
                 celery_task_failed,
-                sender=type(sender).__name__,
+                sender=None,
                 task_id=task_id,
                 task_name=getattr(sender, "name", ""),
                 exception=exception,
@@ -122,7 +125,7 @@ class SchedulingConfig(AppConfig):
         def _on_task_retry(sender: Any, request: Any, reason: Any, **kwargs: Any) -> None:
             dispatch_extension_signal(
                 celery_task_retried,
-                sender=type(sender).__name__,
+                sender=None,
                 task_id=getattr(request, "id", ""),
                 task_name=getattr(sender, "name", ""),
                 attempt=getattr(request, "retries", 0),

@@ -7,9 +7,20 @@ stamping — without any modification to OSS code.
 
 Signal contract
 ---------------
+- ``sender``           : the ``Historical<Model>`` class whose row was written —
+  ``HistoricalTask``, ``HistoricalProject`` or ``HistoricalDependency``. A
+  receiver that wants one model's history connects with
+  ``sender=Task.history.model``; one that wants all three connects with no
+  sender filter.
 - ``instance``         : the original model instance that was mutated
 - ``history_instance`` : the ``HistoricalRecord`` that was just saved
 - ``history_type``     : ``"+"`` (create), ``"~"`` (update), ``"-"`` (delete)
+
+Dispatched **inline**, from the ``post_save`` of the historical row, so it runs
+inside the caller's transaction. ``instance`` is therefore a read-only snapshot
+of a row that may still roll back: receivers must not save it and must defer any
+I/O with ``transaction.on_commit()`` (see ``core/extension_signals.py`` for the
+sender and kwarg conventions this follows).
 """
 
 from __future__ import annotations
@@ -41,9 +52,14 @@ def _dispatch_history_record_created(
     # the post_save of every Historical* row for Project, Task and Dependency, so
     # a raising enterprise receiver would fail every task save in the product
     # (#2606).
+    # sender is the ``Historical<Model>`` class — the row this signal is about,
+    # reachable Enterprise-side as ``Task.history.model``. Written as
+    # ``type(instance)`` rather than the ``sender`` parameter so the class is
+    # visible at the call site: ``sender`` here is post_save's argument and
+    # reads as a pass-through of something the dispatcher chose (#3777).
     dispatch_extension_signal(
         history_record_created,
-        sender=sender,
+        sender=type(instance),
         instance=tracked,
         history_instance=instance,
         history_type=history_type,
