@@ -144,6 +144,7 @@ describe('MonteCarloHistogram', () => {
           tasksWithVariance: 0,
           tasksPendingApproval: 3,
           agileTasksWithoutVelocity: 0,
+          tasksEstimatesBelowPlan: 0,
         },
       };
       renderWithProviders(<MonteCarloHistogram result={pending} />);

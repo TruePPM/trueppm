@@ -629,6 +629,7 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
         tasks_with_variance: 0,
         tasks_pending_approval: 2,
         agile_tasks_without_velocity: 0,
+        tasks_estimates_below_plan: 0,
       },
     };
     await gotoScheduleWithMC(page, FLAT_PENDING);
@@ -788,6 +789,7 @@ test.describe('added time from Schedule (#2531)', () => {
         tasks_with_variance: 0,
         tasks_pending_approval: 0,
         agile_tasks_without_velocity: 0,
+        tasks_estimates_below_plan: 0,
       },
       risk_premium_state: 'unmeasurable',
       risk_premium_days: 0,
