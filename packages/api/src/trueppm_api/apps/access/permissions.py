@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar, cast
 
 from django.db.models import QuerySet
 from rest_framework import viewsets
@@ -485,6 +486,163 @@ def _project_exists(project_pk: Any) -> bool:
 DEFAULT_PROJECT_URL_KWARG = "project_pk"
 
 
+class ScopeResolution(StrEnum):
+    """Why a scope lookup did or did not produce an id (#3767).
+
+    A bare ``None`` from the resolvers below used to encode three different
+    situations, and every caller had to state one of them as fact — which is
+    precisely how fourteen permission classes ended up answering ``True`` to all
+    three. Widening the discriminator is what lets the ABSENT case fail closed
+    while the UNKNOWN_ID case keeps standing down.
+    """
+
+    #: A project/program id was found. Role resolution proceeds normally.
+    RESOLVED = "resolved"
+    #: The route names no project/program for this view — a genuinely top-level
+    #: route, or one whose scope arrives in the request body. This is the case
+    #: that used to fail open and now does not (see :func:`_unresolved_scope_allows`).
+    ABSENT = "absent"
+    #: The view DID name a kwarg and it DID carry a value, but no live project has
+    #: that id. Deliberately still permissive: the view's own ``get_object_or_404``
+    #: answers 404, and turning that into a 403 would rebuild the membership-scoped
+    #: existence oracle #3129 closed. See ``_project_exists``.
+    UNKNOWN_ID = "unknown_id"
+
+
+#: Attribute a view sets to declare that it resolves project/program scope in its
+#: own body, and is therefore allowed to reach that body on an unsafe method that
+#: the permission layer cannot scope (#3767). Either a string (the whole view) or a
+#: ``{action_or_method: reason}`` mapping when only some of a viewset's actions need
+#: it — ``TaskViewSet.create`` does, ``TaskViewSet.partial_update`` does not.
+#:
+#: It lives ON THE VIEW, not in a list, for the same reason ``archived_write_exempt``
+#: does: the reason travels with the code it excuses. The set of views carrying one is
+#: pinned by name in ``tests/apps/access/test_route_table_invariants.py`` so adding one
+#: is a reviewable diff rather than one more quiet attribute.
+SCOPE_IN_BODY_ATTR = "resolves_scope_in_body"
+
+
+_ViewTarget = TypeVar("_ViewTarget")
+
+
+def declare_scope_in_body(reason: str) -> Callable[[_ViewTarget], _ViewTarget]:
+    """Set :data:`SCOPE_IN_BODY_ATTR` on a view class or an ``@api_view`` function.
+
+    Classes can simply assign the attribute. ``@api_view`` functions cannot: the
+    decorator hands back ``WrappedAPIView.as_view()``, a plain function, and the
+    generated class is only reachable through its ``cls`` attribute. Applied ABOVE
+    ``@api_view`` so it sees that function::
+
+        @declare_scope_in_body("... why ...")
+        @api_view(["POST"])
+        @permission_classes([IsProjectScheduler])
+        def trigger_schedule(request, pk): ...
+    """
+
+    def decorate(view: Any) -> Any:
+        setattr(getattr(view, "cls", view), SCOPE_IN_BODY_ATTR, reason)
+        return view
+
+    return decorate
+
+
+def _scope_in_body_reason(view: APIView) -> str | None:
+    """The stated reason this (view, action) resolves scope in its own body, or None.
+
+    Only a real, non-empty string counts, in both the flat and the mapping form. A
+    ``MagicMock`` view synthesizes a truthy non-string for any attribute, and a view
+    that set the attribute to a bare ``True`` would be claiming an exemption nobody
+    wrote a sentence for — both must read as "no declaration" and therefore deny,
+    the same fail-closed reading ``_project_pk_from_view`` already applies to a
+    non-string ``project_url_kwarg``.
+    """
+    declared = getattr(view, SCOPE_IN_BODY_ATTR, None)
+    if isinstance(declared, str):
+        return declared.strip() or None
+    if isinstance(declared, dict):
+        # Viewsets key by action; APIViews have no action, so key by lowercased method.
+        key = getattr(view, "action", None)
+        if not isinstance(key, str):
+            key = (getattr(getattr(view, "request", None), "method", "") or "").lower()
+        value = declared.get(key)
+        if isinstance(value, str):
+            return value.strip() or None
+    return None
+
+
+def _object_permission_will_run(view: APIView) -> bool:
+    """Whether DRF will reach ``has_object_permission`` for this request.
+
+    True for a ViewSet detail route: ``get_object()`` calls
+    ``check_object_permissions`` and every declared class's object check runs on the
+    resolved row. That is the same reasoning the route-table invariant already
+    encodes as ``ENFORCED_BY_VIEWSET``, kept identical here on purpose so the test
+    and the running code cannot disagree about which routes are covered.
+
+    Be honest about its limit: a ``detail=True`` ``@action`` that never calls
+    ``get_object()`` is admitted by this and gated by nothing. That is unchanged
+    from today rather than introduced here — the fail-open this issue is about is
+    the ``detail=False`` half — but it is the residual hole, and it is why this
+    returns a narrow "a detail route exists" rather than claiming to prove a check
+    ran.
+    """
+    if not isinstance(view, viewsets.ViewSetMixin):
+        return False
+    lookup = getattr(view, "lookup_url_kwarg", None) or getattr(view, "lookup_field", "pk")
+    if not isinstance(lookup, str):
+        return False
+    return lookup in (getattr(view, "kwargs", None) or {})
+
+
+def _unresolved_scope_allows(request: Request, view: APIView, state: ScopeResolution) -> bool:
+    """Verdict for a request whose project/program scope did not resolve (#3767).
+
+    This is the single place the family's default lives. It used to be a bare
+    ``return True`` repeated in fourteen classes, which made the layer safe only as
+    a property of each call site: detail routes are covered by ``get_object()``,
+    list routes by ``ProjectScopedViewSet``'s membership-filtered queryset, and the
+    remaining ``detail=False`` writes by a hand-written in-body check. Nothing
+    stopped a *new* ``detail=False`` write action from silently joining that last
+    group without the check — the bug class ``TaskViewSet.delete_untouched_seeded``
+    documents in its own docstring.
+
+    Four outcomes, in order:
+
+    1. ``UNKNOWN_ID`` — allow. The view names the project, the id is simply not a
+       live one, and the view's own 404 is the right answer (#2745, #3129).
+    2. Safe methods — allow. Reads on an unscoped route are narrowed by the
+       viewset's membership-filtered queryset and by ``has_object_permission``;
+       denying them here would 403 every top-level list in the API.
+    3. A ViewSet detail route — allow. ``get_object()`` runs the object check.
+    4. Otherwise — **deny**, unless the view declares :data:`SCOPE_IN_BODY_ATTR`
+       with a reason. This is the flip: an unsafe write the layer cannot scope is
+       refused rather than waved through.
+    """
+    if state is ScopeResolution.UNKNOWN_ID:
+        return True
+    if request.method in SAFE_METHODS:
+        return True
+    if _object_permission_will_run(view):
+        return True
+    return _scope_in_body_reason(view) is not None
+
+
+def _resolve_project_scope(view: APIView) -> tuple[Any | None, ScopeResolution]:
+    """:func:`_project_pk_from_view`, with the reason the id is missing (#3767).
+
+    Same lookup, discriminated return. See :class:`ScopeResolution` for why the
+    three cases cannot share one ``None``.
+    """
+    declared = getattr(view, "project_url_kwarg", None)
+    kwarg = declared if isinstance(declared, str) else DEFAULT_PROJECT_URL_KWARG
+    project_pk = getattr(view, "kwargs", {}).get(kwarg)
+    if project_pk is None:
+        return None, ScopeResolution.ABSENT
+    if isinstance(declared, str) and not _project_exists(project_pk):
+        return None, ScopeResolution.UNKNOWN_ID
+    return project_pk, ScopeResolution.RESOLVED
+
+
 def _project_pk_from_view(view: APIView) -> Any | None:
     """Extract the project id from a view's URL kwargs.
 
@@ -508,33 +666,27 @@ def _project_pk_from_view(view: APIView) -> Any | None:
     ``ProjectViewSet`` retrieves rely on ``ProjectScopedViewSet`` to filter the
     queryset to member projects, and object-level checks run on detail routes).
 
-    That None case is still permissive by design, and it is the reason this
-    indirection has to stay declarative rather than clever: an unresolvable route is
-    indistinguishable from an intentionally top-level one at this layer. What stops a
-    route from silently rejoining the fail-open set is the route-table invariant in
-    ``tests/apps/access/test_route_table_invariants.py`` (#2772), which asserts every
-    project-identifying route enforces membership by *some* path and names the ones
-    that do it in the view body.
+    **That None is no longer read as "allow" (#3767).** It still cannot tell an
+    unresolvable route from an intentionally top-level one — that is a property of
+    the URL, not of this function — so the callers now ask
+    :func:`_resolve_project_scope` for the *reason* and hand it to
+    :func:`_unresolved_scope_allows`, which denies an unsafe method the layer cannot
+    scope unless the view declares :data:`SCOPE_IN_BODY_ATTR`. This wrapper is kept
+    for the callers that only need the id.
+
+    Only a real string counts as a declaration. ``getattr`` on an object that
+    synthesizes attributes (a bare ``MagicMock`` view in a permission test is the
+    live example) hands back a truthy non-string, and ``kwargs.get(<that>)`` then
+    misses every key and returns None — which every caller used to read as "not
+    project-scoped" and fail OPEN. That is #2745's own defect re-entering through
+    its fix, so an unusable declaration is treated as no declaration.
+
+    What stops a route from silently rejoining the fail-open set is the route-table
+    invariant in ``tests/apps/access/test_route_table_invariants.py`` (#2772, #3767),
+    which asserts every project-identifying route enforces membership by *some* path
+    and names the ones that do it in the view body.
     """
-    declared = getattr(view, "project_url_kwarg", None)
-    kwarg = declared if isinstance(declared, str) else DEFAULT_PROJECT_URL_KWARG
-    # Only a real string counts. `getattr` on an object that synthesizes attributes
-    # (a bare `MagicMock` view in a permission test is the live example) hands back a
-    # truthy non-string, and `kwargs.get(<that>)` then misses every key and returns
-    # None — which every caller reads as "not project-scoped" and fails OPEN. That is
-    # this issue's own defect re-entering through its fix, so an unusable declaration
-    # is treated as no declaration rather than trusted.
-    project_pk = getattr(view, "kwargs", {}).get(kwarg)
-    if project_pk is None:
-        return None
-    # Unknown id on a route that only started enforcing here → stand down and let
-    # the view 404 (see `_project_exists`). Scoped to views that DECLARE the kwarg:
-    # nested `project_pk` routes have always enforced at this layer and always
-    # answered 403 for an unknown id, and this fix must not quietly restate their
-    # contract too. Costs one indexed EXISTS on the ~30 declaring routes.
-    if isinstance(declared, str) and not _project_exists(project_pk):
-        return None
-    return project_pk
+    return _resolve_project_scope(view)[0]
 
 
 class IsProjectMember(BasePermission):
@@ -551,10 +703,10 @@ class IsProjectMember(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):
             return False
-        project_pk = _project_pk_from_view(view)
+        project_pk, scope = _resolve_project_scope(view)
         if project_pk is not None:
             return _membership_role(request, project_pk) is not None
-        return True
+        return _unresolved_scope_allows(request, view, scope)
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         project_id = _get_project_id_from_obj(obj)
@@ -575,7 +727,7 @@ class IsProjectMemberWrite(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):
             return False
-        project_pk = _project_pk_from_view(view)
+        project_pk, scope = _resolve_project_scope(view)
         if project_pk is not None:
             role = _membership_role(request, project_pk)
             if role is None:
@@ -583,7 +735,7 @@ class IsProjectMemberWrite(BasePermission):
             if request.method in ("GET", "HEAD", "OPTIONS"):
                 return True
             return role >= Role.MEMBER
-        return True
+        return _unresolved_scope_allows(request, view, scope)
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         project_id = _get_project_id_from_obj(obj)
@@ -626,9 +778,9 @@ class IsProjectPlanAuthor(BasePermission):
             return False
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return True
-        project_pk = _project_pk_from_view(view)
+        project_pk, scope = _resolve_project_scope(view)
         if project_pk is None:
-            return True
+            return _unresolved_scope_allows(request, view, scope)
         return _can_author_plan_for_project_id(request, project_pk)
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
@@ -730,11 +882,11 @@ class IsProjectScheduler(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):
             return False
-        project_pk = _project_pk_from_view(view)
+        project_pk, scope = _resolve_project_scope(view)
         if project_pk is not None:
             role = _membership_role(request, project_pk)
             return role is not None and role >= Role.SCHEDULER
-        return True
+        return _unresolved_scope_allows(request, view, scope)
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         project_id = _get_project_id_from_obj(obj)
@@ -752,11 +904,11 @@ class IsProjectAdmin(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):
             return False
-        project_pk = _project_pk_from_view(view)
+        project_pk, scope = _resolve_project_scope(view)
         if project_pk is not None:
             role = _membership_role(request, project_pk)
             return role is not None and role >= Role.ADMIN
-        return True
+        return _unresolved_scope_allows(request, view, scope)
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         project_id = _get_project_id_from_obj(obj)
@@ -817,12 +969,12 @@ class IsProjectBacklogManager(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):
             return False
-        project_pk = _project_pk_from_view(view)
+        project_pk, scope = _resolve_project_scope(view)
         if project_pk is not None:
             return can_manage_backlog_with_facet(
                 request.user, project_pk, _membership_role(request, project_pk)
             )
-        return True
+        return _unresolved_scope_allows(request, view, scope)
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         project_id = _get_project_id_from_obj(obj)
@@ -875,12 +1027,12 @@ class IsProjectScopeManager(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):
             return False
-        project_pk = _project_pk_from_view(view)
+        project_pk, scope = _resolve_project_scope(view)
         if project_pk is not None:
             return can_manage_scope_with_facet(
                 request.user, project_pk, _membership_role(request, project_pk)
             )
-        return True
+        return _unresolved_scope_allows(request, view, scope)
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         project_id = _get_project_id_from_obj(obj)
@@ -935,11 +1087,11 @@ class IsProjectOwner(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):
             return False
-        project_pk = _project_pk_from_view(view)
+        project_pk, scope = _resolve_project_scope(view)
         if project_pk is not None:
             role = _membership_role(request, project_pk)
             return role == Role.OWNER
-        return True
+        return _unresolved_scope_allows(request, view, scope)
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         project_id = _get_project_id_from_obj(obj)
@@ -959,9 +1111,26 @@ def _program_pk_from_view(view: APIView) -> Any | None:
 
     Program-nested routes use ``program_pk`` (e.g. /programs/<program_pk>/members/).
     Top-level program routes use ``pk``; that case is handled by individual
-    permission classes that fall through to per-object checks.
+    permission classes that fall through to per-object checks — see
+    :func:`_unresolved_scope_allows` for what "fall through" now means on a write.
     """
-    return getattr(view, "kwargs", {}).get("program_pk")
+    return _resolve_program_scope(view)[0]
+
+
+def _resolve_program_scope(view: APIView) -> tuple[Any | None, ScopeResolution]:
+    """:func:`_program_pk_from_view`, with the reason the id is missing (#3767).
+
+    There is no ``UNKNOWN_ID`` arm here, and that asymmetry with
+    :func:`_resolve_project_scope` is deliberate rather than an omission. The
+    project resolver stands down on an unknown id because #2745 gave ``<pk>``-routed
+    project views a ``project_url_kwarg`` declaration and had to keep their existing
+    404 (#3129); no program route declares an alias, so a program id either arrives
+    as ``program_pk`` and is checked, or the route names no program at all.
+    """
+    program_pk = getattr(view, "kwargs", {}).get("program_pk")
+    if program_pk is None:
+        return None, ScopeResolution.ABSENT
+    return program_pk, ScopeResolution.RESOLVED
 
 
 def _program_membership_role(request: Request, program_id: Any) -> int | None:
@@ -1054,10 +1223,10 @@ class IsProgramMember(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):
             return False
-        program_pk = _program_pk_from_view(view)
+        program_pk, scope = _resolve_program_scope(view)
         if program_pk is not None:
             return _program_membership_role(request, program_pk) is not None
-        return True
+        return _unresolved_scope_allows(request, view, scope)
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         program_id = _get_program_id_from_obj(obj)
@@ -1084,13 +1253,13 @@ class IsProgramScheduler(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):
             return False
-        program_pk = _program_pk_from_view(view)
+        program_pk, scope = _resolve_program_scope(view)
         if program_pk is not None:
             role = _program_membership_role(request, program_pk)
             return role is not None and role >= Role.SCHEDULER
         # Top-level routes (e.g. /programs/{pk}/…) carry no program_pk kwarg;
         # defer to the per-object check, which get_object() triggers.
-        return True
+        return _unresolved_scope_allows(request, view, scope)
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         program_id = _get_program_id_from_obj(obj)
@@ -1115,7 +1284,7 @@ class IsProgramEditor(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):
             return False
-        program_pk = _program_pk_from_view(view)
+        program_pk, scope = _resolve_program_scope(view)
         if program_pk is not None:
             role = _program_membership_role(request, program_pk)
             if role is None:
@@ -1123,7 +1292,7 @@ class IsProgramEditor(BasePermission):
             if request.method in ("GET", "HEAD", "OPTIONS"):
                 return True
             return role >= Role.MEMBER
-        return True
+        return _unresolved_scope_allows(request, view, scope)
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         program_id = _get_program_id_from_obj(obj)
@@ -1154,11 +1323,11 @@ class IsProgramAdmin(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):
             return False
-        program_pk = _program_pk_from_view(view)
+        program_pk, scope = _resolve_program_scope(view)
         if program_pk is not None:
             role = _program_membership_role(request, program_pk)
             return role is not None and role >= Role.ADMIN
-        return True
+        return _unresolved_scope_allows(request, view, scope)
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         program_id = _get_program_id_from_obj(obj)
@@ -1180,11 +1349,11 @@ class IsProgramOwner(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not (request.user and request.user.is_authenticated):
             return False
-        program_pk = _program_pk_from_view(view)
+        program_pk, scope = _resolve_program_scope(view)
         if program_pk is not None:
             role = _program_membership_role(request, program_pk)
             return role == Role.OWNER
-        return True
+        return _unresolved_scope_allows(request, view, scope)
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         program_id = _get_program_id_from_obj(obj)
@@ -1611,11 +1780,11 @@ class CanAssignResource(BasePermission):
         # carry the project in the request body, which is not resolvable here —
         # ProjectResourceViewSet.perform_create enforces the same floor on that
         # path, and has_object_permission below covers detail mutations.
-        project_pk = _project_pk_from_view(view)
+        project_pk, scope = _resolve_project_scope(view)
         if project_pk is not None and request.method not in ("GET", "HEAD", "OPTIONS"):
             role = _membership_role(request, project_pk)
             return role is not None and role >= Role.SCHEDULER
-        return True
+        return _unresolved_scope_allows(request, view, scope)
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         project_id = _get_project_id_from_obj(obj)
