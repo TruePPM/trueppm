@@ -3210,3 +3210,124 @@ describe('useProjectWebSocket — Overview rollup invalidation (#2912)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['monte-carlo-latest', 'proj-1'] });
   });
 });
+
+// #3771/#3772/#3774 — three backend-correct, frontend-absent WS events: the
+// signal-privacy ceiling-voting family, the velocity-suggestion settlement
+// pair, and the task-relation lifecycle. All three previously had zero
+// registration in useProjectWebSocket.ts, so a peer's vote/accept/edit never
+// reached an open panel until a manual reload.
+describe('useProjectWebSocket — signal-privacy, velocity-suggestion, task-relation handlers (#3771/#3772/#3774)', () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances = [];
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    act(() => {
+      useAuthStore.setState({
+        accessToken: 'tok-abc',
+        isAuthenticated: true,
+      });
+    });
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.WebSocket = originalWebSocket;
+    act(() => {
+      useAuthStore.setState({
+        accessToken: null,
+        isAuthenticated: false,
+      });
+    });
+  });
+
+  function dispatch(eventType: string, payload: Record<string, unknown>) {
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({ event_type: eventType, payload }),
+      });
+    });
+  }
+
+  function findPredicateCall(invalidateSpy: ReturnType<typeof vi.spyOn>) {
+    const call = invalidateSpy.mock.calls.find(
+      (c: unknown[]) => typeof (c[0] as { predicate?: unknown } | undefined)?.predicate === 'function',
+    );
+    expect(call).toBeDefined();
+    return (
+      call![0] as unknown as { predicate: (q: { queryKey: readonly unknown[] }) => boolean }
+    ).predicate;
+  }
+
+  // --- #3771: signal-privacy ceiling voting ---
+  it.each(['signal_privacy_changed', 'signal_ceiling_proposal_changed'])(
+    'invalidates signal-privacy and ceiling-proposals on %s',
+    (eventType) => {
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatch(eventType, { id: 'proj-1', signal_key: 'velocity', status: 'ratified' });
+
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['signal-privacy', 'proj-1'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['ceiling-proposals', 'proj-1'] });
+    },
+  );
+
+  it('invalidates ceiling-proposals and signal-privacy on signal_ceiling_vote_cast', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('signal_ceiling_vote_cast', { id: 'proposal-1', signal_key: 'velocity' });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['ceiling-proposals', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['signal-privacy', 'proj-1'] });
+  });
+
+  // --- #3772: velocity-suggestion settlement ---
+  it.each(['velocity_suggestion_accepted', 'velocity_suggestion_dismissed'])(
+    'invalidates every velocity-suggestions query and the sprint backlog on %s',
+    (eventType) => {
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      // The broadcast payload is {id: suggestion_id} only — no task_id — so the
+      // handler cannot target one ['velocity-suggestions', taskId] key and must
+      // sweep every velocity-suggestions query (task-scoped banners AND the
+      // project-wide pending list) via predicate.
+      dispatch(eventType, { id: 'sugg-1' });
+
+      const predicate = findPredicateCall(invalidateSpy);
+      expect(predicate({ queryKey: ['velocity-suggestions', 'task-9'] })).toBe(true);
+      expect(predicate({ queryKey: ['velocity-suggestions', 'pending'] })).toBe(true);
+      expect(predicate({ queryKey: ['tasks', 'proj-1'] })).toBe(false);
+
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['sprint-backlog', 'proj-1'] });
+    },
+  );
+
+  // --- #3774: task-relation lifecycle (task_relation_created also closes the
+  // task_relation_* portion of #2847, which stays open for its other event
+  // types: label_*, sprint_reranked, project_restored) ---
+  it.each(['task_relation_created', 'task_relation_updated', 'task_relation_deleted'])(
+    'invalidates every mounted task-relations query on %s',
+    (eventType) => {
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      // The broadcast payload is {id: relation_id} only — neither the source nor
+      // target task id — so the handler cannot target one ['task-relations',
+      // taskId] key and must sweep every mounted relations query via predicate.
+      dispatch(eventType, { id: 'rel-1' });
+
+      const predicate = findPredicateCall(invalidateSpy);
+      expect(predicate({ queryKey: ['task-relations', 'task-9'] })).toBe(true);
+      expect(predicate({ queryKey: ['task-links', 'task-9'] })).toBe(false);
+    },
+  );
+});
