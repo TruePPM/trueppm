@@ -202,6 +202,27 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 
+  it('invalidates dependencies and tasks on dependencies_bulk_created (#3770)', () => {
+    // The aggregated form POST /tasks/bulk/ emits for a batch of applied edges —
+    // one event per request instead of one dependency_created per edge. Same
+    // invalidation as its singular sibling above.
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({
+          event_type: 'dependencies_bulk_created',
+          payload: { dependency_ids: ['dep-1', 'dep-2', 'dep-3'] },
+        }),
+      });
+    });
+    flushDebounce();
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['dependencies', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
   // #37 (CodeQL js/unvalidated-dynamic-method-call): event_type is read straight
   // off the wire frame and used to index the handler table. A frame whose
   // event_type collides with an Object.prototype key must never resolve to a
@@ -3088,6 +3109,7 @@ describe('useProjectWebSocket — Overview rollup invalidation (#2912)', () => {
     'tasks_restructured',
     'dependency_created',
     'dependency_deleted',
+    'dependencies_bulk_created',
   ])('refreshes the Overview rollups on %s', (eventType) => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });

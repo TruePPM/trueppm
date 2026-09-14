@@ -9522,12 +9522,20 @@ def _register_bulk_commit_hooks(
             lambda rid=recalc_id: _enqueue_recalculate(rid)  # type: ignore[misc]
         )
     transaction.on_commit(_broadcast_bulk_mutated)
-    for dep in out.dep_applied:
-        transaction.on_commit(
-            lambda d=dep: broadcast_board_event(  # type: ignore[misc]
-                project_id, "dependency_created", {"id": d["id"]}
-            )
-        )
+
+    # #3770: one aggregated event carrying every applied edge's id, mirroring
+    # `tasks_bulk_mutated` above — not one `dependency_created` broadcast per edge.
+    # `TASK_BULK_MAX_DEPENDENCIES` (task_bulk.py) is 500 batch-wide, so the
+    # per-edge loop this replaced could queue up to 500 post-commit callbacks,
+    # each its own `BoardEvent` INSERT plus its own serial channel-layer
+    # `group_send` — the same fanout class #809 fixed on the sync-upload path.
+    dep_ids = [dep["id"] for dep in out.dep_applied]
+    if dep_ids:
+
+        def _broadcast_dependencies_bulk_created(ids: list[str] = dep_ids) -> None:
+            broadcast_board_event(project_id, "dependencies_bulk_created", {"dependency_ids": ids})
+
+        transaction.on_commit(_broadcast_dependencies_bulk_created)
     # #867: a row pulled the project start earlier — collaborators must
     # re-fetch the boundary, which tasks_bulk_mutated does not carry.
     if out.project_start_shifted:
