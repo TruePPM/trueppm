@@ -22,6 +22,96 @@ Use summary tasks to group related work into phases, deliverables, or work packa
 
 Summary tasks cannot hold resource assignments, time entries, or direct dependencies. Add those on leaf tasks; the rollup will update on the next scheduler run.
 
+The write restriction above is strictest for a **phase** — a summary with a real task nested under it, as opposed to one whose only children are checklist [subtasks](/features/subtasks/). See [Phases](#phases) below for exactly what's locked, why, and how the two cases differ.
+
+## Phases
+
+:::note[Ships in 0.4]
+Everything in this section ships in TruePPM 0.4. Before 0.4, the API accepts a
+`status`, a three-point estimate, an `assignee`, or a logged time entry written
+directly onto a phase row — none of it is refused up front, so the value is
+silently overwritten (or double-counted) the next time the rollup recomputes.
+The `+ Phase` toolbar button, its keyboard shortcut, and the phase-in-sprint
+hard block described below also land in 0.4.
+:::
+
+A **phase** is a summary task with at least one *structural* child — another
+task, not a checklist subtask — nested under it in the WBS. It is not a field
+you set: TruePPM never stores "this row is a phase" anywhere ([ADR-0293](/architecture/decisions/)).
+The server derives it on every read, the same way it derives whether a row is
+a summary at all, from whether the row has a real task beneath it in the tree.
+Give a row a structural child — by indenting a task under it (`Alt` + `→`),
+reparenting one onto it, or using **`+ Phase`** below — and it becomes a
+phase; remove its last structural child and it stops being one.
+
+This is the distinction that matters: a task broken into
+[subtasks](/features/subtasks/) in its detail drawer is a summary (it has
+children) but **not** a phase, because subtasks are checklist items, not
+structural WBS children. It keeps its own assignee, status, and logged time
+exactly as a leaf task does. Only a row with a real task nested under it in
+the outline becomes a phase and picks up the locks below.
+
+### What a phase cannot carry
+
+A phase is a pure rollup — its status, estimate, and assignee are all computed
+from its children — so the API refuses a direct write to any of them, and
+refuses to let a checklist subtask be added straight into one:
+
+| Write | Refusal message |
+|---|---|
+| `status` | "Phase status is rolled up from its children and cannot be set directly." |
+| the [three-point estimate](/features/monte-carlo/#step-1--add-three-point-estimates-to-tasks) (`optimistic_duration` / `most_likely_duration` / `pessimistic_duration`) | "Phase estimates are rolled up from its children and cannot be set directly." |
+| `assignee` | "A phase cannot be assigned — it is a rollup of its children, which carry their own assignees." |
+| a logged time entry — manual, PATCH, or the running timer | "Time cannot be logged against a phase — it rolls up the logged time of its child tasks. Log against a leaf task instead." |
+| adding a drawer subtask under a phase | "Phases group work — add tasks inside the phase, not subtasks." |
+| `percent_complete` | the pre-existing summary-task lock above, unchanged |
+
+Each lock fires only when a write actually tries to *change* the locked
+value — a PATCH that omits the field, or resends the value already stored,
+still succeeds. Set the assignee and log time on the leaf tasks inside the
+phase instead; the phase rolls both up automatically. This is enforced in the
+API itself, so an MCP client or any other direct caller is refused identically
+to the UI.
+
+Each refusal above also carries a stable internal code
+(`phase_status_rollup_locked`, `phase_estimate_rollup_locked`,
+`assignee_on_phase`, `time_log_on_phase`, `subtask_on_phase`) — but **don't
+branch a client on it**. Per the [error reference](/api/errors/#codes-that-exist-in-code-but-not-on-the-wire),
+this whole family never reaches the response body as a `code` key; only the
+field-keyed message above does. Match on the field name, not the code.
+
+### Adding a phase
+
+The **`+ Phase`** button next to `+ Item` and `+ Milestone` inserts a new
+summary row at the insertion point and creates its first task inside it in
+the same action, so a phase is never left empty. With a task row focused
+instead, the same button turns *that* row into a phase by adding a new first
+task inside it — its label states which of the two it is about to do. The
+keyboard shortcut is `⌥⌘P` (`Ctrl+Alt+P` on Windows and Linux) and works
+either way, regardless of whether the button is showing.
+
+`+ Phase` is off by default in the toolbar — turn it on from **Display →
+Outline → Structure buttons** if you'd rather click than use the shortcut.
+Indenting a task under another task (`Alt` + `→`) makes the same structural
+change and needs no toggle.
+
+A newly-inserted phase with no task inside it yet shows a small dashed hint
+beside its name ("This phase has no items yet"); the hint disappears the
+moment the row gains a real child, because at that point it already is one.
+
+### Phases and sprints
+
+Assigning a phase to a sprint is refused outright on the `sprint` field —
+*"Phases group work; assign the tasks inside it to the sprint instead"* —
+because a phase has no status or estimate of its own to burn down. (The
+refusal carries the internal code `phase_in_sprint_forbidden`, which, like the
+rollup-lock codes above, never reaches the response body — match on the field
+name, not the code.) Unlike TruePPM's other sprint-composition guardrails,
+this one is not escalatable or relaxable by a project's guardrail policy; it
+applies unconditionally. Assign the phase's individual tasks to the sprint
+instead. See [Sprint windows on the schedule](/features/schedule/sprint-windows/)
+for how a sprint-driven phase reads on the Schedule.
+
 ## Gantt visual
 
 Summary bars render as an 8px-tall filled bar with filled-diamond end-caps at the start and finish dates — the same diamond geometry used for milestones, rotated 45°. The end-caps disambiguate a summary from a regular task bar at a glance.

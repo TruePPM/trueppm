@@ -45,7 +45,7 @@ A band covers a **contiguous run of rows** that all resolve to the same sprint. 
 
 Rows resolve exactly the way the [delivery-mode chip](/features/task-classification/) does, so the band and the chip can never disagree about what a subtree is:
 
-- A **phase reads from its descendants**, not from its own sprint field. A phase whose branches sit in different sprints gets no band of its own; its children get theirs.
+- A **phase reads from its descendants**, not from its own sprint field. A phase whose branches sit in different sprints gets no band of its own; its children get theirs. A phase can never carry a sprint window of its own for a stronger reason than that, too: starting in 0.4, assigning a phase to a sprint will be refused outright, not just discouraged — see [Phases and sprints](/features/summary-tasks/#phases-and-sprints).
 - **Milestones contribute nothing.** A gate inside a sprint-driven phase is a gate, not evidence the phase spans two sprints — so a gate never splits a band.
 - A row carrying no sprint of its own — that gate, or a task nobody has pulled in yet — **inherits the band around it**, so a sprint-driven phase reads as one region instead of one with holes in it.
 
