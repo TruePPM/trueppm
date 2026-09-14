@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { useState } from 'react';
@@ -645,6 +645,26 @@ describe('TaskDetailDrawer save bar branches', () => {
       expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument(),
     );
     expect(desktop().getByText(/to close/i)).toBeInTheDocument();
+  });
+
+  it('keeps a name edit typed while the save is in flight dirty when the save lands (#3658)', async () => {
+    const user = userEvent.setup({ delay: null });
+    let landSave: (() => void) | undefined;
+    mutate.mockImplementation((_payload, opts) => {
+      landSave = opts?.onSuccess;
+    });
+    const task = makeTask();
+    TASKS = [task];
+    renderDrawer(task);
+
+    await user.type(desktop().getByLabelText('Task name'), ' done');
+    await user.click(desktop().getByRole('button', { name: 'Save' }));
+    // Typed after Save, before the PATCH resolved.
+    await user.type(desktop().getByLabelText('Task name'), '!');
+    act(() => landSave?.());
+
+    expect(desktop().getByRole('button', { name: 'Save' })).toBeInTheDocument();
+    expect(screen.getAllByText('Unsaved changes: Name')[0]).toBeInTheDocument();
   });
 
   it("surfaces the SERVER's refusal in the save bar, with no retry advice on a 400 (#3332)", async () => {

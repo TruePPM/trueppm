@@ -120,7 +120,7 @@ export function DetailView({
   // that compared against the live `item` prop every render (and so never
   // noticed a dirty draft belonged to a *different* item once #2668 wired up
   // the missing `key` on this component).
-  const { draft, setField, dirty, reset, commit } = useDirtyDraft<DetailDraft>(toDraft(item));
+  const { draft, setField, dirty, reset, markSaved } = useDirtyDraft<DetailDraft>(toDraft(item));
   const pointsLabel = pointsFieldLabel(methodology);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<WriteRefusal | null>(null);
@@ -136,17 +136,22 @@ export function DetailView({
   });
 
   async function save() {
+    // The description field stays editable while the PATCH is in flight, so
+    // re-baseline to what was SENT, not to whatever the field holds when the
+    // response lands — otherwise a keystroke typed mid-save reads as saved and
+    // the next close discards it without the guard (#3658).
+    const sent = draft;
     setSaving(true);
     setSaveError(null);
     try {
       await onSave({
-        description: draft.description.trim() || undefined,
-        itemType: draft.itemType,
-        status: draft.status,
-        tags: draft.tags,
-        storyPoints: draft.storyPoints,
+        description: sent.description.trim() || undefined,
+        itemType: sent.itemType,
+        status: sent.status,
+        tags: sent.tags,
+        storyPoints: sent.storyPoints,
       });
-      commit();
+      markSaved(sent);
     } catch (err) {
       // `err`, not a hardcoded sentence: the program backlog refuses a status
       // transition, an unknown tag and a read-only role in three different ways,

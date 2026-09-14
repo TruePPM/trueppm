@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Task } from '@/types';
 import { EpicDetailDrawer } from './EpicDetailDrawer';
@@ -138,6 +138,25 @@ describe('EpicDetailDrawer (#1346)', () => {
 
     // onSuccess snapshotted the draft → no longer dirty → no Save bar.
     expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+  });
+
+  it('an edit typed while the save is in flight stays dirty when the save lands (#3658)', async () => {
+    const user = userEvent.setup();
+    let landSave: (() => void) | undefined;
+    h.mutate.mockImplementation((_vars, opts) => {
+      landSave = opts?.onSuccess;
+    });
+    renderDrawer(makeEpic());
+
+    setValue(screen.getByLabelText('Epic name'), 'Renamed');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    // Typed after Save, before the PATCH resolved.
+    setValue(screen.getByLabelText('Epic name'), 'Renamed again');
+    act(() => landSave?.());
+
+    // The unsent edit keeps the bar up, and the next Save sends only it.
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(h.mutate.mock.calls[1][0]).toEqual({ epicId: 'EP1', patch: { name: 'Renamed again' } });
   });
 
   it('Cancel reverts the edits and hides the Save bar without mutating', async () => {

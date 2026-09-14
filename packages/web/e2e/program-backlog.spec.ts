@@ -98,11 +98,7 @@ interface SetupOptions {
   projects?: Record<string, unknown>[];
 }
 
-async function setup(
-  page: Page,
-  items: unknown[] = BACKLOG_ITEMS,
-  options: SetupOptions = {},
-) {
+async function setup(page: Page, items: unknown[] = BACKLOG_ITEMS, options: SetupOptions = {}) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -254,7 +250,10 @@ test.describe('Program backlog', () => {
     // Finding 1 — one commit affordance, not two.
     await expect(page.getByRole('button', { name: 'Save changes' })).toHaveCount(1);
     await page.getByRole('button', { name: 'Save changes' }).click();
-    await expect(page.getByRole('button', { name: 'Save changes' })).toHaveCount(0);
+    // Wait for the save to FINISH, not merely start: while the PATCH is in
+    // flight the same button reads "Saving…", so asserting only that "Save
+    // changes" is gone passes before the round-trip lands (#3658).
+    await expect(page.getByRole('button', { name: /^(Save changes|Saving…)$/ })).toHaveCount(0);
 
     // Finding 5 — a second, unsaved edit is guarded on close instead of
     // discarded silently.
@@ -270,6 +269,43 @@ test.describe('Program backlog', () => {
     await page.getByRole('button', { name: 'Discard changes' }).click();
     await expect(page.getByRole('alertdialog')).not.toBeVisible();
     await expect(page.getByRole('heading', { name: 'Telemetry channel B' })).not.toBeVisible();
+  });
+
+  // #3658: the interleaving the test above used to hit only under worker
+  // contention, pinned deterministically — an edit typed while the save is in
+  // flight never reached the server, so it must not be marked saved.
+  test('edit drawer: an edit typed while the save is in flight is still guarded on close', async ({
+    page,
+  }) => {
+    await setup(page);
+
+    // Hold the PATCH open until the second edit has landed, then hand it to
+    // the stateful handler `setup` registered.
+    let releasePatch: () => void = () => {};
+    const patchGate = new Promise<void>((resolve) => {
+      releasePatch = resolve;
+    });
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/backlog-items/*/`, async (r) => {
+      if (r.request().method() === 'PATCH') await patchGate;
+      await r.fallback();
+    });
+
+    await page.getByRole('button', { name: 'Telemetry channel B', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Telemetry channel B' })).toBeVisible();
+
+    const description = page.getByPlaceholder('No description yet. Click to add one.');
+    await description.fill('Investigate channel B dropout.');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    await expect(page.getByRole('button', { name: 'Saving…' })).toBeVisible();
+
+    await description.fill('Typed while the save was in flight.');
+    releasePatch();
+    await expect(page.getByRole('button', { name: 'Saving…' })).toHaveCount(0);
+
+    await expect(page.getByRole('button', { name: 'Save changes' })).toBeVisible();
+    await page.getByRole('button', { name: 'Close details' }).click();
+    await expect(page.getByRole('alertdialog', { name: 'Discard unsaved changes?' })).toBeVisible();
+    await expect(description).toHaveValue('Typed while the save was in flight.');
   });
 
   // #2668 finding 4 — an item with no assigned rank renders a dash, not a
@@ -386,9 +422,7 @@ test.describe('Program backlog', () => {
  * pass them while the page still said "Story points".
  */
 test.describe('Program backlog — methodology vocabulary (#3644)', () => {
-  test('a WATERFALL program authors in Estimate/Task, not Story points/Story', async ({
-    page,
-  }) => {
+  test('a WATERFALL program authors in Estimate/Task, not Story points/Story', async ({ page }) => {
     await setup(page, [], {
       program: { methodology: 'WATERFALL', effective_methodology: 'WATERFALL' },
     });

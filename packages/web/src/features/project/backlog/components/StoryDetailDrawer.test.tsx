@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/utils';
 import type { Task } from '@/types';
@@ -129,6 +129,29 @@ describe('StoryDetailDrawer (#1043)', () => {
     expect(patchMutate).toHaveBeenCalledTimes(1);
     const arg = patchMutate.mock.calls[0][0] as { patch: Record<string, unknown> };
     expect(arg.patch).toMatchObject({ name: 'Add SSO login!' });
+  });
+
+  it('an edit typed while the save is in flight stays dirty when the save lands (#3658)', async () => {
+    const user = userEvent.setup();
+    let landSave: (() => void) | undefined;
+    patchMutate.mockImplementation((_vars: unknown, opts?: { onSuccess?: () => void }) => {
+      landSave = opts?.onSuccess;
+    });
+    renderDrawer(makeStory());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Close story detail' })).toHaveFocus(),
+    );
+
+    await user.type(screen.getByLabelText('Story title'), '!');
+    await user.click(await screen.findByRole('button', { name: 'Save' }));
+    // Typed after Save, before the PATCH resolved.
+    await user.type(screen.getByLabelText('Story title'), '?');
+    act(() => landSave?.());
+
+    // The unsent edit keeps the bar up, and the next Save sends only it.
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    const second = patchMutate.mock.calls[1][0] as { patch: Record<string, unknown> };
+    expect(second.patch).toEqual({ name: 'Add SSO login!?' });
   });
 
   it('recalculates the WSJF score preview live as an input changes', async () => {

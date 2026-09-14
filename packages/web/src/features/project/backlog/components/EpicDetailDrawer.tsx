@@ -76,7 +76,7 @@ export function EpicDetailDrawer({ projectId, epic, onClose }: EpicDetailDrawerP
     baseline,
     dirty,
     reset,
-    commit,
+    markSaved,
   } = useDirtyDraft<Draft>(toDraft(epic));
 
   // Retire the refusal on the edit that could have fixed it (web-rule 376).
@@ -119,7 +119,9 @@ export function EpicDetailDrawer({ projectId, epic, onClose }: EpicDetailDrawerP
     if (nameBlank) return;
     const patch = changedFields(draft, baseline);
     if (Object.keys(patch).length === 0) return;
-    patchEpic.mutate({ epicId: epic.id, patch }, { onSuccess: () => commit() });
+    // Re-baseline to this render's `draft` — the snapshot just sent — so an edit
+    // typed while the PATCH is in flight stays dirty instead of reading as saved.
+    patchEpic.mutate({ epicId: epic.id, patch }, { onSuccess: () => markSaved(draft) });
   }
 
   return (
