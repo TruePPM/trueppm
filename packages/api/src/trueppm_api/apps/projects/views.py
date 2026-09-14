@@ -6880,6 +6880,27 @@ class TaskViewSet(
     # suggestion_pk). NOT an @action: a detail=True @action would also register a
     # parameterless tasks/{pk}/suggestions/accept/ route that 404s at runtime
     # (suggestion_pk always None) and pollutes the OpenAPI schema (#846).
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="TaskSuggestionAcceptResponse",
+                fields={
+                    "id": serializers.UUIDField(),
+                    "state": serializers.CharField(),
+                    "accepted_at": serializers.DateTimeField(),
+                },
+            ),
+            409: OpenApiResponse(
+                description=(
+                    "Either the suggestion is no longer PENDING (already accepted, "
+                    "declined, or revoked — body: ``{detail}``), or the task's "
+                    "assignee was set concurrently by another path: the suggestion is "
+                    "still marked ACCEPTED without overwriting, and the body carries "
+                    "``task_id`` and ``current_assignee_id``."
+                )
+            ),
+        },
+    )
     def accept_suggestion(
         self,
         request: Request,
@@ -6994,6 +7015,24 @@ class TaskViewSet(
 
     # Routed explicitly in urls.py (see accept_suggestion) — not an @action so
     # no parameterless ghost route is generated (#846).
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="TaskSuggestionDeclineResponse",
+                fields={
+                    "id": serializers.UUIDField(),
+                    "state": serializers.CharField(),
+                    "declined_at": serializers.DateTimeField(),
+                },
+            ),
+            409: OpenApiResponse(
+                description=(
+                    "The suggestion is no longer PENDING (already accepted, declined, "
+                    "or revoked). Body: ``{detail}``."
+                )
+            ),
+        },
+    )
     def decline_suggestion(
         self,
         request: Request,
@@ -7077,6 +7116,23 @@ class TaskViewSet(
 
     # Routed explicitly in urls.py (see accept_suggestion) — not an @action so
     # no parameterless ghost route is generated (#846).
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                name="TaskSuggestionRevokeResponse",
+                fields={
+                    "id": serializers.UUIDField(),
+                    "state": serializers.CharField(),
+                },
+            ),
+            409: OpenApiResponse(
+                description=(
+                    "The suggestion is no longer PENDING (already accepted, declined, "
+                    "or revoked). Body: ``{detail}``."
+                )
+            ),
+        },
+    )
     def revoke_suggestion(
         self,
         request: Request,
@@ -13876,7 +13932,16 @@ class TaskBaselineDetailView(APIView):
                 )
             },
         ),
-        responses={200: PhaseReorderResponseSerializer},
+        responses={
+            200: PhaseReorderResponseSerializer,
+            409: OpenApiResponse(
+                description=(
+                    "``server_version`` is stale for one or more phases — another "
+                    "participant modified a phase concurrently. Body: "
+                    '``{detail: "Conflict: stale server_version for tasks: <ids>"}``.'
+                )
+            ),
+        },
     )
 )
 class PhaseReorderView(IdempotencyMixin, APIView):

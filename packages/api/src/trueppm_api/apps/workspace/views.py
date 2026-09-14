@@ -1363,6 +1363,13 @@ class WorkspaceExportDownloadView(APIView):
 
     permission_classes = [IsAuthenticated, IsWorkspaceOwner]
 
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(description="The archive bytes (``application/gzip``)."),
+            409: OpenApiResponse(description="Export is not ready yet (still queued/running)."),
+            410: OpenApiResponse(description="This export has expired. Request a new one."),
+        },
+    )
     def get(self, request: Request, job_id: str) -> Any:
         from django.core.files.storage import default_storage
 

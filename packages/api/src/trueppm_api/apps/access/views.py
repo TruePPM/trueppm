@@ -10,7 +10,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Count, IntegerField, OuterRef, Q, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema, inline_serializer
+from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -388,6 +388,14 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
                 "``user`` names an account the caller cannot reach (#3641). The "
                 "unreachable-target message is identical to the one a nonexistent id "
                 "gets, so the field is not an existence oracle."
+            ),
+            409: OpenApiResponse(
+                description=(
+                    "``user`` already holds a live membership on this project — "
+                    "re-adding a revoked member instead revives their existing row "
+                    "(see the handler), so this is only reached when the named "
+                    "account is already an active member."
+                )
             ),
         }
     )
@@ -1584,6 +1592,12 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
                 "Refused on the request: the role is at or above the caller's own, or "
                 "``user`` names an account the caller cannot reach (#3641) — see the "
                 "project twin."
+            ),
+            409: OpenApiResponse(
+                description=(
+                    "``user`` already holds a live membership on this program — see "
+                    "the project twin."
+                )
             ),
         }
     )

@@ -8547,6 +8547,9 @@
                         },
                         "description": ""
                     },
+                    "409": {
+                        "description": "This round is already closed. Body: ``{detail, code: \"not_live\"}``."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -8624,6 +8627,9 @@
                             }
                         },
                         "description": ""
+                    },
+                    "409": {
+                        "description": "This round is already closed. Body: ``{detail, code: \"not_live\"}``."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -8716,6 +8722,9 @@
                         },
                         "description": ""
                     },
+                    "409": {
+                        "description": "Only a revealed round can be reopened. Body: ``{detail, code: \"not_revealed\"}``."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -8773,6 +8782,9 @@
                             }
                         },
                         "description": ""
+                    },
+                    "409": {
+                        "description": "Only an open round can be revealed. Body: ``{detail, code: \"not_open\"}``."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -8851,6 +8863,9 @@
                             }
                         },
                         "description": ""
+                    },
+                    "409": {
+                        "description": "Voting is closed for this round. Body: ``{detail, code: \"not_open\"}``."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -14120,6 +14135,9 @@
                         },
                         "description": "Refused on the request: the role is at or above the caller's own, or ``user`` names an account the caller cannot reach (#3641) — see the project twin."
                     },
+                    "409": {
+                        "description": "``user`` already holds a live membership on this program — see the project twin."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -16461,6 +16479,12 @@
                         },
                         "description": ""
                     },
+                    "400": {
+                        "description": "``sample`` does not name a known sample key."
+                    },
+                    "409": {
+                        "description": "Two live programs already share this sample's slug as their ``code``, so a reload cannot tell which one to replace. Body: ``{detail, code: \"seed_replace_ambiguous\"}``."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -16472,39 +16496,6 @@
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
                                         }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
-                                            "example": "Request body must be a JSON object."
-                                        },
-                                        "code": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
-                                            "example": "invalid_body"
-                                        }
-                                    },
-                                    "additionalProperties": {
-                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -21124,6 +21115,9 @@
                             }
                         },
                         "description": ""
+                    },
+                    "409": {
+                        "description": "``server_version`` is stale for one or more phases — another participant modified a phase concurrently. Body: ``{detail: \"Conflict: stale server_version for tasks: <ids>\"}``."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -27767,6 +27761,9 @@
                         },
                         "description": "Refused on the request: the role is at or above the caller's own, or ``user`` names an account the caller cannot reach (#3641). The unreachable-target message is identical to the one a nonexistent id gets, so the field is not an existence oracle."
                     },
+                    "409": {
+                        "description": "``user`` already holds a live membership on this project — re-adding a revoked member instead revives their existing row (see the handler), so this is only reached when the named account is already an active member."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -31047,6 +31044,9 @@
                         },
                         "description": ""
                     },
+                    "409": {
+                        "description": "The proposal is no longer open for voting (already resolved, or lazily expired under the lock). Body: ``{code: \"proposal_closed\", detail: ...}``."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -31147,6 +31147,9 @@
                         },
                         "description": ""
                     },
+                    "409": {
+                        "description": "The proposal is no longer open. Body: ``{code: \"proposal_closed\", detail: ...}``."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -31235,6 +31238,9 @@
                             }
                         },
                         "description": "Raise opened a ratification proposal (or ratified immediately)."
+                    },
+                    "409": {
+                        "description": "A ceiling-raise proposal is already open for this signal. Body: ``{code: \"proposal_already_open\", detail: ...}``."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -43257,6 +43263,9 @@
                         },
                         "description": ""
                     },
+                    "409": {
+                        "description": "The act can no longer be reversed safely — body is ``{\"code\": ..., \"detail\": ..., ...}`` with ``code`` one of ``too_large``, ``not_top_of_stack`` (extra: ``blocking_operation_id``) or ``shape_changed`` (extra: ``changed``), matching ``StructuralUndoBlockedReason``."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -46282,11 +46291,14 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Task"
+                                    "$ref": "#/components/schemas/TaskSuggestionAcceptResponse"
                                 }
                             }
                         },
                         "description": ""
+                    },
+                    "409": {
+                        "description": "Either the suggestion is no longer PENDING (already accepted, declined, or revoked — body: ``{detail}``), or the task's assignee was set concurrently by another path: the suggestion is still marked ACCEPTED without overwriting, and the body carries ``task_id`` and ``current_assignee_id``."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -46405,11 +46417,14 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Task"
+                                    "$ref": "#/components/schemas/TaskSuggestionDeclineResponse"
                                 }
                             }
                         },
                         "description": ""
+                    },
+                    "409": {
+                        "description": "The suggestion is no longer PENDING (already accepted, declined, or revoked). Body: ``{detail}``."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -46528,11 +46543,14 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Task"
+                                    "$ref": "#/components/schemas/TaskSuggestionRevokeResponse"
                                 }
                             }
                         },
                         "description": ""
+                    },
+                    "409": {
+                        "description": "The suggestion is no longer PENDING (already accepted, declined, or revoked). Body: ``{detail}``."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -48591,7 +48609,13 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "description": "The archive bytes (``application/gzip``)."
+                    },
+                    "409": {
+                        "description": "Export is not ready yet (still queued/running)."
+                    },
+                    "410": {
+                        "description": "This export has expired. Request a new one."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -76964,6 +76988,64 @@
                 ],
                 "type": "string",
                 "description": "* `BACKLOG` - Backlog\n* `NOT_STARTED` - Not started\n* `IN_PROGRESS` - In progress\n* `REVIEW` - Review\n* `ON_HOLD` - On hold\n* `COMPLETE` - Complete"
+            },
+            "TaskSuggestionAcceptResponse": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "state": {
+                        "type": "string"
+                    },
+                    "accepted_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "accepted_at",
+                    "id",
+                    "state"
+                ]
+            },
+            "TaskSuggestionDeclineResponse": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "state": {
+                        "type": "string"
+                    },
+                    "declined_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "declined_at",
+                    "id",
+                    "state"
+                ]
+            },
+            "TaskSuggestionRevokeResponse": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "state": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "state"
+                ]
             },
             "TaskTimeEntryListResponse": {
                 "type": "object",

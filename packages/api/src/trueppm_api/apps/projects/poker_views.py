@@ -276,7 +276,12 @@ class PokerVoteView(_PokerBase):
     @extend_schema(
         summary="Cast or change my vote",
         request=CastVoteSerializer,
-        responses=PokerSessionSerializer,
+        responses={
+            200: PokerSessionSerializer,
+            409: OpenApiResponse(
+                description='Voting is closed for this round. Body: ``{detail, code: "not_open"}``.'
+            ),
+        },
     )
     def post(self, request: Request, pk: str) -> Response:
         session = self._session(pk)
@@ -297,7 +302,18 @@ class PokerVoteView(_PokerBase):
 
 
 class PokerRevealView(_PokerBase):
-    @extend_schema(summary="Reveal the votes", request=None, responses=PokerSessionSerializer)
+    @extend_schema(
+        summary="Reveal the votes",
+        request=None,
+        responses={
+            200: PokerSessionSerializer,
+            409: OpenApiResponse(
+                description=(
+                    'Only an open round can be revealed. Body: ``{detail, code: "not_open"}``.'
+                )
+            ),
+        },
+    )
     def post(self, request: Request, pk: str) -> Response:
         session = self._session(pk)
         project_id = session.sprint.project_id
@@ -310,7 +326,19 @@ class PokerRevealView(_PokerBase):
 
 
 class PokerReopenView(_PokerBase):
-    @extend_schema(summary="Reopen for a re-vote", request=None, responses=PokerSessionSerializer)
+    @extend_schema(
+        summary="Reopen for a re-vote",
+        request=None,
+        responses={
+            200: PokerSessionSerializer,
+            409: OpenApiResponse(
+                description=(
+                    "Only a revealed round can be reopened. Body: "
+                    '``{detail, code: "not_revealed"}``.'
+                )
+            ),
+        },
+    )
     def post(self, request: Request, pk: str) -> Response:
         session = self._session(pk)
         project_id = session.sprint.project_id
@@ -326,7 +354,12 @@ class PokerCommitView(_PokerBase):
     @extend_schema(
         summary="Commit the agreed points (writes Task.story_points)",
         request=CommitPokerSerializer,
-        responses=PokerSessionSerializer,
+        responses={
+            200: PokerSessionSerializer,
+            409: OpenApiResponse(
+                description='This round is already closed. Body: ``{detail, code: "not_live"}``.'
+            ),
+        },
     )
     def post(self, request: Request, pk: str) -> Response:
         session = self._session(pk)
@@ -344,7 +377,16 @@ class PokerCommitView(_PokerBase):
 
 
 class PokerCancelView(_PokerBase):
-    @extend_schema(summary="Cancel the round", request=None, responses=PokerSessionSerializer)
+    @extend_schema(
+        summary="Cancel the round",
+        request=None,
+        responses={
+            200: PokerSessionSerializer,
+            409: OpenApiResponse(
+                description='This round is already closed. Body: ``{detail, code: "not_live"}``.'
+            ),
+        },
+    )
     def post(self, request: Request, pk: str) -> Response:
         session = self._session(pk)
         project_id = session.sprint.project_id

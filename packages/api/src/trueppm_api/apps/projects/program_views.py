@@ -1917,7 +1917,17 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
 
     @extend_schema(
         summary="Load a bundled sample program",
-        responses={201: LoadSampleResponseSerializer},
+        responses={
+            201: LoadSampleResponseSerializer,
+            400: OpenApiResponse(description="``sample`` does not name a known sample key."),
+            409: OpenApiResponse(
+                description=(
+                    "Two live programs already share this sample's slug as their "
+                    "``code``, so a reload cannot tell which one to replace. Body: "
+                    '``{detail, code: "seed_replace_ambiguous"}``.'
+                )
+            ),
+        },
     )
     @action(
         detail=False,

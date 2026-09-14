@@ -307,6 +307,12 @@ class SignalPrivacyRaiseCeilingView(_SignalPrivacyBase):
                 CeilingProposalSerializer,
                 description="Raise opened a ratification proposal (or ratified immediately).",
             ),
+            409: OpenApiResponse(
+                description=(
+                    "A ceiling-raise proposal is already open for this signal. Body: "
+                    '``{code: "proposal_already_open", detail: ...}``.'
+                )
+            ),
         },
     )
     def post(self, request: Request, project_pk: str) -> Response:
@@ -393,7 +399,16 @@ class SignalCeilingProposalVoteView(_SignalPrivacyBase):
     @extend_schema(
         summary="Vote on a ceiling-raise proposal",
         request=CeilingVoteRequestSerializer,
-        responses={200: OpenApiResponse(CeilingProposalSerializer)},
+        responses={
+            200: OpenApiResponse(CeilingProposalSerializer),
+            409: OpenApiResponse(
+                description=(
+                    "The proposal is no longer open for voting (already resolved, or "
+                    "lazily expired under the lock). Body: "
+                    '``{code: "proposal_closed", detail: ...}``.'
+                )
+            ),
+        },
     )
     def post(self, request: Request, project_pk: str, proposal_pk: str) -> Response:
         project = self._project(project_pk)
@@ -422,7 +437,15 @@ class SignalCeilingProposalWithdrawView(_SignalPrivacyBase):
     @extend_schema(
         summary="Withdraw an open ceiling-raise proposal",
         request=None,
-        responses={200: OpenApiResponse(CeilingProposalSerializer)},
+        responses={
+            200: OpenApiResponse(CeilingProposalSerializer),
+            409: OpenApiResponse(
+                description=(
+                    "The proposal is no longer open. Body: "
+                    '``{code: "proposal_closed", detail: ...}``.'
+                )
+            ),
+        },
     )
     def post(self, request: Request, project_pk: str, proposal_pk: str) -> Response:
         project = self._project(project_pk)
