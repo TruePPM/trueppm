@@ -11,7 +11,7 @@ sidebar:
 
 25 years at the intersection of enterprise infrastructure and open-source commercialization: shipping products, navigating acquisitions, and watching the cycle of incumbent capture repeat itself. The through-line across that career: being the person in the room who can architect the Kubernetes deployment, build the demo environment, read the room in a CISO review, and restructure a deal that's about to die on the vine — in the same week.
 
-Currently an Account Executive at Portworx (Pure Storage). Prior roles include Strategic Alliances Architect at GitLab, cloud-native infrastructure roles at Red Hat and SUSE (OpenShift/Kubernetes), Director of Global Alliances at MayaData (acquired by DataCore), and senior positions across PLUMgrid (acquired by VMware), Chef, Savvis, and HSBC. The pattern across those roles is the same one that drives TruePPM: taking technically strong platforms to market in categories where incumbents have become complacent, and doing it without overstating what the product can actually do.
+Currently an Account Executive at Portworx (Everpure), a cloud-native storage company. Prior roles include Strategic Alliances Architect at GitLab, cloud-native infrastructure roles at Red Hat and SUSE (OpenShift/Kubernetes), Director of Global Alliances at MayaData (acquired by DataCore), and senior positions across PLUMgrid (acquired by VMware), Chef, Savvis, and HSBC. The pattern across those roles is the same one that drives TruePPM: taking technically strong platforms to market in categories where incumbents have become complacent, and doing it without overstating what the product can actually do.
 
 - GitLab: [gitlab.com/kellyhair](https://gitlab.com/kellyhair)
 - GitHub: [github.com/kellyhair](https://github.com/kellyhair)
