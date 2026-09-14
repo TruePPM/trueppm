@@ -350,6 +350,14 @@ class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project
     """
 
     permission_classes = [IsAuthenticated, IsProjectMember, CanAssignResource, IsProjectNotArchived]
+    resolves_scope_in_body = {
+        "create": (
+            "Flat route: the project arrives in the body, so `CanAssignResource."
+            "has_permission` cannot scope the write and `has_object_permission` does "
+            "not run on a create. `perform_create` resolves the body's project and "
+            "applies the same Scheduler+ floor before saving (#3767)."
+        )
+    }
     serializer_class = ProjectResourceSerializer
     filter_backends = [filters.OrderingFilter]
     queryset = (
@@ -1480,6 +1488,14 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
     """
 
     permission_classes = [IsAuthenticated, IsProjectMember, CanAssignResource, IsProjectNotArchived]
+    resolves_scope_in_body = {
+        "create": (
+            "Flat route: the project is reached only through the body's `task`, so "
+            "`CanAssignResource.has_permission` cannot scope the write and "
+            "`has_object_permission` does not run on a create. `perform_create` "
+            "resolves `task.project_id` and applies the Scheduler+ floor there (#3767)."
+        )
+    }
     serializer_class = TaskResourceSerializer
     filter_backends = [filters.OrderingFilter]
     queryset = TaskResource.objects.select_related("task__project", "resource")

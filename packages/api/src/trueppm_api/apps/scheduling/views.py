@@ -47,6 +47,7 @@ from trueppm_api.apps.access.permissions import (
     McpReadableViewMixin,
     McpScope,
     assert_project_not_archived,
+    declare_scope_in_body,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import (
@@ -191,6 +192,11 @@ _DATE_RANGE_EXCEEDED_DETAIL = "Project schedule exceeds the representable date r
         ),
         404: OpenApiResponse(description="Project not found."),
     },
+)
+@declare_scope_in_body(
+    "@api_view function: the generated WrappedAPIView carries no project_url_kwarg, so "
+    "has_permission cannot scope this POST. The gate is the explicit "
+    "IsProjectScheduler().has_object_permission(request, None, project) call in the body."
 )
 @api_view(["POST"])
 @permission_classes([IsAuthenticated, IsProjectScheduler, IsProjectNotArchived])
@@ -482,7 +488,8 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
                 "histogram_buckets ([{date, count}]), sensitivity ([{task_id, index}] "
                 "duration tornado — tasks that move the finish most, index 0..1, "
                 "ADR-0140), forecast_diagnostic ({deterministic, reason, tasks_total, "
-                "tasks_with_variance, tasks_pending_approval, agile_tasks_without_velocity} "
+                "tasks_with_variance, tasks_pending_approval, agile_tasks_without_velocity, "
+                "tasks_estimates_below_plan} "
                 "— explains a flat forecast; reason is null when a real band exists), "
                 "last_run_at (ISO 8601), status_date (the data date this run was "
                 "actually computed against — project.status_date or today when unset, "
@@ -542,6 +549,11 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
             description="Project does not exist.",
         ),
     },
+)
+@declare_scope_in_body(
+    "@api_view function: the generated WrappedAPIView carries no project_url_kwarg, so "
+    "has_permission cannot scope this POST. The gate is the explicit "
+    "IsProjectMember().has_object_permission(request, None, project) call in the body."
 )
 @api_view(["POST"])
 @permission_classes([IsAuthenticated, IsProjectMember, IsProjectNotArchived])

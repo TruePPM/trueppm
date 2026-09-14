@@ -46,6 +46,15 @@ three-point estimate. A waterfall task with any of the three missing is treated
 as having zero duration uncertainty: its deterministic `duration` is used for
 every simulation run.
 
+**Your planned `duration` is the floor.** The three-point estimate is the risk
+band read *upward* from the plan, not a replacement for it: every sampled
+duration is clamped up to the task's own `duration` before the network is
+solved. A task planned at 20 days and estimated at O=1 / M=2 / P=3 contributes
+20 days to every run, not 2 — see [The plan is the
+floor](#the-plan-is-the-floor) for why. If you believe a task will finish faster
+than planned, lower its `duration`; an optimistic estimate alone will not pull
+the forecast in.
+
 **Agile (Scrum) tasks are the exception** — a task delivered as sprint work
 draws its uncertainty from team velocity rather than a three-point estimate, so
 it does not need O/M/P values set. See
@@ -326,6 +335,47 @@ a unimodal distribution centered at 10 days whose standard deviation in the
 scaled domain is exactly `(P − O) / 6 = 2.33 days`. The PERT approximation is
 exact for symmetric inputs.
 
+### The plan is the floor
+
+Every sampled duration — from the PERT-Beta draw above or from the
+[velocity path](#agile-tasks-velocity-based-sampling) below — is clamped up to
+the task's own `duration` before the run is solved:
+
+```
+duration_sample = max(duration_sample, task.duration)
+```
+
+`duration` is what the deterministic [CPM pass](/features/scheduler/) lays out,
+and the estimate is a separate field a separate person often fills in. Without
+the clamp the two passes answer the same question from different inputs, and a
+task whose estimates simply sit below its planned duration produces a forecast
+earlier than the earliest date CPM considers feasible. A risk tool that reports
+*less* risk than the plan it is stressing fails silently and plausibly — nothing
+about the output looks wrong.
+
+Two consequences worth stating plainly:
+
+- **The optimistic tail below `duration` is not expressed.** A plan deliberately
+  padded above its own estimates reports no upside. Model finishing ahead of
+  plan by lowering `duration`, not by lowering the optimistic estimate.
+- **Ordering the estimate is not a substitute.** A triple that brackets its
+  duration — O=1 / M=1 / P=20 against a 20-day task — still piles the PERT mass
+  onto the most-likely value and lands P95 well before the CPM finish. Only the
+  comparison against `duration` itself binds the two passes.
+
+The simulation still expresses risk in the direction that matters: any sample
+above `duration` passes through untouched, so P80 and P95 continue to carry the
+full tail of the estimate.
+
+:::caution[Networks with Finish-to-Finish or Start-to-Finish links]
+On a network containing an FF or SF dependency, CPM itself is not monotone in
+duration — those links pin a task's *finish*, so a longer task starts earlier,
+and an SS successor keyed on that start inherits the earlier start. A percentile
+can therefore still land before the deterministic finish on such a network, with
+the simulation reproducing CPM faithfully on every sampled scenario. The
+convention is under review; FS and SS networks are unaffected.
+:::
+
 ### Agile tasks: velocity-based sampling
 
 A task delivered as Scrum work — `delivery_mode = scrum` with committed
@@ -349,6 +399,13 @@ source of schedule risk on agile work. This path takes precedence over a
 three-point estimate: a Scrum task that also carries O/M/P values still samples
 from velocity, because the delivery mode is an explicit declaration that
 uncertainty comes from throughput, not a duration guess.
+
+Velocity samples take [the same floor](#the-plan-is-the-floor) as PERT samples:
+a team burning its points down faster than the task's planned `duration`
+contributes that planned duration, not the shorter one. On a Scrum task
+`duration` is usually left at its default, so the clamp is normally a no-op —
+it binds only where someone has planned a longer duration than the team's
+throughput implies.
 
 A project with no usable velocity signal — no closed, velocity-eligible sprint
 with recorded completed points — falls back to each task's deterministic
@@ -681,5 +738,11 @@ of the distribution:
 - **Estimated work off the critical path** — your estimates vary, but the longest
   path runs through fixed-duration work, so the variance never reaches the finish.
   Estimate the tasks that actually drive the date (see *What's holding the date*).
+- **Estimates below the planned duration** — the range is real, but all of it sits
+  at or below the task's own `duration`, which [every sample is floored
+  at](#the-plan-is-the-floor). A 20-day task estimated at 1 / 2 / 3 days samples to
+  a constant 20. Adding more estimates cannot open a range here: either lower the
+  planned durations to match what you expect, or raise the pessimistic values above
+  them.
 - **All work complete, or nothing committed** — finished tasks have no remaining
   work to vary, and backlog cards are excluded from the forecast entirely.

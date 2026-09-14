@@ -238,13 +238,29 @@ class TestCanAssignResource:
         req = _make_request(user, method="GET")
         assert perm.has_permission(req, _make_view(project_pk=project.pk)) is True
 
-    def test_flat_route_defers_to_perform_create(self, user: object, project: Project) -> None:
-        """No project_pk in the URL (body-project route): has_permission cannot resolve
-        the role here, so it returns True and perform_create enforces the floor."""
+    def test_flat_route_now_denies_unless_the_view_declares_it(
+        self, user: object, project: Project
+    ) -> None:
+        """No project_pk in the URL: the write is REFUSED, not deferred (#3767).
+
+        This assertion was ``is True`` until #3767 — "has_permission cannot resolve the
+        role here, so perform_create enforces the floor". That was true of
+        ``ProjectResourceViewSet`` and ``TaskResourceViewSet``, and true of nothing
+        else: any other flat-routed write declaring this class inherited the pass
+        without inheriting the compensating check. The two real call sites now say so
+        on themselves with ``resolves_scope_in_body``; a view that does not is denied.
+        """
         _add_member(user, project, Role.MEMBER)
         perm = CanAssignResource()
         req = _make_request(user, method="POST")
-        assert perm.has_permission(req, _make_view()) is True
+        assert perm.has_permission(req, _make_view()) is False
+
+        declaring = _make_view()
+        declaring.resolves_scope_in_body = (
+            "The project arrives in the body; perform_create resolves it and applies "
+            "the Scheduler+ floor before writing."
+        )
+        assert perm.has_permission(req, declaring) is True
 
     def test_unauthenticated_denied(self) -> None:
         anon = MagicMock()
@@ -1059,20 +1075,30 @@ def test_can_assign_resource_object_role_matrix(
 
 @pytest.mark.django_db
 class TestTopLevelRouteFallthrough:
-    """Without ``project_pk`` the gate defers to the per-object check (returns True)."""
+    """Without ``project_pk``, READS defer to the per-object check; WRITES are denied.
 
-    def test_scheduler_class_defers(self, user: object) -> None:
+    The split is #3767's. A read on an unscoped route is narrowed by
+    ``ProjectScopedViewSet``'s membership-filtered queryset and by
+    ``has_object_permission`` on detail routes, so deferring it costs nothing. An
+    unsafe method has neither backstop, and deferring it was the fail-open.
+    """
+
+    def test_scheduler_class_defers_on_a_read(self, user: object) -> None:
         assert IsProjectScheduler().has_permission(_make_request(user), _make_view()) is True
 
-    def test_admin_class_defers(self, user: object) -> None:
+    def test_admin_class_defers_on_a_read(self, user: object) -> None:
         assert IsProjectAdmin().has_permission(_make_request(user), _make_view()) is True
 
-    def test_owner_class_defers(self, user: object) -> None:
+    def test_owner_class_defers_on_a_read(self, user: object) -> None:
         assert IsProjectOwner().has_permission(_make_request(user), _make_view()) is True
 
-    def test_member_write_class_defers(self, user: object) -> None:
+    @pytest.mark.parametrize(
+        "perm_class",
+        [IsProjectMember, IsProjectMemberWrite, IsProjectScheduler, IsProjectAdmin, IsProjectOwner],
+    )
+    def test_every_class_denies_an_undeclared_write(self, user: object, perm_class: type) -> None:
         req = _make_request(user, method="POST")
-        assert IsProjectMemberWrite().has_permission(req, _make_view()) is True
+        assert perm_class().has_permission(req, _make_view()) is False
 
 
 @pytest.mark.django_db
@@ -1414,9 +1440,22 @@ class TestProgramGates:
     @pytest.mark.parametrize(
         "perm_class", [IsProgramScheduler, IsProgramEditor, IsProgramAdmin, IsProgramOwner]
     )
-    def test_top_level_route_defers(self, user: object, perm_class: type) -> None:
+    def test_top_level_route_denies_an_undeclared_write(
+        self, user: object, perm_class: type
+    ) -> None:
+        """Was ``is True`` until #3767 — the program half of the same fail-open.
+
+        A route carrying no ``program_pk`` gives these classes nothing to check, and
+        on an unsafe method nothing else checks it either.
+        """
         req = _make_request(user, method="POST")
-        assert perm_class().has_permission(req, _program_view()) is True
+        assert perm_class().has_permission(req, _program_view()) is False
+
+    @pytest.mark.parametrize(
+        "perm_class", [IsProgramScheduler, IsProgramEditor, IsProgramAdmin, IsProgramOwner]
+    )
+    def test_top_level_route_still_defers_on_a_read(self, user: object, perm_class: type) -> None:
+        assert perm_class().has_permission(_make_request(user), _program_view()) is True
 
     def test_soft_deleted_program_membership_grants_nothing(
         self, user: object, program: Program
@@ -2073,9 +2112,15 @@ class TestBacklogGate:
             IsProjectBacklogManager().has_permission(req, _make_view(project_pk=project.pk)) is True
         )
 
-    def test_permission_class_defers_on_top_level_route(self, user: object) -> None:
+    def test_permission_class_denies_an_undeclared_top_level_write(self, user: object) -> None:
+        """Was ``is True`` until #3767. The facet arm cannot save an unscoped route.
+
+        ``can_manage_backlog_with_facet`` needs a project id to look a facet up
+        against; with none, the old fall-through admitted any authenticated caller to
+        a structural backlog write.
+        """
         req = _make_request(user, method="POST")
-        assert IsProjectBacklogManager().has_permission(req, _make_view()) is True
+        assert IsProjectBacklogManager().has_permission(req, _make_view()) is False
 
     def test_permission_class_denies_anonymous(self) -> None:
         anon = MagicMock()
@@ -2139,10 +2184,11 @@ class TestScopeGate:
             is expected
         )
 
-    def test_permission_class_defers_on_top_level_route(self, user: object) -> None:
+    def test_permission_class_denies_an_undeclared_top_level_write(self, user: object) -> None:
+        """Was ``is True`` until #3767 — same shape as the backlog gate above."""
         assert (
             IsProjectScopeManager().has_permission(_make_request(user, "POST"), _make_view())
-            is True
+            is False
         )
 
     def test_permission_class_denies_anonymous(self) -> None:

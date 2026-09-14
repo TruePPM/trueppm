@@ -1416,6 +1416,15 @@ class ProjectViewSet(
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
+    resolves_scope_in_body = {
+        "create": (
+            "POST /projects/ has no project to be scoped to — the row does not exist "
+            "yet — so `IsProjectMember.has_permission` can never resolve one here. "
+            "Authority for creating a project is org-level, not project-level, and "
+            "`perform_create` mints the creator's Owner membership (#3767)."
+        )
+    }
+
     # Two actions on this viewset are unsafe methods that write nothing to the plan
     # (#3414). They are exempt by name so the route-table invariant records the decision
     # rather than inferring it; the archive/unarchive/destroy/restore bypass is a
@@ -5752,6 +5761,22 @@ class TaskViewSet(
 
     permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
 
+    resolves_scope_in_body = {
+        "create": (
+            "`/api/v1/tasks/` is a flat route: the project arrives in the body, so "
+            "no permission class can scope this write and `has_object_permission` "
+            "does not run on a create. `perform_create` calls "
+            "`check_object_permissions(request, project)` with the resolved Project, "
+            "which is what applies IsProjectMemberWrite + IsProjectPlanAuthor (#3767)."
+        ),
+        "delete_untouched_seeded": (
+            "Flat route, `detail=False`, and the project id arrives in the body — the "
+            "shape this action's own docstring documents as the reason it re-derives "
+            "Admin+ with `_membership_role` and calls `assert_project_not_archived` "
+            "itself rather than trusting the declared classes (#3767)."
+        ),
+    }
+
     def get_permissions(self) -> list[BasePermission]:
         # ADR-0186 §E: append the read-only MCP token guards around the
         # action-specific RBAC list so a mcp:read token is confined to safe
@@ -7154,6 +7179,14 @@ class AcceptanceCriterionViewSet(IdempotencyMixin, viewsets.ModelViewSet[Accepta
     """
 
     serializer_class = AcceptanceCriterionSerializer
+    resolves_scope_in_body = {
+        "create": (
+            "Flat route: the project is reached only through the body's `task`, so "
+            "`IsProjectMemberWrite.has_permission` cannot scope the write and "
+            "`has_object_permission` does not run on a create. `perform_create` "
+            "resolves the task's project and requires Member+ there (#3767)."
+        )
+    }
     queryset = AcceptanceCriterion.objects.select_related("task", "met_by").filter(
         is_deleted=False, task__is_deleted=False
     )
@@ -7717,6 +7750,15 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
     """
 
     permission_classes = [IsAuthenticated, IsProjectScheduler, IsProjectNotArchived]
+    resolves_scope_in_body = {
+        "create": (
+            "Flat route: the project is reached only through the body's "
+            "`predecessor`/`successor`, so `has_permission` cannot scope the write. "
+            "`perform_create` calls `check_object_permissions(predecessor)` for a "
+            "same-project edge; a cross-project edge is authorized instead by the "
+            "serializer's ADR-0120 consent gate on both sides (#3767)."
+        )
+    }
 
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
@@ -8458,6 +8500,15 @@ class TaskRecurrenceRuleViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task
     """
 
     permission_classes = [IsAuthenticated, IsProjectScheduler, IsProjectNotArchived]
+    resolves_scope_in_body = {
+        "create": (
+            "Flat route: the project is reached only through the body's `task`, so "
+            "`has_permission` cannot scope the write and `has_object_permission` "
+            "does not run on a create. `perform_create` calls "
+            "`check_object_permissions(task)`, which applies the Scheduler+ floor "
+            "on the template task's project (#3767)."
+        )
+    }
 
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
@@ -11398,6 +11449,16 @@ class BoardColumnConfigView(McpReadableViewMixin, IdempotencyMixin, APIView):
     # ADR-0678 (#2482): projects/<pk>/board-config/
     mcp_scope = McpScope.PATH
 
+    #: The route spells the project `<pk>` and this view deliberately does not declare
+    #: `project_url_kwarg` (see the PUT handler). The Scheduler+ floor is applied by the
+    #: `check_object_permissions(project)` call in the handler, against the Project it
+    #: has already fetched (#3767).
+    resolves_scope_in_body = (
+        "Route spells the project <pk> with no project_url_kwarg declaration; the PUT "
+        "handler fetches the Project and calls check_object_permissions() on it, which "
+        "is what applies the IsProjectScheduler floor."
+    )
+
     def get_permissions(self) -> list[BasePermission]:
         # This override replaces the mixin's get_permissions entirely, so the MCP
         # guards must be re-appended explicitly — exactly as the ViewSets that
@@ -11787,6 +11848,18 @@ class ProjectCommitView(IdempotencyMixin, APIView):
     write: it is one-way (``commit_project()`` refuses an already-active project),
     and it decides the anchor every later variance number is subtracted from.
     """
+
+    #: This view must NOT declare `project_url_kwarg` (#3129): resolving the project at
+    #: `has_permission` time answers 403 for a real project the caller is not a member
+    #: of while an unknown id falls through to 404, which is the membership-scoped
+    #: existence oracle #3129 closed, and it would put this endpoint's contract at odds
+    #: with its sibling `/archive/`. Its gate is instead a membership-filtered queryset
+    #: plus the in-body `check_object_permissions`, which answers 404 uniformly (#3767).
+    resolves_scope_in_body = (
+        "Declaring project_url_kwarg would 403-vs-404 discriminate on membership, the "
+        "existence oracle #3129 closed. The gate is a membership-filtered queryset plus "
+        "check_object_permissions() on the fetched Project, which applies IsProjectAdmin."
+    )
 
     # Admin+ (Project Manager, role >= 300) — the same floor as its own siblings.
     #

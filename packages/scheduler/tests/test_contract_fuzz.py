@@ -26,6 +26,13 @@ is how #2833 — a Monte Carlo floor the deterministic pass had and the simulati
 did not — survived ~99% line coverage. It runs against its own
 :func:`_plausible_projects` strategy rather than the adversarial one, because an
 input the engine *rejects* proves nothing about the two passes agreeing.
+
+A generated space is only a net for what it actually generates, and this one was
+not: #3765 was the same invariant failing through ``Task.duration``, and
+:func:`_plausible_tasks` drew no three-point estimate, so every example took the
+deterministic path where the two passes agree by construction. The property could
+not fail at any budget for the class it was written to guard. The triple is now
+drawn — bracketing the duration and, deliberately, sitting below it.
 """
 
 from __future__ import annotations
@@ -284,12 +291,29 @@ _opt_plausible_date = st.none() | _plausible_date
 
 @st.composite
 def _plausible_tasks(draw: st.DrawFn, tid: str) -> Task:
-    """A task in the value ranges a real project uses, with no duration uncertainty.
+    """A task in the value ranges a real project uses, with real duration uncertainty.
 
     Every field that feeds an ES floor is drawn (``planned_start``,
-    ``actual_start``, ``actual_finish``, ``percent_complete``); the three-point
-    estimates and the velocity signal are deliberately left unset so the
-    simulation has nothing to vary — see :func:`test_monte_carlo_never_precedes_cpm`.
+    ``actual_start``, ``actual_finish``, ``percent_complete``).
+
+    **The three-point estimate is drawn too, and that is load-bearing (#3765).** It
+    used to be deliberately left unset "so the simulation has nothing to vary" —
+    which meant every example took the deterministic sampling path where
+    ``monte_carlo()`` equals ``schedule()`` *by construction*, so
+    :func:`test_monte_carlo_never_precedes_cpm` could not fail at any Hypothesis
+    budget. It was written to stop #2833 recurring and was structurally blind to
+    #3765, the next instance of the same invariant. A detector that cannot fail is
+    not a detector, so the triple is now drawn in three shapes:
+
+    * absent (the original deterministic path, still the most common real project);
+    * **bracketing** the drawn duration (``optimistic <= duration <= pessimistic``);
+    * **not bracketing** it — the whole triple sitting below the duration, which is
+      the #3765 defect exactly, and the state the MS Project importer, the estimates
+      drawer and the velocity-suggestion accept can each write on their own.
+
+    The triple is always internally ordered (``o <= m <= p``): an unordered one is
+    *rejected* by ``_validate_task_durations``, and a rejected input never produces
+    the pair of results this property compares.
 
     The actuals are drawn as a coherent pair (finish at or after start, and only
     ever alongside one) because ``schedule()`` rejects the incoherent combinations
@@ -301,21 +325,46 @@ def _plausible_tasks(draw: st.DrawFn, tid: str) -> Task:
         actual_finish = draw(
             st.none() | st.dates(min_value=actual_start, max_value=date(2027, 6, 1))
         )
+    duration_days = draw(st.integers(min_value=0, max_value=40))
+    shape = draw(st.sampled_from(["none", "brackets", "below"]))
+    triple: dict[str, timedelta] = {}
+    if shape == "brackets":
+        opt = draw(st.integers(min_value=0, max_value=duration_days))
+        pess = draw(st.integers(min_value=duration_days, max_value=40))
+        ml = draw(st.integers(min_value=opt, max_value=pess))
+        triple = {
+            "optimistic_duration": timedelta(days=opt),
+            "most_likely_duration": timedelta(days=ml),
+            "pessimistic_duration": timedelta(days=pess),
+        }
+    elif shape == "below":
+        # The whole triple under the duration. Degenerate when duration is 0 (the
+        # only triple at or below it is all-zero), which is fine — that example
+        # simply lands back on "equal to the duration".
+        pess = draw(st.integers(min_value=0, max_value=max(duration_days, 0)))
+        opt = draw(st.integers(min_value=0, max_value=pess))
+        ml = draw(st.integers(min_value=opt, max_value=pess))
+        triple = {
+            "optimistic_duration": timedelta(days=opt),
+            "most_likely_duration": timedelta(days=ml),
+            "pessimistic_duration": timedelta(days=pess),
+        }
     return Task(
         id=tid,
         name="t",
-        duration=timedelta(days=draw(st.integers(min_value=0, max_value=40))),
+        duration=timedelta(days=duration_days),
         planned_start=draw(_opt_plausible_date),
         # 100.0 included so the complete-by-percent branch is covered too.
         percent_complete=draw(st.floats(min_value=0.0, max_value=100.0)),
         actual_start=actual_start,
         actual_finish=actual_finish,
+        **triple,  # type: ignore[arg-type]
     )
 
 
 @st.composite
 def _plausible_projects(draw: st.DrawFn) -> Project:
-    """A schedulable project: real-world value ranges, no duration uncertainty.
+    """A schedulable project: real-world value ranges, with duration uncertainty.
 
     The adversarial ``_projects()`` strategy exists to prove the *exception*
     contract, and it earns that by generating inputs the engine rejects — which
@@ -375,6 +424,14 @@ def test_monte_carlo_never_precedes_cpm(project: Project) -> None:
     under-reports risk fails silently and plausibly, so the binding is asserted
     here as a property rather than only at the one instance that was found.
 
+    The second instance was #3765, and it is why ``_plausible_tasks`` now draws a
+    three-point estimate. With the estimates unset every example took the
+    deterministic sampling path, where the two passes agree by construction — so
+    this property was structurally incapable of failing, at any budget, for the
+    entire class it was written to guard. ``monte_carlo()`` sampled from the triple
+    and ignored ``Task.duration`` outright, so a triple sitting below the planned
+    duration forecast a finish the deterministic pass had already ruled infeasible.
+
     P50 is the tightest leg of the assertion (P80 and P95 are >= it by
     construction), and the direction is one-way: a *later* percentile is the risk
     premium the deterministic pass cannot express and is entirely legitimate.
@@ -382,6 +439,23 @@ def test_monte_carlo_never_precedes_cpm(project: Project) -> None:
     Both calls must reach the same verdict on validity — if one raises a
     documented ``SchedulerError`` the input never had a comparable pair, and there
     is nothing to bind.
+
+    **Why the finish-level leg is scoped to FS/SS networks.** CPM is not monotone in
+    duration once an FF or SF edge is present: those pin a task's *finish*, so its
+    start is placed back from there, and a LONGER task therefore starts EARLIER —
+    which an SS successor keyed on that start inherits. ``schedule()`` shows this on
+    its own, with no simulation involved: on the five-task network found while fixing
+    #3765, raising every duration to its pessimistic value moves the deterministic
+    finish from 2026-07-09 *back* to 2026-06-05. So on such a network the CPM finish
+    is not a lower bound on the finishes reachable from larger durations, and no
+    duration-level floor can make it one — ``monte_carlo()`` is reproducing
+    ``schedule()`` faithfully there rather than diverging from it. Asserting the
+    binding anyway would red the suite on correct output. The edges stay in the
+    generator (they exercise the ``has_ef_constraint`` branch that #2833's ES floors
+    run through, and the percentile-ordering leg below is asserted for every
+    example); only the finish-level comparison is held back. Tracked separately in
+    #3806 — whether the FF convention itself should place the start forward instead
+    is a semantics question for both engines, not a bugfix.
     """
     try:
         with _time_limit(HANG_SECONDS):
@@ -392,10 +466,14 @@ def test_monte_carlo_never_precedes_cpm(project: Project) -> None:
     except _Timeout as exc:  # pragma: no cover - guarded by the conformance tests
         raise AssertionError(f"monte_carlo/schedule pair: HANG — {exc}") from exc
 
-    assert mc.p50 >= cpm.project_finish, (
-        f"monte_carlo P50 {mc.p50} precedes the deterministic CPM finish "
-        f"{cpm.project_finish} — the simulation sampled a window schedule() rejected"
+    monotone = all(
+        d.dep_type not in (DependencyType.FF, DependencyType.SF) for d in project.dependencies
     )
+    if monotone:
+        assert mc.p50 >= cpm.project_finish, (
+            f"monte_carlo P50 {mc.p50} precedes the deterministic CPM finish "
+            f"{cpm.project_finish} — the simulation sampled a window schedule() rejected"
+        )
     assert mc.p50 <= mc.p80 <= mc.p95, "percentiles must be monotonically non-decreasing"
 
 
