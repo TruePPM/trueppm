@@ -108,7 +108,9 @@ The set is open-ended and grows as features land; current event types include:
   `task_dates_updated`, `task_restored`, `tasks_reordered`, `tasks_restructured`,
   `tasks_bulk_mutated`
 - **Dependencies**: `dependency_created`, `dependency_updated`, `dependency_deleted`,
-  `dependency_accepted`, `dependency_rejected`
+  `dependency_accepted`, `dependency_rejected`, `dependencies_bulk_created` (one
+  aggregated event per `POST /tasks/bulk/` batch, carrying every applied edge's id
+  as `dependency_ids` — not one `dependency_created` per edge, #3770)
 - **Task relations**: `task_relation_created`, `task_relation_updated`,
   `task_relation_deleted` (informational relates-to / blocks / duplicates links;
   payload carries the relation `id`). A cross-project relation fans to both
@@ -268,6 +270,7 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `dependency_updated` | **WS-only** |
 | `dependency_accepted` | **WS-only** |
 | `dependency_rejected` | **WS-only** |
+| `dependencies_bulk_created` | **WS-only** |
 | `task_relation_created` | **WS-only** |
 | `task_relation_updated` | **WS-only** |
 | `task_relation_deleted` | **WS-only** |

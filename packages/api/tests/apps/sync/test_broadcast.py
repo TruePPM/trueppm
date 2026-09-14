@@ -373,6 +373,7 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "demo_reordered",
         "demo_toggled",
         "dependency_accepted",
+        "dependencies_bulk_created",
         "dependency_created",
         "dependency_deleted",
         "dependency_rejected",

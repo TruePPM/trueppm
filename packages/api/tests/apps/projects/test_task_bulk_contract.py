@@ -148,6 +148,89 @@ def test_recalculation_and_broadcast_fire_for_a_partial_batch(
     assert payload["task_ids"] == [r.data["applied"][0]["id"]]
 
 
+@pytest.mark.django_db
+def test_dependency_edges_broadcast_one_aggregated_event_not_one_per_edge(
+    owner_client: APIClient,
+    project: Project,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """N applied edges in one batch broadcast ONE `dependencies_bulk_created`
+    event carrying every id — never one `dependency_created` per edge (#3770).
+
+    Before this fix, `_register_bulk_commit_hooks` queued one post-commit
+    `dependency_created` broadcast per edge — up to
+    `TASK_BULK_MAX_DEPENDENCIES` (500) serial Redis round-trips and `BoardEvent`
+    inserts in the request thread, mirroring the sync-upload fanout #809 fixed.
+    """
+    a, b, c = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+    operations = [
+        {"op": "create", "id": a, "data": {"name": "A", "duration": 1}},
+        {"op": "create", "id": b, "data": {"name": "B", "duration": 1}},
+        {"op": "create", "id": c, "data": {"name": "C", "duration": 1}},
+    ]
+    with (
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate"),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        r = owner_client.post(
+            url(project),
+            {
+                "operations": operations,
+                "dependencies": {
+                    "created": [
+                        {"predecessor": a, "successor": b},
+                        {"predecessor": b, "successor": c},
+                    ]
+                },
+            },
+            format="json",
+        )
+
+    assert r.status_code == 207, r.data
+    assert len(r.data["dependencies"]["applied"]) == 2
+
+    events = [call.args[1] for call in mock_bcast.call_args_list]
+    assert "dependency_created" not in events
+    assert events.count("dependencies_bulk_created") == 1
+
+    payload = next(
+        call.args[2]
+        for call in mock_bcast.call_args_list
+        if call.args[1] == "dependencies_bulk_created"
+    )
+    applied_ids = {e["id"] for e in r.data["dependencies"]["applied"]}
+    assert set(payload["dependency_ids"]) == applied_ids
+
+
+@pytest.mark.django_db
+def test_no_dependency_broadcast_when_every_edge_is_rejected(
+    owner_client: APIClient,
+    project: Project,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """A batch whose edges all reject must not emit an empty `dependencies_bulk_created`."""
+    a = str(uuid.uuid4())
+    with (
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate"),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        r = owner_client.post(
+            url(project),
+            {
+                "operations": [{"op": "create", "id": a, "data": {"name": "A", "duration": 1}}],
+                "dependencies": {"created": [{"predecessor": a, "successor": a}]},  # self-reference
+            },
+            format="json",
+        )
+
+    assert r.status_code == 207, r.data
+    assert r.data["dependencies"]["applied"] == []
+    events = [call.args[1] for call in mock_bcast.call_args_list]
+    assert "dependencies_bulk_created" not in events
+
+
 # ---------------------------------------------------------------------------
 # Client-minted ids and the four guards
 # ---------------------------------------------------------------------------

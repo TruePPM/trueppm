@@ -15,7 +15,8 @@
  *                  duplicate/replayed version (ADR-0152, #327)
  *   tasks_reordered / tasks_bulk_mutated → invalidate tasks
  *   tasks_restructured → invalidate tasks + dependencies (ungroup drops edges, undo restores them)
- *   dependency_created / dependency_updated / dependency_deleted → invalidate dependencies + tasks
+ *   dependency_created / dependency_updated / dependency_deleted / dependencies_bulk_created
+ *                     → invalidate dependencies + tasks
  *   baseline_created / baseline_activated / baseline_deleted → invalidate baselines + tasks
  *   risk_created / risk_updated / risk_deleted → invalidate risks
  *   project_created / project_updated / project_deleted / project_hard_deleted /
@@ -472,6 +473,12 @@ function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
       'dependency_deleted',
       'dependency_accepted',
       'dependency_rejected',
+      // #3770: the aggregated form `POST /tasks/bulk/` emits for every edge a
+      // batch applied — one event per request instead of one `dependency_created`
+      // per edge (up to TASK_BULK_MAX_DEPENDENCIES=500). Same invalidation as its
+      // singular sibling above; the payload just carries `dependency_ids` (plural)
+      // instead of a single `id`, which this handler does not need to read.
+      'dependencies_bulk_created',
     ],
     () => {
       // Collaborators see new/edited dependency edges shortly after the event
