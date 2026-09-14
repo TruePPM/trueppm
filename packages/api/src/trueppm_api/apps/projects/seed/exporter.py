@@ -1563,22 +1563,33 @@ class _Exporter:
             emit(sc.added_at, "sprint.scope_inject", f"task:{ref[0]}:{ref[1]}", data)
 
     def _emit_retro_actions(self, sprint: Sprint, pslug: str, emit: _Emit) -> None:
-        """Emit a ``retro.action`` per retro action item on the sprint's retro."""
+        """Emit a ``retro.action`` per retro action item on the sprint's retro.
+
+        A non-empty ``SprintRetro.notes`` rides on the last item's beat (as
+        ``notes``) rather than its own event — there is no standalone "open
+        retro" action, so a retro's summary text can only round-trip attached
+        to an action item that already exists (#3497). A retro with notes but
+        no action items cannot be reconstructed as v2 events; that gap predates
+        this change (the retro itself couldn't be created via replay either).
+        """
         retro = SprintRetro.objects.filter(sprint=sprint).first()
         if retro is None:
             return
         target = f"sprint:{pslug}:{self.sprint_slugs[sprint.pk]}"
         actor = self._actor_slug(retro.created_by)
-        for item in (
+        items = list(
             RetroActionItem.objects.filter(retro=retro)
             .select_related("assignee")
             .order_by("created_at", "pk")
-        ):
+        )
+        for i, item in enumerate(items):
             data: dict[str, Any] = {"actor": actor, "body": item.text}
             if item.assignee_id is not None and item.assignee_id in self._account_user_pks:
                 data["assignee"] = self._user_slug(item.assignee)
             if item.story_points is not None:
                 data["points"] = item.story_points
+            if i == len(items) - 1 and retro.notes:
+                data["notes"] = retro.notes
             emit(item.created_at, "retro.action", target, data)
 
     # --- slug helpers ------------------------------------------------------

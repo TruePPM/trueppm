@@ -1324,6 +1324,7 @@
           "impact": 3,
           "category": "ORGANIZATIONAL",
           "response": "MITIGATE",
+          "mitigation_due_date": "A-25",
           "owner": "priya",
           "tasks": [
             "2.3",
@@ -1339,6 +1340,7 @@
           "impact": 4,
           "category": "EXTERNAL",
           "response": "MITIGATE",
+          "mitigation_due_date": "A-40",
           "owner": "sam",
           "tasks": [
             "1.2",
@@ -1436,7 +1438,7 @@
       "action": "task.comment",
       "target": "task:aurora:1.1",
       "actor": "tom",
-      "body": "Review: the skip button doesn't persist the 'seen' flag on a cold start, so onboarding re-shows. Sending it back.",
+      "body": "Review: the skip button doesn't persist the 'seen' flag on a cold start, so onboarding re-shows. Sending it back. @aurora-mei",
       "slug": "onboarding-review"
     },
     {
@@ -1489,7 +1491,7 @@
       "action": "task.comment",
       "target": "task:aurora:1.5",
       "actor": "priya",
-      "body": "Biometric know-how is concentrated in Mei — reassigning so we don't bottleneck a launch-critical story on a single spike."
+      "body": "Biometric know-how is concentrated in Mei — @aurora-mei reassigning so we don't bottleneck a launch-critical story on a single spike."
     },
     {
       "at": "A-59T13:05",
@@ -1497,6 +1499,13 @@
       "target": "task:aurora:1.5",
       "actor": "priya",
       "assignee": "mei"
+    },
+    {
+      "at": "A-59T13:15",
+      "action": "risk.note",
+      "target": "risk:key-person",
+      "actor": "priya",
+      "body": "This is the risk showing up in real time — Diego's spike stalled on the secure-enclave path and the story moved to Mei, the only other engineer who has done biometric work here. Accepting the concentration for launch; pairing Diego with Mei on the next biometric story is the actual fix, and it's backlogged for after 1.0."
     },
     {
       "at": "A-56T10:00",
@@ -1524,6 +1533,8 @@
       "action": "retro.action",
       "target": "sprint:aurora:au-sprint-1",
       "actor": "sam",
+      "assignee": "sam",
+      "points": 1,
       "body": "Right-size sprint commitments to recent velocity — Profile editor carried after we committed 26 against a 21-point run rate."
     },
     {
@@ -1531,6 +1542,9 @@
       "action": "retro.action",
       "target": "sprint:aurora:au-sprint-1",
       "actor": "sam",
+      "assignee": "mei",
+      "points": 3,
+      "notes": "Sprint 1 closed PARTIAL. Two things drove it: we committed 26 points against a 21-point run rate with no discount for a first sprint, and the biometric-auth spike stalled two days on a secure-enclave path Diego hadn't touched before. Right-sizing commitments and spiking unfamiliar integrations ahead of commitment are the two changes going into Sprint 2.",
       "body": "Spike unfamiliar integrations before committing them — the biometric work stalled two days on the secure-enclave path."
     },
     {
@@ -1554,6 +1568,13 @@
       "body": "Push vendor had an overnight outage — integration tests are flaky. Watching their status page before I trust the happy path."
     },
     {
+      "at": "A-47T11:45",
+      "action": "risk.note",
+      "target": "risk:external-api",
+      "actor": "sam",
+      "body": "Vendor had another overnight outage — on top of the two already logged this quarter. Mei's watching their status page before trusting the happy path. Raising to mitigating; the retry-with-backoff work below is the actual mitigation."
+    },
+    {
       "at": "A-47T12:00",
       "action": "risk.status",
       "target": "risk:external-api",
@@ -1565,7 +1586,7 @@
       "action": "task.comment",
       "target": "task:aurora:1.2",
       "actor": "sam",
-      "body": "Mei is out for two days — Nadia to cover push notifications so the increment goal holds."
+      "body": "Mei is out for two days — @aurora-nadia to cover push notifications so the increment goal holds."
     },
     {
       "at": "A-44T10:05",
@@ -1594,6 +1615,13 @@
       "target": "risk:store-review",
       "actor": "sam",
       "to": "MITIGATING"
+    },
+    {
+      "at": "A-37T15:45",
+      "action": "risk.note",
+      "target": "risk:store-review",
+      "actor": "sam",
+      "body": "Pre-review checklist caught the two things that sank our last submission — the missing privacy-nutrition labels and an undeclared background-location entitlement. First submission with the checklist applied was approved on the first pass. Closing this out."
     },
     {
       "at": "A-37T16:00",
@@ -1665,6 +1693,13 @@
       "body": "With the monetization work pulled there is no way to refill the sprint this late. Share sheet and pull-to-refresh move to the re-plan rather than get half-started here."
     },
     {
+      "at": "A-30T14:30",
+      "action": "risk.note",
+      "target": "risk:scope-creep",
+      "actor": "priya",
+      "body": "The monetization descope above is this risk, not a separate problem — three 'must-have' stories arrived mid-sprint after the beta data said otherwise, and we pulled them rather than protect the original plan. Raising to mitigating; re-planning from the surviving backlog is the retro action below."
+    },
+    {
       "at": "A-29T09:00",
       "action": "risk.status",
       "target": "risk:scope-creep",
@@ -1690,6 +1725,8 @@
       "action": "retro.action",
       "target": "sprint:aurora:au-sprint-3",
       "actor": "sam",
+      "assignee": "priya",
+      "points": 2,
       "body": "Validate demand with the beta cohort before committing a whole increment to it — three monetization stories went back to the backlog after we had already planned around them."
     },
     {
@@ -1697,6 +1734,9 @@
       "action": "retro.action",
       "target": "sprint:aurora:au-sprint-3",
       "actor": "sam",
+      "assignee": "sam",
+      "points": 1,
+      "notes": "Sprint 3 goal MISSED. The monetization increment we planned around turned out to be a bad bet — the beta cohort's 4% paywall open rate and zero completed purchases surfaced mid-sprint, and pulling receipt export, activity feed, and bookmark sync back to the backlog left nothing to refill the sprint with this late. Validating demand before committing, and re-planning from the surviving backlog rather than defaulting to the old plan, are both going into Sprint 4.",
       "body": "Re-plan the next sprint from the surviving backlog before committing, instead of carrying the old plan forward by default."
     },
     {
@@ -1762,6 +1802,9 @@
       "action": "retro.action",
       "target": "sprint:aurora:au-sprint-4",
       "actor": "sam",
+      "assignee": "sam",
+      "points": 1,
+      "notes": "Sprint 4 goal MET — 23 committed, 23 delivered, no carryover. Coming off a MISSED sprint, the re-plan from the surviving backlog held: dark mode landed first per the beta feedback, and the marketing widget-gallery injection was absorbed on purpose because the re-plan had left intentional headroom. Keep sizing to the trailing two-sprint average rather than the best one — this is the pattern to repeat.",
       "body": "Keep sizing to the trailing two-sprint average rather than the best one — 23 committed and 23 delivered is the pattern to repeat."
     },
     {

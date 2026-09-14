@@ -74,6 +74,55 @@ def test_risk_register_meets_target(stem: str, lo: int, hi: int) -> None:
     assert len(statuses) >= 2, f"{stem}: risk statuses are all {statuses}"
 
 
+# --- risk register depth (#3497) --------------------------------------------
+#
+# A risk's authored ``status`` is only its CREATE-TIME value — replay's
+# ``_apply_risk_status`` overwrites it as later ``risk.status`` events fire, so
+# the FINAL status (what a viewer actually sees) can differ from what the risk
+# block itself says. These checks replay each sample's risk.status events, in
+# chronological order, to get that final status before judging it.
+
+
+def _final_risk_statuses(doc: dict) -> dict[str, str]:
+    """Each risk's status after replaying every authored ``risk.status`` event.
+
+    Mirrors ``replay._apply_risk_status``, which mutates ``risk.status`` in
+    place as the timeline plays forward — the last event to fire for a given
+    risk wins, not the risk block's own ``status`` field.
+    """
+    statuses = {r["slug"]: r["status"] for r in _risks(doc) if r.get("slug")}
+    indexed = list(enumerate(_events(doc)))
+    status_events = [(i, e) for i, e in indexed if e["action"] == "risk.status"]
+    status_events.sort(key=lambda pair: (_rel(pair[1]["at"]) or 0, pair[0]))
+    for _, e in status_events:
+        _, _, slug = e["target"].partition(":")
+        if slug in statuses and e.get("to"):
+            statuses[slug] = e["to"]
+    return statuses
+
+
+@pytest.mark.parametrize("stem,_min,_max", SAMPLES)
+def test_no_mitigating_risk_lacks_a_due_date(stem: str, _min: int, _max: int) -> None:
+    doc = _load(stem)
+    finals = _final_risk_statuses(doc)
+    by_slug = {r["slug"]: r for r in _risks(doc) if r.get("slug")}
+    missing = sorted(
+        slug
+        for slug, status in finals.items()
+        if status == "MITIGATING" and "mitigation_due_date" not in by_slug[slug]
+    )
+    assert not missing, f"{stem}: MITIGATING risk(s) with no mitigation_due_date: {missing}"
+
+
+@pytest.mark.parametrize("stem,_min,_max", SAMPLES)
+def test_no_risk_lacks_a_dated_note(stem: str, _min: int, _max: int) -> None:
+    doc = _load(stem)
+    risk_slugs = {r["slug"] for r in _risks(doc) if r.get("slug")}
+    noted = {e["target"].partition(":")[2] for e in _events(doc) if e["action"] == "risk.note"}
+    missing = sorted(risk_slugs - noted)
+    assert not missing, f"{stem}: risk(s) with no risk.note (RiskComment) event: {missing}"
+
+
 def test_atlas_has_schedule_driving_risks_for_monte_carlo() -> None:
     # Several Atlas risks must be high probability*impact so toggling them in the
     # Monte Carlo modal visibly shifts P80 (#622).
@@ -363,6 +412,26 @@ def test_a_sample_promotes_a_retro_action() -> None:
         if any(e["action"] == "retro.promote" for e in _events(_load(stem)))
     ]
     assert promoted, "no sample demonstrates promoting a retro action to the backlog"
+
+
+@pytest.mark.parametrize("stem", AGILE_SAMPLES)
+def test_every_retro_has_notes_and_every_action_item_has_an_assignee(stem: str) -> None:
+    # #3497: a retro that closes a sprint with no summary, and action items
+    # with nobody named to do them, are not a retro — they're a checkbox.
+    events = [e for e in _events(_load(stem)) if e["action"] == "retro.action"]
+    if not events:
+        return  # this sample's agile project(s) haven't run a retro yet
+
+    missing_assignee = [e["body"] for e in events if not e.get("assignee")]
+    assert not missing_assignee, (
+        f"{stem}: retro action item(s) with no assignee: {missing_assignee}"
+    )
+
+    by_target: dict[str, list[dict]] = {}
+    for e in events:
+        by_target.setdefault(e["target"], []).append(e)
+    missing_notes = sorted(t for t, es in by_target.items() if not any(e.get("notes") for e in es))
+    assert not missing_notes, f"{stem}: retro(s) with no SprintRetro notes: {missing_notes}"
 
 
 def test_atlas_hybrid_project_runs_sprints() -> None:

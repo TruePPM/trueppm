@@ -752,6 +752,7 @@ def _build_ga_launch_v20() -> dict:
                 "impact": 5,
                 "category": "PROJECT_MANAGEMENT",
                 "response": "AVOID",
+                "mitigation_due_date": d(54),
                 "owner": "jane",
                 "trigger": "Press embargo time is committed to an outlet before security "
                 "sign-off is forecast to clear.",
@@ -795,6 +796,17 @@ def _build_ga_launch_v20() -> dict:
         _ev(ts(6, 9, 0), "task.status", a("1"), "malcolm", to="COMPLETE"),
         _ev(ts(20, 11, 0), "risk.status", "risk:failover-untested", "sam", to="OPEN"),
         _ev(
+            ts(20, 11, 15),
+            "risk.note",
+            "risk:failover-untested",
+            "sam",
+            body="The load test that closed load-ceiling exercised the "
+            "autoscaler, not a failover — we still haven't forced a "
+            "primary loss under production-shaped write volume. Keeping "
+            "this open; the manual runbook in the contingency is the "
+            "fallback if a drill doesn't land before GA.",
+        ),
+        _ev(
             ts(23, 15, 0),
             "task.comment",
             a("5"),
@@ -808,8 +820,9 @@ def _build_ga_launch_v20() -> dict:
             "task.comment",
             "task:ga-soc2:2",
             "bob",
-            body="Policy authoring needs Lena for the control narratives, but launch content "
-            "needs her the same week. Flagging it rather than quietly double-booking.",
+            body="Policy authoring needs @ga-lena for the control narratives, but launch "
+            "content needs her the same week. Flagging it rather than quietly "
+            "double-booking.",
         ),
         _ev(ts(12, 14, 0), "task.assign", "task:ga-soc2:2", "dana", assignee="bob"),
         _ev(
@@ -831,8 +844,8 @@ def _build_ga_launch_v20() -> dict:
             "task.comment",
             c("2"),
             "janus",
-            body="Triage done: seven criticals, not the four we planned for. Two of them are "
-            "auth-path issues that need a real fix, not a patch.",
+            body="Triage done: seven criticals, not the four we planned for. Two of "
+            "them are auth-path issues that need a real fix, not a patch. @ga-dana",
         ),
         _ev(
             ts(32, 16, 30),
@@ -858,11 +871,23 @@ def _build_ga_launch_v20() -> dict:
             "task.comment",
             c("3"),
             "dana",
-            body="Pulling Malcolm onto the auth-path criticals at half time. He is still "
-            "carrying the platform rollout, so this is a real over-allocation, not a "
-            "spare-capacity reassignment — it is the trade we are choosing.",
+            body="Pulling @ga-malcolm onto the auth-path criticals at half time. He is "
+            "still carrying the platform rollout, so this is a real over-allocation, "
+            "not a spare-capacity reassignment — it is the trade we are choosing.",
         ),
         _ev(ts(41, 9, 30), "task.assign", c("3"), "dana", assignee="janus"),
+        _ev(
+            ts(41, 9, 45),
+            "risk.note",
+            "risk:shared-people",
+            "dana",
+            body="The Malcolm reassignment above is this risk firing, not "
+            "a new problem — he's now over 100% between the platform "
+            "rollout and security remediation. Accepting it and sequencing "
+            "rather than pulling in a fourth person: security remediation "
+            "gets his time first since it's on the critical path to "
+            "sign-off.",
+        ),
         _ev(
             ts(43, 15, 0),
             "task.comment",
@@ -870,6 +895,16 @@ def _build_ga_launch_v20() -> dict:
             "janus",
             body="Five of seven criticals closed and verified locally. The two auth-path "
             "fixes are in review.",
+        ),
+        _ev(
+            ts(43, 15, 15),
+            "risk.note",
+            "risk:retest-capacity",
+            "janus",
+            body="With five of seven criticals closed, we'll be requesting "
+            "the re-test slot inside two weeks. Calling the tester now to "
+            "hold a slot ahead of remediation actually finishing, rather "
+            "than waiting and testing the five-day SLA for real.",
         ),
         _ev(
             ts(44, 10, 0), "risk.status", "risk:evidence-window", "bob", to="MITIGATING"
@@ -909,6 +944,8 @@ def _build_ga_launch_v20() -> dict:
             "retro.action",
             "sprint:ga-marketing:ga-s1",
             "jane",
+            assignee="jane",
+            points=1,
             body="Stop committing Lena's stories at full points while she is split across "
             "two workstreams — size them at her real availability.",
         ),
@@ -917,6 +954,14 @@ def _build_ga_launch_v20() -> dict:
             "retro.action",
             "sprint:ga-marketing:ga-s1",
             "lena",
+            assignee="lena",
+            points=2,
+            notes="Sprint 1 closed MET, but only just — Lena's stories were "
+            "sized at full points despite her being split across policy "
+            "authoring and launch content, and the blog draft was "
+            "serialized behind final site copy instead of running in "
+            "parallel against the messaging doc. Both go into how Sprint 2 "
+            "is planned.",
             body="Draft the launch blog against the messaging doc before the site copy is "
             "final, so the two are not serialized.",
         ),
@@ -956,6 +1001,28 @@ def _build_ga_launch_v20() -> dict:
             "dana",
             body="Go-live still gates on both the platform milestone (clear) and security "
             "sign-off (in remediation). Holding the embargo time until sign-off forecasts.",
+        ),
+        _ev(
+            ts(45, 9, 15),
+            "risk.note",
+            "risk:announce-before-signoff",
+            "jane",
+            body="No embargo time has gone to an outlet, and it won't "
+            "until Dana's note above turns into an actual sign-off "
+            "forecast — the schedule dependency is doing the avoiding for "
+            "us. Holding at mitigating until security clears.",
+        ),
+        _ev(
+            ts(45, 9, 30),
+            "risk.note",
+            "risk:gate-convergence",
+            "dana",
+            body="Same convergence Jane just flagged above, one level up: "
+            "platform is clear, security sign-off is the one gate still in "
+            "remediation, and it's what SOC 2 evidence and the marketing "
+            "embargo are both waiting on too. If it slips past day 54 the "
+            "decouple-and-hold plan in the contingency is what fires, not "
+            "a date change.",
         ),
     ]
 
