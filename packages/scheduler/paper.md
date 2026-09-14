@@ -13,7 +13,7 @@ authors:
     orcid: 0000-0000-0000-0000  # <to be assigned before submission>
     affiliation: 1
 affiliations:
-  - name: TruePPM, Inc., United States
+  - name: Independent Researcher, United States
     index: 1
 date: 4 July 2026
 bibliography: paper.bib
