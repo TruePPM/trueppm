@@ -384,6 +384,47 @@ test.describe('Project Settings → Workflow (#521)', () => {
       .toEqual(expect.objectContaining({ board_cadence: 'continuous' }));
   });
 
+  // Board cadence — failed project GET (#3542). Before the fix, `isLoading ||
+  // !project` never cleared on a failed GET (`isLoading` settles to false on a
+  // terminal failure, but `!project` stays true forever) — the section pulsed
+  // a skeleton placeholder with no error and no retry.
+  test('a failed project GET surfaces Retry on Board cadence, not a perpetual skeleton', async ({
+    page,
+  }) => {
+    const captures: Captures = {};
+    await setup(page, captures);
+
+    let requestCount = 0;
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => {
+      requestCount += 1;
+      // The query client retries a failed GET once before settling into
+      // `isError` (src/lib/queryClient.ts).
+      if (requestCount <= 2) {
+        return r.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'boom' }),
+        });
+      }
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(FIXTURE_PROJECT),
+      });
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/workflow`);
+
+    const cadence = page.getByRole('region', { name: /Board cadence/i });
+    await expect(cadence.getByText("Couldn't load board cadence.")).toBeVisible();
+    // Load-bearing: "an error is shown" would also pass if a skeleton rendered too.
+    await expect(cadence.locator('[class*="animate-pulse"]')).toHaveCount(0);
+    await expect(cadence.getByRole('radiogroup')).toHaveCount(0);
+
+    await cadence.getByRole('button', { name: 'Retry' }).click();
+    await expect(cadence.getByRole('radio', { name: /Sprint-based/i })).toBeVisible();
+  });
+
   // Per-column aging threshold (#410, ADR-0161)
   test('setting a per-column age limit PUTs board-config with age_threshold_days', async ({
     page,

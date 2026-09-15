@@ -302,3 +302,43 @@ describe('WorkspaceGroupsPage — contextual help (#2266)', () => {
     expect(learnMore).toHaveAttribute('href', expect.stringContaining('sharing-and-access'));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Failed GET (#3542)
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceGroupsPage — failed GET (#3542)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getMock.mockImplementation((url: string) => {
+      if (url.includes('/workspace/groups/')) return Promise.reject(new Error('boom'));
+      return Promise.resolve({ data: { results: [], next: null } });
+    });
+  });
+
+  // Before the fix, `groups` defaulted to `[]` on a failed GET, which read
+  // identically to a genuinely empty workspace — "No groups yet" is a lie on a
+  // 500, not a stall, but the user still has no error and no way forward.
+  it('renders an error with Retry, not "No groups yet", when the groups GET fails', async () => {
+    render(<WorkspaceGroupsPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => expect(screen.getByText("Couldn't load groups.")).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.queryByText(/No groups yet/i)).not.toBeInTheDocument();
+  });
+
+  it('retries the groups query on click', async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceGroupsPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument());
+    getMock.mockImplementation((url: string) => {
+      if (url.includes('/workspace/groups/'))
+        return Promise.resolve({ data: { results: GROUPS, next: null } });
+      return Promise.resolve({ data: { results: [], next: null } });
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.getByText('Avionics')).toBeInTheDocument());
+  });
+});

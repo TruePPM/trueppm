@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { Toggle } from '../components/Toggle';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
@@ -20,7 +21,7 @@ import { useUpdateWorkspaceSettings } from '../hooks/useUpdateWorkspaceSettings'
 import { DEFAULT_FEEDBACK_URL } from '@/lib/feedbackContext';
 
 export function WorkspaceFeedbackPage() {
-  const { data: ws, isLoading } = useWorkspaceSettings();
+  const { data: ws, isLoading, isError, refetch } = useWorkspaceSettings();
   const updateSettings = useUpdateWorkspaceSettings();
 
   const [enabled, setEnabled] = useState(true);
@@ -48,6 +49,24 @@ export function WorkspaceFeedbackPage() {
   }, [initial]);
 
   useDirtyForm({ values, initialValues: initial, onSave, onReset, apiReady: !!ws });
+
+  // A failed GET must read as broken, not as a stuck skeleton (rule 246, #3542).
+  // `isLoading` settles to false on a terminal failure, but `!ws` never clears —
+  // without this branch the placeholder below pulses forever.
+  if (isError) {
+    return (
+      <div>
+        <SettingsPageTitle title="Feedback" />
+        <div className="px-6 py-8">
+          <QueryErrorState
+            variant="inline"
+            message="Couldn't load feedback settings."
+            onRetry={() => void refetch()}
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading || !ws) {
     return (

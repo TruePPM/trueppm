@@ -44,7 +44,12 @@ const createMutate = vi.fn();
 let createMutation: { mutate: typeof createMutate; isPending: boolean; error: unknown };
 const revokeMutate = vi.fn();
 let revokeMutation: { mutate: typeof revokeMutate; isPending: boolean; error: unknown };
-let sharedLinksResult: { data: ShareLink[] | undefined; isLoading: boolean };
+let sharedLinksResult: {
+  data: ShareLink[] | undefined;
+  isLoading: boolean;
+  isError?: boolean;
+  refetch?: () => void;
+};
 
 vi.mock('../hooks/useShareLinks', () => ({
   useShareLinks: () => sharedLinksResult,
@@ -293,5 +298,30 @@ describe('ProjectSharingPage (#283 / #1486)', () => {
 
     expect(revokeMutate).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Revoke' })).toBeInTheDocument();
+  });
+});
+
+describe('ProjectSharingPage — failed GET (#3542)', () => {
+  const refetch = vi.fn();
+
+  // Before the fix, `links` fell through to `?? []` on a failed GET, which read
+  // identically to "No share links yet" — a lie on a 500, not a stall, but the
+  // user still had no error and no way forward.
+  it('renders an error with Retry, not "No share links yet", when the links GET fails', () => {
+    sharedLinksResult = { data: undefined, isLoading: false, isError: true, refetch };
+    render(<ProjectSharingPage />);
+
+    expect(screen.getByText("Couldn't load share links.")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.queryByText(/No share links yet/i)).not.toBeInTheDocument();
+  });
+
+  it('retries the share-links query on click', async () => {
+    const user = userEvent.setup();
+    sharedLinksResult = { data: undefined, isLoading: false, isError: true, refetch };
+    render(<ProjectSharingPage />);
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(refetch).toHaveBeenCalledTimes(1);
   });
 });

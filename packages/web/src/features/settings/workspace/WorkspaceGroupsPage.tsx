@@ -6,6 +6,7 @@ import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { GroupManageDrawer } from './GroupManageDrawer';
 import { FieldHelp } from '@/components/FieldHelp';
 import { CloseIcon } from '@/components/Icons';
+import { QueryErrorState } from '@/components/QueryErrorState';
 
 // Below this member count the card shows member NAMES (who is in the group);
 // at or above it the roster collapses to the overlapping initial stack (an
@@ -240,7 +241,7 @@ function GroupCard({ group, onDelete, onManage, hasError }: GroupCardProps) {
 
 /** Workspace > Groups & teams page. */
 export function WorkspaceGroupsPage() {
-  const { data: groups = [], isLoading } = useWorkspaceGroups();
+  const { data: groups = [], isLoading, isError, refetch } = useWorkspaceGroups();
   const createGroup = useCreateGroup();
   const deleteGroup = useDeleteGroup();
 
@@ -404,7 +405,16 @@ export function WorkspaceGroupsPage() {
       )}
 
       <div className="px-6 pt-5 pb-8">
-        {isLoading ? (
+        {/* A failed GET must read as broken, not as "no groups exist" (rule 246,
+            #3542) — `groups` defaults to [] on error, which otherwise reads
+            identically to a genuinely empty workspace. */}
+        {isError ? (
+          <QueryErrorState
+            variant="inline"
+            message="Couldn't load groups."
+            onRetry={() => void refetch()}
+          />
+        ) : isLoading ? (
           <div className="grid grid-cols-2 gap-3.5">
             {[1, 2, 3, 4].map((i) => (
               <div

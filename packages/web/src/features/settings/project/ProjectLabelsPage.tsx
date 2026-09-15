@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { canManageLabels, canCreateLabel } from '@/lib/roles';
@@ -39,7 +40,7 @@ export function ProjectLabelsPage() {
   const canManage = canManageLabels(role);
   const canCreate = canCreateLabel(role);
 
-  const { data: labels = [], isLoading } = useLabels(projectId);
+  const { data: labels = [], isLoading, isError, refetch } = useLabels(projectId);
   const createLabel = useCreateLabel(projectId);
   const updateLabel = useUpdateLabel(projectId);
   const deleteLabel = useDeleteLabel(projectId);
@@ -88,9 +89,22 @@ export function ProjectLabelsPage() {
           container edges: misaligned left with the title strip and clipped right
           behind the scrollbar gutter (issue 1988). */}
       <div className="px-6 pb-8 max-w-[720px]">
-        {isLoading && <p className="text-sm text-neutral-text-disabled">Loading labels…</p>}
+        {/* A failed GET must read as broken, not as "no labels exist" (rule 246,
+            #3542) — `labels` defaults to [] on error, which otherwise reads
+            identically to a genuinely empty catalog. */}
+        {isError && (
+          <QueryErrorState
+            variant="inline"
+            message="Couldn't load labels."
+            onRetry={() => void refetch()}
+          />
+        )}
 
-        {!isLoading && sorted.length === 0 && (
+        {!isError && isLoading && (
+          <p className="text-sm text-neutral-text-disabled">Loading labels…</p>
+        )}
+
+        {!isError && !isLoading && sorted.length === 0 && (
           <p className="text-sm text-neutral-text-secondary">
             No labels yet.{' '}
             {canCreate
