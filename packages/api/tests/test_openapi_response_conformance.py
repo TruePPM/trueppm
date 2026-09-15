@@ -35,7 +35,7 @@ from __future__ import annotations
 import inspect
 import json
 import re
-from datetime import date
+from datetime import date, time
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -47,6 +47,8 @@ from jsonschema import Draft202012Validator
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.agents.models import AgentActionVerdict, AgentActorKind
+from trueppm_api.apps.agents.services import record_agent_action
 from trueppm_api.apps.projects.models import (
     Calendar,
     DurationChangePercentPolicy,
@@ -54,6 +56,7 @@ from trueppm_api.apps.projects.models import (
     Sprint,
     SprintState,
     Task,
+    TaskRecurrenceRule,
 )
 from trueppm_api.apps.workspace.models import (
     AuditEventType,
@@ -607,6 +610,71 @@ def test_the_runtime_check_rejects_the_pre_fix_body(
 
     assert errors, "the cursor envelope must NOT validate against the old `type: array`"
     assert "is not of type 'array'" in errors[0].message
+
+
+# ---------------------------------------------------------------------------
+# Runtime conformance: #3811 — two schemathesis findings (job #16501510109)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_agent_action_refusal_reason_blank_matches_its_declared_schema(
+    committed_schema: dict[str, Any], admin_client: APIClient, project: Project
+) -> None:
+    """An allowed action's ``refusal_reason`` is ``""`` — the schema must allow it.
+
+    ``AgentAction.refusal_reason`` is blank (never null) for every non-refused
+    verdict (``services.py`` forces it), and the value is folded into the
+    tamper-evident ``record_hash`` — it can never be normalized away with a data
+    migration the way #2600 fixed the analogous ``estimate_status`` gap. Before the
+    fix, ``ModelSerializer`` auto-build stripped ``allow_blank`` once
+    ``read_only_fields`` marked the field read-only, so drf-spectacular's
+    ``AgentActionRefusalReasonEnum`` declared only ``["identity", "policy"]`` and
+    every allowed-verdict row — the overwhelming majority of the table — violated
+    its own published contract.
+    """
+    record_agent_action(
+        actor_kind=AgentActorKind.MCP_TOKEN,
+        actor_token=None,
+        principal=None,
+        action="task-list",
+        method="GET",
+        capability_used="mcp:read",
+        verdict=AgentActionVerdict.ALLOWED,
+        payload_hash="0" * 64,
+        project_id=project.pk,
+    )
+
+    response = admin_client.get("/api/v1/agent-actions/")
+
+    body = response.json()
+    assert body["results"][0]["refusal_reason"] == "", "sanity: this is the value under test"
+    assert_response_matches_schema(committed_schema, response, "/api/v1/agent-actions/")
+
+
+@pytest.mark.django_db
+def test_recurrence_rule_time_of_day_matches_its_declared_schema(
+    committed_schema: dict[str, Any], admin_client: APIClient, project: Project
+) -> None:
+    """A bare ``HH:MM:SS`` must validate — ``format: "time"`` demanded an offset it never sends.
+
+    Every DRF ``TimeField`` in this schema is a local wall-clock time-of-day (a
+    daily notification slot here, a retention run time elsewhere) rather than a
+    UTC instant, and DRF serializes it as ``HH:MM:SS`` with no offset.
+    drf-spectacular's default ``format: "time"`` mapping validates against RFC
+    3339 ``full-time``, which requires a trailing offset — so this field, and the
+    eleven other ``TimeField``s in the schema, failed unconditionally regardless of
+    the value. The fix drops the misleading ``format`` for a ``pattern`` matching
+    the real serialization.
+    """
+    task = Task.objects.create(project=project, name="Recurring", duration=1)
+    TaskRecurrenceRule.objects.create(task=task, time_of_day=time(9, 30))
+
+    response = admin_client.get("/api/v1/recurrence-rules/")
+
+    body = response.json()
+    assert body["results"][0]["time_of_day"] == "09:30:00", "sanity: this is the value under test"
+    assert_response_matches_schema(committed_schema, response, "/api/v1/recurrence-rules/")
 
 
 class _FakeResponse:
