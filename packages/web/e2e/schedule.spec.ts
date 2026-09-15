@@ -542,6 +542,12 @@ test.describe('Schedule task edit — failed rename rolls back (#1518)', () => {
           health: 'AUTO', visibility: 'WORKSPACE', timezone: '', default_view: 'SCHEDULE', lead: null,
           lead_detail: null, iteration_label: 'Sprint', is_archived: false, archived_at: null, archived_by: null,
           recalculated_at: null, is_sample: false, program_detail: null, server_version: 1,
+          // `can_author` is the project-level authoring gate (#3034, ADR-0773
+          // §(d)) — since #3812 it also drives ScheduleView's `readOnly`,
+          // which now reaches TaskDetailDrawer's Save gate. Without it the
+          // drawer refuses to save regardless of the members-role override
+          // below, and the PATCH this test asserts on never fires.
+          can_author: true,
         }),
       ),
     );

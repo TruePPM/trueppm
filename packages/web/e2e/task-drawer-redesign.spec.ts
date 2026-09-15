@@ -130,7 +130,10 @@ const FIXTURE_HISTORY = {
   ],
 };
 
-async function gotoSchedule(page: Page, opts: { role?: number; canEdit?: boolean } = {}) {
+async function gotoSchedule(
+  page: Page,
+  opts: { role?: number; canEdit?: boolean; canAuthor?: boolean } = {},
+) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -240,6 +243,19 @@ async function gotoSchedule(page: Page, opts: { role?: number; canEdit?: boolean
         is_sample: false,
         program_detail: null,
         server_version: 1,
+        // ScheduleView's `hasEditRights` (the toolbar's mode chip / "+ Item" /
+        // structure gate, and — since #3812 — the drawer's Save gate) is
+        // `canAuthorPlan(project.can_author)`, a project-level verdict
+        // distinct from the per-task `can_edit` above. Every spec in this file
+        // predates the Read-mode distinction and assumes an editor who opened
+        // the drawer can always Save, so this defaults to the per-task
+        // `canEdit` the spec asked for (both undefined → true, the file's own
+        // implicit default of an editor with no restrictions) rather than to
+        // `false` — an explicit Viewer (`canEdit: false`) gets `can_author:
+        // false` too, which changes nothing for it since RBAC alone already
+        // raises the chip. #3812's own Read-mode specs pass `canAuthor`
+        // explicitly and win over this default.
+        can_author: opts.canAuthor ?? opts.canEdit ?? true,
       }),
     }),
   );
@@ -979,6 +995,70 @@ test.describe('TaskDetailDrawer — editor sees controls (ADR-0133 contrast)', (
     const drawer = await openDrawer(page, 'Discovery & Design');
     await expect(drawer.getByText('View only')).toHaveCount(0);
     await expect(drawer.getByRole('combobox', { name: /Task status/i })).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #3812 — extends the #3809 Read-mode regression net (row rename, cell edits,
+// structural acts) to the drawer's own Properties button, which #3809 left
+// out: the drawer computed its edit gate from RBAC alone, so an editor with
+// edit rights who switched to Read mode (ADR-0776 §5) could still open
+// Properties and save straight through the batched name/notes/estimate PATCH.
+// ---------------------------------------------------------------------------
+test.describe('TaskDetailDrawer — Read mode (#3812, ADR-0776 §5, web rule 302)', () => {
+  test.beforeEach(async ({ page }) => {
+    // An editor with edit rights (matches #3809's own fixture) who has chosen
+    // Read mode via the toolbar's mode chip — the click path, parity with how
+    // #3809 exercised the row (the chord itself only binds in build mode).
+    // `canAuthor: true` is what makes the mode chip itself render — it is
+    // gated on the project-level `hasEditRights`, not the per-task `canEdit`.
+    await gotoSchedule(page, { role: 300, canEdit: true, canAuthor: true });
+    await page.getByTestId('schedule-mode-chip').click();
+    await page.getByRole('menuitemcheckbox', { name: /Author mode/ }).click();
+  });
+
+  test('shows a Read-mode chip distinct from the RBAC View-only chip, and keeps the name field typeable', async ({
+    page,
+  }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+
+    const chip = drawer.getByText('View only');
+    await expect(chip).toBeVisible();
+    await expect(chip).toHaveAttribute('aria-label', /Read mode/);
+
+    // Rule 302: the field stays reachable and typeable — Read mode is the
+    // editor's own choice, not a missing entitlement, so nothing is disabled
+    // up front the way the RBAC Viewer case disables it.
+    const name = drawer.getByRole('textbox', { name: 'Task name' });
+    await expect(name).not.toHaveAttribute('readonly');
+    await name.fill('Discovery & Design — edited');
+    await expect(name).toHaveValue('Discovery & Design — edited');
+  });
+
+  test('Save refuses instead of committing, and the row toast explains why', async ({ page }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    const name = drawer.getByRole('textbox', { name: 'Task name' });
+    await name.fill('Discovery & Design — edited');
+
+    let patched = false;
+    await page.route('**/api/v1/tasks/**', async (route) => {
+      if (route.request().method() === 'PATCH') patched = true;
+      await route.continue();
+    });
+
+    await drawer.getByRole('button', { name: 'Save' }).click();
+
+    // Same message the row's own refused rename/cell-edit/structural act shows
+    // (#3809's `READ_ONLY_REFUSAL`), surfaced through the Schedule's own action
+    // toast rather than a drawer-local one.
+    await expect(page.getByTestId('schedule-action-toast')).toContainText(
+      'Read only — switch to Author to edit.',
+    );
+    expect(patched).toBe(false);
+    // The refusal doesn't discard the draft — the typed edit stays on screen
+    // and the save bar stays up, ready for a retry after switching to Author.
+    await expect(name).toHaveValue('Discovery & Design — edited');
+    await expect(drawer.getByRole('button', { name: 'Save' })).toBeVisible();
   });
 });
 
