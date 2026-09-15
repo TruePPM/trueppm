@@ -5980,6 +5980,55 @@ scheduler:publish:
     # `dev` extra is opt-in, so a default sync keeps build/dev tooling out.
     - UV_PYTHON_PREFERENCE=only-system uv sync --frozen --no-editable
     - cyclonedx-py environment .venv/bin/python --validate --output-format JSON --output-reproducible --sv 1.6 -o dist/sbom.cdx.json
+    # Push the SBOM to this project's Generic Package Registry so it has a
+    # STABLE, versioned URL (#3819). A job-artifact link is keyed to a job ID,
+    # so it can neither be constructed ahead of time nor survive the pipeline
+    # being pruned; this one is derived from package name + version + file name
+    # alone, which is what lets scheduler:release below link it as a first-class
+    # Release asset. CI_JOB_TOKEN is already scoped to this project's own
+    # registries, so no extra credential is needed (unlike the GHCR path).
+    #
+    # Uploaded BEFORE twine for the same reason the SBOM is generated before it:
+    # never let the irreversible PyPI upload succeed and then fail the job on
+    # something recoverable. Publishing an SBOM for a version that then fails to
+    # reach PyPI is harmless — scheduler:release only runs when this whole job
+    # (twine included) passes, so no Release ever links an orphan.
+    #
+    # Written in Python, not curl: this job runs on the vanilla python:3.11-slim
+    # base, which ships NEITHER curl NOR wget. The job already does its PyPI
+    # mint-token exchange with urllib for the same reason.
+    - |
+      SBOM_PACKAGE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/trueppm-scheduler-sbom/${PKG_VERSION}/sbom.cdx.json"
+      python - "$SBOM_PACKAGE_URL" <<'PY'
+      import os, sys, urllib.error, urllib.request
+
+      url = sys.argv[1]
+      with open("dist/sbom.cdx.json", "rb") as fh:
+          payload = fh.read()
+      req = urllib.request.Request(
+          url,
+          data=payload,
+          method="PUT",
+          headers={
+              "JOB-TOKEN": os.environ["CI_JOB_TOKEN"],
+              "Content-Type": "application/json",
+          },
+      )
+      try:
+          with urllib.request.urlopen(req) as resp:
+              print(f"SBOM published ({resp.status}): {url}")
+      except urllib.error.HTTPError as e:
+          # GitLab states the reason (bad version format, job-token scope) in
+          # the response body; surface it instead of a bare HTTPError traceback.
+          sys.stderr.write(f"Generic Package Registry upload failed: HTTP {e.code} {e.reason}\n")
+          sys.stderr.write(e.read().decode("utf-8", "replace") + "\n")
+          sys.exit(1)
+      PY
+      # Hand the URL (not just the version) to scheduler:release via a dotenv
+      # report, so the Release asset link and the upload cannot drift apart —
+      # there is exactly one place the URL is built.
+      printf 'SCHEDULER_VERSION=%s\nSCHEDULER_SBOM_URL=%s\n' \
+        "$PKG_VERSION" "$SBOM_PACKAGE_URL" > "${CI_PROJECT_DIR}/scheduler-release.env"
     # Sign PEP 740 attestations for the SAME sdist + wheel uploaded below — the
     # exact artifacts the SBOM is generated from — NOT the SBOM itself, which is
     # not a PyPI distribution file (the explicit *.tar.gz / *.whl globs exclude
@@ -6016,17 +6065,22 @@ scheduler:publish:
     - TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_API_TOKEN" twine upload --attestations dist/*.tar.gz dist/*.whl dist/*.publish.attestation --non-interactive --verbose
   artifacts:
     # Keep the built wheel + sdist + SBOM as a CI artifact for traceability.
-    # `never` (not the usual 30-day default) because dist/sbom.cdx.json is
-    # this package's ONLY durable SBOM location today — it isn't attached to
-    # the PyPI upload (twine's --attestations globs deliberately exclude it;
-    # it isn't a PyPI file) or to the GitLab Release. A 30-day expiry made
-    # every published version's SBOM silently unrecoverable a month after
-    # release, discovered auditing SBOM coverage at the 0.4.0-beta.1 cut
-    # (#3817). Attaching it to the GitLab Release properly (a scheduler
-    # release-cli job) is tracked separately and would let this revert to a
-    # normal retention once it exists.
+    # The Generic Package Registry copy pushed above is now the SBOM's primary,
+    # citable location (#3819) — this artifact is the second copy. It stays at
+    # `never` (not the usual 30-day default) rather than reverting to a normal
+    # retention, because the registry path cannot be exercised until the first
+    # real `scheduler-v*` tag: dropping the fallback in the same change that
+    # introduces its replacement would leave nothing behind if that first tag
+    # goes wrong. A 30-day expiry is what made every published version's SBOM
+    # silently unrecoverable a month after release (#3817). Revisit once a tag
+    # has actually produced a registry entry.
     paths:
       - packages/scheduler/dist/
+    # Carries SCHEDULER_VERSION + SCHEDULER_SBOM_URL to scheduler:release, which
+    # cannot recompute them itself: the `release:` keyword expands CI/CD
+    # variables, not shell variables set in a `script:` block.
+    reports:
+      dotenv: scheduler-release.env
     expire_in: never
 
 # scheduler:publish:test (TestPyPI on every main merge) was removed earlier.
@@ -6152,6 +6206,36 @@ mcp:publish:
     # keeps test/lint tooling out of the runtime SBOM.
     - UV_PYTHON_PREFERENCE=only-system uv sync --frozen --no-editable
     - cyclonedx-py environment .venv/bin/python --validate --output-format JSON --output-reproducible --sv 1.6 -o dist/sbom.cdx.json
+    # Push the SBOM to the Generic Package Registry at a stable, versioned URL —
+    # see the matching block on scheduler:publish for why it is here rather than
+    # after twine, and why it is Python rather than curl (#3819).
+    - |
+      SBOM_PACKAGE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/trueppm-mcp-sbom/${PKG_VERSION}/sbom.cdx.json"
+      python - "$SBOM_PACKAGE_URL" <<'PY'
+      import os, sys, urllib.error, urllib.request
+
+      url = sys.argv[1]
+      with open("dist/sbom.cdx.json", "rb") as fh:
+          payload = fh.read()
+      req = urllib.request.Request(
+          url,
+          data=payload,
+          method="PUT",
+          headers={
+              "JOB-TOKEN": os.environ["CI_JOB_TOKEN"],
+              "Content-Type": "application/json",
+          },
+      )
+      try:
+          with urllib.request.urlopen(req) as resp:
+              print(f"SBOM published ({resp.status}): {url}")
+      except urllib.error.HTTPError as e:
+          sys.stderr.write(f"Generic Package Registry upload failed: HTTP {e.code} {e.reason}\n")
+          sys.stderr.write(e.read().decode("utf-8", "replace") + "\n")
+          sys.exit(1)
+      PY
+      printf 'MCP_VERSION=%s\nMCP_SBOM_URL=%s\n' \
+        "$PKG_VERSION" "$SBOM_PACKAGE_URL" > "${CI_PROJECT_DIR}/mcp-release.env"
     # Sign PEP 740 attestations for the SAME sdist + wheel uploaded below. The
     # explicit globs exclude dist/sbom.cdx.json, which is not a PyPI file.
     - python -m pypi_attestations sign dist/*.tar.gz dist/*.whl
@@ -6182,10 +6266,13 @@ mcp:publish:
     - TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_API_TOKEN" twine upload --attestations dist/*.tar.gz dist/*.whl dist/*.publish.attestation --non-interactive --verbose
   artifacts:
     # Keep the built wheel + sdist + SBOM as a CI artifact for traceability.
-    # `never` (not the usual 30-day default) — see the matching comment on
-    # scheduler:publish; the same reasoning applies here (#3817).
+    # `never`, and the Generic Package Registry copy is the primary location —
+    # see the matching comment on scheduler:publish; the same reasoning applies
+    # here (#3817, #3819).
     paths:
       - packages/mcp/dist/
+    reports:
+      dotenv: mcp-release.env
     expire_in: never
 
 # BEFORE THE FIRST `mcp-v*` TAG (one-time, human, cannot be automated):
@@ -6719,3 +6806,85 @@ release:create:
     tag_name: '$CI_COMMIT_TAG'
     name: 'TruePPM $CI_COMMIT_TAG'
     description: './release_notes.md'
+
+# ---------------------------------------------------------------------------
+# RELEASE — per-package GitLab Release entries (#3819).
+#
+# Trigger: `scheduler-v*` / `mcp-v*` tags. release:create above only matches
+# `^v[0-9]+` (the main app tag), so before these jobs the two PyPI packages had
+# no GitLab Release entry at all — their SBOM was reachable only by browsing the
+# tag pipeline's job artifacts, which is a job-ID-keyed URL nobody can cite.
+#
+# Both jobs are deliberately thin. They exist to hang the SBOM off the Release
+# page as a first-class asset link; they are NOT a second changelog. The upload
+# itself happens in the matching publish job (which already has the file), and
+# the URL travels here in that job's dotenv report — so the link on the Release
+# and the location of the upload are built in exactly one place and cannot
+# drift. `needs: artifacts: true` is required for the dotenv variables to
+# arrive: the `release:` keyword expands CI/CD variables, and a dotenv report
+# is the only way to turn a value computed at job time into one.
+#
+# Both reuse release:create's pinned release-cli digest — keep the three in
+# lockstep when bumping.
+# ---------------------------------------------------------------------------
+
+scheduler:release:
+  stage: deploy
+  image: registry.gitlab.com/gitlab-org/release-cli:v0.24.0@sha256:3f52d526f48e8d10625c722fa6d6423ee82aadeae1b1aa91f07b62551d96dacf
+  needs:
+    - job: scheduler:publish
+      artifacts: true
+  rules:
+    # Must stay identical to scheduler:publish's rule — a Release for a tag that
+    # never published, or a publish with no Release, is worse than neither.
+    - if: '$CI_COMMIT_TAG =~ /^scheduler-v\d+\.\d+\.\d+/'
+  script:
+    - |
+      # Fail loudly if the dotenv plumbing broke: an empty SCHEDULER_SBOM_URL
+      # would otherwise create a Release whose one asset link is a 404.
+      if [ -z "$SCHEDULER_VERSION" ] || [ -z "$SCHEDULER_SBOM_URL" ]; then
+        echo "ERROR: SCHEDULER_VERSION / SCHEDULER_SBOM_URL missing."
+        echo "They come from scheduler:publish's dotenv report (scheduler-release.env)."
+        exit 1
+      fi
+      printf '**trueppm-scheduler %s** — published to [PyPI](https://pypi.org/project/trueppm-scheduler/%s/).\n\nRelease notes: [packages/scheduler/CHANGELOG.md](%s/-/blob/%s/packages/scheduler/CHANGELOG.md)\n\nThe linked **sbom.cdx.json** is this version CycloneDX SBOM, generated from the locked runtime closure and served from the GitLab Generic Package Registry.\n' \
+        "$SCHEDULER_VERSION" "$SCHEDULER_VERSION" "$CI_PROJECT_URL" "$CI_COMMIT_TAG" > release_notes.md
+  release:
+    tag_name: '$CI_COMMIT_TAG'
+    name: 'trueppm-scheduler $SCHEDULER_VERSION'
+    description: './release_notes.md'
+    assets:
+      links:
+        - name: 'CycloneDX SBOM (sbom.cdx.json)'
+          url: '$SCHEDULER_SBOM_URL'
+          link_type: package
+
+mcp:release:
+  stage: deploy
+  image: registry.gitlab.com/gitlab-org/release-cli:v0.24.0@sha256:3f52d526f48e8d10625c722fa6d6423ee82aadeae1b1aa91f07b62551d96dacf
+  needs:
+    - job: mcp:publish
+      artifacts: true
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^mcp-v\d+\.\d+\.\d+/'
+  script:
+    - |
+      if [ -z "$MCP_VERSION" ] || [ -z "$MCP_SBOM_URL" ]; then
+        echo "ERROR: MCP_VERSION / MCP_SBOM_URL missing."
+        echo "They come from mcp:publish's dotenv report (mcp-release.env)."
+        exit 1
+      fi
+      # packages/mcp has no standalone CHANGELOG.md (mcp:publish says so where it
+      # skips the per-package release-notes gate scheduler:publish enforces), so
+      # this points at the root CHANGELOG.md, which is its release record.
+      printf '**trueppm-mcp %s** — published to [PyPI](https://pypi.org/project/trueppm-mcp/%s/).\n\nRelease notes: [CHANGELOG.md](%s/-/blob/%s/CHANGELOG.md)\n\nThe linked **sbom.cdx.json** is this version CycloneDX SBOM, generated from the locked runtime closure and served from the GitLab Generic Package Registry.\n' \
+        "$MCP_VERSION" "$MCP_VERSION" "$CI_PROJECT_URL" "$CI_COMMIT_TAG" > release_notes.md
+  release:
+    tag_name: '$CI_COMMIT_TAG'
+    name: 'trueppm-mcp $MCP_VERSION'
+    description: './release_notes.md'
+    assets:
+      links:
+        - name: 'CycloneDX SBOM (sbom.cdx.json)'
+          url: '$MCP_SBOM_URL'
+          link_type: package
