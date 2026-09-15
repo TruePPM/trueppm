@@ -123,7 +123,18 @@ The set is open-ended and grows as features land; current event types include:
   relates-to/blocks/duplicates feature, that is **Task relations** above, not
   this family.
 - **Scheduling**: `cpm_complete`, `cpm_error`, `task_run_started`,
-  `task_run_progress`, `task_run_completed`, `task_run_failed`, `task_run_cancelled`
+  `task_run_progress`, `task_run_completed`, `task_run_failed`, `task_run_cancelled`.
+  `cpm_complete`'s payload is `{"project_finish": <ISO date or null>,
+  "critical_path": [<task id>, ...], "status_date": <ISO date or null>}` —
+  `status_date` is the CPM data date this run resolved (`Project.status_date`
+  if set, otherwise today; ADR-0752 §4), echoed so a consumer knows which
+  "today" produced the dates. On the program-scoped pass (ADR-0120 D3,
+  escalated when the project's program holds an accepted cross-project edge)
+  `status_date` is always `null`: member projects can carry different
+  `status_date` values and the merged run floors none of them, so no single
+  value would honestly describe what was computed. Both dispatch paths build
+  this payload through one shared helper so the key set cannot drift between
+  them (#3776).
 - **Baselines**: `baseline_created`, `baseline_activated`, `baseline_deleted`
 - **Risks**: `risk_created`, `risk_updated`, `risk_deleted`, `risks_imported`
 - **Labels**: `label_created`, `label_updated`, `label_deleted` (catalog changes;

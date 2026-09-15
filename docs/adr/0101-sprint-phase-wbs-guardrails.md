@@ -157,6 +157,47 @@ ADR-0072 Enterprise may register custom roles at high ordinals, so a `role >= Ro
 check *alone* could let an org-admin role silently impose a block; gating enforcement on an
 explicit team-ack flag (not on role) closes that bypass and preserves sprint sovereignty.
 
+> **Implementation status (2026-09-14, #3780): the seam named above is not what shipped,
+> and the carrier has changed.** Verified against `apps/projects/` on `main`: the
+> `guardrail_policy_resolving` signal was never implemented — the string appears only in
+> prose (this ADR and a `ScopeChangeStatus` docstring), `GuardrailPolicySource.EXTERNAL`
+> has one non-test reference (the gate in `effective_level()`), and
+> `ProjectGuardrailPolicySerializer` marks `policy_source`/`source_label` read-only. So
+> for 0.4 the contract was an **implicit direct model write**: Enterprise was expected to
+> `save()` the OSS row itself, with no declared shape, no validation, and nothing any
+> boundary gate could enumerate.
+>
+> **Amendment.** The seam is now a declared OSS **write entrypoint** —
+> `apps/projects/guardrail_policy_source.py`:
+> `apply_external_guardrail_policy(project, *, levels, source_label)` and
+> `clear_external_guardrail_policy(project)`, with
+> `EXTERNAL_GUARDRAIL_POLICY_CONTRACT_VERSION` and `ExternalGuardrailPolicyError`.
+> Three reasons a **push** entrypoint replaces the pull-shaped signal:
+>
+> 1. **A signal is the wrong carrier for a value.** `Signal.send()` has many receivers
+>    and no single answer, and the project's own rule (CLAUDE.md, `make
+>    extension-signals-check`) requires `dispatch_extension_signal()`, which deliberately
+>    swallows receiver exceptions — a resolver that raised would return "no policy"
+>    silently. The single-provider `register_*` idiom (ADR-0029/0049,
+>    `core.extension_providers.guard_single_provider`) superseded signals for this shape
+>    across eleven hooks.
+> 2. **Pull is wrong for this particular value.** Every other hook pulls a *predicate*
+>    ("is enforcement active?"). Here Enterprise owns the policy *content*. Pulling would
+>    put a cross-repo call on the task-write validation path, which reads the policy on
+>    every write, and would make the policy unreadable offline, over MCP, or with
+>    Enterprise down. The stored `source`/`source_label` columns this ADR already
+>    specified are a push design; the signal sentence was the part that never fit.
+> 3. **The sovereignty claim needed a supported path to be true.** A direct ORM writer
+>    can set `source = EXTERNAL` and `acknowledged_by_team = True` in one `save()`, and
+>    the inertness gate evaporates. Nothing on a Django model can prevent that. The
+>    entrypoint refuses to touch the acknowledgement flag at all, and *resets* it when a
+>    policy's content changes (a team acknowledges a specific policy, not a slot), so the
+>    bypass is now a documented contract violation rather than the only available route.
+>
+> The team-ack gate, the banner, and `effective_level()` are unchanged — they remain
+> OSS-enforced exactly as decided above. Consumer: trueppm-enterprise#200. Enumeration
+> of write-side seams by the extension-point coverage gate is #3199.
+
 ### §4 Tier 3 — Health surfacing (never blocks)
 Read-only badges on planning surfaces, computed from existing data: "N tasks in no sprint
 and no phase", "Sprint 5 spans 4 phases", "3 summary tasks in sprints". These are the
@@ -241,9 +282,12 @@ both via `ENUM_NAME_OVERRIDES` (known regression, see project memory).
   (`goal_impact`). Regenerate OpenAPI **after merging origin/main**; add `ENUM_NAME_OVERRIDES`
   for new enums.
 - **OSS or Enterprise**: **OSS** (Tier 0–3, team-owned Tier-2, both audit logs, badges).
-  Enterprise registers against the `guardrail_policy_resolving` signal + slot registry for
-  cross-program policy templates + immutable tamper-evident audit + org-imposed enforcement
-  (with the team-ack gate + banner enforced in OSS). OSS must never import `trueppm_enterprise`.
+  Enterprise calls the OSS write entrypoint `guardrail_policy_source.
+  apply_external_guardrail_policy` (amended 2026-09-14, #3780 — *not* the
+  `guardrail_policy_resolving` signal this ADR originally named, which was never built)
+  + the slot registry for cross-program policy templates + immutable tamper-evident audit
+  + org-imposed enforcement (with the team-ack gate + banner enforced in OSS). OSS must
+  never import `trueppm_enterprise`.
 - **Follow-up ADR**: mid-sprint scope-injection **approve-gate** (pending-acceptance state,
   commitment/velocity exclusion, accept/reject + RBAC).
 - **Coordinate with #874** (task-history-endpoint-dead-view): add `sprint`/`wbs_path`

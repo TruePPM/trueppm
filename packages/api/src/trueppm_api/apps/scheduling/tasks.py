@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import operator
 import uuid
@@ -1453,6 +1454,53 @@ def _run_schedule(
     )
 
 
+def _broadcast_cpm_complete(
+    *,
+    project_id: str,
+    project_finish: str | None,
+    critical_path: list[str],
+    status_date: str | None,
+) -> None:
+    """Emit ``cpm_complete`` with the one payload shape shared by both CPM passes.
+
+    Both the single-project write-back (``_finalize_status_date_floor_arming``)
+    and the program-scoped write-back (``_register_program_broadcasts``) route
+    through this one function so the two passes can never again drift on this
+    event's keys (#3776 — before this fix they built the payload as two
+    separate dict *variables*, one carrying ``status_date`` and one not, and
+    both landed in ``test_broadcast_payload_shape.py``'s unscannable bucket,
+    which is exactly what let the drift go undetected). The literal dict below
+    is what makes this call site — now the *only* ``cpm_complete`` call site —
+    scannable by that gate instead of contributing two entries to it.
+
+    Call from inside a ``transaction.on_commit()`` registration (via
+    ``functools.partial`` to pin the arguments at registration time, matching
+    the default-arg-binding pattern used elsewhere in this module) so clients
+    only ever see a payload for a write that actually committed.
+
+    ``status_date`` is the CPM data date this run resolved (ADR-0752 §4),
+    echoed so a consumer knows which "today" produced these dates. It is
+    ``None`` on the program-scoped pass: ``gather_program_schedule`` runs the
+    merged engine with ``status_date=None`` on purpose, because member
+    projects can carry different ``status_date`` values and no single one
+    would honestly describe what the merged pass floored against — the
+    program view shows the earliest honest schedule, not a data-date floor.
+    Echoing ``None`` states that plainly rather than fabricating a value or
+    silently dropping the key.
+    """
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    broadcast_board_event(
+        project_id=project_id,
+        event_type="cpm_complete",
+        payload={
+            "project_finish": project_finish,
+            "critical_path": critical_path,
+            "status_date": status_date,
+        },
+    )
+
+
 def _finalize_status_date_floor_arming(
     project_id: str,
     *,
@@ -1485,8 +1533,11 @@ def _finalize_status_date_floor_arming(
     matching ``_register_program_broadcasts`` below: the ``.update()`` call
     needs to commit or roll back with the Task writeback, and ``on_commit``
     callbacks must be registered before that block exits. Default-arg binding
-    pins each payload against late mutation.
+    (and, for ``cpm_complete``, ``functools.partial``) pins each payload
+    against late mutation.
     """
+    from typing import cast
+
     from django.db import transaction
     from django.utils import timezone
 
@@ -1499,12 +1550,24 @@ def _finalize_status_date_floor_arming(
         # bookkeeping field, matching the existing recalculated_at pattern.
         Project.objects.filter(pk=project_id).update(status_date_floor_armed_at=timezone.now())
 
-    def _broadcast_cpm_complete(
-        pid: str = project_id, pay: dict[str, object] = cpm_payload
-    ) -> None:
-        broadcast_board_event(project_id=pid, event_type="cpm_complete", payload=pay)
-
-    transaction.on_commit(_broadcast_cpm_complete)
+    # Routed through the shared _broadcast_cpm_complete() (#3776) so this and
+    # the program-scoped pass can never again ship cpm_complete with different
+    # keys. functools.partial evaluates its keyword arguments immediately,
+    # pinning cpm_payload's fields at registration time exactly like the
+    # default-arg pattern used for task_dates_updated just below. The casts
+    # only narrow cpm_payload's declared dict[str, object] value type back to
+    # what _run_schedule actually put there (str project_finish/status_date,
+    # list[str] critical_path) — this function never sees a program-pass
+    # cpm_payload, whose caller passes its own concretely-typed values instead.
+    transaction.on_commit(
+        functools.partial(
+            _broadcast_cpm_complete,
+            project_id=project_id,
+            project_finish=cast("str", cpm_payload["project_finish"]),
+            critical_path=cast("list[str]", cpm_payload["critical_path"]),
+            status_date=cast("str", cpm_payload["status_date"]),
+        )
+    )
 
     if not is_arming_status_date_floor:
 
@@ -1647,8 +1710,10 @@ def _register_program_broadcasts(
     project) and ``task_dates_updated`` delta per project, plus a forecast-capture,
     all deferred to commit (#896) so clients only ever see dates that persisted; a
     rollback broadcasts nothing. MUST be called from inside the writeback's
-    ``transaction.atomic()`` block. Default-arg binding pins each project's payload
-    against late mutation.
+    ``transaction.atomic()`` block. Default-arg binding (``task_dates_updated``,
+    the forecast capture) and ``functools.partial`` (``cpm_complete``, via the
+    shared ``_broadcast_cpm_complete()``) both pin each project's payload against
+    late mutation from this loop's next iteration.
 
     Two groupings, deliberately: ``by_project`` is the full write-back set and
     defines each project's ``project_finish`` (an *unmoved* late task still sets
@@ -1676,14 +1741,7 @@ def _register_program_broadcasts(
             (t.early_finish for t in project_tasks if t.early_finish is not None),
             default=None,
         )
-        cpm_payload: dict[str, object] = {
-            "project_finish": project_finish.isoformat() if project_finish else None,
-            "critical_path": project_crit,
-        }
         delta_payload = _member_cpm_delta(moved_by_project.get(p.id, []))
-
-        def _cpm_complete(pid: str = pid, pay: dict[str, object] = cpm_payload) -> None:
-            broadcast_board_event(project_id=pid, event_type="cpm_complete", payload=pay)
 
         def _dates(pid: str = pid, pay: dict[str, object] = delta_payload) -> None:
             broadcast_board_event(project_id=pid, event_type="task_dates_updated", payload=pay)
@@ -1694,7 +1752,22 @@ def _register_program_broadcasts(
 
             safe_capture_forecast_snapshot(pid, ForecastSnapshotTrigger.RECOMPUTE)
 
-        transaction.on_commit(_cpm_complete)
+        # Routed through the shared _broadcast_cpm_complete() (#3776) so this
+        # pass and the single-project write-back can never again ship
+        # cpm_complete with different keys — status_date=None documents that
+        # the merged program pass floors nothing (see that function's
+        # docstring). functools.partial pins pid/project_finish/project_crit
+        # at this loop iteration, same as the default-arg pattern _dates and
+        # _capture use just above.
+        transaction.on_commit(
+            functools.partial(
+                _broadcast_cpm_complete,
+                project_id=pid,
+                project_finish=project_finish.isoformat() if project_finish else None,
+                critical_path=project_crit,
+                status_date=None,
+            )
+        )
         transaction.on_commit(_dates)
         transaction.on_commit(_capture)
 
