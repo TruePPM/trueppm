@@ -154,12 +154,72 @@ With `sentinel.enabled: true` you do **not** need to supply `env.REDIS_URL` — 
 chart stops requiring it, because there is no single endpoint to name.
 
 **Verify a failover in staging before relying on it** — this is the step that
-matters most while support is experimental. Stop the primary, confirm the
-Sentinels promote a replica, then check that all four roles recover without a pod
-restart: real-time updates resume (Channels), queued jobs drain (Celery), logins
-succeed (cache-backed SSO state), and WebSocket reconnects authenticate (ticket
-auth). If any of those stay broken, that is a bug worth reporting on
-[#2554](https://gitlab.com/trueppm/trueppm/-/issues/2554).
+matters most while support is experimental. The steps below are a manual runbook
+you run yourself; they are not a substitute for an automated, continuously
+exercised quorum test, which TruePPM does not yet run (tracked in
+[#2554](https://gitlab.com/trueppm/trueppm/-/issues/2554) and
+[#3404](https://gitlab.com/trueppm/trueppm/-/issues/3404)). Completing this
+runbook once tells you Sentinel works for *your* topology on *that* day — it does
+not make Sentinel support any less experimental for the next reader.
+
+### Manual failover verification runbook
+
+**Prerequisites**
+
+- A **Sentinel quorum of three or more nodes**, watching a primary with at least
+  one replica. Two Sentinels can observe a failure but can never authorize a
+  promotion — you need three to actually exercise one.
+- A staging environment that mirrors your intended production topology (same
+  network boundaries, same auth/TLS settings you plan to run in production).
+- TruePPM's `TRUEPPM_VALKEY_*` settings (or the Helm `valkey.sentinel` block)
+  pointed at that quorum, per [Configuring Sentinel](#configuring-sentinel)
+  above. `valkey.enabled: false` if you're using the chart, since Sentinel
+  replaces the bundled pod rather than fronting it.
+- A way to watch all four subsystems while the failover happens: a browser tab
+  open on a board (real-time), a way to enqueue and watch a background job
+  (Celery — e.g. trigger a CPM recalculation), an active login session (cache),
+  and a WebSocket client connected to a project (ticket auth on reconnect).
+
+**Steps**
+
+1. **Confirm the starting state.** Run `SENTINEL master <masterName>` against any
+   Sentinel node and note which data node it reports as the current primary.
+   Confirm TruePPM is connected and all four roles are functioning normally
+   (real-time updates land, a queued job drains, you're logged in, WebSocket is
+   connected).
+2. **Stop the primary.** Kill the data node process (or its pod/container) that
+   Sentinel currently reports as primary — do not fail over manually via
+   `SENTINEL failover`; the point is to exercise Sentinel's own failure
+   detection, not to skip it.
+3. **Watch Sentinel promote a replica.** Poll `SENTINEL master <masterName>`
+   on the surviving Sentinels until the reported primary address changes. Note
+   how long the promotion took.
+4. **Confirm TruePPM follows without a restart.** TruePPM resolves the current
+   primary from the Sentinels on every connection, so no pod restart or config
+   change should be required. Check, without restarting anything:
+   - **Real-time (Channels)** — updates on the open board tab resume.
+   - **Async (Celery)** — the in-flight or a freshly queued job drains.
+   - **Cache** — your existing login session stays valid; a fresh login
+     succeeds (this exercises the cache-backed SSO PKCE/nonce state).
+   - **WebSocket reconnect** — disconnect and reconnect the WebSocket client;
+     ticket auth succeeds against the new primary.
+5. **Bring the old primary back as a replica** (or leave it down, depending on
+   what you're testing) and confirm the quorum re-stabilizes cleanly.
+6. **Record the result** — see the log below — and report it on
+   [#2554](https://gitlab.com/trueppm/trueppm/-/issues/2554), whether it
+   passed or found a problem. Real-world results are what move Sentinel from
+   experimental to supported; a silent pass helps nobody but you.
+
+If any of the four roles stays broken after promotion, that is a bug worth
+reporting on [#2554](https://gitlab.com/trueppm/trueppm/-/issues/2554) — do not
+treat it as expected experimental behavior.
+
+**Results log** — copy this table into your own runbook and fill in a row each
+time you exercise a failover:
+
+| Date | Environment | TruePPM version | Sentinel version | Promotion time | Result | Notes |
+|------|-------------|------------------|-------------------|-----------------|--------|-------|
+| — | e.g. staging, 3 Sentinels + 1 primary + 2 replicas, Kubernetes | — | — | — | pass / fail | — |
 
 ## Licensing and cost — you do not need a commercial Redis
 

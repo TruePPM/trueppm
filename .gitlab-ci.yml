@@ -588,6 +588,12 @@ scripts:test:
   #     closed, so a renamed probe key makes `helm install` REFUSE, minutes into
   #     the runtime job, with a message about the values file rather than the
   #     rename.
+  #   - helm-sentinel-schema-experimental — every valkey.sentinel.* key's
+  #     values.schema.json `description` still carries the EXPERIMENTAL marker
+  #     (#3778). Before #3778 that caveat lived only in a values.yaml comment, so
+  #     `helm show values` and any schema-driven tooling showed six ordinary,
+  #     validated keys indistinguishable from the stable surface. No cluster, no
+  #     `helm template` needed — pure JSON, ~1s.
   #   - wt-testdb: the per-worktree Postgres test DB lifecycle (#3270). `wt new`
   #     creates the DB name, pytest-django drops the DB only on a CLEAN exit, and
   #     nothing dropped it otherwise — 78 orphans, 1959 MB, 97% of the local
@@ -642,6 +648,7 @@ scripts:test:
         - scripts/tests/check-suppression-issues.test.sh
         - scripts/tests/helm-netpol-probe.test.sh
         - scripts/tests/helm-celery-probe-overrides.test.sh
+        - scripts/tests/helm-sentinel-schema-experimental.test.sh
         - scripts/tests/check-release-images.test.sh
         - scripts/check-migration-constraint-safety.py
         - scripts/tests/check-migration-constraint-safety.test.sh
@@ -677,6 +684,7 @@ scripts:test:
         - scripts/tests/check-suppression-issues.test.sh
         - scripts/tests/helm-netpol-probe.test.sh
         - scripts/tests/helm-celery-probe-overrides.test.sh
+        - scripts/tests/helm-sentinel-schema-experimental.test.sh
         - scripts/tests/check-release-images.test.sh
         - scripts/check-migration-constraint-safety.py
         - scripts/tests/check-migration-constraint-safety.test.sh
@@ -697,6 +705,7 @@ scripts:test:
     - bash scripts/tests/check-suppression-issues.test.sh
     - bash scripts/tests/helm-netpol-probe.test.sh
     - bash scripts/tests/helm-celery-probe-overrides.test.sh
+    - bash scripts/tests/helm-sentinel-schema-experimental.test.sh
     - bash scripts/tests/check-release-images.test.sh
     - bash scripts/tests/check-migration-constraint-safety.test.sh
 
