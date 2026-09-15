@@ -130,10 +130,19 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   } as Task;
 }
 
-function renderDrawer(task: Task) {
+function renderDrawer(
+  task: Task,
+  opts: { readOnly?: boolean; onReadOnlyRefusal?: () => void } = {},
+) {
   return render(
     <MemoryRouter>
-      <TaskDetailDrawer task={task} projectId="p1" onClose={() => {}} />
+      <TaskDetailDrawer
+        task={task}
+        projectId="p1"
+        onClose={() => {}}
+        readOnly={opts.readOnly}
+        onReadOnlyRefusal={opts.onReadOnlyRefusal}
+      />
     </MemoryRouter>,
   );
 }
@@ -614,6 +623,84 @@ describe('TaskDetailDrawer header chips and permission gate', () => {
 
     expect(desktop().getByText(/to close/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+  });
+});
+
+describe('TaskDetailDrawer read mode (#3812, ADR-0776 §5, web rule 302)', () => {
+  it('shows a Read-mode chip distinct from the RBAC View-only chip when the reader has edit rights', () => {
+    const task = makeTask({ canEdit: true });
+    TASKS = [task];
+    renderDrawer(task, { readOnly: true });
+
+    const chip = desktop().getByText('View only');
+    expect(chip).toBeInTheDocument();
+    // Distinct copy from the RBAC reason (#3812 acceptance criteria) — names
+    // Read mode and the way out, never the RBAC "ask an admin" sentence.
+    expect(chip).toHaveAttribute('aria-label', expect.stringContaining('Read mode'));
+    expect(chip).not.toHaveAttribute('aria-label', expect.stringContaining('admin'));
+  });
+
+  it('still shows the RBAC View-only chip and its own copy when the reader has no edit rights', () => {
+    const task = makeTask({ canEdit: false });
+    TASKS = [task];
+    renderDrawer(task, { readOnly: false });
+
+    const chip = desktop().getByText('View only');
+    expect(chip).toHaveAttribute('aria-label', expect.stringContaining('admin'));
+  });
+
+  it('keeps the name field reachable and typeable in Read mode instead of disabling it up front', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ canEdit: true });
+    TASKS = [task];
+    renderDrawer(task, { readOnly: true });
+
+    const name = desktop().getByLabelText('Task name');
+    expect(name).not.toHaveAttribute('readonly');
+    await user.type(name, ' edited');
+    await waitFor(() => expect(name).toHaveValue('Foundation edited'));
+  });
+
+  it('refuses Save in Read mode without committing, and reports the refusal to the host', async () => {
+    const user = userEvent.setup({ delay: null });
+    const onReadOnlyRefusal = vi.fn();
+    const task = makeTask({ canEdit: true });
+    TASKS = [task];
+    renderDrawer(task, { readOnly: true, onReadOnlyRefusal });
+
+    await user.type(desktop().getByLabelText('Task name'), ' edited');
+    await user.click(desktop().getByRole('button', { name: 'Save' }));
+
+    expect(mutate).not.toHaveBeenCalled();
+    expect(onReadOnlyRefusal).toHaveBeenCalledTimes(1);
+    // The draft is not discarded on refusal — the typed edit stays on screen.
+    expect(desktop().getByLabelText('Task name')).toHaveValue('Foundation edited');
+  });
+
+  it('refuses Cmd/Ctrl+S in Read mode the same way, without committing', async () => {
+    const user = userEvent.setup({ delay: null });
+    const onReadOnlyRefusal = vi.fn();
+    const task = makeTask({ canEdit: true, serverVersion: 4 });
+    TASKS = [task];
+    renderDrawer(task, { readOnly: true, onReadOnlyRefusal });
+
+    await user.type(desktop().getByLabelText('Task name'), ' edited');
+    await user.keyboard('{Meta>}s{/Meta}');
+
+    expect(mutate).not.toHaveBeenCalled();
+    expect(onReadOnlyRefusal).toHaveBeenCalledTimes(1);
+  });
+
+  it('commits normally once readOnly is false again, unchanged from pre-#3812 behavior', async () => {
+    const user = userEvent.setup({ delay: null });
+    const task = makeTask({ canEdit: true });
+    TASKS = [task];
+    renderDrawer(task, { readOnly: false });
+
+    await user.type(desktop().getByLabelText('Task name'), ' edited');
+    await user.click(desktop().getByRole('button', { name: 'Save' }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
   });
 });
 

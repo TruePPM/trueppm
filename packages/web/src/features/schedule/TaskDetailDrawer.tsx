@@ -32,6 +32,7 @@ import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { canEditTask } from '@/lib/roles';
 import { describeWriteRefusal, type WriteRefusal } from '@/lib/writeRefusal';
+import { formatChord } from '@/lib/platform';
 import { Button } from '@/components/Button';
 import { HeaderEstimateChip } from './HeaderEstimateChip';
 import { CollapsibleSection } from './sections/CollapsibleSection';
@@ -175,6 +176,23 @@ export interface TaskDetailDrawerProps {
    * persistent selection highlight (Schedule/Board pass it; ⌘K needn't).
    */
   onSwapCanceled?: (keptTaskId: string) => void;
+  /**
+   * Read mode (#3812, ADR-0776 §5, web rule 302) — the editor's own Author/Read
+   * toggle (Alt+A), threaded down the same way #3809 threaded it into
+   * `TaskListPanel`/`TaskListRow`. Distinct from RBAC `canEdit`: it is the
+   * editor's own choice, not a missing entitlement, so fields stay reachable
+   * and typeable (rule 302) — only the Save commit refuses. Defaults to
+   * `false` for hosts with no author-mode concept (Board, Sprints, ⌘K).
+   */
+  readOnly?: boolean;
+  /**
+   * Called instead of committing when Save (button or Cmd/Ctrl+S) fires while
+   * `readOnly` is true. The drawer has no toast surface of its own — each host
+   * owns how the refusal is announced (Schedule shows its own action toast
+   * with the row's `READ_ONLY_REFUSAL` message, matching #3809). Omit on a
+   * host that never sets `readOnly`.
+   */
+  onReadOnlyRefusal?: () => void;
 }
 
 /**
@@ -217,6 +235,8 @@ export function TaskDetailDrawer({
   sectionContext,
   getRestoreTarget,
   onSwapCanceled,
+  readOnly = false,
+  onReadOnlyRefusal,
 }: TaskDetailDrawerProps) {
   const isMobile = useBreakpoint() === 'sm';
 
@@ -485,13 +505,31 @@ export function TaskDetailDrawer({
   // wins — matching the board TaskFormModal (#2038).
   const handleSave = useCallback(() => {
     if (!task || estimateInvalid) return;
+    // Read mode (#3812, ADR-0776 §5, web rule 302): the draft stays present and
+    // dirty — only the commit refuses, with a reason, the same way the row's
+    // own rename refuses (#3809) rather than the fields being disabled up front
+    // with no explanation to offer.
+    if (readOnly) {
+      onReadOnlyRefusal?.();
+      return;
+    }
     const patch = buildScalarPatch(draft, baseline);
     if (Object.keys(patch).length === 0) return;
     updateTask(
       { id: task.id, projectId, baseVersion: task.serverVersion, ...patch },
       { onSuccess: () => markSaved(draft) },
     );
-  }, [task, estimateInvalid, projectId, draft, baseline, updateTask, markSaved]);
+  }, [
+    task,
+    estimateInvalid,
+    projectId,
+    draft,
+    baseline,
+    updateTask,
+    markSaved,
+    readOnly,
+    onReadOnlyRefusal,
+  ]);
 
   // Expand → full-page focus view (ADR-0124). A dirty draft is guarded on its
   // own path so Discard navigates to a fresh editable load (Keep editing stays).
@@ -815,6 +853,7 @@ export function TaskDetailDrawer({
           onDismissDeleted={handleDismissDeleted}
           dirty={dirty}
           isSaving={isSaving}
+          readOnly={readOnly}
           // While the swap guard is up it owns the refusal: both surfaces are
           // mounted at once (the guard fires only when dirty, which is exactly
           // when the save bar is up), so passing it to both inserts two
@@ -973,6 +1012,11 @@ interface DrawerContentProps {
   isSaving: boolean;
   /** The server's refusal from the batched scalar PATCH, or `null` (#3332). */
   saveRefusal: WriteRefusal | null;
+  /** Read mode (#3812, web rule 302) — the editor's own choice, not a missing
+   *  entitlement. Distinct from RBAC `canEdit` below: the header's "View only"
+   *  chip gets a second, distinguishing condition, but no field is disabled
+   *  because of it — only `onSave` refuses. */
+  readOnly: boolean;
   onSave: () => void;
   onCancel: () => void;
 }
@@ -1012,6 +1056,7 @@ function DrawerContent({
   dirty,
   isSaving,
   saveRefusal,
+  readOnly,
   onSave,
   onCancel,
 }: DrawerContentProps) {
@@ -1096,12 +1141,25 @@ function DrawerContent({
               chip — not a warning — present whenever the drawer is non-editable,
               so the absence of write controls is never ambiguous ("is it a bug or
               am I not allowed?"). The lock glyph is decorative; the accessible
-              name carries the full reason. */}
-          {!canEdit && (
+              name carries the full reason.
+              #3812 extends the condition to the editor's own Read-mode choice
+              (ADR-0776 §5), with distinct copy from the RBAC reason (rule 302):
+              a Viewer has no entitlement to grant back; an editor in Read mode
+              can undo the state themselves with Alt+A. RBAC wins when both are
+              true — it is the more fundamental limit. */}
+          {(!canEdit || readOnly) && (
             <span
               className="inline-flex items-center gap-1 text-xs font-medium text-neutral-text-secondary bg-neutral-surface-sunken px-1.5 py-0.5 rounded-chip"
-              title="Viewer access — ask an admin for edit access"
-              aria-label="View only — Viewer access, ask an admin for edit access"
+              title={
+                !canEdit
+                  ? 'Viewer access — ask an admin for edit access'
+                  : `Read mode — press ${formatChord('alt+a')} to switch to Author mode`
+              }
+              aria-label={
+                !canEdit
+                  ? 'View only — Viewer access, ask an admin for edit access'
+                  : `View only — Read mode, press ${formatChord('alt+a')} to switch to Author mode`
+              }
             >
               <svg
                 width="11"

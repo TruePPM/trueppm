@@ -4777,6 +4777,7 @@ export function ScheduleView() {
         ariaAssertiveRef={ariaAssertiveRef}
         scheduleCommit={scheduleCommit}
         currentRole={currentRole}
+        readOnly={readOnly}
         dragPhase={dragPhase}
         scheduleError={scheduleError}
         projectId={projectId}
@@ -4904,6 +4905,10 @@ interface ScheduleOverlayLayerProps {
   ariaAssertiveRef: DomRef;
   scheduleCommit: ReturnType<typeof useScheduleCommit>;
   currentRole: number | null;
+  /** `!hasEditRights || authorMode.mode === 'read'` (#3812) — threaded into the
+   *  task detail drawer's Save gate the same way #3809 threaded it into
+   *  `TaskListPanel`/`TaskListRow`. */
+  readOnly: boolean;
   dragPhase: string;
   scheduleError: string | null;
   projectId: string | null;
@@ -4977,6 +4982,7 @@ function ScheduleOverlayLayer({
   ariaAssertiveRef,
   scheduleCommit,
   currentRole,
+  readOnly,
   dragPhase,
   scheduleError,
   projectId,
@@ -5024,6 +5030,10 @@ function ScheduleOverlayLayer({
   onClassifyApply,
   onClassifyClose,
 }: ScheduleOverlayLayerProps) {
+  // Global store, not threaded as a prop — `ScheduleActionToastRenderer` reads
+  // the same store the same way, and the toast surface it renders is mounted
+  // once at the top level regardless of which caller set it (#3812).
+  const setScheduleActionToast = useScheduleStore((s) => s.setScheduleActionToast);
   const selectedTask = selectedTaskId
     ? (allTasks.find((t) => t.id === selectedTaskId) ?? null)
     : null;
@@ -5288,6 +5298,13 @@ function ScheduleOverlayLayer({
             setSelectedTaskId(keptId);
             engine?.selectTask(keptId);
           }}
+          // #3812: the row's own rename/menu items already refuse in Read mode
+          // (#3809) — the drawer's batched Save is the one commit path that
+          // was never threaded, so an editor reviewing a plan in Read mode
+          // could still open Properties and edit name/notes/estimate straight
+          // through it.
+          readOnly={readOnly}
+          onReadOnlyRefusal={() => setScheduleActionToast({ message: READ_ONLY_REFUSAL })}
         />
       )}
 
