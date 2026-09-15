@@ -51700,13 +51700,16 @@
                         "readOnly": true
                     },
                     "refusal_reason": {
-                        "allOf": [
+                        "readOnly": true,
+                        "description": "Set (identity|policy) when verdict=refused; empty otherwise.\n\n* `identity` - Identity\n* `policy` - Policy",
+                        "oneOf": [
                             {
                                 "$ref": "#/components/schemas/AgentActionRefusalReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
                             }
-                        ],
-                        "readOnly": true,
-                        "description": "Set (identity|policy) when verdict=refused; empty otherwise.\n\n* `identity` - Identity\n* `policy` - Policy"
+                        ]
                     },
                     "refusal_detail": {
                         "allOf": [
@@ -53472,8 +53475,8 @@
                     },
                     "cadence_time": {
                         "type": "string",
-                        "format": "time",
-                        "nullable": true
+                        "nullable": true,
+                        "pattern": "^\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?$"
                     },
                     "duration_minutes": {
                         "type": "integer",
@@ -53532,8 +53535,8 @@
                     },
                     "cadence_time": {
                         "type": "string",
-                        "format": "time",
-                        "nullable": true
+                        "nullable": true,
+                        "pattern": "^\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?$"
                     },
                     "duration_minutes": {
                         "type": "integer",
@@ -60768,8 +60771,8 @@
                     },
                     "cadence_time": {
                         "type": "string",
-                        "format": "time",
-                        "nullable": true
+                        "nullable": true,
+                        "pattern": "^\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?$"
                     },
                     "duration_minutes": {
                         "type": "integer",
@@ -61340,11 +61343,11 @@
                     },
                     "quiet_hours_from": {
                         "type": "string",
-                        "format": "time"
+                        "pattern": "^\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?$"
                     },
                     "quiet_hours_until": {
                         "type": "string",
-                        "format": "time"
+                        "pattern": "^\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?$"
                     }
                 }
             },
@@ -61956,8 +61959,8 @@
                     },
                     "time_of_day": {
                         "type": "string",
-                        "format": "time",
-                        "description": "Local time the occurrence is due (morning-notification slot)."
+                        "description": "Local time the occurrence is due (morning-notification slot).",
+                        "pattern": "^\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?$"
                     },
                     "timezone": {
                         "type": "string",
@@ -67358,11 +67361,11 @@
                     },
                     "quiet_hours_from": {
                         "type": "string",
-                        "format": "time"
+                        "pattern": "^\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?$"
                     },
                     "quiet_hours_until": {
                         "type": "string",
-                        "format": "time"
+                        "pattern": "^\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?$"
                     },
                     "quiet_hours_timezone": {
                         "type": "string",
@@ -69614,7 +69617,7 @@
                     },
                     "time_of_day_utc": {
                         "type": "string",
-                        "format": "time"
+                        "pattern": "^\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?$"
                     },
                     "day_of_week": {
                         "type": "integer",
@@ -69636,7 +69639,7 @@
                     },
                     "time_of_day_utc": {
                         "type": "string",
-                        "format": "time"
+                        "pattern": "^\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?$"
                     },
                     "day_of_week": {
                         "type": "integer",
@@ -76247,8 +76250,8 @@
                     },
                     "time_of_day": {
                         "type": "string",
-                        "format": "time",
-                        "description": "Local time the occurrence is due (morning-notification slot)."
+                        "description": "Local time the occurrence is due (morning-notification slot).",
+                        "pattern": "^\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?$"
                     },
                     "timezone": {
                         "type": "string",
@@ -76330,8 +76333,8 @@
                     },
                     "time_of_day": {
                         "type": "string",
-                        "format": "time",
-                        "description": "Local time the occurrence is due (morning-notification slot)."
+                        "description": "Local time the occurrence is due (morning-notification slot).",
+                        "pattern": "^\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?$"
                     },
                     "timezone": {
                         "type": "string",
