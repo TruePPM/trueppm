@@ -379,6 +379,7 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "dependency_rejected",
         "dependency_updated",
         "flagged_for_backlog",
+        "guardrail_policy_updated",
         "label_created",
         "label_deleted",
         "label_updated",

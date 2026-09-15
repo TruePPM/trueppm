@@ -12,6 +12,7 @@ permission infrastructure is introduced here.
 
 from __future__ import annotations
 
+from django.db import transaction
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, status, viewsets
@@ -186,6 +187,15 @@ class ProjectGuardrailPolicyView(IdempotencyMixin, RetrieveUpdateAPIView[Project
         403 unless the caller is Owner+. The gate is checked against the *incoming*
         levels, merged onto the existing map so a partial PATCH that touches one
         rule doesn't silently clear the others.
+
+        Broadcasts ``guardrail_policy_updated`` on commit (#3773) so a second Owner
+        or Admin with Project Settings → Guardrails open concurrently sees the
+        change without a reload — the same sovereignty-gated path this view exists
+        for. The payload carries only the policy id, never the levels map: the
+        broadcast rides the project's board group, which every recipient already
+        had to be a project member to join, so there is no wider audience than the
+        GET this event tells them to re-issue — but keeping the payload
+        signal-only avoids relying on that as the only reason it's safe.
         """
         instance = self.get_object()
         validated = serializer.validated_data
@@ -215,6 +225,16 @@ class ProjectGuardrailPolicyView(IdempotencyMixin, RetrieveUpdateAPIView[Project
         instance.save()
         # Re-bind so the response reflects the persisted state.
         serializer.instance = instance
+
+        # Snapshot to plain strings before the closure (broadcast-check H-1) —
+        # the view's mutable request/kwargs state must not be captured live.
+        project_id = str(self.kwargs["project_pk"])
+        policy_id = str(instance.id)
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "guardrail_policy_updated", {"id": policy_id})
+        )
 
     def update(self, request: Request, *args: object, **kwargs: object) -> Response:
         # RetrieveUpdateAPIView.update returns the serialized instance; our
