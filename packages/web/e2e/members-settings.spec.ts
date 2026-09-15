@@ -379,6 +379,49 @@ test.describe('Members Settings — default member role', () => {
     await expect.poll(() => patchBody).toEqual({ default_member_role: 300 });
   });
 
+  // #3542 — before the fix, `isLoading || !project` never cleared on a failed
+  // GET (`isLoading` settles to false on a terminal failure, but `!project`
+  // stays true forever) — the setting pulsed a skeleton placeholder with no
+  // error and no retry.
+  test('a failed project GET surfaces Retry on the setting, not a perpetual skeleton', async ({
+    page,
+  }) => {
+    await setup(page);
+
+    let requestCount = 0;
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => {
+      requestCount += 1;
+      if (requestCount <= 2) {
+        return r.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'boom' }),
+        });
+      }
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(FIXTURE_PROJECT),
+      });
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/members`);
+
+    // `useProject` backs several sections on this consolidated page (General,
+    // Danger Zone, …), so more than one "Retry" card can be on the page at
+    // once — scope to this setting's own `<section aria-labelledby>` region.
+    const setting = page.getByRole('region', { name: /Default role for new members/i });
+    await expect(setting.getByText("Couldn't load this setting.")).toBeVisible();
+    await expect(
+      setting.getByRole('combobox', { name: /default role for new members/i }),
+    ).toHaveCount(0);
+
+    await setting.getByRole('button', { name: 'Retry' }).click();
+    await expect(
+      setting.getByRole('combobox', { name: /default role for new members/i }),
+    ).toBeVisible();
+  });
+
   test('invite form role picker is seeded from the project default', async ({ page }) => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings/members`);

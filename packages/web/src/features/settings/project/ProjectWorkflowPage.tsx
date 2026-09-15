@@ -30,6 +30,7 @@ import {
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { Toggle } from '../components/Toggle';
 import { FieldHelp, type FieldHelpOption } from '@/components/FieldHelp';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { BUILT_IN_FIELDS } from './builtInFields';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -165,7 +166,7 @@ function CadenceSection({
   projectId: string | undefined;
   canEdit: boolean;
 }) {
-  const { data: project, isLoading } = useProject(projectId ?? null);
+  const { data: project, isLoading, isError, refetch } = useProject(projectId ?? null);
   const update = useUpdateProject(projectId ?? null);
   const { sprint: activeSprint } = useActiveSprint(projectId ?? null);
 
@@ -221,6 +222,18 @@ function CadenceSection({
       </div>
       <div className="px-4 py-4">
         {(() => {
+          // A failed GET must read as broken, not as a stuck skeleton (rule 246,
+          // #3542). `isLoading` settles to false on a terminal failure, but
+          // `!project` never clears — without this branch the placeholder below
+          // pulses forever.
+          if (isError)
+            return (
+              <QueryErrorState
+                variant="inline"
+                message="Couldn't load board cadence."
+                onRetry={() => void refetch()}
+              />
+            );
           if (isLoading || !project)
             return (
               <div className="h-16 rounded-card bg-neutral-surface-sunken motion-safe:animate-pulse" />

@@ -496,6 +496,94 @@ test.describe('Workspace General page', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Attachments / Calendar / Feedback / Groups — failed GET (#3542)
+//
+// Attachments, Calendar, and Feedback all read the same `useWorkspaceSettings()`
+// query as General, so a failed `GET /workspace/` fails all four sections'
+// destructures at once — each previously guarded on `isLoading || !ws`, which
+// never clears on a terminal failure (`isLoading` settles to false, `!ws` stays
+// true forever), so each pulsed its own skeleton placeholder forever. Groups
+// reads a separate query (`GET /workspace/groups/`) whose `data` defaults to
+// `[]` on error, which read identically to "No groups yet" — a lie on a 500,
+// not a stall, but no error and no way forward either.
+// ---------------------------------------------------------------------------
+
+test.describe('Workspace Attachments / Calendar / Feedback / Groups — failed GET (#3542)', () => {
+  test('a failed workspace GET surfaces Retry on Attachments, Calendar, and Feedback — not stuck skeletons', async ({
+    page,
+  }) => {
+    await setup(page);
+    let requestCount = 0;
+    // Same retry accounting as the General-page #2656 spec: the query client
+    // retries a failed GET once before settling into `isError`.
+    await page.route('**/api/v1/workspace/', (r) => {
+      requestCount += 1;
+      if (requestCount <= 2) {
+        return r.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: pj({ detail: 'Internal server error' }),
+        });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) });
+    });
+
+    await page.goto('/settings/attachments');
+
+    const attachments = page.getByRole('region', { name: 'Attachments', exact: true });
+    const calendar = page.getByRole('region', { name: 'Working calendar', exact: true });
+    const feedback = page.getByRole('region', { name: 'Feedback', exact: true });
+
+    await expect(attachments.getByText("Couldn't load attachment settings.")).toBeVisible();
+    await expect(
+      calendar.getByText("Couldn't load this workspace's working calendar."),
+    ).toBeVisible();
+    await expect(feedback.getByText("Couldn't load feedback settings.")).toBeVisible();
+    // Load-bearing: "an error is shown" would also pass if a skeleton rendered too.
+    await expect(attachments.locator('[class*="animate-pulse"]')).toHaveCount(0);
+    await expect(calendar.locator('[class*="animate-pulse"]')).toHaveCount(0);
+    await expect(feedback.locator('[class*="animate-pulse"]')).toHaveCount(0);
+
+    // Retrying Attachments' own card re-issues the shared GET; once it succeeds
+    // every section fed by it — Calendar and Feedback included — recovers too.
+    await attachments.getByRole('button', { name: 'Retry' }).click();
+    await expect(attachments.getByRole('switch', { name: 'Allow file attachments' })).toBeVisible();
+    await expect(calendar.getByRole('combobox', { name: /Default working calendar/i })).toBeVisible();
+    await expect(feedback.getByRole('textbox', { name: 'Tracker URL' })).toBeVisible();
+  });
+
+  test('a failed groups GET surfaces Retry, not "No groups yet"', async ({ page }) => {
+    await setup(page);
+    await page.route('**/api/v1/workspace/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) }),
+    );
+    let requestCount = 0;
+    await page.route('**/api/v1/workspace/groups/**', (r) => {
+      requestCount += 1;
+      if (requestCount <= 2) {
+        return r.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: pj({ detail: 'Internal server error' }),
+        });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([GROUP]) });
+    });
+
+    await page.goto('/settings/groups');
+
+    // The section's accessible name carries the live count ("Groups & teams N
+    // groups"), so match by substring rather than the bare title.
+    const groups = page.getByRole('region', { name: /Groups & teams/ });
+    await expect(groups.getByText("Couldn't load groups.")).toBeVisible();
+    await expect(groups.getByText(/No groups yet/i)).not.toBeVisible();
+
+    await groups.getByRole('button', { name: 'Retry' }).click();
+    await expect(groups.getByText('Avionics')).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Workspace-admin route gate (#2012)
 // ---------------------------------------------------------------------------
 

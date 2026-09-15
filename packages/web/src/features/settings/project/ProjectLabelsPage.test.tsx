@@ -410,3 +410,29 @@ describe('ProjectLabelsPage', () => {
     expect(screen.queryByTestId('label-create-add')).not.toBeInTheDocument();
   });
 });
+
+describe('ProjectLabelsPage — failed GET (#3542)', () => {
+  const refetch = vi.fn();
+
+  // Before the fix, `labels` defaulted to `[]` on a failed GET, which read
+  // identically to "No labels yet" — a lie on a 500, not a stall, but the user
+  // still had no error and no way forward.
+  it('renders an error with Retry, not "No labels yet", when the labels GET fails', () => {
+    useCurrentUserRole.mockReturnValue({ role: ROLE_ADMIN });
+    useLabels.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch });
+    renderPage();
+
+    expect(screen.getByText("Couldn't load labels.")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.queryByText(/No labels yet/)).not.toBeInTheDocument();
+  });
+
+  it('retries the labels query on click', () => {
+    useCurrentUserRole.mockReturnValue({ role: ROLE_ADMIN });
+    useLabels.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch });
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+});
