@@ -4,17 +4,6 @@ description: Create a real waterfall project from scratch in the UI — WBS, mil
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-This walkthrough uses the redesigned **Start sheet**, **in-app baseline capture**,
-and the project **status date** field — all 0.4. On `0.3.0-alpha.3` the project
-creation screen is an older multi-step wizard, baselines exist over the [REST
-API only](/features/baselines/#capturing-and-managing-baselines-via-the-api),
-and the status date has no in-app field yet
-([Monte Carlo](/features/monte-carlo/#progress-aware-forecasting) uses today's
-date instead). Everything else here — build mode, dependencies, Monte Carlo,
-PDF export — is unchanged from 0.3.
-:::
-
 [Quickstart](/getting-started/quickstart/) gets you a **seeded** program in five
 minutes. This page is the other half: building a project **from nothing**, in the
 UI, the way a PM running a real waterfall plan actually would. No API calls, no

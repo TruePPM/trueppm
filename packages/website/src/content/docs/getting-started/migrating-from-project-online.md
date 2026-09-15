@@ -4,15 +4,6 @@ description: What carries over from a Project Online plan, what degrades on impo
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4 — the evaluation path]
-The MSPDI (Microsoft Project Data Interchange — the `.xml` file format MS Project
-exports to) import itself has shipped since 0.1. Three things this page leans on
-ship in **0.4**, TruePPM's first beta, and are not in `0.3.0-alpha.3`: constraint-date
-and actual-date import, the hosted read-only demo, and read-only share links. On the
-current release you evaluate against your own install, and imported constraint dates
-are dropped with a warning rather than applied.
-:::
-
 Microsoft retires Project Online on **September 30, 2026**. New PWA sites — Project
 Web App, the browser-based front end Project Online is built on — have been
 blocked since April 1, 2026, and after the retirement date the projects and data in a

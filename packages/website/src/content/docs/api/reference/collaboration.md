@@ -84,13 +84,6 @@ rules:
 
 ## Integrations
 
-:::note[Ships in 0.4]
-The inbound Git-event receiver's **uniform `404`** for every pre-verification refusal,
-and its **1 MB body cap** (`413`), ship in **0.4**. On the current release
-(`0.3.0-alpha.3`) that endpoint answers `401` for a bad or missing signature — which is
-the disclosure the change removes — and enforces no webhook-specific body cap.
-:::
-
 | Method | Path | Description |
 |--------|------|-------------|
 | GET / POST / DELETE | `/api/v1/me/credentials/{provider}/` | Connect, read, or revoke your own credential for an external provider (ADR-0049) |

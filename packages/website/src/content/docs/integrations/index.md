@@ -7,12 +7,6 @@ TruePPM connects to other systems through ten surfaces. Before you connect anyth
 two things tell them apart: **which way data moves**, and **who owns the connection** —
 one person, one project, or the whole workspace.
 
-:::note[Ships in 0.4]
-Every page linked below documents `main`, which carries 0.4, TruePPM's first beta. Each
-one says, in its own callout, what `v0.3.0-alpha.3` — the latest release — does instead.
-The MCP server and single sign-on in particular reach a release for the first time with the 0.4 tag.
-:::
-
 ## At a glance
 
 | Surface | Direction | Who connects it | Documented in |

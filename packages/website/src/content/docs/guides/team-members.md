@@ -4,19 +4,6 @@ description: How TruePPM keeps you focused on your work — board, sprints, task
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-A few things on this page are **not** in `v0.3.0-alpha.3`, the latest release:
-
-- **Automatic Jira sync**, so you never double-enter a task — **0.4**.
-- **The installable PWA**, the offline surface before the native app —
-  **0.5**.
-- **The native mobile app**, with offline sync/replay and 15-second time
-  capture — **0.6**.
-
-Everything else on this page — the board, sprints, My Work, and the API — is
-in 0.3 and current.
-:::
-
 You want to know what you're working on, move things forward, and stay in sync with your team. TruePPM is designed to minimize the overhead of project management for people doing the actual work.
 
 ## Already have a login?

@@ -29,12 +29,6 @@ For privacy, the search returns username, display name, and initials only — ne
 
 ### Who you can add
 
-:::note[Ships in 0.4]
-Until 0.4, an Owner can add any account on the installation. Everything in this
-section describes the 0.4 behavior; the rest of the page describes the current
-release.
-:::
-
 0.4 bounds the people an Owner can add to those they can already reach, so adding a
 member never reveals an account they could not already see:
 

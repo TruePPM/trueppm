@@ -14,14 +14,6 @@ It also documents the broader **scope matrix**: which General settings live at w
 scope, and why — so it is clear at a glance why some settings are workspace-only, some
 inherit per scope, and some are deliberately scope-specific.
 
-:::note[Ships in 0.4]
-The **public sharing** setting governs a feature — tokenized read-only share
-links — that ships in **TruePPM 0.4**, the first beta. In `v0.3.0-alpha.3`, the
-latest release, the setting exists and inherits exactly as described below, but
-there is nothing yet to share: no link can be minted. **Guest access** and the
-scope matrix are unaffected and work today.
-:::
-
 :::note[Edition]
 Per-scope sharing overrides are part of the **Community (OSS)** edition. The ability
 to *lock* the workspace value as a hard ceiling that downstream scopes cannot loosen

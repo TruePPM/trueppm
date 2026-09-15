@@ -17,21 +17,6 @@ This is intra-program only. A program rolls up its *own* projects; there is no c
 
 ## Permissions
 
-:::note[Ships in 0.4 — program role names]
-The role *names* used here ship in **TruePPM 0.4**, the first beta. On
-`v0.3.0-alpha.3`, the latest release, the program surfaces use the project
-vocabulary instead — the tier called "Program Manager" below reads **Project
-Manager**, and the Owner tier reads **Project Admin**.
-
-**The permission tiers themselves are unchanged.** The same role has always
-been able to change this configuration, on 0.3 exactly as on 0.4; only the
-name the Members tab and the role pickers display for it is new. If you are on
-0.3, read "Program Manager" below as the role your Members tab calls "Project
-Manager".
-
-Everything else on this page describes 0.3 behavior and is current.
-:::
-
 | Action | Minimum role |
 |--------|-------------|
 | View the rollup config | Program Viewer |

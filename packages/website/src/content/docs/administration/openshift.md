@@ -13,16 +13,6 @@ the install (secrets, ingress/TLS, sizing, probes) see
 and [Helm Values](/administration/helm-values/) — this page only covers what is
 different on OpenShift.
 
-:::note[Ships in 0.4]
-The `ingress.*` Ingress template, `autoscaling.*`, `podDisruptionBudget.*`, and the
-Celery worker's `probes.worker.startup` block referenced below do not exist in the
-latest release (`v0.3.0-alpha.3`) — they land with the 0.4 beta. `podSecurityContext`
-and `containerSecurityContext`, which is what this page is mostly about, have shipped
-since 0.1 and are unchanged for OpenShift purposes. See [Helm
-Values](/administration/helm-values/#unknown-keys-are-rejected) for the full
-released-vs-0.4 split.
-:::
-
 :::caution[Audited, not cluster-verified]
 This guidance comes from reading `packages/helm/templates/**`, the vendored
 `postgresql`/`valkey` subcharts, the application Dockerfiles, and `helm template`

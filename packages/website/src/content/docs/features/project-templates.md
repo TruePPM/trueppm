@@ -4,13 +4,6 @@ description: Reusable project shapes — phases, gates, dependencies and duratio
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-Project templates ship in **TruePPM 0.4**. In `v0.3.0-alpha.3` (the latest release)
-there is no template system at all: "Copy settings from" on the new-project form
-copies *settings values only* — no tasks, no phases, no dependencies — and every
-project starts from zero rows.
-:::
-
 A template captures a project's **shape** so the next project like it does not
 start from an empty outline.
 

@@ -9,15 +9,6 @@ documentedFor: "0.4"
 This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4.
 :::
 
-:::note[Ships in 0.4]
-One section on this page is not in the latest release (`v0.3.0-alpha.3`):
-[Outbound webhook deliveries](#outbound-webhook-deliveries). Webhook delivery
-failures reach the dead-letter queue from **0.4** onward. On the current release
-a permanently failed delivery is recorded only on its own delivery row — it
-produces no `FailedTask`, no alert line, and no movement in
-`trueppm_task_dead_letter_parked`.
-:::
-
 When a background Celery task in TruePPM exhausts its retries, the work is
 permanently abandoned — a CPM recalculation, a notification email, an MS Project
 import, all driven asynchronously. Without a signal, a solo operator has no way to

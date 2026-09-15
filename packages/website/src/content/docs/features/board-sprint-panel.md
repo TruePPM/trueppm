@@ -111,11 +111,6 @@ mid-sprint` badge, and the open scope-change audit drawer.*
 
 ### Sprint-scoped activity, and a heads-up when scope moves
 
-:::note[Ships in 0.4]
-Sprint scope on the board Activity rail, and the sprint-membership notification,
-ship in **TruePPM 0.4**.
-:::
-
 The board's **Activity** feed can be narrowed to just the current sprint. Opened
 from a sprint's board, it defaults to **"This sprint"** — with a **"Whole board"**
 toggle to see the whole project's history instead — so you read what changed for

@@ -56,14 +56,6 @@ task in that state is treated like a backlog item.
 
 ## The board grid
 
-:::note[Ships in 0.4]
-Everything in this section — fixed-width scrolling columns, sticky headers, collapsing
-a column to a stub, and phase-lane focus mode — lands with the board viewability
-overhaul in **0.4**. On `0.3.0-alpha.3` the working columns share the available width
-and squeeze as you add more, the header row scrolls away with the cards, and there is
-no way to collapse a column or narrow the board to a single phase lane.
-:::
-
 ### Fixed-width columns that scroll
 
 Working columns are **fixed-width tracks**. A board with more columns than fit does not
@@ -161,13 +153,6 @@ Each card shows:
   running under or over its budgeted cost), shown when cost data is available
 
 ### Card health signal
-
-:::note[Ships in 0.4]
-The worst-offender health badge described in this section is **not in the latest
-release**. On `0.3.0-alpha.3` a card still shows its delivery chips — float, dwell,
-SPI, CPI, cost — stacked side by side, with no consolidated badge and no expand /
-collapse behavior.
-:::
 
 0.4 will consolidate a card's stacked delivery chips — float, dwell, cost, and the
 schedule/cost performance ratios below — into a single **worst-offender badge**
@@ -324,11 +309,6 @@ every card. The chip returns the moment two states are in play. The left accent 
 carries readiness either way, and the state is always in the card's detail view.
 
 ## Named lanes inside a column
-
-:::note[Ships in 0.4]
-Named lanes land in **0.4**. On `0.3.0-alpha.3` a project has exactly five columns —
-renameable, recolorable, hideable, with WIP limits, but not addable or removable.
-:::
 
 A team that works Review, QA and Blocked as distinct stages can split a single column
 into up to **six named lanes**. Open **Project settings → Workflow → Statuses**, expand

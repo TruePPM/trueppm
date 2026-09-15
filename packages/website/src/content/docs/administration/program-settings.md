@@ -104,13 +104,6 @@ project really does fall back to the program's.)
 
 ### After you save a methodology
 
-:::note[Ships in 0.4]
-The post-save report described here ships in **TruePPM 0.4**, the first beta. In
-`v0.3.0-alpha.3`, the latest release, a methodology save on the General section
-says nothing about the projects already in the program — you have to open this
-matrix and read the rows yourself.
-:::
-
 From 0.4, saving the **Methodology** on the General section will report the
 partition it left behind, immediately under the picker:
 
@@ -125,13 +118,6 @@ it. Where the program has no projects, or where every project already matches,
 the message will say that instead of showing nothing.
 
 ### Seeing which projects deviate from the default
-
-:::note[Ships in 0.4]
-The deviation markers, the column count, and the methodology filter described
-below ship in **TruePPM 0.4**, the first beta. In `v0.3.0-alpha.3`, the latest
-release, the matrix shows each project's methodology and nothing about where
-that value came from.
-:::
 
 Scanning a column of values tells you what each project runs on, not which ones
 are a deliberate exception. From 0.4 the matrix will answer that directly, at
@@ -175,12 +161,6 @@ by a note that they need a wider screen.
 
 ### Before applying a methodology across the selection
 
-:::note[Ships in 0.4]
-The impact preview described below ships in **TruePPM 0.4**, the first beta. In
-`v0.3.0-alpha.3`, the latest release, pressing **Apply** with **Methodology**
-staged writes immediately, with no preview of what it hides.
-:::
-
 From 0.4, pressing **Apply** with **Methodology** staged will not write
 immediately — it will swap the action bar into a preview naming what the change
 does before a second press confirms it:
@@ -211,14 +191,6 @@ projects inside the program. See [Roles & Permissions](/administration/rbac/).
 
 ## External stakeholders
 
-:::note[Ships in 0.4]
-This whole section — the registry, its CRUD form, and the
-`/external-stakeholders/` endpoints — ships in **TruePPM 0.4**, the first beta.
-It is not present in `v0.3.0-alpha.3`, the latest release. The nested callout
-below narrows further: the reach summary is the last part of the section to
-land.
-:::
-
 The **External stakeholders** section is a registry of people **without a
 TruePPM account** — client sponsors, vendor contacts, external reviewers — kept
 as a **separate recipient list** for `@program-stakeholders` mentions. It is a
@@ -229,12 +201,6 @@ They are deliberately *not* merged into the mention group itself, so an internal
 `@program-stakeholders` mention can never silently reach a client.
 
 ### Who the alias actually reaches
-
-:::note[Ships in 0.4]
-The **reach summary** described below ships in **TruePPM 0.4** (the first beta),
-along with the `mention-reach` endpoint that computes it. Before 0.4 the section
-shows only a count of the external rows.
-:::
 
 The two halves of the alias have different fates, and the reach summary above the
 table states both so you can see exactly who a mention touches:

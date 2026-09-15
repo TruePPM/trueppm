@@ -4,13 +4,6 @@ description: "Log output, OpenTelemetry export, and data-retention settings."
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-Nearly everything on this page ships in 0.4. `v0.3.0-alpha.3`, the latest release, reads
-none of the OpenTelemetry settings (`TRUEPPM_OTEL_*`, `OTEL_*`), none of the retention
-settings named here, `TRUEPPM_LOG_JSON`, `DJANGO_LOG_LEVEL` or `TRUEPPM_POD_NAME`. Of the
-settings on this page it reads only `SQL_LOG_LEVEL`.
-:::
-
 ## Logging
 
 | Variable | Default | What it does |

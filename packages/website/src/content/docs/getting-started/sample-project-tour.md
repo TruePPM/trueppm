@@ -4,13 +4,6 @@ description: A guided walkthrough of the history-aware sample project, including
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-The history-aware sample and the offline walkthrough below ship in **0.4**, the
-first beta. 0.4 is currently **Underway** — see the
-[roadmap](/overview/roadmap/). Until it tags, treat this page as a preview of
-what the 0.4 sample will demonstrate.
-:::
-
 The bundled [sample projects](/getting-started/sample-projects/) load as a
 program already in flight. From 0.4 the flagship **Atlas Platform Launch** sample
 also carries **historical depth**, so the differentiator surfaces render on day

@@ -19,15 +19,6 @@ Step 6 ([Execute](/the-story/#6-execute--daily-cadence-two-worlds-in-sync)) of t
 - **`Open in board`** link — navigates to `/projects/:id/board?sprint=:sprintId`
 - **`Pull from backlog →`** button (planned sprints only) — while a sprint is still being planned, this opens the **story picker** in place: a multi-select list of the project's backlog stories, with the sprint's capacity preflight and committed-points readout staying live as stories are selected. An empty planned sprint surfaces it as the primary call-to-action, so a freshly created sprint points the team at where work is pulled in rather than showing a dead-end empty table.
 
-:::note[Ships in 0.4]
-The **in-place picker** described above ships in **TruePPM 0.4**. The latest
-released version is `v0.3.0-alpha.3`, where `Pull from backlog →` is a plain
-link that navigates to the [Product Backlog](/features/product-backlog/) page —
-existing stories are committed one at a time from there via the per-row commit
-toggle, and the sprint's own context (goal, capacity, committed points) is left
-behind for the round trip.
-:::
-
 ### Story picker
 
 Opens as a dialog over the Sprints page. Every backlog story shows its points and

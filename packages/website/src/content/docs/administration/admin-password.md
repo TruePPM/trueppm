@@ -4,17 +4,6 @@ description: Create, retrieve, and rotate the TruePPM admin password.
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-Two details on this page are 0.4 behavior. On **0.3 and earlier** the bootstrap
-account defaults to `admin@trueppm.com` rather than `admin@example.com`, and
-`create_admin` prints no warning when it promotes an existing account. Everything
-else here — the password file, its permissions, retrieval, and rotation — is
-current on 0.3.
-
-If you are running 0.3 or earlier, set `DJANGO_SUPERUSER_EMAIL` explicitly before
-your first deploy; the default there is a domain you do not control.
-:::
-
 Every fresh TruePPM install needs one administrator account to sign in with before
 anyone else can. This page covers getting that first password (during initial setup),
 finding it again if you missed it, and resetting any user's password later —

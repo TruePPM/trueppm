@@ -196,9 +196,9 @@ Forecast history answers "is my confidence eroding?" over time. The other planni
 question is forward-looking: "*if* this task slips a week, where does the whole
 forecast land?" — without actually changing the plan to find out.
 
-**Coming in 0.4** (#993), a non-mutating what-if endpoint will answer exactly that.
-Point it at one task, give it a duration change, and it will recompute CPM and Monte
-Carlo **in memory** and hand back the perturbed forecast — persisting nothing, so it
+A non-mutating what-if endpoint answers exactly that (#993, added in 0.4).
+Point it at one task, give it a duration change, and it recomputes CPM and Monte
+Carlo **in memory** and hands back the perturbed forecast — persisting nothing, so it
 is safe to call as many times as you like:
 
 ```
@@ -693,21 +693,6 @@ of the distribution:
   endpoints need only a signed-in user, but they can only ever create a new project
   or program that the importer owns, never modify an existing task.
 
-  :::note[Ships in 0.4]
-  One behavior below is **not** in `v0.3.0-alpha.3`, the latest release:
-
-  - **No-op re-writes no longer revoke an approval.** Re-sending an estimate's
-    identical value (for example, tabbing through the field without changing it)
-    is not treated as an edit and does not revoke an existing approval — only a
-    genuine value change downgrades `accepted` back to `pending`. In 0.3, any
-    PATCH carrying a three-point field flips an approved estimate back to
-    `pending` even when the value sent is identical to what is already stored.
-
-  There is deliberately no server-side way to withdraw an approval once
-  granted. A Scheduler who approves an estimate in error has no undo today —
-  correcting a mistaken approval means editing the estimate's value so the
-  change (not a no-op re-write) downgrades it back to `pending`.
-  :::
 - **Who may write an estimate at all** — this is set by the project's estimation
   mode, and it is enforced on the server, not just in the browser. In **Open**
   (the default) any Team Member or above may write three-point estimates directly.

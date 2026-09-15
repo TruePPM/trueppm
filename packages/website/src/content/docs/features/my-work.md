@@ -8,12 +8,6 @@ documentedFor: "0.4"
 My Work shipped in 0.1.
 :::
 
-:::note[Ships in 0.4]
-Four sections below — Your focus row, My projects health, Log time, and Work
-from connected tools — describe 0.4 additions; each also carries its own
-**(ships in 0.4)** marker at its own heading.
-:::
-
 :::note[0.3]
 As of 0.3, My Work groups your tasks into **Today / This Sprint / Upcoming** instead of by sprint, and flags **blocked** work with a badge.
 :::

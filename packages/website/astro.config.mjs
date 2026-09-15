@@ -265,21 +265,12 @@ export default defineConfig({
             // `check-version-status.sh` badge/documentedFor pairing reds if a
             // badge lingers past its version's promotion to Shipped.
             //
-            // "Try it" keeps its badge and `documentedFor: "0.4"` a little
-            // longer than its siblings: the hosted try.trueppm.com demo is a
-            // launch-day deploy step (#2271), not something the tag itself
-            // produces, so the page's "not yet available" callout is still
-            // true immediately after the tag. Remove both once the hosted
-            // instance is actually live.
             { slug: "getting-started/installation" },
             { slug: "getting-started/quickstart" },
             { slug: "getting-started/bring-your-plan-in" },
             { slug: "getting-started/waterfall-day-one" },
             { slug: "getting-started/migrating-from-project-online" },
-            {
-              slug: "getting-started/try-it",
-              badge: { text: "0.4", variant: "caution" },
-            },
+            { slug: "getting-started/try-it" },
             { slug: "getting-started/sample-projects" },
             { slug: "getting-started/sample-project-tour" },
             { slug: "getting-started/evaluation-guide" },

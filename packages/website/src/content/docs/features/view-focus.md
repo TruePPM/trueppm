@@ -33,14 +33,6 @@ There are three focuses, and **Unified Today** is the default:
   removed — the same views are all there, just reordered. Unified Today keeps the
   standard order.
 
-  :::note[Ships in 0.4]
-  From 0.4 the reordering will apply to the **Plan**, **Deliver** and **Track** bands
-  only. The **Workspace** band (Team · Settings) will keep a fixed order for every
-  focus: it is the project's own setup rather than a step in the life of the work, so
-  there is no workflow for a focus to re-point. In the current release the rail has no
-  Workspace band and the reordering applies throughout.
-  :::
-
 ## The Today view
 
 Unified Today focus opens each project on a purpose-built **Today** split screen — one

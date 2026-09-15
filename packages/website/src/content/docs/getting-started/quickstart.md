@@ -4,19 +4,6 @@ description: Get from a fresh clone to a populated workspace in five minutes.
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-The `--with-personas` flag shown below ships in **0.4**, alongside the retirement
-of the `seed_demo_project` and `seed_ga_launch_program` Python seeders in favor of
-the bundled JSON samples.
-
-This page assumes you followed [Installation](/getting-started/installation/) and
-cloned `main`, where `load_sample_project --with-personas` is correct and
-`seed_demo_project` no longer exists. If you are running the released
-`v0.3.0-alpha.3` images instead, run plain `load_sample_project` — on that release
-it creates the persona logins unconditionally and does not accept
-`--with-personas`. See the [roadmap](/overview/roadmap/).
-:::
-
 The fastest path from `git clone` to a workspace you can actually click around. Two routes: the **demo seed** — a ready-made sample program you load with one command, so you have realistic data to explore instead of an empty install — (recommended for evaluation), and the **API tutorial** (recommended for learning the data model).
 
 You should already have completed [Installation](/getting-started/installation/) — the stack is up via `docker compose up -d`. If that command is new to you, [Set up a container host](/getting-started/container-host/) explains what it does and gets Docker running first.

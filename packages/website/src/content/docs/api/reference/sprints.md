@@ -4,13 +4,19 @@ description: "Sprint cadence generation, sprint–milestone binding, scope and d
 documentedFor: "0.4"
 ---
 
-## Sprint cadence generator
+## Create a single sprint
 
-:::note[Ships in 0.4]
-`POST /api/v1/projects/{id}/sprints/generate/` lands in **TruePPM 0.4**. On the
-latest release, sprints are created one at a time through
-`POST /api/v1/projects/{id}/sprints/`.
-:::
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/projects/{id}/sprints/` | Create one sprint on the project |
+
+Team Member+ (`IsProjectMemberWrite`); `capacity_points` on the request body
+carries its own higher gate at Resource Manager+. List and retrieve
+(`GET /api/v1/projects/{id}/sprints/`, `GET /api/v1/sprints/{id}/`) are
+Viewer+. Destroy is Project Manager+ and only permitted while the sprint is
+still `PLANNED`.
+
+## Sprint cadence generator
 
 | Method | Path | Description |
 |--------|------|-------------|

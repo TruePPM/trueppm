@@ -9,24 +9,6 @@ terminates, what a proxy has to forward for real-time collaboration to work,
 where a load balancer sits when you scale past one replica, which health-check
 path to point it at, and the full ingress/egress port matrix.
 
-:::note[Ships in 0.4]
-The Kubernetes half of this page describes chart objects that ship in **0.4**,
-the first beta, and are **not** in `v0.3.0-alpha.3`, the latest release. On 0.3
-the chart renders no `Ingress`, no web tier, and no HTTP probes — you front the
-`ClusterIP` API Service with your own ingress object. Specifically unreleased:
-
-- the chart-managed **`Ingress`** template and its `ingress.hosts[].paths[].service`
-  routing (`ingress.enabled` exists as a value on 0.3 but renders nothing);
-- the **web tier** (`web.*`) and its nginx config, including `web.securityHeaders.*`
-  and `web.adminAccess.*`;
-- the **`probes.*`** block, including `probes.api.hostHeader`;
-- the optional **`PodDisruptionBudget`** and **`HorizontalPodAutoscaler`**.
-
-The Docker Compose and single-server material — DNS, `TLS_MODE`, the shipped
-nginx templates, the health-check endpoints, and the port matrix — describes the
-current release.
-:::
-
 ## One origin, four variables
 
 **TruePPM runs on a single hostname.** The SPA, the REST API, and the WebSocket

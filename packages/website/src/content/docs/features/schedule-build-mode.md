@@ -6,12 +6,6 @@ documentedFor: "0.4"
 
 This is for a PM or scheduler laying out a project plan on a desktop and wanting to move fast without reaching for the mouse. Schedule build mode turns the Schedule list into a keyboard-first surface for laying down and structuring a project plan. It is **on by default** and is a desktop-only experience — mobile continues to use the existing Add Task modal.
 
-:::note[Ships in 0.4]
-In the current release, build mode is **off by default** and opt-in per browser — turn it
-on from **Settings → Schedule**. 0.4 will remove that toggle and turn build mode on for
-everyone on desktop.
-:::
-
 The goal is to collapse the round-trip cost of structuring a plan from "open modal → fill form → save → repeat" to "type, Alt + →, type, Enter."
 
 ## What build mode is — and what it isn't
@@ -142,12 +136,6 @@ The editable cells in v1 are **Task name**, **Duration**, and **% complete**. St
 
 ## Inline authoring tokens
 
-:::note[Ships in 0.4]
-The tokens described in this section land in **TruePPM 0.4**. In the current release,
-set these fields from the task drawer instead — the drawer's Assignees, Duration,
-Dependencies, and Delivery mode editors write exactly the same values.
-:::
-
 While you are naming a row, a handful of short tokens set the rest of the row without
 leaving the cell. Each one opens a picker, so nothing has to be memorized.
 
@@ -213,12 +201,6 @@ means "Ana owns this", not "Ana is now the only person here". Remove an assignme
 the task drawer's Assignees editor.
 
 ## Paste rows from a spreadsheet
-
-:::note[Ships in 0.4]
-Paste-many lands in **TruePPM 0.4**. In the current release, build a plan row by row
-with Enter / Shift + Enter / ⌘ Enter, or bring in an existing plan with
-[MS Project import](/features/schedule/) or [CSV/Excel import](/features/schedule-toolbar/).
-:::
 
 With a row focused, `⌘ V` (`Ctrl + V`) pastes multiple rows copied from a spreadsheet
 straight into the outline — the fastest way to bring an existing plan in without 200
@@ -511,11 +493,6 @@ a no-op there rather than guessing. Any plain arrow-key move or a click collapse
 selection back to a single row.
 
 ## Edit many rows at once
-
-:::note[Ships in 0.4]
-The bulk-edit sheet lands in **TruePPM 0.4**. In the current release, edit each row
-individually from the outline or the task drawer.
-:::
 
 `⌘ ⇧ K` (`Ctrl + Shift + K`) opens a sheet that applies one change to every selected item
 at once. With no selection, it acts on the focused item alone — the same rule `Delete`

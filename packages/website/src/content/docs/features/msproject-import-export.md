@@ -22,9 +22,9 @@ TruePPM treats Microsoft Project as a peer interchange format. You can:
 - **Round-trip PERT three-point estimates** for Monte Carlo.
 - **See the import history** on a project's Overview ("Imported from … on … by …").
 
-:::note[Ships in 0.4 — everything about constraints, actuals, dropped-field
+:::note[Added in 0.4 — constraints, actuals, dropped-field
 reporting, and the `.xml`-only file pickers]
-Five things on this page land in **TruePPM 0.4**, the first beta. On
+Six things on this page were added in **TruePPM 0.4**, the first beta. On
 `0.3.0-alpha.3` and earlier:
 
 1. **Constraint dates and actual start / finish dates are not imported at all** —
@@ -102,7 +102,7 @@ Here is the single one, top to bottom:
 | Surface | `.mpp` | Why |
 |---|---|---|
 | Create-from-import file-type picker | Disabled, labelled "Not yet supported" | First-class `.mpp` import is [#128](https://gitlab.com/trueppm/trueppm/-/issues/128), sequenced for 0.6 |
-| Import-into-existing dropzone | Rejected before upload | Ships in 0.4 — it previously accepted `.mpp` and showed a caveat banner |
+| Import-into-existing dropzone | Rejected before upload | Added in 0.4 — it previously accepted `.mpp` and showed a caveat banner |
 | `POST …/import/msproject/` (REST) | **Accepted** | The operator escape hatch, unchanged |
 | Reference Docker image | Cannot parse it | Bundles neither the MPXJ JAR nor a JRE |
 

@@ -4,23 +4,6 @@ description: Symptom-keyed diagnosis for a self-hosted TruePPM install — blank
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-Two things this page relies on are new in **TruePPM 0.4**, the first beta, and are
-**not** in `v0.3.0-alpha.3`, the latest release:
-
-- **`GET /api/v1/readyz`**, used by most of the checks below. On 0.3 there is no
-  dependency-aware endpoint — use `/api/v1/health/` for process liveness and read
-  the container logs for the rest.
-- **The Helm chart's `web`, `probes`, `podDisruptionBudget`, and `backup` values.**
-  On 0.3 the chart has none of them, so the Kubernetes commands that name a
-  `-web` Deployment or a readiness probe apply from 0.4 onward.
-
-Everything else — the Compose commands, the three admin health endpoints
-(`health/beat/`, `health/dead-letter/`, `health/system/`), the Celery and
-migration diagnosis, and the `ALLOWED_HOSTS` and `/static/` cases — applies to
-0.3 as well.
-:::
-
 Find your symptom, work the causes in the order listed — they are ordered by how
 often they are the answer, not by how interesting they are — and confirm the fix
 with the check at the end of each section.

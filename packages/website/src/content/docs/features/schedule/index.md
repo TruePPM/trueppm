@@ -77,12 +77,6 @@ The task list is [Schedule build mode](/features/schedule-build-mode/) — a key
 
 ### Float and free float
 
-:::note[Ships in 0.4]
-The two float columns and the drawer's free-float reading land in 0.4. Until then
-the Schedule shows total float in the task drawer only, and free float nowhere —
-both numbers are computed by the engine and returned by the API today.
-:::
-
 The engine computes two kinds of slack for every task, and 0.4 will put both in
 the outline as their own columns:
 
@@ -227,10 +221,6 @@ Until you do, the view shows only the deterministic CPM dates — see
 rather than a commitment.
 
 ## Export to PDF
-
-:::note[Ships in 0.4]
-Schedule PDF export ships in 0.4.
-:::
 
 To export the schedule as a PDF, open the Schedule toolbar's **Actions** menu — the same menu that holds **Export to MS Project (.xml)** — and choose **Export schedule as PDF**. The result is a landscape Gantt of the entire project timeline: a boardroom-clean artifact for a deck, a client, or a stakeholder with no portal access. A short schedule prints on one sheet; a longer one bands across several (see below).
 

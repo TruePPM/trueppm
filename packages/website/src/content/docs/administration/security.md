@@ -14,46 +14,6 @@ steps if something goes wrong later.
 
 ## Authentication
 
-:::note[Ships in 0.4]
-Nine items on this page ship in **TruePPM 0.4**, the first beta, and are **not**
-in `v0.3.0-alpha.3`, the latest release:
-
-- **Session-only "Remember me"** — in 0.3 the checkbox is present but inert; every
-  login gets the long-lived persistent cookie regardless of the choice.
-- **A separate `JWT_SIGNING_KEY`** — in 0.3 JWTs are always signed with
-  `SECRET_KEY`, so the rotate-to-sign-everyone-out lever below rotates session
-  and CSRF signing with it.
-- **Per-account login lockout** — in 0.3 only the per-IP login throttle exists.
-- **A denied-by-default `/admin/` on the web tier** — in 0.3 the Helm chart
-  proxies Django admin unrestricted and unthrottled, and `web.adminAccess` does
-  not exist. On 0.3 restrict `/admin/` at your own edge.
-- **SPA security headers on the Helm and published-image paths** — in 0.3 only
-  the Docker Compose templates set `X-Frame-Options`, `X-Content-Type-Options`,
-  and a CSP on the SPA document; a Helm install serves it with none of them, and
-  the published `web` image proxies `/admin/` wide open. Both are fixed in 0.4.
-- **The `revoke_api_tokens` sweep** in the breach-recovery procedure below — in
-  0.3 there is no bulk revocation command, so after rotating the signing key you
-  must revoke each leaked API token by hand from its owner's personal settings
-  page. The warning that key rotation does not reach API tokens applies to 0.3
-  as well; only the remedy is new.
-- **The boot refusal on a bare `ALLOWED_HOSTS=*`** — in 0.3 the wildcard is
-  accepted silently, so host validation can be off with nothing saying so. The
-  `USE_X_FORWARDED_HOST = False` position stated alongside it in 0.4 is not new
-  behavior: it restates the default 0.3 already had, and only makes it a decision
-  the file records rather than one it inherits.
-- **Auth-event auditing** — the five single sign-on audit verbs and the
-  `auth.login_succeeded` log line described under
-  [Single sign-on](#single-sign-on-oidc--oauth2) below. In 0.3 there is no single
-  sign-on and no record of a successful login at all.
-- **A Django admin that is off unless you ask for it, and defended when you do**
-  (`TRUEPPM_DJANGO_ADMIN_ENABLED`) — see
-  [Reaching Django admin](#reaching-django-admin). In 0.3 `/admin/login/` answers
-  on every deployment, with no login throttle, no audit line, and no enforced-SSO
-  check. On 0.3 the only remedy is to restrict `/admin/` at your own edge.
-
-Everything else on this page describes 0.3 behavior and is current.
-:::
-
 TruePPM uses JWT (JSON Web Tokens) via `djangorestframework-simplejwt`:
 
 - **Access token** — short-lived (15 minutes by default), held in browser memory
@@ -430,15 +390,6 @@ the operator-facing highlights:
   [Reaching Django admin](#reaching-django-admin).
 
 ### Reaching Django admin
-
-:::note[Ships in 0.4]
-`TRUEPPM_DJANGO_ADMIN_ENABLED` and the hardened admin login described in this
-section ship in **0.4**. On `v0.3.0-alpha.3`, the latest release, `/admin/login/`
-answers on every deployment and is a second password door with none of the API
-login's controls — no throttle, no audit line, no enforced-SSO check. Until you
-are on 0.4, the Helm chart's `web.adminAccess` deny below, or an equivalent rule
-at your own edge, is the only thing standing in front of it.
-:::
 
 Django admin is a plain Django view, which means **none of the API's login
 defenses reach it by inheritance**. The

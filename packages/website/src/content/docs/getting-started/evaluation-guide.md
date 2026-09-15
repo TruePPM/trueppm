@@ -19,25 +19,16 @@ screen, and check the expectation. Every sample imports as a **program already i
 flight** — its history is replayed with backdated, attributed events, so you are
 reviewing a program that has run for months, not a blank slate.
 
-## Coming in 0.4 (preview)
-
-:::note[Ships in 0.4 — forward-looking preview]
-0.4 is TruePPM's first beta and is still **Underway** (target Aug 31 – Sep 14,
-2026) — see the [roadmap](/overview/roadmap/). The three capabilities below are
-**not shipped yet**; they land with the 0.4 tag. Everything in the checklist
-further down is verifiable **today** on 0.3 — this section is a preview of what
-the next revision of this guide will add.
-:::
-
+:::note[Added in 0.4]
 The 0.4 beta is the release that makes a TruePPM schedule *answerable* and
-*evaluable without an install*. Three headliners will extend this walkthrough
-when they ship:
+*evaluable without an install*. It extends this walkthrough with three headliners:
 
-| Ships in 0.4 | What you will verify once it tags |
+| Added in 0.4 | What you can verify |
 |---|---|
 | **Read-only MCP server** | Point any MCP client (Claude Desktop, Cursor, Zed) at your self-hosted instance and ask the live schedule real questions — critical path, sprint status, the risk register, and a **non-mutating Monte Carlo what-if** ("slip this task three days — when do we ship?"). Every answer is computed server-side by the same CPM/Monte Carlo engine the UI uses — never guessed by a model, never leaving your box. Read-only by design |
 | **Read-only share links** | Mint a tokenized, expiring, revocable public link to a schedule or board view — read-only, rate-limited, and disableable workspace-wide — so a schedule can travel beyond its own instance without handing over a login |
 | **Basic single sign-on (OIDC / OAuth2)** | Point TruePPM at your own identity provider and your whole team logs in through it — built-in presets for Keycloak, Authentik, Zitadel, Okta, Auth0, Microsoft Entra ID, Google, GitLab and GitHub, plus Generic OIDC for any other standards-compliant provider such as Authelia — self-hosted, login-only, no paywall. Identity *governance* (SAML 2.0, SCIM, LDAP/AD directory sync) stays in the enterprise edition |
+:::
 
 ## What makes the demo data realistic
 
@@ -89,13 +80,6 @@ with nothing running and end with a signed-in browser.
    docker compose exec api python manage.py load_sample_project --sample ga-launch --with-personas         # ships in 0.4
    docker compose exec api python manage.py load_sample_project --with-personas                          # Atlas (default)
    ```
-
-   :::note[Ships in 0.4 — the 1.0 GA Launch sample]
-   The other four samples load on 0.3, the current release. **1.0 GA Launch**
-   (`ga-launch`) lands with the 0.4 tag; on 0.3 that `--sample` key is not
-   recognized. Every checklist row below names one of the four that load today.
-   0.4 is [Underway](/overview/roadmap/).
-   :::
 
    Prefer to click? On a fresh install the **Programs** page has a **Load demo
    data** button that does the same thing.
@@ -283,12 +267,6 @@ name if you would rather not read URLs.
 | Backdated, attributed history | every sample | Any Done card on the Board → drawer → **Activity** | "Moved to Done by … N days ago", not everything stamped "today" |
 
 ### Collaboration layer
-
-:::note[Ships in 0.4]
-The rows below need the 0.4 samples (seed schema 2.1). On 0.3 the samples load
-with none of this data: the backlog, the Decisions list, the timesheet, the
-agent-oversight panel and the share list all open empty.
-:::
 
 | Capability | Sample · persona | Look here | Expect |
 |---|---|---|---|

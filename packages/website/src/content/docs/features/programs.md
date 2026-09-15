@@ -23,12 +23,6 @@ workflows — is part of the Enterprise edition.
 
 ## Scanning the programs directory
 
-:::note[Ships in 0.4 (beta) — directory search and sort]
-Inline search, a methodology filter, and a sort control for the **/programs**
-directory are planned for **TruePPM 0.4**, the first beta. On earlier releases
-the directory renders as a plain card grid.
-:::
-
 The **/programs** page lists every program you belong to as a card grid. Once
 the directory grows past a handful of programs, three header controls will help
 you find the right one without scrolling the whole wall:
@@ -118,39 +112,6 @@ From a program's **Projects** tab, **New project** opens the Start sheet — one
 screen, no step navigation — with the project pre-selected to the program you were
 browsing.
 
-:::note[Ships in 0.4]
-That pre-selection is a starting point, not a fixed fact: the sheet has a
-**Program** picker listing "None — standalone project" plus every open program
-you administer, so you can attach the new project to a different program or clear
-it back to standalone before you create it. The sheet also opens this picker from
-anywhere — not only from inside a program — so you can deliberately attach a new
-project to a program you administer even when you didn't navigate from one.
-:::
-
-:::note[Ships in 0.4]
-The sheet collects only what changes what happens next, and it leads with the way
-in: one choice among three peer ways to start — **Template**, **Blank**, or
-**Import** — same size, same row. Selecting a way swaps the panel beneath it. The
-project's own fields follow: name, program, and start date. Everything else the
-old multi-step wizard asked for
-up front (description, a manual planning-model picker, "copy settings from
-another project", "use program defaults", and the default role for new members)
-moved to project settings, reachable immediately after creation.
-
-**Planning model is derived, not asked.** The sheet states, as a read-only line,
-which views the new project will carry as a consequence of the way you chose — a
-template's own methodology when you pick one, otherwise the selected program's
-methodology (or the workspace default when standalone). It never enforces
-anything and stays changeable afterward in project settings — see
-[Project methodology preset](/features/methodology-preset/).
-
-**Working calendar moves onto the sheet itself**, in the pinned footer above the
-Cancel and Create buttons, shown as the resolved inherited default (the program's
-calendar, or the workspace default) with the option to override it before the
-project exists — it governs every computed date from the first schedule pass
-onward.
-:::
-
 Settings that a project already **inherits live** from its program — the iteration
 label, sharing and guest access, Monte Carlo history, attachment policy, and the
 task-duration-change policy — are **not** set at creation. A new project leaves
@@ -226,28 +187,6 @@ would be rejected when you submit.
   projects, unified into one program-level view (see [Assets](/features/assets/)).
 - **Settings** — deeper program configuration (see below).
 
-:::note[Ships in 0.4 — backlog vocabulary and pull destination]
-The backlog will follow the program's
-[methodology preset](/features/methodology-preset/) instead of assuming an agile
-team. On a **Waterfall** program the estimate field will read **Estimate** and a
-new item will start as a **Task**; on **Agile** and **Hybrid** it will read
-**Story points** and start as a **Story**. The full type list is offered either
-way — only the label and the starting default move, so an item already typed
-`story` keeps that type if the program later switches preset.
-
-Where a pulled task lands depends on the **target project's** methodology, not
-the program's: a Hybrid program can hold a Waterfall project. The pull itself is
-unchanged — it always creates an undated task in the project backlog and never
-assigns a sprint. On an Agile or Hybrid project that task appears in the product
-backlog, as it does today. On a **Waterfall** project, where Backlog and Sprints
-are hidden, it will surface on **Schedule** in the **Unscheduled** tray instead;
-dragging it onto the timeline gives it dates and moves it out of the backlog
-state in one step. The pull confirmation will name whichever destination applies,
-and the target picker will show each candidate project's methodology before you
-commit — there is no un-pull action, so a pull is corrected by deleting the task
-it created.
-:::
-
 In the sidebar, a searchable **program picker** scopes the project list to one
 program (or "All programs"). In the all-programs scope, projects are grouped
 under collapsible program headers, with a "No program" group for standalone
@@ -319,12 +258,6 @@ You must type the program name to confirm. The cascade is atomic — there is no
 intermediate state where some memberships are removed but not others.
 
 ## Roles and permissions
-
-:::note[Ships in 0.4 — program role names]
-The program surfaces name the top two roles **Program Manager** and **Program
-Admin**. On 0.3 and earlier they read "Project Manager" and "Project Admin";
-the roles and the gates below are unchanged either way.
-:::
 
 | Action                              | Minimum program role  |
 |-------------------------------------|-----------------------|

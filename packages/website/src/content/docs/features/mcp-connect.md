@@ -4,11 +4,6 @@ description: Wire Claude Desktop, Cursor, or Zed to your self-hosted TruePPM MCP
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-The read-only MCP server ships in 0.4, TruePPM's first beta. On unreleased
-builds the tool list and token-scope surface may still be changing.
-:::
-
 This page is the client-side companion to the
 [MCP server feature overview](/features/mcp-server/): how to connect the three
 MCP clients most self-hosters reach for — **Claude Desktop, Cursor, and Zed** —

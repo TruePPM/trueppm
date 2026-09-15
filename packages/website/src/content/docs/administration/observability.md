@@ -5,14 +5,6 @@ documentedFor: "0.4"
 ---
 
 
-:::note[Ships in 0.4 (first beta)]
-OpenTelemetry export **ships in TruePPM 0.4**, the first beta — the provider and
-configuration groundwork, **trace instrumentation** (spans for HTTP requests,
-database queries, Celery tasks, WebSocket connections, and the CPM / Monte Carlo
-scheduling engine), and **native metrics** (request latency/count, Celery task
-duration, transactional-outbox depth/lag, and database backend counts) (#707–#710).
-:::
-
 TruePPM will export distributed **traces** (a record of the steps one request or
 job took, and how long each one spent) and **metrics** (aggregate numbers over
 time, like request latency or queue depth) using

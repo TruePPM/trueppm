@@ -4,12 +4,6 @@ description: Three ways to capture time — a running timer, a global quick-log 
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-The weekly timesheet grid and week submission ship in 0.4. Manager approval, non-project time
-categories, and the earned-value actuals feed follow in 0.5. The running timer and the quick-log
-popover described below feed the same underlying time entries and ship alongside the grid in 0.4.
-:::
-
 This is for anyone who needs to record time spent on their work — a contributor logging hours against tasks, or a PM who wants an accurate picture of effort. TruePPM offers three ways to capture time, and all three feed the same record behind the scenes: a
 **running timer** you start and stop against a task, a **quick-log popover** for logging a chunk
 of time you already finished, and the **weekly grid** below for reviewing and submitting a whole

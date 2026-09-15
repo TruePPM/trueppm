@@ -4,17 +4,6 @@ description: Per-project notification routing — pick which events reach you on
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-The default matrix below, the **not delivered yet** labels beside eight of the nine
-events, the same labels on the **Slack** and **Mobile push** columns, and the
-`event_delivery` / `channel_delivery` API fields that drive them all land in
-**TruePPM 0.4**. On the latest release those eight rows are defaulted **on** across
-in-app, email and Slack, the mention row defaults **on** for Slack and mobile push,
-and none of it carries a label — but they are dispatched by nothing either way, so
-no notification is sent for them on any release. 0.4 will make the page say so; it will
-not change what is delivered.
-:::
-
 The **Project Settings → Notifications** page controls how a single project's events reach *you*. Every project member owns their own copy of this page: the toggles you set apply only to your account on this project, and there is no admin surface for editing another member's routing. Open it at **Project → Settings → Notifications**.
 
 The page has three parts:
@@ -111,16 +100,6 @@ In-app notifications are deliberately **exempt** from quiet hours. The in-app in
 A zero-width window (from equals until) means "no quiet hours".
 
 ### Which timezone the window is read in
-
-:::note[Ships in 0.4]
-The **workspace** tier below ships in **TruePPM 0.4**, along with the
-`quiet_hours_timezone` and `quiet_hours_timezone_source` response fields and the
-line on the Notifications page that states them. In `v0.3.0-alpha.3` (the latest
-release) a project that sets no timezone of its own falls straight through to
-the server's `TIME_ZONE`, the workspace **Default timezone** setting has no
-effect on quiet hours, and the page shows the **From** and **Until** times with
-no timezone beside them.
-:::
 
 The window resolves top-down and stops at the first usable value:
 

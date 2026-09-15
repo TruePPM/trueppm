@@ -9,30 +9,6 @@ documentedFor: "0.4"
 This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4.
 :::
 
-:::note[Ships in 0.4]
-Two things on this page ship in **TruePPM 0.4**, the first beta, and are **not**
-in `v0.3.0-alpha.3`, the latest release:
-
-- **Every write action on a dead-lettered task** — everything under
-  [Triaging dead-lettered tasks](#triaging-dead-lettered-tasks), including the
-  bulk actions, and the four `requeue` / `drop` / `requeue-all` / `drop-all`
-  endpoints listed under [API](#api). On 0.3 the Dead-letter inspector is purely
-  diagnostic: you can filter, read a traceback, and read a payload, but there is
-  no button that changes a parked task's state and no write endpoint behind one.
-  (0.3 exposes `retry` and `dismiss` on this resource at the API level only, with
-  no UI, no backoff, no drop note, and no bulk form; 0.4 will replace both.)
-- **The Notification dispatcher card's detection logic.** In 0.3 that card
-  reports "stuck" only for emails that are *still queued* an hour after a failed
-  attempt. Because the delivery queue abandons a row after three attempts (about
-  90 seconds on its 30-second cadence), and because it rewrites the failure
-  timestamp on every attempt, that condition cannot be reached while the relay is
-  what is broken — so on 0.3 the card reports `ok` throughout an SMTP outage.
-
-Everything else — the overview dashboard, the component cards, the Beat panel,
-the retention summary, and the read side of the Dead-letter inspector — describes
-0.3 behavior accurately.
-:::
-
 TruePPM runs scheduling, notifications, webhooks, MS Project imports, and retention
 purges as **background work** — jobs that run outside the request that triggered
 them, via **Celery** (the worker processes that do the work), **Celery Beat** (the
@@ -135,13 +111,6 @@ left/detail, then requeue or drop it — a 0.4 action, see
   - **Payload** — the pretty-printed task `args` and `kwargs`.
 
 ## Triaging dead-lettered tasks
-
-:::note[This whole section ships in 0.4]
-Nothing below is in `v0.3.0-alpha.3`. On the latest release the inspector is
-read-only — there is no Requeue, Drop, Requeue all, or Drop all control, and no
-endpoint behind one. To clear a parked task on 0.3 you re-enqueue it from a shell
-against the broker, or leave it for the retention purge.
-:::
 
 From the detail pane you can act on a parked task; both actions are workspace-admin
 gated and each opens a confirmation before it runs.

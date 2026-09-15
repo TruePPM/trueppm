@@ -101,21 +101,6 @@ protocol has always asked for.
 
 `since=0` returns all rows.
 
-:::caution[Ships in 0.4 — sync watermark change]
-`since` and `timestamp` move from `server_version` to `sync_seq` in 0.4. Comparing
-a per-row save count against a project-wide maximum is not a valid ordering: a
-frequently-edited row drags the checkpoint above every other row's counter, and
-those rows stop being delivered — silently, with the client believing it is fully
-synced.
-
-**No client change is required.** `timestamp` has always been documented as a value
-to adopt verbatim, and the new numbering starts above the old watermark, so the
-first pull after upgrading redelivers the project once under upsert semantics —
-which also repairs anything the old scheme had already dropped. Every pull after
-that is a normal delta. A client that compares `since` against a row's
-`server_version` is relying on the defect and must stop.
-:::
-
 ## Conflict resolution
 
 By default a stale write resolves last-writer-wins on `server_version`: whoever saves

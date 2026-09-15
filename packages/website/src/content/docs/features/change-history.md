@@ -63,13 +63,6 @@ is not reachable through this endpoint.
 
 ### Activity feed (ships in 0.4)
 
-:::note[Ships in 0.4]
-This section describes the `?include=` parameter below, which ships in 0.4. On
-`0.3.0-alpha.3` and earlier the per-task history endpoint returns only
-field-diff rows — no comments, time entries, attachments, schedule, or risk
-events.
-:::
-
 The per-task history endpoint will gain an opt-in `?include=` parameter in **0.4**
 that merges non-diff activity into the same feed:
 

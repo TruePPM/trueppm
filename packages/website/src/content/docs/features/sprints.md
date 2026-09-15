@@ -6,19 +6,6 @@ documentedFor: "0.4"
 
 The Sprints workspace is where an agile or hybrid team runs its **sprints** — fixed-length iterations of work — day to day: a Scrum Master planning and closing them, and the team tracking progress against them. One page brings together five pieces: the sprint header, its goal, a link to the schedule milestone it advances, a timeline of past and upcoming sprints, and the sprint's task list.
 
-:::note[Ships in 0.4]
-Two items on this page are not in the latest release. The
-`GET /api/v1/sprints/{id}/close-request/` endpoint, and the retry behavior it
-reports, land in **TruePPM 0.4** — before 0.4 a close that fails is not retried
-and reports nothing, and the sprint simply stays open. Close **deduplication**
-(one live close per sprint) also lands in 0.4; before it, each repeat POST
-started an independent close. The **cadence generator**
-described under [Standing up a run of sprints](#standing-up-a-run-of-sprints-ships-in-04)
-also lands in 0.4; on the latest release you create sprints one at a time from
-the [Plan Sprint dialog](/features/plan-sprint/). Everything else on this page
-has shipped.
-:::
-
 :::note[Added in 0.3]
 Three of the capabilities below — the read-only **closed-sprint review**, the per-sprint **WIP limit** chip, and **Exclude from velocity** — were added in 0.3, available since the `0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
@@ -46,11 +33,6 @@ Step 5 ([Sprint planning](/the-story/#5-sprint-planning--the-team-pulls-work)) a
 ![The Sprints page for Sprint 5: sprint goal, burndown chart, capacity preflight per person, and velocity](../../../assets/screenshots/sprints.webp)
 
 ## Standing up a run of sprints (ships in 0.4)
-
-:::note[Ships in 0.4]
-The cadence generator below lands in **TruePPM 0.4**. On the latest release,
-sprints are created one at a time from the [Plan Sprint dialog](/features/plan-sprint/).
-:::
 
 Creating a year of iterations one dialog at a time is data entry, not planning.
 **Generate sprints** in the Sprints workspace header opens a two-step wizard that
@@ -169,13 +151,6 @@ The two moving policies are deliberately **not** symmetric:
 | a sprint id | moves to that sprint | **unchanged** — a re-commitment moves nothing else |
 | `"backlog"` | cleared | `NOT_STARTED` → `BACKLOG`; `IN_PROGRESS` and `REVIEW` **preserved** |
 | `"none"` | unchanged | unchanged — incomplete tasks stay in the closed sprint |
-
-:::note[Ships in 0.4]
-The `IN_PROGRESS` / `REVIEW` preservation on the `"backlog"` policy ships in
-**TruePPM 0.4**. In `v0.3.0-alpha.3` (the latest release) that policy rewrites
-*every* carry-eligible status to `BACKLOG`, so a task somebody was actively working on
-comes back marked as un-started.
-:::
 
 `NOT_STARTED` means "committed to this sprint, not begun" — no longer true once the
 task is out of every sprint — so the `"backlog"` policy rewrites it. That is also what

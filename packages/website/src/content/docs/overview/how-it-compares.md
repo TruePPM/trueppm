@@ -15,14 +15,6 @@ today, unless marked otherwise. The [roadmap](/overview/roadmap/) is the
 authoritative Shipped / Underway / Planned record.
 :::
 
-:::note[Ships in 0.4]
-Two capabilities compared on this page — the **read-only MCP server** and **OIDC /
-OAuth2 login** — ship in 0.4, TruePPM's first beta, and are not in the latest tagged
-release. On the current release neither is available: you authenticate with local
-accounts, and there is no MCP endpoint to point a client at. Every other TruePPM
-claim on this page describes what is in `main` today.
-:::
-
 :::note[How to read the claims here]
 The SSO/auth comparisons below carry dated, linked footnotes, because vendor
 packaging changes and a stale citation is worse than none — re-verify against the

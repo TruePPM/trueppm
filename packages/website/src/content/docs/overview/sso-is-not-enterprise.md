@@ -17,13 +17,6 @@ Microsoft Entra ID, Google, GitLab, and GitHub — and **any** other standards-c
 provider (Authelia, for example) works through the Generic OIDC option by entering its issuer URL.
 No plugin to hunt down, no enterprise license, no per-seat upcharge for the login screen.
 
-:::note[Ships in 0.4]
-Basic OIDC / OAuth2 login federation **ships in 0.4**, TruePPM's first beta. `v0.3.0-alpha.3`,
-the latest release, has no single sign-on: people sign in with local TruePPM accounts only.
-Until 0.4 tags, treat this page as a statement of intent, not of shipped behavior. See the
-[roadmap](/overview/roadmap/) for the authoritative Shipped / Underway / Planned status.
-:::
-
 ## Where the line actually falls
 
 The enterprise boundary is not "SSO." It is **governance**. The distinction is one sentence:

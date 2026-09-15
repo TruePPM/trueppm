@@ -16,17 +16,6 @@ covers capabilities that were never built. The split is worth keeping straight:
 Every entry names the issue tracking it and the release it is fixed in. When an
 issue closes, its entry comes off this page.
 
-:::note[Ships in 0.4]
-This page describes the defect surface of **TruePPM 0.4**, the first beta. The latest
-release is `v0.3.0-alpha.3`, and 0.4 is still [Underway](/overview/roadmap/#underway).
-
-If you are running 0.3, read this page as the list of edges you will meet *when you
-upgrade*, not as a description of your install. Entries whose fix is dated ("planned
-for 0.5") are dated against the 0.4 baseline. Some behavior described here as working
-— the agent refusal envelope below, for one — is itself part of 0.4 and is not in
-0.3.
-:::
-
 :::caution[0.4 is a beta]
 0.4 is the first release we ask anyone to run a real project on. It is a beta, not a
 GA. The [roadmap](/overview/roadmap/) is the authoritative Shipped / Underway /

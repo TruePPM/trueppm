@@ -4,14 +4,6 @@ description: A decision table routing an existing MS Project file, spreadsheet, 
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4 — the MS Project rows]
-The `.mpp` row below describes **0.4**. On `0.3.0-alpha.3` and earlier the
-import-into-existing dialog still *offers* `.mpp`, and an upload is accepted and
-then fails in the background worker on any deployment without the optional MPXJ /
-Java toolchain. Constraint and actual-date import is 0.4 as well. The CSV and
-Jira rows carry their own 0.4 markers.
-:::
-
 If your plan already lives somewhere else, you don't have to retype it.
 TruePPM reads several source formats as **one-way, file-based, point-in-time**
 imports — you upload a file, TruePPM builds a project from it that it can

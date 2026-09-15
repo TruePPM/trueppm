@@ -133,12 +133,6 @@ Your job is still just: run good sprints, protect the team, facilitate retrospec
 
 ## Evaluate it yourself (~10 minutes)
 
-:::note[Ships in 0.4]
-The `--with-personas` flag in the walkthrough below ships in 0.4. On `v0.3.0-alpha.3`, the
-latest release, run `load_sample_project` without it: that release creates the same
-`atlas-*` logins unconditionally and does not accept the flag.
-:::
-
 
 The test: you should never need to open the Gantt. Run these steps in order — they start from a machine with nothing running.
 

@@ -22,13 +22,6 @@ You configure the outbound transport one of two ways: in-app from the
 `EMAIL_*` settings remain the fallback the page uses in its default **TruePPM
 cloud** mode.
 
-:::note[Ships in 0.4 — the writable Email & SMTP page]
-The in-app SMTP configuration surface described in the next section **ships in
-0.4** (TruePPM's first beta). Before 0.4, transport is set only through the
-`EMAIL_*` environment settings below; those settings stay valid afterward — they
-are what the built-in **Server default** transport falls back to.
-:::
-
 ## Configuring email in-app
 
 The **Workspace → Settings → Email & SMTP** page lets the install **operator**

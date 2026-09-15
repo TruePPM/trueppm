@@ -12,12 +12,6 @@ The system-level encoding of the [hybrid PM flow](/the-story/)'s central thesis:
 
 ## The matrix
 
-:::note[Ships in 0.4]
-The **Dashboard** row is named **Overview** in the current release; it is renamed in
-0.4 (its address does not change). Visibility per methodology is unaffected — this is
-a label change, not a matrix change.
-:::
-
 | Tab | Waterfall | Agile | Hybrid |
 |---|---|---|---|
 | Dashboard | ✅ | ✅ | ✅ |
@@ -42,10 +36,6 @@ The default for new projects is **Hybrid** — every tab visible. Existing proje
 
 The preset communicates *"this is not how we work here"*, not *"this is not allowed."* Power users who know what they want can always reach a hidden view by direct URL. Mobile or API consumers are unaffected. Hiding lowers cognitive load at onboarding without restricting the system.
 
-:::note[Ships in 0.4]
-The explanatory empty state, the mismatch banner and the flip-warning below all ship in **TruePPM 0.4**, the first beta. In `v0.3.0-alpha.3`, the latest release, landing on a hidden view by direct URL shows the same view a project actually using that workflow would see — an empty one offers its "start using this" call to action, a populated one just renders the work — with no indication in either case that the project is configured otherwise.
-:::
-
 Landing on a hidden view by direct URL never blocks the route, but it also never pretends the view is the project's normal workflow. `/sprints` and `/backlog` on a Waterfall project (and `/schedule` and `/calendar` on an Agile one) show a distinct empty state that names the mismatch, points the primary action at the view the project's methodology actually uses, and demotes "use this anyway" to a secondary action that opens **Settings → How this team works** — so enabling the hidden surface is a deliberate configuration change, never an incidental click.
 
 Flipping a project's methodology never touches existing data, and a hidden view that still holds work says so. Wherever a hidden surface is **not** empty, it renders the work as usual under a banner naming the mismatch — the same four surfaces the empty state covers, and their mobile counterparts:
@@ -61,10 +51,6 @@ The Settings → How this team works picker will also warn before any save that 
 - **Switching to Agile** hides Schedule and Calendar. The warning names how many tasks are on the schedule and how many dependency links the project holds, since the dependency network and the critical path are drawn nowhere else.
 
 Switching to Hybrid never warns: Hybrid hides nothing. Neither does a flip whose destination hides only surfaces this project has not used. Cancelling leaves the picker as you set it, with the change unsaved.
-
-:::note[Ships in 0.4]
-The config-change notice below lands in the **0.4 beta**. In `v0.3.0-alpha.3` a preset switch reaches only whoever has the project open at that moment.
-:::
 
 **Switching the preset tells everyone whose workspace it re-shapes**, not just the person who changed it — the preset decides which views the whole team sees, so a silent flip re-arranges other people's workspace without telling them. That is everyone with work in the project, plus the project's Scrum Master and Product Owner and everyone at Resource Manager or above — a Product Owner or a PM holding no assigned task is precisely the person the rest of the team asks to explain the flip. The notice names both presets, which views became visible or hidden as a result, and confirms that the reader's own items keep their status, dates and assignments. It arrives the same way whether the preset is switched from a project's own settings or in bulk from the program settings matrix. See [Config-change notices](/features/notifications/#config-change-notices).
 
@@ -123,11 +109,6 @@ To change projects that already exist, use the bulk matrix under **Program setti
 Projects**, or each project's own **Methodology** setting. A workspace **Inherit** lock is
 the one case where a parent's value does reach every scope, because it overrides each
 scope's own value at resolution time rather than copying anything.
-
-:::note[Ships in 0.4]
-Saving a program methodology tells you nothing about the projects already in the program
-in the current release — you have to open the Projects matrix and read the rows yourself.
-:::
 
 In 0.4, saving a program's methodology will report what that save did and did not reach:
 

@@ -284,10 +284,6 @@ foreground. Background tabs pause the poll to save battery and API calls.
 
 ### Do Not Disturb
 
-:::note[Ships in 0.4]
-The account-wide Do Not Disturb switch lands in the **0.4 beta**.
-:::
-
 Do Not Disturb is a personal, account-wide quiet switch. Turn it on from
 **Settings → Notifications** (or the quick toggle in the bell panel) to pause
 notification **emails and push** — your in-app inbox and unread count keep
@@ -320,12 +316,6 @@ Clicking the row body navigates to the source task and marks the
 notification read on the way.
 
 ### Snooze, mute, and category filter
-
-:::note[Ships in 0.4]
-Per-notification snooze, inline mute-a-type, and the category filter land in
-the **0.4 beta**. They surface the noise controls inline in the panel and the
-mobile route, so you never have to leave your inbox to turn a noisy type down.
-:::
 
 **Snooze** defers a single notification. The row's **Snooze** menu offers
 **1 hour**, **3 hours**, and **Tomorrow**; a snoozed row drops out of the

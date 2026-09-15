@@ -10,31 +10,6 @@ The operational audit log was added in **TruePPM 0.3**, available since the
 beta is planned for 0.4.
 :::
 
-:::note[Ships in 0.4]
-Several things on this page ship in **0.4** and are not in the latest release
-(`v0.3.0-alpha.3`):
-
-- the three **invite** event types (`invite_sent`, `invite_accepted`,
-  `invite_revoked`) and the `?status=` filter on the invite list — on 0.3 the log
-  records no invite verb, and an invite disappears from the Members page the
-  moment it is accepted or revoked;
-- the five **SSO** event types (`sso_provider_created`, `sso_provider_updated`,
-  `sso_provider_deleted`, `sso_secret_rotated`, `sso_account_linked`) and the
-  `auth.login_succeeded` log line — on 0.3 there is no single sign-on at all;
-- the `role` key on `member_added` rows written by an SSO join.
-- `member_added`, `member_role_changed` and `member_removed` rows written by
-  granting, changing, or revoking a **project or program** member's access
-  (`ProjectMembershipViewSet` / `ProgramMembershipViewSet`) — on 0.3 these three
-  event types record only workspace-level membership changes; a project/program
-  access grant is silent. The project/program rows carry `project_id` or
-  `program_id` in `metadata` instead of `source`, so the two origins are
-  distinguishable by metadata shape even though they share an event type. The
-  added or role-changed member is also notified in-app (revocation is
-  audit-only, no notification).
-
-Everything else on this page describes 0.3.
-:::
-
 The **operational audit log** is a chronological record of who changed what in
 your workspace administration. It answers questions like "who removed this
 member?", "when was that project deleted?", and "who last changed the workspace

@@ -11,11 +11,6 @@ drawer** were added in 0.3 (the agile team release), available since the
 behavior.
 :::
 
-:::note[Ships in 0.4]
-The **CPM-float annotation** on the variance chip, described under [What
-changes](#what-changes) below, ships in 0.4.
-:::
-
 This is for hybrid teams where a sprint's progress is meant to advance a milestone on the schedule. Binding a sprint to a Schedule-view milestone makes that milestone's percent complete *live*. The number a PM sees on the Schedule view and the
 number a Scrum Master sees on the Sprints view are the same number, computed
 from the same sprint state, with no manual reconciliation step.

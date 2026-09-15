@@ -4,18 +4,6 @@ description: Push tasks into TruePPM from Jira, Linear, GitHub Issues, or any cu
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-One behavior on this page ships in **TruePPM 0.4**, the first beta, and is **not**
-in `v0.3.0-alpha.3`, the latest release: **an archived project refusing inbound
-pushes**. On 0.3 a push into an archived project still succeeds and creates or
-updates the task, so if you archive a plan while an integration is still pointed
-at it, archive is not what stops the writes — revoke the token.
-
-That is the only item this callout covers. The rest of the page was not audited
-for version accuracy when this declaration was added, so read it as undeclared
-rather than as verified-shipped.
-:::
-
 This page is for whoever sets up integrations for the team — a PM, an admin, or a
 developer connecting an existing tool. **Inbound Task Sync** is a lightweight,
 authenticated way to let an external task tool push work into a TruePPM project,

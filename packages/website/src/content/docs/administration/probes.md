@@ -4,18 +4,6 @@ description: What each TruePPM component's health probe actually checks, why it 
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-The Celery worker's **startup** probe, its heartbeat-file **readiness** probe, and
-the tunable **web** probes are new in TruePPM 0.4 (#3346) and are **not** in
-`v0.3.0-alpha.3`, the latest release. On 0.3 the worker has no startup probe and
-its readiness probe is `celery inspect ping` on a 60s period — the mechanism this
-page explains was built to replace for exactly that probe. `/api/v1/readyz`
-itself, the api probes, and beat's liveness probe shipped earlier (0.1–0.3) and
-are unchanged here except for two 0.4 additions: the disk-migration scan behind
-`readyz` is now cached process-wide instead of rebuilt on every call, and the
-endpoint carries its own rate limit instead of a full throttle exemption.
-:::
-
 Every TruePPM component ships with a probe that answers one of three questions,
 and getting them confused is the single most common cause of a self-hosted
 install that looks broken but is not (or, worse, looks fine but is not serving):

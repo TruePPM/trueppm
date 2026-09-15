@@ -4,14 +4,6 @@ description: Operator reference for TruePPM's MS Project import / export — upl
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4 — the API-only `.mpp` caution]
-One paragraph below describes **0.4**: the callout stating that neither file
-picker accepts a `.mpp`. On `0.3.0-alpha.3` and earlier the import-into-existing
-dialog still offers it, and an upload on a deployment without the toolchain is
-accepted and then fails in the worker with no user-visible reason. Every setting,
-default and security boundary on this page is shipped behavior.
-:::
-
 This page is the operator's reference for TruePPM's [MS Project import / export](/features/msproject-import-export/) surface. The user-facing flows ship with sensible defaults — most deployments do not need to change anything here — but the four knobs below cover upload size, the optional `.mpp` toolchain, history retention, and what's enforced on parsed input.
 
 ## Upload size cap

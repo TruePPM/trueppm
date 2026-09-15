@@ -103,28 +103,6 @@ choices TruePPM already makes:
 The human stays in the loop: the engine computes, the AI translates and explains, and the
 human decides.
 
-:::note[Ships in 0.4]
-The deterministic engine behind all four verbs is **shipped today** — CPM, Monte Carlo, and the
-feasibility refusal that applies to every caller are all in the current release. The
-**AI-facing** surface this page describes is not: on the latest tagged release there is no MCP
-server, no agent-action log and no Agents tab, so none of the *reproduce* behavior above is
-something you can exercise on it yet. Those parts are merged to `main` and ship with the 0.4
-beta. The [roadmap](/overview/roadmap/) is the authoritative shipped-vs-planned status.
-
-- **Compute / cite** — the read-only [MCP server](/features/mcp-server/) and the provenance
-  graph (the *cite* derivation) **ship with the 0.4 beta**; both are already merged to `main`.
-- **Reproduce** — the Phase-0 agent-action audit foundation (hash-chained record, chain
-  verification, an `identity`/`policy` refusal taxonomy) also **ships with the 0.4 beta** and is
-  already in `main`; its governing decision, [ADR-0112](/architecture/decisions/), is Accepted.
-  Its scope on arrival is the one described above — `mcp:read` calls and identity refusals. A
-  signed engine-version + input-hash *answer stamp* follows at 0.9.
-- **Refuse** — feasibility refusal is in the engine today and applies to every caller; it
-  reaches the agent **write** path in two steps: plan mode at 0.5 (`dry_run` proposals —
-  verdict + impact, committing nothing) and the committing write surface at 0.6. Recording
-  those engine refusals in the agent-action chain arrives with them.
-- The natural-language query layer and local-model adapter are planned for 0.5.
-:::
-
 ## Where the line falls — OSS vs Enterprise
 
 **The engine's ability to refuse is never Enterprise-gated.** The feasibility checks, RBAC, the
