@@ -2184,6 +2184,18 @@ describe('useProjectWebSocket — remaining invalidation handlers', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['boardConfig', 'proj-1'] });
   });
 
+  // #3773 — a second Owner/Admin with Project Settings → Guardrails open
+  // concurrently must see the other's PATCH without a reload. Payload is
+  // signal-only (policy id), so the handler always refetches unconditionally.
+  it('invalidates guardrail-policy on guardrail_policy_updated', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('guardrail_policy_updated', { id: 'policy-1' });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['guardrail-policy', 'proj-1'] });
+  });
+
   it('actually matches the current project in the resync_required predicate', () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });

@@ -166,6 +166,11 @@ The set is open-ended and grows as features land; current event types include:
   `assignment_updated`, `assignment_deleted`
 - **Board config**: `board_config_updated`, `board_view_created`,
   `board_view_updated`, `board_view_deleted`, `project_custom_fields_updated`
+- **Guardrails (ADR-0101)**: `guardrail_policy_updated` — a sprint-composition
+  guardrail level changed, or an external policy was acknowledged by the team.
+  Payload is `{"id": <policy id>}` only — never the levels map — so a client
+  re-reads `GET /api/v1/projects/{id}/guardrail-policy/`, which re-applies the
+  sovereignty gate for the reading identity
 - **Membership / project**: `member_added`, `member_role_changed`,
   `member_removed`, `mention_group_changed`, `project_updated`,
   `project_archived`, `project_unarchived`, `project_restored`,
@@ -298,6 +303,7 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `project_restored` | **WS-only** |
 | `project_deleted` | **WS-only** |
 | `project_custom_fields_updated` | **WS-only** |
+| `guardrail_policy_updated` | **WS-only** |
 | `api_token_minted` | **WS-only** |
 | `api_token_revoked` | **WS-only** |
 | `demo_toggled` | **WS-only** |

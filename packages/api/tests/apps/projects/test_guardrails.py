@@ -10,6 +10,7 @@ generalized SprintScopeChange payload (goal_impact + item_name).
 from __future__ import annotations
 
 from datetime import date
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -485,6 +486,61 @@ def test_unknown_rule_rejected(owner_client: APIClient, project: Project) -> Non
         format="json",
     )
     assert resp.status_code == 400
+
+
+# --------------------------------------------------------------------------- #
+# Policy endpoint — WebSocket broadcast (#3773).
+# --------------------------------------------------------------------------- #
+
+
+def test_patch_broadcasts_guardrail_policy_updated(
+    owner_client: APIClient, project: Project, django_capture_on_commit_callbacks
+) -> None:
+    """PATCH triggers broadcast_board_event on commit so a second Owner/Admin
+    with Project Settings → Guardrails open sees the change without a reload."""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = owner_client.patch(
+            f"/api/v1/projects/{project.id}/guardrail-policy/",
+            {"levels": {"phase_in_sprint": "block"}},
+            format="json",
+        )
+    assert resp.status_code == 200
+    assert mock_broadcast.called
+    args, _ = mock_broadcast.call_args
+    project_id, event_type, payload = args
+    assert project_id == str(project.id)
+    assert event_type == "guardrail_policy_updated"
+    policy = ProjectGuardrailPolicy.objects.get(project=project)
+    assert payload == {"id": str(policy.id)}
+
+
+def test_patch_broadcast_is_deferred_to_commit(
+    owner_client: APIClient, project: Project, django_capture_on_commit_callbacks
+) -> None:
+    """The broadcast must not fire until the surrounding transaction commits —
+    a PATCH whose transaction later rolls back must never tell peers a change
+    landed that a re-read would not show."""
+    with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast:
+        with django_capture_on_commit_callbacks(execute=False) as callbacks:
+            resp = owner_client.patch(
+                f"/api/v1/projects/{project.id}/guardrail-policy/",
+                {"levels": {"phase_in_sprint": "block"}},
+                format="json",
+            )
+            assert resp.status_code == 200
+
+        # Deferred, not fired, while the callback sits uncalled.
+        assert mock_broadcast.call_count == 0
+
+        for callback in callbacks:
+            callback()
+
+    assert mock_broadcast.call_count == 1
+    args, _ = mock_broadcast.call_args
+    assert args[1] == "guardrail_policy_updated"
 
 
 # --------------------------------------------------------------------------- #

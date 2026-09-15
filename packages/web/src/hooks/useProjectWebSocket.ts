@@ -45,6 +45,9 @@
  *   team_member_changed → invalidate team-members[teamId] (facet/role reassign, ADR-0078)
  *   board_config_updated → invalidate boardConfig
  *   board_view_created / board_view_updated / board_view_deleted → invalidate boardViews
+ *   guardrail_policy_updated → invalidate guardrail-policy (#3773 — a second Owner/Admin
+ *                  with Project Settings → Guardrails open concurrently sees the change
+ *                  live; payload is signal-only, so this always refetches)
  *   project_created / project_updated / project_deleted → invalidate project + projects
  *   phases_reordered / queue_reordered → invalidate tasks
  *   board activity feed → the card-sync events above (task_created / task_updated /
@@ -999,6 +1002,16 @@ function registerMembershipAndBoardHandlers(on: OnFn, deps: WsHandlerDeps): void
   });
   on(['board_view_created', 'board_view_updated', 'board_view_deleted'], () => {
     void queryClient.invalidateQueries({ queryKey: ['boardViews', projectIdRef.current] });
+  });
+
+  // --- Guardrail policy events (#3773) ---
+  // A peer with Project Settings → Guardrails open PATCHes a composition rule
+  // level or acknowledges an external policy; the payload is signal-only
+  // (policy id), so unconditionally refetch rather than try to splice it.
+  on('guardrail_policy_updated', () => {
+    void queryClient.invalidateQueries({
+      queryKey: ['guardrail-policy', projectIdRef.current],
+    });
   });
 
   // --- Project-level events ---
