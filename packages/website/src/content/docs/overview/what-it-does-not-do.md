@@ -37,7 +37,12 @@ tasks, TruePPM will compute dates that assume they can do all three at once.
 - **Today:** nothing. The engine's public surface is `schedule()` and `monte_carlo()`.
 - **0.5:** per-project partial allocation (e.g. 60/40) with over-allocation *warnings*
   surfaced before the booking is confirmed — a warning, still not a leveling pass.
-- **After 1.0, enterprise edition:** cross-program resource leveling.
+- **0.6:** a leveling pass in the OSS core
+  ([#1442](https://gitlab.com/trueppm/trueppm/-/issues/1442)) — a resource-constrained
+  pass over the CPM result that shifts activities within their float, then beyond it,
+  until no resource is loaded past capacity, within a single project or program. 0.6
+  carries no date: this is a sequence, not a schedule.
+- **After 1.0, enterprise edition:** cross-*program* resource leveling.
 
 **If you need automatic resource leveling today, use Primavera P6 or MS Project.**
 This is the single largest functional gap between TruePPM and the traditional

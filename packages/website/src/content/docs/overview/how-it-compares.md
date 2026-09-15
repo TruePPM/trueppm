@@ -9,10 +9,10 @@ This page names competitors and cites sources. It also names the comparisons Tru
 should not make a tooling decision on an advertisement.
 
 :::caution[Read the version status first]
-TruePPM is pre-GA. The current shipped release is an alpha, and the first beta is
-0.4. Every claim below about TruePPM's own capabilities describes what is in `main`
-today, unless marked otherwise. The [roadmap](/overview/roadmap/) is the
-authoritative Shipped / Underway / Planned record.
+TruePPM is pre-GA. The current shipped release is the first beta, 0.4. Every claim
+below about TruePPM's own capabilities describes what is in `main` today, unless
+marked otherwise. The [roadmap](/overview/roadmap/) is the authoritative
+Shipped / Underway / Planned record.
 :::
 
 :::note[How to read the claims here]
@@ -140,10 +140,10 @@ This is where the honest losses are.
 |---|---|---|---|
 | CPM, 4 dependency types, lead/lag on every link | Yes | Yes | Yes |
 | Monte Carlo risk | **In the core** | Separate product (Primavera Risk Analysis) | Separate product (third-party) |
-| **Resource leveling** | **No** | Yes | Yes |
-| **Constraint types** | **1** (start-no-earlier-than) | Full set | 8 + deadlines |
+| **Resource leveling** | **No** (a single-program engine is sequenced for 0.6) | Yes | Yes |
+| **Constraint types** | **1** (start-no-earlier-than; a deadline with negative float is planned for 0.5) | Full set | 8 + deadlines |
 | **Cost / earned value** | **No** (EV-lite planned 0.8) | Yes | Yes |
-| **Tested task ceiling** | **~1,000 in the Schedule view** | Very large (100k+ activities in practice) | Large |
+| **Tested task ceiling** | **~1,000 in the Schedule view** (a lift is planned for 0.5; no target number is published — see [why](/administration/sizing/#how-this-ceiling-is-raised-in-05)) | Very large (100k+ activities in practice) | Large |
 | Sub-day scheduling | No (planned 0.6) | Yes | Yes |
 | Agile board / sprints | Yes, on the same objects | No | No |
 | Real-time multi-user web | Yes | Limited | Limited |
@@ -191,7 +191,7 @@ three, on the same task objects your team moves across a board.
 
 TruePPM's answer to Jira is deliberately **not** "switch." A personal, read-only,
 one-way Jira sync into My Work ships in 0.4 so contributors never double-enter, and a
-one-time migration import follows in 0.5 for teams that decide to move. Run both and
+one-time migration import follows in 0.6 for teams that decide to move. Run both and
 get the CPM forecast without asking anyone to change tools first.
 
 Where Jira wins and will keep winning: ecosystem, marketplace, integration breadth,
