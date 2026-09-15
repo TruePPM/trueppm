@@ -103,17 +103,19 @@ Do not proceed to Step 2 until the docs audit is complete. A release with stale 
 
 ## Step 1c — PyPI README approachability (every release, not gated on a fragment)
 
-`packages/scheduler/README.md` is the scheduler's landing page on PyPI — most people who
-find `trueppm-scheduler` meet the project there before anywhere else, and Step 1b's
-"PyPI package surface changes" bullet only fires when a fragment says the surface changed.
-Run this check unconditionally, every release:
+Applies to **every package this release publishes to PyPI** — `packages/scheduler/README.md`
+and, as of the mcp package's first `mcp-v*` tag (#2809), `packages/mcp/README.md` too. Each is
+that package's landing page on PyPI — most people meet the project there before anywhere else —
+and Step 1b's "PyPI package surface changes" bullet only fires when a fragment says the surface
+changed. Run this check unconditionally, every release, against each PyPI-published package:
 
-- [ ] The Quick start example still runs verbatim against the version being released (paste it into a scratch script and execute it — don't eyeball it).
-- [ ] The Features list names every public capability currently in `trueppm_scheduler.__all__` in human terms — not just what changed this release. If a prior release added an export (a new quantity, a new derivation, an agile/velocity input, etc.) that never made it into the README's prose, add it now; this gate exists precisely to catch that drift.
-- [ ] Any new or changed example block (beyond Quick start) is likewise executed against the release version, not just read for plausibility.
-- [ ] The README still reads as "what can I do with this and why would I reach for it" for someone who has never seen TruePPM — not as an API changelog. If a feature is easy to describe mechanically but hard to motivate, add the one-line "why" before the code.
+- [ ] The Quick start example still runs verbatim against the version being released (paste it into a scratch script and execute it — don't eyeball it). For a server package like mcp, "runs" means the CLI actually starts and the documented env vars/flags match `cli.py`/`config.py` — you may not be able to exercise a real tool call without a live TruePPM instance, but verify every flag, default, and env var name against source, not against the README's own prose.
+- [ ] The Features/capability list names everything the package's public surface currently does in human terms — not just what changed this release. For scheduler: every export in `trueppm_scheduler.__all__`. For mcp: every registered tool (count and grouping) in `src/trueppm_mcp/tools.py`. If a prior release added something that never made it into the README's prose, add it now; this gate exists precisely to catch that drift.
+- [ ] Any new or changed example block (beyond Quick start) is likewise executed or cross-checked against source, not just read for plausibility.
+- [ ] **Does the README state what the package depends on to be useful, not just how to install it?** A README can be technically accurate about installation while never saying what has to already exist for the package to do anything — mcp's README documented tokens and env vars but never stated it requires a *running self-hosted TruePPM instance on a specific minimum version* until this was caught at the 0.4.0-beta.1 cut (the tools call 0.4-only endpoints, so it silently fails against 0.3). Add a Requirements section naming every hard prerequisite explicitly if one doesn't already exist.
+- [ ] The README still reads as "what can I do with this and why would I reach for it" for someone who has never seen TruePPM — not as an API changelog. If a feature is easy to describe mechanically but hard to motivate, add the one-line "why" before the code, and consider a short worked example (one concrete question/call and what comes back) if the package's value is otherwise hard to picture from prose alone.
 
-This is a review pass, not an agent invocation — do it by hand against the diff since the last release tag (`git log <last-scheduler-tag>..HEAD -- packages/scheduler/README.md packages/scheduler/src`).
+This is a review pass, not an agent invocation — do it by hand against the diff since the last release tag for each package (`git log <last-tag>..HEAD -- packages/<pkg>/README.md packages/<pkg>/src`).
 
 ## Step 2 — Run the release script
 
