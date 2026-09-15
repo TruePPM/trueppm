@@ -173,6 +173,33 @@ On a screen narrower than 768px the matrix becomes a read-only card list: the
 markers, the count, and the filter stay, and the bulk-edit controls are replaced
 by a note that they need a wider screen.
 
+### Before applying a methodology across the selection
+
+:::note[Ships in 0.4]
+The impact preview described below ships in **TruePPM 0.4**, the first beta. In
+`v0.3.0-alpha.3`, the latest release, pressing **Apply** with **Methodology**
+staged writes immediately, with no preview of what it hides.
+:::
+
+From 0.4, pressing **Apply** with **Methodology** staged will not write
+immediately — it will swap the action bar into a preview naming what the change
+does before a second press confirms it:
+
+- Setting **Waterfall** will name how many of the selected projects have
+  sprints or backlog stories, which that value hides — with the totals across
+  the selection. Nothing is deleted; the preview says so.
+- Setting **Agile** will name how many of the selected projects have baselines
+  or dependency links, which that value hides.
+- Setting **Hybrid** will state plainly that nothing is hidden, since Hybrid
+  shows both.
+- The preview will also state how many of the selected projects already run on
+  the value you are about to apply.
+
+The counts come from the same read that loaded the matrix, so opening the
+preview makes no additional request — if a count cannot be read, the preview
+will say so rather than show a number it cannot back up. **Iteration label**
+is unaffected: it keeps applying immediately, since it hides nothing.
+
 ## Access
 
 The **Access** section manages **who can see and manage the program**, using the

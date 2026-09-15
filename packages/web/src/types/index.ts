@@ -689,6 +689,17 @@ export interface Project {
   effectiveMethodology?: Methodology;
   inheritedMethodology?: Methodology;
   /**
+   * What a methodology flip on this project would hide (#3296), annotated only
+   * by the program-projects endpoint: `sprintCount`/`backlogStoryCount` are what
+   * a WATERFALL value hides, `baselineCount`/`dependencyCount` are what an AGILE
+   * value hides. `undefined` on every other project-list shape — the bulk
+   * matrix's impact preview treats an undefined count as unknown, never as zero.
+   */
+  sprintCount?: number;
+  backlogStoryCount?: number;
+  baselineCount?: number;
+  dependencyCount?: number;
+  /**
    * Whether the plan has been committed to (#2962, #3233). `'draft'` means nobody
    * has agreed to it yet — fully writable, but held out of every aggregate in
    * `DRAFT_EXCLUDED_AGGREGATES` until `POST /projects/{id}/commit/` captures

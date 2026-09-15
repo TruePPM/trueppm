@@ -88,6 +88,25 @@ interface FieldBase<Row> {
    *  "drop the parenthetical when tight" conditional would fire on every render at the
    *  default width and never at 220px, which is a rule nobody maintains. */
   minWidth?: string;
+  /**
+   * When present, pressing Apply on this field swaps the action bar into this
+   * preview instead of writing immediately (#3296) — reusing the slot
+   * `ResetConfirm` already occupies rather than inventing a second one. Given
+   * the rows currently selected and the value staged, return the node to
+   * render; the caller wires `onConfirm` to the write and `onCancel` to back
+   * out. The matrix reverts to the plain bar on its own — discarding the
+   * preview — the instant the selection, the field, or the staged value
+   * changes while it is open, so `previewApply` never has to guard against a
+   * stale preview describing a write that is no longer what Apply would do.
+   */
+  previewApply?: (params: {
+    selectedRows: Row[];
+    value: BulkFieldValue;
+    entityNoun: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+    busy: boolean;
+  }) => ReactNode;
 }
 
 export type FieldDescriptor<Row> = FieldBase<Row> &
@@ -211,6 +230,15 @@ export function BulkFieldsMatrix<Row>({
   });
   const [staged, setStaged] = useState<Staged>(UNSET);
   const [confirmingReset, setConfirmingReset] = useState(false);
+  // Impact-preview state (#3296). `previewSnapshot` is what Apply was pressed
+  // against — compared, not trusted, on every later render so the preview can
+  // never describe a write Apply would no longer perform.
+  const [previewing, setPreviewing] = useState(false);
+  const previewSnapshot = useRef<{
+    fieldKey: string;
+    staged: Staged;
+    selection: ReadonlySet<string>;
+  } | null>(null);
   const liveRef = useRef<HTMLDivElement>(null);
 
   const field = editableFields.find((f) => f.key === fieldKey) ?? editableFields[0];
@@ -221,6 +249,21 @@ export function BulkFieldsMatrix<Row>({
     setStaged(UNSET);
     setConfirmingReset(false);
   }, [fieldKey]);
+
+  // A preview describes one (field, value, selection) triple. Any of the three
+  // moving while it is open makes it stale, so it reverts rather than keep
+  // showing counts for a write Apply would no longer make (D13's sibling rule).
+  useEffect(() => {
+    if (!previewing || !previewSnapshot.current) return;
+    const snap = previewSnapshot.current;
+    const selectionChanged =
+      selected.size !== snap.selection.size ||
+      [...selected].some((id) => !snap.selection.has(id));
+    if (fieldKey !== snap.fieldKey || staged !== snap.staged || selectionChanged) {
+      setPreviewing(false);
+      previewSnapshot.current = null;
+    }
+  }, [fieldKey, staged, selected, previewing]);
 
   const allKeys = useMemo(() => rows.map(rowKey), [rows, rowKey]);
   const selectedCount = selected.size;
@@ -368,6 +411,18 @@ export function BulkFieldsMatrix<Row>({
               onConfirm={() => void runApply(null)}
               busy={isApplying}
             />
+          ) : previewing && field?.previewApply && staged !== UNSET ? (
+            field.previewApply({
+              selectedRows: rows.filter((r) => selected.has(rowKey(r))),
+              value: staged,
+              entityNoun,
+              onCancel: () => {
+                setPreviewing(false);
+                previewSnapshot.current = null;
+              },
+              onConfirm: () => void runApply(staged),
+              busy: isApplying,
+            })
           ) : (
             <>
               <label className="flex items-center gap-2 text-[12px] text-neutral-text-secondary">
@@ -405,7 +460,13 @@ export function BulkFieldsMatrix<Row>({
                   size="sm"
                   disabled={!canApply}
                   onClick={() => {
-                    if (staged !== UNSET) void runApply(staged);
+                    if (staged === UNSET) return;
+                    if (field?.previewApply) {
+                      previewSnapshot.current = { fieldKey, staged, selection: new Set(selected) };
+                      setPreviewing(true);
+                      return;
+                    }
+                    void runApply(staged);
                   }}
                   data-testid="bulk-fields-apply"
                 >

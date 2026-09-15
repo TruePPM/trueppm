@@ -25,7 +25,9 @@ const ROWS: Row[] = [
   { id: 'r2', name: 'Orbital', methodology: 'WATERFALL', inheritedMethodology: 'HYBRID', iterationLabel: null, effectiveIterationLabel: 'Iteration' },
 ];
 
-function makeFields(opts: { methodologyLocked?: boolean } = {}): FieldDescriptor<Row>[] {
+function makeFields(
+  opts: { methodologyLocked?: boolean; methodologyPreview?: boolean } = {},
+): FieldDescriptor<Row>[] {
   return [
     {
       key: 'methodology',
@@ -39,6 +41,22 @@ function makeFields(opts: { methodologyLocked?: boolean } = {}): FieldDescriptor
       read: (r) => ({ effective: r.methodology, overridden: r.methodology !== r.inheritedMethodology }),
       resettable: false,
       locked: opts.methodologyLocked,
+      ...(opts.methodologyPreview
+        ? {
+            previewApply: ({ selectedRows, value, onConfirm, onCancel, busy }) => (
+              <div data-testid="preview-stub">
+                <span data-testid="preview-count">{selectedRows.length}</span>
+                <span data-testid="preview-value">{String(value)}</span>
+                <button type="button" onClick={onCancel} disabled={busy}>
+                  Stub cancel
+                </button>
+                <button type="button" onClick={onConfirm} disabled={busy}>
+                  Stub confirm
+                </button>
+              </div>
+            ),
+          }
+        : {}),
     },
     {
       key: 'iteration_label',
@@ -970,4 +988,89 @@ describe('BulkFieldsMatrix — deep-link arrival seeds (#3293)', () => {
    * stops React state from holding a key the picker cannot show. Asserting the rendered
    * value would pass with the guard deleted, which is a test that proves nothing.
    */
+});
+
+describe('BulkFieldsMatrix — impact preview slot (#3296)', () => {
+  it('Apply swaps the bar into the preview instead of writing', () => {
+    renderMatrix({ fields: makeFields({ methodologyPreview: true }) });
+    fireEvent.click(screen.getByLabelText('Select Orbital'));
+    fireEvent.click(screen.getByRole('radio', { name: 'Agile' }));
+    fireEvent.click(screen.getByTestId('bulk-fields-apply'));
+    expect(screen.getByTestId('preview-stub')).toBeInTheDocument();
+    expect(screen.getByTestId('preview-count')).toHaveTextContent('1');
+    expect(screen.getByTestId('preview-value')).toHaveTextContent('AGILE');
+    expect(apply).not.toHaveBeenCalled();
+    // The normal bar — including the Apply button itself — is gone while previewing.
+    expect(screen.queryByTestId('bulk-fields-apply')).toBeNull();
+  });
+
+  it('confirming the preview applies the staged value to the selected rows', async () => {
+    renderMatrix({ fields: makeFields({ methodologyPreview: true }) });
+    fireEvent.click(screen.getByLabelText('Select Orbital'));
+    fireEvent.click(screen.getByRole('radio', { name: 'Agile' }));
+    fireEvent.click(screen.getByTestId('bulk-fields-apply'));
+    fireEvent.click(screen.getByText('Stub confirm'));
+    await waitFor(() => expect(apply).toHaveBeenCalledWith(['r2'], 'methodology', 'AGILE'));
+  });
+
+  it('cancelling the preview returns to the normal bar without writing', () => {
+    renderMatrix({ fields: makeFields({ methodologyPreview: true }) });
+    fireEvent.click(screen.getByLabelText('Select Orbital'));
+    fireEvent.click(screen.getByRole('radio', { name: 'Agile' }));
+    fireEvent.click(screen.getByTestId('bulk-fields-apply'));
+    fireEvent.click(screen.getByText('Stub cancel'));
+    expect(screen.queryByTestId('preview-stub')).toBeNull();
+    expect(screen.getByTestId('bulk-fields-apply')).toBeInTheDocument();
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  it('reverts a stale preview when the selection changes underneath it', () => {
+    renderMatrix({ fields: makeFields({ methodologyPreview: true }) });
+    fireEvent.click(screen.getByLabelText('Select Orbital'));
+    fireEvent.click(screen.getByRole('radio', { name: 'Agile' }));
+    fireEvent.click(screen.getByTestId('bulk-fields-apply'));
+    expect(screen.getByTestId('preview-stub')).toBeInTheDocument();
+    // Selection changes underneath the open preview — it must not keep describing
+    // a write for a selection nobody chose.
+    fireEvent.click(screen.getByLabelText('Select Apollo'));
+    expect(screen.queryByTestId('preview-stub')).toBeNull();
+    expect(screen.getByTestId('bulk-fields-apply')).toBeInTheDocument();
+  });
+
+  it('a successful confirm closes the preview and returns to the normal bar', async () => {
+    renderMatrix({ fields: makeFields({ methodologyPreview: true }) });
+    fireEvent.click(screen.getByLabelText('Select Orbital'));
+    fireEvent.click(screen.getByRole('radio', { name: 'Agile' }));
+    fireEvent.click(screen.getByTestId('bulk-fields-apply'));
+    fireEvent.click(screen.getByText('Stub confirm'));
+    await waitFor(() => expect(apply).toHaveBeenCalled());
+    // `runApply`'s success path resets `staged` to UNSET, which is itself a
+    // staged-value change — the same revert effect that guards a stale preview
+    // is what closes this one, rather than a second bespoke "on success" path.
+    await waitFor(() => expect(screen.queryByTestId('preview-stub')).toBeNull());
+    expect(screen.getByTestId('bulk-fields-apply')).toBeInTheDocument();
+  });
+
+  it('suppresses the scope note while the preview is open (D35 — one count per bar state)', () => {
+    renderMatrix({
+      fields: makeFields({ methodologyPreview: true }),
+      scopeNote: 'cohort clause',
+    });
+    expect(screen.getByTestId('bulk-fields-scope-note')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Select Orbital'));
+    fireEvent.click(screen.getByRole('radio', { name: 'Agile' }));
+    fireEvent.click(screen.getByTestId('bulk-fields-apply'));
+    expect(screen.queryByTestId('bulk-fields-scope-note')).toBeNull();
+  });
+
+  it('a field with no previewApply still writes immediately on Apply', async () => {
+    renderMatrix({ fields: makeFields({ methodologyPreview: true }) });
+    fireEvent.change(screen.getByLabelText('Field to set'), { target: { value: 'iteration_label' } });
+    fireEvent.click(screen.getByLabelText('Select Apollo'));
+    const bar = screen.getByTestId('bulk-fields-action-bar');
+    fireEvent.change(within(bar).getByLabelText('Iteration label'), { target: { value: 'Cadence' } });
+    fireEvent.click(screen.getByTestId('bulk-fields-apply'));
+    await waitFor(() => expect(apply).toHaveBeenCalledWith(['r1'], 'iteration_label', 'Cadence'));
+    expect(screen.queryByTestId('preview-stub')).toBeNull();
+  });
 });
