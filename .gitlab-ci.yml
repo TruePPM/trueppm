@@ -6016,11 +6016,18 @@ scheduler:publish:
     - TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_API_TOKEN" twine upload --attestations dist/*.tar.gz dist/*.whl dist/*.publish.attestation --non-interactive --verbose
   artifacts:
     # Keep the built wheel + sdist + SBOM as a CI artifact for traceability.
-    # The SBOM ships here today; attaching dist/sbom.cdx.json to the GitLab
-    # Release awaits a scheduler release-cli job. It is never a PyPI file.
+    # `never` (not the usual 30-day default) because dist/sbom.cdx.json is
+    # this package's ONLY durable SBOM location today — it isn't attached to
+    # the PyPI upload (twine's --attestations globs deliberately exclude it;
+    # it isn't a PyPI file) or to the GitLab Release. A 30-day expiry made
+    # every published version's SBOM silently unrecoverable a month after
+    # release, discovered auditing SBOM coverage at the 0.4.0-beta.1 cut
+    # (#3817). Attaching it to the GitLab Release properly (a scheduler
+    # release-cli job) is tracked separately and would let this revert to a
+    # normal retention once it exists.
     paths:
       - packages/scheduler/dist/
-    expire_in: 30 days
+    expire_in: never
 
 # scheduler:publish:test (TestPyPI on every main merge) was removed earlier.
 # The tag-triggered scheduler:publish above is LIVE, not dormant: the PyPI name
@@ -6175,10 +6182,11 @@ mcp:publish:
     - TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_API_TOKEN" twine upload --attestations dist/*.tar.gz dist/*.whl dist/*.publish.attestation --non-interactive --verbose
   artifacts:
     # Keep the built wheel + sdist + SBOM as a CI artifact for traceability.
-    # The SBOM is never a PyPI file.
+    # `never` (not the usual 30-day default) — see the matching comment on
+    # scheduler:publish; the same reasoning applies here (#3817).
     paths:
       - packages/mcp/dist/
-    expire_in: 30 days
+    expire_in: never
 
 # BEFORE THE FIRST `mcp-v*` TAG (one-time, human, cannot be automated):
 # register a PyPI Trusted Publisher for the project name `trueppm-mcp` at
