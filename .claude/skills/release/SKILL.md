@@ -66,6 +66,20 @@ For every fragment in `changelog.d/`, verify documentation is in sync:
 
 Do not proceed to Step 2 until the docs audit is complete. A release with stale documentation is worse than no documentation — users will follow the wrong instructions.
 
+## Step 1c — PyPI README approachability (every release, not gated on a fragment)
+
+`packages/scheduler/README.md` is the scheduler's landing page on PyPI — most people who
+find `trueppm-scheduler` meet the project there before anywhere else, and Step 1b's
+"PyPI package surface changes" bullet only fires when a fragment says the surface changed.
+Run this check unconditionally, every release:
+
+- [ ] The Quick start example still runs verbatim against the version being released (paste it into a scratch script and execute it — don't eyeball it).
+- [ ] The Features list names every public capability currently in `trueppm_scheduler.__all__` in human terms — not just what changed this release. If a prior release added an export (a new quantity, a new derivation, an agile/velocity input, etc.) that never made it into the README's prose, add it now; this gate exists precisely to catch that drift.
+- [ ] Any new or changed example block (beyond Quick start) is likewise executed against the release version, not just read for plausibility.
+- [ ] The README still reads as "what can I do with this and why would I reach for it" for someone who has never seen TruePPM — not as an API changelog. If a feature is easy to describe mechanically but hard to motivate, add the one-line "why" before the code.
+
+This is a review pass, not an agent invocation — do it by hand against the diff since the last release tag (`git log <last-scheduler-tag>..HEAD -- packages/scheduler/README.md packages/scheduler/src`).
+
 ## Step 2 — Run the release script
 
 ```bash
