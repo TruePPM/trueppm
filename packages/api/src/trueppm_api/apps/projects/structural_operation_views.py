@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from django.db.models import Q, QuerySet
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -222,7 +222,18 @@ class StructuralOperationViewSet(
 
     @extend_schema(
         request=None,
-        responses={200: StructuralOperationUndoSerializer},
+        responses={
+            200: StructuralOperationUndoSerializer,
+            409: OpenApiResponse(
+                description=(
+                    "The act can no longer be reversed safely — body is "
+                    '``{"code": ..., "detail": ..., ...}`` with ``code`` one of '
+                    "``too_large``, ``not_top_of_stack`` (extra: ``blocking_operation_id``) "
+                    "or ``shape_changed`` (extra: ``changed``), matching "
+                    "``StructuralUndoBlockedReason``."
+                )
+            ),
+        },
         description=(
             "Reverse this structural act. All-or-nothing: if anything the undo would "
             "write has moved since, it refuses with 409 rather than reverting partially. "
