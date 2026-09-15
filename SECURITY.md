@@ -128,6 +128,16 @@ unignored finding blocks the merge. Suppressions are scoped and documented in
 the relevant config (`.gitleaks.toml`, `osv-scanner.toml`, `.trivyignore.yaml`,
 `deny.toml`) so they stay auditable rather than silently masking findings.
 
+## Supply-chain verification
+
+Every published artifact — the `api`/`web` container images, the Helm chart,
+and the `trueppm-scheduler`/`trueppm-mcp` PyPI packages — is Cosign-signed (or
+PEP 740-attested, for the PyPI packages) and carries a CycloneDX SBOM. For the
+verification commands and a table of exactly where each artifact's SBOM lives,
+see
+[**Supply-chain verification**](https://docs.trueppm.com/administration/security/#supply-chain-verification)
+in the docs.
+
 ## Acknowledgements
 
 We gratefully acknowledge all responsible disclosures. A Hall of Fame will be maintained here once contributions are received.
