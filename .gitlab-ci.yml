@@ -6601,13 +6601,33 @@ release:create:
   script:
     - |
       VERSION="${CI_COMMIT_TAG#v}"
-      if echo "$VERSION" | grep -qE '(alpha|beta|rc)'; then
-        BASE="${VERSION%%-*}"
-        printf '**TruePPM %s** — pre-release.\n\nChanges are accumulating in `[Unreleased]` until **%s** ships stable.\nSee [CHANGELOG.md](https://gitlab.com/trueppm/trueppm/-/blob/%s/CHANGELOG.md) for the current list.\n' \
-          "${CI_COMMIT_TAG}" "$BASE" "${CI_COMMIT_TAG}" > release_notes.md
+      # scripts/release.sh rotates [Unreleased] into a dated "## [<version>]"
+      # section on EVERY release — alpha/beta/rc and stable alike, not just
+      # stable (this was the old assumption here, and it went stale under
+      # this job without release.sh being re-checked: the 0.4.0-beta.1
+      # Release page published "changes are still accumulating" even though
+      # the dated section, with real content, already existed). So: always
+      # look for the real dated section: `alpha`/`beta`/`rc` in the version
+      # string no longer means "assume there is none."
+      #
+      # Extract only the section's summary paragraph (stop at the first
+      # "### " category heading), not the full entry list — a single section
+      # can run to thousands of lines when a cycle accumulates a large
+      # backlog (0.4.0-beta.1's ran ~7,600), which is not a fit size for a
+      # Release page. Link out to CHANGELOG.md for the itemized detail.
+      awk "/^## \[$VERSION\]/{found=1; next} found && (/^## \[/ || /^### /){exit} found{print}" CHANGELOG.md \
+        | sed '/^[[:space:]]*$/d' > /tmp/summary.md
+      if [ -s /tmp/summary.md ]; then
+        {
+          printf '**TruePPM %s**\n\n' "${CI_COMMIT_TAG}"
+          cat /tmp/summary.md
+          printf '\nSee [CHANGELOG.md](https://gitlab.com/trueppm/trueppm/-/blob/%s/CHANGELOG.md) for the full, dated release notes.\n' "${CI_COMMIT_TAG}"
+        } > release_notes.md
       else
-        awk "/^## \[$VERSION\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md \
-          | sed '/^[[:space:]]*$/d' > release_notes.md
+        # No dated section found (e.g. a hand-cut tag that skipped
+        # release.sh) — link out rather than publish an empty description.
+        printf '**TruePPM %s**\n\nSee [CHANGELOG.md](https://gitlab.com/trueppm/trueppm/-/blob/%s/CHANGELOG.md) for release notes.\n' \
+          "${CI_COMMIT_TAG}" "${CI_COMMIT_TAG}" > release_notes.md
       fi
   release:
     tag_name: '$CI_COMMIT_TAG'
