@@ -25,8 +25,10 @@ It's pure Python with just `networkx` and `numpy` underneath — no Django, no w
 ## Features
 
 - Forward/backward CPM pass with all four dependency types (FS, SS, FF, SF), total/free float, and critical-path flagging
-- Calendar-aware working-day arithmetic (weekend skip + holiday exceptions)
+- Calendar-aware working-day arithmetic (weekend skip + holiday exceptions), with optional per-task calendars for mixed-team schedules
 - Monte Carlo schedule-risk simulation via PERT-Beta distributions (numpy-vectorized, ~10k runs/sec) → P50/P80/P95 completion dates
+- Hybrid agile/waterfall forecasting — mark a task `delivery_mode=SCRUM` with a `story_points` estimate and Monte Carlo samples its duration from the team's own velocity history instead of a per-task PERT guess, so a project can mix sprint-delivered and traditionally-estimated work in one simulation
+- Explainable results — `derive_value()` answers "why is this date what it is?" for any early/late/float value, naming the exact predecessor, dependency type, and lag that won, plus every constraint it beat
 - JSON round-tripping for plans (`Project.from_json()` / `Project.to_json()`)
 - CLI: `trueppm-scheduler schedule` / `trueppm-scheduler monte-carlo`
 
@@ -135,6 +137,57 @@ Conventions:
 
 See [the full documentation](https://docs.trueppm.com/features/scheduler) for CPM output fields, Monte Carlo usage, and CLI reference.
 
+## Explaining a result
+
+The CPM pass picks the `max` (forward) or `min` (backward) of several candidate
+constraints for each date, then moves on — it doesn't remember which one won.
+`derive_value()` replays that decision for a single task and value, and names
+the constraint that actually set it:
+
+```python
+from trueppm_scheduler import derive_value, Quantity
+
+d = derive_value(project, task_id="t-2", quantity=Quantity.EARLY_START)
+print(d.value, d.binding.kind, d.binding.source_task_name, d.binding.dep_type)
+# 2026-01-12 predecessor_fs Design FS — Build starts when Design finishes on an FS link
+
+for c in d.contributions:
+    print(c.kind, c.source_task_name, c.is_binding)  # every constraint considered, winner flagged
+```
+
+This is what lets a UI (or an AI agent) answer "why is this task starting on the
+17th?" with the actual dependency instead of a guess — the value returned is
+computed the same way the engine computed it, not re-derived heuristically.
+
+## Mixing agile and waterfall in one schedule
+
+Real programs are rarely pure CPM or pure Scrum. A task can opt into
+sprint-based uncertainty instead of a three-point estimate:
+
+```python
+from trueppm_scheduler import DeliveryMode, Task
+
+sprint_work = Task(
+    id="t-4",
+    name="Checkout redesign",
+    duration=timedelta(days=10),      # fallback if delivery_mode is later cleared
+    delivery_mode=DeliveryMode.SCRUM,
+    story_points=21,
+)
+
+project = Project(
+    ...,
+    tasks=[task_a, task_b, sprint_work],
+    velocity_samples=[18, 22, 15, 24, 19],  # the team's last five sprints
+)
+```
+
+`monte_carlo()` then samples `sprint_work`'s duration from how many sprints the
+team's own velocity history says 21 points takes — not from a PERT guess nobody
+on the team would stand behind — while every other task in the same run still
+uses its three-point estimate. `DeliveryMode.WATERFALL` (the default) is
+unaffected; mixing modes is opt-in per task.
+
 ## Interpreting the output
 
 The two entry points answer different questions, and their outputs are not the
@@ -239,7 +292,8 @@ trueppm-scheduler==0.4.0b1
 
 Beta releases are pre-releases — `pip install trueppm-scheduler` skips them
 unless you pass `--pre`. Breaking changes are recorded in
-[`CHANGELOG.md`](./CHANGELOG.md), which also ships inside the wheel.
+[`CHANGELOG.md`](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/CHANGELOG.md),
+which also ships inside the wheel.
 
 ### Reproducibility (seeded runs)
 
