@@ -11,6 +11,7 @@ idempotent re-push), and the owner-map restore on withdrawal.
 from __future__ import annotations
 
 from datetime import date
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -265,3 +266,81 @@ def test_clear_is_a_noop_when_no_policy_row_exists(project: Project) -> None:
 def test_contract_version_is_exported() -> None:
     # Enterprise may read this to refuse a contract it does not understand.
     assert EXTERNAL_GUARDRAIL_POLICY_CONTRACT_VERSION == 1
+
+
+# --------------------------------------------------------------------------- #
+# WebSocket broadcast (#3810) — same event the PATCH view emits (#3773), so an
+# open settings page reflects an org policy that arrives while a team is
+# looking at it, regardless of which side (team or Enterprise) wrote it.
+# --------------------------------------------------------------------------- #
+
+
+def test_apply_broadcasts_guardrail_policy_updated(
+    project: Project, django_capture_on_commit_callbacks
+) -> None:
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        policy = apply_external_guardrail_policy(
+            project, levels={"summary_in_sprint": GuardrailLevel.BLOCK}, source_label="PMO"
+        )
+    assert mock_broadcast.called
+    args, _ = mock_broadcast.call_args
+    project_id, event_type, payload = args
+    assert project_id == str(project.id)
+    assert event_type == "guardrail_policy_updated"
+    assert payload == {"id": str(policy.id)}
+
+
+def test_apply_does_not_broadcast_on_an_idempotent_reapply(
+    project: Project, django_capture_on_commit_callbacks
+) -> None:
+    """An hourly sync job re-pushing an unchanged policy must not spam every open
+    settings page with a no-op refetch signal."""
+    with django_capture_on_commit_callbacks(execute=True):
+        apply_external_guardrail_policy(
+            project, levels={"summary_in_sprint": GuardrailLevel.BLOCK}, source_label="PMO"
+        )
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        apply_external_guardrail_policy(
+            project, levels={"summary_in_sprint": GuardrailLevel.BLOCK}, source_label="PMO"
+        )
+    assert not mock_broadcast.called
+
+
+def test_clear_broadcasts_guardrail_policy_updated(
+    project: Project, django_capture_on_commit_callbacks
+) -> None:
+    with django_capture_on_commit_callbacks(execute=True):
+        apply_external_guardrail_policy(
+            project, levels={"summary_in_sprint": GuardrailLevel.BLOCK}, source_label="PMO"
+        )
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        restored = clear_external_guardrail_policy(project)
+    assert restored is not None
+    assert mock_broadcast.called
+    args, _ = mock_broadcast.call_args
+    project_id, event_type, payload = args
+    assert project_id == str(project.id)
+    assert event_type == "guardrail_policy_updated"
+    assert payload == {"id": str(restored.id)}
+
+
+def test_clear_does_not_broadcast_on_a_replayed_noop(
+    project: Project, django_capture_on_commit_callbacks
+) -> None:
+    """A withdrawal with no policy row (or an owner-sourced one) is a no-op and
+    must not tell any open settings page that something changed."""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        assert clear_external_guardrail_policy(project) is None
+    assert not mock_broadcast.called

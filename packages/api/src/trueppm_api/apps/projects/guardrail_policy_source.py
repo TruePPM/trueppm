@@ -180,10 +180,10 @@ def apply_external_guardrail_policy(
         ExternalGuardrailPolicyError: If a rule key, a level, or the label is invalid.
 
     Note:
-        This does not emit a WebSocket event — ``ProjectGuardrailPolicy`` has no
-        broadcast on any write path today. TODO(#3773) covers wiring one; when it
-        lands, this write path needs it too, so an open settings page reflects an
-        org policy that arrives while the team is looking at it.
+        Broadcasts ``guardrail_policy_updated`` on commit (#3810), same shape and
+        same event as the PATCH view (#3773), but only when the policy's content
+        actually changed — an idempotent re-push from an hourly sync job must not
+        spam every open settings page with a no-op refetch signal.
     """
     cleaned_levels = _validate_levels(levels)
     label = _validate_source_label(source_label)
@@ -205,6 +205,16 @@ def apply_external_guardrail_policy(
         policy.acknowledged_at = None
     policy._change_reason = f"external policy applied by {label}"  # type: ignore[attr-defined]
     policy.save()
+
+    if content_changed:
+        # Snapshot to plain strings before the closure (broadcast-check H-1) — the
+        # policy instance must not be captured live.
+        policy_id = str(policy.id)
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "guardrail_policy_updated", {"id": policy_id})
+        )
     return policy
 
 
@@ -228,6 +238,11 @@ def clear_external_guardrail_policy(
     Returns:
         The updated row, or ``None`` when the project has no policy row or its policy
         was never external (both are no-ops, so a withdrawal is safe to replay).
+
+    Note:
+        Broadcasts ``guardrail_policy_updated`` on commit (#3810) — same event
+        :func:`apply_external_guardrail_policy` emits — but only on the real
+        withdrawal path; a replayed no-op never reaches this far.
     """
     project_id = _coerce_project_id(project)
     policy = (
@@ -242,4 +257,13 @@ def clear_external_guardrail_policy(
     policy.acknowledged_at = None
     policy._change_reason = "external policy withdrawn"  # type: ignore[attr-defined]
     policy.save()
+
+    # Snapshot to plain strings before the closure (broadcast-check H-1) — the
+    # policy instance must not be captured live.
+    policy_id = str(policy.id)
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    transaction.on_commit(
+        lambda: broadcast_board_event(project_id, "guardrail_policy_updated", {"id": policy_id})
+    )
     return policy
