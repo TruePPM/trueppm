@@ -6117,8 +6117,10 @@ class ScopeChangeStatus(models.TextChoices):
     transition has zero policy/extension hook. The ONLY writers of ACCEPTED /
     REJECTED are the human-invoked ``accept_scope_change`` / ``reject_scope_change``
     services behind the role>=ADMIN + project-membership gated endpoints. The
-    ``sprint_scope_changed`` signal is notify-only; the ``guardrail_policy_resolving``
-    resolver supplies policy, never actions. Enterprise authors must not mistake
+    ``sprint_scope_changed`` signal is notify-only; the external guardrail-policy
+    seam (``guardrail_policy_source.apply_external_guardrail_policy``, which replaced
+    the never-built ``guardrail_policy_resolving`` signal in #3780) supplies policy,
+    never actions. Enterprise authors must not mistake
     this for an extensible hook — there is no auto-accept path by design (the
     sprint-sovereignty back-door close, VoC 🔴 #1).
     """
@@ -6295,9 +6297,17 @@ class ProjectGuardrailPolicy(VersionedModel):
     Composition rules may only be set to BLOCK when ``source == OWNER`` *or*
     ``source == EXTERNAL and acknowledged_by_team`` — the OSS-enforced sprint-
     sovereignty gate. The level write itself is additionally permission-gated at the
-    view (``role >= Role.OWNER``); this model holds the inertness rule so it cannot
-    be bypassed by a caller that reaches the model directly (e.g. the Enterprise
-    resolver).
+    view (``role >= Role.OWNER``); the inertness rule lives here, on the model, so a
+    caller that reaches the model directly (e.g. the Enterprise resolver) still gets
+    it on every read of :meth:`effective_level`.
+
+    That is the whole of what the model can guarantee, and this docstring used to
+    claim more (#3780). A direct ORM writer can set ``source = EXTERNAL`` and
+    ``acknowledged_by_team = True`` in one ``save()`` and the gate evaporates —
+    nothing on a Django model can prevent that. What closes the gap is the *declared*
+    write path, ``guardrail_policy_source.apply_external_guardrail_policy``, which
+    validates the policy and refuses to touch the acknowledgement flag; bypassing it
+    is now a documented contract violation rather than the only available route.
     """
 
     project = models.OneToOneField(
@@ -6308,15 +6318,25 @@ class ProjectGuardrailPolicy(VersionedModel):
     # {rule_key: level}. Rules absent default to WARN. Stored as JSON rather than
     # a column-per-rule so adding a future rule needs no migration.
     levels = models.JSONField(default=dict, blank=True)
+    # unconsumed: the EXTERNAL half of these three fields has no OSS writer by design.
+    # ``source``/``source_label`` are set only through the declared seam
+    # ``guardrail_policy_source.apply_external_guardrail_policy`` (#3780), whose
+    # consumer is trueppm-enterprise#200 (cross-program guardrail templates). Until
+    # that ships, EXTERNAL is unreachable in a community install and the OSS banner on
+    # ProjectGuardrailsPage never renders — that is expected, not a bug.
+    # ``acknowledged_by_team`` is the exception: it is OSS-owned team state, written by
+    # the project's own PATCH, and the seam must never set it.
     source = models.CharField(
         max_length=16,
         choices=GuardrailPolicySource.choices,
         default=GuardrailPolicySource.OWNER,
     )
     # Who set an EXTERNAL policy (display name for the team-ack banner). Empty for
-    # OWNER-sourced policies. Free text — the Enterprise resolver supplies it.
+    # OWNER-sourced policies. Free text — the Enterprise caller supplies it, and the
+    # seam refuses a blank one so the banner can always name a source.
     source_label = models.CharField(max_length=255, blank=True, default="")
-    # An EXTERNAL composition-block is inert until this is True (ADR-0101).
+    # An EXTERNAL composition-block is inert until this is True (ADR-0101). Only the
+    # team sets it (PATCH); re-applying a *changed* external policy resets it.
     acknowledged_by_team = models.BooleanField(default=False)
     acknowledged_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
