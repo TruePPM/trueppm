@@ -247,3 +247,63 @@ def test_program_delta_ships_only_moved_tasks_per_member(
         assert repeat[pid]["count"] == 0, f"{pid} re-broadcast unmoved tasks"
         assert repeat[pid]["tasks"] == []
         assert "truncated" not in repeat[pid]
+
+
+@pytest.mark.django_db
+def test_cpm_complete_payload_shape_matches_between_single_and_program_pass(
+    calendar: Calendar, django_capture_on_commit_callbacks: object
+) -> None:
+    """The single-project and program-scoped ``cpm_complete`` broadcasts must
+    carry the identical key set (#3776).
+
+    Before this fix, ``_run_schedule`` (single-project) and
+    ``_register_program_broadcasts`` (program-scoped) each built the
+    ``cpm_complete`` payload as an independent dict *variable*, and only the
+    single-project one carried ``status_date`` — a divergence the static
+    ``test_broadcast_payload_shape.py`` gate could not see because a
+    dict-variable payload falls into its unscannable bucket. Both call sites
+    now route through the shared ``scheduling.tasks._broadcast_cpm_complete``,
+    so this pins the key-set invariant directly rather than relying on the
+    static gate alone to keep them from drifting apart again.
+    """
+    program, proj_a, _proj_b, _a1, _b1 = _program(calendar, accepted=True)
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as program_bcast,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        _run_program_schedule(str(program.pk))
+
+    program_payload = next(
+        call.kwargs["payload"]
+        for call in program_bcast.call_args_list
+        if call.kwargs.get("event_type") == "cpm_complete"
+        and call.kwargs.get("project_id") == str(proj_a.pk)
+    )
+
+    standalone = Project.objects.create(name="Solo", start_date=START, calendar=calendar)
+    Task.objects.create(project=standalone, name="Only task", duration=3)
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as single_bcast,
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        _run_schedule(str(standalone.pk))
+
+    single_payload = next(
+        call.kwargs["payload"]
+        for call in single_bcast.call_args_list
+        if call.kwargs.get("event_type") == "cpm_complete"
+    )
+
+    expected_keys = {"project_finish", "critical_path", "status_date"}
+    assert set(program_payload.keys()) == expected_keys
+    assert set(single_payload.keys()) == expected_keys
+
+    # The program pass deliberately floors nothing — member projects can carry
+    # different status_dates, so gather_program_schedule runs with
+    # status_date=None and _broadcast_cpm_complete echoes that honestly rather
+    # than fabricating a value. The single-project pass always resolves one.
+    assert program_payload["status_date"] is None
+    assert single_payload["status_date"] is not None
