@@ -215,9 +215,65 @@ test.describe('Program Settings → Projects', () => {
     await bar.getByRole('radio', { name: 'Agile' }).click();
     await page.getByTestId('bulk-fields-apply').click();
 
+    // Apply on Methodology opens the impact preview (#3296) rather than writing —
+    // confirm it before the POST fires.
+    await expect(page.getByTestId('bulk-methodology-preview')).toBeVisible();
+    await page.getByText('Set Agile').click();
+
     await expect.poll(() => posted).not.toBeNull();
     expect(posted!.ids).toEqual(['pr-1']);
     expect(posted!.fields).toEqual({ methodology: 'AGILE' });
+  });
+
+  test('the impact preview appears before an apply across a mixed selection, and cancel discards it (#3296)', async ({
+    page,
+  }) => {
+    await setup(page, [
+      {
+        ...project('pr-1', 'Artemis IV Lift', 'AGILE'),
+        sprint_count: 3,
+        backlog_story_count: 2,
+      },
+      {
+        ...project('pr-2', 'Launch Control Software', 'HYBRID'),
+        sprint_count: 0,
+        backlog_story_count: 0,
+      },
+    ]);
+    let posted = false;
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/bulk-project-fields/`, async (route) => {
+      posted = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ updated: [], fields: [] }),
+      });
+    });
+
+    await page.goto(`/programs/${PROGRAM_ID}/settings/projects`);
+    await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
+
+    // Mixed selection: one project carrying sprint/backlog data, one carrying none.
+    await page.getByLabel('Select Artemis IV Lift').check();
+    await page.getByLabel('Select Launch Control Software').check();
+    const bar = page.getByTestId('bulk-fields-action-bar');
+    await bar.getByRole('radio', { name: 'Waterfall' }).click();
+    await page.getByTestId('bulk-fields-apply').click();
+
+    const preview = page.getByTestId('bulk-methodology-preview');
+    await expect(preview).toBeVisible();
+    await expect(preview).toContainText('Set Methodology to Waterfall on 2 selected projects?');
+    await expect(preview).toContainText('3 sprints, 2 backlog stories');
+    // Nothing was written yet, and the normal bar (with the Apply button) is gone
+    // while the preview is open.
+    expect(posted).toBe(false);
+    await expect(page.getByTestId('bulk-fields-apply')).toHaveCount(0);
+
+    // Cancel backs out without writing and restores the normal bar.
+    await page.getByText('Cancel').click();
+    await expect(preview).toHaveCount(0);
+    expect(posted).toBe(false);
+    await expect(page.getByTestId('bulk-fields-apply')).toBeVisible();
   });
 
   test('shows empty state when the program has no projects', async ({ page }) => {

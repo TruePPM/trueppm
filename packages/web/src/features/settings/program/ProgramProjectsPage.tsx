@@ -10,6 +10,7 @@ import {
   BulkFieldsMatrix,
   type FieldDescriptor,
 } from '../components/BulkFieldsMatrix';
+import { BulkMethodologyImpactPreview } from './BulkMethodologyImpactPreview';
 import {
   DEVIATES,
   METHODOLOGY_LABEL,
@@ -168,6 +169,20 @@ export function ProgramProjectsPage() {
         locked: methodologyLocked,
         // "Waterfall ≠ program (Hybrid)" does not fit the 140px default (#3295, D39).
         minWidth: '220px',
+        // Impact preview before an atomic bulk write (#3296) — the single-project
+        // path already awaits a dialog before its PATCH; the bulk path applied
+        // instantly with no comparable guard. Methodology-only: `iteration_label`
+        // below has no hidden-surface story, so it keeps writing on Apply.
+        previewApply: ({ selectedRows, value, entityNoun, onConfirm, onCancel, busy }) => (
+          <BulkMethodologyImpactPreview
+            selectedRows={selectedRows}
+            value={value as Methodology}
+            entityNoun={entityNoun}
+            onConfirm={onConfirm}
+            onCancel={onCancel}
+            busy={busy}
+          />
+        ),
       },
       {
         key: 'iteration_label',

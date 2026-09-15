@@ -21,13 +21,17 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
+    Baseline,
     Calendar,
+    Dependency,
     Health,
     Methodology,
     Program,
     Project,
+    Sprint,
     Task,
     TaskStatus,
+    TaskType,
 )
 
 User = get_user_model()
@@ -602,6 +606,10 @@ _EXPECTED_ROW_FIELDS = {
     "is_archived",
     "overdue_count",
     "at_risk_count",
+    "sprint_count",
+    "backlog_story_count",
+    "baseline_count",
+    "dependency_count",
     "is_pinned",
     "my_role",
     "my_role_label",
@@ -1663,4 +1671,101 @@ def test_projects_endpoint_count_annotations_are_not_n_plus_one(
     assert len(resp.data) == 4
     # Bounded: the list query + permission/object lookups, constant regardless of
     # project count. Generous ceiling guards against a regression to per-row counts.
+    assert len(ctx.captured_queries) <= 12, len(ctx.captured_queries)
+
+
+@pytest.mark.django_db
+def test_projects_endpoint_annotates_bulk_impact_preview_counts(
+    owner: object, calendar: Calendar
+) -> None:
+    """#3296 sprint/backlog/baseline/dependency counts feed the bulk methodology
+    impact preview. Each must reflect only the scope the corresponding surface
+    actually hides, not every row on the model."""
+    program = _create_program(_client(owner))
+    project = Project.objects.create(
+        name="A", start_date=date(2026, 4, 1), calendar=calendar, program=program
+    )
+    Sprint.objects.create(
+        project=project, name="S1", start_date=date(2026, 4, 1), finish_date=date(2026, 4, 14)
+    )
+    Sprint.objects.create(
+        project=project, name="S2", start_date=date(2026, 4, 15), finish_date=date(2026, 4, 28)
+    )
+
+    # backlog story (included), an epic in BACKLOG (excluded, not a story), a
+    # BACKLOG task already in a sprint (excluded), a soft-deleted BACKLOG story
+    # (excluded).
+    _task(project, "story", status=TaskStatus.BACKLOG)
+    Task.objects.create(
+        project=project,
+        name="epic",
+        wbs_path="epic",
+        duration=1,
+        status=TaskStatus.BACKLOG,
+        type=TaskType.EPIC,
+    )
+    sprinted = _task(project, "sprinted", status=TaskStatus.BACKLOG)
+    sprinted.sprint = Sprint.objects.create(
+        project=project, name="S3", start_date=date(2026, 5, 1), finish_date=date(2026, 5, 14)
+    )
+    sprinted.save(update_fields=["sprint"])
+    _task(project, "gone", status=TaskStatus.BACKLOG, is_deleted=True)
+
+    Baseline.objects.create(project=project, name="Approved")
+
+    pred = _task(project, "pred")
+    succ = _task(project, "succ")
+    Dependency.objects.create(predecessor=pred, successor=succ)
+    stale_pred = _task(project, "stale-pred")
+    stale_succ = _task(project, "stale-succ")
+    Dependency.objects.create(predecessor=stale_pred, successor=stale_succ, is_deleted=True)
+
+    resp = _client(owner).get(f"/api/v1/programs/{program.pk}/projects/")
+    assert resp.status_code == 200, resp.content
+    row = next(r for r in resp.data if r["id"] == str(project.pk))
+    assert row["sprint_count"] == 3
+    assert row["backlog_story_count"] == 1  # "story" only
+    assert row["baseline_count"] == 1
+    assert row["dependency_count"] == 1  # the live edge, not the soft-deleted one
+
+
+@pytest.mark.django_db
+def test_projects_endpoint_bulk_impact_preview_counts_zero_with_nothing_to_count(
+    owner: object, calendar: Calendar
+) -> None:
+    program = _create_program(_client(owner))
+    project = Project.objects.create(
+        name="Empty", start_date=date(2026, 4, 1), calendar=calendar, program=program
+    )
+    resp = _client(owner).get(f"/api/v1/programs/{program.pk}/projects/")
+    row = next(r for r in resp.data if r["id"] == str(project.pk))
+    assert row["sprint_count"] == 0
+    assert row["backlog_story_count"] == 0
+    assert row["baseline_count"] == 0
+    assert row["dependency_count"] == 0
+
+
+@pytest.mark.django_db
+def test_projects_endpoint_bulk_impact_preview_counts_are_not_n_plus_one(
+    owner: object, calendar: Calendar
+) -> None:
+    # Four Subquery aggregates (#3296), same discipline as the overdue/at-risk
+    # Counts above: they must ride the single list query, not one per row.
+    program = _create_program(_client(owner))
+    for i in range(4):
+        p = Project.objects.create(
+            name=f"P{i}",
+            start_date=date(2026, 4, 1),
+            calendar=calendar,
+            program=program,
+        )
+        Sprint.objects.create(
+            project=p, name="S", start_date=date(2026, 4, 1), finish_date=date(2026, 4, 14)
+        )
+
+    client = _client(owner)
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.get(f"/api/v1/programs/{program.pk}/projects/")
+    assert resp.status_code == 200
+    assert len(resp.data) == 4
     assert len(ctx.captured_queries) <= 12, len(ctx.captured_queries)

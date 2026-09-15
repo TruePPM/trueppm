@@ -64090,6 +64090,26 @@
                         "description": "Incomplete tasks with ≤5 working days of float (#560) — the canonical\nat-risk definition (cf. ProjectViewSet.status_summary, program_rollup).\nAnnotated only on the program-projects branch. ``None`` elsewhere.",
                         "readOnly": true
                     },
+                    "sprint_count": {
+                        "type": "integer",
+                        "description": "Sprints in this project. Read-only; a WATERFALL methodology hides them.",
+                        "readOnly": true
+                    },
+                    "backlog_story_count": {
+                        "type": "integer",
+                        "description": "Product-backlog stories in this project (status=BACKLOG, no sprint, non-epic) — the same scope the product-backlog view lists. Read-only; a WATERFALL methodology hides the product-backlog view.",
+                        "readOnly": true
+                    },
+                    "baseline_count": {
+                        "type": "integer",
+                        "description": "Baselines saved on this project. Read-only; an AGILE methodology hides them.",
+                        "readOnly": true
+                    },
+                    "dependency_count": {
+                        "type": "integer",
+                        "description": "Live (non-deleted) dependency edges whose predecessor is in this project. Read-only; an AGILE methodology hides the Schedule view these edges render on.",
+                        "readOnly": true
+                    },
                     "is_pinned": {
                         "type": "boolean",
                         "description": "Whether **the requesting user** has pinned this (#2390, ADR-0627).\n\nBound positionally to ``request.user`` by the viewset's ``Exists()``\nannotation — there is no parameter, and no code path, by which a caller\ncan ask whether *someone else* pinned it. That is the whole privacy\ndesign: this field can answer \"did I pin it\", never \"who pinned it\" or\n\"how many pinned it\" (ADR-0627 §D5). ``pinned_at`` is deliberately absent\nhere and lives only on the owner's own ``GET /me/pinned/``, because a\nrecency timestamp on a shared payload is what would make \"she hasn't\npinned it in weeks\" expressible.\n\nNote this is the *opposite* privacy semantics from ``TaskNote.pinned`` /\n``TaskAttachment.is_pinned``, which are shared curation any project\nwriter may toggle (ADR-0627 §D1.1). Do not reason by analogy between them.\n\nDefaults to ``False`` rather than ``None`` when unannotated: a missing\nannotation should render an unpinned star, not a broken toggle.",
@@ -64120,9 +64140,12 @@
                 },
                 "required": [
                     "at_risk_count",
+                    "backlog_story_count",
+                    "baseline_count",
                     "can_author",
                     "can_undo_batch_operations",
                     "code",
+                    "dependency_count",
                     "effective_iteration_label",
                     "effective_methodology",
                     "health",
@@ -64138,6 +64161,7 @@
                     "name",
                     "overdue_count",
                     "program",
+                    "sprint_count",
                     "start_date"
                 ]
             },

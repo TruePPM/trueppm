@@ -1929,6 +1929,17 @@ class ProgramProjectRowSerializer(ProjectSerializer):
     them.
     """
 
+    # Bulk-methodology impact-preview counts (#3296) — what a WATERFALL flip
+    # hides (sprints, backlog stories) and what an AGILE flip hides (baselines,
+    # dependency edges), annotated per row by the `projects` action's Subquery
+    # aggregates. `SerializerMethodField` + defensive `getattr` for the same
+    # reason as `overdue_count`/`at_risk_count` above: the annotation exists only
+    # on this action's queryset, not on every queryset this serializer could see.
+    sprint_count = serializers.SerializerMethodField()
+    backlog_story_count = serializers.SerializerMethodField()
+    baseline_count = serializers.SerializerMethodField()
+    dependency_count = serializers.SerializerMethodField()
+
     class Meta(ProjectSerializer.Meta):
         # Every field is read-only: this serializer is only ever used to render a
         # response. The program-projects action is GET-only and there is no write path
@@ -1959,6 +1970,11 @@ class ProgramProjectRowSerializer(ProjectSerializer):
             # Per-project rollup counts annotated by the action itself (#560).
             "overdue_count",
             "at_risk_count",
+            # Bulk-methodology impact-preview counts (#3296) — see field declarations.
+            "sprint_count",
+            "backlog_story_count",
+            "baseline_count",
+            "dependency_count",
             # Caller-scoped — each answers only about the requesting user. See the
             # class docstring; removing any of these reverts #2553 or #3357.
             "is_pinned",
@@ -1968,6 +1984,46 @@ class ProgramProjectRowSerializer(ProjectSerializer):
             "can_undo_batch_operations",
         ]
         read_only_fields = fields
+
+    @extend_schema_field(
+        serializers.IntegerField(
+            help_text="Sprints in this project. Read-only; a WATERFALL methodology hides them."
+        )
+    )
+    def get_sprint_count(self, obj: Project) -> int | None:
+        return getattr(obj, "sprint_count", None)
+
+    @extend_schema_field(
+        serializers.IntegerField(
+            help_text=(
+                "Product-backlog stories in this project (status=BACKLOG, no sprint, "
+                "non-epic) — the same scope the product-backlog view lists. Read-only; "
+                "a WATERFALL methodology hides the product-backlog view."
+            )
+        )
+    )
+    def get_backlog_story_count(self, obj: Project) -> int | None:
+        return getattr(obj, "backlog_story_count", None)
+
+    @extend_schema_field(
+        serializers.IntegerField(
+            help_text="Baselines saved on this project. Read-only; an AGILE methodology hides them."
+        )
+    )
+    def get_baseline_count(self, obj: Project) -> int | None:
+        return getattr(obj, "baseline_count", None)
+
+    @extend_schema_field(
+        serializers.IntegerField(
+            help_text=(
+                "Live (non-deleted) dependency edges whose predecessor is in this "
+                "project. Read-only; an AGILE methodology hides the Schedule view "
+                "these edges render on."
+            )
+        )
+    )
+    def get_dependency_count(self, obj: Project) -> int | None:
+        return getattr(obj, "dependency_count", None)
 
     # Both overrides carry an explicit `help_text` for the same reason the parent's
     # `can_undo_batch_operations` does: without one, drf-spectacular lifts the docstring

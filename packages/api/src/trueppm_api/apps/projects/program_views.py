@@ -72,14 +72,18 @@ from trueppm_api.apps.projects.bulk_settings import (
 )
 from trueppm_api.apps.projects.lifecycle import not_draft_q, visible_projects
 from trueppm_api.apps.projects.models import (
+    Baseline,
+    Dependency,
     ExportJobStatus,
     Methodology,
     Program,
     ProgramExportJob,
     ProgramImportJob,
     Project,
+    Sprint,
     Task,
     TaskStatus,
+    TaskType,
     format_short_id_display,
 )
 from trueppm_api.apps.projects.serializers import (
@@ -2377,6 +2381,70 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                     & Q(tasks__total_float__isnull=False)
                     & Q(tasks__total_float__lte=5),
                     distinct=True,
+                ),
+                # Bulk-methodology impact preview counts (#3296). Subquery, not a
+                # fourth/fifth/sixth/seventh filtered Count alongside the two above:
+                # this row already carries a `distinct=True` fan-out guard for
+                # `tasks`, and stacking more joined aggregates over `tasks` /
+                # `baselines` / dependency edges multiplies that join rather than
+                # adding to it. Each Subquery below is its own single-column,
+                # single-group query plan instead.
+                sprint_count=Coalesce(
+                    Subquery(
+                        Sprint.objects.filter(project=OuterRef("pk"))
+                        .order_by()
+                        .values("project")
+                        .annotate(c=Count("id"))
+                        .values("c"),
+                        output_field=IntegerField(),
+                    ),
+                    0,
+                ),
+                # Mirrors `_backlog_stories()` (product_backlog_services.py) — the
+                # same scope the product-backlog view lists, which WATERFALL hides.
+                backlog_story_count=Coalesce(
+                    Subquery(
+                        Task.objects.filter(
+                            project=OuterRef("pk"),
+                            is_deleted=False,
+                            status=TaskStatus.BACKLOG,
+                            sprint__isnull=True,
+                        )
+                        .exclude(type=TaskType.EPIC)
+                        .order_by()
+                        .values("project")
+                        .annotate(c=Count("id"))
+                        .values("c"),
+                        output_field=IntegerField(),
+                    ),
+                    0,
+                ),
+                baseline_count=Coalesce(
+                    Subquery(
+                        Baseline.objects.filter(project=OuterRef("pk"))
+                        .order_by()
+                        .values("project")
+                        .annotate(c=Count("id"))
+                        .values("c"),
+                        output_field=IntegerField(),
+                    ),
+                    0,
+                ),
+                # `Dependency.objects` is the unfiltered default manager (sync/reap
+                # need soft-deleted rows elsewhere) — `is_deleted=False` here mirrors
+                # `LiveDependencyManager`, the scope the Gantt itself draws.
+                dependency_count=Coalesce(
+                    Subquery(
+                        Dependency.objects.filter(
+                            predecessor__project=OuterRef("pk"), is_deleted=False
+                        )
+                        .order_by()
+                        .values("predecessor__project")
+                        .annotate(c=Count("id"))
+                        .values("c"),
+                        output_field=IntegerField(),
+                    ),
+                    0,
                 ),
             )
             .order_by("start_date", "name")
