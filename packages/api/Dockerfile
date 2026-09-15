@@ -3,7 +3,18 @@
 # ---------------------------------------------------------------------------
 FROM python:3.11-slim AS builder
 
+# `apt-get upgrade` (not just `update`) so this layer carries the Debian
+# security team's latest point-release patches even when the upstream
+# `python:3.11-slim` tag itself hasn't been rebuilt since the last CVE
+# disclosure — the base image is a floating tag, and Docker's local layer
+# cache can also serve a stale pull. Without this, the pre-tag Trivy gate in
+# scripts/release.sh (and CI's api:publish) can fail on OS-package CVEs
+# (gzip/perl/openssl/sqlite/pcre2, seen at the 0.4.0-beta.1 cut) that have
+# nothing to do with this image's own dependencies. Build-stage CVEs never
+# ship (this stage is discarded), so this line matters only for the runtime
+# stage below — kept here too so both stages patch identically.
 RUN apt-get update -qq && \
+    apt-get upgrade -y -qq && \
     apt-get install -y -qq --no-install-recommends build-essential libpq-dev && \
     rm -rf /var/lib/apt/lists/*
 
@@ -49,7 +60,10 @@ RUN pip install --no-cache-dir "/build/api[${PSYCOPG_EXTRA}]"
 # ---------------------------------------------------------------------------
 FROM python:3.11-slim AS runtime
 
+# See the matching comment in the builder stage above — this is the stage that
+# actually ships, so this `upgrade` is the one that matters for the Trivy gate.
 RUN apt-get update -qq && \
+    apt-get upgrade -y -qq && \
     apt-get install -y -qq --no-install-recommends libpq5 && \
     rm -rf /var/lib/apt/lists/*
 
