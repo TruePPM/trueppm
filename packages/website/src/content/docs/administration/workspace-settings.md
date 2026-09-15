@@ -27,11 +27,6 @@ so "the workspace" and "this install" mean the same thing throughout this page.
 
 ## In-product help
 
-:::note[Ships in 0.4]
-The contextual-help affordance described here ships in **0.4**, the first beta. It
-is not part of the 0.3 alpha line.
-:::
-
 Settings help comes at two altitudes: a link on **every section**, and a **ⓘ** on
 individual fields that need it.
 
@@ -120,14 +115,6 @@ The same affordance appears throughout the
 | `sprint_picker_ready_only_default` <br/>*(ships in 0.4)* | boolean | `true` | Whether the [sprint story picker](/features/sprint-backlog/#story-picker) starts filtered to Definition-of-Ready stories. This is the **workspace default**; programs and projects inherit it and may override it per scope (Shape A: `null` override = inherit). Advisory only — the picker's own "Show all" toggle always reveals a not-ready story, and committing one is never blocked. There is no override policy / enforcement seam for this field. |
 
 ### Default timezone
-
-:::note[Ships in 0.4]
-The behavior below ships in **TruePPM 0.4**. In `v0.3.0-alpha.3` (the latest
-release) `timezone` saves, round-trips on reload, and is returned by the API —
-and nothing reads it. On 0.3 it belongs in the [stored but not yet
-read](#settings-that-are-stored-but-not-yet-read) list below; from 0.4 it does
-not, which is why it is absent from that table.
-:::
 
 **Default timezone** is the fallback for a project that sets no timezone of its
 own. From 0.4 it has exactly one effect: it decides what wall-clock time a
@@ -276,18 +263,6 @@ database transaction — the user is immediately locked out of authentication. T
 restore access, set their status back to `active`.
 
 #### Off-boarding also revokes long-lived credentials
-
-:::note[Ships in 0.4]
-Credential revocation on deactivate/remove ships in **TruePPM 0.4**, and so does
-the outbound-mail stop described below. In `v0.3.0-alpha.3` (the latest release),
-deactivation disables the account but leaves the member's personal access tokens
-live — revoke them by hand from their token list before treating an off-boarding
-as complete — and a deactivated member who had opted into a
-[weekly digest](/features/notifications/) keeps receiving it, as does one whose
-[workspace export](#export-all-data) finishes after they are
-deactivated. Turn their digest preferences off before deactivating them on that
-release, and check for an export of theirs still in flight.
-:::
 
 Deactivating a member — and removing one, which is a deactivation here — also, in
 the same transaction:

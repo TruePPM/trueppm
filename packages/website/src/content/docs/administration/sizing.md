@@ -4,26 +4,6 @@ description: Preliminary hardware sizing best-guesses for 50, 100, and 200 concu
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-This page is written against **TruePPM 0.4**, the first beta, and parts of it are
-**not** in `v0.3.0-alpha.3`, the latest release:
-
-- **The tested envelope** was measured against a pre-release build ahead of the
-  0.4 tag, not against 0.3.
-- **The chart values it names** — `web.replicaCount`, `autoscaling.*`,
-  `podDisruptionBudget.*`, `celeryWorker.concurrency` — ship in 0.4. On 0.3 the
-  chart has none of them, and `replicaCount` is the only scaling knob.
-- **The web tier follows the top-level `replicaCount`** from 0.4. On 0.3 it is
-  pinned to a single pod and the documented fallback cannot fire, so plan for
-  one web pod.
-- **`topologySpreadConstraints`** is not accepted at all on 0.3 —
-  `values.schema.json` closes the root, so setting it fails schema validation.
-  Replicas may co-schedule onto one node.
-
-The bottleneck analysis, the concurrency arithmetic, and the PgBouncer guidance
-apply to 0.3 as well. The hardware figures are unaffected.
-:::
-
 :::caution[Hardware sizing below is still a best-guess]
 The **[Tested envelope](#tested-envelope)** section immediately below reports *measured* data-shape limits. Everything after it — the CPU/RAM/replica tiers — remains a **preliminary best-guess, not a benchmarked guarantee.** Large-scale hardening is on the pre-1.0 roadmap. Treat every hardware figure on this page as a starting point to **load-test against your own workload** before committing budget.
 :::
@@ -71,23 +51,6 @@ The re-measure is **not** scheduled for the 0.4 tag. Both issues that own this c
 **The Schedule is the binding constraint, not the database.** A project holds several thousand tasks comfortably while you page through a list, and a workspace absorbs 50,000 tasks without noticing. But when the **Schedule** opens a project the client pulls *every* page, and that is a far lower ceiling. If you work in the Gantt, plan against **~1,000 tasks per project** in 0.4 — not 4,000.
 
 **Past that point it is a cliff, not a slope.** Whole-project load goes from **1.85 s at 1,000 tasks to 60 s at 2,000** — a 32× jump for a 2× increase in data. Doubling from a comfortable project does not get you a slow project; it gets you one that reads as hung. That non-linearity is the single most important thing to know before committing a large plan to 0.4, and the mechanism behind it is [set out below](#why-the-whole-project-ceiling-is-where-it-is) rather than left as a bare number.
-
-:::note[Ships in 0.4 — the ceiling is now surfaced, not just documented]
-Nothing about the ceiling itself changes here — it is still a measured comfort line, not a
-correctness limit, and neither surface below blocks anything:
-
-- **CSV/Excel import preview** warns when the file being imported would carry a project past
-  this ~1,000-task line, naming the projected task count and linking this page. The import
-  still proceeds if you continue — someone with better hardware, or a plan that genuinely
-  needs the room, is not stopped.
-- **Opening the Schedule** on a project already past the ceiling shows a dismissible banner
-  saying so, computed from the task list the Schedule already loads (no extra request). It
-  explains a slow open rather than leaving it looking broken.
-
-Both are pure client/server-side UI with nothing transmitted anywhere — evaluating whether
-projects in TruePPM's market actually hit this ceiling often enough to matter is separate,
-tracked work ([#3388](https://gitlab.com/trueppm/trueppm/-/issues/3388)).
-:::
 
 ### Why the whole-project ceiling is where it is
 
@@ -338,14 +301,6 @@ Redundancy](/administration/durability/#the-step-up-ladder) for what that costs.
 
 ## Startup budget
 
-:::note[Ships in 0.4]
-The worker `startup` probe, the worker's heartbeat-based `readiness` probe, and
-the tunable web probes below ship in 0.4 (#3346). On 0.3 the worker has no
-startup probe and its readiness probe is `celery inspect ping` on a 60s period
-— see [Tuning celery probes apart](/administration/helm-values/#tuning-celery-probes-apart)
-for what changed and why.
-:::
-
 How long each component can take to boot before Kubernetes gives up on it and
 restarts the container, at the chart's shipped probe defaults. This is the
 number to compare against your node's actual boot time (image pull, migration
@@ -388,14 +343,6 @@ Two numbers on this page are not tunable per-component budgets, on purpose:
 3. **Postgres connection ceiling.** `CONN_MAX_AGE=60` and `ATOMIC_REQUESTS=true` mean every request runs inside a transaction and holds a connection. With many API and Celery workers, you approach PostgreSQL's default `max_connections=100` at the 200-user tier — add **PgBouncer** or raise `max_connections`.
 
 ## Production-vs-default caveats
-
-:::note[Ships in 0.4]
-One item below is ahead of the current release: the `persistence.media` chart
-block that backs local attachment storage with a claim. On 0.3 the chart has no
-media volume at all, so local attachment storage cannot work on either supported
-production path and object storage is the only option. Everything else in this
-section describes the current release.
-:::
 
 
 These defaults are tuned for evaluation, not scale. At every tier above:

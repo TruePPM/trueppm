@@ -90,17 +90,6 @@ declared `200` response shape rather than assuming an envelope.
 
 ## Rate limiting
 
-:::note[Ships in 0.4]
-The `git_webhook_ip` scope below — the per-client-IP limit on the inbound Git-event
-receiver — ships in **0.4**. On `0.3.0-alpha.3` that endpoint is bounded only by the
-per-project `GitWebhookThrottle`, which a caller can sidestep by rotating the project
-ID in the URL.
-
-`MembershipGrantThrottle` also ships in **0.4** — on `0.3.0-alpha.3`, granting
-project or program membership has no dedicated scope and falls through to the
-general `user` default (1000/min).
-:::
-
 Every endpoint is rate limited. A **general default** applies to any endpoint
 that does not declare a stricter, endpoint-specific limit:
 

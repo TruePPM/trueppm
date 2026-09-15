@@ -10,14 +10,6 @@ what it does **not** do, and which file to use when CSV is the wrong tool —
 then covers the import wizard and the reference tables for anyone scripting
 against the endpoints directly.
 
-:::note[Ships in 0.4 — task CSV / Excel import]
-Task **export** to CSV is available today from the Table view. Task **import**
-from CSV or Excel ships in **TruePPM 0.4**, the first beta — on unreleased
-builds the column aliases and endpoints may still be changing. Risk CSV
-import and export are both shipped today and are true counterparts of each
-other.
-:::
-
 :::caution[A CSV is not a backup]
 A CSV file holds one flat list — tasks, or risks — with no hierarchy beyond a
 WBS column, no version, and no way to represent a whole project. It is for
@@ -310,15 +302,6 @@ produces for one sample row.
 
 ## The wizard
 
-:::note[Ships in 0.4]
-Everything in this section — the wizard, its two entry points, and the three
-steps below — describes task **import**, which ships in **0.4**. On
-`0.3.0-alpha.3` and earlier, **Create & import spreadsheet** and **Import a
-spreadsheet** are not offered anywhere in the app; only task **export** (the
-[round-trip table](#what-round-trips-and-what-doesnt) above) and risk CSV
-import/export are live today.
-:::
-
 ### Getting to it
 
 There are two ways in, and which one you want depends on whether the project
@@ -508,10 +491,6 @@ The preview endpoint reports the same split before you commit, as `task_count`
 
 ### Undo an import
 
-:::note[Ships in 0.4]
-Import undo ships in **0.4**, alongside CSV/Excel import itself.
-:::
-
 The wizard's result step carries an **Undo import (⌘Z)** action once a completed import
 has created or parked any rows. Applying it removes every row the import wrote — plan
 rows and Import review placeholders alike — except any you (or a teammate) have already
@@ -587,19 +566,6 @@ than partially imported. See
 [CSV / Excel import limits](/administration/configuration/limits/#csv--excel-import-limits)
 for operator configuration.
 
-:::note[Ships in 0.4 — a separate warning for the Schedule ceiling]
-The row limits above are a hard cap on the *file*. They are not the same thing as the
-Schedule's own **[tested-comfortable size](/administration/sizing/#tested-envelope)** of
-roughly 1,000 tasks per project — a file well inside `CSV_IMPORT_MAX_ROWS` (5,000) can
-still leave a project past that line.
-
-The preview step warns when it would: if your existing task count plus this file's tasks
-would land the project past the ceiling, the wizard says so on the mapping and confirm
-steps, naming the projected task count and linking the sizing guide. **This warns, it does
-not block** — the import still proceeds if you continue. If the Schedule is later opened
-on a project already past the ceiling, it shows the same warning as a dismissible banner.
-:::
-
 ## Excel specifics
 
 - **Only the first worksheet is imported.** Extra sheets are ignored and you are
@@ -636,15 +602,6 @@ upload again.
 
 The same refusal covers a `.xlsx` renamed to `.csv`, and any other binary file
 that reaches the CSV reader.
-
-:::note[Ships in 0.4 — risk-register CSV import]
-From 0.4 the **risk-register importer shares this exact decoding**, so everything
-in this section applies to it too. Through 0.3 it behaved differently and worse:
-it required strict UTF-8, so it *refused* Windows-1252 exports and Excel's
-BOM-marked UTF-16 that this page says are read correctly — and, because NUL is a
-valid UTF-8 character, it silently **imported** BOM-less UTF-16 as NUL-interleaved
-gibberish instead of refusing it.
-:::
 
 ### Excel changed your data
 

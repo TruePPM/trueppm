@@ -72,13 +72,6 @@ list.
 Each row carries **Mark read / unread** and **Archive**, also available in
 bulk via the header's **Mark all read**.
 
-:::note[Ships in 0.4]
-Per-notification **Snooze**, inline **Mute notifications like this**, and the
-**category** filter below all land in the **0.4 beta**. They surface the noise
-controls inline in the panel and the mobile route, so you never have to leave
-your inbox to turn a noisy type down.
-:::
-
 - **Snooze** defers the row **1 hour**, **3 hours**, or **Tomorrow** (9am in
   the **server's** timezone — not the workspace default, and not your personal
   one). A snoozed row drops out of every other view —
@@ -153,10 +146,6 @@ matrix directly.
 
 ### Do Not Disturb
 
-:::note[Ships in 0.4]
-The account-wide Do Not Disturb switch lands in the **0.4 beta**.
-:::
-
 A single account-wide **Do Not Disturb** switch, at the top of the
 preferences page and mirrored as a quick toggle inside the bell panel. It
 pauses **email and push only** — your in-app inbox and unread count keep
@@ -200,12 +189,6 @@ picker, evaluated in your own timezone, that governs both digests together
 (there is one schedule per user, not one per digest).
 
 ## Config-change notices
-
-:::note[Ships in 0.4]
-Config-change notices land in the **0.4 beta**. On `0.3.0-alpha.3` a board or
-preset change reaches only whoever has the board open at that moment, over the
-real-time channel — nobody else is told.
-:::
 
 Removing a board lane, hiding a board column, hiding one of the Reporting,
 Time tracking, Baselines or Monte Carlo views, or switching the methodology

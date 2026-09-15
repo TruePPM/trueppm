@@ -4,10 +4,6 @@ description: Two personal display preferences — your timezone and how dates ar
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-Personal timezone and date-format preferences ship in 0.4.
-:::
-
 **Timezone** and **Date format** are two personal display preferences on your
 **Preferences → General** page (`/me/settings/general`). They change how TruePPM shows
 times and dates **to you** — nothing about the underlying data, your teammates' views, or

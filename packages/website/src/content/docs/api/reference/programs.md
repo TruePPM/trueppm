@@ -37,14 +37,6 @@ Both write endpoints carry a `6/min` per-account scoped limit (see
 
 ### The program project roster is a narrow row
 
-:::note[Ships in 0.4]
-The narrowed roster row and the `search` / `ordering` parameters described in this
-section ship in **TruePPM 0.4** (#3439, #3420). In `v0.3.0-alpha.3` (the latest
-release) this endpoint returns the **full project object** — the same 86-field shape as
-`GET /api/v1/projects/{id}/`, for every project in the program including ones you hold
-no membership on — and it accepts `search` and `ordering` while ignoring both.
-:::
-
 `GET /api/v1/programs/{id}/projects/` is gated on **program** membership, and the
 lowest program role passes it. It therefore lists every non-draft project in the
 program — including projects you hold no project membership on — and each row is
@@ -242,10 +234,3 @@ default read is the active pool. The caller needs program-write **and** Team
 Member+ on the target project — program authority alone cannot drop a task into
 a project. A `project_id` outside this program returns `400`; an item that is no
 longer `PROPOSED` returns `409`.
-
-:::note[Ships in 0.4]
-From **0.4**, a pull into an **archived** target project is refused with a `403`.
-On the current release only the *program's* closed state is checked, so a pull
-into an archived project succeeds. The archived refusal clears for no role — the
-project has to be unarchived.
-:::

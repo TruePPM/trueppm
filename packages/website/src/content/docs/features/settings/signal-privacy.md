@@ -75,10 +75,6 @@ The majority is measured against the team's **current** members — the people o
 
 If a member votes and then leaves the project, their vote stops counting at the same moment their seat does — so a raise is never ratified on the strength of someone who is no longer there. The vote itself is kept in the audit trail, and it comes back if they rejoin. A raise that has **already** been ratified stays ratified: a later departure does not undo a decision the team made while everyone was present. To take a signal back, lower the ceiling, which anyone with the Scrum Master facet or the Project Manager role or above can do immediately.
 
-:::note[Ships in 0.4]
-The rules in this section ship in **0.4**. On 0.3, a member who leaves the project keeps their seat in the ratification majority indefinitely — which can leave a proposal needing more approvals than the remaining team is able to cast. If you hit this on 0.3, lower the ceiling to supersede the stuck proposal and open a fresh one.
-:::
-
 ## One-click ratchet
 
 The Scrum Master can pull **every** signal back to **Team only** in one action — the **"Make everything team-only"** button. It is the fast path for "we want to talk freely this retro" or "stop sharing now, sort it out later." Because lowering is always allowed, this needs no special authorization, and the team can re-open signals afterward up to their existing ceilings.

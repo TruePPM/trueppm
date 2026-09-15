@@ -142,21 +142,6 @@ list the name your own release actually generates.
 Wildcards are not a fix. `ALLOWED_HOSTS=*` disables host validation entirely and
 is never appropriate in production — list the names instead.
 
-:::note[Ships in 0.4]
-From **0.4**, production **refuses to start** on a bare `ALLOWED_HOSTS=*`, with a
-message naming the fix. On `v0.3.0-alpha.3`, the latest release, `*` is accepted
-silently — nothing in the product enforces the paragraph above.
-
-A wildcard *subdomain* (`.example.com`) is still accepted: it constrains the host
-to a suffix you chose, which is the supported way to serve many names. Only the
-bare `*`, which constrains nothing, is refused.
-
-If your host set is genuinely unknowable, set `TRUEPPM_ALLOW_WILDCARD_HOSTS=true`
-to acknowledge it — the boot proceeds and logs a warning instead. Existing 0.3
-installs running `*` therefore have a one-variable remedy rather than a
-crash-loop on upgrade.
-:::
-
 `ALLOWED_HOSTS` is the only bound on the host TruePPM reports, and therefore on
 the absolute URLs it builds. TruePPM does **not** trust `X-Forwarded-Host` — your
 edge must preserve the original `Host` — so this list is what an operator

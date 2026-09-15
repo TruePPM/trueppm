@@ -18,10 +18,6 @@ TruePPM uses a 5-role per-project permission model stored in `ProjectMembership`
 
 **One ordinal, named for its container.** The two label columns are not two role models. `ProjectMembership` and `ProgramMembership` share the same five roles and the same ordinals, so a Program Manager and a Project Manager hold the same rank — 300 — and differ only in what they hold it over. Only the top two tiers are renamed; 200, 100, and 1 read identically in both scopes. Program surfaces (`GET /programs/{id}/members/` and the `my_role_label` field on `GET /programs/{id}/`) return the program wording, project surfaces return the project wording, and the numeric `role` field is the same value either way — integrate against the ordinal, never against the label.
 
-:::note[Ships in 0.4]
-The **Program label** column ships in **TruePPM 0.4**. On `v0.3.0-alpha.3`, the latest release, both program endpoints above label ordinals 400 and 300 with the project wording — a program's own members list calls its administrator a "Project Admin". The lower three tiers are unaffected: they already read the same in both scopes.
-:::
-
 ### Why the ordinals jump by 100
 
 The gaps are **reserved slots, not arbitrary numbering**. Ordinals are compared, never
@@ -131,10 +127,6 @@ Authorization: Bearer <token>
 
 #### Who you can add
 
-:::note[Ships in 0.4]
-Until 0.4, `user` accepts any account on the installation.
-:::
-
 0.4 bounds `user` to accounts you can already reach, so adding somebody can never
 reveal an account you could not already see:
 
@@ -204,7 +196,3 @@ role >= Member  and not  (Scheduler <= role < Admin)
 ```
 
 That exclusion is the whole point of the field, and it is why a client must read it rather than compare ordinals. A Resource Manager sits *above* Team Member on the ladder and is nonetheless refused task content — so the obvious `role >= Member` test gets exactly one role wrong, and gets it wrong in the direction that shows someone a control the server will refuse. The band form (rather than "is this role exactly Scheduler") means an Enterprise custom role registered at 201–299 inherits the same exclusion instead of silently gaining authoring rights the tier beside it does not have.
-
-:::note[Ships in 0.4]
-The client half of this ships in **TruePPM 0.4**, the first beta. The `can_author` field itself is already on the wire in `v0.3.0-alpha.3`, the latest release — but nothing in the web app reads it. On the current release the Schedule and Grid derive edit rights from a client-side role comparison, so a **Resource Manager is shown the full authoring apparatus** — the Author/Read toggle, insert affordances, the row menu, editable cells — and is then refused on save. Wiring both surfaces to `can_author` lands in 0.4, so that a Resource Manager will get the same **"View only"** absence a Viewer gets; `POST /api/v1/tasks/` will refuse the band outright in the same release, rather than accepting a row the same user cannot subsequently edit.
-:::

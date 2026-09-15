@@ -78,13 +78,6 @@ the odd one out by design: it runs a single standard calendar and a mostly
 full-time roster, because its story is what happens *between* projects rather
 than inside one.
 
-:::note[Ships in 0.4 — the 1.0 GA Launch sample]
-Four of the five samples below load on 0.3, the current release. **1.0 GA Launch**
-(`ga-launch`) lands with the 0.4 tag — on 0.3 the loader offers the other four
-and the `--sample ga-launch` key is not recognized. 0.4 is
-[Underway](/overview/roadmap/).
-:::
-
 #### Atlas Platform Launch — hybrid-large (the flagship)
 
 A fictional B2B SaaS launch: one program, three projects that span the
@@ -97,15 +90,6 @@ and a **20-risk register**.
   estimates and a captured baseline.
 - **GTM Readiness** (hybrid) — gated launch planning beside an agile enablement
   lane running its own sprint cadence.
-
-:::note[Ships in 0.4 — Atlas sample history]
-From 0.4 the Atlas sample will also carry **60 days of forecast history**, PTO on
-its calendars, and an at-risk cross-project sprint commitment, so the
-forecast-trend chart, capacity view, and dependency-reality indicator will render out
-of the box. The [Sample project tour](/getting-started/sample-project-tour/)
-will walk through that history and a go-offline demo. 0.4 is
-[Underway](/overview/roadmap/).
-:::
 
 **Look at first:** the cross-project critical path — Platform Core gates
 Migration, which gates the public-launch milestone — and the **Monte Carlo**
@@ -160,10 +144,6 @@ ground. This is Sam's home turf: no sprints, no backlog, just the schedule and
 what moves when a task slips — and how a structure slip cascades into fit-out.
 
 #### 1.0 GA Launch — program coordination
-
-:::note[Ships in 0.4]
-This sample lands with the 0.4 tag. On 0.3 it is not in the loader's menu.
-:::
 
 Four workstreams shipping one outcome: *Platform Hardening & Scale* (waterfall),
 *SOC 2 Type II Readiness* (waterfall), *Security Pen-Test & Remediation*

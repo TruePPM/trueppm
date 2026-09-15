@@ -226,10 +226,6 @@ Add `optimistic_duration`, `most_likely_duration`, and `pessimistic_duration` to
 
 All three must be set for a task to be sampled; a partial estimate is ignored. The three values must be internally ordered (`optimistic <= most_likely <= pessimistic`) or `schedule()` and `monte_carlo()` both raise `InvalidScheduleInput`.
 
-:::note[Ships in 0.4]
-The duration floor described in the next paragraph lands in **0.4**. On 0.3 and earlier, `monte_carlo()` samples from the three-point estimate and ignores `Task.duration` entirely, so a triple below the planned duration returns percentiles earlier than the deterministic finish. Only this paragraph and the FF/SF caution below are version-scoped; the rest of the page describes shipped behavior.
-:::
-
 **Sampled durations are floored at `Task.duration`.** `duration` is what the deterministic pass lays out, so a sample below it would make `monte_carlo()` forecast a finish `schedule()` has already ruled infeasible. Each sampled column is clamped up to `duration` before the network is solved — the PERT path and the velocity path alike. The practical consequence for a library consumer: setting a triple *below* `duration` does not pull the forecast in, it collapses that task to its deterministic duration. To model a task finishing faster than planned, lower `duration`. Risk *above* the plan passes through untouched.
 
 :::caution[FF / SF networks]

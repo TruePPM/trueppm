@@ -75,13 +75,11 @@ Shipped as the **0.3.0-alpha.1** pre-release (tagged Jun 28, 2026), with `truepp
 - **Sample projects + universal JSON import/export** (epic #613) — agile / waterfall / hybrid demo data with the bridge wow preloaded
 - **The v2 interface refresh** — the navy/sage design system, a single unified app-shell bar (ADR-0134) with a ⌘K command palette, grouped methodology-adaptive view tabs, a context bar with presence and live health drill-through, role-based landing, and a context-aware "+ New" shipped alongside the agile-team features rather than as a separate release. The tracking epic (#1163) stays open past 0.3, though — it also carries the Risks-view redesign (filters/matrix/rollup), Gantt dependency hover-to-trace, task-detail drawer-to-full-page expansion, warm empty/first-run states, and the entitlement-aware Portfolio rollup gate, which are sequenced as conformance work through 0.7
 
-## Underway
-
-From 0.3 onward each release **lands one primary persona** — it ships the feature that turns that persona from interested into advocate — while the hybrid agile/waterfall bridge deepens underneath. The sequence expands by org scope: an agile team first, then the field PM, the people who staff the work, the product owner, and finally the program that ties projects together. Everything here is OSS; portfolio governance stays in the enterprise edition (below) and is intentionally absent until after 1.0. Only 0.4 and 0.5 carry dates; the persona ordering past 0.6 is a sequence we intend, not a schedule we have committed to.
-
-### 0.4 — the self-hosting PM's beta (target: Aug 31 – Sep 14, 2026)
+### 0.4 — the self-hosting PM's beta (beta: Sep 15, 2026)
 
 **For the project manager whose schedule lives on their own infrastructure — and TruePPM's first beta release.** The headliner is a read-only MCP (Model Context Protocol) server: point any MCP client (Claude Desktop, Cursor, Zed) at your self-hosted instance and ask real questions of the live schedule — critical path, a non-mutating Monte Carlo what-if, sprint status — all computed by the CPM engine, never guessed by a model, never leaving your box. That is the principle we call [**computed, not guessed**](/architecture/overview/#computed-not-guessed), and it is the spine of the MCP launch and of everything AI-facing that follows it. Because a beta is judged in its first five minutes, 0.4 is also where TruePPM becomes trivially evaluable: a hosted read-only demo, a one-command trial path, and read-only share links that let a schedule travel beyond its own instance — the evaluation story that stands in for a mobile app until the installable PWA lands in 0.5 and the native Android app in 0.6. And it lands the production foundations the self-hosting community expects at beta: SSO login federation, OpenTelemetry observability, a published rate-limiting and API-stability contract, and a coexistence-first inbound Jira pull so a team can adopt without abandoning the tools they already use. Time capture and in-app baselines move up from 0.5 into this release, because a PM cannot pilot a schedule they can't baseline or log time against. And the largest single body of work in the cycle is none of the above: it is the polish, accessibility, and refactoring pass described at the end of this section — the difference between a demo and a beta.
+
+Shipped as the **0.4.0-beta.1** pre-release (tagged Sep 15, 2026), with `trueppm-scheduler` published to PyPI at **0.4.0b1**. Everything below is in `main` and tagged. 0.4 is the first beta — the release line leaves alpha here and hardens under further `beta.N` tags before an eventual `0.4.0` stable (see [how the 0.4 line is numbered](#how-the-04-line-is-numbered)).
 
 #### How the 0.4 line is numbered
 
@@ -216,7 +214,9 @@ steepest part of the curve is not yet explained by any of them (#3385).
   first: the schedule drawer and Gantt interaction model, board and sprint state, the
   settings shell, time capture, exports, and the offline and reconnect paths
 
-## Planned
+## Underway
+
+From 0.3 onward each release **lands one primary persona** — it ships the feature that turns that persona from interested into advocate — while the hybrid agile/waterfall bridge deepens underneath. The sequence expands by org scope: an agile team first, then the field PM, the people who staff the work, the product owner, and finally the program that ties projects together. Everything here is OSS; portfolio governance stays in the enterprise edition (below) and is intentionally absent until after 1.0. Only 0.4 and 0.5 carry dates; the persona ordering past 0.6 is a sequence we intend, not a schedule we have committed to.
 
 ### 0.5 — plan & people (target: Nov 11 – 25, 2026)
 
@@ -242,6 +242,8 @@ steepest part of the curve is not yet explained by any of them (#3385).
 - **Durable execution (ADR-0080)** — default workflow backend, workflow versioning, transactional mobile sync upload
 - **Fully cloud native — basic HA in the OSS core** (#3408) — operator-managed in-cluster HA PostgreSQL with automatic failover and WAL archiving (#3403), replicated Valkey with Sentinel and a CI failover drill (#3404), one application Secret contract with an ExternalSecret template and rollout-on-rotation (#3405), zero-downtime rotation of every application key (#3406), and multi-arch images (#3407). External managed datastores stay fully supported; cross-region and DR remain Enterprise
 - **System Health operator UI** (#691) — dead-letter requeue/drop write actions over the durable-execution backbone (outbox dispatch, Beat heartbeat, retention purge), building on the read-only overview dashboard and dead-letter inspector that shipped at 0.2; rich outbox metrics and subscriber breakdown follow at 1.0
+
+## Planned
 
 ### 0.6 — open & portable (no date — next after 0.5)
 

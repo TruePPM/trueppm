@@ -4,13 +4,6 @@ description: How to take and restore a TruePPM backup — the tested pg_dump + m
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4 (beta)]
-The tested backup/restore scripts and the Helm backup CronJob land in **TruePPM
-0.4**, the first beta. Until 0.4 tags, take a manual `pg_dump` of the `trueppm`
-database as described under [Manual backup](#manual-backup) — the commands are the
-same ones the scripts run.
-:::
-
 TruePPM keeps all durable state in **PostgreSQL**. A logical `pg_dump` of the
 `trueppm` database, plus a copy of the media directory when attachments are on
 local disk, is a complete, restorable backup. This page is the runbook: how to

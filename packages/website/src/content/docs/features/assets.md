@@ -4,11 +4,6 @@ description: A single Assets surface that aggregates every task's files and exte
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4 (beta)]
-The **Assets** surface lands in **TruePPM 0.4**, the first beta. Until 0.4 tags,
-task files and links are reachable only from each task's detail drawer.
-:::
-
 **Assets** is for a PM, Scrum Master, or anyone on the team who needs to find
 reference material without hunting through tasks one by one. Reference material for
 a project lives scattered across individual tasks — a spec attached here, a

@@ -4,25 +4,6 @@ description: Why Valkey is load-bearing for real-time, async, and caching at onc
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-Two things on this page are new in **TruePPM 0.4**, the first beta, and are **not**
-in `v0.3.0-alpha.3`, the latest release:
-
-- **Sentinel support** — the whole of [Configuring Sentinel](#configuring-sentinel),
-  the `TRUEPPM_VALKEY_*` settings, and the `valkey.sentinel` chart block. On 0.3
-  there is no Sentinel wiring and `REDIS_URL` is the only way to reach Valkey.
-- **The readiness coupling.** `/api/v1/readyz` and the chart's `probes` block ship
-  in 0.4, so the "every API pod goes NotReady" behavior described in the caution
-  below and in the [failure-mode
-  matrix](#failure-mode-matrix--what-happens-when-valkey-is-down) is 0.4 onward.
-  On 0.3 the chart wires no readiness probe, so a Valkey outage leaves the pods in
-  the Service and the failures surface per-subsystem instead.
-
-Everything else — the four load-bearing roles, the supported topologies, the
-cluster-mode prohibition, the bundled pod's AOF persistence, and the licensing
-discussion — applies to 0.3 as well.
-:::
-
 TruePPM uses **Valkey** — the BSD-3-Clause, Linux Foundation fork of Redis — for
 four distinct roles **at the same time**. A single Valkey outage therefore
 degrades or disables four subsystems simultaneously. For a production on-prem

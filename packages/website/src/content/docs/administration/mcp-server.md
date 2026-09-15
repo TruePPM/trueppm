@@ -4,23 +4,6 @@ description: Operate the read-only TruePPM MCP server — transports (stdio, HTT
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-The read-only MCP server ships in 0.4, TruePPM's first beta — everything on this
-page describes 0.4, not the latest release (`v0.3.0-alpha.3`), where there is no
-MCP server to operate. On unreleased builds the tool list and the token-scope
-surface may still change. Expect API contract changes across 0.x point releases;
-a stable contract arrives at 1.0.
-:::
-
-:::note[Ships in 0.4]
-Both agent-access controls on this page — the instance kill switch
-(`TRUEPPM_MCP_ENABLED`) and the team read opt-out — become **agent-scoped** in
-**TruePPM 0.4**. In `v0.3.0-alpha.3` (the latest release) they apply to *any* API
-token, including a member's own full-access (`legacy:full`) personal token, so a
-person's own scripts are blocked and their collection reads silently return zero
-rows alongside the agent traffic the controls are aimed at (#2877).
-:::
-
 This is the operator's reference for `trueppm-mcp`, the read-only
 [Model Context Protocol](https://modelcontextprotocol.io) server. For the
 user-facing feature overview — what it answers and how it wires into an AI

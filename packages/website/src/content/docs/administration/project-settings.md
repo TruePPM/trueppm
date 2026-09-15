@@ -19,13 +19,6 @@ for how it behaves.
 
 ## What the Start sheet sets at creation
 
-:::note[Ships in 0.4]
-The one-screen Start sheet described in this section ships in **TruePPM 0.4**, the
-first beta. `v0.3.0-alpha.3`, the latest release, still opens a three-step wizard
-(name and description, then schedule dates, then template) with no way-in cards and
-no working-calendar field at creation.
-:::
-
 The **New project** Start sheet — one screen, no step navigation — collects only
 what changes what happens next. It opens with the way in: one choice among three
 peer ways to start (Template, Blank, or Import). Below that come the project's own
@@ -76,12 +69,6 @@ The **General** page edits the project's identity:
   override reads **Inherit (On/Off)**, showing the value that would apply from the parent
   scope. See [Sharing & Access Inheritance](/administration/sharing-and-access/).
 
-:::note[Ships in 0.4]
-The **Sprint planning** section below — the story picker's "Ready only" default —
-ships in **TruePPM 0.4**, the first beta. It is not present in `v0.3.0-alpha.3`,
-the latest release.
-:::
-
 - **Sprint planning** — whether the [sprint story picker](/features/sprint-backlog/#story-picker)
   starts filtered to Definition-of-Ready stories for this project. Inherits the program or
   workspace default unless you override it here (Resource Manager or above may set it — PO/team
@@ -113,13 +100,6 @@ planning model a team uses, the stages its work moves through, and the rules it
 holds itself to. Splitting them across the rail meant a delivery lead standing a
 team up had to find all three before they could see the shape of what they had
 configured.
-
-:::note[Ships in 0.4]
-The consolidation ships in **TruePPM 0.4**, the first beta. On `v0.3.0-alpha.3`,
-the latest release, these are three separate rail rows — **Methodology** and
-**Workflow & fields** under Setup and Configuration respectively, and **Sprint
-guardrails** below them.
-:::
 
 The section opens with a plain restatement of the preset — what this team runs, and
 how its work is paced — followed by a jump strip to the three blocks below, in
@@ -215,11 +195,6 @@ The **Workflow & fields** block configures how the board behaves for this projec
 - **Board columns** — the column configuration the board renders.
 - **Custom fields** — define task custom fields (add, edit, remove) that appear on
   cards and task detail.
-
-:::note[Ships in 0.4]
-Named lanes land in **0.4**. On `0.3.0-alpha.3` the **Statuses** list has exactly the
-five canonical columns and no **Lanes** control.
-:::
 
 Each status row carries a **Lanes** expander. Adding a lane splits that one column into
 named tracks on the board — Review into *Peer review* and *QA*, say — up to six per

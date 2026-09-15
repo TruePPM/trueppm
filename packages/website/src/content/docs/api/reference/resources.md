@@ -88,13 +88,6 @@ task write's `owners` field below, which takes the authority of the task write i
 
 ### Assigning owners inline on a task write
 
-:::note[Ships in 0.4]
-The write-only `owners` field lands in **TruePPM 0.4**. On the latest release, an
-assignment is made with a separate `POST /api/v1/task-resources/`, which requires
-**Resource Manager (Scheduler)** or above rather than inheriting the task write's
-authority.
-:::
-
 `POST /api/v1/tasks/` and `PATCH /api/v1/tasks/{id}/` accept a **write-only** `owners`
 array that creates `TaskResource` rows in the same request:
 
@@ -189,15 +182,6 @@ See ADR-0774.
 A roster entry carries `units_override`, a per-project capacity override, and the
 read-only `effective_max_units` it resolves to (`units_override` when set — `0`
 included — else the resource's catalog-wide `max_units`).
-
-:::note[Ships in 0.4]
-`units_override` reaches every per-project capacity read in **0.4**. In the current
-release only the project Overview's Team utilization card applies it; the utilization
-endpoint, the resources heatmap and summary, `resource-allocation`, the attention
-feed's `overallocation` items, `Task.assignee_is_overallocated`, the assignment-time
-`resource_overallocated` warning and the sprint capacity summary all measure against
-`Resource.max_units`.
-:::
 
 From 0.4 `effective_max_units` will be the denominator behind
 `GET /projects/{id}/utilization/` (`max_units`, `load_pct`, `load_band`,

@@ -47,13 +47,6 @@ view would show.
 deactivation removed. A membership somebody had already ended by hand stays ended — a
 restore puts back what the deactivation took away and nothing else.
 
-:::note[Ships in 0.4]
-The downstream effects of deactivation ship in 0.4. Through 0.3 deactivation hides the
-resource from the catalog only: the person keeps a full row on every project roster, keeps
-drawing load on the heatmap and the allocation timeline, keeps being counted in headcount,
-and keeps contributing capacity to the Team utilization denominator.
-:::
-
 ## Skills and proficiency
 
 A **skill** is a Workspace-level tag (optionally grouped into a category). Tag a
@@ -79,11 +72,6 @@ results.
 ![The Team roster tab listing each person with role and availability](../../../assets/screenshots/resources-roster.webp)
 
 ## Assignments across projects
-
-:::note[Ships in 0.4 — the Assignments view]
-The **Assignments** view on a resource's detail panel will ship in 0.4 as part of
-the **Community (OSS)** edition.
-:::
 
 Opening a person's card in the Workspace resource catalog will answer the first
 question a resource manager has — *what is this person working on?* The detail
@@ -156,12 +144,6 @@ share a working day are 80% allocated, not 240%. Two consequences are worth know
   the program contention view — which has no filters yet — points you at a member
   project's Resources view instead.
 
-:::note[Ships in 0.4]
-Date windowing on the overallocation warning ships in 0.4. Through 0.3 the warning sums a
-resource's units across every active task in the project with no date window, so
-non-overlapping work reports as overallocated.
-:::
-
 ## Team utilization on the project Overview
 
 The project Overview carries a **Team utilization** KPI card: this week's committed
@@ -183,15 +165,6 @@ Three details are worth knowing:
   over the resource's default max units — as it does on every other per-project
   capacity read; see [what the capacity override governs](#what-the-capacity-override-governs).
 - **A task's load is measured over its full span, not its remaining work.**
-
-  :::note[Ships in 0.4]
-  Windowing utilization on the task **span** rather than the remaining-work
-  window ships in **TruePPM 0.4**, the first beta. It is not present in the
-  current release: before 0.4, an in-progress task's contribution to the
-  heatmap and the Team utilization card shrinks as `percent_complete` rises,
-  and can drop out of the window entirely once its remaining-work window no
-  longer intersects the query range.
-  :::
 
   The heatmap and the Team utilization card both window a task's assignments
   on its **span** (`scheduled_start` through finish — see [the bar vs. the
@@ -215,14 +188,6 @@ and above; for a Member or Viewer the card is a static read rather than a link i
 a permission error.
 
 ## What the capacity override governs
-
-:::note[Ships in 0.4]
-Applying the roster capacity override beyond the Team utilization card ships in **0.4**.
-In the current release only that card reads it: the heatmap, the Team summary, the
-allocation timeline, the overallocation warnings and the project attention feed all
-measure against the resource's catalog-wide **max units**, so a person rostered at `0.5`
-and assigned `0.5` reads 100% on the Overview card and 50% on the heatmap one click away.
-:::
 
 A roster entry's **capacity override** is a statement about *this project*: "this person
 is only half on this project." From 0.4 every capacity figure scoped to a single project
@@ -312,20 +277,6 @@ status code — `201` when the skill was added to the catalog, `200` when an exi
 row is returned unchanged — ships in 0.4; until then the endpoint answers `200` in
 both cases. The response body is identical either way, so a client that needs to
 know whether it created the skill must read the status code.
-
-:::note[Ships in 0.4]
-**Archived projects refuse roster and assignment writes.** Adding or removing a roster
-member, assigning or unassigning a resource, and adding, editing or deleting a task's
-skill requirements are all refused with a `403` once the project is archived — at every
-role including Owner, because archiving makes a plan read-only and that is a property of
-the plan rather than of the caller. Reads are unaffected: an archived project's roster,
-assignments and skill requirements stay fully readable. Unarchive the project to edit it
-again. The Workspace-level catalogs (`/api/v1/resources/`, `/api/v1/skills/`,
-`/api/v1/resource-skills/`) are not project-scoped and are unaffected.
-
-In `v0.3.0-alpha.3` (the latest release) these writes still succeed on an archived
-project.
-:::
 
 From 0.4 the following four surfaces will require the **workspace Admin** role
 rather than a project role:

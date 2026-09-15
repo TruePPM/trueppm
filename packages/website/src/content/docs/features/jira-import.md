@@ -4,11 +4,6 @@ description: Import a Jira Server / Data Center XML export into an existing True
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-Offline Jira import lands in **TruePPM 0.4**, the first beta. On unreleased
-builds the mapping and endpoint may still be changing.
-:::
-
 This page is for a Project Manager bringing an existing Jira issue set into
 TruePPM as a real, schedulable plan. TruePPM can turn a **Jira Server / Data
 Center** issue export into a project the scheduling engine can compute dates

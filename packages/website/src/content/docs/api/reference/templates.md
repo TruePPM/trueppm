@@ -6,11 +6,6 @@ documentedFor: "0.4"
 
 ## Project templates
 
-:::note[Ships in 0.4]
-These endpoints ship in **TruePPM 0.4**. `v0.3.0-alpha.3` (the latest release) has
-no template system — the collection does not exist.
-:::
-
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/project-templates/` | Gallery (filter: `?program=`) |
@@ -117,12 +112,6 @@ those are derived/aggregate, not direct writes of leaf-owned values.
 
 ### Grouping and ungrouping
 
-:::note[Ships in 0.4]
-`tasks/group/` and `tasks/ungroup/` ship in **TruePPM 0.4**. In `v0.3.0-alpha.3` (the
-latest release) neither route exists; structure a flat list top-down with
-`tasks/{id}/indent/` and `tasks/{id}/reparent/` instead, one row at a time.
-:::
-
 Indent requires the phase to already exist, so a flat list can only become structured
 from the top down. These two endpoints are the missing primitive: they let a planner
 type the work, look at it, select it, and *then* wrap it.
@@ -166,15 +155,6 @@ applying part of it.
 
 `POST /api/v1/projects/{id}/tasks/bulk/` applies many task writes in one request.
 It is the endpoint behind paste-many, import, and agent-authored drafting.
-
-:::note[Ships in 0.4]
-The `207` contract described in this section — per-row `applied` / `rejected` /
-`skipped`, client-minted `id` on a `create`, the `dependencies` bucket, and the
-500-operation cap — ships in **TruePPM 0.4**. In `v0.3.0-alpha.3` (the latest
-release) this endpoint returns **`200`** with `{created, updated, deleted}`,
-applies the whole batch or none of it, mints every task id server-side, accepts no
-dependency edges, and enforces no size limit.
-:::
 
 **Rows apply independently, and the response is `207`** — not `200`. One
 unparseable row out of 38 does not discard the other 37. Every operation is
@@ -382,13 +362,6 @@ so it could otherwise create rows it was then unable to change. Read
 
 `PATCH /api/v1/projects/{id}/tasks/classification/` declares how a subtree is
 governed and how it is delivered, in one call.
-
-:::note[Ships in 0.4]
-This endpoint ships in **TruePPM 0.4**. In `v0.3.0-alpha.3` (the latest release)
-`governance_class` and `delivery_mode` exist on the task resource but can only be
-set one row at a time through `PATCH /api/v1/tasks/{id}/`, and
-`parent_governance_inherited` cannot be set at all.
-:::
 
 **These are two orthogonal fields, not one choice.**
 

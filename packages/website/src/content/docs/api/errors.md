@@ -254,15 +254,6 @@ as the not-an-Owner refusal beside it.
 
 #### The archived-project `403`
 
-:::note[Ships in 0.4]
-The completeness described here ships in **TruePPM 0.4**. In `v0.3.0-alpha.3` (the
-latest release) the gate is real but has gaps a client can hit: a `DELETE` on any
-project-scoped resource succeeds on an archived project, and so do a roster add, a
-resource assignment, a CPM recalculation, a Monte Carlo run, CI verdict ingest, and
-the project-webhook and Git-automation admin routes. On 0.3, do not treat archiving
-as the thing that stops an integration writing to a plan.
-:::
-
 An **archived** project is read-only, and every write against one answers `403`
 with a bare `detail` and no `code`:
 

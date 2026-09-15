@@ -83,17 +83,6 @@ status.
 
 ## Available sources
 
-:::note[Ships in 0.4]
-**This section only.** External task sources — the Jira personal pull described
-below, its connect wizard, the `EXTERNAL_TASK_SOURCES` registry, and the mirrored
-items in My Work — ship in **TruePPM 0.4**, the first beta. They are **not** present
-in `v0.3.0-alpha.3`, the latest release: on 0.3 the Connected Accounts page carries
-the git credential sections above and no **Available sources** section at all.
-
-Everything earlier on this page — connected accounts for GitLab, GitHub, and generic
-Git hosts, and git-aware task links — is in the current release and is unaffected.
-:::
-
 Below the credentials list, the same page carries an **Available sources**
 section — the personal registry of external task **sources** you can pull *your
 own assigned work* from into [My Work](/features/my-work/). This is a **different

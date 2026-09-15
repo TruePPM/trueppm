@@ -40,12 +40,6 @@ The fastest way to kill adoption is to add "fill this in for the PMO" steps. The
 
 ## Evaluate it yourself (~10 minutes): the autonomy test
 
-:::note[Ships in 0.4]
-The `--with-personas` flag in the walkthrough below ships in 0.4. On `v0.3.0-alpha.3`, the
-latest release, run `load_sample_project` without it: that release creates the same
-`atlas-*` logins unconditionally and does not accept the flag.
-:::
-
 
 The real test isn't what a feature does — it's what *each role can see and do*. So evaluate it as a contrast: run the same instance as two different people and compare. Run these steps in order — they start from a machine with nothing running.
 

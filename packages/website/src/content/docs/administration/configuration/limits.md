@@ -4,19 +4,6 @@ description: "API and login rate limiting, the MCP read-surface limits, and the 
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-Most settings on this page ship in 0.4, and `v0.3.0-alpha.3` — the latest release — does
-not read them: the rate-limit switches and throttles (`TRUEPPM_RATE_LIMIT_ENABLED`,
-`TRUEPPM_RATE_LIMIT_DISABLE_ACK`, every `TRUEPPM_THROTTLE_*_RATE`), `TRUEPPM_MCP_ENABLED`, the
-CSV / Excel and Jira import limits, `MSPROJECT_MAX_ROWS`, `MPXJ_MAX_HEAP_MB`,
-`MPXJ_MAX_OUTPUT_MB`, `SEED_IMPORT_MAX_CONCURRENT_JOBS`, `IMPORT_BULK_BATCH_SIZE`,
-`TRUEPPM_SCHEDULE_TASK_CEILING`, `TRUEPPM_PASSWORD_RESET_TIMEOUT`,
-`TRUEPPM_FAILED_TASK_BULK_ACTION_MAX` and `TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED`. The latest
-release does read `MSPROJECT_MAX_UPLOAD_MB`, `SEED_MAX_UPLOAD_MB`, the Monte Carlo caps
-(`MC_SIMULATION_CAP`, `MC_TASK_CAP`, `MC_HISTORY_CAP`), `TRUEPPM_IMPORT_RETENTION_DAYS` and
-Django's `DATA_UPLOAD_MAX_MEMORY_SIZE`.
-:::
-
 ## Rate limiting and access
 
 | Variable | Default | What it does |

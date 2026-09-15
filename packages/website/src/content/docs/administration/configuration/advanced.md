@@ -166,7 +166,3 @@ The prefilled title and description are passed as `issue[title]` and
 `issue[description]` query parameters (GitLab's new-issue form). A tracker that
 does not understand them ignores them and simply opens its own blank form, so
 repointing at an arbitrary helpdesk URL still works.
-
-:::note[Ships in 0.4]
-The in-product feedback control and both settings above ship in 0.4.
-:::

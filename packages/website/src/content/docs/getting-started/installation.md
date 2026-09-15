@@ -6,25 +6,6 @@ documentedFor: "0.4"
 
 This page gets you from nothing installed to a running TruePPM instance you can open in a browser, using Docker Compose. If you have never run Docker before, see [Set up a container host](/getting-started/container-host/) first — it explains what a container is and gets one running on your machine.
 
-:::note[Ships in 0.4]
-The `--with-personas` flag shown below ships in **0.4**, alongside the retirement
-of the `seed_demo_project` and `seed_ga_launch_program` Python seeders in favor of
-the bundled JSON samples.
-
-Which command to run depends on what you are running, and the two are not the
-same tree:
-
-- **You cloned `main`, as the steps below tell you to.** Use
-  `load_sample_project --with-personas`. `seed_demo_project` has been removed and
-  is not there.
-- **You are running the released `v0.3.0-alpha.3` images.** Use plain
-  `load_sample_project` — it creates the persona logins unconditionally on that
-  release and does **not** accept `--with-personas`. `seed_demo_project` also
-  still exists there.
-
-See the [roadmap](/overview/roadmap/).
-:::
-
 :::caution[0.3 shipped (alpha) · pre-GA]
 TruePPM 0.3 has shipped — the engine, API, real-time backend, web UI, and the 0.3 agile-team feature set are functional. The latest release is the `v0.3.0-alpha.3` pre-release; the release line stays alpha through 0.3, and 0.4 is planned as the first beta. 0.4 arrives as a beta directly — the next tag on the line is `0.4.0-beta.1`, with no alpha step in between ([how the 0.4 line is numbered](/overview/roadmap/#how-the-04-line-is-numbered)). The product is pre-GA: expect API contract changes across 0.x point releases; a stable contract arrives at 1.0. Install for evaluation and early-adopter deployments.
 :::

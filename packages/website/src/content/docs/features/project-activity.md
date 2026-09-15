@@ -4,12 +4,6 @@ description: A single project-wide "what changed" feed that aggregates every cha
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4 (beta)]
-The project **Activity** view lands in **TruePPM 0.4**, the first beta. Until 0.4
-tags, the per-object [Change History](/features/change-history) tab is the way to
-read history.
-:::
-
 Every project has an **Activity** tab — one screen that answers *"what changed in
 the last week?"* across the whole project. Where [Change History](/features/change-history)
 shows the history of a *single* task, project, or sprint, Activity **unifies every

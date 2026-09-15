@@ -193,12 +193,6 @@ long.
 | **Risk** | No | — | — |
 | **Label** | No | — | Deleting a label also detaches it from every task, so there is nothing faithful to restore |
 
-:::note[Ships in 0.4]
-The task **Recently deleted** panel ships in **TruePPM 0.4** (the first beta), alongside
-the project Trash. Before 0.4, a deleted task is recoverable only from the inline
-"Deleted — Undo" toast shown immediately after the delete.
-:::
-
 ### Recovering a deleted task
 
 A deleted task stays restorable for `TRUEPPM_TOMBSTONE_RETENTION_DAYS` (default 90 days),
@@ -227,12 +221,6 @@ in the list.
 
 ## Trashed projects are hard-deleted after the window
 
-:::note[Ships in 0.4]
-Automatic hard-delete of trashed projects lands in **TruePPM 0.4** (the first beta).
-Manual soft delete and `?force=true` hard delete already ship; the *scheduled* purge below
-is the 0.4 addition.
-:::
-
 Deleting a project is a **soft delete**: the project drops out of every list, board, and
 report immediately, but its row and all its child data (tasks, dependencies, sprints,
 risks, baselines) are retained so the deletion can be reviewed and — until it is purged —
@@ -256,11 +244,6 @@ carry a timestamp and age out automatically.
 :::
 
 ### Restoring a project from Trash
-
-:::note[Ships in 0.4]
-The Trash list, the **Restore** action, and the inline "Deleted — Undo" toast ship in
-**TruePPM 0.4** (the first beta).
-:::
 
 A soft-deleted project is recoverable for the whole retention window. There are two ways
 back:

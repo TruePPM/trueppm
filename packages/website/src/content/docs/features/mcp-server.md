@@ -4,11 +4,6 @@ description: Point any MCP client — Claude Desktop, Cursor, Zed — at your se
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-The read-only MCP server ships in 0.4, TruePPM's first beta. On unreleased
-builds the tool list may still be changing.
-:::
-
 TruePPM ships a read-only [Model Context Protocol](https://modelcontextprotocol.io)
 server, `trueppm-mcp`, that lets any MCP client — Claude Desktop, Cursor, Zed,
 and the like — ask real questions of your self-hosted instance: the critical

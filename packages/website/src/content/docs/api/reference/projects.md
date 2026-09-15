@@ -28,17 +28,6 @@ documentedFor: "0.4"
 
 ### Status summary
 
-:::note[Ships in 0.4]
-`health_band` and `health_band_source` are added in **TruePPM 0.4** —
-`v0.3.0-alpha.3` (the latest release) returns neither field, and a client on that
-release has no way to see a project's manual health report from this endpoint, nor
-to tell a reported band from a derived one.
-
-`monte_carlo_p80`, `last_saved` and `recalculated_at` also carry real values from
-**TruePPM 0.4**. In `v0.3.0-alpha.3` all three are returned as unconditional `null`
-regardless of project state.
-:::
-
 `GET /api/v1/projects/{id}/status-summary/` returns task counts, health signals, and
 recency metadata in one request, so a client rendering a project header does not have
 to fan out.
@@ -162,10 +151,6 @@ Program membership is the same shape, one tier up:
 | DELETE | `/api/v1/programs/{id}/members/{mid}/` | Remove (Program Admin, or self) |
 
 ### Who `user` may name
-
-:::note[Ships in 0.4]
-Until 0.4, `user` accepts any account on the installation and `PATCH` accepts it too.
-:::
 
 From 0.4 the caller's role decides who they may add, not just whether they may add:
 

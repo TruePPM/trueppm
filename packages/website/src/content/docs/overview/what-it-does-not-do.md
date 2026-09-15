@@ -23,14 +23,6 @@ TruePPM is pre-GA. The current shipped release is an alpha, and the first beta i
 record.
 :::
 
-:::note[Ships in 0.4]
-A few things this page names as existing ship in 0.4 and are absent from `v0.3.0-alpha.3`,
-the latest release: CSV / Excel import, Jira XML import, the personal read-only Jira pull,
-the read-only MCP server, the React Native mobile scaffold, the optional Helm
-`PodDisruptionBudget` and `HorizontalPodAutoscaler`, and the experimental Valkey Sentinel
-settings. Every gap on this page applies to the latest release as well.
-:::
-
 ## Scheduling gaps
 
 These are the ones that matter most, because scheduling is what TruePPM claims to be

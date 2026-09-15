@@ -4,10 +4,6 @@ description: Colored, filterable labels that categorize tasks across the board a
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-Task labels ship in 0.4. This page describes the planned behavior; until 0.4 is tagged, treat it as the design of record.
-:::
-
 **Labels** are colored tags you attach to tasks to categorize work however your team finds useful — `bug`, `tech-debt`, `blocked-external`, `frontend` — completely independent of a task's status column, sprint, or place in the project outline. A task can carry several labels, and the board can be filtered to any of them.
 
 Labels are **project-scoped**: each project owns its own label vocabulary. They are distinct from **backlog tags** (the free-text tags on program-backlog intake items) — an item is *tagged* while it is being groomed in the backlog, then *promoted* into a task that carries *labels*.
@@ -110,11 +106,6 @@ A deleted label's *name* is not shown, because it is genuinely gone — the labe
 catalog does not serve deleted entries. A saved view can also carry a label from
 a project you cannot see; that renders as the same anonymous tombstone, and
 TruePPM will not resolve its name.
-
-:::note[Ships in 0.4]
-Persisting a label filter in a saved view, and the tombstone and repair flow
-above, ship in 0.4.
-:::
 
 ## Color and accessibility
 

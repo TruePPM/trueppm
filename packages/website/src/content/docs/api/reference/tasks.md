@@ -34,23 +34,7 @@ band (ordinals 200–299)** — the same rule the batch endpoint enforces. Read
 Resource Manager sits *above* Team Member in the role order and is nonetheless
 refused task content, so `role >= Member` gets exactly that role wrong.
 
-:::note[Ships in 0.4]
-The single-row refusal ships in **TruePPM 0.4**. On `v0.3.0-alpha.3` (the latest
-release) `POST /api/v1/tasks/` accepts a Resource Manager's create and then refuses
-every subsequent `PATCH` and `DELETE` on the row it just made, because create gates
-on `IsProjectMemberWrite` while update and destroy gate on the per-task rule. The
-batch endpoint already refuses the band on that release; only the single-row path
-changes.
-:::
-
 ### Placement on create
-
-:::note[Ships in 0.4]
-The request schema below ships in **TruePPM 0.4**. In `v0.3.0-alpha.3` (the latest
-release) the server honors `parent_id` and `is_subtask` on `POST` exactly as
-described, but neither key appears in the published `TaskRequest` schema, and
-sending either on a `PATCH` is a silent no-op with no warning.
-:::
 
 A task's position in the WBS is **server-derived**. `wbs_path` is read-only on every
 path (ADR-0743) — the create body names a *parent*, and the server allocates the
@@ -85,13 +69,6 @@ exists. A `predecessors` key in a task body is reported under `dropped_fields`.
 
 ### Write warnings
 
-:::note[Ships in 0.4]
-The `dropped_fields` rule and the declared `warnings` array on the create/update
-response ship in **TruePPM 0.4**. In `v0.3.0-alpha.3` a `warnings` array is returned
-on `PUT`/`PATCH` for tripped guardrails only, is not part of the published response
-schema, and an unrecognized body key is discarded with no signal at all.
-:::
-
 A successful task write may carry a `warnings` array. Warnings never change the
 status code — the write succeeded; they are non-blocking notices for the client.
 
@@ -123,12 +100,6 @@ dependency-bearing tasks out of Jira or MS Project used to get a `201` for every
 and no way to learn that not one edge had landed.
 
 ### Seed provenance
-
-:::note[Ships in 0.4]
-The six fields in this section ship in **TruePPM 0.4**. In `v0.3.0-alpha.3` (the
-latest release) the task payload carries none of them, and there is no way to tell
-a row a template or an import wrote from a row somebody typed.
-:::
 
 Every task records where it came from and whether a person has touched it since.
 All six fields are **read-only** — a client cannot assert its own provenance, and

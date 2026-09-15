@@ -6,42 +6,34 @@ documentedFor: "0.4"
 
 TruePPM's zero-config evaluation paths — a hosted read-only demo and a
 one-command local trial, both preloaded with the same **Atlas Platform Launch**
-hybrid sample project — arrive with the **0.4 beta**. This page previews them.
+hybrid sample project — arrive with the **0.4 beta**.
 
-:::caution[Ships in 0.4 — not yet available]
-Both paths on this page land with the **0.4 tag**. 0.4 is currently **Underway**
-(target Aug 31 – Sep 14, 2026) — see the [roadmap](/overview/roadmap/). The
-hosted `try.trueppm.com` instance goes live at the tag, and the `docker-compose.demo.yml`
-trial pulls published release images that are not built until then (#939). Until
-0.4 tags, treat this page as a preview.
-
-**To evaluate TruePPM today,** use the verified developer stack: bring the
-dev stack up with `docker compose up -d`, then seed a populated demo with
-`load_sample_project --with-personas` (persona logins, full write access). If
-you have never run Docker before, [Set up a container host](/getting-started/container-host/)
-gets a machine ready first. Then see [Installation](/getting-started/installation/)
-for the step-by-step, and the [Quickstart](/getting-started/quickstart/) for
-what to click once it is up.
+:::note[Hosted demo: being brought online]
+The one-command **local** trial below is live as of the 0.4 tag — its
+`docker-compose.demo.yml` pulls the release images the tag publishes. The
+**hosted** `try.trueppm.com` instance is a separate deploy step and is being
+brought online now; if the link below isn't answering yet, use the local
+trial or the [Installation](/getting-started/installation/) /
+[Quickstart](/getting-started/quickstart/) path in the meantime.
 :::
 
-## The hosted read-only demo (ships in 0.4)
+## The hosted read-only demo
 
-Once 0.4 tags, nothing will be needed to install — you will open the hosted demo
-and click around a real, populated schedule:
+Nothing to install — open the hosted demo and click around a real, populated
+schedule:
 
-**→ [try.trueppm.com](https://try.trueppm.com)** *(live at the 0.4 tag)*
+**→ [try.trueppm.com](https://try.trueppm.com)**
 
-It will be served through TruePPM's own tokenized, **read-only share link** (the same
+It is served through TruePPM's own tokenized, **read-only share link** (the same
 mechanism the product gives you for [sharing a schedule or board](/administration/sharing-and-access/)).
 There is no login and no write path — you are looking at a live instance, not a
 screenshot tour, but nothing you do can change it. The demo is `noindex`, resource
 -capped, and reachable only at the share URL.
 
-## One command: run the demo locally (ships in 0.4)
+## One command: run the demo locally
 
-Once 0.4 tags and its release images are published (#939), one command will bring
-up the whole stack on your own machine with zero configuration and auto-seed the
-sample data:
+One command brings up the whole stack on your own machine with zero
+configuration and auto-seeds the sample data:
 
 ```bash
 git clone https://gitlab.com/trueppm/trueppm.git && cd trueppm
@@ -156,11 +148,11 @@ has nothing to verify.
 
 | You want to… | Use | Available |
 |---|---|---|
-| Evaluate a populated demo **today** | [Installation](/getting-started/installation/) → `load_sample_project --with-personas` | Now (0.3) |
-| Learn the data model via the API | [Quickstart, Route B](/getting-started/quickstart/#route-b--build-a-project-via-the-api) | Now (0.3) |
-| Stand up a real instance for your team | [Installation](/getting-started/installation/) | Now (0.3) |
-| Click around a live schedule with nothing to install | [try.trueppm.com](https://try.trueppm.com) | Ships in 0.4 |
-| Run the read-only demo on your own machine | `docker compose -f docker-compose.demo.yml up` | Ships in 0.4 |
+| Evaluate a populated demo | [Installation](/getting-started/installation/) → `load_sample_project --with-personas` | Now |
+| Learn the data model via the API | [Quickstart, Route B](/getting-started/quickstart/#route-b--build-a-project-via-the-api) | Now |
+| Stand up a real instance for your team | [Installation](/getting-started/installation/) | Now |
+| Run the read-only demo on your own machine | `docker compose -f docker-compose.demo.yml up` | Now |
+| Click around a live schedule with nothing to install | [try.trueppm.com](https://try.trueppm.com) | Being deployed |
 
 ## Next steps
 

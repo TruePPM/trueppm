@@ -69,16 +69,6 @@ The pairing of humans and AI that TruePPM aims for is not "let the model run the
 is: the **engine computes**, the **AI translates and explains**, and the **human decides** —
 on infrastructure the team controls.
 
-:::note[Ships in 0.4]
-The scheduling engine, self-hosting, and Apache 2.0 licensing are **shipped today** (0.3).
-The AI-facing pieces are on the roadmap: basic SSO and the read-only
-[MCP server](/features/mcp-server/) land with the **0.4 beta** — `v0.3.0-alpha.3`, the latest
-release, has neither — while the natural-language query layer and safe agent writes are
-planned for 0.6. Treat every AI capability here as
-forward-looking; the [roadmap](/overview/roadmap/) is the authoritative Shipped / Underway /
-Planned status.
-:::
-
 ## Read the story
 
 The principles are the *why*. [**The Story**](/the-story/) is the *how*: an end-to-end

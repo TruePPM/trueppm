@@ -6,10 +6,6 @@ documentedFor: "0.4"
 
 ## Sprint windows
 
-:::note[Ships in 0.4]
-Sprint window bands and the cadence rail ship in 0.4. On the current release the Schedule draws neither; a sprint's dates are visible only on the [Sprints](/features/sprints/) workspace.
-:::
-
 A hybrid program is **one plan**, so its sprint cadence is drawn on the same timeline as its gated bars — not on a second view, and not behind a toggle that swaps one for the other. Sprints reach the Schedule two ways, and the pair is deliberate:
 
 - the **cadence rail** — a strip of named sprint windows across the top of the chart, under the date ruler, which answers *when is each sprint*;

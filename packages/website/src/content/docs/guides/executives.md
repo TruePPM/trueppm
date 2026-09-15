@@ -87,10 +87,6 @@ You don't need to learn the tool to judge it — and you shouldn't have to. Hand
 
 5. **The date you'd actually quote.** P80 is the defensible number to take to the board; P50 is the optimistic one most tools show as "the date."
 
-:::note[Ships in 0.4]
-**Taking the keyboard yourself** works from 0.4. The demo also seeds an executive persona, **`atlas-ada`** (Ada Boyega, Executive Sponsor), as a read-only **Viewer** — the correct role for a sponsor. From 0.4 a Viewer sees the same **Forecast** bar and **Details ›** breakdown, so signing in as `atlas-ada` shows you the number this page is built around and confirms, from the same seat, that the plan cannot be changed there. On `v0.3.0-alpha.3`, the latest release, the desktop forecast bar is hidden from Viewers — have the program manager drive, as above.
-:::
-
 Then judge it the way you actually decide. The technology is open and self-hosted, so your data never leaves your network. The two things you'd most want next — a one-glance portfolio dashboard and a weekly risk digest pushed to your inbox — are honestly still ahead (see "What's coming"); the portfolio view is an enterprise capability, and a single-program health digest is planned for 0.8. If either is a dealbreaker for you today, that's a fair call to make now rather than after rollout.
 
 For the deeper architecture and roadmap behind a buying decision, see the [architecture overview](/architecture/overview/) and the [roadmap](/overview/roadmap/).

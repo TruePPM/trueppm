@@ -8,15 +8,6 @@ documentedFor: "0.4"
 The multi-team Sprints lens shipped in 0.1.
 :::
 
-:::note[Ships in 0.4]
-One part of this page is not in the latest release: the **velocity privacy gate
-and membership check** described under [Who can see what](#who-can-see-what)
-land in **TruePPM 0.4**, the first beta. Before 0.4 the lens returns every
-project's velocity band to any caller holding an assignment — including a
-project admin the team has not shared velocity with, and a member whose access
-was revoked. Everything else on this page has shipped since 0.1.
-:::
-
 If you have open work on more than one team's sprint, the **My Teams** toggle on the Sprints view gives you a single screen showing how each of those sprints is doing, instead of clicking through projects one at a time. It's for anyone splitting their time across two or more teams — a PM covering two Scrum teams, a resource manager balancing several projects, or a PMO director keeping an eye on several at once.
 
 Turning it on shows one card per project where you have unfinished work in an active sprint. Each card is sorted by how far behind its **burndown** is — the chart that tracks remaining work against the sprint's time — so the sprint most behind schedule shows first.

@@ -4,15 +4,6 @@ description: How one task hierarchy powers Waterfall, Agile, and Hybrid workflow
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-One section on this page — **The scheduling fields are empty unless the task is
-scheduled** — describes behavior that lands in **TruePPM 0.4**. Through 0.3, a task
-that left the schedule (moved to the Backlog, converted to an epic, or made
-recurring) kept the Start, Finish and Float it carried when it was last scheduled, so
-those fields could still show values that no longer described anything. Everything
-else on this page describes released behavior.
-:::
-
 This page is for anyone curious why switching a project between Waterfall, Agile, and Hybrid never loses data, and for developers who want to understand the model behind the API. Most "hybrid" project management tools are two tools bolted together. TruePPM is not. Every view — Schedule, Board, Sprints, WBS — reads and writes the same rows in the same database. There is no sync, no translation, no eventual consistency.
 
 This page explains the data model that makes this possible.

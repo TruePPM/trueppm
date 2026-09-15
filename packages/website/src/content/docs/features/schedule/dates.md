@@ -18,15 +18,6 @@ The Start column shows the **computed** date, because that is the one the
 schedule actually runs on. A committed start does not replace it — it
 constrains it.
 
-:::note[Ships in 0.4]
-`scheduled_start` and the Start-column behavior described above ship in 0.4.
-Before 0.4, the Start column (and the bar) instead reads a related-but-different
-engine field, `early_start`, which behaves identically for a not-yet-started
-task but diverges once work is in progress — see
-[The bar vs. the remaining-work window](#the-bar-vs-the-remaining-work-window)
-below.
-:::
-
 ### What committing a start actually does
 
 A committed start is a **start-no-earlier-than (SNET)** constraint. On each
@@ -127,13 +118,6 @@ defending; the rest should be free to move.
 
 ### The bar vs. the remaining-work window
 
-:::note[Ships in 0.4]
-The span-based bar and the Duration cell's "Nd left" qualifier described in
-this section ship in 0.4. Before 0.4, the bar draws from the remaining-work
-window described below as the pre-fix behavior, and the Duration cell shows
-no qualifier chip.
-:::
-
 Once a task is in progress, the schedule engine tracks two related but
 different quantities, and the Schedule view is careful to keep them visually
 separate:
@@ -182,11 +166,6 @@ Only the earlier direction is automatic. Moving the project start *later* (past 
 Because this lives at the API layer, every write path behaves the same way, including integrations and imports that set task dates directly.
 
 ## When the server changes your date
-
-:::note[Ships in 0.4]
-Reconciliation markers ship in 0.4. Before then, a date the scheduling engine
-changes replaces your value in place with nothing marking the move.
-:::
 
 The server owns every scheduled date. When you drag a bar or pick a milestone
 date, the view shows your value immediately so the plan keeps up with you — but
@@ -260,14 +239,6 @@ drag shows, announced to a screen reader. A task complete with no recorded
 actuals starts a keyboard reschedule normally, exactly as it drags normally.
 
 ## Recording and correcting actual dates
-
-:::note[Ships in 0.4]
-The **Actual dates** section of the task drawer described here ships in 0.4, along
-with the actual-finish stamp on the In-review transition. Before 0.4 no screen in
-TruePPM writes either field: actual dates are set only by the automatic stamps on
-the In-progress and Complete transitions, and the only way to correct one is an
-MS Project re-import or a direct API call.
-:::
 
 Actual dates are the record of what happened, as opposed to the plan. TruePPM
 stamps them for you on the transitions where the date is unambiguous, and gives

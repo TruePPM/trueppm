@@ -4,15 +4,6 @@ description: "S3/MinIO object storage, the TLS redirect posture, and the setting
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-Object storage on S3 or MinIO ships in 0.4: `v0.3.0-alpha.3`, the latest release, reads
-none of the `TRUEPPM_S3_*` settings. `TRUEPPM_PUBLIC_API_BASE_URL` and
-`TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE_NONE_ACK` also ship in 0.4. The TLS redirect and
-split-origin settings named here — `TRUEPPM_SECURE_SSL_REDIRECT`, `TRUEPPM_FRONTEND_BASE_URL`,
-`TRUEPPM_DEFAULT_FILE_STORAGE`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`, `CSP_CONNECT_SRC` and
-`SECURE_PROXY_SSL_HEADER` — are read by the latest release too.
-:::
-
 ## Object storage (S3 / MinIO)
 
 Task attachments are the only user data TruePPM writes outside PostgreSQL. The

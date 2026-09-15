@@ -28,12 +28,6 @@ Content-Type: application/json
 {"username": "...", "password": "...", "remember_me": false}
 ```
 
-:::note[Ships in 0.4]
-The email-as-identifier behavior described next ships in **TruePPM 0.4**. In
-`v0.3.0-alpha.3` (the latest release) `username` is matched against the username
-column only, so a user signing in with their email address is refused.
-:::
-
 `username` accepts **either** the account's username **or** the email address on
 the account. The username is matched first and the email is tried only if that
 fails, so an existing username-based integration is unaffected — and an account
@@ -157,13 +151,6 @@ task-sync with their normal credentials, so every inbound push is attributable
 to a minted token. A token whose project does not match the URL returns `401`
 (not `403`) so callers cannot enumerate project existence.
 
-:::note[Ships in 0.4]
-The archived-project refusal described next ships in **TruePPM 0.4**. In
-`v0.3.0-alpha.3` (the latest release) a push into an archived project still
-succeeds and creates or updates the task, so on 0.3 archiving a plan is not what
-stops an integration writing into it — revoke the token.
-:::
-
 **A push into an archived project is refused with a `403`, and writes nothing** —
 no task, no external-link row, no audit entry. Archiving makes a plan read-only,
 and that is a property of the plan rather than of the caller, so the refusal
@@ -201,15 +188,6 @@ soft-revokes; both mint and revoke are audited. See
 walkthrough (creating, scope picker, the MCP-client config snippet) and
 [MCP server](/features/mcp-server/) for connecting an AI client with an
 `mcp:read` token.
-
-:::note[Ships in 0.4]
-The general-endpoint PAT authentication described below (`personalApiTokenAuth`,
-#2547) ships in **TruePPM 0.4**. In `v0.3.0-alpha.3` (the latest release),
-`ProjectApiTokenAuthentication` is not in the default authentication stack at
-all, so a `legacy:full` PAT has no endpoint to use outside the read-only MCP
-surface described further below — the general CRUD API and the two token-sync
-endpoints are unreachable with a personal token until 0.4.
-:::
 
 **A `legacy:full` PAT authenticates the general API — reads and writes — exactly
 as your own session would** (`personalApiTokenAuth` in the schema, #2547).

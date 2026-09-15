@@ -10,49 +10,6 @@ with. For *how many* of each resource to run at a given team size, see
 [Deployment Sizing](/administration/sizing/); for the application environment
 variables passed under `env`, see [Configuration](/administration/configuration/).
 
-:::note[About half of this page ships in 0.4]
-The chart in the latest release (`v0.3.0-alpha.3`) deploys the API and a Celery
-worker and exposes fourteen top-level keys: `replicaCount`, `global`, `image`,
-`service`, `ingress` (only `enabled`, and nothing renders from it), `postgresql`,
-`valkey`, `networkPolicy`, `podSecurityContext`, `containerSecurityContext`,
-`resources`, `env`, `envFrom`, and `admin`. Those sections — [Image and
-replicas](#image-and-replicas), [Bundled datastores](#bundled-datastores),
-[Network and pod security](#network-and-pod-security), [Resources](#resources),
-[Application environment](#application-environment-env), and [Admin
-bootstrap](#admin-bootstrap) — describe the released chart.
-
-**Everything else on this page lands with the 0.4 beta and is not in the released
-chart.** Namely:
-
-- `values.schema.json` and the closed root that rejects unknown keys
-  ([Unknown keys are rejected](#unknown-keys-are-rejected)) — the released chart
-  accepts any key you write;
-- the `web` tier (`web.*`): the nginx SPA, its `/admin/` allowlist, and its
-  security headers ([Service and web tier](#service-and-web-tier), [Django admin
-  exposure](#django-admin-exposure), [SPA security headers](#spa-security-headers));
-- `celeryWorker.*` ([Celery worker tuning](#celery-worker-tuning)) — the released
-  worker takes no chart-level concurrency, recycling, or extra-args knobs;
-- every `ingress` key past `enabled` ([Ingress](#ingress)) — the released chart has
-  no Ingress template at all, so `ingress.enabled: true` renders nothing;
-- `probes.*` ([Health probes](#health-probes)), `podDisruptionBudget.*` and
-  `autoscaling.*` ([Scaling and availability](#scaling-and-availability)) — and
-  there is no Celery Beat deployment on the released chart for `probes.beat.*` to
-  probe;
-- `observability.*`, `otelCollector.*`, `dashboards.*`, `alerts.*`, and
-  `logging.*` ([Observability](#observability)) — the released chart ignores an
-  `observability` block entirely;
-- `tests.*` ([`helm test`](#helm-test)), `backup.*` ([Scheduled
-  backups](#scheduled-backups)), and the `demo` mode block ([Public read-only demo
-  mode](#public-read-only-demo-mode));
-- `valkey.sentinel.*` ([Managed datastores](#managed-external-datastores)) — the
-  released chart's `valkey` block carries `enabled` and `auth` only. This is the
-  one 0.4 addition inside a section that is otherwise released, and it is marked
-  experimental besides.
-
-Verify against your own chart with `helm show values` before writing a values file
-on the released version.
-:::
-
 :::note[Secure by default]
 A stock `helm install` renders a complete, secure instance: it generates and
 persists the datastore passwords, enables Valkey auth, applies restricted pod
@@ -117,23 +74,9 @@ guess against. Leaving it deny-by-default is deliberate — see
 [Reaching Django admin](/administration/security/#reaching-django-admin).
 :::
 
-:::note[Ships in 0.4: two halves, and you need both]
-`web.adminAccess` is the **edge** half and governs only traffic that traverses the
-web tier's nginx — it is bypassed by `web.enabled: false`, by an
-`ingress.hosts[].paths[]` entry targeting `service: api`, and by
-`kubectl port-forward`. From 0.4 the chart also sets
-`env.TRUEPPM_DJANGO_ADMIN_ENABLED: "false"`, the **application** half, which makes
-the API answer `404` on `/admin/` on every one of those paths.
-
-The consequence worth knowing before you need it: the port-forward access path
-this chart recommends for administrative work **404s until you flip that variable
-to `"true"`**. Do that only when you use the admin; the login is throttled,
-audited, and enforced-SSO-checked from 0.4, but it is still a password door.
-:::
-
 | Key | Default | What it does |
 |---|---|---|
-| `env.TRUEPPM_DJANGO_ADMIN_ENABLED` | `"false"` | Ships in 0.4. Whether the API serves `/admin/` at all, independent of the nginx rules below. See [Configuration](/administration/configuration/). |
+| `env.TRUEPPM_DJANGO_ADMIN_ENABLED` | `"false"` | Added in 0.4. Whether the API serves `/admin/` at all, independent of the nginx rules below. See [Configuration](/administration/configuration/). |
 | `web.adminAccess.enabled` | `true` | Render the `/admin/` proxy at all. Set `false` to return `404` instead — removes the path from the public listener entirely. |
 | `web.adminAccess.allowCIDRs` | `[]` | Source CIDRs permitted to reach `/admin/`. **Empty means deny everything.** Matched against nginx's `$remote_addr`, which behind an Ingress is the *controller's* pod IP, not the operator's — so this is only meaningful when the web tier sees real client addresses. |
 | `web.adminAccess.rateLimit.enabled` | `true` | Apply an nginx `limit_req` zone to the admin login surface. |
@@ -285,18 +228,18 @@ the values reference; that page is the troubleshooting guide.
 
 | Key | Default | What it does |
 |---|---|---|
-| `probes.api.readinessPath` | `/api/v1/readyz` | Deep readiness: DB + cache reachable **and** no unapplied/in-flight migrations, so a rolling upgrade never routes traffic to a pod whose schema and code disagree. Detection of the reverse direction — a database carrying migrations the running image does not ship, i.e. an image rolled back without restoring the schema — ships in 0.4 as `migration_state: ahead`, gated only for a pod that *booted* into it so a forward rolling upgrade never pulls the old pods out of the Service. Either way, schema presence is not data compatibility: rolling back across a destructive migration still needs a [restore from backup](/getting-started/upgrade/#rollback). The disk-migration scan behind this check is cached process-wide rather than rebuilt on every call, and the endpoint carries its own rate limit (`env.TRUEPPM_THROTTLE_READYZ_RATE`, default `2000/min`) instead of a full throttle exemption — both land in 0.4. |
+| `probes.api.readinessPath` | `/api/v1/readyz` | Deep readiness: DB + cache reachable **and** no unapplied/in-flight migrations, so a rolling upgrade never routes traffic to a pod whose schema and code disagree. Detection of the reverse direction — a database carrying migrations the running image does not ship, i.e. an image rolled back without restoring the schema — was added in 0.4 as `migration_state: ahead`, gated only for a pod that *booted* into it so a forward rolling upgrade never pulls the old pods out of the Service. Either way, schema presence is not data compatibility: rolling back across a destructive migration still needs a [restore from backup](/getting-started/upgrade/#rollback). The disk-migration scan behind this check is cached process-wide rather than rebuilt on every call, and the endpoint carries its own rate limit (`env.TRUEPPM_THROTTLE_READYZ_RATE`, default `2000/min`) instead of a full throttle exemption — both were added in 0.4. |
 | `probes.api.livenessPath` | `/api/v1/health/` | Shallow liveness so a transient dependency blip can't restart-loop the pod. |
 | `probes.api.readiness*/liveness*Seconds` | 10/10, 30/30 | Initial-delay and period tuning. |
 | `probes.api.hostHeader` | _(empty → ingress host, else `<release>-trueppm-api`)_ | `Host` header kubelet sends on both api probes. kubelet dials by pod IP, so without this Django validates `<podIP>:8000` against `ALLOWED_HOSTS` in `get_host()` — before any view, and out of reach of `SECURE_REDIRECT_EXEMPT` — and answers 400 DisallowedHost. The pod never turns Ready, the Service gets no endpoints, and the Ingress serves 503, with nothing in the failure naming `ALLOWED_HOSTS`. Empty resolves to the first ingress host when `ingress.enabled: true`, and otherwise to the api Service's own DNS name `<release>-trueppm-api` — the name the `helm test` probe already curls, so a no-Ingress install needs no value here either. Whatever it resolves to must be in `ALLOWED_HOSTS`. See [Host names you must include](/administration/configuration/#host-names-you-must-include). |
 | `probes.worker.enabled` / `probes.beat.enabled` | `true` | Master switch for that component's probes. |
 | `probes.worker.heartbeatFile` | `/tmp/trueppm-celery-worker-heartbeat` | File a Celery signal handler touches on `worker_ready`/`heartbeat_sent` and removes on `worker_shutting_down` (ships 0.4, #3346). Both `probes.worker.startup` and `probes.worker.readiness` below stat this same path. |
-| `probes.worker.startup.*` | enabled, `initialDelaySeconds: 0`, every `5`s, `failureThreshold: 30` | **Ships in 0.4.** Checks the heartbeat file **exists** — true once the worker has fired `worker_ready` at least once, i.e. its broker connection is established. Suspends liveness until it passes, so a slow first boot cannot restart-loop. |
+| `probes.worker.startup.*` | enabled, `initialDelaySeconds: 0`, every `5`s, `failureThreshold: 30` | **Added in 0.4.** Checks the heartbeat file **exists** — true once the worker has fired `worker_ready` at least once, i.e. its broker connection is established. Suspends liveness until it passes, so a slow first boot cannot restart-loop. |
 | `probes.worker.liveness.*` | initial delay `60`, ping every `60`s, `failureThreshold: 5` | Still `celery inspect ping` against the pod's **own** worker node. This is the probe that kills the container, so it is the forgiving one — see below. |
 | `probes.worker.readiness.*` | initial delay `15`, every `15`s, `failureThreshold: 3`, `staleSeconds: 30` | **No longer `celery inspect ping`** (0.4, #3236, #3346) — it stats the heartbeat file above and fails once it is older than `staleSeconds`. The file is refreshed by Celery's own `heartbeat_sent` signal on a fixed ~2s timer, independent of task load, so — unlike the pre-0.4 ping-based check — this probe cannot be starved by a busy worker. |
 | `probes.beat.liveness.*` | initial delay `30`, ping every `60`s, `failureThreshold: 5` | Beat's ping targets broker reachability (the fleet, not its own node); the generous threshold avoids restarts on a brief worker blip. Beat renders a liveness probe only, so there is no `probes.beat.readiness`. |
 | `probes.worker.*` / `probes.beat.*` flat keys | _(empty)_ | Shared override applied across that component's probes — see [Tuning celery probes apart](#tuning-celery-probes-apart). |
-| `probes.web.readiness*/liveness*Seconds` | 5/10, 10/30 | **Ships in 0.4.** Initial-delay and period tuning for the web (nginx) tier's `GET /` probes — previously hardcoded in the chart. No startup key: the container serves a pre-built static bundle, so there is no boot-time dependency for a startup probe to cover. |
+| `probes.web.readiness*/liveness*Seconds` | 5/10, 10/30 | **Added in 0.4.** Initial-delay and period tuning for the web (nginx) tier's `GET /` probes — previously hardcoded in the chart. No startup key: the container serves a pre-built static bundle, so there is no boot-time dependency for a startup probe to cover. |
 
 ### Tuning celery probes apart
 
@@ -596,7 +539,7 @@ alone, at boot.
 
 Required whenever attachments live on local disk — that is, whenever you set
 `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` instead of pointing
-`TRUEPPM_DEFAULT_FILE_STORAGE` at object storage. Ships in 0.4.
+`TRUEPPM_DEFAULT_FILE_STORAGE` at object storage. Added in 0.4.
 
 The pods run with `readOnlyRootFilesystem: true`, so without this claim there is
 no writable path for an upload to land in, and the API **refuses to start**

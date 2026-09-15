@@ -80,14 +80,6 @@ and change nothing about the plan or what anyone else sees.
 
 ## Layout: Grid and Timeline
 
-:::note[Ships in 0.4]
-On 0.3, **Timeline** hides the task list entirely and the canvas spans the full width,
-painting each task's name beside its bar — or, with **Task names → Aligned left**, into a
-gutter the canvas draws at its own left edge. The description below is the 0.4 behavior:
-the outline stays on screen in both layouts, and the **Aligned left** placement is removed
-because the outline provides that column for real.
-:::
-
 A `Grid | Timeline` toggle controls how much of the schedule the view devotes to the
 table versus the bars. **Both layouts render the same rows** — the same order, the same
 nesting, the same collapsed phases, the same fold carets, mode gutters, drag grips and
@@ -235,11 +227,6 @@ Column widths are persisted per-browser under `trueppm.schedule.columnWidths.v5`
 
 ### The float columns
 
-:::note[Ships in 0.4]
-**Float** and **Free** land in 0.4. Before then the outline has eight columns and
-the **Columns** popover offers seven toggles.
-:::
-
 The two float columns are the only ones whose *default* depends on the project:
 they will be on for **Waterfall** and **Hybrid** and off for **Agile**, because
 float is the number a phase-gated plan is read by and noise on a board-driven one.
@@ -256,13 +243,6 @@ outline's order is the WBS — but both will be sortable on the
 [Table/Grid view](#layout-grid-and-timeline).
 
 ### The Links column
-
-:::note[Ships in 0.4]
-On 0.3 a row's dependencies show as `←2` / `→1` **count** chips beside the task name, and
-only while the row is selected with **Focus chain** on. There is no Links column, and the
-only way to add a link is the row's right-click menu. The description below is the 0.4
-behavior.
-:::
 
 The Links cell states the *shape* of a row's dependencies rather than only how many there
 are, because a count cannot tell a chain from an overlap:

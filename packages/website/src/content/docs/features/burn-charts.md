@@ -62,13 +62,6 @@ Query parameters:
 | `since` | ISO date (window start) | project start date |
 | `until` | ISO date (window end) | today |
 
-:::note[Ships in 0.4]
-The window bounds described in the next paragraph ship in **TruePPM 0.4**, the
-first beta. In `v0.3.0-alpha.3`, the latest release, the window has no upper
-bound: any span and any future `until` are accepted (only `until` before `since`
-is refused), and a far-future `until` such as `9999-12-31` returns a 500.
-:::
-
 From 0.4 the window will be bounded on both axes. `until` may be at most 31 days
 past today, and the span between `since` and `until` at most 366 days: an `until`
 past that horizon, or an explicit `since` more than 366 days before `until`, is a

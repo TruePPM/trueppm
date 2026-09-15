@@ -4,14 +4,6 @@ description: Django management commands for bootstrapping an admin account and s
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-One command on this page — **`revoke_api_tokens`**, under
-[Maintenance commands](#maintenance-commands) — ships in **TruePPM 0.4**. It is not
-in `v0.3.0-alpha.3`, the latest release; on 0.3 there is no bulk API-token
-revocation lever, and tokens must be revoked one at a time from each owner's
-personal settings page. Everything else on this page is in the current release.
-:::
-
 TruePPM ships a small set of **Django management commands** — one-off scripts you
 run from a shell inside the API container, for tasks that don't belong behind a
 button in the UI: bootstrapping the first admin account, loading a demo program,

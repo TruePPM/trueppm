@@ -16,12 +16,6 @@ acceptance criteria — with no WBS or critical-path jargon required. It lives a
 
 ## Landing here after creation
 
-:::note[Ships in 0.4]
-This section describes the 0.4 beta. Before 0.4, a new agile project's first task
-still lands on this page's plain "No stories yet" state — the Start sheet does not
-yet route a just-templated agile project here directly.
-:::
-
 Applying an agile template from the Start sheet lands the new project directly on
 this page, its backlog already standing — epics, stories, and points in place, not an
 empty "add your first task" card. Template rows arrive over the board's live

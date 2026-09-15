@@ -68,15 +68,6 @@ is the fastest path to:
 
 ![The command palette opened over the Dashboard: current sprint, current project actions, recent projects, and jump-to views](../../../assets/screenshots/command-palette.webp)
 
-:::note[Ships in 0.4 — off-project findability]
-Four of the entries below are **not in the latest release**: **Navigate** between
-projects and programs, **Pick up where you left off** (the Recent group), **Find
-people**, and **Find any work item anywhere**. They are the "findability off-project"
-work landing in **0.4** (#1557, #1940, #2102, #2103). On `0.3.0-alpha.3` the palette
-searches only the project you are currently in — there is no cross-program search, no
-Recent group, and no people search. Everything else on this page is in the 0.3 baseline.
-:::
-
 - **Jump to any view** — "Go to Board", "Go to Schedule", including views you've
   hidden from the tab bar.
 - **Navigate** between your projects and programs — resolve any project or program
@@ -172,23 +163,6 @@ the chip is a plain placeholder — no word, no colour.
 
 ## Grouped, methodology-adaptive project views
 
-:::note[Ships in 0.4]
-This section describes the rail as it will be in 0.4. **The current release** groups
-project views as **Plan · Deliver · Track · People**, with a standalone **Overview**
-row leading the rail and a standalone **Settings** row trailing it, and offers a
-Customize-views opt-in that *additionally* shows **Schedule** under **Deliver**.
-
-In 0.4 the **People** band will be replaced by the ruled-off **Workspace** band
-described below, **Overview** will be renamed **Dashboard** and join **Track**,
-**Settings** will move into **Workspace**, and every view will get exactly **one**
-home in the rail — a nav item
-listed in two places reads as two different things — so the Schedule-under-Deliver
-opt-in and the account setting behind it are both retired. If you have that option
-turned on today, it will simply be off after the upgrade; nothing else about your
-account changes. Route addresses do not change in any of this, so existing links and
-bookmarks keep working.
-:::
-
 The project rail groups its views into three bands named for what you are *doing* —
 **Plan**, **Deliver**, **Track** — in the order work moves through them, followed by
 a **Workspace** band that is ruled off and pinned to the bottom of the rail:
@@ -280,14 +254,6 @@ A newly pinned card **stays where it is** rather than jumping to the top under y
 cursor. It moves into the Pinned group the next time you open the page, or straight
 away if you choose **Re-sort now** in the confirmation.
 
-:::note[Ships in 0.4]
-Pins are saved to **your account**, so they follow you between your laptop, a
-second browser, and any other device you sign in on. Before 0.4 a pin lived only
-in the browser that set it. Pins already on a device are moved to your account
-automatically the first time you open the app after upgrading — there is nothing
-to re-pin.
-:::
-
 A pin is **private to you**. It is a personal shortcut, not a signal about the
 project: pinning grants no access, changes nothing for anyone else, and no screen,
 export, or API response tells another person what you have pinned or how many
@@ -311,10 +277,6 @@ your account menu. Chrome and content adapt together — there is never a dark
 sidebar stranded on a light app.
 
 ## When your session expires
-
-:::note[Ships in 0.4]
-The read-only escape hatch (issue #1922) ships in the 0.4 milestone.
-:::
 
 If your session expires while you're working — a timed-out token, a signed-out
 tab left open — TruePPM shows a "Your session expired" prompt rather than

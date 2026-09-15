@@ -41,18 +41,6 @@ Migrations and the `create_admin` bootstrap run automatically when the `api` con
 docker compose exec api cat /tmp/trueppm_admin_password
 ```
 
-:::note[Ships in 0.4: `/admin/` is on here and off everywhere else]
-This stack runs `settings.dev`, which keeps Django admin enabled — a developer
-workstation is the one place where reaching `/admin/` with no ceremony is the
-point. **Every other deployment on this page runs `settings.prod`, where it is
-off unless you set `TRUEPPM_DJANGO_ADMIN_ENABLED=true`**, and answers `404`
-otherwise. See [Reaching Django admin](/administration/security/#reaching-django-admin)
-for why, and for what the login carries when you do enable it.
-
-On `v0.3.0-alpha.3`, the latest release, the variable does not exist and
-`/admin/` answers on every deployment.
-:::
-
 **Good for:** local development, evaluation, demos.
 
 **Not for shared or production use, even a small team.** This stack hardcodes
@@ -686,25 +674,6 @@ TRUEPPM_S3_BUCKET_NAME=trueppm-attachments
 APP_VERSION=0.2.0
 ```
 
-:::caution[Ships in 0.4: `/admin/` is off unless you opt in]
-A bare or Compose production deployment routes to the API directly, so it has no
-equivalent of the Helm chart's `web.adminAccess` edge deny. From 0.4 the API
-therefore closes the surface itself: `/admin/` answers `404` unless
-`TRUEPPM_DJANGO_ADMIN_ENABLED=true` is set, and when it *is* set the admin login
-carries the same throttles, audit lines, and enforced-SSO check as the API login.
-
-**If you are upgrading an existing install and you use Django admin, set the
-variable before the rollout** — otherwise `/admin/` stops answering. Nothing else
-depends on it: users and roles live in
-[Workspace settings](/administration/workspace-settings/), and the admin password
-rotates with
-[`changepassword`](/administration/admin-password/#rotate-the-password-after-first-run).
-Full rationale: [Reaching Django admin](/administration/security/#reaching-django-admin).
-
-On `v0.3.0-alpha.3`, the latest release, the variable does not exist and
-`/admin/` answers unconditionally — restrict it at your own edge there.
-:::
-
 :::caution[Three values the API refuses to start without]
 `SECRET_KEY`, `INTEGRATION_ENCRYPTION_KEY`, and an attachment-storage choice are
 each enforced at import time, not on first use. Omitting any one of them
@@ -873,12 +842,6 @@ the upgrade rather than relying on `migrate <app> <prior>`. All other migrations
 reverse cleanly.
 
 ### Upgrading to 0.4: duplicate WBS paths are repaired automatically
-
-:::note[Ships in 0.4]
-One item on this page — this section — ships in **TruePPM 0.4**, the first beta,
-and is **not** in `v0.3.0-alpha.3`, the latest release. Everything else on this
-page describes the current release.
-:::
 
 A task's `wbs_path` is the only thing that records its place in the work
 breakdown; there is no `parent_id` column. Before 0.4 nothing stopped two live

@@ -4,30 +4,6 @@ description: What TruePPM keeps, what it rebuilds, and what it throws away — t
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4]
-Most of the Helm surface this page names is new in **TruePPM 0.4**, the first
-beta, and is **not** in `v0.3.0-alpha.3`, the latest release. On 0.3 the chart has
-no `web`, `probes`, `podDisruptionBudget`, `autoscaling`, or `backup` values at
-all, and the API exposes no `/api/v1/readyz`. Specifically, these ship in 0.4:
-
-- the **`/api/v1/readyz` readiness endpoint** and the chart's `probes.*` block —
-  everything under [Health and readiness endpoints](#health-and-readiness-endpoints)
-  and the readiness rows in the failure-mode matrix;
-- the **nginx web tier** (`web.*`) and its replica count;
-- **`podDisruptionBudget.*`** and **`autoscaling.*`**;
-- the **backup CronJob** (`backup.*`) named in rung 5 of the ladder;
-- **Valkey Sentinel** (`valkey.sentinel.*`) named in rung 6;
-- the **`migrate_locked`** init container described under [Singletons and
-  one-per-pod work](#singletons-and-one-per-pod-work). On 0.3 every API pod runs
-  plain `migrate --noinput` with no coordination, so the concurrent-migration
-  race that paragraph says is gone is still real at `replicaCount >= 2`.
-
-What is true on 0.3 as well: PostgreSQL is the only authoritative store, the
-bundled Valkey runs with AOF on a PVC, Beat is a pinned singleton, the outbox
-drains and `acks_late` redelivery described under [The durability
-contract](#the-durability-contract), and the three admin health endpoints.
-:::
-
 TruePPM has one authoritative store and a lot of state it can rebuild. Knowing
 which is which is the whole of operating it safely: it tells you what a backup
 must contain, what a pod loss costs, and which components deserve a second

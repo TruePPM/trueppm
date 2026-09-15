@@ -4,12 +4,6 @@ description: Configure single sign-on so your team logs in through the identity 
 documentedFor: "0.4"
 ---
 
-:::note[Ships in 0.4 — single sign-on]
-Self-service single sign-on **ships in 0.4** (TruePPM's first beta). It is part
-of the **open-source core** — no Enterprise license is required. Before 0.4,
-users sign in with email and password only.
-:::
-
 Single sign-on lets your team log in through the identity providers you already
 run. You can configure **more than one provider at the same time** — several OIDC
 providers (Keycloak, Authentik, Zitadel, Google, GitLab, Microsoft Entra ID,

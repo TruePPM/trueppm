@@ -8,12 +8,6 @@ The **Calendar view** is for anyone on the team who needs a familiar week- or mo
 
 It lives in the **Plan** group of the project view bar, at `/projects/{projectId}/calendar`.
 
-:::note[Ships in 0.4]
-Only **Week mode** below is unreleased. On 0.3 the `Month | Week` toggle is present but inert: selecting **Week** re-renders the identical month grid, the label keeps showing the month name, and the prev/next buttons keep stepping a month at a time.
-
-Everything else on this page — month mode, the chips and marks, the legend, the task-detail banner, navigation, and the phone agenda reflow — describes behavior that works on 0.3 today.
-:::
-
 ## Which projects show it, and which tasks appear
 
 The Calendar's nav entry is hidden on **Agile** projects and shown on **Waterfall** and **Hybrid** ones. Hidden means hidden from the view bar, not blocked: the route stays reachable by direct URL, because the methodology preset says "this is not how we work here", not "this is not allowed". See [Methodology presets](/features/methodology-preset/).

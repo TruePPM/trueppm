@@ -4,13 +4,6 @@ documentedFor: "0.4"
 description: A read-only view — per program, and per project on your own Activity tab — of what your team's agents read and which agent calls were refused. Every row is a link in a tamper-evident chain you can verify yourself. Governance of agents, never surveillance of people.
 ---
 
-:::note[Ships in 0.4]
-The agent-oversight panel ships in 0.4, alongside the read-only
-[MCP server](/features/mcp-server/). On the current release there is no Agents tab and
-no agent-action log to project — nothing on this page describes behavior you can
-exercise on it yet. On unreleased builds the layout may still be changing.
-:::
-
 This page is for a PM, Scrum Master, or program lead who wants to know what an AI
 assistant connected to TruePPM has actually looked at, and what it was refused —
 without turning the log into a performance tool for people.

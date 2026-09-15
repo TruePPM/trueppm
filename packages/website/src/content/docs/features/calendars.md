@@ -40,11 +40,6 @@ project's calendar applies.
 
 ## Composable working calendars
 
-:::note[Ships in 0.4 — composable calendars]
-Applying **multiple** calendars to one project — the overlay described here — ships in
-0.4 in the **Community (OSS)** edition.
-:::
-
 A project's effective non-working time will be the **overlay (union)** of every calendar
 applied to it, not just a single calendar. A project will apply:
 

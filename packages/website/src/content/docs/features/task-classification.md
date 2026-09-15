@@ -12,10 +12,6 @@ The three fields are not used to the same depth today. **Type** and **Delivery m
 The **Classification** controls were added in **0.3** (the agile team). The fields were already stored and set by the seeds; 0.3 added the editor. They are purely additive — every existing task keeps its current values (`task` / `flow` / `waterfall`), so nothing changes unless you set them.
 :::
 
-:::note[Ships in 0.4]
-Before **0.4**, a new task's Governance class and Delivery mode always defaulted to **Flow** / **Waterfall**, regardless of the project's own methodology — so a Waterfall project's new task opened on an agile governance overlay, and an Agile project's task never engaged point-burndown rollup. **0.4** makes the default follow the project's [effective methodology](/features/methodology-preset/) instead: see [Defaults follow the project](#defaults-follow-the-project) below. Every value stays selectable on every methodology either way — only which option opens pre-selected, and which values the picker lists first, changes.
-:::
-
 ## Where you will set it
 
 The task create/edit dialog will gain a **Classification** group with three selects — Type, Governance class, and Delivery mode — each with a one-line description of the selected value. The group is hidden when you create a milestone (a milestone is a zero-duration marker, not typed or governed work — its `is_milestone` flag is what matters there).
@@ -81,13 +77,6 @@ The picker still lists every governance class and every delivery mode on every m
 The default is resolved **server-side**, in the task-create request, so web, mobile, and the MCP server agree — none of them re-implements the rule. It is a *create-time* default only: switching a project's methodology later never rewrites the stored `governance_class` / `delivery_mode` on its existing tasks, and editing an existing task always shows what is actually stored, never a re-derived value.
 
 ## Declaring a whole subtree at once
-
-:::note[Ships in 0.4]
-Through **0.3**, the only way to classify work was one row at a time in the task
-editor — so declaring that phase 4 runs as sprints meant opening every task under it.
-**0.4** adds the classification popover and the subtree cascade described below. On the
-current release, use the per-task editor above.
-:::
 
 A hybrid plan is usually declared a **branch** at a time, not a row at a time. Press
 `⌘⇧M` (`Ctrl+Shift+M` on Windows and Linux) to open a popover that sets both axes for a
@@ -187,10 +176,6 @@ axis and apply again.
 
 ### Undo a cascade
 
-:::note[Ships in 0.4]
-Cascade undo ships in **0.4**, alongside the popover and cascade themselves.
-:::
-
 The toast that reports what the cascade wrote carries an **Undo** action. Applying it
 restores every changed task's prior `governance_class` and `delivery_mode` — but only for
 rows nobody has reclassified again since. A row someone else recascaded, or that you
@@ -215,11 +200,6 @@ where it matters most — that page lets a Product Owner classify without the Pr
 a PO can apply a cascade they cannot themselves reverse.
 
 ## Seeing the split without auditing it
-
-:::note[Ships in 0.4]
-The outline gutter and mode chip described here ship in **0.4**. The Gantt's delivery-mode
-bar gutter and texture already shipped.
-:::
 
 A declared split is only useful if you can see it. On the Schedule outline, a task whose
 delivery mode is not the waterfall baseline carries two marks:

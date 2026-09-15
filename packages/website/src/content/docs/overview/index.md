@@ -43,12 +43,6 @@ TruePPM is designed around eight roles that exist in real hybrid-delivery organi
 | **Janet** | Executive Sponsor | Monte Carlo confidence, RAG status (Enterprise) |
 | **Theo** | AI-Native Technical Operator | The read-only MCP server — questions to the live plan from an agent |
 
-:::note[Ships in 0.4]
-Theo's primary surface, the read-only MCP server, ships in **0.4**, TruePPM's
-first beta. On `v0.3.0-alpha.3`, the latest release, an agent reaches TruePPM
-through the REST API only. See the [roadmap](/overview/roadmap/).
-:::
-
 See [The Story](/the-story/) for an end-to-end walkthrough of how these roles interact on a real hybrid program.
 
 ## Open-core model

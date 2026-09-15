@@ -315,18 +315,6 @@ only difference is a removed app reads as `in_sync`), and it is a coarse enum �
 it never names the migration.
 :::
 
-:::note[Ships in 0.4]
-The `ahead` state, the `migration_state` field, and
-`TRUEPPM_READYZ_ALLOW_DB_AHEAD` ship in **TruePPM 0.4**, the first beta. In
-`v0.3.0-alpha.3`, the latest release, `/api/v1/readyz` detects only the `behind`
-direction: it compares the migrations *this image ships* against what is applied,
-so a database carrying migrations the image does not know about is invisible to
-it and the pods report **ready**. On 0.3 an image-only downgrade is unguarded —
-nothing stops old code serving a newer schema — so classify the migrations
-yourself and go straight to the restore-from-backup path if they are anything but
-additive.
-:::
-
 ### Docker Compose rollback
 
 ```bash

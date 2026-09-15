@@ -24,13 +24,6 @@ The task **name** cell is deliberately not the open target: it is an edit target
 taking inline rename, `F2`, and the name-autocomplete popover. A click that opened
 a drawer would fight the thing that cell already does.
 
-:::note[Ships in 0.4]
-The Open button and the Alt + Enter binding ship in **TruePPM 0.4**. On
-`v0.3.0-alpha.3`, the latest release, the only way to open a task from the Schedule
-is the canvas bar's double-click — so on the Grid layout, which has no bars, a
-reader with edit rights has no way to open a task at all.
-:::
-
 The drawer opens on the right (a bottom sheet on mobile). The
 header shows the WBS number, a readiness chip, a **CP** marker when the task is
 on the critical path, and the task name as an inline-editable field. Below it,
@@ -125,10 +118,6 @@ The task detail drawer's own **Dependencies** section lists existing predecessor
 
 For a standalone project, the picker searches only that project's tasks. For a project that belongs to a program, it gains a **This project / Program** toggle: Program scope searches every sibling project in the program and groups the results by project, so you can gate a task against work owned by another team. A cross-project link you create may land as **pending** rather than immediately active — see [Program schedule](/features/program-schedule/) for how the counterpart team accepts it and how the link is drawn once accepted.
 
-:::note[Ships in 0.4]
-The picker's **Dependency type** direction field, its **Relationship** and lag controls and the **?** reference beside them, its match highlighting, its `N of M matches` count and its `Space` multi-add — everything in the three subsections below — ship in 0.4. On 0.3 the row menu carries two items, **Add predecessor…** and **Add successor…**, and the direction they choose cannot be changed once the dialog is open. On 0.3 the picker searches and links one task per visit and always creates a **Finish-to-Start** link with **zero lag**; changing the type or adding lead/lag is a second step in the task detail drawer afterwards. `↑` / `↓` move a highlight, `Enter` adds the highlighted task and closes, `Esc` cancels, and nothing marks why a row matched.
-:::
-
 **Stating the link's terms.** Above the results sit three controls.
 
 **Dependency type** is the direction: whether the task you pick becomes this task's **successor** (the default — it runs after) or its **predecessor** (it runs before). Because it is a field rather than a consequence of which menu item you used, picking the wrong side costs one dropdown rather than closing the dialog and retyping the search.
@@ -161,10 +150,6 @@ The drawer's **Dependencies** section takes the same two settings when you add a
 In Program scope the search runs on the server and matches a task's **name or its notes**, so a match found only in the notes highlights nothing in the row — and a term starting with a digit is matched as a name substring there rather than as a WBS prefix. That search returns at most 200 rows; when it hits that ceiling the count says so and asks you to narrow.
 
 ## Put an unscheduled task on the timeline
-
-:::note[Ships in 0.4]
-The one-click **Start at the earliest** and **Start today** actions described below ship in 0.4. On 0.3 the gutter's `···` menu offers only an empty date picker.
-:::
 
 A task with no **committed start** draws no bar. It has dates — CPM calculates an earliest start for everything it schedules — but those are the scheduler's answer, not yours, and they move whenever a predecessor does. Until you commit a start, the task waits in the **To Do** section of the Unscheduled gutter beneath the timeline.
 

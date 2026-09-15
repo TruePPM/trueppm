@@ -224,7 +224,6 @@ POST /api/v1/projects/{project_pk}/signal-privacy/ceiling-proposals/{proposal_pk
 POST /api/v1/projects/{project_pk}/signal-privacy/ceiling-proposals/{proposal_pk}/withdraw/
 POST /api/v1/projects/{project_pk}/signal-privacy/raise-ceiling/
 POST /api/v1/projects/{project_pk}/signal-privacy/ratchet-down/
-GET /api/v1/projects/{project_pk}/sprints/
 GET /api/v1/projects/{project_pk}/standup/
 GET /api/v1/projects/{project_pk}/task-runs/
 GET /api/v1/projects/{project_pk}/task-runs/{id}/
@@ -284,7 +283,6 @@ POST /api/v1/sprint-task-outcomes/{id}/set-note/
 POST /api/v1/sprint-task-outcomes/{id}/set-presenter/
 POST /api/v1/sprint-task-outcomes/{id}/toggle-demo/
 DELETE /api/v1/sprints/{id}/
-GET /api/v1/sprints/{id}/
 PATCH /api/v1/sprints/{id}/
 PUT /api/v1/sprints/{id}/
 POST /api/v1/sprints/{id}/activate/

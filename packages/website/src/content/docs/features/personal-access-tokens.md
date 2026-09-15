@@ -11,14 +11,6 @@ is how a PMO analyst runs a weekly portfolio export, a Product Owner scripts a
 roadmap dump, or a developer wires up CI tooling, without embedding a password or
 holding a browser session open.
 
-:::note[Ships in 0.4]
-A full-access (`legacy:full`) token reaching the **general** API — everything
-described on this page beyond the read-only MCP surface — ships in
-**TruePPM 0.4** (#2547). In `v0.3.0-alpha.3` (the latest release), a personal
-token authenticates only the read-only MCP-wrapped endpoints; there is no
-general read/write path for it yet.
-:::
-
 :::note[Edition]
 Personal access tokens are part of the **Community (OSS)** edition. Session-free
 personal API access is table-stakes developer and analyst tooling. Organization
@@ -148,12 +140,6 @@ assets minted by a project or program admin, not personal credentials, so a
 password change never breaks a team's CI integration.
 
 ## Off-boarding revokes every PAT
-
-:::note[Ships in 0.4]
-Automatic revocation on deactivation or removal ships in **TruePPM 0.4**. In
-`v0.3.0-alpha.3` (the latest release), deactivating a member disables their login
-but leaves their personal access tokens usable — revoke them by hand.
-:::
 
 When a workspace Admin **deactivates** a member or **removes** them from the
 workspace, all of that member's personal access tokens are revoked and all of

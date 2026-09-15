@@ -10,14 +10,6 @@ since the `0.3.0-alpha.1` pre-release (Jun 28, 2026). 0.3 is an alpha release;
 the first beta is planned for 0.4.
 :::
 
-:::note[Ships in 0.4]
-Two things on this page ship in **0.4** and are not in `0.3.0-alpha.3`: the
-**Last delivery** row described under [Check what happened to a delivery](#check-what-happened-to-a-delivery),
-and the rule that a **draft** pull/merge request does not move the card. On 0.3,
-the settings card shows no delivery history at all, and opening a draft moves the
-card straight to Review. Everything else on this page describes 0.3 as shipped.
-:::
-
 **Git-event automation** moves a task's board card automatically when its linked
 pull/merge request changes state — so the board reflects delivery without anyone
 dragging cards. When a linked PR/MR **opens**, the card moves to **Review**; when

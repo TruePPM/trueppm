@@ -26,15 +26,6 @@ The write restriction above is strictest for a **phase** — a summary with a re
 
 ## Phases
 
-:::note[Ships in 0.4]
-Everything in this section ships in TruePPM 0.4. Before 0.4, the API accepts a
-`status`, a three-point estimate, an `assignee`, or a logged time entry written
-directly onto a phase row — none of it is refused up front, so the value is
-silently overwritten (or double-counted) the next time the rollup recomputes.
-The `+ Phase` toolbar button, its keyboard shortcut, and the phase-in-sprint
-hard block described below also land in 0.4.
-:::
-
 A **phase** is a summary task with at least one *structural* child — another
 task, not a checklist subtask — nested under it in the WBS. It is not a field
 you set: TruePPM never stores "this row is a phase" anywhere ([ADR-0293](/architecture/decisions/)).
@@ -131,13 +122,6 @@ outline rather than requiring a hover on every row you are unsure about. The
 same words are on the chevron's accessible name, so screen-reader and sighted
 users read the identical phrase.
 
-:::note[Ships in 0.4]
-The visible `4 inside` / `4 hidden` count on the row ships in 0.4. On 0.3 the
-count is carried only by the chevron's tooltip and accessible name, so reading
-it requires hovering the chevron, and the screen-reader announcement uses
-different wording (see below).
-:::
-
 ## Keyboard shortcuts (WBS view)
 
 When a task row is focused in the WBS view:
@@ -158,11 +142,6 @@ Expanding or collapsing a summary announces `"<Name> expanded, N inside."` or
 `"<Name> collapsed, N hidden."` — the same words the row and the chevron use, so
 there is one vocabulary for the fact rather than one per surface. A summary with
 no children states no count at all.
-
-:::note[Ships in 0.4]
-This wording ships in 0.4. On 0.3 the announcement is
-`"<Name> expanded, N children visible."` / `"<Name> collapsed."`.
-:::
 
 ## Drag-and-drop indent
 
