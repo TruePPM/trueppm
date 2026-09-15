@@ -350,6 +350,7 @@ def postprocess_openapi(
     * add a derived ``summary`` to every operation that lacks one;
     * replace the default ``"v1"`` tag with a meaningful resource tag;
     * set a document-level ``security`` default and mark public paths ``security: []``.
+    * rewrite every bare ``format: "time"`` to a pattern (see ``_rewrite_time_format``).
 
     Explicit ``@extend_schema`` values are never overwritten — a non-default tag is
     kept, and an existing summary is left untouched.
@@ -365,10 +366,40 @@ def postprocess_openapi(
             _annotate_operation(operation, path, method, collection_paths, is_public)
 
     _register_validation_error_detail(result)
+    _rewrite_time_format(result)
 
     # Document-level default so a client knows the baseline auth scheme.
     result["security"] = list(GLOBAL_SECURITY)
     return result
+
+
+# RFC 3339 `full-time` (what JSON Schema's `format: "time"` validates against)
+# requires a trailing offset (`09:30:00Z` / `09:30:00+00:00`). Every DRF
+# ``TimeField`` in this API represents a local wall-clock time-of-day (a daily
+# notification slot, a retention run time) rather than a UTC instant, and is
+# serialized as bare ``HH:MM:SS`` with no offset — so drf-spectacular's default
+# ``format: "time"`` mapping (``OpenApiTypes.TIME``) makes a claim the response
+# never satisfies. There is no accurate JSON Schema ``format`` for "local time,
+# no offset"; a pattern matching the real serialization is correct instead
+# (schemathesis job #16501510109 / #3811).
+_TIME_OF_DAY_PATTERN = r"^\d{2}:\d{2}:\d{2}(\.\d{1,6})?$"
+
+
+def _rewrite_time_format(node: Any) -> None:
+    """Replace every ``{"type": "string", "format": "time"}`` schema node in place.
+
+    Walks the whole document (not just ``components.schemas``) because the same
+    property can also appear inline in request/response bodies and parameters.
+    """
+    if isinstance(node, dict):
+        if node.get("type") == "string" and node.get("format") == "time":
+            del node["format"]
+            node["pattern"] = _TIME_OF_DAY_PATTERN
+        for value in node.values():
+            _rewrite_time_format(value)
+    elif isinstance(node, list):
+        for item in node:
+            _rewrite_time_format(item)
 
 
 def _register_validation_error_detail(result: dict[str, Any]) -> None:

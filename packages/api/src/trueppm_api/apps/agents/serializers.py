@@ -5,7 +5,11 @@ from __future__ import annotations
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from trueppm_api.apps.agents.models import AgentAction, AgentActionRefusalDetail
+from trueppm_api.apps.agents.models import (
+    AgentAction,
+    AgentActionRefusalDetail,
+    AgentActionRefusalReason,
+)
 
 
 class AgentActionRefusalDetailSerializer(serializers.ModelSerializer[AgentActionRefusalDetail]):
@@ -28,6 +32,20 @@ class AgentActionSerializer(serializers.ModelSerializer[AgentAction]):
     refusals recorded before a constraint was wired.
     """
 
+    # Declared explicitly (like refusal_detail below) rather than left to
+    # ModelSerializer's auto-build from Meta.read_only_fields: DRF's
+    # include_extra_kwargs() strips allow_blank from any field once
+    # read_only_fields forces read_only=True, so the auto-built field never
+    # tells drf-spectacular that "" is a real, expected value — and the
+    # published AgentActionRefusalReasonEnum schema silently disagreed with
+    # every allowed-verdict row (schemathesis, job #16501510109 / #3811). An
+    # explicitly-declared field bypasses that stripping entirely.
+    refusal_reason = serializers.ChoiceField(
+        choices=AgentActionRefusalReason.choices,
+        allow_blank=True,
+        read_only=True,
+        help_text="Set (identity|policy) when verdict=refused; empty otherwise.",
+    )
     refusal_detail = serializers.SerializerMethodField()
 
     class Meta:
