@@ -6319,7 +6319,11 @@ api:publish:
       # missing, rather than silently shipping GitLab-registry-only.
       if [ -z "${GHCR_USER}" ] || [ -z "${GHCR_TOKEN}" ]; then
         echo "ERROR: GHCR_USER/GHCR_TOKEN not set — cannot publish the public 0.4 image."
-        echo "Configure both under Settings → CI/CD → Variables (Masked + Protected) before tagging."
+        echo "Configure both under Settings → CI/CD → Variables (Masked + Protected)."
+        echo "If they ARE configured and this still fires: they are Protected variables,"
+        echo "so this tag ref must ALSO be a Protected Tag (Settings -> Repository ->"
+        echo "Protected tags) or GitLab withholds them from this job. Found missing at"
+        echo "the 0.4.0-beta.1 cut — v* was not protected though scheduler-v* was."
         exit 1
       fi
       echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
@@ -6364,7 +6368,11 @@ web:publish:
       # Public GHCR release — REQUIRED on a release tag (see api:publish).
       if [ -z "${GHCR_USER}" ] || [ -z "${GHCR_TOKEN}" ]; then
         echo "ERROR: GHCR_USER/GHCR_TOKEN not set — cannot publish the public 0.4 image."
-        echo "Configure both under Settings → CI/CD → Variables (Masked + Protected) before tagging."
+        echo "Configure both under Settings → CI/CD → Variables (Masked + Protected)."
+        echo "If they ARE configured and this still fires: they are Protected variables,"
+        echo "so this tag ref must ALSO be a Protected Tag (Settings -> Repository ->"
+        echo "Protected tags) or GitLab withholds them from this job. Found missing at"
+        echo "the 0.4.0-beta.1 cut — v* was not protected though scheduler-v* was."
         exit 1
       fi
       echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
@@ -6466,10 +6474,22 @@ helm:publish:
     - |
       if [ -z "${GHCR_USER}" ] || [ -z "${GHCR_TOKEN}" ]; then
         echo "ERROR: GHCR_USER/GHCR_TOKEN not set — cannot publish the public 0.4 Helm chart."
-        echo "Configure both under Settings → CI/CD → Variables (Masked + Protected) before tagging."
+        echo "Configure both under Settings → CI/CD → Variables (Masked + Protected)."
+        echo "If they ARE configured and this still fires: they are Protected variables,"
+        echo "so this tag ref must ALSO be a Protected Tag (Settings -> Repository ->"
+        echo "Protected tags) or GitLab withholds them from this job. Found missing at"
+        echo "the 0.4.0-beta.1 cut — v* was not protected though scheduler-v* was."
         exit 1
       fi
       helm registry login ghcr.io -u "$GHCR_USER" -p "$GHCR_TOKEN"
+      # `helm registry login` writes to Helm's OWN credential store — it does
+      # NOT populate the Docker-config-style store `cosign` reads. Without this
+      # second login, `cosign sign`/`cosign attest` below 401s trying to pull
+      # back the digest they just pushed (found at the 0.4.0-beta.1 cut: the
+      # chart pushed fine, signing failed). api:publish/web:publish don't hit
+      # this because they authenticate via `docker login`, which cosign DOES
+      # read; this image has no docker daemon, so cosign needs its own login.
+      echo "$GHCR_TOKEN" | cosign login ghcr.io -u "$GHCR_USER" --password-stdin
       helm dependency update packages/helm
       helm package packages/helm
       CHART_FILE=$(ls trueppm-*.tgz)
