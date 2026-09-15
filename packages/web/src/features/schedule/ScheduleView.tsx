@@ -233,6 +233,7 @@ import {
   insertMisplacedSentence,
   milestoneSentence,
   MILESTONE_REFUSES_SUMMARY,
+  READ_ONLY_REFUSAL,
   movedIntoSentence,
   adoptedPhaseSentence,
   groupSentence,
@@ -2649,6 +2650,10 @@ export function ScheduleView() {
       // #3079 — whether a plain Enter also inserts a row, or just commits.
       enterCreatesRow: displayOptions.enterCreatesRow,
       indent: (taskId) => {
+        if (readOnly) {
+          setScheduleActionToast({ message: READ_ONLY_REFUSAL });
+          return;
+        }
         // Capture BEFORE the mutation: the sentence describes the tree as it
         // was, and whether the row above is about to change identity is only
         // knowable from the pre-move state.
@@ -2666,6 +2671,10 @@ export function ScheduleView() {
         });
       },
       outdent: (taskId) => {
+        if (readOnly) {
+          setScheduleActionToast({ message: READ_ONLY_REFUSAL });
+          return;
+        }
         const row = actRow(taskId);
         const parent = allTasks.find((t) => t.id === allTasks.find((x) => x.id === taskId)?.parentId);
         const entryId = parent ? recordAct(outdentSentence(row, { name: parent.name })) : null;
@@ -2682,6 +2691,10 @@ export function ScheduleView() {
         // the parent is append-only for v1: the server appends the new row at the
         // end of the parent's children (no `after_id` positioning yet) — which is
         // where a plain "below" sibling belongs anyway, no reorder needed.
+        if (readOnly) {
+          setScheduleActionToast({ message: READ_ONLY_REFUSAL });
+          return;
+        }
         if (!projectId) return;
         const focused = allTasks.find((t) => t.id === taskId);
         const parentId = focused?.parentId ?? null;
@@ -2703,6 +2716,10 @@ export function ScheduleView() {
         // appends at the end of the parent's children (v1, no `after_id`), so
         // this composes create + the existing reorder endpoint — same pattern
         // Alt+↑/↓ already uses for moving a row among its siblings.
+        if (readOnly) {
+          setScheduleActionToast({ message: READ_ONLY_REFUSAL });
+          return;
+        }
         if (!projectId) return;
         const focused = allTasks.find((t) => t.id === taskId);
         if (!focused) return;
@@ -2743,6 +2760,10 @@ export function ScheduleView() {
         // becomes that child's parent. The focused row becomes a summary as a
         // side effect of gaining a child — `isSummary` is server-derived from
         // having children, not a settable flag, so nothing else to toggle.
+        if (readOnly) {
+          setScheduleActionToast({ message: READ_ONLY_REFUSAL });
+          return;
+        }
         if (!projectId) return;
         const focused = allTasks.find((t) => t.id === taskId);
         createNewTask(taskId, focused, insertSentence('child', actRow(taskId)));
@@ -2765,6 +2786,10 @@ export function ScheduleView() {
       //     the surface this design leans on instead of a per-row Save — a log that
       //     can be wrong about the thing it is standing in for is worse than none.
       convertToMilestone: (taskId) => {
+        if (readOnly) {
+          setScheduleActionToast({ message: READ_ONLY_REFUSAL });
+          return;
+        }
         if (!projectId) return;
         const task = allTasks.find((t) => t.id === taskId);
         if (!task) return;
@@ -2792,6 +2817,10 @@ export function ScheduleView() {
         );
       },
       convertToTask: (taskId) => {
+        if (readOnly) {
+          setScheduleActionToast({ message: READ_ONLY_REFUSAL });
+          return;
+        }
         if (!projectId) return;
         const task = allTasks.find((t) => t.id === taskId);
         if (!task?.isMilestone) return;
@@ -2823,6 +2852,10 @@ export function ScheduleView() {
         // node as its own subtree root — a selected node whose ancestor is
         // also selected is skipped, since it's already covered by that
         // ancestor's walk.
+        if (readOnly) {
+          setScheduleActionToast({ message: READ_ONLY_REFUSAL });
+          return;
+        }
         if (!projectId) return;
         const tree = buildWbsTree(allTasks);
         const taskById = new Map(allTasks.map((t) => [t.id, t]));
@@ -2903,6 +2936,10 @@ export function ScheduleView() {
         })();
       },
       deleteTask: (taskId) => {
+        if (readOnly) {
+          setScheduleActionToast({ message: READ_ONLY_REFUSAL });
+          return;
+        }
         // Leaf rows delete immediately with the Undo safety net (#1762) — the
         // fast daily build path. A summary/phase row takes its whole WBS subtree
         // with it, so gate that case behind a confirm that names the descendant
@@ -2930,6 +2967,10 @@ export function ScheduleView() {
         performBuildModeDelete(taskId, 0);
       },
       mergeIntoPreviousRow: (taskId) => {
+        if (readOnly) {
+          setScheduleActionToast({ message: READ_ONLY_REFUSAL });
+          return;
+        }
         // Backspace on an empty row (#2727): delete it and land the caret at
         // the end of the previous VISIBLE row's Name cell — the outliner
         // "backspace merges into the line above" convention. No-op if this is
@@ -2990,6 +3031,7 @@ export function ScheduleView() {
       actRow,
       recordAct,
       displayOptions.enterCreatesRow,
+      readOnly,
     ],
   );
 
@@ -4354,6 +4396,7 @@ export function ScheduleView() {
             summaryIds={summaryIds}
             expandedIds={expandedIds}
             onToggle={toggleExpand}
+            readOnly={readOnly}
           />
           <ScheduleFallbackTable tasks={visibleTasks} />
         </div>
@@ -6713,6 +6756,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               childCountById={childCountById}
               expandedIds={expandedIds}
               onToggle={toggleExpand}
+              readOnly={readOnly}
               focusChainIds={focusChainIds}
               depChipsById={depChipsById}
               onHoverChange={setHoveredTaskId}

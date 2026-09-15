@@ -33,6 +33,7 @@ import { BuildModeProvider } from './buildMode/BuildModeContext';
 import { useScheduleFocus, type BuildModeApi } from './buildMode';
 import type { Task } from '@/types';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
+import { READ_ONLY_REFUSAL } from './trail/structuralActs';
 
 const mocks = vi.hoisted(() => ({
   role: null as number | null,
@@ -86,7 +87,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.role = null;
   mocks.roleError = false;
-  useScheduleStore.setState({ selectedTaskId: null, scheduleError: null });
+  useScheduleStore.setState({ selectedTaskId: null, scheduleError: null, scheduleActionToast: null });
 });
 
 function Harness({
@@ -296,6 +297,36 @@ describe('an editor outside build mode keeps the classic inline rename', () => {
     row.focus();
     fireEvent.keyDown(row, { key: 'F2' });
     expect(screen.queryByLabelText(/Rename item/i)).not.toBeInTheDocument();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// The OTHER distinction (#3809): "no rights" and "chose read-only" are not
+// the same state, and only one of them gets absence. An editor in Read still
+// gets the classic rename input — it is present and typeable — but committing
+// it refuses, with a reason, instead of silently doing nothing (that silence
+// is reserved for "no edit rights" above) or silently succeeding (the bug).
+// ───────────────────────────────────────────────────────────────────────────
+describe('an editor who chose Read keeps the classic rename present, but refuses the commit', () => {
+  it('F2 still opens the rename input', () => {
+    mocks.role = 100;
+    renderRow(<TaskListRow task={base} level={2} widths={widths} visible={visible} readOnly />);
+    const row = screen.getByRole('row');
+    row.focus();
+    fireEvent.keyDown(row, { key: 'F2' });
+    expect(screen.getByLabelText(/Rename item/i)).toBeInTheDocument();
+  });
+
+  it('committing a new name does not PATCH — it explains the refusal instead', async () => {
+    mocks.role = 100;
+    const user = userEvent.setup();
+    renderRow(<TaskListRow task={base} level={2} widths={widths} visible={visible} readOnly />);
+    await user.dblClick(screen.getByRole('row'));
+    const input = screen.getByLabelText(/Rename item/i);
+    await user.clear(input);
+    await user.type(input, 'Renamed{Enter}');
+    expect(mocks.updateMutate).not.toHaveBeenCalled();
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(READ_ONLY_REFUSAL);
   });
 });
 

@@ -24,6 +24,7 @@ import { useScheduleFocus, type BuildModeApi } from './buildMode';
 import type { Task } from '@/types';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { stubCoarsePointer, restoreCoarsePointer } from '@/test/coarsePointer';
+import { READ_ONLY_REFUSAL } from './trail/structuralActs';
 
 const mocks = vi.hoisted(() => ({
   toggleMutate: vi.fn(),
@@ -661,12 +662,15 @@ function BuildHarness({
   siblingIds,
   milestoneParents,
   capture,
+  readOnly,
 }: {
   task?: Task;
   level?: number;
   siblingIds?: string[];
   milestoneParents?: { name: string; finish?: string }[];
   capture?: { current: { focusRow: (id: string) => void } | null };
+  /** #3809 — an editor who chose Read (ADR-0776 §5); omitted means Author. */
+  readOnly?: boolean;
 }) {
   const focus = useScheduleFocus();
   const api = useMemo<BuildModeApi>(
@@ -698,6 +702,7 @@ function BuildHarness({
         visible={visible}
         siblingIds={siblingIds}
         milestoneParents={milestoneParents}
+        readOnly={readOnly}
       />
     </BuildModeProvider>
   );
@@ -805,6 +810,24 @@ describe('TaskListRow — milestone start-cell date popover (#345)', () => {
       projectId: 'p1',
       planned_start: '2026-10-20',
     });
+  });
+
+  // #3809: same gap as the name/duration/progress cells — the popover still
+  // opens (the cell stays present, web rule 302), but the pick refuses.
+  it('Read mode keeps the popover reachable but refuses the pick, with a reason', async () => {
+    const user = userEvent.setup();
+    renderBuild({
+      task: milestone,
+      milestoneParents: [{ name: 'Design Phase', finish: '2026-10-20' }],
+      readOnly: true,
+    });
+    const startCell = screen.getByLabelText(/starts|unscheduled/);
+    await user.click(startCell);
+    expect(screen.getByRole('dialog', { name: 'Pick milestone date' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'End of Design Phase' }));
+    expect(mocks.updateMutate).not.toHaveBeenCalled();
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(READ_ONLY_REFUSAL);
   });
 
   it('opens the popover from the keyboard (Enter) on the milestone start cell', () => {
