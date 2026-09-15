@@ -17091,7 +17091,7 @@
             },
             "delete": {
                 "operationId": "v1_project_resources_destroy",
-                "description": "Remove a resource from the roster.\n\nIf the resource has live TaskResource rows on this project and\nforce=true is not passed, returns 409. With force=true, cascades the\ndeletion and triggers CPM recalculation for affected tasks.",
+                "description": "Remove a resource from the roster.\n\nIf the resource has live TaskResource rows on this project and\nforce=true is not passed, returns 409 with code \"roster_has_assignments\".\nWith force=true, cascades the deletion and triggers CPM recalculation for\naffected tasks. The code is distinct from the \"has_assignments\" 2xx\nwarning that task-restructure endpoints (indent/outdent/reparent/group)\nreturn — that is an advisory on a write that succeeded; this is a hard\nrefusal of the roster removal itself.",
                 "parameters": [
                     {
                         "in": "query",
@@ -17127,8 +17127,27 @@
                     }
                 ],
                 "responses": {
-                    "204": {
-                        "description": "No response body"
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Resource removed from the roster. Body carries `cascaded_assignment_count` — the number of TaskResource rows severed, `0` when the resource had no live assignments."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "The resource still has live task assignments on this project and `force=true` was not passed. Body carries `code: \"roster_has_assignments\"`, `affected_tasks`, `task_names`, and `assignment_count`. Distinct from the task-restructure `has_assignments` warning documented on the errors page — this is the roster-removal refusal."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",

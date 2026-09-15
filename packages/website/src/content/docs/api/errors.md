@@ -318,6 +318,7 @@ capped sample naming them:
 | `protected_reference` | `409` | Generic refused delete — other rows still reference this one | `reference_count`, `references`? |
 | `calendar_in_use` | `409` | The working calendar is still referenced | `reference_count`, `references`? |
 | `skill_in_use` | `409` | The skill is still referenced | `reference_count`, `references`? |
+| `roster_has_assignments` | `409` | `DELETE /project-resources/{id}/` refused: the resource still has live task assignments on this project and `force=true` was not passed. Distinct from the `has_assignments` 2xx warning below — that is an advisory on a task restructure that succeeded; this is a hard refusal of the roster removal itself | `affected_tasks`, `task_names`, `assignment_count` |
 | `sprint_already_bound` | `409` | The milestone is already bound to a sprint | — |
 | `sync_conflict` | `409` | A stale write overlapped a concurrent writer | see below |
 | `proposal_closed` | `409` | The ceiling proposal is no longer open | — |
@@ -483,7 +484,7 @@ treat them as failures:
 |------|-----------|---------|
 | `resource_overallocated` | assignment writes | The resource's load on at least one working day now exceeds their capacity. The `detail` names that day |
 | `skill_mismatch` | assignment writes | The resource lacks a skill the task requires |
-| `has_assignments` | task restructure | A task became a summary task while still carrying assignments |
+| `has_assignments` | task restructure | A task became a summary task while still carrying assignments. Not to be confused with the `roster_has_assignments` `409` refusal above — that is a failed roster removal, not an advisory on a successful write |
 | `scope_pending_on_close` | sprint close | Scope-injection requests were still pending at close |
 
 ## What the stability contract covers

@@ -78,15 +78,7 @@ _VIEW_METHOD_NAMES = {
 # never added just to silence a real, actionable finding.
 #
 # Key is "ClassName.method_name"; value is (reason, issue).
-ALLOWED_WITHOUT_409: dict[str, tuple[str, str]] = {
-    "ProjectResourceViewSet.destroy": (
-        "The has_assignments 409-vs-2xx refusal on this endpoint is being "
-        "reworked in #3768 (in flight as of #3766) — annotating the current "
-        "409 here would conflict with that change re-deciding what the "
-        "refusal even is.",
-        "#3768",
-    ),
-}
+ALLOWED_WITHOUT_409: dict[str, tuple[str, str]] = {}
 
 
 def _call_name(call: ast.Call) -> str:
