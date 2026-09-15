@@ -10,6 +10,7 @@ import type { Task, TaskLink } from '@/types';
 import { ROLE_VIEWER, ROLE_MEMBER, ROLE_SCHEDULER, ROLE_ADMIN } from '@/lib/roles';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { useTrailStore, newestUndoableEntry } from './trail/trailStore';
+import { READ_ONLY_REFUSAL } from './trail/structuralActs';
 import { AUTHOR_PARENT_PARAM } from './authorParam';
 import { TaskGroupingRefused } from '@/hooks/useTaskGrouping';
 import { useWbsStore } from '@/stores/wbsStore';
@@ -486,6 +487,7 @@ vi.mock('./TaskListPanel', () => ({
     onAddPhaseFirstChild,
     appendAtEndReadOnly,
     phaseInWaitingIds,
+    readOnly,
   }: {
     tasks: Task[];
     onCommitDraftRow?: (name: string, opts?: { onError?: () => void }) => void;
@@ -493,10 +495,15 @@ vi.mock('./TaskListPanel', () => ({
     onAddPhaseFirstChild?: (taskId: string) => void;
     appendAtEndReadOnly?: boolean;
     phaseInWaitingIds?: Set<string>;
+    readOnly?: boolean;
   }) => (
     <div
       data-testid="task-list-panel"
       data-phase-in-waiting={[...(phaseInWaitingIds ?? [])].sort().join(',')}
+      // #3809: the panel-level flag the row uses to keep rename/menu items
+      // present-but-inert in Read mode. Asserted directly because the row
+      // itself is not rendered by this stub.
+      data-read-only={readOnly ? 'true' : 'false'}
     >
       {tasks.map((t) => (
         <div key={t.id}>{t.name}</div>
@@ -2751,6 +2758,71 @@ describe('ScheduleView — Alt+A Author/Read toggle (#2727, ADR-0776 §5)', () =
     await waitFor(() =>
       expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent('Read'),
     );
+  });
+});
+
+/**
+ * #3809: an editor who chose Read could still rename a task and run every
+ * row-menu structural act — `TaskListRow` checked only RBAC (`canEdit`),
+ * never `readOnly`, so Read mode's own "look, don't touch" promise (ADR-0776
+ * §5) did not reach the row.
+ *
+ * Web rule 302's row-level clause is the fix's shape, not just its target: an
+ * editor in Read keeps the whole apparatus present (menu items, F2, the name
+ * cell) and a gesture on it explains itself, rather than the silent no-op
+ * rule 302 reserves for a reader with no rights at all (that half is pinned
+ * in `TaskListRow.noEditRights.test.tsx`). `buildModeApi` is the one choke
+ * point every structural verb — row menu, keyboard chord, and (already
+ * gated) toolbar — calls into, so asserting on `capturedBuildMode` directly
+ * covers the menu and the keyboard chord in the same assertion: both call the
+ * exact same function.
+ */
+describe('ScheduleView — Read mode refuses structural acts and renames, not silently (#3809)', () => {
+  it('threads Read mode down to the outline panel, where the row keeps the apparatus present', async () => {
+    const user = userEvent.setup();
+    renderSchedule();
+    expect(screen.getByTestId('task-list-panel')).toHaveAttribute('data-read-only', 'false');
+    await toggleAuthorMode(user);
+    expect(screen.getByTestId('task-list-panel')).toHaveAttribute('data-read-only', 'true');
+  });
+
+  it('refuses indent with an explanation, and records no act', async () => {
+    const user = userEvent.setup();
+    renderSchedule();
+    await toggleAuthorMode(user);
+    act(() => capturedBuildMode!.indent('t3'));
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(READ_ONLY_REFUSAL);
+    expect(useTrailStore.getState().entries).toHaveLength(0);
+  });
+
+  it('refuses delete — the mutation never fires', async () => {
+    const user = userEvent.setup();
+    renderSchedule();
+    await toggleAuthorMode(user);
+    act(() => capturedBuildMode!.deleteTask('t2'));
+    expect(deleteTaskMutate).not.toHaveBeenCalled();
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(READ_ONLY_REFUSAL);
+  });
+
+  it('refuses convert-to-milestone on an ordinary row, ahead of the summary-row refusal', async () => {
+    // t2 is neither a summary nor already a milestone, so a refusal here can
+    // only be the Read-mode guard — never `MILESTONE_REFUSES_SUMMARY`, which
+    // is what makes this the regression net for guard ORDER, not just presence.
+    const user = userEvent.setup();
+    renderSchedule();
+    await toggleAuthorMode(user);
+    act(() => capturedBuildMode!.convertToMilestone('t2'));
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(READ_ONLY_REFUSAL);
+  });
+
+  it('leaves the apparatus fully working once switched back to Author', async () => {
+    const user = userEvent.setup();
+    renderSchedule();
+    await toggleAuthorMode(user);
+    await toggleAuthorMode(user);
+    expect(screen.getByTestId('task-list-panel')).toHaveAttribute('data-read-only', 'false');
+    act(() => capturedBuildMode!.deleteTask('t2'));
+    expect(deleteTaskMutate).toHaveBeenCalled();
   });
 });
 

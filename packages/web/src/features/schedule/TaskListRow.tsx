@@ -108,7 +108,7 @@ import {
   type RowMenuItem,
 } from './buildMode';
 import { wbsParentPath } from './buildMode/insertBelow';
-import { MILESTONE_REFUSES_SUMMARY } from './trail/structuralActs';
+import { MILESTONE_REFUSES_SUMMARY, READ_ONLY_REFUSAL } from './trail/structuralActs';
 import {
   ROW_VOCABULARY,
   ROW_NOUN,
@@ -284,6 +284,18 @@ interface Props {
    * up. Defaults to 0, which is also what a viewer's panel passes.
    */
   nudgeReserve?: number;
+  /**
+   * True when the reader has edit rights but chose Read (ADR-0776 §5), or has
+   * no edit rights at all. Distinct from `canEdit`/`authoring`, which decide
+   * whether the row's authoring apparatus is PRESENT (rule 302): this decides
+   * whether a rename or a structural menu item that IS present actually
+   * commits. An editor in Read still sees the name cell, F2, and every row
+   * menu item — attempting one refuses with `READ_ONLY_REFUSAL` instead of
+   * silently doing nothing, which is what rule 302's row-level clause reserves
+   * for a reader with no rights at all. Defaults to `false` so a row rendered
+   * outside `TaskListPanel` (tests, storybook) keeps the pre-#3809 behavior.
+   */
+  readOnly?: boolean;
 }
 
 // On macOS the modifier is labelled "Option"; everywhere else it's "Alt".
@@ -1210,6 +1222,9 @@ interface TaskDataCellsProps {
    * Links button becomes its own tab stop and Tab walks a 1000-row plan.
    */
   rovingChildTabIndex: number;
+  /** Read mode (#3809, web rule 302) — the cells stay present; each commit refuses. */
+  readOnly: boolean;
+  setScheduleActionToast: (toast: ScheduleActionToast | null) => void;
 }
 
 /**
@@ -1240,6 +1255,8 @@ function TaskDataCells({
   depChips,
   onOpenLinkPicker,
   rovingChildTabIndex,
+  readOnly,
+  setScheduleActionToast,
 }: TaskDataCellsProps) {
   return (
     <>
@@ -1267,6 +1284,8 @@ function TaskDataCells({
           setRecalcPrompt={setRecalcPrompt}
           effectiveDurationPolicy={effectiveDurationPolicy}
           isCoarsePointer={isCoarsePointer}
+          readOnly={readOnly}
+          setScheduleActionToast={setScheduleActionToast}
         />
       )}
 
@@ -1281,6 +1300,8 @@ function TaskDataCells({
           milestoneParents={milestoneParents}
           projectId={projectId}
           updateTask={updateTask}
+          readOnly={readOnly}
+          setScheduleActionToast={setScheduleActionToast}
         />
       )}
 
@@ -1305,6 +1326,8 @@ function TaskDataCells({
           setScheduleError={setScheduleError}
           itl={itl}
           requestProgressCommit={requestProgressCommit}
+          readOnly={readOnly}
+          setScheduleActionToast={setScheduleActionToast}
         />
       )}
 
@@ -1336,8 +1359,18 @@ function useRowInlineEdit(ctx: {
   updateTask: UpdateTaskMutation;
   startInlineEditOnMount: boolean;
   onAutoEditConsumed?: () => void;
+  readOnly: boolean;
+  setScheduleActionToast: (toast: ScheduleActionToast | null) => void;
 }) {
-  const { task, projectId, updateTask, startInlineEditOnMount, onAutoEditConsumed } = ctx;
+  const {
+    task,
+    projectId,
+    updateTask,
+    startInlineEditOnMount,
+    onAutoEditConsumed,
+    readOnly,
+    setScheduleActionToast,
+  } = ctx;
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1374,10 +1407,17 @@ function useRowInlineEdit(ctx: {
   const commitEdit = useCallback(() => {
     const trimmed = editValue.trim();
     if (trimmed && trimmed !== task.name) {
-      updateTask.mutate({ id: task.id, projectId, name: trimmed });
+      // Read mode (ADR-0776 §5, web rule 302): the input stays present and
+      // typeable — only the commit refuses, with a reason, rather than the
+      // cell being disabled up front with no explanation to offer.
+      if (readOnly) {
+        setScheduleActionToast({ message: READ_ONLY_REFUSAL });
+      } else {
+        updateTask.mutate({ id: task.id, projectId, name: trimmed });
+      }
     }
     setIsEditing(false);
-  }, [editValue, task.id, task.name, projectId, updateTask]);
+  }, [editValue, task.id, task.name, projectId, updateTask, readOnly, setScheduleActionToast]);
 
   const cancelEdit = useCallback(() => {
     setIsEditing(false);
@@ -2391,6 +2431,7 @@ function TaskListRowInner({
   onMoveToRequest,
   gripReserve = 0,
   nudgeReserve = 0,
+  readOnly = false,
 }: Props) {
   // Row geometry follows the pointer class (#2997): 28px rows on a mouse, 44px
   // and a 44x44 grip in its own lane on a coarse pointer. `nudgeSize` is the
@@ -2467,6 +2508,8 @@ function TaskListRowInner({
       updateTask,
       startInlineEditOnMount,
       onAutoEditConsumed,
+      readOnly,
+      setScheduleActionToast,
     });
 
   // ──────────────────────────────────────────────────────────────────────
@@ -3009,6 +3052,8 @@ function TaskListRowInner({
           onAddPhaseFirstChild={onAddPhaseFirstChild}
           childCount={childCount}
           isExpanded={isExpanded}
+          readOnly={readOnly}
+          setScheduleActionToast={setScheduleActionToast}
         />
 
         {/* Properties button — absolute within the task column so it never overlaps
@@ -3057,6 +3102,8 @@ function TaskListRowInner({
             : undefined
         }
         rovingChildTabIndex={rovingChildTabIndex}
+        readOnly={readOnly}
+        setScheduleActionToast={setScheduleActionToast}
       />
       {progressAutoStatusDialog}
       {/* Sprint assignment prompt after name commit in agile mode (#346).
@@ -3297,6 +3344,9 @@ interface TaskNameContentProps {
    *  `N hidden` statement the row draws beside the name (#3025). */
   childCount: number;
   isExpanded: boolean;
+  /** Read mode (#3809, web rule 302) — the cell stays present; the commit refuses. */
+  readOnly: boolean;
+  setScheduleActionToast: (toast: ScheduleActionToast | null) => void;
 }
 
 /**
@@ -3321,6 +3371,8 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
     nameSuggestions,
     resourcePool,
     authoringCandidates,
+    readOnly,
+    setScheduleActionToast,
   } = props;
   const pool = resourcePool ?? [];
   // The `#Nh` token converts through the project calendar, not a fixed 8h day
@@ -3415,7 +3467,12 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
         onCommit={(parsed) => {
           clearPristine();
           clearCaretAtEnd();
-          if (typeof parsed === 'string' && projectId) {
+          // Read mode (ADR-0776 §5, web rule 302): the cell stays reachable and
+          // typeable — only the write refuses, with a reason, rather than the
+          // cell being disabled up front with no explanation to offer.
+          if (readOnly) {
+            setScheduleActionToast({ message: READ_ONLY_REFUSAL });
+          } else if (typeof parsed === 'string' && projectId) {
             // Split the draft into name + owners. A token that matches no roster member
             // is left in the name verbatim and the row still commits (ADR-0774 §6) —
             // the alternative, silently dropping it, is the zero-capacity failure this
@@ -3555,7 +3612,11 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
           query={autocompleteQuery}
           suggestions={nameSuggestions}
           onSelect={(name) => {
-            updateTask.mutate({ id: task.id, projectId, name });
+            if (readOnly) {
+              setScheduleActionToast({ message: READ_ONLY_REFUSAL });
+            } else {
+              updateTask.mutate({ id: task.id, projectId, name });
+            }
             setAutocompleteQuery('');
             buildMode.focus.commitToRow();
           }}
@@ -3921,6 +3982,9 @@ interface TaskDurationCellProps {
   setRecalcPrompt: React.Dispatch<React.SetStateAction<RecalcPromptState | null>>;
   effectiveDurationPolicy: ReturnType<typeof useEffectiveDurationPolicy>;
   isCoarsePointer: boolean;
+  /** Read mode (#3809, web rule 302) — the cell stays present; the commit refuses. */
+  readOnly: boolean;
+  setScheduleActionToast: (toast: ScheduleActionToast | null) => void;
 }
 
 function TaskDurationCell({
@@ -3934,6 +3998,8 @@ function TaskDurationCell({
   setRecalcPrompt,
   effectiveDurationPolicy,
   isCoarsePointer,
+  readOnly,
+  setScheduleActionToast,
 }: TaskDurationCellProps) {
   // Σ — the value is computed, not yours (#2951, ADR-0844).
   //
@@ -3981,7 +4047,9 @@ function TaskDurationCell({
         buildMode.focus.enterCellEdit(task.id, 'duration');
       }}
       onCommit={(parsed) => {
-        if (typeof parsed === 'number' && projectId) {
+        if (readOnly) {
+          setScheduleActionToast({ message: READ_ONLY_REFUSAL });
+        } else if (typeof parsed === 'number' && projectId) {
           const oldDuration = task.duration;
           const oldPercent = task.progress;
           updateTask.mutate({ id: task.id, projectId, duration: parsed });
@@ -4044,6 +4112,9 @@ interface TaskStartCellProps {
   milestoneParents: Props['milestoneParents'];
   projectId: string;
   updateTask: UpdateTaskMutation;
+  /** Read mode (#3809, web rule 302) — the cell stays present; the commit refuses. */
+  readOnly: boolean;
+  setScheduleActionToast: (toast: ScheduleActionToast | null) => void;
 }
 
 function TaskStartCell({
@@ -4055,6 +4126,8 @@ function TaskStartCell({
   milestoneParents,
   projectId,
   updateTask,
+  readOnly,
+  setScheduleActionToast,
 }: TaskStartCellProps) {
   const startEntry = useReconcileEntry(task.id, 'start');
   const workingDaysMask = useWorkingDaysMask();
@@ -4123,7 +4196,9 @@ function TaskStartCell({
           open={showMilestonePicker}
           parents={milestoneParents ?? []}
           onSelect={(iso) => {
-            if (projectId) {
+            if (readOnly) {
+              setScheduleActionToast({ message: READ_ONLY_REFUSAL });
+            } else if (projectId) {
               updateTask.mutate({ id: task.id, projectId, planned_start: iso });
             }
             setShowMilestonePicker(false);
@@ -4263,6 +4338,9 @@ interface TaskProgressCellProps {
    *  target status when it would trigger the server's silent REVIEW/COMPLETE
    *  auto-promotion; commits immediately otherwise. */
   requestProgressCommit: ProgressAutoStatusConfirm['requestCommit'];
+  /** Read mode (#3809, web rule 302) — the cell stays present; the commit refuses. */
+  readOnly: boolean;
+  setScheduleActionToast: (toast: ScheduleActionToast | null) => void;
 }
 
 function TaskProgressCell({
@@ -4275,6 +4353,8 @@ function TaskProgressCell({
   setScheduleError,
   itl,
   requestProgressCommit,
+  readOnly,
+  setScheduleActionToast,
 }: TaskProgressCellProps) {
   return buildMode && !task.isMilestone ? (
     <EditableCell
@@ -4291,7 +4371,9 @@ function TaskProgressCell({
         buildMode.focus.enterCellEdit(task.id, 'progress');
       }}
       onCommit={(parsed) => {
-        if (typeof parsed === 'number' && projectId) {
+        if (readOnly) {
+          setScheduleActionToast({ message: READ_ONLY_REFUSAL });
+        } else if (typeof parsed === 'number' && projectId) {
           requestProgressCommit(task.status, parsed, () => {
             updateTask.mutate(
               { id: task.id, projectId, percent_complete: parsed },

@@ -32,6 +32,7 @@ import { useScheduleStore } from '@/stores/scheduleStore';
 import type { Task } from '@/types';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { ROLE_MEMBER, ROLE_ADMIN, ROLE_SCHEDULER } from '@/lib/roles';
+import { READ_ONLY_REFUSAL } from './trail/structuralActs';
 
 const mocks = vi.hoisted(() => ({
   updateMutate: vi.fn(),
@@ -150,6 +151,8 @@ interface HarnessProps {
   nameSuggestions?: string[];
   onAddDependencyRequest?: (taskId: string, direction?: DependencyDirection) => void;
   focusRef: { current: FocusApi | null };
+  /** #3809 — an editor who chose Read (ADR-0776 §5); omitted means Author. */
+  readOnly?: boolean;
 }
 
 function Harness({
@@ -160,6 +163,7 @@ function Harness({
   nameSuggestions,
   onAddDependencyRequest,
   focusRef,
+  readOnly,
 }: HarnessProps) {
   const focus = useScheduleFocus();
   focusRef.current = focus;
@@ -193,6 +197,7 @@ function Harness({
         siblingIds={siblingIds}
         nameSuggestions={nameSuggestions}
         onAddDependencyRequest={onAddDependencyRequest}
+        readOnly={readOnly}
       />
     </BuildModeProvider>
   );
@@ -247,6 +252,30 @@ describe('TaskListRow — Name cell commit (build mode)', () => {
     expect(spies.insertBelow).toHaveBeenCalledWith('t1');
     // onCommit also flips showSprintPrompt → the (stubbed) SprintPrompt renders.
     expect(screen.getByTestId('sprint-pick')).toBeInTheDocument();
+  });
+
+  // #3809: an editor who chose Read (ADR-0776 §5) still had a working rename —
+  // `readOnly` never reached this cell, only `canEdit` did. Web rule 302's
+  // row-level clause is what the fix has to preserve alongside the refusal:
+  // the cell stays reachable and typeable (it is NOT gated absent, the way
+  // "no rights" is in TaskListRow.noEditRights.test.tsx) — only the commit
+  // refuses, with a reason.
+  it('Read mode keeps the name cell reachable but refuses the commit, with a reason', async () => {
+    // Enter's commit-and-continue (`onEnterCommit` → `buildMode.insertBelow`)
+    // is a SEPARATE callback from the name write this test pins, and it is
+    // real `buildModeApi`, not this harness's spy, that refuses it in
+    // production (`ScheduleView — Read mode refuses…`, #3809). This harness's
+    // `insertBelow` spy has no such gate, so asserting on it here would pin
+    // the fake, not the product.
+    const user = userEvent.setup();
+    const { focus } = renderBuild({ readOnly: true });
+    act(() => { focus().focusRow('t1'); focus().enterCellEdit('t1', 'name'); });
+    const input = screen.getByLabelText('Rename item Design Phase');
+    await user.clear(input);
+    await user.type(input, 'Discovery{Enter}');
+
+    expect(mocks.updateMutate).not.toHaveBeenCalled();
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(READ_ONLY_REFUSAL);
   });
 
   // #3079 — the reported case. Renaming an existing row committed the edit AND
@@ -360,6 +389,20 @@ describe('TaskListRow — Duration cell commit → Recalc prompt', () => {
     expect(screen.queryByTestId('recalc-percent-chip')).toBeNull();
     expect(mocks.updateMutateAsync).not.toHaveBeenCalled();
   });
+
+  // #3809: the same gap as the name cell, on a sibling cell that shares the
+  // same EditableCell primitive and reaches into the same `updateTask.mutate`.
+  it('Read mode keeps the cell reachable but refuses the commit, with a reason', async () => {
+    const user = userEvent.setup();
+    const { focus } = renderBuild({ readOnly: true });
+    act(() => { focus().focusRow('t1'); focus().enterCellEdit('t1', 'duration'); });
+    const input = screen.getByLabelText('Duration: 10 days. Press Enter to edit.');
+    await user.clear(input);
+    await user.type(input, '5{Enter}');
+    expect(mocks.updateMutate).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('recalc-percent-chip')).toBeNull();
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(READ_ONLY_REFUSAL);
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -404,6 +447,19 @@ describe('TaskListRow — Progress cell commit error handling', () => {
     const [, opts] = commitProgress('80');
     act(() => opts.onError(new Error('network')));
     expect(useScheduleStore.getState().scheduleError).toBeNull();
+  });
+
+  // #3809: the same gap as the name and duration cells. Below 100%, so this
+  // also proves the Read-mode refusal fires ahead of — and instead of — the
+  // #2639 auto-status confirmation gate below, never both.
+  it('Read mode keeps the cell reachable but refuses the commit, with a reason', () => {
+    const { focus } = renderBuild({ readOnly: true });
+    act(() => { focus().focusRow('t1'); focus().enterCellEdit('t1', 'progress'); });
+    const input = screen.getByLabelText('Progress: 50%. Press Enter to edit.');
+    fireEvent.change(input, { target: { value: '80' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(mocks.updateMutate).not.toHaveBeenCalled();
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(READ_ONLY_REFUSAL);
   });
 });
 

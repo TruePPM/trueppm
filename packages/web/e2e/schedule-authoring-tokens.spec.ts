@@ -195,13 +195,19 @@ test.describe('Inline authoring tokens', () => {
     const patches: Record<string, unknown>[] = [];
 
     // Registered after `setupApiMocks`, so this handler wins for the detail route —
-    // the base fixture project carries no `effective_calendar` at all.
+    // the base fixture project carries no `effective_calendar` at all. `can_author` /
+    // `can_undo_batch_operations` are `setupApiMocks`' own defaults (api-mocks.ts) that
+    // this full replacement body would otherwise drop, reading as no edit rights and
+    // making #3809's new Read-mode gate correctly (but wrongly, for this fixture)
+    // refuse the commit below.
     await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, async (route) => {
       if (route.request().method() === 'GET') {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
+            can_author: true,
+            can_undo_batch_operations: true,
             ...FIXTURE_PROJECTS[0],
             calendar_source: 'project',
             effective_calendar: {

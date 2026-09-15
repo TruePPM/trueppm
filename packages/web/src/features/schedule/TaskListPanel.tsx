@@ -306,6 +306,16 @@ interface Props {
   /** Read mode (#2949): the footer stays present and inert. */
   appendAtEndReadOnly?: boolean;
   /**
+   * True when the reader has edit rights but chose Read (ADR-0776 §5), OR has
+   * no edit rights at all. Forwarded to every row (#3809): unlike
+   * `appendAtEndReadOnly`, which decides one footer's own inert styling, this
+   * is what lets a row's rename and structural menu items stay present but
+   * refuse with an explanation (web rule 302's row-level clause) instead of
+   * silently committing. Defaults to `false` so a caller with no author-mode
+   * concept (a print layout, a test) keeps the pre-#3809 behavior.
+   */
+  readOnly?: boolean;
+  /**
    * Upper bound on the Task column, resolved by the host from the measured split
    * pane and shared with `ScheduleView`'s `PanelSplitter` (#2960).
    *
@@ -354,6 +364,7 @@ export function TaskListPanel({
   onAnnounce,
   onAppendTaskAtEnd,
   appendAtEndReadOnly = false,
+  readOnly = false,
   maxTaskWidth,
 }: Props) {
   // 28px on a mouse, 44px on a coarse pointer (#2997). This is the DOM half of
@@ -632,6 +643,7 @@ export function TaskListPanel({
                 <TaskListRow
                   gripReserve={gripReserve}
                   nudgeReserve={nudgeReserve}
+                  readOnly={readOnly}
                   task={task}
                   // Header is row 1, so data rows are 1-based from 2 (#2204).
                   ariaRowIndex={virtualRow.index + 2}

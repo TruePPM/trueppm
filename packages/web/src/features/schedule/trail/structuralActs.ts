@@ -161,6 +161,19 @@ export const MILESTONE_REFUSES_SUMMARY =
   'A phase cannot be a milestone — its dates roll up from the work inside it.';
 
 /**
+ * Why a structural act or a rename did nothing while the editor is in Read
+ * mode (ADR-0776 §5, web rule 302 amendment #3748).
+ *
+ * Read mode is the editor's own choice, not a missing entitlement — the row's
+ * whole authoring apparatus (menu items, F2, the name cell) stays present and
+ * reachable, and this is what a gesture on it explains instead of silently
+ * doing nothing. That is the opposite of `MILESTONE_REFUSES_SUMMARY`, which
+ * gates an act nobody can ever perform on that row; this gates one the same
+ * editor performed a moment ago and can perform again by switching back.
+ */
+export const READ_ONLY_REFUSAL = 'Read only — switch to Author to edit.';
+
+/**
  * Group / Ungroup (#2955) — the trail's record of a wrap and its reversal.
  *
  * These two deliberately do NOT live with the rest of the group copy in
