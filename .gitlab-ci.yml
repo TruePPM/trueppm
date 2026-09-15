@@ -1304,6 +1304,37 @@ docs:ws-event-reachability:
     - bash scripts/check-ws-event-reachability.sh
     - bash scripts/check-ws-event-reachability.sh --self-test
 
+lint:ws-handler-conformance:
+  extends: .fast-job
+  # WS event → frontend handler conformance gate (#3775, proposed in #2845).
+  # Nothing checked whether a broadcast WS event has a frontend consumer, and
+  # three independent audits each found a DIFFERENT slice of the same class:
+  # #2847 (label_*, task_relation_created, sprint_reranked, project_restored),
+  # #3245 (project_calendar_changed), and the 0.4 pre-release pass
+  # (task_relation_updated/_deleted, the signal-privacy ceiling events, the
+  # velocity-suggestion events). Each found what its grep happened to reach.
+  #
+  # Cross-references every event type reaching broadcast_board_event() against
+  # the on(...) registration table in useProjectWebSocket.ts, both directions,
+  # plus a shrink-only waiver ledger (packages/api/tests/apps/sync/
+  # ws_handler_waivers.py) carrying a reason and an issue per entry. The emitter
+  # half reuses the #1019/#1381 AST sweep from ws_event_scan.py — the same code
+  # the freeze guard runs — so the two can never disagree about what is emitted.
+  #
+  # NOT change-gated, deliberately. api:test runs only on `changes:
+  # packages/api/**`, and deleting a handler is a WEB-only diff — the one edit a
+  # pytest-only gate could not see. ~1s, no toolchain (stdlib python3).
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash python3
+  script:
+    - bash scripts/check-ws-handler-conformance.sh
+    - bash scripts/check-ws-handler-conformance.sh --self-test
+
 docs:internal-links:
   extends: .fast-job
   # Internal documentation link gate (#2869). Nothing checked internal links, so

@@ -458,6 +458,15 @@ ws-event-reachability-check: ## Run the docs:ws-event-reachability CI job locall
 	@# client, or carry a `not deliverable` marker. 50ms.
 	@bash scripts/check-ws-event-reachability.sh
 
+ws-handler-conformance-check: ## Run the lint:ws-handler-conformance CI job locally (#3775)
+	@# Every event broadcast_board_event() emits must have an on(...) handler in
+	@# useProjectWebSocket.ts, or a waiver naming the issue that removes it — and
+	@# the reverse, since a handler nothing emits is dead code. Three audits each
+	@# found a different slice of this class (#2847, #3245, the 0.4 pre-release
+	@# pass) because the only mechanism was convention plus review. ~1s.
+	@bash scripts/check-ws-handler-conformance.sh --self-test
+	@bash scripts/check-ws-handler-conformance.sh
+
 docs-internal-links-check: ## Run the docs:internal-links CI job locally (#2869)
 	@# Every internal docs link must reach a page, heading anchor, asset or repo
 	@# source file that exists. Reads the Markdown source, not dist/, so a
@@ -580,6 +589,7 @@ pre-push-checks: version-status-check
 pre-push-checks: config-doc-links-check
 pre-push-checks: docs-tree-split-check
 pre-push-checks: ws-event-reachability-check
+pre-push-checks: ws-handler-conformance-check
 pre-push-checks: docs-internal-links-check
 pre-push-checks: docs-api-routes-check
 pre-push-checks: e2e-catchall-check

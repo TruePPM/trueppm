@@ -182,3 +182,17 @@ make enterprise-boundary-check   # OK: no trueppm-enterprise imports in packages
 ```
 
 A plain `grep -r "trueppm_enterprise" packages/` is **not** the check. The tree legitimately names the package in extension-point docstrings and ADR pointers — that grep returns 12 lines across 8 files on a clean tree. The gate matches import syntax and quoted module paths, and ignores comments (#2603). The same check runs in CI as `boundary:imports`.
+
+## WebSocket events must have a consumer on both ends
+
+Adding a `broadcast_board_event()` call is half a feature. If nothing on the client registers a handler for the event type, the broadcast reaches the browser and is discarded, and the surface it was meant to refresh stays stale until something else invalidates it. Three separate audits each found a different slice of exactly that, so the reconciliation is now a gate:
+
+```bash
+make ws-handler-conformance-check   # same as the lint:ws-handler-conformance CI job
+```
+
+It cross-references every event type reaching `broadcast_board_event()` / `abroadcast_board_event()` in `packages/api` — through the same AST sweep that enforces the frozen event set, including one level of wrapper indirection — against the `on(...)` registration table in `packages/web/src/hooks/useProjectWebSocket.ts`. It runs in both directions and also fails on a duplicate registration, because `on()` is last-write-wins: a second `on('task_updated', …)` silently replaces the first rather than adding to it.
+
+When you add an event, add its handler in the same MR. When the omission is deliberate — or the event is structurally undeliverable, as the `program_*` events are until the program channel ships — record it in `packages/api/tests/apps/sync/ws_handler_waivers.py` with a reason and the issue number that removes it, and raise that ledger's budget by one in the same diff. The budget is what makes an addition visible in review; the gate's own staleness checks force an entry out again once the handler lands.
+
+The job is deliberately not change-gated. Deleting a handler is a web-only diff, which the API test suite never runs on.
