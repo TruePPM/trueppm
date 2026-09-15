@@ -16,8 +16,6 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
-## [0.4.0b1] - 2026-08-16
-
 ### Added
 
 - **Seven new names on the public `__all__` surface** — a ~20% expansion, none of
@@ -361,8 +359,7 @@ _No library-facing changes in this release._
 - Cycle detection that names the offending task IDs (`CyclicDependencyError`).
 - CLI: `trueppm-scheduler schedule` / `trueppm-scheduler monte-carlo`.
 
-[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b1...main
-[0.4.0b1]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a3...scheduler-v0.4.0b1
+[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a3...main
 [0.3.0a3]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a2...scheduler-v0.3.0a3
 [0.3.0a2]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a1...scheduler-v0.3.0a2
 [0.3.0a1]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.2.0a1...scheduler-v0.3.0a1

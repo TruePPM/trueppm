@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
+import subprocess
 import tomllib
 from datetime import date, timedelta
 from pathlib import Path
@@ -456,6 +457,18 @@ class TestReleaseMetadataConsistency:
     The wheel force-includes ``CHANGELOG.md``, and the README *is* the PyPI
     long-description, so both are consumer-facing artifacts rather than internal
     notes. That is what makes a mismatch a shipped defect.
+
+    The two version/changelog tests below are scoped to *tagged* versions only.
+    ``pyproject.toml``'s version is routinely bumped ahead of the actual tag as
+    prep work (see ``scripts/rotate-scheduler-changelog.sh``), and that script
+    deliberately leaves the dated section uncut — and everything under
+    ``[Unreleased]`` — until ``release.sh`` rotates it at tag time. Asserting the
+    match unconditionally would fail for the entire prep window on every release,
+    which is what broke #2605's fix (a hand-written dated heading, added to quiet
+    this exact assertion ahead of the tag). Gating on tag existence mirrors that
+    script's own idempotency check and keeps the real invariant — no untagged
+    version ships with mismatched release notes — without demanding the
+    changelog be cut before the tag exists to create it.
     """
 
     @staticmethod
@@ -466,23 +479,45 @@ class TestReleaseMetadataConsistency:
     def _pyproject(cls) -> dict[str, Any]:
         return tomllib.loads((cls._pkg_root() / "pyproject.toml").read_text())
 
+    @classmethod
+    def _tag_exists(cls, version: str) -> bool:
+        tag = f"scheduler-v{version}"
+        return (
+            subprocess.run(
+                ["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}"],
+                capture_output=True,
+                cwd=cls._pkg_root(),
+            ).returncode
+            == 0
+        )
+
     def test_the_declared_version_has_a_changelog_section(self) -> None:
         version = self._pyproject()["project"]["version"]
+        if not self._tag_exists(version):
+            pytest.skip(
+                f"scheduler-v{version} is not tagged yet — release.sh cuts the dated "
+                f"CHANGELOG section at tag time, not before."
+            )
         changelog = (self._pkg_root() / "CHANGELOG.md").read_text()
         assert f"## [{version}]" in changelog, (
-            f"pyproject declares version {version} but CHANGELOG.md has no "
-            f"'## [{version}]' section. The wheel force-includes the changelog, so "
-            f"it is the only migration note an upgrader gets — cut the section "
-            f"before bumping the version, not after."
+            f"pyproject declares version {version}, and scheduler-v{version} is "
+            f"tagged, but CHANGELOG.md has no '## [{version}]' section. The wheel "
+            f"force-includes the changelog, so it is the only migration note an "
+            f"upgrader gets — release.sh should have cut this section at tag time."
         )
 
     def test_the_changelog_top_section_is_unreleased_or_the_declared_version(self) -> None:
-        """The newest version heading must be the one being shipped.
+        """The newest version heading must be the one being shipped, once tagged.
 
         Catches the inverse drift: a section cut for a version that was then bumped
         past, leaving the changelog describing a release that never existed.
         """
         version = self._pyproject()["project"]["version"]
+        if not self._tag_exists(version):
+            pytest.skip(
+                f"scheduler-v{version} is not tagged yet — the changelog legitimately "
+                f"still describes the last tagged release until release.sh rotates it."
+            )
         changelog = (self._pkg_root() / "CHANGELOG.md").read_text()
         headings = re.findall(r"^## \[([^\]]+)\]", changelog, flags=re.MULTILINE)
         assert headings, "CHANGELOG.md has no version headings"
