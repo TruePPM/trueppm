@@ -292,7 +292,8 @@ trueppm-scheduler==0.4.0b1
 
 Beta releases are pre-releases — `pip install trueppm-scheduler` skips them
 unless you pass `--pre`. Breaking changes are recorded in
-[`CHANGELOG.md`](./CHANGELOG.md), which also ships inside the wheel.
+[`CHANGELOG.md`](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/CHANGELOG.md),
+which also ships inside the wheel.
 
 ### Reproducibility (seeded runs)
 
