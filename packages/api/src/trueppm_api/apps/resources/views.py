@@ -337,6 +337,27 @@ class ResourceSkillViewSet(IdempotencyMixin, viewsets.ModelViewSet[ResourceSkill
                 ),
             ),
         ],
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Resource removed from the roster. Body carries "
+                    "`cascaded_assignment_count` — the number of TaskResource rows "
+                    "severed, `0` when the resource had no live assignments."
+                ),
+            ),
+            409: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "The resource still has live task assignments on this project and "
+                    "`force=true` was not passed. Body carries `code: "
+                    '"roster_has_assignments"`, `affected_tasks`, `task_names`, and '
+                    "`assignment_count`. Distinct from the task-restructure "
+                    "`has_assignments` warning documented on the errors page — this is "
+                    "the roster-removal refusal."
+                ),
+            ),
+        },
     ),
 )
 class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[ProjectResource]):
@@ -454,8 +475,12 @@ class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project
         """Remove a resource from the roster.
 
         If the resource has live TaskResource rows on this project and
-        force=true is not passed, returns 409. With force=true, cascades the
-        deletion and triggers CPM recalculation for affected tasks.
+        force=true is not passed, returns 409 with code "roster_has_assignments".
+        With force=true, cascades the deletion and triggers CPM recalculation for
+        affected tasks. The code is distinct from the "has_assignments" 2xx
+        warning that task-restructure endpoints (indent/outdent/reparent/group)
+        return — that is an advisory on a write that succeeded; this is a hard
+        refusal of the roster removal itself.
         """
         instance: ProjectResource = self.get_object()
         project_id = str(instance.project_id)
@@ -473,7 +498,7 @@ class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project
             task_names = [a.task.name for a in live_assignments[:5]]
             return Response(
                 {
-                    "code": "has_assignments",
+                    "code": "roster_has_assignments",
                     "detail": (
                         f"{instance.resource.name} is assigned to "
                         f"{len(live_assignments)} task(s) in this project. "

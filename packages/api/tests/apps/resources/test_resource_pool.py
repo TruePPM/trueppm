@@ -445,7 +445,7 @@ class TestProjectResourceViewSet:
         TaskResource.objects.create(task=task, resource=resource, units=Decimal("1.0"))
         res = scheduler_client.delete(f"/api/v1/project-resources/{pr.pk}/")
         assert res.status_code == 409
-        assert res.data["code"] == "has_assignments"
+        assert res.data["code"] == "roster_has_assignments"
         assert res.data["assignment_count"] == 1
 
     def test_remove_with_force_cascades(

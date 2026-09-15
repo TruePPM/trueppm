@@ -208,12 +208,13 @@ From 0.4 `effective_max_units` will be the denominator behind
 `GET /sprints/{id}/capacity/`. Cross-project reads keep `Resource.max_units` — see
 the note under **Programs** above.
 
-A plain `DELETE` returns `409 Conflict` with code `has_assignments` if the
+A plain `DELETE` returns `409 Conflict` with code `roster_has_assignments` if the
 resource has live task assignments on the project; the response body lists the
 `affected_tasks`, a sample of `task_names`, and the `assignment_count`. Passing
 `?force=true` cascades the deletion to the resource's `TaskResource` rows on the
-project and triggers a CPM recalculation for the affected tasks. All write and
-delete operations require the Resource Manager role or higher on the project.
+project and triggers a CPM recalculation for the affected tasks, returning `200`
+with `cascaded_assignment_count`. All write and delete operations require the
+Resource Manager role or higher on the project.
 
 Deactivating a resource (`DELETE /api/v1/resources/{id}/`) removes it from every
 roster: the list no longer returns its row, and `POST` refuses the resource with
