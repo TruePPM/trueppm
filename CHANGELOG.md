@@ -7,13 +7,7814 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 TruePPM is pre-1.0. The 0.1, 0.2, and 0.3 milestones all shipped as **alpha**
 releases — `0.1.0-alpha.1`, `0.2.0-alpha.1`, and `0.3.0-alpha.3` — on the road to
-the first stable release at 1.0. The alpha line ends there: 0.4 will be the first
+the first stable release at 1.0. The alpha line ends there: 0.4 is the first
 **beta**. Each release below opens with its **main part** — the headline change —
 followed by the detailed entries.
 
 ## [Unreleased]
 
 _Nothing yet._
+
+## [0.4.0-beta.1] — 2026-09-15
+
+TruePPM 0.4.0-beta.1 — the self-hosting PM's beta, and TruePPM's first beta release.
+
+The headliner is a read-only MCP (Model Context Protocol) server: point any MCP client
+at your self-hosted instance and ask real questions of the live schedule — critical
+path, a non-mutating Monte Carlo what-if, sprint status — all computed by the CPM
+engine, never guessed by a model, never leaving your box ("computed, not guessed").
+Because a beta is judged in its first five minutes, this release also makes TruePPM
+trivially evaluable (a hosted read-only demo, a one-command trial path, read-only
+share links) and lands the production foundations self-hosters expect at beta:
+self-service SSO login, OpenTelemetry observability, a published rate-limiting and
+API-stability contract, and a coexistence-first read-only inbound Jira pull. Time
+capture and in-app baseline capture moved up from 0.5. By volume, the largest part
+of the cycle is the unglamorous majority: a polish, accessibility, and refactoring
+pass, plus the Project Designer epic (schedule outline import, seeded templates,
+hybrid agile/waterfall classification) and the agent-action audit foundation that
+backs the "cite" and "reproduce" halves of the AI contract.
+
+### Added
+- **Groom the backlog by filter, and on your phone**: the Product Owner grooming view
+  now has a filter bar — title search, Definition-of-Ready chips (Idea/Refine/Ready),
+  and an "unestimated only" toggle — so narrowing a 50+-story backlog no longer means
+  scrolling and squinting. Filtering is a find-aid: drag-to-reorder is suspended while a
+  filter is active so a partial view can never persist a wrong priority order. On phones
+  the dense table is replaced by a card stack grouped under each epic, with swipe (or a
+  tap on the readiness chip) to flip a story between Refine and Ready, and full-screen
+  sheets for quick-add and the story detail — the grooming view is finally usable on a
+  commute.
+Task descriptions now support lightweight Markdown (bold, bullet/numbered lists, inline code). The task detail drawer renders the formatted result when unfocused and swaps to a raw-Markdown editor on click, preserving the deferred save-on-blur model. The editor also keeps its scroll position across tab switches.
+- **Ask *why* a schedule value is what it is**: a new read-only endpoint,
+  `GET /projects/<id>/schedule/derivation/?task_id=&quantity=`, returns the server-computed
+  derivation behind any computed CPM value — `early_start`, `early_finish`, `late_start`,
+  `late_finish`, `total_float`, or `free_float` — naming the driving predecessor/successor,
+  the binding constraint, each term's lag and calendar-snap contribution, and which pass
+  (forward/backward/float) set it. Monte Carlo percentiles (`p50`/`p80`/`p95`) return the
+  deterministic `cpm_finish`, the signed risk premium over it, and the sensitivity drivers
+  of the latest run. It is computed from the scheduling engine's own pass data — never
+  guessed and never recomputed in the browser — and is exposed over the read-only MCP
+  surface as `get_schedule_derivation`, so an AI agent can cite the reason behind a date or
+  forecast, not just the number. The derivation logic ships in the Apache-2.0
+  `trueppm-scheduler` library as `derive_value()`.
+- **Calendar exceptions API**: holidays and shutdowns (non-working date ranges on a
+  working calendar) can now be created, edited, and deleted through the REST API at
+  `/api/v1/calendars/{id}/exceptions/` — previously they could only be added via the
+  database or seed, despite the serializer already advertising the sub-resource. Writes
+  require org-admin (Project Manager+); reads are open to any member. Editing a
+  calendar's definition — or any of its exceptions — now recomputes every project that
+  uses it, so dependent task dates stay true to the new working time. Offline clients
+  receive the exception ranges inline on the calendar sync delta, so critical-path
+  math is holiday-aware offline.
+- **General API rate limiting and a published stability contract.** Every endpoint
+  now enforces a configurable default rate limit — `TRUEPPM_THROTTLE_ANON_RATE`
+  (default `60/min` per client IP) and `TRUEPPM_THROTTLE_USER_RATE` (default
+  `1000/min` per account), both settable via Helm — so a self-hosted instance has
+  baseline DoS protection instead of only per-endpoint scoped throttles. The
+  Kubernetes `/api/v1/health/` and `/api/v1/edition/` probe endpoints are exempt,
+  endpoints with their own stricter throttle replace (do not stack) the default, and
+  a `429` carries a `Retry-After` header. Ships alongside a new
+  [API stability &amp; deprecation policy](/api/stability/) documenting the v1
+  surface, change classes, and the deprecation window (#1080).
+- **Webhook catalog beyond agile**: five new first-party webhook event types let
+  external reporting and alerting tooling observe the risk, baseline, and comment
+  domains — `risk.opened` (a risk is created), `risk.escalated` (computed severity,
+  probability × impact, increases), `risk.closed` (a risk moves into CLOSED),
+  `baseline.captured` (a baseline snapshot is taken), and `comment.created` (a task
+  comment is added; the payload carries metadata only, never the comment body). This
+  raises the OSS webhook event cap from 14 to 19 (ADR-0206).
+- **Task labels — colored, filterable categorization on cards and the schedule.** Tag
+  tasks with project-scoped colored labels (`bug`, `tech-debt`, `blocked-external`, …)
+  orthogonal to status, sprints, and the WBS. Labels render as pills on board cards and
+  in the schedule task drawer, a new **Label** facet filters the board, and admins curate
+  the catalog from **Settings → Labels**. Any team member can create a label (soft-capped
+  per project); assigning is idempotent attach/detach, so concurrent edits never clobber.
+  Labels sync offline and broadcast in real time, and are readable via the API/MCP
+  (ADR-0400, #1089).
+Board filter bar: narrow the Kanban board by **assignee** (with an explicit
+_Unassigned_ option), **priority band**, and **due window** (overdue / this
+week). Open it with the toolbar **⚑ Filters** button or the <kbd>f</kbd>
+shortcut; the button shows a count of active filters, an active-filter bar lists
+each as a removable chip, non-matching cards dim out of view, and a zero-match
+banner offers a one-click clear. Filter state is shareable via the URL and
+remembered per project. (Label facet follows once task labels ship.)
+- **Seed export can now emit the v2 event timeline.** `export_program(program,
+  with_events=True)` (and `manage.py export_program --with-events`) writes a v2
+  seed with anchor-relative dates and an `events` array reconstructed from the
+  program's history — task status transitions, comments, burn-down point changes,
+  sprint activate/close, pending scope injections, and retro action items — so a
+  shared export re-imports as the dated life the program lived, not a flat
+  snapshot. The export round-trips byte-identically; the v1 final-state export
+  remains the default. The seed replay engine also gains `retro.action` /
+  `retro.promote` support (#1109).
+The CSV/Excel import wizard now surfaces everything the importer already knew.
+Whole-file parser decisions — which worksheet was read, how ambiguous dates were
+resolved, whether the row cap bit — appear under **How we read this file** on the
+mapping and confirm steps and on the result. A file over the row cap reads
+**5,000 of 6,000** with the overflow named, instead of a bare count that looked
+like the whole file arrived. Columns the importer guessed at are flagged for
+review, and a column dropped for claiming a field another column already took now
+says so. Step 1 offers **Download a template**, and a clean import leaves the
+schedule one keystroke away.
+- **Trash + restore for deleted projects**: deleting a project is now recoverable. A new **Move to Trash** action soft-deletes a project and shows an inline "Deleted — Undo" toast; deleted projects are listed under **Workspace → Trash** and can be restored by an Owner any time within the retention window. Restore un-tombstones the project and all its children (tasks, dependencies, sprints, baselines, risks) atomically — a half-restore can never leave a partial state — and bumps `server_version` so offline clients re-materialize it. Adds `POST /api/v1/projects/{id}/restore/` and `GET /api/v1/projects/trash/`.
+Background retention purge for soft-deleted projects: a project left in the trash longer than `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` (default 30) is now hard-deleted with all its child data by the consolidated retention coordinator, and appears alongside the other operational tables in Settings → System Health → Retention & purge.
+- **Project-delete team notification**: when a project is deleted, its members now
+  receive an in-app notification naming who deleted it, with guidance to restore it
+  from Trash during the retention window. The notification is in-app only (never a
+  push) and email is opt-in off by default. Deleting a project already recorded an
+  operational audit event (actor, timestamp, project name); that record remains
+  readable in the workspace audit log.
+- **Cross-project dependencies**: a Scheduler can now link a task to a task in
+  another project of the same program directly from the schedule. The schedule
+  dependency picker ("Add predecessor…" / "Add successor…") gains a **This
+  project / Program** scope toggle when the project belongs to a program;
+  Program scope searches sibling projects and groups results by project, offering
+  only tasks in projects you can read (ADR-0120 D5). If you hold Scheduler on both
+  sides the edge is modeled immediately; if you hold it on only one side the edge
+  is created inert, awaiting the counterpart team's acceptance (ADR-0120 D2), and
+  the confirmation toast reflects which outcome occurred. New API surface: `GET
+  /api/v1/programs/{id}/task-search/?q=&exclude_project=` backing the picker. The
+  toggle is hidden for standalone projects, leaving single-project behavior
+  unchanged.
+Added a `seed_ga_launch_program` management command that builds the "1.0 GA Launch" hybrid sample **program** — four workstream projects (Platform, SOC 2, Security, Marketing) that ship one outcome, wired with real accepted cross-project dependencies so the program-scoped CPM pass computes a genuine cross-project critical path, shared people who over-allocate in overlapping windows, closed/active sprints with burndown, a Kanban board, and the full 5-role RBAC matrix.
+- **Flag a task blocked while offline — it syncs when you reconnect.** On a job site
+  with no signal you can now flag a task blocked (with a reason, type, and optional
+  "waiting on" link), edit an existing blocker, or clear one — the write is saved to a
+  durable on-device queue and replays automatically when the connection returns, the
+  same way offline board card-status moves already work. While queued, the blocker shows
+  a **Pending** cloud-off badge; the queued write flushes on reconnect even if you've
+  navigated away from the task. On flush it merges cleanly with any unrelated change made
+  to the task while you were offline, and only prompts you to reconcile if someone
+  changed the blocker itself (#1159).
+Board column headers now show a WIP-creep trend arrow (▲/▼) next to the WIP breach chip, flagging whether a column is trending toward its limit over recent days so teams can catch creep before it breaches. It reads the existing team-private flow-analytics series, respects the flow-metrics audience (hidden when suppressed), and carries direction via glyph and screen-reader label rather than color alone.
+Per-view v2 fidelity polish: board cards now show a stream color tag, the visible task ID, and a story-points pill; the sprint velocity chart stacks committed-vs-completed bars with a "this sprint N/M" in-flight stat; the risk register gains an "N in register · X high · Y unmitigated" summary sub-line, live per-filter counts, a "Newest" sort, and an "N unmitigated need action" matrix callout; and the calendar marks sprint-boundary days and adds a "Due" legend entry.
+- **Quick-log time from My Work**: every task row now carries a **Log time** action (or
+  press **L** on the row) that springs open a compact popover — tap a preset (15m / 30m /
+  1h / 2h / 4h) or type your own (`1:30` or `1.5`), pick a date, add an optional note, and
+  press **↵** to log. A success toast offers **Undo** if you fat-fingered it. Each row
+  shows what you have already logged today, and the My Work header keeps a running
+  "today · this week" total — so logging a day takes seconds without leaving the page.
+- **My Work focus cards now show real cross-program signals**: the My Work home surfaces
+  genuine, server-computed aggregates across the programs you work in — a schedule-health
+  (SPI) reading on the "needs attention" card, a Monte-Carlo P80 ship-date forecast in the
+  right column, and a real sprint burndown behind the sprint card's spark (with a live burn
+  pace like "5 pts behind"). Each signal appears only where a real computation backs it: if
+  a project has no forecast run, no baseline, or no burndown snapshots yet, that signal is
+  honestly omitted rather than estimated. Utilization stays a plain open-task count — there
+  is no cross-program per-user capacity computation to back a "load vs target" ratio, so we
+  do not fabricate one. Backed by an additive `signals` block on `GET /api/v1/me/work/`.
+- **Duration-change percent policy — UI surfaces**: the percent-complete-on-duration-change
+  policy (`keep` / `prorate` / `confirm`, shipped API-first in the backend) is now
+  usable from the app. Admins set it as an inheritable Workspace → Program → Project
+  setting on each General settings page, with the familiar inherit/override indicator.
+  On the desktop schedule grid, editing a partially-complete task's duration under the
+  `confirm` policy raises an inline, dismissible "Recalc %?" chip that offers an opt-in
+  proration of its percent complete — never a modal, auto-dismissing after ~10s, and
+  suppressed on touch devices. Duration changes made during an active sprint now appear
+  on the sprint changes-log alongside scope changes, so the team sees mid-sprint schedule
+  shifts. Backed by a new read-only `GET /api/v1/sprints/{id}/duration-events/` endpoint
+  (member-readable).
+- **Time tracking**: contributors can now log time against any task on a project
+  they belong to (Team Member or above). Log a manual entry with minutes and an
+  optional date, or run a live timer that finalizes into an entry when stopped.
+  Each contributor sees only their own hours; per-task and weekly rollups are
+  scoped to the logged-in user. New API surface: `POST`/`GET
+  /api/v1/tasks/{task_pk}/time-entries/`, `PATCH`/`DELETE
+  /api/v1/me/time-entries/{id}/`, the weekly rollup `GET
+  /api/v1/me/time-entries/?from=&to=`, and the running timer at
+  `/api/v1/me/timer/`, `/api/v1/me/timer/start`, `/api/v1/me/timer/stop`. The Task
+  API response gains a read-only `can_log_time` flag so clients can show or hide the
+  log-time control. Entries sync to the offline mobile store (your own entries only).
+Board canvas: hold **Space** and drag to pan the Kanban board grid. The cursor switches to a grab hand, click-drag scrolls the board, and card drag-and-drop is suppressed while Space is held (released on keyup). Space is ignored while typing in a field, in the task detail editor, or with a modal open, and keyboard/screen-reader scrolling is unaffected.
+- **Project export bundle (async)**: a new `POST /api/v1/projects/{id}/export/`
+  queues a complete, portable project archive and returns a job you can poll
+  (`GET .../export/jobs/{job_id}/`) and download when ready
+  (`GET .../export/jobs/{job_id}/download/`). The `.tar.gz` bundle contains the
+  canonical JSON seed, an MS Project XML file (MSPDI — opens natively in MS
+  Project), every task attachment, all time entries, and the project change
+  history. Surfaced as an "Export bundle" card on the project Lifecycle settings
+  page with queued → building → ready-to-download / failed state. Admin+ only; the
+  download link expires after the configured retention window
+  (`TRUEPPM_EXPORT_RETENTION_DAYS`, default 7 days). The existing synchronous
+  JSON-seed export (`GET /api/v1/projects/{id}/export/`) is unchanged.
+Board cards now consolidate their stacked health chips into a single "worst-offender" badge — the one highest-severity signal (blocked → stale → critical-path/late → behind on EVM) shown by glyph and label. The full chip set (float, dwell, SPI, CPI, cost) stays one interaction away: hover, focus, or tap the badge to reveal it at comfortable density, and it remains fully inline at detailed density. The severity order is derived from objective delivery signals, never from PM priority rank.
+Added nightly Celery task `sync.reap_domain_tombstones` that hard-deletes per-row soft-deleted tombstones (`is_deleted=True`) from live projects after a configurable retention window (default 90 days via `TRUEPPM_TOMBSTONE_RETENTION_DAYS`), preventing unbounded growth of sync tombstone rows.
+Screen-reader users can now hear dependency relationships on the Gantt schedule.
+Each task bar in the ARIA overlay announces its predecessor and successor links
+(e.g. "Depends on: Design Phase (FS, +2d)") via `aria-describedby` when focused.
+- **Basic single sign-on (OIDC/OAuth2)** — sign in with your own identity provider (Keycloak, Authentik, Authelia, Zitadel, Google, GitHub, GitLab, …). The login screen now offers a real "Continue with SSO" path that matches your work-email domain to the configured provider and hands off to it; a dedicated completion screen surfaces the outcome, including a clear "verified, but not a member yet" state. Admins configure the provider under **Workspace → Settings → Single sign-on** — issuer, client credentials (secret write-only, with rotation), a copy-able redirect URI, allowed email domains, and optional auto-creation of members on first sign-in, with a built-in **Test connection** probe. Basic SSO is part of the open-source core — no Enterprise license required. (#1392)
+- **Basic SSO — sign in with your own identity provider (OIDC):** an admin can point
+  TruePPM at any OpenID Connect provider (Keycloak, Authentik, Authelia, Zitadel,
+  Google, GitHub, GitLab) under **Workspace settings → Single sign-on**, and members
+  log in through it. Uses the OAuth 2.0 Authorization Code flow with PKCE (S256); the
+  ID token is validated (issuer, audience, signature against the provider's JWKS,
+  expiry, and a per-login nonce) and the SSO session reuses the existing httpOnly
+  cookie session — no token is ever placed in a URL. The client secret is encrypted at
+  rest, the config is admin-only and never returns the secret, and the "Test
+  connection" probe validates the provider before it is enabled. New members can be
+  auto-created on first login at an admin-chosen default role, gated by an allowed
+  email-domain list; identities are bound durably to the IdP subject. This is the
+  backend relying party (`/api/v1/auth/oidc/*` and `/api/v1/workspace/sso/`); the login
+  UI and provider admin page follow.
+- **Live running timer for time entry**: hit ▶ on any My Work task to start a timer, and
+  a chip in the top bar keeps the running elapsed — task and all — in view across the
+  whole app while you work. Stop from the row or the chip and TruePPM logs the time for
+  you (rounded to the nearest minute), with an **Undo** on the confirmation toast if you
+  fumbled the button. Starting a timer on a second task auto-stops and logs the first, so
+  you never double-track, and the timer lives server-side — reload, switch pages, or move
+  to another device and it is still ticking. A long-forgotten timer is flagged rather
+  than silently logging your whole evening.
+- **Log time from anywhere**: a new "Log time" button in the top bar opens a quick-log
+  popover — pick one of your assigned tasks, tap a duration preset (15m / 30m / 1h / 2h)
+  or type your own (`1:30`, `90`, or `1.5`), and log it against today in under 30 seconds,
+  no need to open the task or start a timer. A success toast confirms the entry and offers
+  a one-tap **Undo**. The popover is fully keyboard-operable and focus-trapped: `↵` logs,
+  `esc` closes.
+Personal, read-only external task sources (ADR-0097): connect your own Jira Cloud account to surface your assigned issues in My Work. This release adds the data layer — the `EXTERNAL_TASK_SOURCES` provider registry, the `ExternalWorkItem` per-user cache, and the `GET/PUT/DELETE /api/v1/me/connections/{source}/` connection-management endpoints (personal token stored Fernet-encrypted; `base_url` restricted to Jira Cloud `*.atlassian.net`). Pulling and displaying items ships next.
+- **Jira read-only sync engine**: a background worker now pulls the issues
+  assigned to you from a connected personal Jira account into a per-user cache,
+  ready for the My Work external section. Trigger a refresh on demand with
+  `POST /api/v1/me/connections/{source}/sync/` (returns `202` and runs through a
+  durable outbox, with a 60-second per-connection cooldown) and read the cached
+  items with `GET /api/v1/me/external-items/`. Items that vanish from Jira are
+  soft-removed rather than deleted, an expired token flips the connection to
+  `auth_failed` (prompting a reconnect) without wiping the last-good list, and a
+  nightly job purges stale items and completed sync records. Strictly personal
+  and read-only — pulled items are never TruePPM tasks and are visible only to
+  their owner (ADR-0097).
+Added an **Available sources** section to the personal Connected Accounts page (**User → Settings → Connected Accounts**) that lists the external task sources you can pull your own assigned work from into My Work — read-only, one-way, and never written back. Jira is available (Community); each source shows whether you've connected it and its last sync. The guided connect flow lands in a follow-up. ([#1420](https://gitlab.com/trueppm/trueppm/-/issues/1420))
+Connect a Jira account from **Settings → Connected Accounts**: an in-page wizard collects your site URL, email, and a read-only API token, lets you choose what to pull (issues assigned to you or a custom JQL, optionally scoped to projects), and manages the connection inline — Active state with a recently-pulled preview, **Sync now**, and confirmed **Disconnect**. Personal, read-only, one-way into My Work; TruePPM never writes back to Jira.
+- **External work items in My Work**: once you connect a personal, read-only Jira account (Settings → Connected Accounts), your assigned Jira issues appear in the My Work feed alongside your TruePPM tasks — grouped into the same Today / Upcoming sections, ordered by due date. External items are read-only (provider key, title deep-linking into Jira, raw status, due date, and a "Read-only" chip) — they never become tasks, never enter the schedule, sprints, or board. A per-source line shows sync freshness and an amber "Reconnect" prompt when a token expires. Items are strictly personal — only you see your own.
+- **Weekly timesheet — review and submit your logged time across every project.** A new
+  keyboard-fast grid at **Timesheet** (`/me/timesheet`) lays out every project and task you
+  logged against, Monday to Sunday: type hours in any shorthand (`2`, `2.5`, `2:30`), `Tab`
+  between cells and `Enter` to save, with live row/day/week totals, an amber flag on days
+  over eight hours, weekend shading, and a week stepper. A `Submit week` action marks the
+  week done as a per-user marker — entries stay editable and you can reopen it (manager
+  approval remains a later track). A day with two entries on the same task shows the
+  read-only sum, editable from My Work (#1435, ADR-0224).
+- **Schedule PDF export — print foundation**: added the shared infrastructure for
+  exporting a project schedule to PDF (ADR-0188). The timeline is re-projected as a
+  static, light-themed print surface that reuses the Gantt engine's geometry — it is
+  not a screenshot of the live dark canvas — and rasterized client-side (html-to-image
+  + jsPDF, extending ADR-0159). The rasterizer supports Letter and A4, reports
+  determinate progress, can be canceled mid-run, and paginates wide timelines across
+  sheets. The toolbar action and options dialog that drive it ship next (#1437, #1438).
+- **Export the schedule as a one-page PDF (Layout A)**: a new **Export schedule as
+  PDF** action in the schedule's Project-actions menu generates a single-page,
+  landscape Gantt PDF of the whole project timeline (ADR-0188, building on the #1436
+  print foundation). The artifact is a light-themed re-projection of the live canvas —
+  full timeline, KPI strip, a **critical-path chain** summary of the activities that
+  drive the finish date, and a content-fingerprint checksum so two exports of the same
+  schedule carry the same stamp — rasterized entirely in the browser (html-to-image +
+  jsPDF), so nothing leaves your machine. The action is desktop-only (hidden below the
+  768px breakpoint), matching the board export. The options dialog, A4 paper picker,
+  and ⌘⇧E shortcut follow in #1438.
+- **The schedule PDF export now has a real in-app entry point and options.** A
+  dedicated **Export** button on the schedule toolbar (⌘⇧E) opens an options dialog
+  where you choose the paper size (Letter/A4), the timeline range (full schedule or
+  just the visible window), and what to include — dependency arrows, non-critical
+  tasks (off charts only the critical-path chain), the critical-path summary box, and
+  the owner column. The dialog shows live generation progress with a Cancel, then a
+  success card (file name, pages, paper, size) with an "Open in viewer" action —
+  everything rendered in your browser, nothing leaves the project (#1438).
+- **Schedule PDF export now hardens its edge cases.** A timeline too wide to stay
+  legible on one sheet bands across multiple landscape sheets at week boundaries —
+  each sheet repeats the activity (label) column so rows line up side by side and
+  carries a "Sheet n of N" caption. Long activity names ellipsize instead of
+  wrapping while the mono WBS code is never clipped; a dense dependency web draws
+  hard (mandatory) links above soft (discretionary) ones with parallel arrows
+  staggered into separate channels; and an empty schedule prints a dated cover
+  (masthead + KPI strip with `—`/`0` cells and a "No activities to plot" panel)
+  rather than a blank page (#1440).
+Board viewability overhaul: the Kanban board now uses fixed-width columns in a single horizontally-scrolling grid with a sticky two-tier header (column headers pin on vertical scroll, the phase sidebar pins on horizontal scroll), columns can be collapsed to a narrow stub board-wide (persisted per project) with an "N columns collapsed / Expand all" banner and a tappable WIP-breach popover, and a phase-lane focus mode zooms to one lane and is shareable via the `?focus=` URL parameter.
+Sprint close now tells you what moved and where. When close-time carry-over
+reassigns an incomplete task, its assignee gets an in-app notification naming the
+origin and destination sprint (or the backlog) — so work no longer hops sprints
+over the weekend with no signal to the person it belongs to. The person closing
+the sprint sees a summary toast ("N tasks carried to {sprint}") and, when work
+carries to the next sprint, lands on that destination sprint so the move is
+visible rather than silent.
+- **Run-the-retro handoff on sprint close**: closing a sprint now surfaces a
+  dismissible "Run the {sprint} retro" call-to-action so the team is handed
+  straight into the just-closed sprint's retrospective while it is still fresh —
+  previously the retro board sat far down the Sprints workspace with no signpost,
+  and only appeared if a user manually re-selected the sprint. One tap selects the
+  closed sprint, scrolls its retro surface into view, and moves focus there for
+  keyboard and screen-reader users. The CTA never gates the close and can be
+  dismissed.
+- Board: the **Pending acceptance** chip on a mid-sprint injected task is now tap-to-explain. Any team member can tap it (on the board card or in **My Work**) for a plain-language explanation of why the task isn't counted in the committed plan yet — without gaining any accept/reject control, which stays with the Scrum Master, Product Owner, or an admin.
+- **In-chrome project switcher**: a compact, searchable dropdown at the left edge
+  of the view-tab bar lets you jump between the projects you're a member of without
+  leaving the project view. Selecting a project preserves the view you're on (e.g.
+  Schedule → Schedule) and the switcher is keyboard- and screen-reader accessible.
+  It self-gates to project routes and stays out of the way when you have only one
+  project.
+Downstream teams can now review and accept or reject pending cross-project dependency links proposed against their tasks, directly from the project schedule (ADR-0120 D2 consent gate).
+Mint a read-only `mcp:read` API token from project and program settings and copy a ready-to-paste `claude_desktop_config.json` snippet to connect an AI assistant to your instance.
+Public read-only **schedule** share links. Share a project's Gantt with a
+stakeholder who has no account via a tokenized, revocable link — the same mechanism
+as board sharing (#283), now for the timeline. Links can be given an expiry, are
+managed from a "Share" affordance on the Schedule and Board toolbars (Admin+) as well
+as Project Settings → Sharing, and expose only a minimized read-only projection
+(critical path, milestones, and % complete — never float, cost, notes, or assignee
+names unless explicitly opted in). The workspace "Public sharing" toggle now spells
+out exactly what turning it off changes.
+- **Public read-only demo + one-command trial path**: a `docker-compose.demo.yml`
+  stack brings up TruePPM, auto-seeds the "Platform Migration" sample, mints a
+  public read-only schedule share link, and serves everything `noindex` and
+  resource-capped — in a single `docker compose -f docker-compose.demo.yml up`.
+  The new `create_demo_share_link` management command mints (or pins, for a stable
+  reprintable URL) the demo's share link, dogfooding the product's own tokenized
+  read-only share mechanism (no login, no write path). A new **Try it**
+  getting-started page leads with the zero-config evaluation paths — the hosted
+  demo and the one-command local trial — and the website hero gains a "Try it
+  live" action.
+Added a stateful `SchedulerSession` to the WASM CPM engine for drag-preview recalculation. The stateless `compute_schedule` / `wasm_incremental_update` entry points re-parse the whole project JSON, re-validate it, and rebuild the dependency graph on every call — a cost that repeats every animation frame during a drag. `SchedulerSession` pays that cost once in its constructor and keeps the parsed project and graph resident: each frame calls `set_task_start` (mutate the dragged task's start in place) then `recalc` / `recalc_incremental` (rerun the passes over the cached graph). Reusing the graph is sound because a drag moves a bar's date, not the network topology. The passes are shared with the stateless paths, so output is byte-identical — the conformance suite passes unchanged. (#1533)
+- **⌘K palette: a "Recent" group and scope-aware task results.** The command
+  palette now opens with a **Recent** group listing your recently-visited projects
+  (with their program and a "2h ago" recency hint), backed by the new
+  `GET /api/v1/me/recent-projects/` endpoint — so a fast hop back to a project you
+  were just in no longer means retyping its name. When a project has an active
+  sprint, its sprint tasks now surface in a dedicated **Current sprint tasks** group
+  with a higher result cap (25) than the general **Tasks** group (8), so a search
+  scoped to the sprint you're working in isn't truncated at eight (#1557, ADR-0508).
+- **Turn the notification noise down without leaving your inbox**: the notification
+  panel and mobile route gain inline noise controls. **Snooze** a single
+  notification (1 hour, 3 hours, or tomorrow) — it drops out of the All/Unread views
+  and the bell count until its time passes, then reappears on its own; a **Snoozed**
+  tab lists what you deferred. **Mute notifications like this** turns off future
+  in-app delivery of a notification *type* right from the row (email is untouched;
+  mention rows omit it), with an "Muted in your inbox" toast you can Undo. A new
+  **category** selector (Mentions / Tasks / Signals / Project) filters the feed
+  orthogonally to the read-state tabs. And every empty view — each category, the
+  Snoozed tab, the mobile route — now shows a friendly empty state instead of a blank
+  list. Adds `Notification.snoozed_until`, a derived read-only `category`, the
+  `POST /me/notifications/{id}/snooze/` action, and `?category=` / `?snoozed=` list
+  filters (the unread-count query excludes snoozed rows too, so a deferred
+  notification never lights the bell).
+- **Start a new project from a known-good one**: project create now accepts an optional
+  `copy_settings_from` — point it at another project you can read and the new project
+  inherits that project's settings (working calendar, default view, methodology, board
+  cadence, visibility, notification/sharing/attachment/Monte-Carlo policies, and the
+  rest) at create time. It's a copy, not a live binding: override anything freely
+  afterward. Inherited (workspace/program) settings stay inherited rather than being
+  pinned, and you can only copy from projects you're a member of. (#157)
+- **Default role for new members**: each project now has a default RBAC role that is
+  applied when you add someone without picking a role — no more re-selecting the same
+  role on every add. Set it on the create dialog (it's carried by "Copy settings from…"
+  too) and change it any time on Settings → Members. It's a convenience default only,
+  with no locks or enforcement, and any role you pick explicitly still wins. (#157)
+- **Pin your mobile navigation tabs**: on the mobile bottom navigation bar you can now
+  pin which views occupy the primary rail slots, so the view you use daily — for a
+  construction PM, Schedule and the critical path — is always one tap away instead of
+  behind "More". Open the "More" sheet and use the pin toggle on any view to pin it to
+  the bar or unpin it. Schedule is promoted to a primary slot by default on
+  waterfall projects. Pins are remembered per browser. Overview and Today stay anchored.
+Added a first-class "Jump to current sprint" action — a pinned shell control and a top-ranked ⌘K command — that lands you directly on today's active sprint board, including across multiple teams, without navigating through the sprint view tabs.
+The per-task activity feed (`GET /projects/{id}/tasks/{task_id}/history/?include=`) now surfaces schedule-shift and risk-link events: `?include=schedule` adds `cpm_recalculated` and `baseline_drift_detected` (system events, null actor) and `?include=risks` adds `risk_linked` / `risk_unlinked`, each backed by a new append-only `TaskActivityEvent` source.
+The **Update Status** button on the project Overview header now opens a dialog to record the project's manual health (On track / At risk / Critical / Auto), writing the PM's reported status without a trip to Settings. When a manual status is set, a "Reported" chip appears in the header alongside the computed schedule-health badge. Changing the reported status requires Project Manager (Admin) role.
+- **Backlog rail search is now live.** The board backlog rail's search box —
+  previously a visual placeholder — now filters the loaded backlog ideas as you
+  type (matching card name and assignee, case-insensitive), with a clear button
+  and a distinct "no ideas match" empty state. The ⌘K badge in the box opens the
+  global command palette for quick capture (#1609).
+Board queue rows now have a working overflow menu: promote or demote a task's priority within the Next up and In flight groups, plus Open details. The menu is keyboard-accessible (arrow keys, Escape, click-outside) and replaces the former placeholder affordance. Backed by a new `POST /projects/{id}/queue/reorder/` endpoint (Admin or Product Owner), optimistic-locked and broadcast to collaborators in real time.
+The create-from-import dialog now accepts native TruePPM JSON exports. The previously "Coming soon" TruePPM format tile is a real choice in the standalone importer: pick it, upload a `.json` seed exported from any TruePPM project or program, and it re-imports as a program with fresh ids. This closes the TruePPM-to-TruePPM round-trip against the project and program JSON export (ADR-0222).
+Skills can now be tagged inline from a resource's detail panel — a proficiency selector plus a shared skill-search combobox replaces the previous placeholder text, so you no longer need the project Team tab to add a skill.
+Customize views can now additionally surface the Schedule under Deliver — an opt-in, per-user placement for hybrid teams who want the plan next to the sprint cadence. Off by default (Schedule stays in Plan), display-only (never affects rollups, reports, or exports), and it only tailors your own view.
+- **Register external stakeholders on a program**: program settings gains an
+  "External stakeholders" section where an Admin or Owner can list the non-account
+  people — client sponsors, vendors, external reviewers — who should be included in
+  `@program-stakeholders` mentions alongside the program's Viewer-role members. Each
+  entry is a name, email, and optional note, scoped to one program (a given email can
+  appear once per program). The registry feeds the mention resolver immediately;
+  email notifications to these addresses will land in a future release.
+Project create dialog now has an optional "Copy settings from" picker that seeds a new project's calendar, default view, board cadence, visibility, and sharing, attachment, and Monte Carlo policies from an existing project you can read.
+Added a `whatif` tool to the read-only MCP server: an AI agent can now ask "what breaks if this task slips?" and get an engine-computed answer — the current vs. what-if P50/P80/P95 forecast, the deterministic CPM finish for each, whether the critical path changed, and the signed calendar-day deltas. It wraps the existing non-mutating what-if endpoint, so it computes in memory and persists nothing.
+Added an offline Jira import: upload a Jira Server / Data Center XML export to an existing project (Admin only) and it becomes a CPM-schedulable network — one task per issue, durations from the original estimate, and Finish-to-Start dependencies from `Blocks` issue links — so the schedule engine can compute critical path and float on your real Jira data. The import is validated before anything is written: a cyclic or self-referential export is rejected with a clear error instead of persisting an infeasible graph. Sprints, assignees, subtask hierarchy, and custom fields are out of scope for this first slice.
+Added a shared task-graph validation guard (`validate_task_graph`) so bulk and agent-authored dependency writes run the same self-reference and cycle detection as the interactive editor — an infeasible (cyclic or self-referential) graph is rejected with a clear error instead of being persisted and later crashing the schedule engine. This closes the "hybrid by construction" gap where only the human write path enforced graph validation, and is the guard the offline importer (#1664) uses before recompute.
+- **Draw dependencies by dragging on the Schedule Gantt**: grab the crosshair link
+  handle at a bar's right edge and drag onto another task to create a
+  finish-to-start dependency. A dashed brand preview line follows the pointer,
+  snaps solid onto a valid target with a ring, and refuses self-links; releasing
+  over the target creates the edge (the arrow is the confirmation). A drop that
+  would form a cycle is rejected server-side and surfaces a clear toast, offline
+  drops are skipped with a calm notice, and both outcomes are announced on a live
+  region. The gesture is pointer-only — touch users keep the dependency picker
+  drawer. This fixes the dead drag-to-link affordance (the handle previously
+  collapsed into a bar move).
+- **Enter adds a new row in Schedule build mode**: pressing Enter on a focused row
+  now inserts a sibling at the same depth (under the same parent, not the WBS
+  root) and drops the cursor into its Name cell. Enter while editing a name
+  commits and continues with a fresh sibling below, so Enter always ends with the
+  cursor in an editable Name cell; Enter on a blank new row is a calm no-op. This
+  fixes the broken Enter binding, which previously created a row at the root.
+Dedicated mobile-first Schedule surface: below `md` the Schedule now renders a touch-native, WBS-ordered list-timeline (per-row bars on a shared project-window scale, critical/at-risk/milestone cues, an Unscheduled tray, and the Monte Carlo forecast card) instead of the desktop canvas Gantt. Tap a task to open its detail sheet; leaf tasks have a one-tap complete.
+Pin programs as well as projects for fast wayfinding. A ★ toggle now appears on program rows in the sidebar and on the `/programs` cards, and pinned programs and projects share a single **Pinned** group at the top of the sidebar rail. Pins persist per browser.
+- **Automated accessibility gate**: the `web:e2e` Playwright suite now runs
+  `@axe-core/playwright` against the app shell and key routes, failing the
+  pipeline on any critical or serious WCAG 2.1 A/AA violation (missing
+  accessible names, contrast, ARIA regressions). Previously accessibility could
+  only be caught by a human running the review manually. A reusable
+  `expectNoA11yViolations(page)` helper (`e2e/fixtures/a11y.ts`) makes it a
+  one-liner to extend the gate to new routes.
+Exported schedule and board PDFs now carry a selectable, searchable text layer — row labels, KPI values, the critical-path chain, and board cards/columns are real, copy-able text in a logical reading order, and the document declares its title and language. Previously each page was a flat image with no text a screen reader could perceive. (#1687)
+Project Overview metric cards are now clickable drill-downs: tapping **Tasks late**, **Open risks**, **Schedule health**, **Forecast finish**, **Team utilization**, or **Next milestone** navigates to the underlying detail (the grid filtered to overdue tasks, the risk register's High segment, the schedule, resources, or the milestone). Grid rows now open a task's detail on click, and the task grid gained a shareable `?due=overdue` filter. Cards with no data or a real zero stay non-interactive.
+- **Collapsing a board column no longer silently hides your own cards.** A stub
+  holding cards assigned to you gets a quiet brand-colored edge accent, and the
+  "N columns collapsed" banner gains a "N of your cards hidden" button that expands
+  the affected columns in one click.
+- **Collapsed board columns now distinguish "folded" from "empty".** A populated
+  column stub shows a filled count pill; an empty column (0 cards) shows a dashed
+  hollow "0" and reads as "empty" to screen readers, so an observer never has to
+  guess whether a folded column holds work.
+- **Do Not Disturb for notifications**: a personal, account-wide quiet switch. Turn
+  it on from **User → Settings → Notifications** (or the quick toggle in the bell
+  panel) to pause notification **emails and push** — your in-app inbox and unread
+  count keep receiving everything, so nothing is lost. Critical alerts always come
+  through even while muted: a task of yours being blocked, a team signal-visibility
+  proposal opening or resolving, and a milestone forecast shifting are never
+  silenced. The TopBar bell shows a small crescent-moon indicator while Do Not
+  Disturb is on (a real setting — it no longer implies notifications are off).
+  Backed by `GET`/`PATCH /api/v1/me/notification-settings/`.
+Phases are now first-class rollups. A new read-only `is_phase` field on the task API marks any non-subtask task with structural (non-subtask) children — distinct from `is_summary`, so a leaf broken into drawer subtasks is not treated as a phase. A phase's status, 3-point estimate, assignee, and logged time are computed from its children and can no longer be set directly: the API rejects such writes with the stable error codes `phase_status_rollup_locked`, `phase_estimate_rollup_locked`, `assignee_on_phase`, and `time_log_on_phase` (joining the existing `summary_rollup_locked` percent-complete lock). Enforcement lives in the serializer layer, so agent and MCP callers are blocked identically to the UI. Phase-to-phase dependencies, baselines, and Monte Carlo are unaffected.
+- **"+ Phase" schedule action**: the Schedule/Gantt toolbar gets a `+ Phase` button (⌥⌘P / Alt+Ctrl+P), shown alongside `+ Task` and `+ Milestone` once the structure buttons are turned on under Display → Outline. It drops the new phase straight into inline rename. A childless "phase-in-waiting" row shows a ghost "Add first task to this phase" affordance until it gains its first structural child. A phase is otherwise emergent, not a new task type — any summary task with a structural (non-subtask) child is automatically a phase.
+- **Phases excluded from contributor pickers**: a phase is never selectable in the quick-log time picker (top bar and My Work), never becomes a My Work row, and never shows an assignee control — matching the backend's rejection of assignment, time logging, and (per the sibling sprint-picker change) sprint membership on a phase.
+- **Search, filter, and sort the programs directory**: the **/programs** page now
+  has an inline name filter, a methodology facet, and a sort control (recently
+  active, name, or health). Your sort choice is remembered per browser, pinned
+  programs float to the top of every order, and an empty state appears when a
+  filter matches nothing.
+- **See planned work without opening the tray**: a phase row on the Schedule now shows a
+  muted "N planned" badge when its subtree holds sprint-assigned backlog — the uncommitted
+  work that lives read-only in the Unscheduled tray (grouped under its target sprint since
+  #1790). The badge is a calm, dashed, notification-silent signal — never styled like a
+  risk — and clicking it expands the tray and scrolls straight to that sprint's group. Its
+  tooltip stays honest: "Planned for {sprint} — not a committed date." Program and portfolio
+  reviewers asked for this at-a-glance layer so "planned work exists here" is visible at a
+  glance, without expanding anything.
+- **Client-ready schedule exports no longer drop planned work**: the schedule PDF/PNG
+  export gains an "Unscheduled — Planned Work" section after the critical-path chain,
+  listing the planned-but-unscheduled tasks the chart can't place (sprint-assigned
+  backlog and any pre-CPM undated work), grouped by target sprint with an honest window
+  and the caption "planned, not a committed date." Those rows are carved out of the Gantt
+  (they previously rendered as blank, scheduled-looking rows) and surfaced once in the new
+  section. The block keeps together across page breaks and its text is selectable/
+  searchable in the PDF like the rest of the report. Sarah (PM) and Janet (COO) flagged
+  that a client-ready chart must never silently omit planned work — it no longer does.
+Every MCP/agent read (and every refusal) is now recorded as an append-only, hash-chained `AgentAction` audit row — acting token (prefix only, never the secret), human principal, operation, verdict (`allowed`/`refused` with an `identity` vs `policy` reason), a per-request payload hash, and the scheduler engine version at decision time. The chain is per-instance and tamper-evident: `manage.py audit_verify` recomputes each record's hash and reports the first break. A new team-readable `GET /api/v1/agent-actions/` lists what a team's agents did, scoped to your project membership. This is the OSS Phase 0 substrate of the agent-governance roadmap (ADR-0112 RC1/RC2, #1805).
+The `AgentAction` MCP/agent audit log can now be bounded with a new `manage.py audit_prune` command (ADR-0361, #1842). It deletes the oldest records and writes an immutable checkpoint so `audit_verify` still verifies the records that remain — a plain `DELETE` would break the hash chain. Choose one window (`--before`, `--keep-days`, or `--keep-last`); it is a dry-run by default and requires `--commit` to delete. Pruning is manual and never automatic — TruePPM does not delete audit history on its own. Enforced retention, legal hold, and off-server archival are Enterprise.
+Surface the curated MCP "Try asking" example prompts in-app — in the connect-token success dialog and on the hosted read-only demo landing — so an evaluator in Claude Desktop knows what to ask. The prompts share a single source of truth with the docs "Example prompts" list, so they can't silently drift.
+- **Every MCP answer arrives explained**: the primary MCP answer tools —
+  `get_schedule_summary`, `get_monte_carlo_forecast`, `whatif`, and `get_task` — now
+  carry a compact inline `why`. A forecast cites how far the P80 sits past the
+  deterministic CPM finish and its single largest duration-sensitivity driver; a
+  what-if cites the P80 shift and whether the critical path changed; a task cites its
+  critical-path stake and float headroom — each with a pointer to
+  `get_schedule_derivation` for the full contribution chain. So an agent answer is
+  "computed, not guessed" by default instead of a round-trip away. The `why` is
+  distilled from data each tool already fetches — no extra request, no recompute — and
+  only ever reflects fields your token can already read.
+- **Agent refusals now record which constraint fired, queryable for triage.** Every
+  refused agent action carries a non-hashed telemetry side-car naming the specific
+  constraint (`capability_scope`, `token_identity`, and reserved codes for the
+  scheduling guards) plus a slot for its projected schedule impact. The team-readable
+  log at `GET /api/v1/agent-actions/` exposes it as a nested `refusal_detail` and adds
+  a `?constraint=` filter, so refusals can be triaged and demoed from day one without
+  touching the tamper-evident hash chain (ADR-0421, #1850).
+- **Capture and manage baselines in the app**: the Schedule view's Actions (···) menu
+  now has a **Capture baseline** action (Project Manager+) that snapshots the current
+  plan behind a short confirmation explaining what baselining does — and that a
+  re-baseline keeps the previous one in the project's baseline history rather than
+  overwriting it. A **Baselines…** manager lists every baseline and its active state,
+  where a Project Manager can set a different one active and a Project Owner can delete
+  one. The task drawer's Baseline section also offers a capture action when no baseline
+  exists yet. Previously baselines could only be captured and managed through the REST
+  API. (Baseline ghost bars on the Gantt canvas remain planned for a later release.)
+The task drawer's Activity timeline now surfaces the full activity feed, not just field changes and comments. Schedule recalculations, baseline drift, risk links, logged/removed time, and attachment uploads/removals now appear alongside edits — and edited comments are marked as such while deleted comments no longer vanish. New Schedule, Risks, Time, and Attachments filters let you slice the timeline by event type. The drawer now reads a single merged feed instead of stitching two together client-side (#1883).
+Task activity feed now surfaces dependency and resource-assignment changes. Two new
+`?include=` tokens on the task history endpoint — `dependencies` (add/remove of a
+predecessor or successor, read from dependency history) and `resources` (a resource
+assignment added, removed, or re-allocated) — merge into the unified activity feed
+alongside comments, time, attachments, schedule, and risks. A cross-project dependency's
+far-side task name is shown only to members of that project. (#1887, #1886)
+- **Helm chart observability & deployment hardening**: the chart now ships a dedicated
+  single-replica **Celery Beat** Deployment (previously no periodic scheduler was
+  rendered, so nothing drove the outbox drains or retention purge), a **web** tier
+  (nginx-served React SPA) with a `Service`, and Ingress routing that sends `/api` and
+  `/ws` to the API and `/` to the web SPA. Every long-lived tier gets health probes:
+  the API readiness probe moves to the deep `/api/v1/readyz` check (liveness stays on
+  `/api/v1/health/`), and the worker and beat get a `celery inspect ping` exec probe.
+  New optional, off-by-default extras: a `PodDisruptionBudget` for the API and worker,
+  a `HorizontalPodAutoscaler`, a starter Grafana dashboard (outbox depth/age,
+  dead-letter, beat liveness) as a labeled ConfigMap, and a `PrometheusRule` with
+  async/outbox alerts. New value knobs thread OpenTelemetry trace sampling
+  (`OTEL_TRACES_SAMPLER[_ARG]`) and the root Django log level (`DJANGO_LOG_LEVEL`) into
+  the api, worker, and beat tiers. A `docker-compose.o11y.yml` overlay adds a local
+  OpenTelemetry Collector + Prometheus + Grafana stack behind an `o11y` profile.
+Added an unauthenticated, dependency-aware `/api/v1/readyz` readiness probe that returns 200 only when the database and Valkey/Redis cache both answer a live round-trip, and 503 (with the failing dependency marked) otherwise. The Helm chart now points the API readiness probe at `/readyz` so a pod with a dead database is correctly gated out of the Service; liveness stays on the shallow `/api/v1/health/` check.
+- **Structured JSON logging with trace correlation**: production now emits
+  single-line JSON logs to stdout, and every log record carries the active
+  OpenTelemetry `trace_id` / `span_id` (hex) plus a per-request `request_id`
+  (adopted from an inbound `X-Request-ID` header when present, echoed back on the
+  response). Logs can now be pivoted straight to the traces exported over OTLP.
+  Level is controlled by `DJANGO_LOG_LEVEL` (default `INFO`); JSON output by
+  `TRUEPPM_LOG_JSON` (forced on in production). OTLP log *export* is deferred to a
+  later release — this ships structured stdout for your existing log collector.
+- **Broker and WebSocket observability metrics**: three new OTLP instruments join
+  the `trueppm.*` metric namespace. `trueppm.broker.queue.depth` reports the Celery
+  messages waiting in the Valkey/Redis broker (`LLEN`, by queue) — the stage
+  downstream of the transactional outboxes, previously unmeasured.
+  `trueppm.ws.connections.active` tracks live WebSocket connections per node, and
+  `trueppm.ws.broadcast.count` counts board-event broadcasts fanned out to project
+  groups. All probes are bounded and fail-soft, and the broadcast counter is added
+  without changing the deferred, best-effort broadcast path.
+- **Opt-in frontend telemetry**: the web app can now report uncaught render
+  errors and Core Web Vitals (CLS, LCP, INP, FCP, TTFB) to a self-hosted
+  collector. It is **off by default** — no data leaves the browser until an
+  operator sets a collector URL via runtime config
+  (`window.__TRUEPPM_CONFIG__.telemetryEndpoint`) or the
+  `VITE_TELEMETRY_ENDPOINT` build-time variable. Reports are POSTed as a small
+  JSON payload (error message, stack, route, and web-vital values only — never
+  credentials, tokens, or query strings) with `navigator.sendBeacon`, and use no
+  third-party SaaS, CDN, or added runtime dependency.
+- **Configurable trace sampling**: the OpenTelemetry `TracerProvider` now honors
+  the standard `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` env vars
+  (`always_on`, `always_off`, `traceidratio`, `parentbased_always_on`,
+  `parentbased_always_off`, `parentbased_traceidratio`). Previously the manually
+  built provider silently ignored these vars and always exported at full rate,
+  leaving operators no knob to throttle high-volume psycopg DB spans. The default
+  is unchanged (parent-based always-on).
+Added a "Use program defaults" option when creating a project under a program. When enabled, the new project's planning model (methodology) and visibility are seeded from the parent program at creation time. This is a one-time copy — the values are owned by the new project and fully editable afterward, not locked or governed inheritance. Enforced server-side to only inherit from a program the creator administers.
+- **Connected Accounts — Reconnect banner and sync staleness note**: the
+  personal Connected Accounts card ("Available sources" section) now shows an
+  amber "Reconnect" banner when an external source (e.g. Jira) has gone into
+  `auth_failed` — clicking it reopens the same PAT connect wizard used to
+  connect in the first place. A healthy but long-unrefreshed connection shows
+  a quiet "Last synced …ago" note instead. Closes the #1420/#1421
+  acceptance-criteria gap that only landed on the My Work page.
+- **Project end-date shift notification**: the project's Project Manager (Admin)
+  and Owner members are now notified when a schedule recompute moves the
+  project's overall finish date by more than a configurable threshold — the
+  third of the three schedule notification rules from #82 (the other two,
+  dependency-slip and became-critical, are tracked separately under #1668). The
+  threshold is a new per-project setting, `end_date_shift_threshold_days`
+  (default 5 days, 1–365 range, PM/Owner-only write via
+  `PATCH /api/v1/projects/{id}/`). Comparison is against the project's most
+  recently captured forecast snapshot, so a single material shift produces one
+  round of notifications rather than one per recompute.
+A "load vs target" utilization focus card on **My Work**: your own allocated load versus your own capacity for your soonest-ending active sprint, shown as a percentage with a clear over/under-capacity state. It surfaces the fourth `/me/work/` focus-card signal that was specced in #1236 but not yet shipped. This is a personal, single-program signal — your own allocation on your own work — not cross-program resource leveling.
+- **Celery task observability**: every background task now emits a
+  `trueppm.task.duration_seconds` OTel histogram (dimensioned by task name and
+  outcome — `success` | `failure` | `retry`), and a structured start / success /
+  retry log line via the `trueppm_api.apps.scheduling.receivers` logger (task
+  name, task id, outcome, and — on retry — the attempt count and exception type).
+  `FailedTask` gained a nullable `project_id` column so a permanently dead-lettered
+  task is attributable to a project directly from the admin API or the ORM, not
+  only from the alert log line. Fixes a latent bug where the Celery→Django
+  task-lifecycle signal bridge (`SchedulingConfig.ready()`) silently never fired
+  because its receivers were weakly referenced and garbage-collected on startup.
+- **Board saved views now carry their filter facets**: the assignee/priority/due-window
+  filters set via the board filter bar (issue 1091) are persisted into
+  `BoardSavedView.config` alongside sort/display settings. Saving a view captures the
+  active facets; loading a view restores them, so a saved view's filter state survives
+  a reload instead of living only in the URL/localStorage.
+- **My Work refreshes stale external items on open**: opening My Work now enqueues a non-blocking pull (`ExternalSyncRequestReason.ON_OPEN`) for any of your connected personal read-only sources (e.g. Jira) whose cache has gone stale, so the next load shows fresher data without you having to find the manual refresh control. The staleness floor is configurable via `TRUEPPM_EXTERNAL_SYNC_ON_OPEN_STALE_SECONDS` (default 300s) and never blocks the My Work response — the actual fetch still runs in the background.
+- **Command palette now searches people, and stops truncating at scale.** ⌘K gains a People tier that searches the resource catalog and deep-links to it pre-filtered, the project and program lists it (and the sidebar) draw from no longer silently stop at the first page, and the task/people result caps now show an explicit "showing first N — refine your search" hint instead of quietly hiding matches (#1940).
+- **My Work shows a "my projects" health summary.** A compact strip above your work tallies how many of your own projects are on track, at risk, or critical and drills straight to the one that needs attention most — so a PM overseeing several projects can triage "which of mine is on fire?" without opening each. Scoped to your own projects (#1941).
+- **See sprint scope changes where the team already looks, and get told when scope
+  moves**: the board Activity rail can now be scoped to the current sprint. Opened from
+  a sprint's board, it defaults to "This sprint" (with a "Whole board" toggle), so a
+  Scrum Master or Product Owner watching ~40 sprint cards no longer has to scan the whole
+  project's history — added, removed, and moved-sprint events for the sprint are one
+  click away, and the sprint-transition chip is now labeled "Scope changes" to make them
+  findable. Removals stay visible in the sprint they left even after the task moves on.
+  Separately, when a task actually enters or leaves an **active** sprint, the project
+  leads (Owner/Admin/Scheduler, minus whoever made the change) now get an in-app
+  notification — closing the "someone silently added a task to our active sprint" gap.
+  The notice is in-app by default (email opt-in), fully mutable per-user, and never
+  fires for planned, completed, or cancelled sprints.
+Personal **timezone and date-format preferences** in Preferences → General (#1953). Globally-dispersed teams can now set their own display timezone — activity, comments, and relative times ("2 hours ago") re-clock to it — and choose a date format (ISO / US / European / automatic) that applies to every date, including the schedule and forecast. Both default to `auto` (your browser's zone and locale), so it works with no configuration. Server data stays UTC end to end; this is display-only.
+- **Program export reaches parity with project export.** The program settings page
+  now offers an asynchronous **Export program bundle** — a downloadable `.tar.gz`
+  containing the program's canonical JSON seed plus, per member project, an MS
+  Project XML file, task attachments, time entries, and change/audit history —
+  built in the background with a 7-day download link, mirroring the project export
+  bundle (ADR-0219). The synchronous seed card is relabeled **Export program** (and
+  the project one **Export project**) so the two are unambiguous. Board-card
+  **labels** are now folded into the JSON seed, so a re-import round-trips a
+  project's label catalog and each task's labels.
+Board: a new optional "Cap tall cells" view (in the board More menu) keeps a busy phase×status cell from growing into one long stack. When on, a cell shows its most important cards and collapses the calm remainder behind a "+N more" you can expand. It never hides a card that needs attention — critical-path, blocked, late, or your own assigned cards always stay visible — and it never tidies a cell that's over its WIP limit. Off by default; a personal, per-device preference.
+- **Print the schedule, not just download it**: the Schedule PDF export dialog now
+  offers a **Destination** choice — **Download** saves the PDF file (as before) or
+  **Print** sends the *same* rendered pages straight to your browser/OS print dialog,
+  skipping the download-open-print detour. Both produce byte-identical output, and it
+  stays fully client-side — nothing leaves the project. If the system print dialog
+  doesn't appear, an **Open printable PDF** link opens the identical document to print
+  manually.
+- **Contextual help on task classification fields**: the Type, Governance
+  class, and Delivery mode selects in the task editor gain an info (ⓘ) button
+  that opens a popover listing every option with a one-line explanation and a
+  "Learn more" deep-link into the documentation — so you can compare all the
+  choices at once instead of selecting each in turn. Built on a reusable
+  `FieldHelp` affordance for other dialogs to adopt.
+- **See every file and reference link across all your projects in one place**: the
+  Assets surface now has a workspace tier — `GET /api/v1/assets/` aggregates the files
+  and git/cloud links on tasks across **every project you can read**, with `mine`,
+  `program`, `kind`, `label`, `provider`, and search filters and the same cursor
+  pagination as the project and program feeds. It is strictly scoped to what you can
+  already see (no new reach), and `mine` is bound to your own assigned tasks with no
+  way to query another user's — so it stays personal convenience, not cross-team
+  oversight (ADR-0428, amending ADR-0215). Reachable by `mcp:read` tokens for agent
+  asset indexing.
+- **A "My Assets" view for the files and links on your own work**: a new personal
+  page (You → My Assets) lists every file and reference link attached to tasks
+  assigned to you, across all your projects, in one place — each row shows which
+  project (and program) it belongs to so a cross-project list stays unambiguous.
+  Filter by kind, provider, or search; it's always scoped to you (no project to pick
+  first). Backed by the workspace Assets endpoint (ADR-0428).
+Working calendars can now be set at the **workspace** and **program** level and are inherited down the chain (project → program → workspace → system default), so a shared calendar can be configured once instead of on every project. A program can override the workspace calendar and a project can override its program's; the effective calendar and the scope it was inherited from are exposed on the project and program APIs (`effective_calendar`, `calendar_source`), and CPM schedules against the resolved calendar. Locking a calendar so lower scopes cannot override it is an Enterprise capability.
+- **Program backlog items can now carry a story-points estimate.** The create form
+  and item detail view gained an optional Story points field, so a product owner can
+  size an item during grooming. The pull dialog's promise that story points are
+  copied onto the created task is now real instead of always empty (#1991).
+- **The public-sharing and attachment cascade policies now have settings controls.**
+  A workspace admin can set whether programs and projects may override the workspace
+  public-sharing policy (Workspace → General) and the attachment policy (Workspace →
+  Attachments) directly from the UI, matching the existing methodology and calendar
+  override controls. Previously these two policies were writable only via the raw API
+  (#2014).
+- **See your install's Public URL — and get warned when it's missing**: Settings → Email
+  now shows the public origin (`TRUEPPM_FRONTEND_BASE_URL`) that outbound invite, password-
+  reset, and notification links are built from, read-only with a copy button. When it's
+  unset — the state where every emailed link silently ships as a broken origin-less path —
+  the page shows a clear warning instead of leaving admins to discover the dead links from
+  frustrated users. The value stays deploy-configured; you can now confirm it without
+  shelling into the pod.
+- Project settings now expose six previously API-only fields. The **General** page gains a **Scheduling & forecasting** group (start date, status/data date), a **Backlog scoring** model selector, and **Notification thresholds** (stale-task nudge and end-date-shift alert). The **Methodology** page gains an **Estimate governance** control (Open / Suggest & Approve / PM Only). These were all writable via the API but had no UI, so they could drift silently.
+- **Per-program agent-oversight panel**: every program gains an **Agents** tab — a
+  read-only projection of the tamper-evident agent-action log (ADR-0112) — with three
+  views: **Activity** (what the team's agents did, chain-verifiable per row), **Refusals**
+  (what the engine stopped, and why), and **Forecast impact** (the program's P80 completion
+  with an agent-contribution line). A `Verify locally` badge points at `manage.py
+  audit_verify` for the authoritative chain check. The panel governs *agents*, never
+  surveils *people* — no per-person productivity aggregation. Backed by an additive,
+  membership-preserving `?program=` (and `?since=`) filter on the existing
+  `GET /api/v1/agent-actions/` endpoint; no new model, no migration.
+Added an instance-wide MCP disable switch (`TRUEPPM_MCP_ENABLED`) and made the MCP read throttles and API-token/task-sync caps configurable via environment variables and Helm values.
+- **Confirm telemetry export is live from System Health**: Settings → System health now has
+  a read-only Telemetry card showing whether OpenTelemetry export is on, the collector
+  endpoint, protocol, service name, sampler, and per-signal (traces/metrics) toggles — so an
+  operator can tell from the app why spans or metrics are (or aren't) arriving without
+  reading env. Export stays env/Helm-configured, and the OTLP headers (which carry the
+  export token) are never surfaced. Also corrects a stale note that claimed retention values
+  weren't editable in the UI — they are, via Manage retention.
+Configurable, inheritable **estimation scale** — Fibonacci, Linear (1-10), or T-shirt (XS-XL). Set it once on the workspace and override it per program or project (Workspace → Program → Project, Scheduler+ editable). Every story-point picker across the program backlog, project backlog, and board honors the resolved scale; T-shirt sizes map to points behind the scenes so velocity and rollups are unaffected, and an estimate entered under a different scale is always preserved.
+- **Shareable view state across sibling views**: the Board's URL-authoritative
+  filter pattern now extends to its siblings. Grid search/owner/status filters and
+  the flat-mode column sort, the Schedule display filters (critical-path-only,
+  focus chain, milestones-only), and sprint/risk selection all round-trip through
+  the URL — so a filtered working set survives a reload and can be pasted into a
+  message. Activity rows and the ⌘K palette now deep-link the specific sprint or
+  risk (`?sprint=`/`?risk=`) instead of landing on the list.
+The org Resources catalog detail panel now shows an **Assignments** section — the tasks a person is working on across every project, grouped by project with links into each task and the project's allocation view. Visible to resource managers and admins. Answers "what is this person working on / are they overloaded?" from the person entity itself.
+Creating a project now confirms with a success toast, and a just-created project's Overview shows a first-run handoff — "Add your first task" (to the Schedule or Board, per methodology) and "Invite teammates" (for admins) — instead of a dashboard of zero-value KPI cards. The full dashboard returns automatically once the project has work to measure (#2048).
+**Relative task links.** Tasks can now be cross-referenced with informational links — *relates to*, *blocks*, *duplicates* — separate from scheduling dependencies (no effect on dates or the critical path). Links work within a project and across projects in the same program, carry an optional note, and are visible offline. A `GET /api/v1/task-relations/?task=<id>` returns a task's links in both directions, with cross-project counterparts shown as a title-only card when the viewer can't open that project.
+- **Link related tasks from the detail drawer**: a task's detail drawer now has a
+  "Related tasks" section for lightweight, non-scheduling cross-references — mark one
+  task as *relates to*, *blocks*, or *duplicates* another. Links read from either end
+  with the right label ("Blocks" from the blocker, "Blocked by" from the blocked task),
+  group under clear headings, and click through to the linked task — including tasks in
+  sibling projects of the same program, shown with a redacted cross-project card and a
+  project tag. Add a link through a searchable picker (This-project or Program scope,
+  full keyboard navigation); the × removes one. Unlike dependencies, relations carry no
+  lag and never move a date or the critical path.
+The label-delete confirmation in project settings now quantifies usage ("Used on N tasks") by annotating the labels API with a `task_count` field, so deleting a shared label shows its blast radius before you commit.
+- Deleting a task in the schedule or grid can now be **truly undone**. A new task-restore endpoint un-deletes a task along with its whole subtree, its dependency links, and its resource assignments — under its original identity — instead of the previous Undo that only re-created a bare row. The Schedule build-mode Undo and a new Grid bulk-delete Undo both use it, and the "this can't be undone" warnings are gone.
+- **Move a project between programs from its settings**: the project's General
+  settings page now has a **Program** row that names the program a project rolls
+  up into (or "Standalone") and a dedicated picker to assign, move, or detach it.
+  The picker dims programs you can't administer and closed programs, warns that a
+  move reshapes rollup ownership and visibility, and surfaces the server's
+  dual-Admin message verbatim if you lack the required role. The move runs on its
+  own isolated save — a rejected move never blocks an unrelated name or health
+  edit.
+- **The schedule chart now distinguishes driving from non-driving dependency
+  links.** The scheduling engine (both the Python `trueppm-scheduler` and the Rust
+  WASM engine, kept in conformance) reports which dependencies have zero
+  relationship free float — the predecessor that actually controls a successor's
+  start — and surfaces it as a read-only `is_driving` flag on the dependency API.
+  In dense dependency chains the schedule view draws driving links at full weight
+  and lets non-driving (slack) links recede to a thinner, lower-contrast line, so
+  the chain that matters reads as the strong path through the graph. Criticality
+  still lives on the bar frame and hover-chain interrogation still takes
+  precedence — the new weighting applies only to resting links.
+- **The Schedule "Display" menu now controls everything the chart draws.** Two new
+  column toggles (WBS, Owner) join Duration/Start/Finish/% Complete, and a new
+  "Chart" section toggles dependency lines, on-bar task-name placement
+  (Next to bar / Aligned left / Hidden), and the on-bar progress pills. Chart
+  choices persist per-user in `localStorage`, and hiding a chart element lights the
+  Display trigger's active-count badge so nothing disappears silently. PDF export
+  opens WYSIWYG — with dependency lines hidden in the view, the export's arrow
+  toggle starts off to match.
+- **Jump to any project from anywhere**: the top-bar project switcher is now
+  reachable off a project too — on My Work, Notifications, and the listing pages
+  it shows a searchable "Jump to project…" picker whose options drop you on that
+  project's Overview, so a project is one hop away from any screen. It reuses the
+  existing location switcher (one wayfinding surface, no second control) and stays
+  fully keyboard- and screen-reader accessible; when you belong to no projects it
+  simply doesn't appear.
+- **Find any epic or story from ⌘K, across every program**: the command palette now
+  searches epics and stories across all the programs and projects you belong to — no
+  more opening each one to hunt for a story. Results arrive in **Epics** and
+  **Stories** groups, each labeled in agile vocabulary with a program ▸ project ▸ epic
+  breadcrumb (never a WBS code); pick an epic or story to open it in the schedule, or a
+  program-backlog item to jump to its backlog. It is backed by a new access-scoped,
+  paginated `GET /api/v1/me/search/` endpoint that filters strictly to your own project
+  and program membership server-side, so a title from work you can't access never
+  leaks — and, being a real endpoint, an MCP agent can resolve "the Login epic" under
+  its own read-only token.
+- **Edit a task's duration from the detail drawer**: the schedule vitals strip
+  (Start · Finish · Duration · Float) now lets you click the **Duration** cell and
+  type a new value instead of dragging the Gantt bar — precise, and available on
+  mobile where drag-resize isn't. The change commits immediately and the strip
+  refreshes to the recomputed Start/Finish/Float. `"2w"` week shorthand is
+  accepted, the duration-change percent policy (recalc-%) is honored, invalid
+  input and the project-span cap are surfaced inline, and the field is read-only
+  for Viewers and hidden on milestones.
+- **Operator-tunable export-health thresholds**: the three thresholds behind the live
+  export-health strip are now adjustable without a code change, via
+  `TRUEPPM_OTEL_EXPORT_HEALTH_STALENESS_SECONDS`,
+  `TRUEPPM_OTEL_EXPORT_HEALTH_HEALTHY_WITHIN_SECONDS`, and
+  `TRUEPPM_OTEL_EXPORT_HEALTH_WINDOW_SECONDS` (with matching
+  `observability.otlp.exportHealth.*` values in the Helm chart, rendered onto the api,
+  celery-worker, and celery-beat pods). Unset knobs fall back to the documented defaults.
+  A self-hoster with an unusual export cadence can retune the exporting / idle / stalled
+  state machine to match their environment.
+- **Live export health on the Telemetry card**: Settings → Workspace → Observability
+  now shows a live export strip when OpenTelemetry export is on — per signal (traces,
+  metrics) it reports the state (exporting / idle / failing / stalled), when the last
+  successful export happened, and how many spans and metric points went out in the last
+  60 seconds. The figures are aggregated across the pods that actually export (the
+  Celery worker and beat pods, not the web pod serving the page), recorded by the export
+  pipeline and computed server-side. The recorder is strictly best-effort and can never
+  slow or break export; if the metrics store is unreachable the strip reports itself
+  unavailable and the card falls back to the configuration posture — never a fabricated
+  number. Set `TRUEPPM_OTEL_EXPORT_HEALTH_ENABLED=false` to switch it off.
+- **The System Health "Telemetry" card now guides OTel setup and verifies export
+  from inside the app.** When no collector is configured it offers a guided-setup
+  view — pick a backend (Grafana Tempo, Jaeger, or a generic OTLP collector) and
+  copy ready-to-paste environment-variable or Helm-values snippets. When export is
+  configured it shows the effective config (endpoint, protocol, service name and
+  version, sampler, per-signal traces/metrics on-off) and adds a **Test export**
+  action: it sends one synthetic canary span and reports whether the collector
+  ACKed it (or, when export is switched off, a TCP reachability probe). Config
+  stays env/Helm-only (ADR-0223) and the OTLP bearer token is never sent to the
+  browser or echoed in a probe error. Admin-only (#2110).
+- **Guided email provider setup**: the Workspace → Settings → Email & SMTP page now
+  starts from a single **Provider** dropdown with first-class presets — Gmail,
+  Microsoft 365 / Outlook, and Fastmail pre-fill the host, port, and connection
+  security (still editable behind an "Advanced" reveal), alongside the existing
+  SendGrid, Amazon SES, Custom SMTP, and TruePPM cloud options. The Gmail preset
+  carries an inline App-Password walkthrough (2-Step Verification prerequisite +
+  deep link), the Security field explains STARTTLS / SSL/TLS / None, and choosing
+  **None** shows an explicit plaintext-connection warning. The credential stays
+  write-only and Fernet-encrypted — no new secret handling.
+Per-task custom-field values are now persisted and exposed on the task read payload. Each project custom field (Text, Number, Date, Single-/Multi-select, Person, Checkbox) can hold a typed value per task, written through an idempotent `PUT`/`DELETE /projects/{id}/tasks/{taskId}/field-values/{fieldId}/` endpoint and read as a flat `custom_fields` map on tasks (and in the offline sync delta). Field definitions gain a `show_on_card` flag so an author can opt a field into board-card display. (#2143)
+Board cards can now show custom-field values on the card face. A field opts in via **Show on card** in Project Settings → Workflow → Fields (off by default, Scheduler+); its value then renders as a compact, type-aware mark — colored option chip, neutral checkbox, `Label: value` for text/number/date, or a person avatar — as the lowest-priority card content that never displaces the health badge or story points. Unset values render nothing. A per-user board switch **Show custom fields on cards** (default on) mutes the whole class in one click, and the compact/mobile card collapses all values behind a single tap-to-peek button. (#2144)
+The risk register now surfaces the risk-to-mitigation-task handoff. The risk drawer shows a **Linked tasks** section that lists each linked task with its status and opens it in the task drawer, the risk create/edit form gained a task picker for attaching or detaching up to 10 existing project tasks, and a one-click **Create mitigation task** (Member and above) spins up an unscheduled, unassigned backlog task named from the risk and links it — closing the risk → tracked-work → status loop that previously dead-ended at the register.
+- **Operator on-ramp pack — tested backup/restore, sizing, ops notes, and a
+  migration-aware readiness probe**: the self-hosting docs gain explicit
+  `ltree`/`pg_trgm` extension-ordering guidance in the backup/restore runbook
+  (a naive dump/restore silently breaks WBS subtree queries and search) plus
+  object-storage backup/restore ordering for an internally-consistent restore;
+  worked "team of 25" vs "team of 250" sizing profiles and a full Helm values
+  reference; and a per-release operational change-notes template alongside a
+  rollback runbook with migration-reversibility caveats. The `/api/v1/readyz`
+  readiness probe now also reports **not-ready** when the connected database has
+  unapplied or in-flight migrations, so a rolling upgrade never routes traffic to
+  a pod whose schema and code disagree.
+- **OpenTelemetry (OTLP) export setup now has its own Observability settings page.**
+  The guided telemetry export configuration — setup snippets, the effective config
+  summary, and the Test-export probe — moved out of the bottom of the System Health
+  monitoring readout into a dedicated **Settings → Workspace → Observability** page,
+  discoverable by name in the settings navigation. System Health keeps a one-line
+  export-status readout that links across to it (#2250).
+Workspace groups can now be populated: a **Manage** drawer on Settings → Workspace → Groups & teams adds/removes members and grants/revokes project access (at a chosen role), so a group is no longer stuck at "0 members / 0 projects."
+A project's **mention groups** now appear in the comment `@`-autocomplete (typing `@` lists them alongside `@all`/`@admins`/teammates), so a named team is discoverable and mentionable at the point of use. Workspace **Groups** stay an access-and-capacity tool — the Groups page now points to mention groups for `@`-mentioning.
+Added contextual help (with a "Learn more" documentation link) to the Enabled KPIs and Health aggregation policy sections on a program's Rollup KPIs settings, explaining the schedule/risk/cost signals and the aggregation options. The help affordance stays reachable for read-only viewers.
+Added contextual help — a circled-ⓘ popover pairing a plain-language explanation with a "Learn more" link into the documentation — to the jargon, policy, and inheritance fields across every **Workspace** and **Project** settings surface, completing the settings help-text rollout begun for Program settings (#2266). Workspace: General, Methodology, Schedule, Working calendar, Attachments, Members, Groups, Roles, Single sign-on, Programs, Email & SMTP, and the Danger zone. Project: General, Methodology, Attachments, Working calendars, Guardrails, Workflow & fields, Labels, Access, Team, Signal privacy, Surface visibility, Sharing, Integrations, Notifications, and Lifecycle. Self-explanatory fields (names, codes, descriptions) stay uncluttered, and destructive actions carry a per-card documentation link.
+Added contextual help (with "Learn more" documentation links) to the jargon, policy, and inheritance fields on a program's **General** settings — Methodology, Iteration terminology, Estimation scale, Allow guests, Public sharing, Monte Carlo run history, Run attribution, Duration-change policy, and Health.
+Inbound Jira live sync now supports self-hosted **Jira Data Center / Server** (8.14+), not just Jira Cloud. The Connected Accounts connect flow gains a Cloud / Data Center · Server toggle; Server/DC authenticates with a Personal Access Token (Bearer, no account email) against the Jira REST v2 API and preserves a context-path deployment (e.g. `https://jira.example.com/jira`). The self-hosted host must be allow-listed by an operator via `TRUEPPM_INTEGRATION_ALLOWED_HOSTS` and reachable from the TruePPM server over the public internet (internal-only Data Center hosts are not yet supported).
+Added `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`, an operator setting that lets a self-hoster run their identity provider (or other trusted service) on a private in-cluster address — e.g. Keycloak at `keycloak.sso.svc` — by naming the exact hostnames that may bypass the outbound SSRF address deny-list. Empty by default; matching is exact and case-insensitive. Without it, an in-cluster OIDC issuer was unreachable and SSO "Test connection" failed. See [Single sign-on → Running the identity provider inside your cluster](https://trueppm.com/administration/single-sign-on/).
+- **Verify a Helm deploy with `helm test`**: the chart now ships a connection-probe
+  test hook, so after `helm install`/`helm upgrade` you can run `helm test <release>`
+  to confirm the release actually booted end to end — the `migrate` → `bootstrap`
+  init sequence completed, the supplied secrets satisfied the `settings.prod` boot
+  guards, and the API answers its health and migration-aware readiness checks. The
+  same install-and-verify drill runs in CI on every chart change as an advisory
+  signal, alongside a blocking static render gate (`kubeconform` schema validation
+  and deploy-contract assertions), catching Helm regressions before they reach a
+  cluster.
+The Schedule "no committed start" chip is now the point of fix: clicking it opens a small popover that explains the dates are auto-calculated and — for editors — offers **Set committed start** (commits the calculated start as the PM baseline) and **Move to To Do** (demotes the task). Previously the chip's tooltip named two fixes that existed nowhere. The two remediations share one instant-commit, offline-guarded write path (`useCommitStartOrTodo`), reused by the task-detail drawer.
+The task-detail drawer now surfaces the "no committed start" data-integrity flag and offers to fix it in place. When an in-progress task has no PM-committed start, the schedule strip shows an advisory naming the gap with two one-click remediations — Set committed start / Move to To Do — and marks the auto-calculated Start value as computed (not committed) so it no longer contradicts the flag. The drawer is the secondary fix home; the schedule row chip remains the primary point of fix.
+Added an at-a-glance summary strip to the top of the task-detail drawer — status, owner (with over-allocation), finish, and risk flags (blocked / critical / float) in one labeled band, so the facts you open a task for are readable without scrolling.
+- **Operator switch to turn API rate limiting off for load testing**: a new
+  `TRUEPPM_RATE_LIMIT_ENABLED` environment variable can disable all API throttling on
+  a self-hosted instance — to benchmark raw throughput or debug locally. It is
+  deliberately hard to leave on by accident: switching it off also requires an explicit
+  acknowledgment variable, and an unacknowledged attempt is refused (limits stay on) and
+  logged at `CRITICAL`. While it is off, workspace admins see a persistent warning banner
+  and a **Settings → System** card, and the `trueppm.ratelimit.enabled` OpenTelemetry
+  gauge reports `0`, so the state is impossible to miss and easy to alert on. This is
+  deploy-time operator config only — never an in-app toggle. Never enable it on a
+  production-facing deployment.
+- **Find any setting by name**: two new ways to jump straight to a setting instead of
+  scanning the settings rail. Type in the new **filter box** at the top of the settings
+  navigation (workspace, project, or program) to narrow the list — searching synonyms
+  too, so "smtp" finds *Email & SMTP* and "oidc" finds *Single sign-on* — then press
+  Enter to jump to the first match. And the **⌘K / Ctrl+K command palette** now indexes
+  individual settings sections: start typing and a *Settings* group surfaces the exact
+  section (workspace sections for admins, your personal settings for everyone),
+  deep-linking right to it. Both read from one shared keyword list, so a section stays
+  findable the same way in the rail and the palette.
+- **Fetch all tasks with a label, over the API**: the task list endpoint gains a
+  `?labels=<id>[,<id>…]` filter — pass a comma-separated list of label UUIDs and it
+  returns tasks carrying **any** of them (OR), the same semantics as the board's label
+  facet. Labels are project-scoped, so results stay within the projects you can see, and
+  a malformed id returns a clean 400. This gives API, MCP, and agent consumers a real
+  server-side "tasks with label X" query (the board previously filtered client-side only),
+  and is the foundation for label filtering in the other views.
+Program **Labels** view — find every task carrying a label across all the projects in a program. Labels stay project-scoped, so matching is by name and case-insensitive; results are grouped by project and each row keeps its own project's label color. Backed by two read-only endpoints, `GET /api/v1/programs/{id}/label-tasks/?label=<name>` and `GET /api/v1/programs/{id}/label-catalog/`. Program membership opens the view; project membership fills it, and the view states how many projects were withheld rather than showing a silently partial list.
+⌘K command palette: a **Labels** group. On a project, type a label's name to see it with its color swatch and task count, then jump straight to the Board with that label filter applied (`?fl=`). The group is query-gated, so a cold palette stays uncluttered.
+Added an adopter-facing **How this was built** page to the docs Overview, making the engineering-practice case with verifiable evidence: what actually blocks a merge, the four practices that are not standard (self-testing harness, enforced test hermeticity, flake-as-bug-class, incident-annotated configuration), an honest limits section, and the commands to check every claim independently.
+- **Filter by label on the Table/Grid and the Product Backlog.** Label filtering was
+  Board-only; the Table and the backlog grooming view now carry the same facet, so
+  "show me the tasks with label X" works where you already are. The panel lists the
+  project's whole label catalog with a live match count on every row — including a
+  visible `0`, so picking a label nobody has used is a deliberate choice rather than
+  an unexplained empty table. Several labels OR together; the label filter ANDs with
+  whatever else is set. On the Table the selection rides in the URL as `?fl=`, the
+  same key the Board already uses, so one bookmark format works on both — and it is
+  purely additive: existing `?owner=`/`?status=` Table links keep resolving exactly
+  as before. Filtering happens over the rows already loaded, so there is no spinner
+  and it keeps working offline (the chip strip says so). The panel is a single tab
+  stop with arrow-key, Home/End and type-ahead navigation, each chip's ✕ is
+  keyboard-reachable, and a label's name is always shown next to its color (#2383).
+Owner and Status filter controls on the Table/Grid toolbar. Both were previously reachable only by hand-editing the URL — the filters worked and could be removed, but nothing in the interface could apply them. Both are now multi-select alongside the Label facet, with per-option counts over the loaded rows, the full project roster for Owner (grouped into "On these rows" and "All members"), and every status listed in pipeline order including zero-count ones. Filters combine with OR inside a facet and AND across facets, and an empty result now names each facet's standalone count and offers to drop the one that recovers the most rows. Existing `?owner=` and `?status=` links keep working unchanged.
+- **Abbreviations and codes now explain themselves**: hovering, keyboard-focusing,
+  or tapping a shorthand token in the UI reveals what it means in plain English.
+  The methodology chip (`WF` / `AG` / `HY`), the Monte Carlo percentiles
+  (`P50` / `P80` / `P95`), the `WBS` and `Dur` column headers, the schedule's
+  `Float` cell and its `CP` critical-path suffix, and the sync-status badge are
+  covered. Several of these previously explained themselves only to screen
+  readers, or only through a browser `title` that keyboard and touch users could
+  never reach.
+Pinned projects and programs now follow you across devices. Pins are saved to your account instead of the browser you happened to be using, and can be set from the Project Overview header, the Program Overview header, the Programs list, the sidebar, and the command palette (`Alt`+`P` on the highlighted row). Pinning or unpinning offers **Undo**, and on the Programs list pins are lifted into a labeled "Pinned" group rather than silently floated — a card you just pinned holds its place instead of jumping under your cursor. The pin is reachable by touch on tablets and phones, where it previously could not be seen or tapped at all. Existing pins on a device are migrated automatically the first time you open the app. A pin stays private to you — nobody can see what you have pinned.
+Published a **tested scale envelope** for the 0.4 beta: measured capacity per dimension, the issue that sets each ceiling, and an explicit list of what was *not* tested. A project stays comfortable in the Schedule view to roughly **1,000 tasks** — bounded by the whole-project client load (#2277), which goes from 1.85 s at 1,000 tasks to 60 s at 2,000. Backed by a re-runnable capacity harness (`packages/api/perf/capacity/`) and a new `seed_capacity` management command.
+A **Report a bug** entry now appears in the account menu and the command palette. It opens a dialog showing exactly what would be submitted — TruePPM version, edition, the screen you were on, and your browser — which you can edit before continuing to the tracker in a new tab. TruePPM sends nothing itself: rendering or opening the control makes no network request, and no project, task, or personal identifier is included. Workspace admins can repoint the control at their own tracker or hide it entirely under Settings → System → Feedback.
+Saved board views now show what they filter before you open them — owner and priority counts plus each label's color swatch and name, right under the view's name in the menu. If a view filters on a label that has since been deleted, the view says so instead of quietly returning more rows than it promises: the label shows as a struck-through tombstone, and opening the view offers to remove that filter, create a replacement label, or leave it alone.
+CSV/Excel import now maps a **Labels** column. Aliases `Label`, `Tags`, `Category`, `Component`, `Stream` and `Workstream` are detected automatically, one cell can carry several labels separated by `,` `;` or `/`, and names match your project's existing label catalog case-insensitively so an import cannot mint `Safety` beside an existing `safety`. **Labels and Predecessors also accept several source columns** — a sheet that spreads its labels across `Tags` and `Component`, or its dependencies across `Predecessor 1` and `Predecessor 2`, now imports all of them. Every other field keeps its one-column-per-field rule, so a second `Name` column is still reported as a duplicate and dropped.
+Scheduled weekly digests push program health and resource overallocation to people who never log in. Two new opt-in notification types — **Weekly program health digest** (which programs are at risk or critical, and the project driving each) and **Weekly resource overallocation digest** (who is booked over 100% in the week ahead) — send on a per-user day and time in the user's own timezone, configurable on **Settings → Notifications**. Both are OFF by default on every channel. Content is read from the program rollup and the resource heat map, so the digest never states a number the linked screen does not show, and "nothing at risk this week" is sent as a complete report rather than suppressed.
+Dry-run validation for JSON seed import. `POST /api/v1/programs/import/validate/` and `manage.py import_seed <path> --check` run the full seed validator and report every diagnostic while persisting nothing, so you can answer "will this file be accepted?" before pointing a wipe-then-recreate import at a live program slug. Both echo what the file claims to be — schema version, program name and slug, and project/task/resource counts. A document missing `schema_version` now reports that *and* every other problem, instead of hiding the rest behind one line.
+- **The Helm chart can now deploy a public read-only demo.** Setting `demo.enabled`
+  (see the ready-made `values-demo.yaml`) renders a post-install/post-upgrade hook Job
+  that seeds the bundled sample project and mints two anonymous, read-only share links
+  — one schedule and one board — which are the only way into the instance: no
+  accounts, no login, no authenticated write path. Demo releases also serve
+  `X-Robots-Tag: noindex` and a `Disallow: /` robots.txt so they stay out of search
+  results. Previously a hosted demo was only possible via `docker-compose.demo.yml`,
+  outside the documented production deployment path (#2440).
+- **`create_demo_share_link` can mint a board share link alongside the schedule one.**
+  Supply `--token-board` / `TRUEPPM_DEMO_SHARE_TOKEN_BOARD` and the command mints both,
+  so a demo shows the board as well as the Gantt. Each kind needs its own token because
+  share-link hashes are globally unique. Existing invocations that pass only the
+  schedule token are unchanged (#2440).
+- **⌘K global search now finds plain tasks and milestones.** The palette's global search
+  returned epics and stories only, so a waterfall project — which has neither — returned
+  zero results for a real task name, and milestones were not searchable outside a single
+  project at all. Tasks and milestones are now included by default and arrive in their own
+  **Milestones** and **Tasks in all projects** groups, each with a program ▸ project
+  breadcrumb. `GET /api/v1/me/search/` accepts `?type=…,milestone` and ranks results
+  prefix-first, then by kind (epic, story, milestone, task) — so an exact prefix match is
+  never buried. Results stay scoped to your own project and program memberships, and MCP
+  clients get the same search the UI does (#2442).
+Every project's **Activity** tab now has an **Agents** sub-view beside **Changes** — a read-only, project-scoped view of what your team's agents read and what the engine refused, reachable from your own project instead of only from the program rail. It carries a "Refusals only" filter and a time range, and is deep-linkable at `…/activity?view=agents`. No API change: the agent-action log has always been membership-scoped, so this is the same read one level down (#2481, ADR-0677).
+Team-level MCP opt-out: a project, program, or workspace can now block AI/MCP agent reads of its own data (**Project settings → Agents**). It **blocks** the read rather than only logging it — MCP tools return a policy refusal and every refusal is recorded in the agent-action audit log. The cascade is restrictive-only: any scope may block, and no scope can unblock another's block, so a workspace administrator can close agent access org-wide but cannot re-open a project that closed itself. People are never affected — only agent-token traffic. Changing it requires project Admin or above, and an `mcp:read` token cannot change it at all.
+Project Overview now shows **added time** — how far the P80 commitment date sits beyond the computed (CPM) finish, with both dates beside it. The gap is also exposed on the project overview API as `risk_premium_days`, a duration-normalized `risk_premium_ratio`, and a `risk_premium_state`, so headless and MCP clients can read a project's schedule risk without running a simulation. A project with no three-point estimates reports that its risk cannot be measured yet, rather than a premium of zero.
+Context-sensitive help on the "no committed start" flag: the Schedule row-chip popover and the task-drawer advisory now both deep-link to a new **Committed vs computed start dates** section in the Schedule docs, covering what a committed start does to the CPM pass (a start-no-earlier-than floor, not a pin), why an in-progress task without one is flagged, which of the two remediations to pick, and when leaving a task on computed dates is the right answer. The link renders for viewers as well as editors.
+Every Settings section now carries a **Learn more →** link to the page documenting it, across all three scopes — Workspace, Program, and Project. Previously only six of roughly forty-four sections offered any route to the docs, and Program settings had none at all: its Integrations page mounted the same webhook and API-token managers as the Project page but, unlike it, offered no documentation path. The link sits at the end of each section's description, opens in a new tab, and renders regardless of role, so someone who cannot change a setting can still read what it does. It complements the existing per-field **ⓘ** help rather than replacing it — the ⓘ explains one input's options, the section link explains the page.
+Inspect the bundled demo fixtures before importing them: **Settings → System → Demo data** lists each bundled sample with its entity counts, size and SHA-256, and downloads the exact JSON the importer reads; the demo loader's picker now shows each sample's scale inline and links to the same page. `GET /programs/samples/` carries the new metadata and `GET /programs/samples/{key}/download/` serves the file. Note that `seed_demo_project` and `seed_ga_launch_program` build their data in Python and so have no file to download.
+**Recently deleted** — a deleted task is now recoverable long after its Undo toast is gone. A new panel on the Schedule (⋯ → *Recently deleted…*) and the Board (⋯ More → *Recently deleted…*) lists every restorable task in the project with how long ago it was deleted and how many days remain, backed by a new `GET /api/v1/tasks/trash/?project=<id>`. Restoring is atomic and faithful — the task returns with its original id, history, assignments, subtask subtree, and dependency edges — and is gated by exactly the rule that governs deletion. Deleting a parent shows one restorable row, not one per subtask. The administration docs now publish a **What you can get back** matrix stating, for every entity, whether a delete is reversible and for how long (#2494, ADR-0689).
+Program Settings → External stakeholders now opens with a **reach summary** stating who an `@program-stakeholders` mention actually touches: the external contacts, which are listed only and receive no email or notification yet, and the Viewer-role members across the program's projects, who do get an in-app notification. The two arms are stated separately and never summed — externals resolve as a separate target, not a union, so an internal mention cannot silently reach a client. The empty state carries the real Viewer count too. Backed by a new read-only `GET /api/v1/programs/{id}/mention-reach/` (program Admin+), which computes both counts from the same querysets the mention resolver uses.
+Program Settings → External stakeholders: rows are now editable in place. **Edit** on a row opens the same inline form the add row uses — name, email, and note — with **Save** and **Cancel**; a malformed email address disables Save and explains why under the row. Correcting a mistyped address no longer costs a remove and re-add.
+Added time — the gap between the computed CPM finish and the P80 commitment — is now reachable from Schedule, Board and Table, not only from the project Overview. The forecast payload (`POST /projects/{id}/monte-carlo/` and `GET /projects/{id}/monte-carlo/latest/`) carries the same server-owned `risk_premium_*` family the Overview already returns, so the context-bar health chip, its popover and the mobile forecast card all render one derivation of the metric. A project with no three-point estimates reads `needs estimates` on every surface rather than a calm `+0d`, and the premium is derived on each response instead of being frozen into the forecast cache, so its share-of-remaining-duration figure can never describe a window that has already closed.
+Schedule share links can now hide milestone dates. The "Share this view" dialog
+gains a **Show milestone dates** reveal toggle alongside *Show assignee names*,
+offered on schedule links only. It is **on by default**, so every existing link
+keeps exposing exactly what it exposed before; turning it off withholds every
+milestone row — and any dependency arrow that pointed at one — from the public
+timeline, for audiences that should see progress but not committed dates.
+**Valkey Sentinel is now configurable as an experimental HA topology** (#2554, ADR-0716). **Experimental in 0.4:** the wiring is unit-tested end to end within the app, but it has not been verified against a live Sentinel quorum performing a real failover — TruePPM's development stack is a single-node Valkey, so there is no continuous promotion test. Validate a full failover in staging before depending on it, and prefer a replicated primary behind one stable endpoint if you need the already-proven path. Every Valkey consumer — the Django cache, the Channels layer, the Celery broker and result backend, WebSocket ticket auth, presence, task-run tracking, OTLP export health, and all four throttle counters — resolves the current primary through Sentinel and is wired to follow it across a failover with **no restart**. Enable it by setting `TRUEPPM_VALKEY_SENTINELS` (comma-separated `host:port`) and `TRUEPPM_VALKEY_MASTER_NAME`, with optional `TRUEPPM_VALKEY_PASSWORD`, `TRUEPPM_VALKEY_SENTINEL_PASSWORD`, and `TRUEPPM_VALKEY_USE_TLS`; the Helm chart exposes the same surface as `valkey.sentinel.*` and routes both passwords through its connection Secret. Existing single-endpoint deployments are unaffected — `REDIS_URL` remains the default and derives every role exactly as before.
+
+Two things this fixes beyond the headline. TruePPM addresses **four** logical Valkey databases (`0` Celery, `1` Channels, `2` cache/throttles, `3` notification throttles), not three, and every client is now built by one factory (`trueppm_api.core.valkey`) instead of twelve hand-rolled `redis.from_url(settings.REDIS_URL)` call sites — several of which fail open, so under any HA topology they would previously have kept talking to a dead primary silently. Misconfiguration is now caught at startup by Django system checks (`trueppm.valkey.E001`/`E002`/`W001`) rather than at first cache write.
+
+**Cluster mode is explicitly unsupported** and is documented as such: a clustered endpoint exposes only database `0`. Managed Valkey/Redis services must run with cluster mode **disabled**. The Valkey HA administration page now states which topologies actually work instead of recommending two that could not be configured.
+- **Monte Carlo forecast provenance**: every Monte Carlo run — the synchronous
+  `POST /monte-carlo/` response, the cached and from-history `latest/` reads, and
+  the `history/` list — now carries `status_date`, the data date the run was
+  actually computed against (the project's explicit status date, or today when
+  unset). The non-persisting `whatif/` endpoint reports the equivalent
+  `cpm_status_date`/`mc_status_date` pair. Previously this substitution happened
+  only in memory and was never recorded, so two runs of an unchanged project on
+  different days could return different percentiles with nothing in either
+  response explaining why.
+- **Sprint story picker**: "Pull from backlog →" on the Sprints page now opens an
+  in-place, multi-select story picker instead of navigating to the Product
+  Backlog page. The sprint's capacity preflight and committed-points readout
+  stay live as stories are selected. Each story shows its Definition-of-Ready
+  state; the picker starts filtered to Ready stories (configurable per
+  workspace, program, or project — Settings → General → Sprint planning), with
+  a "Show all" toggle that reveals not-ready stories dimmed alongside their
+  specific blocker reasons. Selecting a not-ready story surfaces an advisory
+  warning but never blocks the commit.
+- **New project modal: program picker**: the New project dialog's step-1 "Program"
+  field is now a picker, not a read-only display. It offers "None — standalone
+  project" plus every open program you administer, defaulting to the program you
+  were browsing when you opened the dialog (if any). Changing the selection also
+  updates which program's "Use program defaults" option is offered on step 3, so
+  the copy-at-create opt-in always matches the program the project will actually
+  attach to.
+A refused API call made with an API token now says why. The 401/403 body carries a
+structured `refusal` — verdict, reason (`identity` or `policy`), and the constraint that
+fired when it is safe to name — and the MCP client surfaces it on the exception it
+raises, so an agent operator sees the reason rather than a bare HTTP status. Constraints
+that would name a resource the caller cannot read are withheld. Responses to human
+sign-in sessions are unchanged.
+- **Release-time removal of stale "Ships in 0.X" docs callouts**: added
+  `scripts/remove-ships-in-callouts.sh`, which finds and removes the
+  `:::note[Ships in 0.X]` / `:::caution[Ships in 0.X]` / `Coming in 0.X`
+  fenced callout blocks that mark docs pages as describing an unreleased
+  feature, once that version actually ships. It refuses to run for a
+  version not yet listed under the roadmap's "## Shipped" section, supports
+  `--dry-run` (default) and `--apply`, and is now wired into
+  `scripts/release.sh` so this no longer has to be done by hand at release
+  time. Non-fenced occurrences (headings, inline prose) are flagged for
+  manual review rather than guessed at.
+You can now start a project from a spreadsheet in one path. The new-project flow offers **Create & import spreadsheet**, which creates the project and opens the CSV/Excel import wizard on arrival, and the same option appears on the zero-project sidebar and the empty My Work screen. Previously the wizard had a single entry point — an overflow menu inside a project's Schedule — so anyone arriving with their own plan had to first create an empty project and go looking for it.
+**Schedule build mode: assign work inline with an `@owner` token.** Type `@ana` while
+naming a row to give it an owner, or `@ana:50` for a half allocation; a picker lists the
+project's resource roster as you type. The token is removed from the task name on commit
+and the assignment lands as a real resource assignment with units — so the person shows
+up on the resource heat map, the allocation timeline, and sprint capacity immediately.
+A name that matches nobody on the roster stays in the row as text with an amber
+underline; the row still saves, so a typo never costs you the rest of what you typed.
+
+Task writes gain a corresponding write-only `owners` field
+(`[{"resource": "<uuid>", "units": 0.5}]`). Owners are resolved against the project's
+own roster rather than the workspace-wide resource library, and naming one owner never
+removes a co-assignee. See ADR-0774.
+Inline authoring tokens in the schedule row editor — type a whole row without leaving the Name cell:
+
+| Token | Meaning |
+|---|---|
+| `#5d` `#2w` `#3` | Duration. A bare number is days (trailing position only, so "Sprint #3 planning" is left alone) |
+| `@ana` `@ana:50` | Owner, written as a resource allocation |
+| `>2.3` `>Survey` | Predecessor by WBS path or name. `+2d` lag, `-1d` lead |
+| `>2.3:SS` | …as a Start-to-Start link. `⌥→` cycles FS → SS → FF → SF |
+| `!` or `#0` | Milestone |
+| `~sprint` `~gated` `~kanban` | Delivery mode for this row |
+| `[Design]` | File the row under a phase by name |
+| `/` | Command menu — every token and toolbar action, found by typing |
+
+Each token opens a non-modal type-ahead: `↑`/`↓` choose, `⇥` accepts, `Esc` dismisses **without touching your text**, and typing past a popover is always allowed. Accepting a suggestion completes the token in place rather than ending the edit, so focus never leaves the row.
+
+**Invalid input never blocks a commit.** A token that resolves to nothing — a misspelled name, an ambiguous one, an unknown phase — stays in the row as literal text with an amber underline, and the row still saves. A token that resolves but loses a conflict is echoed back struck through: a row carrying both `!` and `~scrum` is a milestone, and the `~scrum` is shown crossed out rather than silently discarded.
+- **Paste rows from a spreadsheet into the Schedule outline**: with a row focused in build mode, `⌘V`/`Ctrl+V` pastes multiple rows copied from a spreadsheet directly into the outline as one batch — hierarchy is inferred from leading indentation (tabs, spaces, or a mix), name/duration/owner columns are guessed from a header row or column shape with a "Map columns…" escape hatch, and a receipt strip reports what landed (row/level counts, matched vs. ignored columns, rows needing a duration) with one-step Undo (`⌘Z`) and Keep. Rows a paste couldn't infer a duration for are legal, not errors, and are walkable with `F8`/`Shift+F8` alongside the existing unresolved-`@owner` jump. `POST /projects/{id}/tasks/bulk/` now resolves `parent_id`/`is_subtask` placement on `create` operations, which it previously silently dropped.
+Schedule dates the server changes are no longer silent. A date you have just authored renders in italic until the server confirms it; if the scheduling engine lands on a different date, the row keeps a `→ new date` marker until you acknowledge it, and a review strip above the forecast bar reports "N dates changed" and announces the recomputation to screen readers. "Show N changes" filters the outline to just the changed rows. A write the server refuses now names its reason with a Retry, instead of the row quietly snapping back (ADR-0784).
+- **The rest of the Schedule build-mode keyboard contract**: `Shift+Enter` inserts
+  a sibling row above the focused one, and `⌘/Ctrl+Enter` inserts a child row one
+  level deeper. `Shift+↑/↓` extends a multi-row selection from the focused row,
+  and `⌘/Ctrl+A` selects every sibling on the first press and the whole visible
+  tree on a second press — structural keys (indent/outdent, delete, duplicate)
+  then act on the whole selection instead of just one row. `⌘/Ctrl+D` duplicates
+  a row **and its subtree**, not just the single row. `Backspace` on an empty row
+  merges it into the end of the previous row, outliner-style; `Esc` now discards
+  a row that was created and never typed into, instead of reverting it to an
+  empty placeholder. `F8` / `Shift+F8` jump to the next / previous row whose name
+  still carries an unresolved `@owner` mention. `Alt+A` toggles a personal
+  Author / Read mode for the whole Schedule, persisted per project.
+- **Changed: indent/outdent moved off Tab/Shift+Tab onto `Alt+→` / `Alt+←`.**
+  The old Tab binding trapped keyboard focus inside the Schedule list — there was
+  no way to Tab past it to reach the rest of the page, and every escape attempt
+  fired an indent/outdent mutation (a WCAG 2.1.2 keyboard-trap violation already
+  found and fixed once in the Grid Outline view). Plain Tab now falls through to
+  normal browser focus traversal, matching the Outline view's existing binding.
+- **The Schedule task list is a real treegrid.** Rows carry genuine
+  `aria-level`, `aria-expanded` (summary rows only), and `aria-selected`
+  (covering multi-row selections) instead of a plain grid with no hierarchy
+  semantics.
+- **The canvas Timeline has a real accessible structure**: each task bar is an
+  independently reachable, independently labeled item (task name, duration,
+  dates, critical-path status, and delivery mode), replacing an ARIA shape that
+  implied 2D grid navigation the Timeline never actually supported.
+- **A task's delivery mode (Waterfall, Scrum, Kanban) is never shown by color
+  alone on the Gantt.** Each mode gets a left-edge gutter accent, a bar texture
+  (diagonal stripes for Scrum, a dot grid for Kanban), and a letter on the
+  existing progress chip, so the distinction survives colorblindness and
+  forced-colors / high-contrast themes.
+- **New project creation is one screen, not three steps.** The Start sheet
+  replaces the old multi-step "New project" modal: name, program, start date, and
+  working calendar up front, then one choice among three peer ways in —
+  **Template**, **Blank**, or **Import** — same size, same row. Selecting a way
+  swaps the detail panel beneath it. Planning model is derived and shown
+  read-only (a template's own methodology, or the program/workspace default) —
+  it is never asked for directly at creation, and stays fully changeable
+  afterward in project settings. The working calendar moves onto the sheet
+  itself, showing its resolved inherited default with the option to override it
+  before the project exists. Fields the old wizard asked for up front but that
+  don't change what happens next — description, "copy settings from another
+  project", "use program defaults", and the default role for new members — are
+  no longer collected at creation; every one of them is still available,
+  immediately, in project settings. Below 900px the sheet becomes a full-screen
+  surface with the way cards stacked 2×2 (#2728).
+Project templates. A template captures a project's **shape** — phases, gates, milestones, dependencies with lag, durations and delivery modes — and deliberately strips moment and person: it never carries owners, dates, baselines, comments, files or progress. Publish one from any project, then pick it in the new-project flow with a provenance chip (Workspace / Community / Yours) visible before you adopt. Seeding runs in the background so the create sheet never blocks, and the whole application is a single undo step — which keeps any row somebody has already edited rather than discarding typed work.
+Tasks now record where they came from and whether anyone has touched them since. Rows written by a template, an import or a paste carry their source and a seeded timestamp; a row a person edits is stamped as edited. This makes "Delete untouched rows (N)" — the offer that lets you accept a seeded skeleton and safely bin the parts you did not want — computable for the first time. The fields are read-only over the API.
+- **Landing on a seeded schedule.** Applying a waterfall or hybrid template now
+  lands you on the Schedule with the skeleton already scheduled, instead of an
+  empty Overview. A banner states what was written — the template's name, and how
+  many rows, milestones and dependencies it created, plus which calendar they
+  were scheduled against — with **Delete untouched rows (N)** (a one-click sweep
+  of every row nobody has touched since, Project Manager role or above,
+  confirmation required) and **Undo apply (⌘Z)** beside it. Every seeded row
+  nobody has touched carries a small tick mark in the outline margin. Below the
+  schedule, a second strip surfaces a few things worth a look — unowned rows,
+  unconfirmed milestones, phases not yet connected by any dependency — derived
+  from the plan itself and gone entirely once there is nothing left to flag.
+  None of it is required, and none of it blocks anything: disposability is the
+  design (#2731).
+Spreadsheet import no longer drops rows it cannot resolve. A row that cannot become a task — today, a row with no name — is imported into an "Import review" branch at the bottom of the outline, one task per row, carrying that row's original cell values. Fixing one is an ordinary task edit. The wizard states this before you commit, reports the plan count separately from the parked rows, groups the problems by cause instead of one line per row, and offers them as a CSV download.
+- **Agile landing**: applying an agile template from the Start sheet now lands the
+  new project directly on its product backlog — epics, stories, and points already
+  standing — instead of an empty Overview. A brief "Setting up your backlog…" state
+  covers the moment while template rows are still arriving, and a new **Not
+  [iteration]-assigned** strip summarizes stories with no sprint commitment yet and
+  how many are unestimated.
+Declare a hybrid split in one call: `PATCH /api/v1/projects/{id}/tasks/classification/` applies governance class and delivery mode across a task subtree. The two axes stay independent — Scrum and Kanban are not collapsed into one "sprint-driven" choice — explicit per-task governance overrides survive a cascade by default, and milestones keep their delivery mode under every request flag, so cascading an agile mode across a phase can no longer dissolve the gates inside it.
+Schedule: declare a hybrid split for a whole subtree in one act. `⌘⇧M` on a focused row (or **Classification…** in the row menu) opens a popover that sets `governance_class` and `delivery_mode` — as a preset or per axis — with a footer that names exactly what will change before it does: how many tasks, how many milestones are left alone, and how many explicit governance overrides are preserved. Milestones are never re-typed, and per-task governance overrides survive a cascade by default.
+Schedule outline: delivery mode is visible at a glance. A task that departs from the waterfall baseline carries a 3px left gutter and a `SCRUM` / `KANBAN` chip; a phase whose branches disagree reads `MIXED` with a gutter split between the modes actually present. Milestones inside a phase do not count toward the mix. The legend gains a **Mixed subtree** entry. Every distinction is carried by shape and text as well as color.
+Schedule: sprint windows are drawn on the timeline that already carries the gated bars. Where a subtree is driven by a sprint, the canvas paints a tinted, hatched band across that subtree's rows from the sprint's start date to its finish date, bounded by two dashed window rules and named with the sprint on a pill — so a planner reads the gated critical path and the sprint cadence in one picture, with dependencies visibly crossing between them. The band uses the same violet and diagonal hatch as the scrum delivery mode and gains a **Sprint window** entry in the existing schedule legend rather than a second one. It is paint, not a container: no dates, dependency routing or bars change. Bands survive zoom and pan, honor `prefers-reduced-motion`, and announce the window to screen readers (`…, in Sprint 4 (Apr 20 – May 1)`, plus a callout when a task finishes past it). Hide them from **Display → Chart → Sprint windows**.
+Schedule outline: `⌘⇧K` opens a bulk-edit sheet that applies one change — owner, governance class, delivery mode, or committed dates — across a multi-row selection in a single batch, reporting per-row success and letting you re-select the rows that didn't apply.
+- **⌘Z undo for paste-many, subtree classification, and CSV import**: pasting
+  a block of rows, cascading a governance/delivery classification across a
+  subtree, or importing a spreadsheet can now each be undone as a single
+  step from the toast (or the import wizard's own result step). The server
+  keeps any row a person has since edited rather than discarding it, and
+  reports how many it kept.
+Query-count regression guard for `GET /api/v1/tasks/` — the hot Gantt fetch is
+now asserted invariant to the number of tasks, closing the N+1 class on the
+widest serializer in the codebase. The existing task-list guards scaled
+milestones, not tasks.
+**Schedule: Enter adds a row from the Timeline too.** In build mode, `Enter` on a focused
+bar adds a task below it, `Shift+Enter` adds one above, and `⌘`/`Ctrl+Enter` adds one
+underneath — the same trio the outline has had since 0.4, so the two panes of the Schedule
+no longer disagree about the keyboard. `Alt+Enter` opens the task drawer, matching the
+outline row and the program backlog, and `r` starts a keyboard reschedule in every mode.
+Nothing changes for a viewer or outside build mode: `Enter` still opens the drawer and
+`Shift+Enter` still starts a reschedule.
+- **`trueppm-mcp` now has a PyPI publish path.** The read-only MCP server had no
+  release mechanism of any kind: three docs pages and the MCP registry manifest
+  told users to `pip install trueppm-mcp` / `uvx trueppm-mcp`, and the name 404'd
+  on PyPI because nothing in the pipeline ever built it. A new `mcp:publish` job
+  fires on an `mcp-vX.Y.Z` tag and uploads the wheel and sdist via PyPI Trusted
+  Publishing, with PEP 740 attestations and a CycloneDX SBOM materialized from
+  the committed `uv.lock` — the same shape as the existing `trueppm-scheduler`
+  publish. `scripts/release.sh` now bumps the package and cuts the `mcp-v*` tag
+  alongside the other release tags, so it can no longer drift out of lockstep
+  (#2809).
+- **The MCP server is versioned as a beta.** `packages/mcp` moves from `0.4.0a0`
+  (`Development Status :: 3 - Alpha`) to `0.4.0b1` (`Development Status ::
+  4 - Beta`), matching the rest of the 0.4 line, and `server.json` advertises the
+  same version to MCP clients. `mcp:publish` refuses to upload if the tag,
+  `pyproject.toml`, and either `server.json` version field disagree (#2809).
+CI now boots the documented production Docker Compose stack on every change to it, instead of only rendering it. A new `compose:prod` job fills `.env.example` with generated values, runs `init-prod.sh` against images built from the commit under test, and proves the API clears its three start-up guards, `/api/v1/readyz` reports ready through nginx, `/api/v1/health/beat/` returns 200 (so the scheduler is genuinely dispatching, not just declared), and the stack survives restarting the API container. This is the compose counterpart to the Helm install drill.
+The production Compose boot drill now runs a second time over TLS. `compose:prod:tls` boots the stack with `TLS_MODE=selfsigned`, which puts the HTTPS nginx template — a different file from the plain-HTTP one, and previously exercised by nothing but a human on release day — under a real boot in CI. It asserts HTTPS on 443, the 80→443 redirect, HSTS, and that `/.well-known/acme-challenge/` is served from the webroot over plain HTTP rather than swallowed by the redirect, which is the contract `certbot renew -a webroot` depends on. Structural contract tests cover the cross-file agreements a boot cannot: the envsubst variable list, the certificate path shared by the template, the Compose volumes and `init-prod.sh`, and the renewal store being the same directory nginx reads (#2829).
+- **Public read-only board sharing.** Project Admins can now generate a public, revocable link (`/share/board/<token>`) that lets external stakeholders view a project's Kanban board with no TruePPM login. The shared view is strictly read-only and minimized — comments, notes, attachments, and estimates are never shown, and assignee names are hidden by default (opt-in per link). Links are revocable at any time from **Project Settings → Sharing**, and access is metered (view count + last-accessed). Operators can disable public sharing instance-wide via the `TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED` setting (Helm value). (#283)
+New contract tests for the scheduler package compare the surfaces that describe a release and had drifted independently: the declared version against the top CHANGELOG heading, the README's stated maturity and pinned install example against the trove classifier and version, and — by walking `__all__` rather than a hand-maintained list — a docstring on every exported name.
+Two conformance tests ratchet the `/api/v1/` surface before the 0.9 v1 freeze: every paginated response must use one of three sanctioned envelope shapes, and every path segment must be kebab-case. Pre-existing exceptions are pinned individually with their reason and are checked for staleness, so the allowlists cannot grow silently or outlive what they excuse.
+A conformance test asserts that all broadcast sites emitting a given WebSocket `event_type` share at least one payload key, so an event can never ship two payload shapes that no single client handler can read.
+Board columns and phase lanes are now resizable. Drag the right edge of a column header to set that column's width (minimum 200px), or the bottom edge of a phase lane to set its height (minimum 120px). Both preferences persist per browser and can also be nudged with the arrow keys when the resize grip is focused.
+A conformance test now proves that an `@action`'s inline `permission_classes` actually takes effect. Thirty-eight viewsets override `get_permissions()` with a hand-written if-chain that never reads `self.permission_classes`, so on those an inline declaration is silently discarded and the action falls through to the weakest gate on the class. Every current declaration was already correct; the next one that forgets its branch now fails at merge time instead of shipping a Viewer-callable admin endpoint.
+A new `member_status_changed` audit event records workspace member deactivation and reactivation, including whether the member's credentials were revoked. Since deactivation began durably revoking refresh tokens and Personal Access Tokens, a status-only change has been irreversible while writing no audit evidence at all — unlike removal, which does strictly less and was always audited.
+- **Internal documentation links are now checked.** `scripts/check-docs-internal-links.py`
+  (CI `docs:internal-links`, `make pre-push`) fails when a docs page links to a page,
+  heading anchor, asset, or repository source file that does not exist. It resolves each
+  link against the URL its source file publishes at, so a starlight-versions snapshot
+  cannot trip it during a release cut. Its first run found and fixed three broken links:
+  two to a `/features/grid/` page that does not exist, and one to a renamed heading on the
+  board sprint panel page (#2869).
+The **Template** way in on the Start sheet is no longer empty on a fresh install,
+and the screen its empty state named now exists. Three starters ship with
+TruePPM — *Scrum product team* (Agile), *Stage-gate delivery* (Waterfall) and
+*Regulated release* (Hybrid) — carrying a **Bundled** chip and sorting after any
+shape the workspace has published itself. **Project → Settings → Templates** is
+the publish screen the gallery had been pointing at since 0.4 without it having
+been built: it opens on six server-computed counts, states read-only what a
+template will and will not carry, and republishing a taken name writes a new
+version rather than editing the old one under the projects already created from
+it. The gallery gains search and methodology grouping once a workspace has
+twelve templates, filter chips from five, and shows each template's version and
+how many projects have adopted it.
+The task drawer's **Dependencies** section now takes a lag when you add a link,
+not only after you have created one. Adding a Start-to-Start link with two days
+of lead is a single action there, the same as in the dependency picker.
+
+Every dependency control in the drawer also names the link it acts on — a task
+with three predecessors previously rendered three identical **Dependency type**
+selects and three identical **Lag days** fields, which gave a keyboard or
+screen-reader user no way to tell which link they had landed on.
+CSV / Excel import now has a **Date order** control on the wizard's map step, and
+a matching `date_order` field (`auto` / `mdy` / `dmy` / `iso`) on both the
+preview and the commit endpoint. Date order was the last locale decision the
+importer inferred with no way to override it: a file whose slash dates are all
+ambiguous (`03/04/2026` is valid read either way) imported as month-first, so a
+three-day task silently became a sixty-two-day one. The wizard now states the
+evidence for whatever it chose — naming the row, column and value that settled
+it — and, when the file identifies no convention, shows both readings with the
+duration each produces rather than picking one quietly. The old passive
+"Dates like 03/04/2026 were read as month/day/year." warning is removed.
+Schedule: structural edits to the task tree — indent, outdent, delete, and converting a row to a milestone — now say what they did, both to screen readers and in a new "N changes this session" panel in the schedule toolbar. The panel lists what changed, newest first, so a restructuring you want to check is still there after a few more edits rather than having scrolled past.
+Tasks now carry a declared structural role — work, container or milestone — instead of the product inferring "this is a phase" from whether anything happens to be underneath it. A task that gains its first child keeps its own status and estimate parked rather than losing them, and gets them back if it loses that child again. A phase you created on purpose stays a phase when its last task is deleted, becoming an empty lane rather than silently turning back into a task. Declaring a row "work" when it already has work under it is refused with a 409 that names the contradiction, rather than being stored and disagreeing with every rollup.
+Schedule outline: a phase's estimate now shows a Σ marker instead of an edit field, with a tooltip naming how many tasks it rolls up from and what to change instead — the cell previously offered an edit the server always refused. And when a task becomes a phase because you put work under it, a one-line notice explains that its own status and estimate were kept rather than cleared, and will come back if it loses its last task. The notice appears once per row, not once per project.
+**Schedule outline: drag a row to reorder or reparent it.** Every row in the Schedule task list now carries a ⋮⋮ grip. Drop **between** two rows to place the dragged row beside the one below the gap, at that row's level; drop **onto** a row to place it inside, turning a leaf target into a phase. The target row states the consequence before you release — *"↳ becomes a phase"*, *"into this phase"*, *"same level as {row}"* — and the insertion line is drawn at the destination's own indent guide, so a sibling drop and a child drop are one indent step apart rather than the same line in two colors. Two drops are refused with a reason instead of silently ignored: a milestone cannot hold work, and a row cannot move inside its own subtree. `Esc` abandons a drag; nothing is written until release.
+
+Built on Pointer Events rather than HTML5 drag-and-drop, so the same gesture works on touch: press and hold the grip to lift a row, while a swipe that starts on it still scrolls the list, and the grip grows to a finger-sized target on small screens.
+
+The keyboard stays the canonical path and is unchanged — `⌥↑`/`⌥↓` to reorder, `⌥→`/`⌥←` to indent and outdent. The row context menu gains **Move to…**, which reaches the one thing those keys cannot: moving a row under any phase in the plan rather than stepping one level against the row above it.
+**Group and Ungroup are now server operations** — `POST /projects/{id}/tasks/group/`
+wraps a selection of rows in a new phase, and `POST /projects/{id}/tasks/ungroup/`
+dissolves a phase and lifts its rows one level. Each runs in a single transaction, so
+a failure part-way through leaves the plan exactly as it was rather than stranding a
+half-made phase. `group` reports which selected rows it left alone and why: it skips
+any row whose own ancestor is also selected, and wraps on the parent shared by most of
+the remainder. `ungroup` keeps the lifted rows' links, owners and estimates — only the
+wrapper is removed, and any dependency edges attached to the wrapper itself are listed
+in the response instead of disappearing silently.
+- **Schedule: Group and Ungroup.** A flat list can now become structured from the
+  bottom up. Select rows (`⇧↑`/`⇧↓`, `⌘A`, or shift-click) and press `⌥⌘G` to put a
+  phase *around* them — its dates, status and estimate roll up from the work inside, so
+  the only thing left to do is name it. `⌥⇧⌘G` dissolves a phase again, lifting its rows
+  one level and keeping their links, owners and estimates; only the wrapper goes.
+- Each is a single server-side transaction and therefore **one** `⌘Z` step — grouping
+  four rows is one undo, not four.
+- A group reports what it did **not** wrap: a row already inside another selected row,
+  or under a different parent, is left where it is and the outcome strip says so with
+  the reason.
+- **Shift-click now extends the row selection** on the Schedule outline instead of
+  collapsing it to the row you clicked.
+- **`+ Phase` now creates the phase with its first task already in it**, so a button
+  never leaves an empty phase behind. Its shortcut moves from `⌘P` to `⌥⌘P`, handing
+  `⌘P` back to the browser's Print.
+- `+ Phase`, Group and Ungroup share one toolbar setting that starts **off** — the
+  keyboard shortcuts work either way. Turn the buttons on under
+  **Display → Outline → Phase, Group and Ungroup buttons**.
+- **The Schedule outline shows its shape**: a phase now renders as a band — a sage edge at its own indent depth, a faint wash, and its name in the display face — and every nested row carries one vertical depth guide per ancestor level. A container's edge and its children's deepest guide sit on the same line, so "inside that phase" is a line you can follow down a 40-row plan. Both marks are decoration over facts the outline already announces (`aria-level`, the WBS number, and the fold caret's "N inside" count), so nothing is lost to a screen reader or in monochrome.
+Schedule outline: every row now carries indent and outdent buttons beside its WBS number, so restructuring a plan no longer requires knowing a keyboard shortcut or finding a right-click menu. They sit deliberately far from the delete control, and the collapse caret on a phase now says how many items are inside it — or hidden by it — instead of leaving you to guess what folded away.
+Schedule: the toolbar's `+ Task` now states where its row will land (`⏎ adds a row after 2.4 · same level`, or `⏎ saves 2.5 · name it to add the next` while the current row is unnamed), and a new **Add a task at the end** control at the foot of the outline appends at the top level regardless of what is selected. With the hover `+` on a row's bottom edge, all three insert affordances now land where their own position implies. None of them is offered to a reader without edit rights.
+Schedule outline: hovering a row now reveals a "+" on its bottom edge that inserts a new item directly below that row, at the same level. Previously the only pointer affordance was a single "Add task" button at the foot of the list, which inserted wherever the cursor happened to be — a position that implied one thing and did another.
+Schedule outline: a three-line how-to bar now sits above the outline explaining the gestures that a static screen cannot show — indenting to make a phase, selecting rows and wrapping them, and the controls that appear when you hover a row. It can be dismissed, and unlike the strip it replaces it can be brought back, from a new Outline section in the Display menu alongside two other per-person preferences: structure buttons in the toolbar, and comfortable row height.
+The Schedule's **Timeline** layout now renders the **same rows** as the Grid, with the
+Duration / Start / Finish / % / Owner columns swapped for the bar track. Phase bands, depth
+guides, fold carets, the delivery-mode gutter, the reorder grip and the insert points are
+identical on both layouts because they are literally the same markup — switching layout
+changes what you can read about a row, never which rows exist or how they are folded.
+
+Two consequences worth naming: the canvas no longer paints a task-name column of its own,
+so the Display menu's "Aligned left" placement is retired (an existing preference falls back
+to "Hidden", which is what the outline now provides); and dragging the panel splitter can no
+longer push the bar track off the screen.
+Projects now carry a lifecycle of draft or active. A draft is a plan nobody has committed to yet: it stays out of program rollup and other aggregates, so a half-built plan can't move a number someone reports upward. It is fully editable — unlike an archived project, which is read-only — and it is not hidden from anyone who opens it directly. Every existing project is active, with no migration step required.
+Projects can now be committed. Committing takes a plan from draft to active and captures Baseline v1 automatically — the fixed reference every later variance figure is measured against. It is not a lock: you keep editing afterwards, and the plan simply starts having a past. The baseline records the working calendar it was computed against, so changing that calendar later moves your variance rather than silently moving the thing variance is measured from.
+Changing a task on a committed plan now records why. Send a reason with the edit and it is kept in the task's history and sent to whoever is assigned to that work, so a change someone else planned around doesn't land silently. It is never a gate — the edit goes through with or without a reason, and an unexplained change is recorded as exactly that rather than looking like an explained one. Editing a draft is unchanged: a plan nobody has agreed to yet carries no reason.
+Schedule: when the engine recomputes and dates move, a panel now explains what happened rather than just marking the rows. It separates the changes that happened on their own from the ones that followed — "1 change moved 11 other dates" instead of "12 dates changed" — orders them so causes come before consequences, and names the change that pushed each one. The deterministic finish and the P80 forecast are shown together, and when no forecast has been run it says so rather than presenting one date as the whole answer.
+**Named board lanes.** A status column can now be split into up to six named lanes —
+Review into *Peer review* and *QA*, In Progress into *Dev* and *Blocked* — from
+**Project settings → Workflow → Statuses**. Each lane gets its own board track, card
+count and optional WIP limit.
+
+Cards keep their canonical status: a card in the QA lane still has `status = REVIEW`, so
+burndown, throughput and cycle-time rollups, MS Project export, saved views and every API
+integration read the same five values they always have. A project that adds no lanes sees
+no change at all. (#2967)
+Sprint cadence generator — `POST /api/v1/projects/{id}/sprints/generate/` and a
+**Generate sprints** wizard in the Sprints workspace stand up a whole run of
+iterations in one pass instead of one dialog per sprint. Lengths are counted in
+working days against the project's composed calendar, so holidays and weekends
+lengthen a window rather than shrinking the iteration inside it. The wizard shows
+an editable preview and writes nothing until you confirm, and generation is
+idempotent on name, so submitting twice never creates a duplicate. The suggested
+first-sprint capacity drawn from the team's own velocity is opt-in and applies to
+the first iteration only — a planning aid, never a cap.
+Project · Settings · Templates now previews the gallery card while you fill the
+publish form — the same card a delivery lead meets when choosing a template,
+rendered live from the name, description and methodology you have typed. The
+choice a template faces is a side-by-side one, and the publisher could not see
+it until the moment it was too late to change.
+**Template divergence, readable by the team first.** A project created from a template now
+reports how far it has moved from that template — how many seeded rows are unchanged, how
+many the team adapted, how many were removed, and how many rows the project has that no
+template wrote — at **Project → Settings → Template divergence**.
+
+The page is readable by **every member of the project, Viewer included**, and it is the
+only version of the report that exists: one endpoint,
+`GET /api/v1/projects/{id}/template-divergence/`, with no audience parameter and no
+narrower sibling. A program manager reading one project's divergence and that project's own
+team are reading the identical body.
+
+It is a signal, never a gate. Nothing on the page approves, rejects, queues, or scores
+anything, and there is no compliance percentage. "Unchanged" is computed by the same
+predicate the untouched-seed sweep deletes rows by, so the digest and the sweep can never
+disagree about what a person has touched.
+
+Reaching it required one change beyond the new section: `/projects/<id>/settings`
+was gated on an **org-wide** "is this person an admin anywhere" flag, so every
+Viewer, Member and Scheduler was redirected off their own project's settings. A
+non-admin now reaches the page and sees a reduced rail carrying only the sections
+they can act on. Every other section remains admin-only, and the server is still
+what refuses a write.
+Removing a board lane, hiding a column, hiding a view, or switching the methodology
+preset now notifies everyone with work in the project, not only the person who made the
+change. The notice names the consequence rather than the setting: which lane went away,
+where its cards landed, and how many of the reader's own items were in it. A change that
+moves nothing — a rename, a reorder, an accent color, a WIP limit, an added lane — sends
+nothing, and a refused change notifies nobody. In-app by default; email is opt-in and
+off (#2972).
+**Undo a structural change on the Schedule outline.** Moving, indenting, outdenting,
+reordering, grouping and ungrouping rows are now recorded and reversible — press `⌘Z`, or
+use the **Undo** button in the session-trail panel. A gesture undoes as the single act you
+performed: grouping four rows into a phase is one `⌘Z`, not four. Ungrouping a phase now
+restores it with its original name, notes and dependency links rather than approximating
+it with a new one.
+
+Undo is deliberately all-or-nothing. If a collaborator has changed the same part of the
+outline since, it refuses and says so rather than reverting part of the change, because a
+partial restore of a plan's structure can leave two rows claiming the same position. The
+acts that cannot be reversed — duplicating a row, converting one to a milestone, adding a
+single row — say so in the panel instead of offering a control that would do nothing.
+Task durations can now be entered and read in hours as well as days. A `d` / `h` toggle sits beside the duration field in the task drawer, and the `#4h` token works alongside `#5d` and `#2w` when typing a row. Hours convert through the project calendar's hours-per-working-day and round up to whole days — durations are still scheduled in whole working days — and the field says exactly what it stored when the two differ, rather than silently changing your number.
+- **Open a task from a schedule row**: every row on the Schedule now carries an
+  **Open** button at the trailing edge of its name, revealed on hover or focus,
+  plus an **Alt + Enter** keyboard binding on the focused row. Both work on the
+  Grid and Timeline layouts and at every role — opening a task is a read, not an
+  edit. Previously the only way in was double-clicking a task's *bar*, which the
+  Grid layout does not have, so an editor working on the Grid had no way to open a
+  task at all; a reader without edit rights had `Enter`, which inserts a row for
+  everyone else. The task name itself is deliberately not the target: that cell
+  takes inline rename, `F2`, and the name-autocomplete popover, and a second
+  interaction on it would fight the first.
+Schedule view: the Unscheduled tray now carries a **Schedule N…** button that selects its rows in the outline and opens the bulk-edit sheet, so many undated tasks can be dated in one batch instead of one at a time. Sprint-targeted rows are left out — their dates come from sprint planning. The hint strip now advertises `⌘⇧K` whenever more than one row is selected.
+A sprint close that is abandoned now says so. Closing a sprint is asynchronous, so a close could exhaust its retries minutes after the button was pressed and leave the sprint quietly open with no error anywhere. A new `sprint_close_failed` WebSocket board event is emitted from every path that abandons a close — including the drain's orphan sweep, where no exception is ever raised — and the Sprints workspace surfaces the outcome where the close was requested: what failed, how many attempts were made, and that the sprint is still open. A failure the server still intends to retry is deliberately silent, since the drain usually recovers it within a minute. The MCP server gains `get_sprint_close_request` so an agent can tell "still closing" from "closed permanently open" too.
+**Schedule: the sprint cadence rail.** Sprint names now sit on the time axis, in a strip
+of named windows directly under the date ruler, instead of on a pill anchored to a band's
+first row. Three things follow that the row-anchored pill could not do: a sprint with no
+committed work appears (it drives no rows, so it had no band at all); a sprint whose work
+is scattered across the WBS is named once rather than once per run; and the name stays on
+screen when you scroll past the band's first row. Overlapping windows split along the axis
+and read `2 sprints` rather than naming one of them. The existing **Display → Chart →
+Sprint windows** toggle governs the rail and the bands together, and a project with no
+drawable sprint window renders exactly the geometry it did before.
+The dependency picker now states the whole link. A **Link** dropdown carries all
+four types and a lag field takes lead/lag in days (negative is a lead), and the
+link you add is created with whatever they say — so a Start-to-Start link with
+two days of lead is one action instead of creating a Finish-to-Start link and
+correcting it afterwards in the task drawer. Both settings persist while the
+picker is open, so a run of links sharing terms is one decision. The four types
+now come from a single shared vocabulary, so the picker, the drawer, the row
+flag and the `⌥→` keyboard cycle can no longer disagree about them.
+- **Schedule outline: a Links column that states each row's dependency shape and
+  opens the picker.** The outline now carries a **Links** cell between Task and
+  Dur. It names the *types* of a row's links rather than counting them —
+  `←FS×2` where the predecessors agree (a chain), `←FS·SS` where they differ (an
+  overlap), `←Mixed×4` where three or more types are involved — with the full
+  breakdown in the tooltip and the cell's accessible label: how many links, of
+  which types, at what lead/lag, and whether the chain is on the critical path.
+  The flag renders **at rest**: the previous `←2` / `→1` count chips appeared only
+  while a row was selected in focus mode, so the outline could not be scanned for
+  which rows are linked.
+- Each flag is a **control** for anyone who may author the plan, and each opens
+  its own direction in the same dependency picker the row's right-click menu
+  opens — so seeing a row's links and changing them happen in one place. A row
+  with no links shows a muted dash that is itself the "add a link" control. A
+  reader with no edit rights sees the identical statement as **text**, with no
+  control to press.
+- The column is toggleable from **Display → Columns**, is resizable, and is drawn
+  on the Grid only — the Timeline already draws the edges themselves.
+The classification cascade is now reachable from the product backlog: a story or epic
+card carries a classify affordance, and `⌘⇧M` opens the same popover the Schedule uses
+against the selected card. An agile project lands on the backlog when it is created, so
+declaring a gated compliance subtree no longer requires navigating to the Schedule first.
+The batch task endpoint now publishes its refusal vocabulary and declares its second permission floor. `POST /projects/{id}/tasks/bulk/` emits `code` as a published enum (`TaskBulkRefusalCodeEnum`) instead of a bare string, so a generated client can tell a retryable refusal from a permanent one without reading TruePPM's source; the structural-undo surface publishes its own set the same way. A batch whose caller cannot author dependency edges now carries `capabilities_denied: ["dependencies"]` at the top level, stating the gap once rather than leaving it to be inferred from every edge being rejected in every batch. The API reference documents both floors by role — including that the Resource Manager band the edge check names cannot reach the endpoint at all, so a service account that writes dependencies needs Admin or above.
+A sprint window with no committed work is now announced to screen readers on the Schedule. The cadence rail draws it — that is the one thing the rail shows that the row bands structurally cannot — but the canvas is hidden from assistive technology and an empty sprint has no row to carry its description. The chart's own description now names those windows and their dates. Sprints that do drive rows are not named twice, and no new tab stop lands ahead of the task rows.
+- Schedule view: an unscheduled task's `···` menu now offers **Start at the earliest** — committing the date CPM already calculated — and **Start today**, each naming the date it will commit. Previously the only options were dragging the chip onto the timeline or filling an empty date field from nothing, with the submit button disabled until you did. The date picker is now pre-filled with the calculated earliest start, and committing a start is announced to screen readers rather than being signalled only by the chip leaving the tray.
+New **Display → Outline → Enter creates a new row** preference on the Schedule. It
+defaults to on, which is the existing behavior: `Enter` commits the row and inserts a
+new one below it. Turned off, `Enter` commits the field and stays on the row — for
+editing rows that already exist, where the extra blank row had to be deleted every
+time. `Shift`+`Enter` and `⌘`/`Ctrl`+`Enter` still insert regardless.
+New `api:migration-constraint-safety` gate (also in `make pre-push`): a Django
+`AddConstraint` on a table that is not created in the same migration must now either be
+preceded by a `RunPython` data repair or carry an explicit `# safe-constraint: <reason>`
+comment. `AddConstraint` validates its index against every existing row and migrations
+run on container start, so a constraint added to a populated table is an upgrade
+crash-loop rather than a failed deploy — a class that previously had no gate at all.
+- **Drag-preview CPM engine conformance check**: the in-browser TypeScript CPM
+  engine behind the Schedule drag preview is now checked against the same shared
+  scheduler fixtures the Python and Rust engines are held to. The check is scoped
+  to that engine's declared capability per ADR-0015 — FS-only dependencies, the
+  default Mon–Fri calendar, no SNET constraints — and asserts the forward pass
+  (`early_start` / `early_finish`) only.
+**A seed can now express external links, blocked work, and why a risk was mitigated.** Three capabilities the product models had no seed surface for at all, so no bundled sample could show them: **0** attachments across 187 tasks, **0** blocked tasks, and a risk register that recorded *that* a risk moved to `RESOLVED` but never *how*.
+
+- **`tasks[].attachments[]`** — `{external_url, external_title, is_pinned, uploaded_by}`. URL-only by design: `TaskAttachment` enforces file XOR `external_url` at the database level and a seed is a text document, so the file half is inexpressible rather than half-supported. (The existing `links` key is a different thing — the task-to-task `TaskRelation` graph, which reads like external references and is not.)
+- **`tasks[].blocked`** — `{reason, since, type, blocking_task, by}`, the explicit human blocker flag from ADR-0124 rather than the derived has-incomplete-predecessors signal. `blocking_task` is a soft "waiting on" link that never enters CPM.
+- **`task.block` / `task.unblock` events** — so a blocked span has real duration on the timeline. `unblock` empties only the flag of record and lets `Task.save()` run its own cascade, keeping one definition of "unblocked".
+- **`risk.note` events** — append a `RiskComment`, giving a status flip its reason. Reconstructed on export, unlike `risk.status`: a comment is append-only and does not depend on the risk's current status.
+- **`tasks[].board_lane`** — pairs with the column lanes added in #3093.
+
+Two silent-backdating traps are handled and covered by tests, because both make a demo state something false. `Task.save()` stamps `blocked_since` with `timezone.now()`, but the importer inserts through `bulk_create_tasks` so `save()` never runs and nothing stamped it at all; on the replay path it *does* run and would stamp *now* on a backdated timeline. Either way a seeded blocker renders "0d", and age is the entire triage signal. `RiskComment.created_at` is `auto_now_add` and is backdated the same way. All of it round-trips byte-identically through export. Closes #3094.
+Seed documents can declare a per-project `lead` (`project.lead`), distinct from the program lead and from the OWNER membership — the workstream lead a program manager asks about that project, shown in the project header and the program roll-up.
+Connected Accounts now carries a **Check for new items automatically** switch on each connected external source. The background poll behind the personal Jira pull has existed since the connection feature shipped, but nothing in the product could opt a connection into it, so it fanned out zero pulls on every install — a connection refreshed only when you pressed **Sync now**. The switch is off by default, is per connection and per person (nobody else can enable it on your account), survives a token rotation, and pauses itself on a connection that needs reconnecting rather than promising a refresh that cannot happen. Backed by `PATCH /api/v1/me/connections/{source}/`, which takes `poll_enabled` alone so flipping it never asks for your API token again.
+- **Commit the plan from the app**: a project's **Overview** now shows a **Draft** chip
+  while nobody has agreed to the plan yet, and offers a **Commit plan** action to Project
+  Managers. Committing captures `Baseline v1` (freezing the working calendar its dates
+  were computed against) and moves the project out of draft, so it joins program rollup,
+  portfolio health, search and My Work. A confirmation first states what commit does and
+  that editing becomes **amending** from that point — a structural edit to a committed
+  plan carries a reason into plan history and notifies the people whose work moved.
+  Committing is one-way; a second attempt is refused with a clear message rather than a
+  retry prompt. `POST /projects/{id}/commit/` previously had no caller anywhere in the
+  app, so the commit moment and baseline v1 were unreachable from the UI.
+Schedule bulk edit (`⌘⇧K`) now covers the three fields a weekly re-plan actually changes — **duration**, **percent complete** and **sprint** — alongside the dates, classification and owner it already had. Duration and percent complete take a relative change as well as an absolute one (`Set to` / `Increase by` / `Reduce by`, or type `+2` / `-2`); results clamp at 0–100% and a one-day floor rather than wrapping, and an item with no current value is left alone rather than started from nothing. Dates stay absolute. The sheet now writes one review line per field with its own counts, and the result reports **updated · unchanged · left alone · refused** so every field's four outcomes add up to the selection size. Moving a batch into a *running* sprint is recorded as a scope injection and held pending acceptance, the same as every other injection path — previously a bulk write landed straight in the sprint commitment. The owner field ships its final four-arm shape (Leave · Add · Remove · Replace), with Remove and Replace present, labelled and badged `0.5`. `Edit N items ⌘⇧K` is now a control beside the selection, and an `Edit selected items…` row in the toolbar's `···` menu.
+Calendar edits are now attributed. Changing a shared calendar's working days or hours, or adding a holiday exception, writes a `calendar_changed` audit event naming who made the change and which projects it rescheduled, and the `project_calendar_changed` WebSocket event carries the actor's name. Calendars are org-global and writable by anyone holding Project Manager on at least one project, so a single edit can move finish dates on projects the editor is not a member of — previously those owners saw dates move with nothing recording who did it.
+**The chart gains placement, lifecycle, and private-registry knobs.**
+`nodeSelector`, `tolerations`, `affinity`, `topologySpreadConstraints`,
+`imagePullSecrets`, and `priorityClassName` did not exist — and because
+`values.schema.json` closes the root, they were *rejected* rather than ignored,
+so an operator mirroring the images into a private registry could not install
+the chart at all. Omit a spread constraint's `labelSelector` and the chart fills
+it in per tier, so one constraint written once applies correctly to api, worker,
+beat, and web. Without it, `replicaCount: 2` plus a PodDisruptionBudget
+protected nothing: both pods could land on one node.
+
+**Fixes to the chart's redundancy ceiling.** The API and worker Deployments set
+`replicas` unconditionally, so with an HPA enabled every `helm upgrade` reset
+the count and the HPA scaled it back — a scale-down flap per release; the field
+is now omitted while an HPA owns the tier. `web.replicaCount` shipped as a
+truthy `1`, so its documented fallback to the top-level `replicaCount` could
+never fire and a `values-prod` deploy rendered api=2, worker=2, **web=1** with
+no PDBs; the web tier now follows `replicaCount` and has a PDB of its own.
+
+**Graceful shutdown**, absent from all six workloads: per-tier
+`terminationGracePeriodSeconds` and `preStop` hooks, an optional API startup
+probe, and a bounded `visibility_timeout` (900s, was Kombu's 3600s default) so a
+worker killed mid-task is redelivered in minutes rather than an hour.
+
+**`migrate` is now serialized behind a PostgreSQL advisory lock.** It runs as a
+per-pod init container, so at `replicaCount >= 2` every pod ran it concurrently
+against one database with no concurrency control anywhere.
+
+**`values-prod.yaml` is a real template.** The 14-line stub rendered an Ingress
+on the literal placeholder host with no TLS block and no ingressClassName — it
+neither routed nor encrypted — and gave no hint of the eight other things a
+production operator had to supply. Also: the chart declares `kubeVersion:
+">= 1.23.0-0"`; the bundled Valkey sets `maxmemory` with `noeviction` (it is the
+Celery broker and Channels layer, so LRU eviction silently discards queued tasks);
+and the bundled PostgreSQL gains a PDB, a priority class hook, and a checkpoint-
+sized grace period. Closes #3188.
+**A Networking page: DNS, TLS, WebSockets through proxies, load balancing, health checks, and a ports matrix.** DNS appeared in four documentation files and "load balancing" in three; neither had a prerequisites section, a worked example, or a firewall table. `administration/networking.md` adds them: a zone-file example with `dig` verification; a **one origin, four variables** table binding `DOMAIN`, `ALLOWED_HOSTS`, `TRUEPPM_FRONTEND_BASE_URL` and `TRUEPPM_PUBLIC_API_BASE_URL` to the same value; a five-row TLS topology table stating per shape where TLS terminates, which headers must be forwarded, and who owns HSTS; complete cert-manager `ClusterIssuer` manifests for HTTP-01 and DNS-01 with the paired ingress annotations; bring-your-own-certificate paths for both Kubernetes and Compose; a proxy idle-timeout table naming the real knob for nginx, ingress-nginx, AWS ALB, GCP and HAProxy; a health-check table for external load balancers; and inbound/outbound port matrices covering every egress the product needs.
+
+**A documented topology that could never work is corrected.** The docs described serving the SPA and the API on separate hostnames. There is no CORS support in the codebase — no `django-cors-headers`, no `CORS_*` setting — so the browser blocks every cross-origin request regardless of the three settings that recipe named, which address CSRF, CSP and cookies rather than CORS. TruePPM requires a **single hostname**, and the pages that said otherwise now say so.
+
+**Fixed: the external-load-balancer nginx config overwrote your load balancer's `X-Forwarded-Proto`.** `nginx/app-http.conf.template` is the TLS-terminated-upstream shape, so `$scheme` is always `http` there — and it sent `X-Forwarded-Proto: http` on connections the user made over HTTPS. Django's `SECURE_PROXY_SSL_HEADER` therefore saw every request as insecure: secure-only cookies withheld, HSTS never emitted, and `TRUEPPM_SECURE_SSL_REDIRECT=true` turned into an infinite redirect loop. The three affected directives now read from a `map` that preserves an incoming value and falls back to `$scheme` when none is present, so a direct-to-nginx deployment is unchanged.
+
+Also documented, each verified against the code rather than assumed: **sticky sessions are not required** (the Valkey channel layer plus UUID-derived group names mean any pod can serve any socket); idle WebSocket connections survive 60-second proxy defaults only because of uvicorn's 20-second `ws_ping_interval`, and what that implies for a proxy that buffers pongs; GCP's `timeoutSec` is a hard connection lifetime rather than an idle timeout, so pings do not help there; `/api/v1/readyz` has **no trailing slash**; and the Helm web tier forwards neither `X-Forwarded-Proto` nor `X-Forwarded-For`, which matters the moment you route all traffic through it.
+
+Closes #3191.
+- **Backup & restore**: tested scripts (`scripts/backup.sh` / `scripts/restore.sh`)
+  take a single timestamped artifact — a `pg_dump --format=custom` of the database
+  plus local media — and restore it onto a clean stack, verifying the required
+  `ltree` and `pg_trgm` extensions survive the round-trip. The Helm chart gains an
+  opt-in backup CronJob (`backup.enabled`, off by default) with configurable
+  schedule, retention (`backup.keepDaily` / `backup.keepWeekly`), and a PVC or
+  S3-compatible destination. A new **Backup & Restore** administration runbook
+  documents manual backups on Compose and Helm, restoring onto a fresh stack, what
+  is and isn't captured (the Redis cache is excluded by design), and the
+  restore-drill cadence. A CI restore drill proves the procedure on every change.
+- Real-time WebSocket events now survive a reconnect: each event carries a monotonic sequence number, and a client that drops off reconnects with `?since=<seq>` to replay only the events it missed — instead of a heavy full refetch — recovering live schedule (CPM) updates that a plain refetch-on-focus would miss. If the gap is older than the retention window the client is told to resync. (#321, ADR-0236)
+- **Projects can now be created as drafts, making the Draft → Commit flow reachable.**
+  The New project sheet gains an opt-in **Create as a draft** checkbox, and the project
+  list, sidebar rows and cards now show a **Draft** marker. Previously `lifecycle`
+  defaulted to `active` and nothing in the product could set it otherwise, so
+  `POST /projects/{id}/commit/` answered `409 already_committed` for every project that
+  existed — the Draft pill, the Commit plan button, the confirm dialog and the
+  draft-exclusion rules were all shipping against a state no user could enter. The new
+  `start_as_draft` field on `POST /projects/` is create-only; `lifecycle` itself remains
+  read-only, so the transition stays server-owned (#3233).
+The `helm:install` deploy drill's celery worker control-plane ping check (#3236) now captures three additional diagnostics when the ping fails: `inspect ping` re-run from a separate pod (the api pod) to rule out the prober's own cgroup contention, the broker's pidbox binding registration (an exact-match lookup against the `_kombu.binding.celery.pidbox` Redis SET, keyed by this worker's `celery@<pod>` nodename) to tell "the control queue was never declared" apart from a reply that simply never arrived, and the worker container's cgroup `cpu.stat` throttling counters. A prior investigation reproduced the ping's failing precondition exactly but could not reproduce the failure itself in Docker or kind, so a real recurrence now needs these captures to make progress rather than restarting the investigation from the same evidence.
+A CI gate now fails the pipeline when a `request.data` read is not narrowed first. A top-level JSON array is a legal request body, so an unguarded `.get(...)` or `[...]` on one is a 500 where the caller is owed a 400 — a class repaired four times (#2126, #2213, #2795, #3278) with a complete manual sweep each time and nothing to catch the next instance. Membership (`"x" in request.data`) is treated as a read rather than a guard, because `in` also tests a list's elements and therefore passes for the wrong shape.
+Web rule numbers in `packages/web/CLAUDE.md` can now be reserved up front with `scripts/wt reserve rule`, the same way ADR and migration numbers already are. Two branches open at once could previously mint the same rule number — each correct alone, colliding only once merged, and git merges the two adjacent lines without reporting a conflict. Reservations are taken on demand rather than per worktree, since most branches add no rule, and `wt release-reservation` hands one back if you decide against it.
+- **Total float and free float are visible in the Schedule.** The engine has computed
+  both for every task since 0.1 and the API has returned both since; the web showed
+  total float in one place and free float nowhere. The Schedule outline now carries a
+  **Float** and a **Free** column — read-only, right-aligned, tabular figures — shown
+  by default on Waterfall and Hybrid projects and hidden by default on Agile ones,
+  with both toggles available on any project from **Display ▸ Columns**. A row the
+  scheduler has not reached shows an em dash rather than `0d`; a negative float reads
+  in the critical color, in bold, with its minus sign.
+- **The task drawer's Float cell reads free float too.** A `free 2d` chip sits beside
+  the total, and only when the two differ — they are equal for any task with nothing
+  downstream of it, and printing the same number twice in the narrowest cell on the
+  strip says nothing.
+- **The Table/Grid view can sort by either float.** The same two columns land on the
+  Flat and Grouped modes at `lg` and wider, sortable from their headers. Tasks with no
+  computed float sort last in both directions — an unanswered row is not the slackest
+  one. The Schedule outline itself stays unsorted on purpose: its row order is the work
+  breakdown structure.
+- **Both floats are in the task CSV export**, as `Total float (days)` and
+  `Free float (days)` appended after `Critical`. An uncomputed float exports as an
+  empty cell rather than a zero.
+- **The schedule PDF's KPI strip reports the tightest slack off the critical path.** A
+  sixth cell, `Float`, names the smallest total float among rows that are *not*
+  critical — the number that says whether the critical path is about to acquire a
+  second branch, which the existing "Critical path" cell (whose float is zero by
+  construction) cannot.
+The classification popover now says, **before** you apply a cascade, when your role will not be able to reverse it — "You won't be able to reverse this — a Project Manager can." Applying a cascade and undoing one sit on different roles, so a Team Member on the Schedule, or a Product Owner below Admin on the product backlog, could commit a batch nobody but a project Admin could replay and learn that only by never being offered an Undo. The note appears only for callers the server says lack the authority, and the success toast is unchanged. Projects now expose `can_undo_batch_operations`, resolved by the same predicate the undo endpoints enforce. `GET /programs/{id}/projects/` also stops reporting `my_role`, `my_role_label` and `can_author` as null/false for every caller on every row.
+- **`web:knip` dead-surface gate**: a new CI job runs [knip](https://knip.dev)
+  against `packages/web` so a module or export that nothing imports is reported
+  on every merge request instead of accumulating unnoticed. Config lives in
+  `packages/web/knip.jsonc`; run it locally with `npm run knip:strict`. The job
+  is blocking. Four rules with a backlog that predates the gate — unused files,
+  exports, exported types and duplicate exports — are staged at `warn`, so their
+  findings print in the job log without failing it, and each is promoted to
+  `error` as it reaches zero.
+- **The resolved quiet-hours timezone is now a server-reported fact for API
+  clients**: `GET /api/v1/projects/<id>/notification-preferences/` returns
+  `quiet_hours_timezone` (the IANA zone the stored window is read in) and
+  `quiet_hours_timezone_source` (`project`, `workspace`, `server`, or `fallback`).
+  The winning tier is not derivable from the stored values — a project and a
+  workspace set to the same zone look identical from outside. No UI reads them
+  yet; surfacing the zone on the Project → Settings → Notifications page is
+  tracked separately.
+- **Report-a-bug project size**: the in-product "Report a bug" dialog (#2392)
+  now includes the task count of the project you're viewing, when the page
+  already has it loaded — shown in the editable body, transmitted by nothing
+  automatically, and omitted (never reported as zero) when the count isn't
+  already cached.
+- **Schedule task-ceiling warnings**: the CSV/Excel import preview now warns
+  (without blocking) when committing the import would carry a project past the
+  Schedule's tested-comfortable size (~1,000 tasks) — naming the projected task
+  count and linking the deployment sizing guide. Opening the Schedule on a
+  project already past that line shows the same warning as a dismissible
+  banner, computed from the already-loaded task list with no extra request.
+  Both are pure UI: nothing is measured or transmitted anywhere.
+- **Quiet hours now say which timezone they are read in**: Project → Settings →
+  Notifications states the resolved zone under the **From** and **Until** selects,
+  and names the scope that decided it — "Times are in Asia/Tokyo — this project's
+  timezone" versus "the workspace default timezone" — so a member setting a
+  20:00–07:00 window can tell what those numbers mean and who to ask to change
+  them. Both time selects are described by the line for screen-reader users. The
+  window was already anchored to a project/workspace timezone server-side; only
+  the page never said so. Editing a project's timezone now refreshes the zone on
+  the Notifications page immediately instead of leaving the previous one on screen
+  for up to 30 seconds.
+- **Membership reinstatement evidence**: re-adding a project or program member
+  who was previously revoked now stamps a `reinstated_at` timestamp on their
+  membership row, in addition to the existing `joined_at` (first-join date).
+  Re-adding a revoked member kept their original `joined_at`, so there was no
+  server-side way to tell "joined once, never left" apart from "was removed
+  and later re-added" — `reinstated_at` is the discriminator, exposed
+  read-only on the project and program membership APIs (including the
+  `POST .../members/` create response) and on the offline sync deltas for
+  both rails. It is `null` on a fresh add and advances on every subsequent
+  revive.
+- **Role x route refusal oracle**: every (method, route, action) the API serves now
+  has its entry-gate verdict enumerated for seven principals — anonymous, an
+  authenticated non-member, and a Viewer / Member / Scheduler / Admin / Owner — and
+  checked in as a golden matrix. A permission gate that stops firing, or a new
+  endpoint shipped without one, now fails a test that names the route instead of
+  waiting for an audit. Internal test infrastructure; no runtime behavior change.
+- **Seeded Monte Carlo run history**: bundled sample programs that carry a
+  `forecast_history` block (Atlas, Helios, and now Bayside's Sitework &
+  Structure and GA's Platform Hardening & Scale) now also seed weekly
+  `MonteCarloRun` history derived from the same drift parameters, so the MC
+  history panel and top-drivers view are populated on a fresh load instead of
+  staying blank until someone clicks Run. Two new seed keys,
+  `mc_history_enabled` and `mc_history_attribution_audience`, turn the panel
+  on per program.
+- **Sample boards show continuous flow, real work-item types and every kind of blocker**:
+  Aurora's board carries a no-sprint kanban support lane over its WIP limit with cards
+  past their age threshold; bug, spike and tech-debt tasks appear across the samples;
+  and every blocker type (dependency, resource, vendor, decision, other) is raised
+  somewhere, with several still blocked on load (#3496).
+- **Bundled demo samples now carry a fully authored risk register.** Every
+  `MITIGATING` risk across the five bundled samples has a mitigation due date,
+  every risk carries at least one dated narrative note (a `risk.note` /
+  `RiskComment`), and every closed or resolved risk's note explains how it was
+  closed. All six sprint retrospectives now have a written summary and every
+  retro action item names an assignee and points. A new `retro.action` event
+  key, `notes`, sets the parent `SprintRetro`'s summary text and round-trips
+  through export (#3497).
+- **Sample teams have named Scrum Masters and Product Owners, skills, a recurring task and
+  subtasks**: seed schema 2.1 gains `project.team` (default-team name and SM/PO facets),
+  `resources[].skills`, `tasks[].skill_requirements`, `tasks[].recurrence` and
+  `tasks[].is_subtask`, all validated against the same rules the API enforces and
+  round-tripped by the v2 exporter. Every sample loads a recurring task and a roster with
+  skills, and every agile sample a story with subtasks and a team with both facets (#3498).
+Actual start and actual finish are now editable from the task drawer's new **Actual dates**
+section — the first place in TruePPM where a user can state or correct when work really
+happened. Both fields are validated: actual start may not be later than actual finish,
+neither may be in the future, and an actual finish may only be set on a task that is in
+review or complete (the scheduling engine reads a recorded finish as "done" and pins the
+task's dates to it). No completion path gains a dialog. See
+[Recording and correcting actual dates](https://trueppm.com/features/schedule/#recording-and-correcting-actual-dates)
+and ADR-1153.
+SSO provider administration and account linking are now recorded in the workspace audit log. Creating, updating, deleting a provider and rotating its client secret each write a row naming the admin, and a provider update carries a per-field before/after diff for the allowed email domains, auto-create setting, default role, enabled state, issuer URL, GitHub org, OAuth client id, and display name — never the client secret, in any form. An SSO identity binding itself to an existing local account now writes an `sso_account_linked` row; previously only the auto-create path left a trace. Successful logins are emitted on the `trueppm.auth` logger alongside the existing failure lines, carrying the user id, method (`password` or `sso:<provider>`), client IP, and whether the session was remembered. See ADR-1120 for why policy changes are rows and login success is a log line.
+- **Bundled samples now carry a collaboration layer (seed schema 2.1)**: every sample
+  loads with a program backlog (including items pulled into the task they became),
+  program ceremonies, acceptance criteria ticked by named reviewers, threaded review
+  exchanges with reactions and acknowledgements, decision notes for the Decisions
+  view, and logged time with weekly timesheet submissions. Atlas adds an audited
+  agent trail — reads, a computed schedule answer with its derivation, and one
+  refused write — for the agent-oversight panel; Aurora adds a live, revocable share
+  link. Seed schema 2.1 is additive: every 2.0 document imports unchanged, and the v2
+  exporter round-trips the new sections (#3490, #3491, #3492, #3493, #3603).
+- **Unified project changelog (Activity tab)**: every project now has an **Activity**
+  view — a single newest-first "what changed" feed that aggregates change history across
+  all project object types (tasks, sprints, risks, dependencies, recurrence rules, the
+  project itself, and its guardrail/privacy/decisions policies) into one stream. Filter by
+  object type, change type, date range, and user; scroll infinitely; copy a deep-link to a
+  filtered view to share in Slack; and click any row to jump to the affected object. Backed
+  by a new read-only endpoint `GET /api/v1/projects/{id}/changelog/` with a stable opaque
+  keyset cursor (no duplicates or gaps across pages, even under concurrent writes). The feed
+  is permission-aware — only project members can read it, `who` made a change is shown to
+  admins/owners only, and private fields (blocker reasons, CPM outputs) are never surfaced.
+- **Sync status badge**: a persistent, calm indicator in the app shell top nav
+  shows whether your edits have reached the server — `Synced`, `Syncing N`,
+  `Offline · N pending` (calm orange), or `Sync error` (red). Click it to open a
+  panel with the pending-write list, the last error, drain progress, when you last
+  synced, and a manual **Retry now**. Stays visible on mobile, where offline trust
+  matters most, and reflects the real client-side write queue.
+- **`GOVERNANCE.md` states how the project is run.** It names the maintainer, says how
+  decisions are made and recorded (issues first, merge requests with a green pipeline,
+  ADRs as the record), states plainly that maintainership is not yet open, describes the
+  open-core boundary and the CI checks that enforce it, and sets out what the Apache 2.0
+  license guarantees for released code (#3752).
+- **Documented API routes are now checked against the OpenAPI schema.**
+  `scripts/check-docs-api-routes.py` (CI `docs:api-routes`, `make pre-push`) fails when a
+  docs page names a `METHOD /api/v1/…` route that `docs/api/openapi.json` does not have,
+  unless the route is declared removed in `scripts/schema-removal-allowlist.txt`. Schema
+  operations the API reference does not mention are recorded in
+  `scripts/docs-api-reference-unlisted.txt` as a ratchet, so that gap can only shrink. Its
+  first run found `api/idempotency.md` naming `PATCH /api/v1/notifications/{id}/`; the
+  route is `/api/v1/me/notifications/{id}/` (#3753).
+The **Atlas Platform Launch** sample now loads with historical depth so the differentiator surfaces render on day one: 60 days of project forecast-trend history per project (the CPM finish and Monte Carlo band drift right while the commitment holds and total float goes negative), PTO ranges on the calendars for capacity reality, and a cross-project sprint commitment that trips the dependency-reality at-risk indicator. The seed format gains an optional per-project `forecast_history` block and per-calendar `exceptions`; no schema migration is required. A new [Sample project tour](https://docs.trueppm.com/getting-started/sample-project-tour/) documents the history and a go-offline walkthrough.
+Added `/incident-postmortem` and `/tracker-hygiene` harness skills. `/incident-postmortem` runs after a resolved harness/process incident (a red `main`, a milestone that overran unnoticed, a gate that stayed clean through something it should have caught) — reconstructs the timeline, separates root cause from contributing factors, checks whether an existing gate should have fired, and writes the lesson into the durable memory store rather than leaving it in a transcript. `/tracker-hygiene` is a lighter, repeatable sweep between `/dotplanning` kickoffs that flags `release::` scoped-label exclusivity violations, unlabeled issues in a dated milestone, likely-duplicate issues, and stale unmilestoned `direction` issues — report-only, never relabels or closes anything.
+- **Declared entrypoint for externally-sourced guardrail policies**: the
+  `external` source on a project's sprint-guardrail policy — the one that drives
+  the "Policy set by …" banner and the team-acknowledgement gate — is now
+  installed through a documented, validated API
+  (`trueppm_api.apps.projects.guardrail_policy_source`) rather than an
+  undocumented direct database write. The entrypoint refuses an unknown rule or
+  enforcement level and an unnamed policy source, and it can never acknowledge a
+  policy on the team's behalf: a changed policy always has to be acknowledged
+  again before its blocks enforce. Withdrawing an external policy restores the
+  project's own guardrail settings. No change to how guardrails behave in the
+  community edition, where no external policy source exists.
+- **Read-only MCP server scaffold** (`packages/mcp`): a standalone
+  [Model Context Protocol](https://modelcontextprotocol.io) server, `trueppm-mcp`,
+  that lets any MCP client (Claude Desktop and the like) connect to a self-hosted
+  TruePPM instance. Built on FastMCP, it talks to TruePPM only over HTTP via the
+  public REST API and authenticates with a project API token, so role-based
+  permissions are enforced once at the API layer. This first release boots,
+  verifies the token against the API, and exposes its tool list over stdio (primary)
+  or HTTP/SSE; the read tools land in a follow-up. Read-only by design. See
+  `packages/website/src/content/docs/administration/mcp-server.md`.
+- **Read-only MCP tools**: the standalone `trueppm-mcp` server now exposes a
+  read-only tool surface (ADR-0186) so any MCP client — Claude Desktop, Cursor,
+  Zed — can query a self-hosted instance's live data: projects, tasks, board
+  state, schedule and Monte Carlo forecasts, risks, sprints, "My Work", programs,
+  and the caller's identity. Every tool is a plain authenticated `GET` against
+  the public REST API, so answers are computed by TruePPM's own engine under the
+  caller's existing role-based permissions — never inferred by the model, and
+  read-only by construction. Results are compacted for an LLM context budget
+  (null/empty fields omitted, long text truncated), and the project and program
+  tools surface the caller's own role as `caller_role`.
+- **`my_role` on projects**: the project API now returns the caller's own role
+  (`my_role` ordinal and `my_role_label`) on list and detail responses, mirroring
+  the existing program field and backing the MCP `caller_role` passthrough. The
+  value is annotation-backed (a single subquery per row), so it adds no N+1.
+- **Ping everyone across a program with one `@mention`**: comments on a project that
+  belongs to a program now recognize four program-scoped auto-groups —
+  `@program-pms` (all Owners/Admins across the program's projects),
+  `@program-schedulers`, `@program-stakeholders` (the view-only audience), and
+  `@program-all` (everyone). They resolve at write time to the union of members
+  across every project in the program, deduplicated, so a program manager can reach
+  "all the PMs on Program Alpha" without listing each project's team by hand. The
+  `@`-autocomplete only offers them when the project is part of a program;
+  `@program-all` is Admin-gated like `@all`, and the same email/mute/quiet-hours
+  notification rules apply.
+- **Custom @mention groups per project**: Project Admins can now create named
+  mention groups — like `@subcontractors` or `@inspectors` — that notify a curated
+  subset of project members in comments, alongside the automatic role groups
+  (`@admins`, `@scrum-team`, …). Schedulers and above manage each group's roster,
+  any member can mute a group they don't want pings from, and the group's manager
+  chooses whether it emails members by default (off by default). Mentions snapshot
+  the member list at the moment they're written, so later roster changes don't
+  retroactively notify. Manage groups from Project Settings → Members. (ADR-0212)
+User-defined program-scoped `@mention` groups: a program Owner can curate custom mention groups (e.g. `@tech-leads`, `@vendor-x`) whose members span every project in the program, managed under Program Settings → Access. Groups are mentioned as a plain `@name` and resolve with member → project-group → program-group precedence, with a per-group email default and per-user mute (ADR-0248, #516).
+- **Your programs now survive going offline**: a new user-scoped sync endpoint
+  (`GET /api/v1/sync/user/programs/`) delivers your Program and program-membership
+  deltas to the offline store, so the program layer — grouping, membership, program
+  names — no longer vanishes when you lose signal. Previously only the `program`
+  badge on cached project rows survived; the program list itself was online-only,
+  collapsing to a flat project list on a job site. The endpoint mirrors the
+  project-sync delta protocol (cursor pagination, `server_version` watermark, and
+  tombstones for removed programs and co-members). Reads first — offline writes for
+  programs are a later follow-up (ADR-0070 §Sync).
+- **API token scopes**: project and program API tokens now carry a `scopes` list. Every existing token is backfilled to `legacy:full` (unrestricted, preserving current inbound-sync behavior), and a new read-only `mcp:read` scope can be minted for the upcoming read-only MCP server. An `mcp:read` token is confined to safe (GET) methods on the read viewsets it wraps and is rejected at every write path (inbound task-sync and acceptance-result ingest), while human sessions are unaffected. The token-create endpoint accepts an optional `scopes` field (default `["legacy:full"]`) and exposes the granted scopes read-only.
+Two read-only MCP tools: `get_release_forecast` (P50/P80 sprint counts and dates to clear a project's committed backlog) and `list_program_backlog` (a program's ranked intake pool). Both wrap existing member-gated OSS endpoints and persist nothing.
+Board offline support: card status changes (drag, "Move to…", or keyboard) made while offline now move the card immediately, show a per-card "Pending" badge, and are queued to a durable on-device store that survives a page reload. On reconnect the queued moves flush automatically with last-write-wins per card; if a card changed on the server while you were offline, your move is reverted to the latest and a calm toast explains why instead of silently overwriting the change. The board also renders from its last successful fetch when reopened offline. (#606)
+- **Versioned saved-state payloads**: board saved views now carry a
+  `schema_version` field, and stale saved-view configs are transparently upgraded
+  to the current shape on read through a forward-migration registry (ADR-0086).
+  This lets the config shape evolve after 1.0 without breaking already-saved
+  views. The `GET`/`POST`/`PATCH` board-view endpoints return `schema_version`,
+  and a mirrored registry ships on the web client for future web-persisted state.
+Daily stale-task detection: a nightly scan now nudges the assignee of any non-terminal task that has sat in the same status past the board's threshold (default 7 days), with a per-user "When a task you own goes stale" toggle on the notification settings page and a per-project `stale_task_threshold_days` setting. Repeat runs dedupe against existing unread nudges.
+- **Personal access tokens**: mint a user-scoped API token from **Settings → Personal access tokens** to authenticate scripts and tools as yourself over `Authorization: Bearer tppm_…`. Tokens carry exactly your permissions, support an optional expiry, are capped at 10 active per user, and are shown only once at creation. Changing your password revokes all of your personal tokens automatically (project and program API tokens are unaffected).
+Dead-letter triage write actions in the System Health console: **requeue** a parked task with an operator-chosen backoff (routed through the durable workflow backend, not a raw re-dispatch, so a broker outage can't silently lose it), **drop** it with an optional audit note (soft-remove — the record is retained), and **requeue all / drop all** over the current filter set (bounded). All actions are workspace-admin gated. (#695)
+- **OpenTelemetry foundation (opt-in)**: the API can now export distributed
+  traces and metrics to any OTLP collector (Grafana Tempo/Alloy, Jaeger, an
+  OpenTelemetry Collector, or a SaaS APM). Telemetry is **off by default** with no
+  default endpoint — set `OTEL_EXPORTER_OTLP_ENDPOINT` (env) or
+  `observability.otlp.endpoint` (Helm) to turn it on; when unset the provider is a
+  strict no-op with zero per-request cost. This release ships the provider
+  bootstrap, the opt-in configuration surface, and a stable `trueppm.*`
+  span/resource attribute convention (ADR-0223); business-logic spans arrive in a
+  later release.
+OpenTelemetry trace instrumentation (opt-in): spans for HTTP requests, database queries, Celery tasks (with trace-context propagation into the worker), WebSocket connections, and the CPM / Monte Carlo scheduling engine. No-op with no OTLP endpoint configured.
+OpenTelemetry native metrics (opt-in): request latency/count, Celery task duration, transactional-outbox depth/lag (`trueppm.outbox.*`), and PostgreSQL backend counts (`trueppm.db.connections`), exported over the same OTLP endpoint as traces. No `/metrics` scrape endpoint — bridge to Prometheus with an OpenTelemetry Collector. No-op with no OTLP endpoint configured.
+Writable workspace **Email & SMTP** configuration in Settings: choose a transport (TruePPM cloud, custom SMTP, SendGrid, or Amazon SES), set host/port/security, username, and an **encrypted-at-rest password** (Fernet — never returned by the API), plus From identity, reply-to, DKIM selector, delivery limits (max recipients, per-minute throttle), and a bounce webhook. Outbound mail (notifications, invites, password reset) now flows through the configured transport, overriding the server defaults when set. A **"Send test email"** action and a live **SPF/DKIM/DMARC deliverability** check confirm the setup, and every save validates the transport *before* persisting so a bad configuration can't lock the workspace out of email. Transport writes require the install operator; SSRF-guarded SMTP host and bounce URL. (#712)
+Sprints view: the "Advancing to Milestone" card now co-locates the hybrid bridge as one proof — the velocity-implied estimate beside the deterministic CPM finish, the change in scheduled finish since the last sprint close, an "if velocity holds" projection, and the milestone's confidence read — so a team can see at a glance that its velocity feeds the schedule.
+- **CSV / Excel import (API)** — import a `.csv` or `.xlsx` spreadsheet into an existing project. Column headers are auto-detected (case-, punctuation- and plural-insensitive) and every match can be overridden; a preview endpoint returns the detected mapping and the first ten parsed rows without persisting anything. WBS hierarchy is read from either a dotted outline column or indentation in the task-name column, and the predecessor column accepts MS Project shorthand (`3FS+2d`, `5SS`). Assignees are matched or created as project resources.
+- Every row-level diagnostic carries a `severity` that answers one question — did the row survive? A `warning` row imported with one field dropped or defaulted; an `error` row did not import at all. The two are counted separately (`error_count` / `warning_count`) rather than totalled, on both the preview and the result, so "seven tasks landed slightly lossy" is never confused with "a row of your sheet is missing".
+- Row-level problems — an unreadable date, an unreadable duration, an unresolvable predecessor — are reported by spreadsheet row number and the row still imports without that field. Only a structurally unusable file (no task-name column, unreadable bytes, or a cyclic predecessor column) is rejected outright, and a cycle is caught before anything is written.
+- Slash-formatted dates are disambiguated across the whole file — one unambiguous row (`13/04/2026`) settles the convention for every ambiguous one — and the assumed convention is stated in the import warnings rather than guessed silently.
+- New endpoints: `POST /api/v1/projects/{id}/import/csv/`, `POST /api/v1/projects/{id}/import/csv/preview/`, `GET /api/v1/projects/{id}/import/csv/{import_id}/`, and `GET /api/v1/import-templates/csv/` for a known-good template. Import requires the Scheduler role or above; preview is gated identically.
+- Operators can bound imports with `CSV_IMPORT_MAX_UPLOAD_MB` (10), `CSV_IMPORT_MAX_ROWS` (5000), and `CSV_IMPORT_MAX_UNCOMPRESSED_MB` (100) — the last guarding `.xlsx` decompression bombs, which XML hardening does not cover.
+A 3-step **CSV / Excel import wizard** on the project Schedule — **Project actions → Import from spreadsheet (CSV/Excel)…**. Upload a file, confirm the auto-detected column mapping, and import. The mapping step pre-fills every column from fuzzy detection so you confirm rather than map from scratch, blocks **Next** with a named reason when a required field has no column (a spreadsheet with no task-name column would otherwise import zero tasks), and re-checks a changed mapping against the server rather than guessing client-side. The confirm step names every column that will *not* be imported and counts rows that would be lost separately from rows that merely default a field. Partial success is presented as a result, not a failure: the valid rows land and the rest are listed by spreadsheet line number so they can be fixed at source.
+- **Self-service password reset**: users who forget their password can now recover
+  it themselves. A **Forgot password?** link on the sign-in page starts a five-screen
+  flow — request a link, check your email, choose a new password (with a live
+  strength meter and requirements checklist), done, and an expired-link screen. The
+  reset email carries a single-use link valid for 30 minutes. The request endpoint
+  returns the same response whether or not the address has an account, so it never
+  reveals which emails are registered, and both endpoints are rate limited.
+  Completing a reset signs the account out of every other device. Accounts that use
+  single sign-on are unaffected and see a hint saying so. Requires outbound email
+  (`EMAIL_*`) to be configured for the link to be delivered; administrators can still
+  reset a password with `manage.py changepassword` when email is unavailable.
+- **Compose a project's working calendar from several overlays**: a project's
+  non-working time for scheduling is now the overlay (union) of the calendars you
+  apply to it — a base project calendar, a reusable holidays calendar, and an
+  optional workspace/shutdown calendar. A day is non-working if *any* applied
+  calendar marks it so, and the CPM engine, Monte Carlo, and program scheduling all
+  honor the composed mask, so tasks no longer schedule straight through a holiday a
+  library calendar defines. A new **Working calendars** panel in Project Settings
+  lets a Scheduler apply and reorder calendars and preview the effective working
+  time day-by-day, with each non-working day showing *which* calendar blocked it.
+  Editing a shared calendar now also reschedules every project that applies it as an
+  overlay, not just as its base. Per-resource/PTO calendars, holiday-feed (iCal)
+  import, and cross-program calendar governance are not part of this release.
+- **Public GHCR image & chart publishing**: the 0.4 beta publishes the API and web
+  Docker images to `ghcr.io/trueppm/{api,web}` and the Helm chart to
+  `oci://ghcr.io/trueppm/charts` as the public pull path, in addition to the
+  internal GitLab registry mirror. GHCR is now a required release target — a
+  missing credential fails the release tag loudly instead of silently skipping.
+- **Mobile app scaffold (`packages/mobile/`)**: bare React Native app skeleton
+  (RN 0.81 + New Architecture, React 19, TypeScript strict) for the 0.4 mobile
+  track. Ships the 5-tab navigation spec (My Work / Time / Projects / Schedule /
+  Settings) with placeholder screens, design-token parity wired from the
+  canonical `packages/web/brand/tokens.json` (NativeWind + a typed `tokens.ts`),
+  and typed module boundaries for the deferred data, sync, auth, and API layers.
+  Adds `mobile:lint` and `mobile:type-check` CI gates (and matching `make`
+  targets) that run on the standard node runners. Native iOS/Android projects,
+  the WatermelonDB offline layer (#41), and the Detox e2e suite remain follow-ups.
+Project Admins can now independently show or hide the four leaf surfaces — Reports tab, Time Tracking (mobile), Baselines drawer section, and Monte Carlo forecast bar — per project, with each defaulting to the project's methodology preset and remaining override-able without affecting the underlying data or API endpoints (ADR-0193).
+- **My Work program identity**: each task row on **My Work** now shows a small
+  program identity square and the program name, so a contributor working across
+  several programs can tell at a glance which program a task belongs to. The
+  square is decorative and the program name is the accessible label; a task on a
+  project that isn't part of a program shows the neutral unset square with no
+  name. The `GET /api/v1/me/work/` rows gain read-only `program_id`,
+  `program_name`, and `program_color` fields (sourced from the task's project's
+  program; null for an orphan project), served without an extra per-row query.
+- **Project General now has a working-calendar picker.** The "Working calendar"
+  override on Project → Settings → General is wired: choose any org-level working
+  calendar to override the workspace work-week and holidays for a project, or press
+  "Inherit from workspace" to clear the override. Previously the "+ Override" button
+  was disabled and only a per-task workaround was offered (#968).
+- **One place for every file and link — the Assets surface**: a new **Assets** tab on
+  both projects and programs gathers every task's attachments and external links into a
+  single newest-first feed, so you can answer "what specs, PRs, and reference docs exist
+  across this work?" without opening tasks one at a time. Files and git/cloud links show
+  side by side with their provider glyph, live status, labels, and owning task. Filter by
+  kind (files/links), provider, or label; search titles and URLs; toggle a group-by-task
+  view; and page through with Load more — nothing is silently truncated. Program Assets
+  aggregates across the program's projects you can read (a project you're not a member of
+  never leaks its assets); cross-program rollups stay an Enterprise concern. Files never
+  expose their storage path — a download resolves a short-lived signed URL on click.
+  Read-only: adding and editing files/links still happens on the task itself.
+- **Monte Carlo what-if endpoint**: `GET /api/v1/projects/{id}/monte-carlo/whatif/`
+  runs an interactive, non-mutating forecast — perturb one task's duration
+  (`duration_delta` or `new_duration`) and get back the recomputed P50/P80/P95,
+  the deterministic CPM finish, whether the critical path changed, and the signed
+  deltas versus the current forecast. Everything is computed in memory and nothing
+  is persisted, so it is safe to call repeatedly. Single-project scope, readable by
+  any project member (Viewer+), and reachable by an `mcp:read` API token — it backs
+  the MCP `whatif` read tool ("ask Claude to slip a task and watch the forecast
+  move, computed server-side").
+
+### Changed
+- **Bulk task mutations now broadcast the affected task ids.** The
+  `tasks_bulk_mutated` WebSocket event from a bulk task operation now carries a
+  `task_ids` list of the created/updated/deleted tasks, matching the payload shape
+  emitted at sprint close, instead of an empty object (#1009).
+- **Schedule recalculation builds the WBS summary hierarchy in O(N) instead of
+  O(N²).** The children map that drives summary-task expansion previously rescanned
+  every task to find each task's parent by string equality; it is now a single-pass
+  index by `wbs_path`. The result is identical — this is a pure performance fix — but
+  removes the last superlinear step from the "Building schedule model" phase, which
+  was beginning to dominate recalculation on large (5k+ task) projects (#1011).
+Removed per-sprint and per-milestone N+1 query fan-out from the project forecast and the multi-team active-sprints lens: the remaining committed backlog is now one aggregate over all not-closed sprints, the latest forecast snapshot per milestone is one `DISTINCT ON` read, and sprint capacity is batch-fetched across every active sprint in a single query. Query count for both reads is now constant in the number of sprints and milestones.
+The offline sync pull endpoint is now cursor-paginated: a cold start (`since=0`) on a large project returns bounded pages (`next_cursor`/`has_more`) instead of one unbounded multi-MB response. Clients loop the cursor until the delta is drained.
+- **The two largest sync indexes now build without blocking writes.** The
+  `projects_task` and `projects_dependency` `(…, server_version)` indexes are
+  (re)built with `CREATE INDEX CONCURRENTLY`, so a rolling deploy that
+  provisions them against a populated database no longer holds a write lock for
+  the duration of the build (#1015).
+- **The program scope picker now labels uncolored programs with their initials.**
+  When a program has no accent color set, its identity tile in the scope-picker
+  list previously rendered as a blank neutral square, so every uncolored program
+  looked identical. The tile now shows the program's initials, keeping uncolored
+  programs distinguishable at a glance (#1051).
+Large project soft-delete now tombstones the project row synchronously and offloads the child cascade (tasks, dependency edges, sprints, risks, baselines) to a background Celery task, so deleting a 1000-task project no longer risks a request timeout or long-held locks. The project reads as gone instantly; the cascade drains asynchronously and is idempotent.
+Document the Apache-2.0 election for dompurify (transitive via jspdf, dual MPL-2.0/Apache-2.0) in `package.json`; add BSD-3-Clause verification comment for django-simple-history in `pyproject.toml`. `html-to-image` caret-pin and `cryptography` bound were already correct.
+- Raised sub-12px UI text to the design-system `text-xs` (12px) floor (rule 50) across board cards, sprint tables, backlog rows, the command palette, schedule build-mode chips, My Work, program/project backlog, reports, and the resource heatmap, improving legibility and WCAG conformance. The compact-density settings surfaces, the global status bar, and the external-links type chip retain their documented smaller sizes.
+Improved the OpenAPI schema for SDK generation: every operation now carries a human-readable `summary`, operations are grouped under meaningful resource tags (projects, sprints, scheduling, tasks, resources, …) with a top-level tag block instead of a single `v1` tag, the document declares a global `security` scheme with explicit `security: []` on public endpoints, and rate-limited endpoints document their `429` response.
+- **Consistent Save & Cancel on editable dialogs and drawers.** Editable
+  dialogs, drawers, and panels now share one commit/discard model: a footer with
+  **Save** (primary, disabled until a field changes) and **Cancel** (which
+  reverts to the original values), and an unsaved-changes guard that interrupts
+  when you dismiss with unsaved edits (Esc, backdrop, or close) instead of
+  silently keeping or throwing them away. A new shared `@/components/dialog`
+  primitive set (`useDirtyDraft`, `DialogFooter`, `useUnsavedChangesGuard`,
+  `UnsavedChangesDialog`) backs the pattern so new surfaces inherit it; the epic
+  and story detail drawers now build on it. Instant non-destructive toggles
+  (a lone switch whose change is the action) remain exempt and are documented as
+  such (#1361).
+- **Default cache backend is now Redis/Valkey (db 2):** the application cache, which
+  previously fell back to per-process local memory, is now backed by the same
+  Redis/Valkey instance already required for Channels and Celery (database 2; db 0 =
+  Celery, db 1 = the channel layer). This is required for the new SSO login state and
+  the API rate-limit throttles to be consistent across multiple worker processes.
+  Self-hosted deployments already running Redis/Valkey need no action; the local dev
+  and test settings continue to use in-memory caching and require no separate cache
+  service.
+Added reciprocal supersede banners to ADR files where the supersede relationship is real and in effect, completing the cross-reference chain for pairs involving ADR-0022/0062, ADR-0030/0070/0129, ADR-0050/0032, ADR-0061/0146, and ADR-0103/0126.
+Mobile bottom navigation now reaches every view. The phone rail caps at 4 primary tabs plus a "More" sheet holding the overflow, so Backlog, Risks, Reports, and Settings are reachable on mobile for the methodologies that show them — previously the rail hardcoded 9 items and dropped Backlog, Risks, and Reports entirely. Per-user hidden views (ADR-0139) now apply to the mobile rail as well as the desktop tabs.
+- **The sprint circuit is now co-located in the project view bar.** On Agile and
+  Hybrid projects the tab bar surfaces a dedicated **Sprint** group holding
+  Backlog · Sprints · Board so the daily circuit no longer crosses a group divider;
+  Waterfall projects are unchanged (Board stays in Track). Grouping is visual only —
+  routes, permissions, and per-user view customization are unaffected (ADR-0195).
+Speed up the Schedule/Gantt initial load: the task and dependency list endpoints now accept a `page_size` query parameter (capped at 500), and the client requests a large first page and fetches the remaining pages in parallel instead of walking the pagination cursor one round trip at a time.
+Board and Today views no longer re-render every card on drag-over, hover, focus, or search keystroke — cards, cells, and lanes are memoized so only the affected element updates.
+- **Schedule task list scroll performance**: memoized task rows no longer re-render on every scroll frame. The parent's stable collapse/expand handler is now passed straight through (via a task-id prop) instead of a fresh per-row closure, and row dates route through the shared cached UTC formatter instead of rebuilding an `Intl.DateTimeFormat` per row.
+- **Schedule task list sibling map**: the per-row sibling lookup used by the Duplicate action is now built in a single O(n) pass grouped by WBS parent path, replacing the O(n²) per-task filter that was recomputed on every task refetch and WebSocket schedule update.
+Gantt no longer re-walks the full timeline header on every scroll frame; the header/grid redraw is clamped to the visible window and skipped entirely on a vertical-only scroll.
+- **Monte Carlo forecast is ~2.3× faster at high run counts.** The
+  duration-sensitivity tornado is now ranked over a fixed subsample of the runs
+  rather than every run, so its cost no longer scales with the requested run count.
+  P50/P80/P95 percentiles still use the full distribution and are unchanged; only the
+  sensitivity ranking is subsampled, and it converges well within the subsample (#1525).
+Cut `schedule()` and `monte_carlo()` per-call overhead by removing two redundant hot-path costs at scale. Cycle detection no longer runs an eager `nx.find_cycle` on every call — the topological sort the engine already performs raises on a cyclic graph, so the expensive edge-DFS runs only on the error path to reconstruct the offending cycle for the message. And `schedule()` now shallow-copies its input tasks instead of deep-copying them: every `Task` field is an immutable scalar, so a field-level copy is semantically identical while skipping the recursive `deepcopy` machinery. On a 5,000-task / ~5,700-edge project this drops a full `schedule()` run from roughly 400 ms to under 100 ms with identical output.
+- **Sync upload write amplification**: the mobile sync upload now folds each row's `server_version` increment into a single `UPDATE ... RETURNING` and coalesces the per-row project watermark bump into one `Greatest` UPDATE per batch, removing thousands of redundant queries and row-lock re-acquisitions on a 500-task sync while preserving identical version and watermark outcomes.
+Removed the unreachable incremental schedule-writeback code path (`_downstream_task_ids`, the 25% affected-ratio threshold, and the `changed_task_ids` plumbing through `recalculate_schedule`). No dispatch site ever supplied a changed-task set — the `ScheduleRequest` outbox row carries only the project id — so this machinery could never run and every recalculation already performed, and continues to perform, a full CPM recompute and write-back. Behavior is unchanged; the engine-level incremental recompute designed in ADR-0027 remains tracked for a later release.
+Batched the CPM schedule writeback so `bulk_update` persists task results in 500-row statements instead of one project-wide UPDATE. On PostgreSQL an unbatched `bulk_update` collapses every task into a single statement built from per-field `CASE WHEN` chains, whose multi-megabyte SQL is slow to build, parse, and plan on large projects and pushed the schedule-trigger latency budget. Batching bounds each statement's size with no change to the persisted result — the whole writeback still runs in one transaction.
+Sped up the WASM CPM engine's calendar arithmetic. `Calendar::is_working_day` now binary-searches a lazily-built, sorted-and-merged exception index instead of scanning every exception range per day, so each day-check is O(log X) rather than O(X) across the forward, backward, and float passes. The float pass additionally counts working-day spans through a `WorkingDayCounter` built once over the schedule's date range — two binary searches per count instead of an O(span) day loop. This mirrors the Python engine's `_WorkingDayCounter`; output is byte-identical (the conformance suite passes unchanged), and any span outside the built range falls back to the exact scalar count. (#1534)
+Rewrote the WASM CPM engine to carry tasks in a dense `Vec<Task>` indexed by petgraph node position instead of a string-keyed `HashMap`, and to read each task's predecessors/successors directly from its graph edges instead of rebuilding a `Vec<String>` and rescanning edges per node. The forward/backward/float passes and the incremental drag-preview recompute now avoid per-node string hashing and allocation on the hot path. Output is byte-identical — the conformance suite (Rust output vs the Python engine's snapshots, plus incremental-vs-full cross-check) passes unchanged. (#1535)
+Relabeled the project presence indicator from "N online" to "N viewing" so the count can't be misread as availability, and added a tooltip and accessible description documenting the anonymity contract — it shows who's online, never who's editing what.
+- **Tablet health cluster**: the project health cluster now stays expanded with the P80 forecast inline at tablet widths (768–1024px) instead of collapsing to a "Health" dropdown, so schedule health and forecast numbers stay visible on a tablet. It collapses to the dropdown only on phones (below 768px).
+Resource heatmap no longer shows a permanently disabled "Level loads" Enterprise teaser button in the community edition. The `resources_heatmap.level_loads` extension slot now renders nothing when no override is registered, matching the adoption-first rule that Enterprise extension points stay empty in OSS. Enterprise still injects its own button when installed.
+Replaced the login page's dead "Request access" control with honest copy directing new users to ask their workspace admin for an invite. TruePPM is self-hosted and invite-based, so there is no self-service signup and the old link pointed at a nonexistent `/signup` route.
+- **Project view groups**: the methodology-adaptive "Sprint" view group is now labeled
+  **Deliver**. The group still co-locates Backlog · Sprints · Board on Agile/Hybrid
+  projects; only the header wording changed so it no longer collides with the "Sprints"
+  view inside it and no longer imposes agile terminology on Hybrid/Kanban workspaces (the
+  configurable iteration term — Sprint/Iteration/Cycle/PI — stays on the view, never the
+  group header). Customize Views and per-methodology visibility are unchanged (ADR-0203).
+Restructured the left navigation rail into three role-scoped tiers: **You** (your identity plus My Work, Timesheet, and Inbox), **This project** (the active project's views, grouped by Plan / Deliver / Track / People and adapted to its methodology), and **Jump** (the command-palette search and a "Browse projects and programs" switcher that houses Resources, the Programs tree, and standalone projects). Off a project, the middle tier shows your pinned projects instead of a view list. The project view rows are generated from the same source as the top-bar view tabs, so every view — including Activity and Assets — always appears.
+The top bar's left region is now a location switcher (Program › Project › Leaf): the program and project segments are searchable pickers, and the leaf is a plain "you are here" label — the left rail owns view switching. This replaces the former breadcrumb and the in-chrome project switcher, and removes the duplicate project view-tab strip from the bar (project views live in the rail).
+- **Project health chip**: the shell's health cluster is now a single, all-width
+  status chip that shows the project's worst-state health band (On track / At
+  risk / Critical), a health dot, and — where a forecast exists — the P80 completion date.
+  Clicking it opens a health popover with progressive disclosure: the Monte Carlo
+  forecast band (P50·P80), at-risk and critical-path task drills, and the sprint,
+  points, and velocity reads for the project's methodology. This replaces both the
+  always-inline segmented cluster and the separate phone-only "Health ▾" dropdown
+  with one control at every screen width, keeps the team-private velocity wall, and
+  is keyboard-accessible (Escape closes the popover and returns focus to the chip).
+The React Query devtools panel is now off by default in development and is opt-in via the `VITE_REACT_QUERY_DEVTOOLS=true` environment variable, so it no longer occupies screen space unless you are debugging query-cache state.
+- **The community sidebar no longer shows a disabled "Portfolio rollup" teaser.** The
+  cross-program Portfolio rollup is Enterprise, and the rail is the OSS daily path, so
+  it now renders through an empty `nav.portfolio_section` extension-point slot —
+  nothing in the community edition — instead of a padlocked, grayed-out row. Discovery
+  of the Enterprise portfolio moves to the `/programs` seam (rule 231 / ADR-0266) (#1677).
+Slimmed the top bar's right cluster (shell redesign v2): **Customize views** now lives in the left rail's "This project" band, the **current-sprint jump** folded into the project-health popover's sprint row (with a row per team when you run several), and the **methodology** shows as a subtitle on the project picker and the rail's project card instead of a standalone tag. Nothing became harder to reach — the ⌘K "Current sprint" action still works everywhere.
+- **The exported schedule PDF now flags overdue work, distinguishes met vs pending
+  milestones, and explains every mark.** Overdue tasks (past their finish and not
+  complete) show a red past-due flag and a dashed overrun tail to the data date; behind-
+  schedule bars carry a diagonal hatch; milestones render filled when met and hollow when
+  pending (a red-outlined hollow diamond with a "!" when overdue); faint dotted row-guide
+  leaders connect each activity label to its bar; and the legend is expanded into Bars /
+  Links / Markers groups covering dependency lines, overdue, progress, and the data-date
+  line. Every state is encoded by shape or texture as well as color, so the report stays
+  legible in grayscale and for color-blind readers (#1686).
+Replaced functional status/affordance emoji (warning, lock, target, chart, pin, disabled) and the file-type icons across the app with consistent house-style SVG icons, so they inherit theme color and render identically on every platform. Content emoji (comment reactions, the team-health mood scale) are unchanged.
+The Schedule Gantt now paints normal task bars in the brand blue and summary bars in a brand neutral, instead of off-brand default colors, and the legend's "Task (progress)" swatch finally matches the bars it describes.
+Grouped the Schedule (Gantt) toolbar into Time / Show / Actions clusters to reduce clutter: the view/render filters and column-visibility toggles now live in a single "Display" popover (with an active-filter count badge), and Export/Share moved into the actions menu. The toolbar now shows at most six controls at once and stays on one row at every width.
+- **External-link & attachment provider glyphs**: the per-host provider emoji (🐙 🦊 📂 …) on task attachment rows, the External Links section, and the Assets list are now house SVG marks — a folder mark for cloud file-storage links and a neutral external-link mark for every other link. No third-party brand logos are shipped, so there is no new icon dependency; the hostname text and status/type badges still carry the provider's identity.
+Replaced three remaining functional emoji glyphs with house SVG icons: the 🔗 link glyph on the dependency popover and the external-links empty state now render the `LinkIcon`, and the board card column-aging chip renders the `ClockIcon` instead of ⏱. Continues the functional-glyph → SVG sweep (#1739) so status/affordance icons render consistently across platforms and themes.
+- **The pictographic UI glyphs are now house SVG icons.** Attachment chips in the
+  comment thread, the file and folder marks in the import dropzone, the note-freshness
+  stamps on the board card and schedule row, the decision markers on notes and in the
+  Decisions view, the "doesn't repeat" recurrence empty state, the sprint-review demo
+  stars, and the agent-verdict marks across the Agents tab all render as icons from the
+  house set rather than emoji. Icons inherit the surrounding text color and stay
+  consistent across platforms, where emoji were rendered by each operating system's own
+  font at its own weight and size (#1749).
+Replaced the ✓ / ✗ / ✎ functional status glyphs with house SVG icons across the board activity feed, schedule external-links editor, and the workspace Email, SSO, and signal-privacy settings — success/failure now render `CheckIcon`/`XMarkIcon` and edit affordances render `PencilIcon`, inheriting theme color and rendering identically on every platform. Continues the functional-glyph → SVG sweep (#1739). Content emoji (comment reactions, the team-health mood scale) and the ✕ dismiss controls are unchanged.
+- **Check marks across the app are now house SVG icons instead of the `✓` emoji.** Every
+  place a check stood in for a UI icon — copy-to-clipboard confirmations, menu and filter
+  selections, sprint goal and acceptance-criteria marks, the healthy-CPM chip, toast
+  success pills, "in sprint" and "my allocation" toggles, import and export success
+  states — renders a design-system icon that inherits the surrounding text color and
+  stroke weight. The emoji rendered inconsistently across platforms and fonts (flat vs.
+  glossy, mismatched metrics) and could not be tinted, so it read as an off-brand mark.
+  Radio-style menu rows now use a dot and partially-met sprint goals a half-circle, so
+  the *shape* distinguishes the states rather than color alone. User-chosen content —
+  comment reactions and the team-health mood scale — deliberately stays as emoji (#1749).
+- **Board card health badges now render house SVG icons instead of emoji.** The
+  worst-offender badge — blocked, stale, critical path, behind on earned value —
+  drew its glyph from whichever emoji font the platform supplied, so the same
+  card showed a different mark on macOS, Windows, and Android, and a
+  missing-glyph box where the font had no coverage. The badge now uses
+  design-system icons that are identical everywhere and inherit the badge's
+  semantic color; each still pairs with its visible word, so meaning never rests
+  on the glyph alone (#1749).
+- **The remaining functional glyphs are now house SVG icons, completing the sweep.**
+  Dismiss and close controls, milestone diamonds, selection and status dots, the
+  Gantt and queue row menus, the board and project activity feeds, the board lens
+  banners, notification empty states, and "opens elsewhere" affordances all render
+  from the shared icon set, so they inherit the surrounding text color, match the
+  design system's stroke weight, and look identical on every platform and font.
+  Selection dots gained a filled/hollow pair drawn from one component, so the two
+  states are finally the same size and optical weight — two separate glyphs never
+  guaranteed that. Emoji stay where they are content rather than interface: comment
+  reactions, the team mood scale, and provider brand marks (#1749, #2480).
+Committing a phase (a task that rolls up real child tasks) to a sprint is now a hard block: the API rejects it with `400 phase_in_sprint_forbidden` regardless of the project's guardrail policy — it can no longer be escalated or relaxed by a project Owner — and the sprint picker no longer offers a phase as a target. Assign the tasks inside the phase to the sprint instead. Leaf tasks decomposed into drawer subtasks remain a legitimate, warn-only case.
+Top-bar presence avatars now match the approved identity design: 24px circles in the canonical avatar treatment, tighter stack overlap, and a cap of 2 visible viewers plus a "+N" count. The user menu groups personal settings (General, Notifications, Personal access tokens) under a "Personal" header.
+- **Scheduler now rejects inputs that scheduled differently across the Python and
+  WASM engines** (#1817, #1818, #1826). Three classes of input were previously
+  *accepted* but produced a different schedule offline (WASM) than on the server
+  (Python), silently changing the plan when a user went offline/online:
+  - **Duplicate `(predecessor, successor)` dependency edges** — Python kept only the
+    last, the WASM engine applied all. Now both reject a duplicated pair; declare a
+    single relationship per task pair.
+  - **Sub-day (fractional) task durations and dependency lags** — Python floored,
+    the WASM engine rounded, and a sub-day lag could even place a late date before an
+    early one. Durations and lags must now be a whole number of days in both engines.
+  - Plus four validation limits the Python engine enforced but the WASM engine did
+    not (calendar exception-count cap, far-future start-date guard, `working_days`
+    restricted to a 7-bit mask, and inverted calendar exception ranges) — the WASM
+    engine now rejects them identically.
+
+  If you have stored a project with duplicate edges or fractional durations, it will
+  now return a clear validation error instead of a silently-inconsistent schedule.
+- **WASM scheduler drag preview**: the `SchedulerSession` recalc path no longer
+  deep-clones every task or serializes a JSON string on each animation frame. A new
+  typed-array result (`recalcTyped` / `recalcIncrementalTyped`, returning columnar
+  `Int32Array`/`Float64Array`/`Uint8Array` views indexed by a stable node order, with
+  dates as epoch-relative day ordinals) replaces the per-frame JSON serialize +
+  `JSON.parse`, and a session-resident scratch buffer removes the ~10k-allocation
+  per-frame task clone at 5k-task scale. The JSON `recalc`/`compute_schedule` entry
+  points are unchanged. See ADR-0371.
+Derivation explanations (`derive_value`) no longer rebuild the full dependency graph per explained value — a single filtered scan gathers only the edges incident to the target task, cutting ~14 ms and ~10 MB of transient allocation per call on a 5,000-task / 10,000-dependency project (~28x faster with a prebuilt schedule result). Output is unchanged.
+- **Monte Carlo edge loop no longer allocates a zeros vector per lag-free
+  edge.** Lag-free FS/SS/FF dependencies (the dominant edge kind) now feed the
+  predecessor anchor directly into an in-place `np.maximum` instead of
+  materializing a runs-sized zeros array, a no-op add, and a fresh maximum
+  result per edge — roughly halving the per-edge cost of the constraint loop
+  and eliminating ~2.4 GB of cumulative allocator traffic on a 10,000-edge x
+  10,000-run simulation. Adding zeros is exact in float64, so simulation
+  output is bit-identical (#1860).
+The per-task activity feed now consistently shows the actor (who made each change) to
+all project members, aligning it with the board activity feed. This resolves a policy
+conflict where the endpoint's documented behavior (hide the actor below Admin) did not
+match its implementation or the board feed. (#1881)
+- **Roadmap now describes the 0.4 observability metrics story accurately.** The 0.4
+  OpenTelemetry entry no longer promises a first-party "Prometheus scrape endpoint
+  out of the box." TruePPM exports telemetry over OTLP only; Prometheus-native
+  stacks scrape it through an OpenTelemetry Collector prometheus exporter, matching
+  the administration observability guide (#1897).
+- **SSO test coverage**: added unit coverage for the `discoverSso` login helper's
+  always-resolves degradation contract and extended the E2E suite with the admin
+  Test-connection probe, save flow, Disable-SSO confirm dialog, and the
+  `invalid_state` / `sso_not_configured` / bootstrap-failure completion states.
+- **Behavior-specific test backfill (0.4 test debt)**: added the exact
+  regression tests that seven 0.4 issues named in their acceptance criteria but
+  shipped without. No product behavior changed — these lock down existing
+  behavior: 375px touch-target geometry for the scope-injection dismiss and the
+  schedule guardrail notice/block controls (#1801); the TopBar "me" identity
+  divider (#1736); the idle Gantt `requestAnimationFrame` loop parking itself
+  when nothing is dirty (#1569); dependency arrows staying intact through a
+  drag-preview reschedule (#1499); the React Query devtools panel staying gated
+  behind `VITE_REACT_QUERY_DEVTOOLS` (#1674); and a peer's `task_updated` frame
+  syncing to a workshop participant's board over the live channel (#1311). Also
+  backfills the changelog fragment #1685 shipped without.
+- **Per-route document titles are now set at the router level**: every route
+  declares a `title` via its route definition, and a single router-level
+  component keeps `document.title` in sync on every navigation. Previously
+  only Schedule, Board, and Resources set a descriptive title (from #1327's
+  accessibility fix); every other route — Overview, My Work, Programs,
+  Settings, Reports, and more — now gets one too, so screen-reader and
+  browser-tab users always see a meaningful page name.
+- **Rail identity + Notifications badge**: the left rail's "You" card now shows the current project role under the user's name (reusing the same `role_label` the settings team/member rows render), and the Notifications row now carries an unread-count badge sourced from the same count that drives the topbar bell.
+Program view navigation (Overview, Backlog, Projects, Schedule, Resources, Members, Assets, Settings) now lives in the left rail's "This program" tier — the program analog of the existing "This project" tier — and the redundant `ProgramTabs` strip has been removed from the top bar. The rail is now the single navigation home for both project and program views, and program views are reachable on mobile through the rail drawer for the first time.
+- **Session-expired escape hatch**: the "your session expired" banner was
+  previously an unescapable, focus-trapped modal — a user whose session
+  expired could not even look at content the app already had cached in
+  memory before re-authenticating. It now offers a "Continue viewing
+  (read-only)" action that releases the focus trap and swaps the modal for a
+  slim, persistent, non-blocking banner so already-loaded read-only content
+  stays reachable. Writes remain blocked while read-only: attempting one
+  re-opens the blocking sign-in prompt instead of firing an unauthenticated
+  request or failing silently.
+- The compact board-card density now reads as a clean single-line bar: the worst-offender badge shows just its glyph (its meaning stays on hover and for screen readers) so the task title gets the full width, and hovering a bar reveals the full task name. The Card density menu now shows a small layout preview beside each option so the compact "bar" view is easy to discover.
+RiskRegisterView now uses the shared QueryErrorState (fill variant) for its load-error surface instead of a bespoke error block.
+The task Activity timeline now shows what a schedule recalculation moved — the number of tasks that shifted and how far the project finish slipped or pulled in — with a link to view the change in the schedule.
+- **Faster local API image builds**: `make up` / `docker compose build` no longer
+  compiles psycopg's C extension from source. The api Dockerfile now takes a
+  `PSYCOPG_EXTRA` build arg (default `c`), and docker-compose sets it to `binary`
+  so local dev installs the precompiled psycopg wheel — cutting a cold api build
+  by ~4 minutes. Published/CI images omit the arg and keep the hardened
+  `psycopg[c]` driver unchanged.
+The board toolbar now has a dedicated **Columns & WIP limits** button that opens the column settings panel directly. Previously the only way to set a column's WIP limit was through the "⚙ Columns…" item buried in the ⋯ More overflow menu, so schedulers often couldn't find where to configure WIP limits.
+Story-point estimates are now available on **every** project methodology, not only projects with agile features. Any task can carry a point estimate — the "Pts" input appears in the task form and the `N pts` badge shows on board cards regardless of methodology, while sprint assignment remains agile-only. Estimates set when creating a task are now persisted (previously dropped on create).
+- **Capture-first backlog inbox**: the Board's Inbox · Backlog rail now leads with a
+  capture field — type an idea and press Enter to add it to the backlog, and the field
+  clears so you can fire off ideas in a row without reaching for the mouse. Search is
+  demoted to appear only once the backlog is large enough to warrant sifting (the ⌘K
+  command palette still searches everything). This replaces the old top field that read
+  "Search or capture an idea…" but only ever filtered — typing never created a card. The
+  richer create flow (assignee, description, dates) stays one tap away on **Add with
+  details…**.
+- **The task detail drawer now saves name and description edits behind an explicit
+  Save / Cancel bar instead of auto-saving on blur.** Editing a task's name or
+  description stages the change and reveals the shared Save/Cancel footer used
+  across the app; closing, pressing Esc, or expanding while there are unsaved
+  edits prompts an unsaved-changes guard rather than silently saving, and Cancel
+  reverts to the last saved values. Status, progress, assignees, labels, and the
+  drawer's other sections continue to save immediately as before (#1977).
+The desktop task detail drawer is now a true non-modal inspector: the Gantt and board behind it stay live and clickable, and clicking another task swaps the drawer to it without closing. If you have unsaved name/notes edits when you click away, a guard offers Keep editing, Discard & open, or Save & open — clean swaps are instant. Closing the drawer now returns keyboard focus to where you were. The mobile bottom sheet is unchanged.
+- **The Board now leads with the Kanban columns, not the burndown chart.** The sprint
+  panel is collapsed by default for every role, so the board's cards sit above the fold
+  on open — the surface the team works during standup. The sprint header keeps the
+  at-a-glance signals (committed points, WIP, "N on critical path") plus a compact
+  burndown sparkline; the full burndown is a pull-on-demand disclosure inside the panel,
+  and its full analytical view (with a sprint selector) now lives on **Reports → Metrics**
+  (#1983).
+In the task detail drawer, the three-point estimate (Optimistic / Most Likely / Pessimistic) now stages behind the same Save/Cancel bar as the task name and notes instead of saving each field on blur — one edit, one save. The PERT expected/σ preview updates live as you type, each unsaved field shows a "•" marker, and Cancel reverts. An out-of-order estimate (which the server rejects) blocks Save with a clear message. On the full-page task view the estimate fields still save immediately.
+The bundled sample projects are richer: **Bayside Civic Center** is now a two-project waterfall *program* (Sitework & Structure + Building & Fit-out) joined by cross-project dependencies — including a negative-lag lead — with a Contract baseline superseded by a change-order **rebaseline**; and **all four samples** (Atlas, Aurora, Bayside, Helios) now ship a label catalog and tag their work with it (security, cutover, critical-path, migration, and more) so the board and schedule label filters have something real to slice on.
+- **Settings section boundaries are now easier to scan.** On the consolidated
+  settings page (workspace, program, and project scopes) the divider between two
+  sections is now ranked by generous negative space and a heavier 2px rule, so a
+  section break reads as a clearly higher-order boundary than the hairline dividers
+  between field rows inside a section — instead of both looking like the same faint
+  line (#2007).
+- **Project and program Visibility setting is now disabled with a "not yet
+  enforced" note.** The WORKSPACE/PRIVATE control was stored and rendered but
+  authorization never read it — access is membership-scoped for every project and
+  program regardless of the value, so PRIVATE promised a distinction that isn't
+  implemented. The control in Project/Program → General settings is now shown
+  disabled with a "Coming soon — access is currently membership-scoped" note to
+  avoid false assurance. Real enforcement is tracked as a follow-up (#2011).
+- **Settings sub-pages share a consistent body inset.** Several settings
+  sub-pages used a narrower or asymmetric padding, so the content visibly shifted
+  as you scrolled between sections; their body wrappers are normalized to the
+  standard `px-6 pb-8` inset (and the project Members list is no longer
+  center-aligned unlike its siblings). The workspace integrations empty state also
+  uses the shared button component (#2024).
+- A new program can now be created with its lead set in a single request — the creator may assign themselves as lead at create time instead of needing a second save. Assigning any other user as lead at create is rejected (they are not yet a member).
+- Program detail and list responses now expose the read-only rollup config (`rollup_enabled_kpis`, `rollup_aggregation_policy`), so generic GET and MCP readers can see a program's KPI/aggregation settings without a second call. Writes remain on the dedicated `/rollup-config/` action.
+- The SSO provider write endpoint now rejects `allow_password_signin` with a clear validation error in the community edition (enforcing password sign-in on/off is an Enterprise-governed setting), instead of silently accepting a value it never honors.
+- Internal hygiene: dropped the dead `Project.agile_features` column (the API value is derived read-only from the effective methodology) and documented that `Program.code` / `Project.code` are intentionally non-unique.
+- Program backlog: tags are now entered through a searchable combobox that lists existing program tags and offers a **Create "…"** option for new ones, replacing the free-text field. Tags are committed with Enter, comma, or by picking a row; a typed-but-uncommitted entry is no longer added automatically when you click away.
+- Program backlog: the Story points field now appears only for estimable leaf work items (Story, Task, Bug, Spike, Chore) and is hidden for containers (Epic, Feature).
+The task delete confirmation now quantifies its blast radius, naming the number of subtasks and dependency links that will be removed alongside the task instead of a generic "will be permanently removed".
+Unified all full-screen modal and slide-out panel scrims on the `bg-neutral-overlay` design token (rule 8d), replacing the ad-hoc `bg-black/50`, `bg-black/30`, and `bg-black/20` weights that had drifted across ~25 dialogs (#2056).
+Settings and status controls that a below-role user cannot edit now show the effective value with its provenance ("View only · managed by the program admin") instead of a grayed-out disabled input. Disabled form furniture read as broken and announced dimmed, reasonless controls to screen readers; the read-only indicator makes both the value and who owns it clear (ADR-0133).
+Unified the keyboard-shortcuts help: the global shortcuts modal now documents previously-omitted wired bindings (save, zoom & fit, pan, build-mode reorder), a global `?` hotkey opens it from anywhere, and it cross-links the Board and Schedule build-mode cheatsheets.
+- **Workspace Roles page role-summary cards use consistent spacing.** The role
+  summary cards wrapper was normalized from `px-6 py-4` to `px-6 pt-2 pb-4` so the
+  cards no longer over-pad above and below, matching the mid-page spacing of the
+  other settings sub-pages (follow-up to #2024, which missed this page) (#2069).
+Hoisted side-effecting HTTP calls out of `assert` statements in four test modules so the requests still fire under `python -O` (CodeQL Code Quality).
+- **Task names on the Schedule chart are readable in dense dependency chains.**
+  On-canvas labels now paint a paper-color halo so crossing dependency lines pass
+  under the text instead of striking through it, hovering a row highlights the same
+  row across both the task table and the timeline, and Timeline mode gains an
+  "Aligned left" name placement that renders task names in a fixed, row-aligned left
+  gutter (chosen from the Display menu) — giving the full-width timeline the
+  left-hand alignment of the table without bringing the table back.
+- **Schedule task-name placement is now remembered separately for Grid and
+  Timeline.** The Display → Chart "Task names" placement (next to bar / aligned
+  left / hidden) is tracked independently per view, so hiding the redundant
+  on-bar name in Grid (where the task table already shows it) no longer strips
+  labels off the bars in Timeline (where the canvas is the only place names
+  appear). Timeline defaults to "next to bar"; for a brand-new user with no saved
+  preference, Grid defaults to "hidden". Each view's choice persists across
+  navigation, and any existing preference carries over to both views on first
+  load (#2107).
+Single sign-on now supports **multiple identity providers at once** and adds **GitHub** sign-in. Providers are configured from Workspace settings → Single sign-on by picking a type — Google, Microsoft Entra ID, GitLab, Keycloak, Authentik, Zitadel, Okta, Auth0, generic OIDC, or GitHub — which pre-fills that provider's endpoints; the sign-in screen then shows a button for each enabled provider. Login federation is now backed by django-allauth's provider registry while TruePPM keeps its own hardened callback flow (SSRF-guarded egress, encrypted client secrets, unchanged redirect URI). Basic SSO remains part of the open-source core.
+- **SonarCloud coverage now reflects end-to-end-tested code.** The nightly Sonar
+  analysis previously imported only unit-test coverage (vitest + pytest), so web UI
+  exercised solely by Playwright E2E was counted as uncovered — pulling the reported
+  total far below the real figures (API 94% / web-unit 78.5%). A new nightly
+  `web:e2e:coverage` job builds an istanbul-instrumented bundle, collects
+  `window.__coverage__` per spec via a Playwright fixture, and imports the merged
+  LCOV alongside the unit reports. Day-to-day pipelines and the production build are
+  unchanged — instrumentation is gated behind `VITE_COVERAGE` and runs only on the
+  scheduled Sonar pipeline (#2117).
+- **Program overview KPI cards drill into the projects that drive them**: the program
+  overview's task-count and health KPI cards ("Critical tasks", "At-risk tasks",
+  "Schedule health") are now interactive — clicking one opens the program's projects
+  list so a program manager who sees "5 critical tasks" can go straight to which
+  projects contribute them instead of opening each project one by one. The "At-risk
+  tasks" card sorts the offending projects to the top. Real-zero and on-track cards
+  stay static, so a healthy program never shows a dead-end link.
+- **Blocked roll-up rows are now actionable**: each row in the Blocked triage panel
+  (project overview and sprint impediment list) links its task title to the task
+  drawer and its "waiting on" reference to the blocking task, so the person clearing
+  blockers can open the task straight from the list instead of hunting for it on
+  another surface.
+Comment reactions are now a real toggle and comments can be edited and deleted. Tapping 👍 again removes your reaction (the button carries `aria-pressed` and a reacted tint, mirroring the acknowledge control), and the comment action bar now offers author-window edit (15 minutes, matching Notes) and author-or-admin delete — closing the gap where a mis-posted comment was permanent and the reaction button was a one-way write.
+- **`trueppm-scheduler` bumped to `0.4.0b1`** for the 0.4 publish. The package
+  previously self-reported as `0.3.0a3`, so a 0.4 release would have shipped an
+  artifact whose version string did not match the announced version. The coupled
+  release artifacts (package changelog, `CITATION.cff`, README pin examples) move
+  with it (#2173).
+- **Duration-unit conversion for MS Project and Jira import/export now routes
+  through a single seam.** The nominal 8-hour working day used to convert
+  durations, lags, and estimates across the MS Project (MSPDI) and Jira
+  boundaries is centralized in `scheduling.units` instead of being duplicated as
+  bare literals in each adapter, so the planned move to a finer canonical unit
+  touches one place. The scheduler docs now note that the whole-working-day unit
+  is not a stable contract before GA (#2290).
+- **The SSO Add-provider picker is easier to scan.** The provider-type dropdown in
+  Settings → Workspace → Single sign-on now keeps **Generic OIDC** pinned at the top
+  and lists every named provider (Auth0, Authentik, GitHub, GitLab, Google, Keycloak,
+  Microsoft Entra ID, Okta, Zitadel) in alphabetical order, so admins can find their
+  identity provider at a glance (#2296).
+- **The Email & SMTP default transport is now labeled "Server default
+  (built-in)" instead of "TruePPM cloud."** The old label misrepresented the
+  self-hosted `EMAIL_*` env-config fallback as a hosted managed service; the
+  transport behavior is unchanged. The provider picker is also reordered —
+  Server default first, then Custom (generic) SMTP, then the branded presets
+  alphabetically (Amazon SES, Fastmail, Gmail, Microsoft 365 / Outlook,
+  SendGrid) (#2297).
+Workspace Settings now scrolls continuously through the **System** group: Observability and Retention & purge render their full forms inline, while System health and Trash appear as scroll-reachable landing cards that open the live console / trash list on their own route. Settings is also always findable — a role-aware gear in the sidebar footer, a `⌘,` / `Ctrl+,` shortcut, and command-palette entries (Workspace settings for admins, Personal settings and Trash for everyone).
+The task-detail drawer header now shows a clear, scale-aware estimate chip — "2.5 pts · Estimated" (or a T-shirt size, e.g. "M · Ready") instead of the cryptic unlabeled "· estimated" badge. A points-based (Agile/Hybrid) task with no estimate yet shows an amber "Unestimated" prompt; a Waterfall task, which estimates by duration rather than points, keeps its plain readiness chip and is never mislabeled as unestimated. Part of the Task-Detail Drawer v2 redesign (#2315).
+The task-detail drawer's Details tab now opens with an inline "Recent changes" audit trail — the last 3 activity entries (who changed what, and when) — so you can see a task's recent history without switching to the Activity tab, with a one-click "Activity →" to see the full timeline. Part of the Task-Detail Drawer v2 redesign (#2315).
+The task-detail drawer's Details tab now uses progressive disclosure: optional sections that are empty for the task (Sprint, Blocker, Dependencies, Estimates) are folded behind a single "Add detail" affordance instead of rendering a wall of empty collapsed headers, and sections with content are shown directly. Clicking an "Add detail" entry reveals that section, ready to fill in. This is the next slice of the Task-Detail Drawer v2 redesign (ADR-0605).
+Task-detail drawer: the "Related tasks" and "Recurrence" sections now fold behind the
+"Add detail" row when a task has neither, completing progressive disclosure — the
+Details tab no longer shows any empty section header. Tasks gain two read-only API
+fields, `has_related_links` and `has_recurrence`, so the drawer can tell those sections
+are empty without fetching their contents.
+- **Settings search understands more of your words**: the settings rail filter and the
+  ⌘K *Settings* group now match a wider set of synonyms, so operator and compliance
+  vocabulary lands on the right section instead of dead-ending — "exporter", "grafana",
+  "prometheus", or "otel" find *Observability*; "readyz", "healthz", "liveness", or
+  "probe" find *System health*; "residency" and "dsar" find *Retention & purge*; and
+  "relay", "starttls", or "mx" find *Email & SMTP*.
+The task-detail drawer now shows a visible "computed" qualifier beside an auto-calculated Start date, alongside the existing dotted underline. Previously the "this date is calculated by the scheduler, not committed" meaning lived only in a hover tooltip, so on touch — and to anyone not hovering — the cell still read as a committed date and quietly contradicted the "no committed start" advisory below it.
+The project Overview's second KPI section is no longer called "More metrics" — a header that named a leftover rather than a category. It now states the verdict about its contents: "Holding steady" when every demoted metric is calm, "Also needs attention" when one is not. The heading is derived rather than fixed because the section is the lower-severity tail of a ranking, so a subject label would go stale the moment a fourth metric turned critical.
+Board cards stop spending vertical space on content that carried no signal. Three changes:
+
+- **Task references are readable.** Cards showed the raw stored identifier — `00000008`, `0000000A` — a zero-padded hex string that read as an internal id rather than "the eighth task", and not the project-code prefix Settings → General promises. Cards (and printed boards) now show `ENG-2026-8`, or `T-8` where a project has no code. The reference is formatted server-side, so web, mobile, exports, and MCP clients cannot disagree; the stored value is unchanged.
+- **A readiness chip true of every card is hidden.** Readiness is a comparative signal, and "everything is `baselined`" is the steady state of any project past planning — so the chip appears only once two states are in play. The left accent bar still carries readiness.
+- **The dwell line says what it measures.** `Entered at 100% · 42d ago` named neither the event nor what the percentage was of; it now reads `42d in this column · 60% done`, with the progress clause dropped at 0% and 100%.
+`trueppm-scheduler` now documents how to read its output. The README gained an **Interpreting the output** section stating that `schedule()` returns a deterministic, optimistic single date while `monte_carlo()` returns the distribution it sits in, and the CLI labels each percentile with its reading (P50 midpoint, P80 commitment, P95 external deadlines) instead of printing bare dates. A collapsed distribution — every run finishing on the same day because no task carries a three-point estimate — now explains itself rather than reading as a broken simulation.
+The Monte Carlo detail panel now explains what the schedule's two kinds of finish date are. A contextual-help affordance beside the panel title covers CPM-vs-simulation — the timeline dates are the earliest feasible schedule, P50 is a midpoint, P80 is the date to commit to — and deep-links into the Monte Carlo documentation. The panel's "Risk delta vs deterministic finish" heading, previously the app's only (and unexplained) use of "deterministic", now reads "Added time vs the computed finish", and the header date is labeled as computed.
+- **"How this was built" now documents the process half of the harness, including its
+  weakest part.** The page previously covered only the CI and testing gates. It now
+  states that the voice-of-customer panel that reviews features is simulated rather than
+  drawn from real users, that no feature in the beta was validated with one, and that the
+  process gates are self-reported discipline rather than pipeline-enforced mechanism —
+  alongside the calibration record that will score the persona model against real
+  feedback once the beta reaches users (#2450).
+- **`Calendar.exceptions` is now an immutable tuple of frozen `DateRange`s**
+  (`trueppm-scheduler`). Any iterable is still accepted when constructing a
+  `Calendar`, so `Calendar(exceptions=[...])` is unchanged, but in-place edits —
+  `cal.exceptions.append(...)`, `cal.exceptions[0] = ...`, `range.start = ...` —
+  now raise instead of silently leaving the cached working-day index stale.
+  Assign a new set instead: `cal.exceptions = [*cal.exceptions, extra_holiday]`.
+**Breaking (API):** the **Viewer** role ordinal changed from `0` to `1`. Every other
+ordinal is unchanged (Member 100, Scheduler 200, Admin 300, Owner 400), and `0` is now
+permanently unassigned. If you read the numeric `role` / `my_role` field from the API,
+compare against `1` for a Viewer. A migration moves existing rows automatically —
+project and program memberships, project default-member-role settings, and group→project
+role grants.
+
+Why: the ordinal is a client-visible wire value and `0` is falsy in JavaScript, so a
+consumer writing `role || DEFAULT` would read a Viewer as *absent* and silently grant
+them the default instead — a widening of access that fails silently. Every ordinal is
+now truthy. "No membership" continues to be `null`, a distinct type, never an ordinal.
+
+The [Roles and Permissions](https://docs.trueppm.com/administration/rbac/) page now also
+explains why the ordinals are spaced 100 apart — the gaps are reserved slots for custom
+roles that sit between two tiers, with a worked Auditor example — and documents the
+`role >= X` vs `role == X` comparison contract that makes the spacing safe.
+- **Velocity and throughput forecasts now say on screen that their upper percentiles
+  are a floor.** Both backlog-delivery samplers bound how far each simulated run may
+  go and count an unfinished run as finishing *at* that horizon, which truncates the
+  slow tail and makes P80/P95 optimistic. The backlog forecast, the sprint
+  release-horizon chips, and the board's flow analytics card now carry a "a floor, not
+  a percentile" qualifier plus a help affordance explaining the clamp and pointing at
+  three-point (PERT) estimates for dates that must be committed to externally. The
+  caveat previously existed only on the Known Issues page, so a forecast screenshotted
+  into a steering deck carried none of it. The estimator fix is tracked separately
+  (#2469); this is the interim honesty guard (#2495).
+- **Roadmap re-plan through 1.0**: the published release calendar now states a cadence of
+  roughly one point release every 10–12 weeks rather than every 3–4 weeks, and dates are
+  published at three deliberate precisions — a two-week delivery window for the next two
+  releases (the target is the midpoint), a quarter for later 0.x releases whose scope is not
+  yet populated, and a year for post-1.0. 0.5 moves to Oct 28 – Nov 11 2026 and 1.0 to
+  Q4 2027. The 1.5 milestone is replaced by an undated **Later** section, and 1.1–1.4 are
+  published as a group. 0.5 was re-triaged against its staffing charter: the one-time Jira
+  migration, TOTP, the AI query layer, the agile-team refinement backlog, and the dual-engine
+  half of the hybrid human/AI work moved to 0.6, leaving resource allocation, the installable
+  PWA, and MCP plan mode.
+- **Program seed import now runs in the background**: `POST /programs/import/`
+  returned `201` only after rebuilding the entire document inline on the request
+  thread — up to 100,000 entities, each written with its own INSERT — so a
+  workspace-scale export/import round-trip returned a gateway timeout while the
+  transaction was still running, with no way to tell whether it had succeeded.
+  It now returns **`202 Accepted`** with `{queued, program_id, import_request_id}`:
+  the program exists immediately, and its contents are built by a worker. Poll
+  `GET /programs/{program_id}/import/jobs/{import_request_id}/` for status,
+  entity counts, and the failure reason if one occurs. Writes are batched, so a
+  large import costs a bounded number of statements instead of several per row.
+  Loading bundled demo data is unchanged and still synchronous.
+Normalized the `trueppm-wasm-scheduler` JavaScript API to `camelCase`, matching every other TypeScript surface in the repo. The generated `.d.ts` now exposes `computeSchedule`, `incrementalUpdate`, `SchedulerSession.setTaskStart`, and `SchedulerSession.recalcIncremental` in place of their previous `snake_case` spellings. Rust-side names are unchanged — only the `wasm_bindgen` binding names moved — so the CPM engine, its output, and the cross-engine conformance fixtures are untouched. The package has no consumers yet (nothing in `packages/web` imports it), which is why this rename is a no-op today and would have been a permanent breaking change once the first consumer landed. A new `wasm:build` step (`scripts/check-dts-camelcase.sh`) now fails the pipeline if a future export reaches the JS surface without a `camelCase` `js_name`.
+
+The Rust/WASM engine's version is also now aligned with the rest of the suite: it had sat at `0.1.0` through three releases because `scripts/release.sh` never bumped it, so nothing indicated that `trueppm-wasm-scheduler` implements the same CPM semantics as `trueppm-scheduler`. It now carries the same semver string as the API and web packages (`0.4.0-beta.1`), and `release.sh` bumps its `Cargo.toml` and `Cargo.lock` alongside the other manifests so the two engines cannot drift apart again. (#2602)
+Bounded what one account's program seed imports can consume. A caller may now have at most `SEED_IMPORT_MAX_CONCURRENT_JOBS` (default 3) imports queued or running at once; over the cap the endpoint answers `429` with `code: seed_import_concurrency_limit`. The seed schema gained per-field ceilings on free text (`description` 100,000 characters; `notes`, `goal`, `trigger`, `contingency` 10,000) and item ceilings on the `accounts`, `calendars`, `resources` and `risks` collections, and the node budget now counts projects, resources, accounts, calendars, baselines and labels rather than only a project's contents. Validation errors no longer echo the offending payload back — a rejected 201-project document returned every project in the `400`. The retention purge now drains in bounded batches instead of walking an unbounded backlog under a 55-second limit, and retires the empty program shell a failed import leaves behind at the same moment it deletes that import's job row. An import whose requesting account was deleted before the worker ran now fails with a readable reason instead of an exhausted retry chain.
+- **Schedule dates now anchor to today by default**: in-progress and not-yet-started
+  work is now scheduled from the data date (today, unless you set an explicit status
+  date on the project) instead of drifting from the project's original start date.
+  If you have a project with progress and no explicit status date, its dates will
+  shift once, the next time it recalculates — this is a one-time correction, not a
+  recurring change, and it is not logged as task activity. The response and
+  real-time update for a recalculation now also report which date was used, so you
+  can always tell what "today" a schedule was computed against.
+- **Schedule build mode is on by default**: the keyboard-first plan-entry surface
+  — type a task, `Alt` + `→` to indent, `Enter` to add a sibling row — no longer
+  sits behind an opt-in flag or a Settings toggle. It's on for every desktop user from
+  a fresh install; mobile is unaffected and keeps the tap-to-edit surface. The
+  Settings → Schedule page keeps a **View keyboard shortcuts** link to the same
+  cheatsheet.
+- **Fixed: pressing Enter on the Schedule list actually creates a row now.**
+  The Enter-to-add-row flow was POSTing a blank task name, which the API
+  rejects (400) with no error surfaced — so Enter silently created nothing
+  against a real backend, independent of whether build mode was on. Fixed by
+  sending the same non-blank placeholder the "+ Task"/"+ Phase" flows already
+  use, with an error toast as a backstop.
+- **Fixed: the task detail drawer had no discoverable way to open from the
+  Schedule list.** With build mode as the universal default, a row click only
+  focuses it for keyboard editing — the small "..." properties button was the
+  only remaining path to a task's full detail drawer, but it was invisible
+  until hover. It's now faintly visible at rest (full-strength on hover/focus),
+  matching the existing pattern for the Duration-cell pencil icon.
+- **Twenty ADRs that had fully shipped no longer say "Proposed".** The architecture
+  decision records are the project's own account of what shipped; twenty of them still
+  read `Proposed` while their decisions were implemented and cited by name in the source.
+  A new `docs:adr-status` CI gate now fails when an ADR named from `packages/*/src` is
+  still marked `Proposed`, and checks the published ADR index's corpus statistics against
+  the tree, so neither can drift again unnoticed (#2685).
+- **Stale `status::wip` labels are now swept automatically.** The label is a checked
+  claim that the worktree tooling and the pre-push collision gate both read, so a stale
+  one makes the duplicate-work warning fire on finished work. A nightly job releases it
+  from closed issues that never went through `wt remove` (#2693).
+- **The roadmap now distinguishes CI gates that block a merge from nightly checks that
+  only report.** Five 0.4 quality gates were described as each closing "a class of defect
+  that had been reaching `main`". Two of them — API fuzzing and scheduler mutation testing
+  — run schedule-only with `allow_failure: true` and cannot fail a pipeline, which is a
+  deliberate design choice but not a gate. The prose now says which is which (#2692).
+- **`scripts/wt remove` now self-clears a stale `status::wip` label**: when the
+  issue's GitLab state is closed, `wt remove` automatically strips the
+  `status::wip` check-out label (idempotent if already absent). If the issue is
+  still open — e.g. a worktree removed without merging — the label is left in
+  place so it keeps signaling the issue is spoken for. Previously the label only
+  cleared if someone remembered to run `wt release` by hand, which let stale
+  labels accumulate on closed issues and trip false warnings in the
+  `pre-push-collision-check` gate.
+- **Drag-to-link on the Gantt now has a visible handle.** The gesture worked, but at rest
+  its only cue was a crosshair cursor over an invisible 8px strip at a bar's right edge —
+  undiscoverable unless you already knew it was there. Hovering a row now draws the handle
+  the legend has always described, on the exact geometry the drag accepts (#2702).
+Reworded the off-cluster plaintext backup warning to say "is unencrypted" rather than
+naming the `http` scheme inline, in both the CLI path (`scripts/lib/s3.sh`) and the
+chart's backup CronJob. The warning still names the offending `S3_ENDPOINT` and still
+never blocks the upload. The wording keeps `scripts/lib/s3.sh` under static analysis for
+a genuine hard-coded clear-text endpoint instead of suppressing the rule across the whole
+file — the library is the one place in the backup path where such an endpoint would be a
+real finding.
+**Breaking:** `POST /api/v1/projects/{id}/tasks/bulk/` now applies operations **per row** and returns **207** with `applied` / `rejected` / `skipped` instead of **200** with `created` / `updated` / `deleted`. One bad row out of 38 no longer discards the other 37; each result carries the zero-based `index` of its operation so a malformed row — which has no id to echo back — can still be correlated.
+
+The endpoint also now:
+
+- accepts a **client-minted `id`** on a `create`, taking the caller's UUID as the primary key (ADR-0772), so rows authored offline keep one identity end to end. A create whose id already exists is an in-place edit under the stricter edit permission, never a second row;
+- accepts a **`dependencies.created`** bucket, with edges naming plain task UUIDs — including forward references to rows created later in the same batch;
+- runs the **ADR-0259 dependency graph guard** before writing any edge, which this endpoint never did. Only the edges on a detected cycle are refused; task rows already applied are not rolled back;
+- **enforces a 500-operation cap**, which it previously did not have at all;
+- **recalculates the schedule and broadcasts `tasks_bulk_mutated` for whatever committed.** A partially-rejected batch previously committed its writes and then skipped both, leaving collaborators on a silently stale schedule.
+
+A `Scheduler` may no longer author plans through this endpoint (ADR-0773). The role is ordinally above Member but cannot edit task content, so it could previously create a task and then be unable to edit or delete the task it had just created. `ProjectSerializer` gains a read-only `can_author` field so clients read that verdict from the server rather than comparing role ordinals themselves.
+A brand-new project now opens as a canvas rather than an empty card. The Schedule outline starts with a live row and the caret already in it, so the first keystroke is the first task; the timeline draws a horizon against the project's own calendar, so an empty plan reads as a surface waiting for work rather than a failure; and a quiet side panel offers the other ways to fill it along with the project's stated facts. Rows without dates are legal — they render with em-dashes and join a "needs dates" count you can walk with `F7` / `Shift+F7`. The old "Your project is ready — add your first task" card is gone, not restyled.
+The nightly `perf:load` digest now reports p95 **per endpoint against its own
+budget**, with k6's own breach verdict, instead of printing only an aggregate
+p95 that no threshold gates. The sync-delta read is now recorded too — k6 only
+materializes a tagged submetric when a threshold references it, so that endpoint
+was previously measured on every iteration and reported nowhere.
+Setup and CI gate scripts now write their error messages to stderr rather than stdout (`init-prod.sh`, `check-design-system-v2.sh`, `check-todo-grep.sh`, `check-version-status.sh`, `check-demo-nginx-allowlist.sh`). Exit codes and the conditions that trigger a failure are unchanged; only the stream carrying the message moved. If you pipe one of these scripts' stdout somewhere, redirect stderr too (`2>&1`) to keep seeing failures.
+Playwright moves from 1.58.2 to 1.62.1 across the CI base image, the integration image, and both the web and documentation-site packages, which are bumped together as a single coordinated change (#2800).
+- **The docs now state how the 0.4 release line is numbered.** 0.4 is the first
+  beta and arrives as one: the next tag on the line is `v0.4.0-beta.1`, with no
+  `v0.4.0-alpha.N` step in between, and hardening lands under further `beta.N`
+  tags. The roadmap gains a "How the 0.4 line is numbered" section covering the
+  beta → rc ladder and the matching `scheduler-v0.4.0b1` PyPI companion tag, and
+  the release-status constants carry the next tag to cut so every banner derives
+  it from one place (#2823, #2835).
+Moved `Task.scheduled_start` to the end of the `trueppm_scheduler.Task` field
+list, restoring the positional field order published in 0.3.0a3. The field was
+added between `late_finish` and `total_float`, which shifted the twelve fields
+after it by one positional slot. `Task` is a plain, non-`kw_only` dataclass
+exported from a PyPI package, so its declaration order is its positional
+signature — and because dataclasses perform no runtime type validation, a
+consumer constructing a `Task` positionally would have received no `TypeError`:
+the argument meant for `total_float` would have been stored in
+`scheduled_start`, every later argument would have shifted, and the wrong values
+would have propagated silently into `schedule()`'s float and criticality output.
+
+The change lands before `0.4.0b1` is published, so nothing on PyPI ever saw the
+shifted order and the addition stays genuinely additive for consumers pinned to
+0.3.0a3.
+
+The field order of every dataclass exported in `trueppm_scheduler.__all__`
+(`Task`, `Project`, `Dependency`, `Calendar`, `DateRange`, `ScheduleResult`,
+`MonteCarloResult`, `TaskSensitivity`, `SummaryExpansion`, `CycleCheck`,
+`DrivingEdge`, `Derivation`, `DerivationContribution`) is now pinned by
+`tests/test_public_surface.py`, together with a check that a newly exported
+dataclass must be added to that map. The next mid-sequence insertion therefore
+fails at test time instead of in a downstream consumer's schedule (#2836).
+The `trueppm-scheduler` package now documents its 0.4.0b1 release properly: a real `[0.4.0b1]` CHANGELOG section replaces the open `[Unreleased]` heading, the seven new public `__all__` names are recorded, and the nine input-contract narrowings that turn a document which scheduled on 0.3.0a3 into an `InvalidScheduleInput` are listed as migration notes. The README's maturity claim now matches the trove classifier PyPI renders, and the eight remaining exported methods have docstrings.
+The two bulk dead-letter routes are now kebab-case like every other path segment: `POST /api/v1/admin/failed-tasks/requeue-all/` and `.../drop-all/` (previously `requeue_all` / `drop_all`). The sync delta's `has_more` field is deprecated in favor of `next_cursor !== null` and will be removed in 0.5.
+The **Bounce webhook URL** field is removed from the Email settings page and API. TruePPM has no bounce-ingest endpoint, so nothing was ever posted to it. Any URL already saved is retained in the database untouched; the field returns once the endpoint exists.
+Development-harness gates now check for the defect class rather than the defect instance: `regression-check` sweeps sibling implementations and audits the guard that should have caught a bug, `test-scaffold` requires a new regression guard to be seen failing before it is trusted, `security-review` checks peer authentication paths and the termination-path × credential-class matrix, `scheduler-engine` requires an executable test for every documented invariant, `ux-review` warns that a green CI gate is not evidence its rule is enforced, and `pre-release` audits its own enumerations before trusting a count.
+- Docs: the System Health and Helm Values reference pages now say honestly which parts of them are not in the latest release — every dead-letter write action and the bulk actions on the former, and about half the chart's value blocks on the latter, where the banner previously named four. The declaration-coverage ratchet now covers `overview/` as well as `features/`, `administration/`, and `getting-started/`, with `overview/roadmap.md` exempt as the source of truth (#2893).
+- **The resource heatmap now reports which grouping it actually applied**: the
+  endpoint validated and accepted `group_by=project`, then ignored it — a
+  consumer asking for project grouping got a `200` and an alphabetically-sorted
+  payload, with no way to know the grouping it asked for was never applied. The
+  response now carries a `group_by` field naming the grouping that was applied,
+  so `project` reads back as `none`. `project` has no effect and never did
+  (the endpoint is scoped to one project; the cross-project heat map is an
+  Enterprise feature) and is now **deprecated** — it stays accepted through its
+  deprecation window rather than starting to answer `400`, because removing a
+  documented enum value is a breaking change. See the API stability page.
+Getting Started pages that document unreleased 0.4 behavior now carry a `0.4` badge in the documentation sidebar, so a reader can see which pages describe their install before opening one. The badge is paired against the page's own `documentedFor` declaration by `docs:version-accuracy` in both directions, so it cannot go missing and cannot outlive the release.
+`make pre-push` now runs the design-system-v2 gate, which was the one bespoke CI check
+with no local mirror — a hardcoded-hex breach passed cleanly on a developer's machine
+and failed the MR pipeline. Five further CI checks that had drifted out of the pre-push
+list (ADR status, docs version accuracy, WebSocket event reachability, the e2e catch-all
+lint, and the demo nginx allowlist) run locally too, and a new `prepush-parity-check`
+derives the CI set from `.gitlab-ci.yml` and fails when a check script has neither a
+Makefile mirror nor a recorded reason it cannot have one — so the list can no longer
+fall behind silently. The near-identical `lint-web` / `web-lint` targets, which differed
+in what they enforced, are collapsed into one.
+`GET /projects/{id}/imports/` now declares a real response schema. It was `OpenApiTypes.OBJECT`, which generates `{"type": "object", "additionalProperties": {}}` — so nothing about the response was machine-readable: not the `{count, next, previous, results}` pagination envelope, not `task_count`, not `warnings`, and an SDK generated from it handed the caller an untyped bag. The reachable `401` and `403` are now declared too, and the endpoint has an entry in the API reference, where it was absent entirely. The generated `operationId` is pinned to `v1_projects_imports_retrieve` — tightening the 200 to a serializer re-derives it as `..._list`, and an operationId rename is a Breaking change under the stability policy. No request or response behavior changes.
+On the schedule, **+ Phase** (`⌥⌘P` / `Ctrl+Alt+P`) now acts on the row you have selected: name a task, press it, and that row becomes the phase with a new task inside it, ready to name. Nothing selected still makes a fresh phase as before. Either way it is one action — one undo takes the whole thing back, and there is never a moment where an empty phase sits in the plan. The button now says which of the two it will do, and spells its shortcut for the platform you are on rather than always showing the Mac keys.
+- **"+ New task" opens the plan, not a form**: the shell's create affordance (and the `+ New milestone` beside it) now lands you in the Schedule with the caret in a new row, instead of opening a modal. Eight surfaces could create a task and each owned its own form, so where a task came from decided what you could say about it. The entry points all survive; the form does not. Description, assignee and dates move to the task drawer, one click from the row that now exists.
+The board's lane **+** now opens a one-field compose inside the lane instead of a full task form. Type a name, press Enter, and the card lands in that lane — the field stays open so a run of items can be entered without reopening anything. The status the lane implies (Backlog on a phase-less project, To Do on a phase) and its named lane are carried automatically, so nothing is lost by the shorter form. An empty board's **+ Add task** goes to the schedule designer instead, which is where a plan gets started.
+Board and Schedule creation surfaces now route to one place to author, and the ones that stayed no longer own a form of their own. The board's mobile **+** opens a touch compose bar over the column in view instead of a full-screen create sheet, and it is now hidden entirely for a viewer or a closed sprint rather than opening a form the server would refuse. The backlog inbox keeps its single capture field and drops the "Add with details…" modal beside it; each idea gains a **File under…** action, so promoting one into a phase no longer requires a drag. On the Schedule, the blank-project draft row states its depth to screen readers, restores a typed name when a create fails, and the append-at-the-end row now resizes with the rest of the outline on a touch device.
+Settings → Workflow no longer has an "+ Add phase" button. It created an empty phase named "New phase", which is the thing that made the board render the same object as both a swimlane and a card. Phases now come from the schedule, where indenting a task under another creates the phase with that work already inside it — and the empty state on the settings page links there and says so. Nothing replaces the button; the page configures phases rather than manufacturing them.
+Project settings: **Methodology**, **Workflow & fields** and **Sprint guardrails** are now
+one section — **How this team works** — instead of three rail rows scattered across two
+groups. A delivery lead standing a team up sees the planning model, the stages work moves
+through, and the rules the team holds itself to as the one decision they are. Board columns
+appear as the Statuses list with their WIP limits and lanes; there is no second column
+editor. The section opens with a plain restatement of what the preset means, followed by a
+jump strip to each block.
+
+The preset still only communicates: the surfaces it leaves out are hidden, not withdrawn,
+and changing the preset brings them back. The one place the section can stop an action is
+Sprint guardrails, where a project Owner may escalate a rule from Warn to Block — and the
+page says so rather than claiming otherwise.
+
+All six old addresses keep working: `/projects/:id/settings/{methodology,workflow,guardrails}`
+redirect, and the `#methodology`, `#workflow` and `#guardrails` hash deep-links are rewritten
+to `#how-this-team-works`. Each one still lands on the block it named, not on the top of the
+section (#2969).
+Sync: creating a task under a parent that had no children now advances that parent's `server_version`. The parent genuinely changes — it becomes a container, and its own status and estimate are parked — so a client doing delta sync needs to see it. The bump happens only on that first transition, so importing or pasting many rows under one parent still moves it once.
+- **Schedule rows are 44px on a touch device**: the outline's rows — and the ⋮⋮
+  reorder grip in them — now grow from 28px to 44px on a coarse pointer, meeting
+  the WCAG 2.5.5 touch-target minimum. Task bars stay centered in the taller row,
+  and the change follows the pointer rather than the viewport width, so a tablet
+  with a keyboard attached gets mouse-sized rows and a large touchscreen gets
+  touch-sized ones. Nothing changes on a mouse or trackpad.
+Config-change notices — a removed board lane, a hidden column or view, a switched
+methodology preset — are now queued in a transactional outbox and delivered by a
+background worker instead of being written inside the request. Saving from the
+program settings matrix no longer waits while up to 200 projects' notices are
+rendered, and a notice is no longer lost if the task broker is briefly unavailable
+at the moment of the change. The same person repeating the change whose notice was
+just sent (for example hiding, showing, then re-hiding a column) no longer
+re-notifies the team within `TRUEPPM_CONFIG_NOTICE_COOLDOWN_SECONDS` (default 600;
+`0` disables). (#3009)
+The Schedule outline's generic row wording now has a single owner and three
+guards behind it, instead of a rule that had been swept by hand twice. Column
+headers, create affordances, placeholders and the placeholder name a new row is
+given all draw from one module, so a row whose type nobody has declared is never
+called a task, a phase or a milestone before it is one. Two live cases are fixed
+along the way: the subtree-delete confirmation and the delete toast no longer
+describe a blank-named phase as "Untitled task", and the name column — headed
+**Item** — no longer announces itself to a screen reader as "Resize task
+column".
+The Schedule outline and the Grid now announce themselves as the **Item list**
+rather than the "Task list", and their rename fields as **Rename item**. Both
+surfaces hold rows of any kind — tasks, phases, milestones and subtasks — so the
+container's name and the rename affordance no longer assert a type the row may
+not have. The splitter between the outline and the timeline follows the same
+wording.
+The Atlas Platform Launch sample now exercises the full scheduling model on its own: finish-to-finish and start-to-finish dependency edges and a lead (negative lag) alongside the existing finish-to-start and start-to-start ones, a company-shutdown calendar exception sized to actually move the program finish rather than be absorbed by float, a second baseline on Migration Tooling recording the post-dry-run re-plan (the kickoff capture is retained but no longer active), a launch-planning baseline on GTM Readiness, which previously had none, and a manual `AT_RISK` health override on the one project whose plan slipped.
+
+Seed documents can now declare `project.health`. Omitting it leaves the project on `AUTO`, where the chip is computed rather than asserted.
+**The Atlas sample now shows work going wrong and being recovered.** Atlas is the default sample and the target of the *Load demo data* button, so it is the first — often only — data an evaluator sees, and it told a story in which almost nothing went wrong.
+
+- **The risk register records how, not just that.** The three highest-exposure Platform Core risks carry a `trigger`, a `contingency` and a `mitigation_due_date`, and the SSO vendor risk links a real **mitigation action** ("Fallback IdP spike") alongside the work it threatens — previously every risk linked only the task it endangered, so the register recorded what was at stake and never what anyone did. Each status flip now carries a `risk.note` explaining it. Billing scope creep is an **AVOID** — the exposure removed by cutting scope rather than managed down — the first use of that response in any pack.
+- **Blocked work is visible.** The Digest scheduler is blocked for four days on a vendor's domain verification and unblocked, with the thread that ran while it sat; the Tax engine is *still* blocked on a legal answer, so the board's Blocked lane has a live card and the age badge reads a real multi-day span the moment the board is opened.
+- **Staffing is no longer uniform.** Five stories carry explicit `assignments[]`: a story split 0.6/0.4 between two engineers, and a 0.2 solutions architect spread across three concurrent stories — the shared-specialist over-allocation an evaluator can find on the heat map and resolve by moving one of them. Everywhere else the importer synthesizes a single full unit from `assignee`, which cannot express either.
+- **Tasks carry external references** — a design doc, a security finding, a spike write-up, a legal scope decision and a runbook, hung off the work they document.
+
+**@mentions in seeded comments now notify.** Only the live view path parsed mentions, so a seeded `@name` was plain text: it read like a mention, created no `Mention` row, and left a persona's notification list empty. Replay now fans out mentions through the same service, dated to the beat. Note that resolution filters to **project members** and matches on username, so a pack must mention `@atlas-priya`, not `@priya` — a slug-shaped mention resolves to nobody and silently degrades to text. This only became possible once seeded accounts held project memberships (#3092). Closes #3095.
+The Aurora Mobile App sample now shows a sprint history that goes wrong and recovers, instead of four sprints marching forward at constant capacity. Beta feedback descopes the unshipped half of the monetization epic mid-sprint; those stories return to the backlog, the sprint closes `MISSED` at less than half the previous run rate, and the following sprint re-plans from the surviving backlog and lands its goal. A holiday-week sprint is cancelled outright with its reason recorded and its scope folded into the next one, sprint capacity moves with leave and ramp-up rather than sitting at a constant, every sprint states a real goal, and a sprint-zero baseline gives the burn-up a commitment line so the pivot reads as variance rather than as a smaller bar.
+
+Sprint point aggregates are now derived from actual sprint membership rather than hand-authored, so the velocity chart and the board cannot disagree.
+Bayside and Helios now deliver the constraint and mitigation depth their premises promise. Bayside's site calendar carries two stand-downs with different outcomes — a crane window that stretches the framing tail and is absorbed by its float, and the contract weather allowance that lands on the thinnest float left and pushes the certificate of occupancy — plus triggers and contingencies on its risk register, one **realized** risk whose mitigation failed and whose contingency shows up as variance against the contract baseline, and a stated rationale for the only `TRANSFER` response in any sample. Helios sprints now state the goal their outcome is judged against, and its migration risk carries a scheduled mitigation task that displaces other scope to pay for itself.
+Converged the two procedural Python seeders into the JSON fixture format. "1.0 GA Launch" is now a bundled sample (`load_sample_project --sample ga-launch`) alongside Atlas, Aurora, Bayside and Helios, so it can be downloaded, hashed, inspected, round-tripped through export/import, and loaded from **Settings → System → Demo data** — none of which was possible while it lived in Python. `seed_demo_project` and `seed_ga_launch_program` are retired; the demo compose stack and the Helm demo hook now run `load_sample_project`. Seed documents can also declare a per-project `lead`, which the format previously could not express.
+Adding a dependency on the Schedule is now one **Add dependency…** action instead of separate "Add predecessor…" and "Add successor…" items. Direction is a **Dependency type** field inside the dialog (Successor by default), so choosing the wrong side no longer means closing, reopening, and retyping the search. The old "Link" control is now **Relationship**, and its four options are worded for the direction in force — "Finish → Start" meant opposite things on the two sides and said neither. A **?** beside it explains all four relationship types and how lag reads, and a plain-language line under the fields restates the link you are about to create, naming both tasks.
+Switching the Schedule into **Author** mode now also switches the layout to **Grid**, and returning to **Read** restores the layout you were in. Grid is where the row list, outline controls and inline editing live, so authoring in Timeline meant a second manual move every time. A layout you pick yourself while authoring wins — the switch happens on the mode transition only, never as a standing override. Nothing changes on mobile, where the layout is already forced to Timeline.
+The Schedule toolbar's **+ Milestone** button now starts in the `···` menu rather than pinned to the bar. It was an unconfirmed one-click structural insert sitting next to the controls used for reading, and the row it drops lands at the current insert target — not obvious after the fact on a deep WBS. `⌘M` still creates a milestone from anywhere, the command keeps its name one hop away in the menu, and it can be pinned back from Display → Outline. Anyone who has already set a Display preference keeps their existing bar. The menu entry also now advertises `⌘M`; it previously showed `⌥⌘M`, which was bound to nothing.
+- **The published roadmap now stops carrying dates after 0.5.** Dated targets
+  previously ran to December 2028. Only 0.4 and 0.5 now carry a delivery window;
+  0.6 is named and scoped but undated, and 0.7 through 1.0 — along with the former
+  "1.1 – 1.4" and "Later" sections — are collapsed into a single undated
+  **Direction** section that is committed in intent and uncommitted in position.
+  Version numbers are retained (73 doc pages declare against them) but past 0.6
+  they record sequence, not schedule. In the tracker, the empty 1.1–1.5 milestones
+  are removed and 0.6–1.0 no longer carry due dates; issues that left a milestone
+  carry the new `direction` label (#3118).
+- **The Schedule now shows one keyboard-teaching bar at a time instead of three.** On a
+  build-mode Schedule the how-to bar, the build-mode hint strip and the toolbar's
+  insert-target sentence could all draw at once, and three hint bands read as none. The
+  how-to bar now teaches the idle outline and stands down for the hint strip as soon as a
+  row is focused — one band that moves rather than two that compete — and it no longer
+  appears over a plan with no rows to indent, group or hover. No hint was removed: the
+  strip keeps every hint set it had, including the one that advertises the group-into-a-phase
+  chord at the moment a multi-row selection makes it meaningful. Dismissing the how-to bar
+  and restoring it from **Display ▸ Outline ▸ How-to bar** works exactly as before, and
+  standing down for the hint strip does not count as dismissing it (#3134).
+- **`+ Item`'s screen-reader description no longer changes with window width.** The
+  toolbar sentence that says where the next row will land now carries its full text for
+  assistive technology at every width, with only the drawn form shortening as the toolbar
+  runs out of room (#3134).
+The project rail is now three verb bands in lifecycle order — **Plan** (Schedule ·
+Grid · Calendar), **Deliver** (Backlog · Sprints · Board, on agile and hybrid
+projects) and **Track** (Dashboard · Today · Risks · Reports · Activity · Assets) —
+followed by a ruled-off **Workspace** band pinned to the bottom holding **Team** and
+**Settings**. The one-item **People** band is retired and Team moves into Workspace.
+**Overview** is renamed **Dashboard** and becomes Track's first row; its `/overview`
+address is unchanged, so existing links and bookmarks still work. Settings is no
+longer a loose trailing row. Workspace is drawn at the same size, weight and colour
+as every other band — it is set apart by a rule and a raised ground, never by
+dimming — and it holds its place at the bottom of the rail regardless of how many
+bands sit above it. Which views a user may hide is now an explicit list rather than
+"every view in a band", so **Dashboard** and **Settings** can never be hidden and a
+personal Customize-views setting can never empty the rail. (ADR-0942)
+- **Removed the `schedule_in_deliver` account preference and its API field.** The
+  opt-in that *additionally* showed **Schedule** under **Deliver** while it stayed in
+  **Plan** is gone, along with the toggle in the Customize-views menu, the
+  `UserProfile.schedule_in_deliver` column, and the `schedule_in_deliver` field on
+  both `GET /api/v1/auth/me/` and `PATCH /api/v1/auth/me/profile/`. Every view now
+  has exactly one home in the rail: a nav item listed twice reads as two different
+  things. (ADR-0942 §3)
+- **If you had the preference turned on**, it is now off and Schedule appears only
+  under **Plan** — the placement every user who never opted in already saw. Nothing
+  else in your profile changes: the migration drops one column and touches no other
+  field. The need the opt-in served is now met by adjacency, since **Plan** sits
+  directly above **Deliver**.
+- **API clients: a `PATCH` that still sends `schedule_in_deliver` is refused with a
+  `400`**, keyed by the field name and naming the release that removed it. The whole
+  request is rejected, so sibling preferences in the same body are *not* applied —
+  update the caller and retry. This is deliberate: DRF's default is to drop an
+  unrecognised key and answer `200`, which would tell an integration its write landed
+  when nothing happened. Keys that were never part of this endpoint are still ignored
+  rather than refused, so genuinely additive clients keep working.
+- **Two surfaces are now on the record as deliberately showing draft projects,
+  rather than being left ambiguous.** #3128 routed twelve call sites through the
+  draft exclusion helper and left two alone, because filtering them is a decision
+  about people and about their own files rather than a correctness fix about
+  plans. Both are now settled as **keep**, with the reasoning recorded in
+  `projects/lifecycle.py` and pinned by tests so a later "apply it everywhere"
+  sweep fails loudly instead of changing behavior silently. (1) A
+  `@program-stakeholders` mention still reaches a member whose only membership in
+  the program is on a draft project, and a mention written *inside* a draft still
+  fans out program-wide — the one queryset all four `@program-*` aliases share
+  forbids per-key filters, so excluding there would also cut the draft's own Admin
+  out of `@program-pms` and its Scheduler out of `@program-schedulers`. The
+  `/programs/{id}/mention-reach/` count therefore still equals what the mention
+  delivers. (2) The cross-project asset feeds (`GET /programs/{id}/assets/` and
+  `GET /assets/`) still list a draft project's own attachments and links,
+  including under `?q=` — they are the member's own browse list, and hiding your
+  own file from the surface built to find it while you are still writing the plan
+  would be a visibility gap that only closes when somebody else commits it. No
+  behavior changes for an existing install; drafts cannot be created yet (#3144).
+A public share link created through the REST API without an explicit `expires_at` now expires after 90 days instead of lasting forever. The in-app share dialog is unaffected — it has always sent an explicit choice — so this closes the gap for integrations, scripts, and MCP clients, which previously minted a permanent link by saying nothing. Send `expires_at: null` to mint a link with no expiry, or set `TRUEPPM_SHARE_LINK_DEFAULT_EXPIRY_DAYS=0` to restore the old behavior instance-wide.
+**Four documented defaults contradicted the code, and about forty settings were
+documented nowhere.** `configuration.md` listed `SECRET_KEY` as
+`dev-secret-key-change-in-prod` and `REDIS_URL` as `redis://valkey:6379` — both
+quoting `docker-compose.yml` rather than the code fallbacks
+(`django-insecure-change-me-in-prod`, `redis://redis:6379`), so an operator
+grepping their configuration for the documented string found nothing and could
+conclude they had already changed it. The whole `EMAIL_*` row claimed
+_(Django default)_ while four are overridden — including `DEFAULT_FROM_EMAIL`,
+whose `notifications@trueppm.local` default uses a reserved TLD most relays
+reject, silently breaking outbound mail on an otherwise correct SMTP setup.
+
+New sections document logging, the OpenTelemetry family, retention windows, and
+the rate-limiting and access knobs to the same standard as the rest of the page:
+stated default, why you would change it, and what the options are. The handful
+of variables that are read from the environment but are **not** operator
+settings (pytest's own, the test-DB isolation vars, the SSO and integration
+seeding fixtures) are listed as such, so a grep of the source does not leave
+gaps unexplained.
+
+**`packages/helm/values.yaml` and `.env.example` now carry documentation links.**
+Between them they had none: their only `https://` strings were example values,
+and the single pointer that existed read `Full variable list:
+docs/administration/configuration.` — no scheme, no host, and a trailing period
+that reads as part of the path. Both files now link to the relevant part of the
+docs at each block, and `scripts/check-config-doc-links.sh` (CI job
+`docs:config-links`, also in `make pre-push`) verifies every link resolves to a
+page and anchor that exist — a link that 404s reads as authoritative and is
+worse than no link. Closes #3190.
+**"Durability" is now a durability page, and there is a troubleshooting page at last.** `administration/durability.md` sat in the sidebar directly above Backup & Restore and Valkey HA while being, in its entirety, a Celery Beat heartbeat tutorial — a self-hoster who clicked it to assess their data risk got nothing about their data. It is rewritten as *Durability & Redundancy*: what is authoritative, what is reconstructible, what is ephemeral and the RPO each buys; a per-tier redundancy matrix; a **step-up ladder** from single-node evaluation through managed datastores, multi-replica stateless, off-cluster backups and an HA broker, each rung naming the exact values keys it changes and what it buys; a failure-mode matrix; the singleton inventory; and an explicit list of what is *not* covered. The beat-heartbeat content moves intact to `administration/beat-liveness.md`.
+
+**A false claim about your worst outage is corrected.** `valkey-ha.md` told operators that during a Valkey outage the API "still serves database-backed reads and writes." It does not: `/api/v1/readyz` performs a cache round-trip and the chart points readiness at it, so every API pod is marked `NotReady`, the Service loses its endpoints, and the ingress returns 503 for the whole application. Django would happily serve — nothing routes to it. The page an operator reads to size that exact risk now says so.
+
+**New symptom-keyed `administration/troubleshooting.md`**, covering blank page, 502, 503-with-every-pod-NotReady, WebSocket close codes, Celery not processing, migration state, image pull failures, the `ALLOWED_HOSTS` case where the container reports `unhealthy` while the site serves fine, `/static/` 404s, and the lost Helm admin password — each with the likely causes in order, the exact command for both Compose and Helm, and how to confirm the fix.
+
+Also: `installation.md` gains a **Verify your install** section covering all six services on both paths; three pages stopped disagreeing about whether the bundled Valkey persists (it does under Helm, with AOF; it does not on compose-prod); `sizing.md` resolves its uvicorn-worker self-contradiction and states plainly that the chart exposes no `--workers` knob; `admin-password.md` warns that the Helm password lives on a per-pod emptyDir and is gone permanently after any restart, corrects the `<release>-trueppm-api` deployment name, and documents the multi-replica bootstrap race; and the stale `seed_demo_project` instruction — a command that no longer exists on the branch the page tells you to clone — is replaced with correctly version-scoped guidance.
+
+Closes #3192.
+- **Django migrations are excluded from SonarCloud's duplication metric.** They
+  are generated code, and the non-destructive `replaces=` squash keeps every
+  original migration on disk beside the squashed one by design — so the largest
+  single block of "duplication" in the project was a policy requirement, not a
+  defect anyone could act on. Analysis, coverage and complexity still cover them;
+  only the copy-paste detector skips them. Test and spec duplication is
+  deliberately left visible (#3207).
+- **Deduplicated the Grid, mention-group and task-picker components.** The Grid's
+  flat and grouped modes now share one `GridSurface` (column headers plus the
+  virtualised body) and one `useGridTaskRows` hook; the project and program
+  mention-group sections share a `MentionGroupList`; and the dependency and
+  related-link pickers share `ScopeTab` and a `useDebouncedValue` hook. No
+  rendered markup, RBAC decision or ARIA name changed (#3207).
+**The scheduler's nightly mutation-score check now gates.** `scheduler:mutation` could not fail: three mechanisms stacked — `MUTATION_MIN: "0"`, an early `if args.min <= 0: return 0` in `check_mutation_score.py`, and `allow_failure: true` — and any one alone made the observed score incapable of affecting a pipeline's verdict. The "report first, gate later" posture that produced them was correct while no baseline existed; a baseline exists now. `MUTATION_MIN` is set to `0.92` from the observed record (1042–1043 killed of 1120 considered, 93.0–93.1%, on every nightly artifact from 2026-08-11 to 2026-08-17, and 1042/1120 reproduced locally), `allow_failure` is removed, and the job's comment states the posture in one place rather than leaving it to be inferred from three separate lines.
+
+The job stays schedule-only, so this never blocks an MR — a score regression reds the nightly and stays red until the mutant is killed. `allow_failure` came off despite its siblings `scheduler:fuzz-deep` and `api:fuzz` keeping it, because their reason does not transfer: a fuzz finding is stochastic and open-ended, whereas a mutation score crossing a fixed floor is one deterministic number whose drop means a specific assertion got weaker, with the survivor list in the artifact naming which.
+
+Closes #3215.
+- **Concurrent edits to the same task, project, or risk no longer silently lose
+  work.** When two people edit the same record at once, the API now merges edits
+  that touch different fields (both changes are kept) and only reports a conflict
+  when they edit the *same* field. A client opts in by sending the version it last
+  saw as the `X-Base-Version` header; without it, behavior is unchanged. On an
+  overlapping edit the API returns `409` with a structured `{conflict_fields,
+  server_value, client_value, server_version}` body, and the web app shows a
+  "Someone else changed this" toast with a **Reload** action. A new server-side
+  `POST /tasks/{id}/reorder` endpoint computes board-card order under a row lock so
+  two simultaneous drag-reorders can no longer crisscross (ADR-0217, #322).
+- **Helm: Celery liveness and readiness probes are tunable apart.** The chart
+  rendered one probe spec and used it for both, so a Celery worker's liveness and
+  readiness necessarily shared `initialDelaySeconds`, `periodSeconds`,
+  `timeoutSeconds` and `failureThreshold` despite opposite costs — a readiness
+  failure is free backpressure, while a liveness failure kills the container and
+  spends the worker's 300s termination grace. `probes.worker.liveness.*`,
+  `probes.worker.readiness.*` and `probes.beat.liveness.*` now each carry their own
+  timings and their own `enabled`. **Existing values files are unaffected:** the
+  flat keys (`probes.worker.periodSeconds`, …) still mean "both probes" and take
+  precedence over the per-probe block, so a values file that only uses them renders
+  the same manifests as before.
+- **Helm: the shipped Celery worker probe defaults are re-derived against the
+  termination grace.** Worker liveness moves to initial delay 60 /
+  `failureThreshold: 5`, giving a 300s detection budget that matches the 300s grace
+  a kill spends — it was 180s, so one kill cost more unavailability than the
+  detection that ordered it. Worker readiness moves to initial delay 15 so a
+  rollout is not left waiting on a worker that is already up. Both periods stay at
+  60s: an exec probe forks a Django import into the container it measures, so
+  probing more often makes a contended worker worse. Beat's timings are unchanged.
+- **Helm: kubelet's Celery probe timeout now scales with the ping budget.** It was
+  hardcoded at `celery inspect ping --timeout` plus a fixed 5s, which also has to
+  absorb the `sh` fork, Python start, and Django/Celery import — so raising the
+  ping budget for a slow node left the import headroom at 5s on that same slow
+  node. It is now `max(timeout + 5, 1.5 x timeout)`, unchanged at the default, and
+  overridable with the new `kubeletTimeoutSeconds`.
+- **Integrations have one entry point.** A new Integrations page and sidebar group list
+  all ten surfaces TruePPM connects through — Git task links, cloud-file previews, the
+  personal Jira pull, Git-event automation, outgoing webhooks, inbound task sync, personal
+  access tokens, the MCP server, Jira import and single sign-on — with the direction data
+  moves and who sets each one up. The scheduler-library embedding guides moved from
+  `/integration/` to `/embedding/`; the old URLs redirect (#3253).
+The Schedule toolbar now states the plan's mode with **one** control at every width. `Build mode` and the `Read` / `Author` pill previously merged into a single chip only below a width threshold, so above it two controls answered the same question — "am I allowed to edit this plan right now" — with nothing saying how they composed. The chip is now the mode control at every breakpoint, and its `Keyboard shortcuts…` entry replaces the retired `Build mode` pill's click. `Alt+A` is unchanged.
+Pushed the 0.4 and 0.5 target windows out two weeks — 0.4 now targets Aug 31 – Sep 14, 2026 and 0.5 targets Nov 11 – 25, 2026, across the roadmap, the getting-started previews, the README status banner, and the GitLab milestones. The roadmap no longer publishes an observed release cadence; the 10–12 week aim in its opening stands on its own.
+`djangorestframework-stubs` moves to 3.18.1 and `django-stubs` to 6.1.0, unpinning the type-checker from the release that predated DRF's more accurate `Request.data` type.
+- Collapsing the left rail (⌘B / Ctrl+B, or the **≡** in the shell bar) now leaves a narrow icon rail instead of hiding the navigation completely. Every row keeps its icon, its name (on hover and for screen readers), its band, and any waiting count — so you keep your bearings without keeping the full width. Screen-reader users get the same rail collapsed and expanded; previously the whole rail vanished from assistive technology on collapse (#3279, ADR-0979).
+A JSON body that parses but is not an object — a top-level array, string, or number — is now refused with one response body everywhere: `{"code": "invalid_body", "detail": "Request body must be a JSON object."}`. The same refusal previously answered in three different shapes depending on the endpoint, and the `code` reached the wire from only one of them. `invalid_body` is now documented in the API error reference, whose "complete set of codes" claim it had been quietly falsifying. Additive for clients — `detail` is unchanged everywhere it already appeared.
+The published OpenAPI schema now declares a `400` on every write operation that accepts a request body — 216 of them, up from 32 across the whole write surface. A generated client previously had no typed error path for the most common failure a write can have, while `docs/api/errors.md` told integrators to branch on the `code` that response carries. The declared schema admits all three shapes the API actually returns: a bare `detail`, a `code` + `detail` refusal, and DRF field-keyed validation errors. Operations with no request body are deliberately untouched — advertising a refusal an endpoint cannot produce would be the same defect in the other direction.
+Removed Board Workshop Mode. The feature shipped as a single-user surface — there was no way for a second project member to join an active session, so the live-presence collaboration its documentation described was never reachable. Rebuilding it as a real-time estimation surface was evaluated and rejected. The `workshops` API app, its four endpoints, its WebSocket channel, the `workshop_started` / `workshop_ended` events, and the Workshop Mode documentation page are all removed; a migration drops the two `workshops_*` tables. Those tables held one row per session (the project, the admin who started it, and its start/end timestamps) and one row per participant; nothing else referenced them, and no export is provided, so upgrade expecting that history to be gone. Phase rename and phase reordering are unaffected and remain available on the Workflow settings page.
+`SECURITY.md` now states the security-release policy TruePPM actually operates. It
+promised a patch release within 30 days for Critical/High and marked `0.3.x` as actively
+patched, but `scripts/release.sh` computes every bump off the current `main` and has no
+from-tag mode — so honoring that literally meant shipping everything in flight on `main`
+to a self-hoster who asked for one fix. The response-timeline table now separates "fix
+merged to `main`" (which keeps the 30/90-day targets) from "fix released", the Supported
+Versions table says **fixed forward** rather than backported, and a new **Release
+cadence** section states the trigger for cutting a release out of band: whether the fix
+changes the artifact you are running, not its severity. A HIGH advisory in build tooling
+never entered the bundle; a MODERATE in shipped runtime code did.
+- **Rock-solid startup: probes tuned per component, with a worker readiness mechanism that can't false-fail a working worker.** The Celery worker's readiness (and new startup) probe no longer runs `celery inspect ping` — an exec probe that runs inside the container it measures could fail a busy-but-healthy worker while it was doing its job (#3236). It now stats a heartbeat file a Celery signal handler refreshes on its own load-independent timer. Liveness is unchanged. `probes.web.*` are now tunable in `values.yaml` (previously hardcoded). `/api/v1/readyz`'s disk-migration scan is now cached process-wide instead of rebuilt on every call, and the endpoint has its own dedicated rate-limit scope instead of a full throttle exemption. Docker Compose healthchecks (`docker-compose.yml`, `docker-compose.prod.yml`) now mirror the same semantics as the Helm chart.
+Corrected the tested scale envelope in the deployment sizing documentation. The 1,000-task whole-project ceiling now names the two issues that actually set it (the pagination count that recomputes every annotation over every row, and the `GROUP BY` that makes deep pages expensive) instead of a since-closed issue whose fix capped request concurrency rather than removing the work, and the page now shows the measurements behind the ceiling — including the evidence that adding an ordering index does not lift it.
+- **API stability — ownership refusals answer `403`, not `400`** (#3365): eight
+  object-ownership guards that refused with `400 ValidationError` now refuse with
+  `403 PermissionDenied`, matching the neighboring authorization check in the same
+  handler. Affected: deleting a task attachment you did not upload, editing or
+  deleting a comment or note you did not author (and are not an Admin+ for),
+  removing another user's reaction, and removing a project or program member whose
+  role is at or above your own. The six task-collaboration refusals now also carry
+  their stable `code` (`attachment_delete_forbidden`, `comment_edit_not_author`,
+  `comment_delete_forbidden`, `reaction_delete_forbidden`, `note_edit_not_author`,
+  `note_delete_forbidden`) as a real body key; it was passed in source before but
+  never reached the wire. The edit-window and last-Owner refusals are state
+  refusals and stay `400`. A client branching on `400` from these operations should
+  treat `403` as the same condition; the change is recorded as a deliberate Breaking
+  exception on the API stability page.
+- **`packages/mobile` is documented as the scaffold it is.** The package
+  advertised itself as a shipping beta while being a five-tab navigation shell
+  over placeholder screens: its manifest read `0.4.0-beta.1`, and the published
+  docs described five working screens, offline sync, and authentication. The
+  manifest is reset to `0.0.0` and pinned there by a new `mobile:version-pin`
+  CI gate (mobile is not on the release train until the 0.6 native Android app,
+  and the drift came from a hand-run manifest bump that `scripts/release.sh`
+  never touched), a new
+  `packages/mobile/README.md` states exactly what is implemented and what is
+  only a typed boundary, and the docs pages for offline sync, My Work, the
+  architecture overview, the sample-project tour, and "What TruePPM Doesn't Do
+  Yet" now describe the scaffold accurately.
+- **Removed the un-runnable Detox scaffold** (`.detoxrc.js`, `e2e/`) and
+  `eas.json` from `packages/mobile`. Five of six flows were skipped stubs and
+  the sixth could not run — `detox` was never installed and the config pointed
+  at an `android/` project that does not exist. Nothing linted, type-checked, or
+  executed the tree. A runnable Detox gate returns with the native projects
+  (#1599); EAS Build remains the intended build service.
+- **Corrected the mobile sync boundary, which typed a client that would lose
+  data.** The WebSocket ticket route is `POST /api/v1/ws/ticket/`, not
+  `/api/v1/sync/ws/ticket/`. The synced-collection union named `project_members`
+  for a collection the server calls `memberships`, and listed 3 of 15. `pull()`
+  took no page cursor, so an adapter written to it would have stopped after page
+  one and reported a complete sync; it now carries `nextCursor` and documents the
+  drain loop. `push()` was typed to accept all 15 collections when the server
+  accepts only `tasks` and rejects the rest with a 400.
+- **Fixed a WCAG 1.4.3 failure in the mobile tab bar.** Both tint colors were
+  fill weights used as label text — the brand sage at 2.89:1 and the tertiary
+  text token at 3.07:1, against a 4.5:1 requirement. They now use the same
+  weights web settled on for the identical finding (5.93:1 and 5.99:1), and the
+  screen primitive marks its title as a heading for TalkBack and VoiceOver.
+Removed twelve unreferenced web modules and three unreachable Zustand store actions. Each had zero importers outside its own test file, verified against `packages/web/src`, `packages/web/e2e`, `packages/mobile`, `docs/` and `packages/website`. No user-visible behavior changes — none of these modules was reachable from any route, component or hook.
+
+Modules removed: `features/schedule/TaskDrawerHeader.tsx`, `features/shell/ShellNavScroller.tsx` (superseded by `StatusClusterScroller`), `features/schedule/MonteCarloLabel.tsx` (its host `MonteCarloRow` was replaced by `ScheduleForecastBar`), `features/settings/components/StubPageBanner.tsx` (no settings page has been a stub since #1649), `hooks/useTaskSkillRequirements.ts`, `features/board/BoardColumn.tsx` (self-declared dead — `BoardView` renders `BoardCell` inline), `hooks/useProgramIntegrationsSummary.ts`, `hooks/useProjectIntegrationsSummary.ts`, `components/Breadcrumb.tsx`, `features/shell/PlaceholderView.tsx`, `hooks/useTaskRun.ts` (the `taskRunStore` it read is live and kept).
+
+Store actions removed: `shellStore.projectScope` / `setProjectScope` (with its `ProjectScope` type), `schedulerStore.clearCpmError` (the `cpmError` state it cleared is live and kept), `scheduleStore.setZoomLevel` (the `zoomLevel` state is live and kept — `setPxPerDay` derives it).
+
+The pre-deletion tree is tagged `pre-web-dead-modules-2026-09-05` if any of these needs to come back.
+Removed three v1 API routes that each had no consumer of their own: `GET /api/v1/teams/{id}/`, `GET /api/v1/projects/{id}/board/lanes/`, and `GET /api/v1/tasks/{id}/scope/`, along with the `BoardLane`, `BoardLanes` and `TaskScopeRollup` component schemas. Nothing in the web client, its Playwright suite, the mobile app, the MCP server, the documentation or the closed-source clients called any of the three. Removing a published endpoint is a Breaking change under the [API stability policy](/api/stability/), so this is recorded there as a deliberate exception to the deprecation window rather than as routine; a stale call now answers `404`. What each leaves behind differs: looking a team up by its id alone is gone, but team attributes are still served by `GET /api/v1/projects/{project_id}/teams/`; the board swimlane grouping has **no server-side replacement** and is a client-side derivation again (`board-config` carries the named lanes within a status column, which is a different thing); and the scope rollup itself is unchanged — `compute_scope_rollup` (ADR-0108 §3) stays and is now covered as a unit test rather than through the route. The board/lanes route was built during the 0.4 cycle and never appeared in a tagged release. The state of the tree immediately before the cut is tagged `pre-api-orphan-routes-2026-09-05`.
+- **`POST /api/v1/tasks/{id}/withdraw-approval/` removed before ship**: the action
+  had no client consumer and never appeared in a release (added 2026-08-01 alongside
+  the no-op PERT-edit fix, but the changelog fragment announcing it was never
+  assembled). Estimate approval is one-way for now — a Scheduler who approves an
+  estimate in error has no server-side undo until a UI asks for one. `approve-estimates`
+  is unaffected.
+- **Removed the unused project history summary endpoint**: `GET /api/v1/projects/{id}/history/summary/` is removed. It shipped in 0.1 with no client ever calling it — the web client reads the project changelog and task/project history instead. The route now answers `404`; the field-level task, project, and changelog history endpoints are unaffected.
+- **Workspace default timezone now anchors project quiet hours**: the workspace
+  **Default timezone** setting saved, round-tripped, and was read by nothing.
+  It is now the second tier of the quiet-hours chain — a project's own timezone,
+  then the workspace default, then the server timezone, then UTC — so a
+  20:00–07:00 window on a project that sets no timezone finally means 20:00–07:00
+  in the zone the admin picked. An unparseable value at any tier falls through to
+  the next rather than resetting the window to UTC.
+- **`PATCH /api/v1/workspace/` rejects a non-IANA `timezone` with a 400**: the
+  field was unvalidated while nothing read it. Now that it is load-bearing, a
+  value like `Pacific Time` is refused at the write instead of being stored and
+  silently skipped at dispatch time.
+- **Corrected the timezone help on Workspace and Project → Settings → General**:
+  both claimed the setting drove due dates, Gantt rendering, and sprint cutovers.
+  Neither ever did. The copy now states what it actually controls, and links to
+  the workspace-settings reference instead of the personal-timezone page.
+Project notification matrix: the **Mention (@) in a comment** row no longer defaults
+**on** for **Slack** and **Mobile push**. TruePPM has no delivery path for either
+channel — nothing sends to them and no setting anywhere turns them on — so an `on`
+default was a claim that a mention would arrive somewhere it cannot. Both default to
+`off` and flip back on in the same release that ships their delivery.
+
+This changes what a **new** preference row is seeded with, and nothing else: an
+existing row keeps every toggle you have already set, including a Slack or
+mobile-push one. Nothing rewrites a stored choice, and the columns now carry a **not
+delivered yet** label either way.
+- **ADRs now say when `Accepted` does not mean shipped**: a design-only ADR carries an
+  `Implementation status` blockquote directly under its Status text, naming what is and
+  is not on `main`. Applied to ADR-0190, ADR-0913, ADR-0941, and ADR-0963 (ADR-0177 was
+  already the model), documented in the architect skill, and explained on the published
+  ADR index.
+- **`docs:adr-status` fails closed when an index statistic goes missing**: the four
+  corpus figures on the ADR index (count, span, unused numbers, gap ranges) were compared
+  only when a number was found, and the whole check was skipped when the page did not
+  exist — so deleting a sentence exited 1 with no diagnostic at all, and deleting the page
+  exited 0. Each figure now reports "no longer states …" on its own, a missing index
+  fails, and every one of the five cases has a self-test fixture.
+- **`docs:adr-status` no longer accepts a blockquote as an ADR's status**: its block-form
+  parser took the first non-blank line after `## Status`, so an `Implementation status`
+  blockquote placed above the status text became the parsed status — and a genuinely
+  `Proposed` ADR cited from shipped source passed the gate. It now skips `>` lines, as the
+  sweep script already did. No ADR in the 344-record corpus changes its parsed status.
+The deployment sizing documentation now explains how the whole-project Schedule ceiling is raised, not just where it currently sits: both of the costs behind it are quadratic in task count, and the four changes sequenced for the next release are listed against the cost each one removes. No target task count is quoted, because the mechanisms are measured and the outcomes are not yet.
+- **`api:test` now bounds and names a hung shard**: the job declared no
+  `timeout:`, so a wedged shard held a runner slot for the project default of 60
+  minutes and — because `api:coverage` needs all four shards — parked the rest of
+  the test stage behind it. The job now caps at 20 minutes, and a new
+  `--timeout=180` per-test ceiling (pytest-timeout) fails the offending test with
+  its own name and stack instead of ending the log at a bare progress marker.
+- **API tests no longer hash passwords at production cost**: the suite ran
+  Django 5.2's default PBKDF2-SHA256 at 1,000,000 iterations across ~1,054
+  `create_user()` calls while asserting nothing about hash strength. Test runs
+  now use a fast hasher (measured 2,899x faster per hash), gated on pytest being
+  loaded so a local `runserver` keeps the production algorithm.
+Clarified the OSS/Enterprise high-availability boundary: basic single-cluster HA (redundant tiers, in-cluster HA PostgreSQL and Valkey, logical backup, WAL archiving through the datastore operator) is OSS so self-hosters are not penalized for running their own datastores; cross-region replication, geo failover, active-active, and SLA-grade evidence remain Enterprise. Docs and Helm comments updated to match (#3408).
+- **E2E mocks are now bound to the published API schema.** The Playwright mock
+  layer was written by hand and checked against nothing, so a green `web:e2e`
+  was evidence that the front end agrees with its own fixtures — not with the
+  API. Every mocked response is now validated at test time against the response
+  schema `docs/api/openapi.json` declares for that endpoint, and a mismatch
+  fails the spec that serves it. The first pass over the suite found drift on
+  104 of the 341 operations the mocks touch; four field families were corrected
+  here and the rest are recorded, each with a reason and an issue, in a ledger
+  that can only shrink.
+Documentation now includes product screenshots captured from the Atlas Platform Launch sample on every major feature and getting-started page, with a reproducible capture script (`npm run screenshots` in `packages/website`) (#3466)
+- **Internal**: seven web surfaces (`SchedulePulse`, `ProjectOverviewPage` — twice in one file, `myWorkFocus`, `ProgramCard`, `UngroupedProjectsSection`, `CapacityPreflight`, `projectHealth`) and one additional surface the fix's own conformance scan found (`ProgramGeneralPage`'s health-override editor) each carried a private copy of the "On track / At risk / Critical" health vocabulary instead of reading `lib/healthBand`'s `HEALTH_BAND_LABEL`. Consolidated onto the one source; no rendered word changed. A new source-scan test (`healthBand.conformance.test.ts`) now fails any module that restates the words as its own literal map.
+- **Email lookups no longer scan the whole user table.** `auth_user` gains a
+  functional index on `UPPER(email)`, which backs the case-insensitive email
+  lookups on the login email fallback, password reset, OIDC account linking,
+  workspace invites, and inbound Jira assignee mapping. Django compiles these to
+  `UPPER(email::text) = UPPER(%s)`, so a plain index on the column would not have
+  been used. The `revoke_api_tokens` management command matches `username` OR
+  `email` in one query and still scans, because an OR needs a matching index on
+  both sides; it is an interactive admin command, not a request path. Within the
+  documented sizing envelope (a team of 25 to a team of 250) the table is small
+  enough that PostgreSQL still prefers a sequential scan and you will not measure
+  a difference; the index is what keeps these lookups flat for installs that grow
+  past a few hundred accounts (#3504).
+Moving a task to **In review** now records an actual finish date. This is the highest-volume
+completion path — marking a task 100% as a contributor routes it there — and it previously
+recorded no actual dates at all, leaving completed work with no place on the timeline.
+`actual_start` is deliberately still never invented (ADR-0136). Two related corrections ride
+with it: reopening a task out of In review clears the finish (it was already cleared out of
+Complete), and moving from In review to Complete now keeps the recorded finish instead of
+overwriting it with the sign-off date.
+
+`PATCH`/`POST` on a task now returns `400` for an actual start later than its actual finish,
+for an actual date in the future, and for a bare `actual_finish` on a task that is not in
+review or complete. The first of these was previously accepted and then failed the entire
+project's next schedule recompute rather than the one bad row. Callers that set a finish while
+reopening a task must drop it; callers that set a finish and a status together are unaffected.
+Bounded the resource allocation reads. `GET /projects/{id}/resource-allocation/` and
+`GET /programs/{id}/resource-contention/` no longer return an unlimited number of
+assignment rows sorted on a joined column: they now cap the read and report it with two
+new response fields, `resource_count` and `truncated`. The cut always falls on a resource
+boundary, so every resource in the response still carries all of its in-window spans and
+its overallocation verdict stays exact — and the Resources and program Contention views
+say so when people are missing. `unassigned_task_count` on the utilization endpoint is
+now a `NOT EXISTS` subquery instead of an inlined `NOT IN (…)` list, which also corrects
+a task whose span falls entirely on non-working days being miscounted as unassigned.
+- **Program and sprint read endpoints now declare real OpenAPI response
+  schemas.** `GET /programs/{id}/rollup/`, `GET /programs/{id}/schedule/`,
+  `GET /programs/{id}/resource-contention/`, and 20 sprint endpoints (retro,
+  retro-board, pulse, pulse-trend, burndown, capacity, blocked,
+  incoming_carryover, scope-changes, reorder, demo-list/reorder, and the
+  retrospective action-item actions) previously declared their 2xx body as a
+  free-form `{"type": "object"}`, which meant no client, generated SDK, or the
+  `api:fuzz` Schemathesis conformance run could ever fail against them. Each
+  now declares the fields the endpoint actually returns (#3652).
+- **Helm install drill script**: extracted the repeated `sed 's/^/  /'` diagnostic-indent literal in `scripts/helm-install-drill.sh` into a single `INDENT_SED` variable (SonarCloud maintainability finding, no behavior change).
+`/mass_merge` now removes each merge request's `scripts/wt` worktree immediately after that MR merges, instead of leaving every source branch's worktree behind on a dead, merged branch — the fastest way to hit the 10-worktree WIP cap mid-batch (#3746).
+The Schedule toolbar's Read/Author chip now comes first in the bar. In Read mode the chip reads **Read only · Switch to Author to edit**, and the create and structure controls (`+ Item`, `+ Milestone`, Phase, Group, Ungroup) are hidden instead of shown disabled. Switching to Author on a plan with an active baseline asks once per baseline before you edit, and the chip then shows which baseline your edits are measured against.
+The Schedule toolbar's far-right menu, the only way in to import, export, baselines and sharing, is now labeled **Actions ▾** at 1024px and wider instead of an unlabeled `⋯`. Below 1024px it collapses back to `⋯` alongside the Display trigger. The Display menu now says a moved control is "in Actions" rather than "in ···". (#3749)
+- **The three longest documentation pages are split into sections you can scan.** The
+  API reference (21,700 words) is now an overview plus eight pages by resource group;
+  Configuration (13,500 words) is an overview plus pages for advanced settings, limits,
+  storage and networking, and logging and telemetry; the Schedule view (11,600 words) is an
+  overview plus pages for dates, editing, and sprint windows. Each original URL still
+  opens the overview, content moved verbatim, and every link to a moved section — in the
+  docs, the Helm values, `.env.example`, and the web app's "Learn more" links — now points
+  at its new page (#3754).
+- **The copyright holder is stated correctly.** A new `NOTICE` file names MacroDream, LLC
+  and contributors as the copyright holders of TruePPM and ships inside the API image
+  alongside `NOTICES`. Every `LICENSE` file now carries the Apache License 2.0 text
+  verbatim: the appendix had been filled in with "Copyright 2026 TruePPM", a product name
+  rather than a legal entity, and three words in the license body differed from the
+  published text (#3761).
+**Extension-point contract change (OSS↔Enterprise), landing before 0.4 freezes it.**
+`dispatch_extension_signal()` now has a `sender` convention: the OSS model class the
+signal is about, or `None` where the signal is not about a model row. Six of the sixteen
+dispatch sites previously passed a *string*, and because Django filters receivers on
+`sender` identity, a receiver written `@receiver(celery_task_started, sender=SomeTask)`
+never fired against them — silently, with nothing logged on either side.
+
+What changed for a receiver author: the five Celery worker-run signals
+(`celery_task_started` / `_succeeded` / `_failed` / `_retried` / `_permanently_failed`)
+are now dispatched with `sender=None` and are discriminated by their `task_name` kwarg,
+not by sender. Every other signal dispatches with its model class, as the majority
+already did. No receiver in the OSS tree filtered on sender, so nothing in the community
+edition changes behavior.
+
+The companion `**kwargs` rule is now written down too: identifiers and plain scalars by
+default, a model instance only on a signal dispatched *inline* (where the row is not yet
+durable and a receiver cannot safely re-read it by id), never on one dispatched from
+`transaction.on_commit()`.
+
+Both conventions live in the `trueppm_api.core.extension_signals` module docstring, are
+type-checked at each call site (`sender: type[Any] | None`), and are re-checked
+structurally by `scripts/check-extension-signals.sh`, which now fails a dispatch whose
+sender is not class-shaped.
+- **`valkey.sentinel` Helm values are now marked experimental in the schema, not
+  just in a comment.** Each of the six `valkey.sentinel.*` keys in
+  `values.schema.json` now carries a `description` stating that Sentinel wiring
+  is unit-tested but has not been verified against a live Sentinel quorum
+  performing a real failover, so `helm show values` and any schema-driven
+  tooling surfaces the same caveat the YAML comments and docs already state
+  (#3778).
+- **`schedule_in_deliver` column-drop migration**: corrected the migration's
+  docstring, which justified its single-release destructive `RemoveField` by
+  claiming the rolling-upgrade 500 window "does not exist on single-replica
+  installs, which is every self-hosted deployment we know of." That premise
+  shifted inside this same release: `values-prod.yaml` ships `replicaCount: 2`
+  with no `strategy:` override, so the window is expected on the chart's own
+  production reference posture. The trade-off is still accepted — bounded to
+  transient `500`s on `/auth/me/` during rollout, no data loss beyond the
+  retired preference, no crash-loop — but it is now disclosed in the 0.4
+  upgrade notes instead of resting on a false premise.
+- **Task activity feed**: the task history endpoint
+  (`GET /projects/{id}/tasks/{task_id}/history/`) now accepts an opt-in
+  `?include=comments,time,attachments` (or `?include=all`) parameter that merges
+  comment, time-log, and attachment events into the feed alongside field-diff
+  changes. Every entry carries a consistent `{event_type, actor, timestamp,
+  detail}` shape, with `actor` null for authorless/system events. Without
+  `?include` the response is unchanged, so existing consumers are unaffected.
+  Time-log events are scoped to the requesting user's own entries.
+- Settings now adapt to phone-sized viewports: below the `md` breakpoint the fixed 240px navigation rail collapses into a compact header with the scope switcher, context selector, and a "Jump to section" picker, and form rows stack so fields no longer overflow. A Settings entry was added to the mobile bottom navigation so project settings are reachable without the desktop tabs.
+Milestone rollup variance chips now annotate the slip with CPM float remaining (or critical-path status) and color the band by slip-vs-float rather than slip magnitude, so a `+3d slip` on a milestone with 8 days of float reads amber while the same slip on a critical milestone reads red — across the Advancing-to-Milestone card, the Gantt row, and the task Overview.
+Added a `(status, dispatched_at)` index on the workflow outbox so orphaned-step recovery stays fast at scale instead of post-filtering a wider scan.
+The sprint→schedule "Open in Schedule view" deep link now scrolls the target milestone into view and pulses its diamond on arrival, and the Sprints "Advancing to Milestone" card no longer shows the WBS path — CPM structural vocabulary stays on the schedule surface.
+- **OpenAPI schema now documents the real response shapes for project task,
+  board, history, sync, and notification endpoints.** The generated
+  `docs/api/openapi.json` previously showed "No response body" for the task
+  WBS-restructure operations (reorder/indent/outdent/reparent), task bulk
+  mutation, board column config, board saved views, project presence, phase
+  reorder, baseline activation, task history, task-baseline comparison,
+  velocity, active-sprints, and acceptance-result ingest — these now carry
+  their true response schemas. The offline `?since` sync pull now documents its
+  WatermelonDB `{timestamp, changes}` envelope, and the notification inbox
+  documents its `unread_only` and `archived` query parameters. A duplicate
+  (permanently shadowed) task-history URL registration was removed so the schema
+  exposes a single task-history operation. Annotation-only; no API behavior
+  changed.
+Typed the WatermelonDB sync upload envelope: the `changes` map is now an explicit per-collection created/updated/deleted schema in the OpenAPI spec and generated web types instead of an opaque object, and a malformed upload envelope is rejected with a clear 400. Existing mobile clients are unaffected — the accepted request shape is unchanged.
+The import dialog now opens as a full-screen sheet on phones, with a docked footer (safe-area aware) and a scrollable body, instead of a centered card.
+The ADR number-collision gate now catches duplicates *before* merge. In a merge-request pipeline it compares the ADR number a branch adds against both the numbers already on the target branch and the numbers other open MRs add, so two parallel branches that each grabbed the same "next free" number fail their own pipeline instead of silently colliding once both land on main.
+API schema now represents blank/optional string fields as an explicit `oneOf`
+(drf-spectacular 0.30). Regenerated `docs/api/openapi.json` and pinned the
+scheduler/api CI image to drf-spectacular 0.30.0 so schema generation is
+reproducible.
+
+### Fixed
+- **Recurring task occurrences now appear on open boards in real time.** When the
+  hourly sweep materializes upcoming occurrences of a recurring task, it now emits a
+  `tasks_bulk_mutated` WebSocket event per affected project, so connected clients see
+  the new occurrences immediately instead of only on their next manual refresh or
+  delta pull (#1008).
+Loading skeletons and live-state indicators now gate their pulsing animation behind `motion-safe`, so users who request reduced motion no longer see pulsing UI (WCAG 2.3.3). The workshop-active and retention-run "live" dots gain a permanent brand-colored ring so their active state stays perceivable when the pulse is suppressed (#1027).
+The Rust/WASM scheduler is now progress-aware, matching the Python engine
+(ADR-0132). Completed tasks pin to their recorded actuals at full duration and
+drop out of network logic, in-progress tasks contribute only their remaining
+duration, and a project `status_date` (the data date) floors remaining and
+not-started work so future work is never scheduled in the past. Previously the
+offline/browser recompute ignored actuals and the data date, silently diverging
+from the server schedule for any project with progress recorded. Also fixes the
+project-start date to be the earliest task start across the whole network rather
+than the first topological node, which out-of-sequence actuals could otherwise
+misreport (#1494).
+Keyboard users can now navigate the board Group, Sort, and Density chip popovers
+with arrow keys. The Group/Sort/Density radiogroups use a roving `tabIndex` so the
+active option is the single Tab stop on popover open; Up/Down/Left/Right move focus
+between options without committing; click, Enter, or Space commits the selection
+(web rule 167).
+Fix three WCAG 2.1 AA violations: SPA page titles now update on route change
+(usePageTitle hook), ScheduleView/BoardView/ResourceView gain sr-only h1
+landmarks, and InviteAcceptPage "Already have an account?" text meets AA
+contrast ratio.
+Extract five migration data-backfill functions into dedicated helper modules so tests no longer import migration files by name (fixes breakage risk at next squash cycle).
+- **Monte Carlo now honors per-task calendars**: `monte_carlo()` previously
+  refused outright any project declaring a `Project.calendars` registry, so a
+  program-scoped plan whose member projects each keep their own working week had
+  a deterministic finish date and no probabilistic band at all. It now simulates
+  those projects on the same rule `schedule()` applies — a task's duration
+  expands on its own calendar, lag is consumed on the successor's — and a fully
+  deterministic mixed-calendar project simulates to precisely its CPM finish
+  date. Projects on a single calendar are unaffected: their P50/P80/P95 are
+  byte-identical to before.
+- **Scheduler exception-contract completeness**: the scheduling engine now rejects
+  a non-finite or non-numeric `percent_complete` (#1452) and a negative/non-integer
+  Monte Carlo `seed` (#1453) with the documented `InvalidScheduleInput`, instead of
+  leaking a bare `ValueError`/`TypeError` (or, for `percent_complete`, silently
+  diverging between the deterministic and Monte Carlo passes). This hardens the
+  scheduling API against a malformed value reaching the engine from client input.
+Fixed the project methodology label disappearing below 1280px by adding a compact, always-visible methodology badge (HY/WF/AG) with a full accessible name ("Hybrid workspace", etc.).
+- **Scheduler: cross-calendar backward pass no longer corrupts float/critical path.**
+  When a predecessor and its successor sit on different per-task calendars
+  (ADR-0120 D3, e.g. a cross-project dependency), the CPM backward pass
+  computed the predecessor's own `late_start`/`late_finish` but snapped them
+  onto the *successor's* calendar instead of the predecessor's own — which
+  could produce `late_finish < early_finish` (impossible in valid CPM),
+  under-reported total/free float, spurious tasks entering the critical path,
+  and mis-stated late bars in the UI. The backward pass now snaps every
+  predecessor-owned date to a working day on the predecessor's own calendar,
+  matching the forward pass's existing convention. Single-calendar scheduling
+  is unaffected (#1490).
+- **Calendar exceptions (holidays/shutdowns) now feed the CPM and Monte Carlo
+  engine**: every call site that built a scheduler `Calendar` from a project's
+  `Calendar` model dropped its `CalendarException` rows, so a configured
+  holiday or shutdown was silently scheduled straight through — early/late
+  dates, float, the critical path, and Monte Carlo P50/P80/P95 all ignored it.
+  A new shared `build_sched_calendar()` converter now includes `exceptions` at
+  every call site (deterministic recalculation, the Monte Carlo endpoint, and
+  the program-scoped schedule read), so a project's holidays are honored
+  consistently across all three.
+- **Editing a shared calendar now recalculates every project bound to it**: changing a
+  calendar's `working_days` or `hours_per_day` — or creating, updating, or deleting one of
+  its holiday/shutdown exceptions — previously left every project scheduled against that
+  calendar computing dates against stale CPM inputs until an unrelated edit forced a
+  recompute. Both the `CalendarViewSet` update path and the `CalendarException` nested
+  CRUD (`/calendars/{id}/exceptions/`) now fan out a `CALENDAR_CHANGE` recalculation to
+  every live project referencing the calendar, deferred until the transaction commits.
+  Editing unrelated calendar fields (e.g. `name`) no longer spuriously triggers a recalc.
+- **Gantt drag preview now matches the server's calendar-aware schedule more
+  closely.** The in-browser drag-preview CPM worker previously ignored weekends
+  (treating every day as a working day), silently dropped dependency lag, and
+  flagged the critical-path ("CP") badge using a baseline-plan date instead of
+  the real CPM late finish — causing the live preview to diverge from the
+  server and to false-positive the critical-path badge on ordinary slips. The
+  preview now steps dates on a Mon–Fri working week, applies lag, and computes
+  criticality from the task's actual float. The preview is still a client-side
+  estimate (no custom calendar/holiday awareness) and is now labeled as such;
+  the server CPM run remains authoritative and reconciles the committed dates
+  on drop (#1493).
+Fix dependency arrows breaking/vanishing during Gantt drag: `GanttEngineImpl.updateTask`
+(the live drag-preview path) invalidated the arrow layout cache but only scheduled a
+dirty-row repaint, which never rebuilds or redraws arrows and clears any arrow segment
+crossing the moved row. It now routes through the existing bars-layer repaint flag, so
+arrows redraw correctly on every drag frame without forcing a full canvas repaint.
+Fixed a stale-schedule bug where updating a task's percent complete alone
+(via the API, MCP, mobile, or the web app) never triggered a CPM recalculation.
+The recalc-gating optimization from #965 treated `percent_complete` as
+non-scheduling data, but since ADR-0132 it has been a live scheduling input
+on every project — it derives an in-progress task's remaining duration and
+marks it complete at 100%, regardless of whether the project has a status
+date set. A percent-complete-only edit now always enqueues a recalculation;
+`notes` and `name` remain gated as genuinely inert.
+Mobile bottom sheets now move keyboard focus into the sheet when they open, so screen-reader and keyboard users land inside the dialog instead of leaving the reading cursor on the outside trigger (WCAG 2.4.3 Focus Order). Affects all six BottomSheet consumers (mobile More menu, board card/task form sheets, and the mobile backlog pull/filter sheets).
+- **The Rust/WASM engine now honors per-task calendars, closing the last
+  behavioral divergence between the two CPM engines.** It previously rejected any
+  project declaring a `calendars` registry, so a program-scoped plan whose member
+  projects each keep their own working week could be scheduled by the Python
+  engine but not by the browser/offline engine. All three passes now resolve each
+  node's own calendar on the same rule the Python engine applies — the node being
+  computed uses its own calendar for all of its arithmetic. The `rust_rejects`
+  fixture class, which existed only to hold inputs Rust could not honor, is
+  retired and its fixture promoted into the ordinary two-engine conformance set.
+- **The WASM scheduler now rejects project inputs it cannot faithfully schedule,
+  instead of silently ignoring them.** The Rust engine's input structs
+  (`Project`, `Task`, `Dependency`, `Calendar`) now use
+  `#[serde(deny_unknown_fields)]`, so a project carrying fields the engine does not
+  yet implement — per-task calendars (`calendar_id`/`calendars`), task actuals, or
+  agile Monte Carlo inputs — is rejected at parse time rather than scheduled on the
+  wrong calendar. The Python↔WASM conformance corpus is also expanded to cross-check
+  calendar-aware lag (FS/SS/FF/SF positive lag across a weekend; negative lag with
+  the project-start floor and weekend-backward resolution) and cycle rejection, and
+  a missing expected snapshot is now a hard failure in both engines rather than a
+  silent warn-and-pass (#1505, #1506).
+- **Closed sprints are now fully read-only on the board.** The keyboard "Move to…"
+  card menu no longer issues a status change on a completed sprint's board — matching
+  the already-disabled drag-and-drop — so a closed sprint can no longer be mutated
+  behind its "Closed sprint — read only" banner (#1512).
+- **Gantt bar-drag CPM preview per-frame cost**: dragging a task bar previously
+  rebuilt the dragged task's O(N+E) downstream subgraph and shipped it across the
+  Web Worker boundary on every single `pointermove` — dozens of times per day
+  column — even when the snapped start date had not changed, so a large schedule
+  hitched under the drag. The renderer now coalesces `drag-task-move` to snapped-
+  day changes (a last-emitted guard skips redundant same-day emits; the visual
+  drag shadow still tracks the cursor every frame, so the bar stays smooth), and
+  the worker keeps the subgraph resident for the whole drag: it is built and sent
+  once on drag start, each move sends only `{seq, newStartIso}`, and drag end
+  releases it. The dependency network is invariant during a drag, so reusing the
+  subgraph is sound and the preview is byte-identical to before (#1524).
+Fixed a Redis connection leak in the WebSocket presence path that opened a new client on every heartbeat frame without closing it.
+Keyboard focus can no longer escape four shell dialogs that declared `aria-modal`
+but never trapped Tab. The session-expired re-auth banner, the mobile user-menu
+sheet, and the keyboard-shortcuts modal now contain Tab/Shift+Tab and restore
+focus to their trigger on close (WCAG 2.4.3 / 2.1.2). The Monte Carlo confidence
+panel, which is a non-modal desktop drawer, now correctly declares
+`aria-modal="false"` with no backdrop scrim instead of contradicting its own
+rule-89 comment (#1554).
+Fixed keyboard focus rings on desktop shell chrome (sidebar, top bar, menus, notifications, dialogs): standalone controls now trigger their focus ring on `:focus` instead of `:focus-visible`, so the ring is no longer withheld during pointer-then-keyboard interaction sequences in Firefox and desktop Safari (WCAG 2.4.7). The `ViewTabs` / `ProgramTabs` scroller carve-out is unchanged.
+- **App-shell chrome polish.** The Keyboard shortcuts dialog now lists the real,
+  wired bindings (command palette, sidebar toggle, palette navigation, board focus
+  keys) instead of a "coming soon" placeholder; the notification slide-out fetches
+  one page at a time with a "Load more" control and a friendlier "You're all caught
+  up" empty state instead of loading the entire history; and the status bar shows the
+  correct view name (e.g. "Board") on nested routes rather than a raw record id (#1556).
+- **WASM scheduler**: `validate_project` now bounds `actual_start`/`actual_finish` and `status_date` the same way the Python engine does, closing a cross-engine parity gap. Previously a task with a far-future (or far-past) recorded actual, or a far-future `status_date`, was silently accepted by the Rust/WASM engine and rejected by the Python source-of-record — and, in the browser offline-recompute path, could send the unbounded day-by-day calendar walk into a soft-hang. Two new `invalid/` conformance fixtures cover the actual-date and status-date bounds cases.
+`monte_carlo()` now agrees with `schedule()` on tasks marked 100% complete with no
+recorded `actual_finish`: previously such a task collapsed to a single working day
+in the probabilistic forecast while the deterministic schedule laid it out at full
+duration, disagreeing by several working days on identical input (#1565).
+
+`monte_carlo()` also no longer silently simulates a project with per-task calendars
+(`Project.calendars`, ADR-0120) on the wrong calendar. It now raises
+`InvalidScheduleInput` for such a project rather than returning P50/P80/P95 dates
+that disagree with `schedule()`; per-task calendars remain fully supported by the
+deterministic pass (#1566).
+- **Task/Dependency tombstone retention window**: soft-deleted tasks and dependency
+  edges are now retained for `TRUEPPM_TOMBSTONE_RETENTION_DAYS` (default 90 days)
+  before the nightly reap hard-deletes them, matching the existing grace period for
+  risks and sprints. Previously they had no retention window, so an offline mobile
+  client that missed a delete before the next nightly reap would never receive the
+  tombstone and would keep a phantom task or dependency forever.
+- **Gantt engine idle-repaint and full-range redraw perf**: the canvas Gantt's
+  animation-frame loop previously kept scheduling itself and clearing the
+  interaction canvas on every frame forever, even with no drag/pan/animation in
+  flight — an open, static schedule permanently pinned the compositor at 60fps
+  and drained battery on laptops/mobile. The loop now parks itself once there is
+  no pending repaint and no active drag/resize gesture, and re-arms only when a
+  mutation or gesture actually needs a new frame. Separately, the background
+  grid-line and timeline-header draw passes walked the entire project date range
+  on every scroll/pan frame regardless of what was actually visible — on a
+  multi-year project at day/week zoom this was the largest per-frame cost in the
+  scroll path. Both now clip their day-by-day walk to the visible viewport
+  window instead of the full project span (#1569, #1570).
+- **Blank API docs pages**: the interactive OpenAPI docs (`/api/docs/` and
+  `/api/schema/swagger-ui/`) rendered blank because the strict Content-Security-Policy
+  (`script-src 'self'`) blocked Swagger UI's CDN-hosted bundle and its inline
+  bootstrap script. The assets are now bundled and served from the deployment's own
+  origin (`drf-spectacular-sidecar`) and the bootstrap loads via a same-origin
+  request, so the docs work under the CSP and offline — no CDN access required.
+- **Static files now served by the API**: the API process (uvicorn) now serves its
+  own collected static files via WhiteNoise. Previously nothing served `/static/`,
+  so Django admin styling and the same-origin Swagger UI / ReDoc bundles returned
+  404 in any deployment without an external static file server.
+- **Burn chart export menu unreachable on touch**: the report and sprint burn
+  chart "Export" button now opens its PNG/PDF menu on click, so it works on
+  touch devices and in browsers that do not focus a button on click (Safari and
+  Firefox on macOS). Outside-click and Escape dismiss the menu, and it is
+  keyboard-accessible. Pointer hover remains as a progressive enhancement.
+Calendar view: clicking a task chip now opens a detail banner showing the task's name, dates, status, and assignees with a link to the full task page, instead of the raw task ID.
+Repaired mis-wired links (board risk register, sprint acceptance criteria, settings first-project CTA, docs cross-links) and added issue-tracking help text to not-yet-wired controls found by the UI wiring audit.
+Settings pages no longer over-scroll past their content into empty canvas. The single settings scroll container now carries `min-h-0` so it stays bounded by the viewport instead of taking its content height and overflowing the layout — which had let the app shell scroll into blank space and push the status bar off the bottom edge (#1618).
+The **Transfer ownership** (Project) and **Transfer sponsorship** (Program) cards on Settings → Lifecycle are now readable in dark mode. They previously used a static cream background that did not adapt to the theme, so their text washed out to near-invisible on dark surfaces; both now use the adaptive semantic-warning tokens, restoring AA contrast in light and dark modes (#1619).
+Fixed the Integrations "Coming soon" connector card, which advertised three already-shipped connectors (inbound Jira/Linear/GitHub task-sync, personal connected accounts, and cloud-file link preview) as still upcoming, and tagged the genuinely-future connectors (calendar export, meeting links) with the already-released 0.2/0.3 versions. Connectors are now split into an "Available now" section that links to each shipped capability and a "Coming soon" section whose milestones match the roadmap.
+The Program Schedule view now scrolls vertically and horizontally for programs
+whose merged cross-project schedule is taller or wider than the viewport.
+Previously the canvas was mounted without a scroll container, so rows past the
+first screen were unreachable and drag-to-pan did nothing — the page now uses the
+same overflow container plus content-height spacer as the project Schedule view
+(#1624).
+The outbound SSRF guard (`assert_url_allowed` / `assert_host_allowed`, ADR-0049 §3)
+now classifies literal-IP targets directly instead of calling `getaddrinfo`. A URL
+or SMTP host that is already an IP literal — e.g. `169.254.169.254` cloud metadata or
+an RFC1918 address — is denied by a pure, syscall-free computation, so no resolver is
+involved. This closes the flaky-CI failure where the delivery-time guard for a
+metadata IP could, in a constrained network namespace, surface as a transient
+resolver error and let the webhook task retry into a real connection instead of
+blocking the target outright (#1628).
+- **Explicit error toasts on failed mutations**: three high-traffic actions that
+  previously failed silently — moving a board card to a new status/column, closing a
+  sprint, and adding, updating, or removing a task resource assignment — now surface an
+  accessible error toast when the request fails. The non-destructive rollback (the card
+  reverts, the close dialog stays open, the assignment list is restored) already existed;
+  the failure is now announced rather than leaving the user with no signal.
+Schedule toolbar buttons no longer reflow or wrap their labels at high browser zoom — the "+ Milestone" and "Build mode" controls now hold a fixed size like the other toolbar buttons.
+- **Task drawer couldn't create a cross-project dependency**: the task detail
+  drawer's Dependencies section only let you pick a predecessor/successor from
+  the current project's own tasks. It now shows a "Search another project in
+  this program…" link that opens the same cross-project search picker already
+  available from the task list's right-click menu.
+Schedule dependency picker (Add predecessor / Add successor) now traps keyboard focus inside its modal, so Tab and Shift+Tab cycle within the dialog instead of walking back into the task detail drawer behind the scrim (WCAG 2.4.3, web-rule 206).
+Fixed "black on blue" dark-mode contrast anti-patterns where a hardcoded black color value did not adapt to the dark navy surfaces. The Burn Chart gridlines (a `rgba(0,0,0,…)` stroke) now use the mode-aware `neutral-border` token, and the Schedule Gantt `%`-progress chip pill now flips with its text so it never darkens the area behind the ink label on the light dark-mode bars (WCAG 1.4.11). A new `design-system-v2` gate check ratchets inline `rgba(0,0,0,α)` values so this class of regression is caught in CI.
+- **Workspace → Roles & permissions no longer shows a misleading "preview, changes
+  won't be saved" banner.** The five built-in roles are fixed in the community edition
+  and editing roles / custom roles is an Enterprise capability, so the matrix is now
+  presented as an intentional read-only reference with a reachable "custom roles are
+  Enterprise" upsell — instead of a stub that promised OSS wiring (tracked against a
+  long-closed issue) that will never land (#1649).
+- **A failed view load no longer shows React Router's raw error screen.** When a
+  lazy route chunk fails to load (a stale module graph right after a deploy, an
+  offline moment, a transient network blip) or a route subtree throws while
+  rendering, the app now shows a calm, branded error surface with **Reload** and
+  **Go to home** actions instead of the developer-facing "Unexpected Application
+  Error / Hey developer" default. Boundaries are wired at the route-tree root and
+  on the project/program shells, so a single view failing keeps the sidebar and
+  lets you navigate away. The real error is still logged to the console for
+  developers (#1654).
+- **The task detail drawer now respects "reduce motion".** Its slide-in transition
+  is gated behind `prefers-reduced-motion`, so users who ask their OS to minimize
+  animation get an instant drawer instead of a transform. This also removes a
+  source of nondeterministic end-to-end test failures: a still-loading section's
+  looping `animate-pulse` skeleton, combined with the drawer slide, kept the layout
+  perpetually in motion and intermittently tripped Playwright's "element is stable"
+  actionability check, surfacing as a 30s click timeout on unrelated controls
+  (#1655).
+- **The Schedule view is now usable on phones.** Below the `md` breakpoint (< 768px)
+  the Schedule no longer renders the cramped desktop split-pane, where the task-list
+  table crowded the Gantt canvas off the right edge and clipped the timeline. On mobile
+  it now forces full-width Timeline mode — the canvas owns the whole width and task
+  names render inline on the bars — and hides the controls that only apply to the
+  hidden task list (Columns, the Grid/Timeline toggle). Rotating back to a wider screen
+  restores your saved layout. This fix (#1670) makes the Schedule usable on a phone; a
+  dedicated mobile-first Schedule surface is tracked as a follow-up (#1671).
+Additive project imports (MS Project import-into-existing and offline Jira import) are now idempotent under re-dispatch: a worker-death re-drain or a broker redelivery of an already-completed import no longer duplicates the imported tasks and dependencies. The import and its outbox completion marker now commit in one transaction, with the outbox row acting as an exactly-once claim.
+Fixed the Light/Auto/Dark theme switcher doing nothing on mobile-width layouts. The user-menu "click outside to close" handler only recognized the desktop dropdown, so a pointer press on a control inside the mobile bottom sheet was treated as an outside click and closed the sheet before the control's click could fire. The switcher now works at every viewport width.
+Enlarged the Light/Auto/Dark theme toggle buttons to a 44px touch target in the mobile user-menu sheet (they were 28px, below the WCAG 2.5.5 minimum). Desktop density is unchanged.
+Schedule and Board PDF/PNG exports are now legible when generated while the app is in dark mode. The export surfaces are pinned to the light document theme, so the sheet always renders dark navy ink on a white page instead of near-white ink that was unreadable.
+Fixed the read-only shared schedule view (public share link): milestones now render as amber diamonds matching the main schedule view instead of blending in with task bars, and task dependencies are now drawn as connector arrows rather than the schedule showing bars alone.
+- **The critical path is no longer hidden on completed tasks in the exported schedule
+  PDF.** Task bars now carry their risk band (critical / at-risk) on the **border**
+  rather than the fill, so a completed critical task reads as a green progress bar in a
+  red frame instead of a solid green bar that masked its critical status. The multi-page
+  report also reserves a bottom footer band so the "Page n of N" counter no longer
+  collides with chart or critical-path-chain content, and it keeps the Critical Path
+  Chain card whole rather than stranding one or two rows alone on the last page (#1686).
+Fixed the mobile navigation drawer not scrolling on small screens — the Programs and Projects tree is now reachable by scrolling instead of being clipped at the bottom of the viewport.
+- **Fixed pre-existing WCAG 2.1 AA color-contrast debt in the login page and app
+  shell, and re-enabled contrast enforcement in the accessibility gate.** The "PPM"
+  wordmark now uses the AA foreground sage (sage-700 / `brand-primary`, 5.93:1)
+  instead of the fills-only sage-500 (2.88:1 on white); the login "OR" divider,
+  helper text, and input placeholders use secondary rather than disabled text; the
+  brand avatar-initial badges use navy ink on the sage fill; and the status bar sits
+  on the raised paper so its 11px chrome text clears AA. The `color-contrast` axe
+  rule is now enforced with no exclusions in the `web:e2e` accessibility gate (#1689).
+Fixed `drain_schedule_queue` crashing on every tick when a project had a stale `dispatched` schedule-request row alongside a fresh `pending` one — orphan recovery now retires the superseded dispatched row instead of resurrecting it into a duplicate pending row.
+- **The schedule PDF export now draws dependency lines and paginates like a report.**
+  Dependency connectors were invisible in the exported PDF (only the arrowheads showed)
+  because the rasterizer drops CSS-class strokes on SVG paths; the connectors now render
+  as charcoal Finish-to-Start lines. A report taller than one page no longer slices
+  through Gantt rows, the critical-path chain, or the footer — pages break only on whole-
+  row boundaries, continuation pages repeat the Activity + date-scale header, an
+  overflowing critical-path chain repeats a "Critical Path Chain (Continued)" header, and
+  each page carries a "Page n of N" caption (#1694).
+- **A WIP breach now stays visible when you collapse a board column.** A folded
+  column stub is a lens on the column, not a place to hide a signal — so a column
+  that is at or over its WIP limit keeps its amber/red breach tone and shows the
+  `N/limit` ratio on the stub even when "Show WIP limits" is off, matching the
+  always-on breach chip on the expanded header.
+Schedule view: the critical path now stays visible on completed work. Critical task bars are drawn with a red **outline** instead of a red fill, so a finished critical task reads as a green bar in a red frame rather than turning solid green and disappearing from the critical path — the interactive schedule now matches the PDF export.
+- **The task Grid is now legible on phones.** On narrow screens the Grid's Flat,
+  Outline, and Grouped modes reflow from the fixed desktop table — whose columns
+  collided and clipped the progress bar off the right edge — into a two-line card:
+  WBS, name, and owner on the first line; dates, duration, progress, and status on
+  the second. The desktop table layout is unchanged (#1701).
+Task Grid bulk-select checkboxes now expose a ≥44px touch target (WCAG 2.5.8) on phones without enlarging the 16px visual box; the dense desktop table is unchanged.
+Unified all avatar-initial circles (member/roster lists, invite picker, program access, task assignees, and the shell identity avatar) onto the rule-143 "sage fill + navy text" treatment via a shared `AvatarInitials` component. The previous sage-on-sage treatment only met WCAG AA on white cards and failed on the canvas and darker surfaces; navy-on-sage is AA in both light and dark, and routing every avatar through one component keeps the treatment from drifting again.
+Notification bell no longer shows a muted-bell glyph when there are no unread notifications. The resting state previously used the "🔕" (bell with cancellation stroke) symbol, which reads as "notifications turned off" even though nothing was muted. The bell is now a consistent active icon in all states; unread is conveyed by the count badge and accent color.
+Fixed the mobile Grid toolbar overlapping the task list. Its controls (search, `+ Task`, `CSV` export) wrapped onto extra rows on a phone but were clamped to a fixed height, so the wrapped rows rendered on top of the first task row. The toolbar now grows to fit its wrapped rows and the search takes its own full-width row on mobile; the desktop layout is unchanged.
+Settings now has a clear "Back to …" exit control in its mobile header, so phone users on program and workspace settings — where the bottom navigation is hidden — always have a discoverable way back to the app.
+- **Helm: default install no longer crash-loops on the DB-encryption boot guard**:
+  the bundled `DATABASE_URL` carries no `sslmode`, which tripped `settings.prod`'s
+  encrypted-transport guard and crash-looped a default `helm install`. The chart now
+  sets `TRUEPPM_ALLOW_UNENCRYPTED_DB=true` automatically **only** for the dev/demo
+  shape — bundled database plus an enabled NetworkPolicy — so the plaintext hop is
+  network-isolated rather than the security check being disabled by hand. External
+  (managed) databases inject no such flag, so their `DATABASE_URL` must still carry
+  `sslmode=require`.
+Fixed a lost-update hole where routing a stale edit through the offline sync upload endpoint (`POST /api/v1/projects/{id}/sync/`) silently clobbered a concurrent REST edit. The upload path applied plain last-writer-wins and never ran the field-level conflict guard that `PATCH` uses, so a stale writer bypassed the 409. The upload now honors the batch's `last_pulled_at` watermark (or a per-row `base_version`) as the conflict base: a row whose fields overlap a concurrent writer's is reported in a new `conflicts` collection in the batch response and skipped — it neither bumps `server_version` nor broadcasts — while disjoint edits still merge and non-conflicting rows in the same batch still apply. Omitting a base version preserves the previous last-writer-wins behavior, so existing clients are unaffected (#1718).
+- **MS Project import — non-finite numbers rejected**: `NaN`, `Infinity`, and
+  overflow values (e.g. `1e999`) in a crafted MSPDI file's `MaxUnits`, `Units`,
+  or `PercentComplete` fields are now rejected and clamped at the parser, so they
+  can no longer bypass the model validators via `bulk_create`, poison CPM /
+  Monte Carlo math, or produce invalid JSON (`NaN`/`Infinity` tokens) in API,
+  sync, and webhook responses. `Task.percent_complete` also gained `[0, 100]`
+  range validators on the interactive write path.
+- **Sync upload rejects malformed row ids cleanly**: a mobile push batch that
+  carries a non-UUID row id in its created/updated/deleted buckets now returns a
+  400 instead of a 500. Re-pushing a created row whose id matches an
+  already-deleted (tombstoned) task is now skipped like the other buckets, rather
+  than running a redundant write and emitting a spurious update event.
+- **MCP: two read tools that always failed now work, and list tools no longer
+  silently truncate.** `get_release_forecast` and `list_program_backlog` were
+  dead — their target API views (`projects/<id>/sprint-forecast/` and
+  `programs/<id>/backlog-items/`) lacked the MCP-token authentication mixin, so a
+  `tppm_` bearer always got a 401. Both views now accept a personal `mcp:read`
+  token (read-only). Separately, every `list_*` tool used to return only the
+  first 50 rows with no signal, so an assistant reasoning over "all tasks" drew
+  conclusions from a partial set; list tools now follow pagination up to a
+  1,000-row cap and return an `{ items, total_count }` envelope that adds
+  `truncated: true` when more rows exist (#1731).
+Board card dependency and risk signals no longer overlap the task title: they now sit inline in the card's badge row (so long titles truncate cleanly), use crisp SVG icons instead of emoji, and show their count beside the icon.
+The "who's viewing now" avatars in the top bar now carry a green live dot and are fenced off from your own account menu, so presence and your own identity are easy to tell apart.
+The sidebar now shows your identity as a quiet "Signed in" label instead of an avatar circle that looked tappable but did nothing.
+The settings gear in the sidebar now always opens the settings hub, instead of landing on a different page depending on your role. Access to admin sections is still gated inside the hub.
+The canvas schedule (Gantt) now renders correctly under Windows High Contrast / forced-colors mode — it detects the mode and repaints using your system theme colors instead of drawing invisible fixed-color pixels. The keyboard reschedule shortcuts (Enter to reschedule, arrows to nudge, Esc to cancel) are now listed in the keyboard-shortcuts dialog.
+- **Phases no longer accept subtasks**: the task drawer's Subtasks tab and
+  "+ Add subtask" affordance are now hidden on a phase — a summary task that
+  groups real WBS work — so subtasks can no longer be added there and silently
+  appear as ordinary tasks in the WBS. A leaf that has been broken into subtasks
+  keeps its Subtasks tab. The API now rejects a subtask on a phase
+  (`subtask_on_phase`) as the source-of-truth guard.
+Consolidated the frontend `isPhaseTask` helper into a single module (`lib/isPhaseTask`): the sprint picker's phase exclusion now honors the server-computed `is_phase` field instead of always re-deriving phase status client-side.
+- **Rate-limit counters can no longer wedge on a broker blip**: the API's Redis-backed rate-limit counters (mobile sync upload, inbound task-sync, token issuance, attachment upload, Git webhook, task-link refresh, mention fan-out, and workshop relay) now increment and set their expiry in a single atomic operation. Previously the increment and the expiry were two separate calls, so a process crash or connection drop between them could leave a counter with no TTL — permanently locking that client out of the affected bucket with HTTP 429 until the key was manually cleared.
+- **Canvas Gantt text-only zoom (WCAG 1.4.4)**: the schedule canvas now scales its text with the browser's text-only zoom / default document font-size (e.g. Firefox "Zoom Text Only"), which previously left the hardcoded-pixel canvas glyphs unchanged. At the default 16px root font-size the rendering is byte-identical to before, so there is no visual change for users who have not enlarged text.
+MS Project import/export now keeps `percent_complete` on the canonical 0-100 scale. Previously the parser divided by 100 and the exporter multiplied by 100, so an imported 75%-complete task landed as 0.75% and a native 50% task exported as an invalid `PercentComplete=5000`. Both directions are now on the same 0-100 scale as MSPDI and the rest of the app.
+- **The evaluation guide's persona sign-in flow now actually works.** Sample personas
+  were created with unusable passwords, the guide told readers to "Sign in as Alex"
+  using bare names that don't match the real namespaced usernames (`atlas-alex`), and
+  it cited a `--create-users` flag that doesn't exist on `load_sample_project` — so the
+  flagship 30-minute evaluator walkthrough dead-ended at the first login. `load_sample_project`
+  now takes a `--with-personas` flag that gives the sample's personas a real login
+  password (`$TRUEPPM_DEMO_PASSWORD`, else `demo` under `DEBUG`, else a printed random
+  token — the same guard the demo seeds use), prints the real usernames, and the guide,
+  sample-projects, and sample-project-tour docs were corrected to real usernames, the
+  right flag, and `docker compose exec api` command prefixes.
+Deleting a task in Schedule build mode (Backspace/Delete on a focused row, or the row menu) now surfaces a "Deleted — Undo" toast that recreates the task, closing a one-keystroke data-loss path that previously deleted with no confirmation and no way to recover.
+The Board and Project Overview pages now show a "Couldn't load … Retry" banner when a fetch fails, instead of rendering as an empty board or a perpetual loading skeleton. A failed request is now visually distinct from a genuinely empty surface, matching the Grid, Schedule, and My Work views (#1764).
+- The Project Overview now adapts its forecast widgets to the project's methodology. Agile projects no longer show the Monte Carlo forecast or the critical-path panel (both schedule artifacts they don't run), and Waterfall projects no longer show the backlog delivery forecast (a sprint artifact stuck permanently "warming up"). Hybrid projects still see all three. Admins who explicitly re-enable the Monte Carlo surface still get it, regardless of methodology.
+- Sprint and story-point fields now follow a project's current methodology. Switching a project's delivery methodology in Settings (for example Waterfall → Agile) immediately updates whether the board task modal, build-mode sprint prompt, and grid sprint column appear — previously the `agile_features` flag was set once at creation and never re-synced, so a project switched to Agile stayed without sprint affordances.
+- **Tasks completed by an external system now import as fully done.** When an
+  inbound integration (e.g. a Jira mirror) flips a task's status, the sync path now
+  applies the same coercions the REST API does — Review/Complete forces 100%
+  progress, actual start/finish dates are stamped, and remaining effort is zeroed —
+  and it fires the `task_status_changed` signal, so burndown/EVM count the work and
+  status-change notifications are delivered instead of being silently skipped
+  (#1767).
+- **Imported tasks now keep their source status.** The MS Project and Jira
+  importers previously dropped status entirely, so completed and in-flight work
+  re-imported as "Not started" — filling the board with false to-do cards and
+  inflating every forecast with work that was already done. Both importers now map
+  the source status onto the task (Jira from the issue status, MS Project from its
+  percent-complete), so a post-import board reflects real progress (#1768).
+MS Project import/export now maps working calendars (#1769). The base calendar selected by the file's `CalendarUID` imports into the project's working calendar — weekday mask, hours per day, and holiday/shutdown exceptions — so plans with a non-5×8 week or holidays keep their dates instead of being rescheduled on the default Monday–Friday calendar. Export mirrors this, emitting a `<Calendars>` block that folds any applied calendar layers into the mask the scheduler computed. Per-task and per-resource calendars are not supported; task references to a non-project calendar import with a warning.
+Fixed three touch-ergonomics gaps that a phone-first contributor hit in the first few minutes. Board card and Grid outline-row overflow/drag controls were hover-only (`opacity-0`), so they were invisible-but-tappable on touch — they now stay visible below `md`. My Work — the cross-project personal destination that has no project-view rail slot — is now pinned to the top of the mobile "More" sheet instead of being buried behind a nav-drawer scroll. And the global quick-log time entry, previously desktop-only, now opens the same form in a bottom sheet on mobile so the 15-second capture path works on a phone. Desktop layouts are unchanged.
+- **Mobile sync no longer discards a Product Owner's whole offline batch, and WBS
+  restructuring is gated at edit-strength.** The sync-upload path re-implemented the
+  task-edit role matrix and omitted the Product Owner facet, so a PO grooming
+  EPIC/STORY items offline was denied — rolling back the entire batch — the moment one
+  groomed row was touched. It now calls the `can_user_edit_task` source of truth
+  directly, keeping the upload path in exact parity with `PATCH /tasks/{id}/`.
+  Separately, the indent/outdent/reparent endpoints only required any Team Member,
+  letting a Member move a colleague's task anywhere in the tree (changing its phase and
+  rollup parent) even when they could not rename it; structural moves now require the
+  same authority as a field edit.
+- **The deterministic schedule no longer includes backlog or deleted tasks.** The
+  critical-path (CPM) pass now feeds from the same committed-task set as the Monte
+  Carlo forecast — excluding `BACKLOG` cards and soft-deleted tombstones — so
+  grooming the backlog can no longer move the critical path and the deterministic
+  finish date can no longer structurally disagree with the P50/P80/P95 bands shown
+  beside it (#1772).
+Milestone tasks now hold a single canonical state instead of three signals that could disagree. Setting `is_milestone` or `delivery_mode='milestone'` (via the API or an MS Project import) now couples both flags and zeroes the task's duration, so the phase rollup, the CPM engine, and sprint targeting can no longer read a task as a milestone on one surface and an ordinary task on another. A milestone can no longer acquire children (via create, indent, or reparent), and un-flagging a milestone that a live sprint still targets is now rejected (#1773).
+- **Consistent loading and empty states on the Deliver circuit.** The Board,
+  Sprints, and project Backlog now show skeleton placeholders while loading
+  instead of a bare "Loading…" line, matching Schedule/Grid/My Work. First-run
+  agile surfaces (empty sprint list, empty product backlog, empty Trash) route
+  through the shared warm empty-state anatomy with an icon and orientation copy,
+  the sprint zero-state gains a "Plan a sprint" call to action, and an empty
+  board lane now shows a drop hint.
+- **Project Overview's Monte Carlo forecast now honors the histogram design
+  rule.** The Overview mini-histogram reuses the shared `MonteCarloHistogram` —
+  neutral distribution bars with color reserved for the P50/P80/P95 percentile
+  rule lines — replacing the hardcoded percentile-colored bars that never
+  swapped for dark mode.
+- **Keyboard focus no longer escapes multi-state dialogs, and the Schedule ARIA
+  grid honors its keyboard contract.** Three WCAG fixes (#1776): `useFocusTrap`
+  gained a `focusKey` parameter that re-seats focus when a dialog swaps its
+  content while staying open — the MS Project import modal (picking → uploading
+  → success/error) and the Promote-to-milestone dialog (conflict ↔ form) now
+  re-seat instead of dropping focus to the page; the task form's nested
+  delete-confirm dialog now owns its own focus trap, so Tab can no longer reach
+  the background form while it is open; and the Schedule chart's accessible
+  grid adds Home/End navigation, moves focus with the roving tab stop (arrow
+  navigation previously stalled after one row), yields the keyboard while a
+  reschedule nudge is active, and announces help text matching the real key map
+  (Left/Right nudge, Enter confirms, Escape cancels, Space selects).
+Bundled demo samples now hold up under inspection: exactly one active sprint
+straddling import day per sprint-running project, sprint aggregates reconciled
+with member story points (with explicit carryover explaining every partial
+close), no dependency contradicted by task statuses or future start dates,
+baselines that show real variance against the current plan, and event timelines
+that reach the present — including retro actions after closed sprints, a
+re-estimation beat, and mid-sprint movement on the active board. The Atlas GTM
+Readiness project now genuinely demonstrates hybrid (a sprint cadence over its
+enablement lane beside the gated launch plan), Aurora gains a real unassigned
+backlog, Bayside exercises dependency lag/lead, and Helios gains a baseline,
+milestones with a sprint target bridge, and forecast history so the program
+rollup KPIs render populated.
+On phones, the Schedule now opens fitted to the actual work instead of an empty week grid — the task bars are visible on first paint with no scroll-right-to-find-them — and the Gantt toolbar collapses to fit a narrow screen (the secondary create actions move into the ··· menu) so nothing is clipped off the right edge.
+Mobile top bar no longer clips the sync-status badge (and the notification bell and user menu) off the right edge. On a phone the health chip's P80 forecast and the "Synced" word now hold to tablet widths and up, and the brand shows as its mark alone (the full wordmark stays in the rail), so the fixed right cluster fits a 375px screen.
+Fixed the mobile "More" navigation sheet clipping each row's trailing pin/unpin toggle at the right screen edge. Long view labels no longer push the 44px toggle out of the sheet — labels now truncate and the toggle stays fully visible and tappable.
+Sprint-assigned backlog tasks no longer strand at the project origin on the Schedule/Gantt. A task assigned to a future sprint but still in the sprint backlog (which is correctly excluded from the critical path) now appears in the Unscheduled tray, grouped read-only under its target sprint with an honest "planned — not scheduled" label, instead of a meaningless day-zero glyph.
+- **The Reports burn chart and the board's Flow Analytics charts are now legible in
+  dark mode.** Their axis labels, gridlines, the TODAY marker, and the burn/flow
+  series referenced CSS variables with a non-existent `--color-` prefix (and without
+  the `rgb(var(--…))` wrapper the Design-System v2 channel-triple tokens require), so
+  every SVG element fell back to black and vanished against the dark navy chart
+  surface. The tokens now resolve correctly and adapt to the light/dark theme swap.
+The account avatar chip and sidebar identity now always derive a name and initials (display name → username → email) instead of degrading to an anonymous "?" or a generic "Account", and the chip's accessible name and tooltip include the signed-in user so it self-identifies as your account.
+The Settings gear beneath the "Signed in" identity in the left rail now opens
+your personal settings (`/me/settings/general`) instead of the admin-gated
+workspace settings hub. Previously the control under the user's own name took
+admins to workspace administration and silently redirected non-admins away,
+leaving personal settings reachable only from the top-bar avatar menu. The gear
+also carries a clearer accessible name, "Personal settings" (#1793).
+Program cards now show a program-context role label (e.g. "Program Admin") instead of reusing the project-scoped "Project Admin"/"Project Manager" labels from the shared role enum.
+Ungrouped-projects rows now label every value visibly ("38% complete", "N members", "Standalone project") instead of hiding the percentage's meaning in an aria-label only, and the section's explainer sentence sits directly under its heading.
+Notifications now use one consistent name across the shell (#1797). The sidebar rail row previously labeled "Inbox" and the bell popover and full-page title previously labeled "My mentions" all now read "Notifications", matching the top-bar bell. One name for one concept, so the two entry points no longer appear to lead to different places.
+Harden the mobile **Log time** quick-log sheet so its primary action can never be clipped off the phone's right edge: below `md` the Cancel/Log actions now stack full-width (Log primary and thumb-reachable), and the duration chips, inputs, and buttons meet the 44px touch-target minimum. The desktop popover is unchanged.
+Mobile touch targets no longer shrink below the 44px WCAG 2.5.5 floor on
+phones. Several controls (the board scope-injection dismiss, the "N of your
+cards hidden" expand button, the schedule guardrail Keep-it-here/Undo/Got-it
+actions, and the dependency-picker option rows) keyed their compaction off
+Tailwind's `sm:` breakpoint, which fires at 375px — every real phone — so they
+dropped to 24–36px. The compaction now keys off `md:` (≥768px, pointer-primary).
+- **Hover-only controls are now reachable on touch, and desktop tables no longer
+  clip on phones.** The Programs card pin star and the Risk register row quick-edit
+  (✎) revealed only on hover, so they were invisible on a touch device; both are now
+  always visible below `md`, and the quick-edit grows to a 44px tap target. The
+  Sprint Backlog table and Risk register table rendered the desktop layout verbatim
+  on a phone; they now scroll horizontally within their own wrapper instead of
+  cramming or clipping columns at 375px (#1802, #1803).
+Program backlog pull confirmation no longer claims tags and owner are copied to the new task — the copy now matches what the server actually carries over (title, description, story points, and type).
+- **MCP connect instructions now mint a token the read surface accepts.** The MCP
+  registry manifest (`server.json`) and the connect guide told evaluators to mint a
+  project- or program-scoped API token, which the read surface rejects with a 401;
+  both now direct users to a personal `mcp:read` access token (with a required
+  expiry) minted from Personal Settings → API tokens. The PyPI README's advertised
+  tool count is corrected (14 → 18) and pinned to the registered surface by a new
+  drift-guard test, the server instructions now name the programs, what-if, and
+  schedule-derivation tools, and the administration guide and Dockerfile now warn
+  that the HTTP/SSE transport has no client-side authentication (#1806, #1807,
+  #1809).
+- **The WASM scheduler now accepts the Python scheduler's canonical `to_json()`
+  output** (#1816). `Project.to_json()` always emits its optional keys
+  (`calendar_id`, `delivery_mode`, `story_points`, `calendars`, `velocity_samples`,
+  `sprint_length_days`) as `null` when unset, but the WASM engine's
+  `deny_unknown_fields` rejected them at parse — so the Python library's own
+  serialized output could not be re-scheduled offline, despite the WASM engine
+  documenting that exact format as its input. The WASM engine now declares those
+  fields: a `null` value (the common case) parses and schedules identically to the
+  server, while a *set* per-task calendar (which the single-calendar WASM engine
+  cannot reproduce) is still rejected — now at schedule time with a clear message
+  rather than at parse. The Monte-Carlo-only fields are accepted and ignored (they
+  never affect a deterministic schedule). A round-trip conformance fixture generated
+  verbatim from `Project.to_json()` now guards this in both engines.
+- **A completed, out-of-sequence task no longer corrupts the critical path.** The
+  backward pass (and free-float computation) now skip completed successors, which
+  are out of network logic — a done task that finished before its predecessor even
+  started no longer clamps that live predecessor's late dates to false-zero float
+  and drags it onto the critical path. Fixed in both the Python `trueppm-scheduler`
+  and the Rust/WASM engine, with a shared conformance fixture (#1819).
+- **Late-finish dates no longer land on non-working days when the project finish
+  falls on a weekend.** The backward pass now snaps each task's project-finish
+  late-finish seed to that task's own last workable day, instead of seeding the raw
+  `project_finish`. A completed task's weekend actual finish (or, under per-task
+  calendars, a max early-finish from a 7-day-calendar task) no longer overstates a
+  live task's float or reports a truly critical task as having slack. Fixed in both
+  the Python `trueppm-scheduler` and the Rust/WASM engine, with a shared conformance
+  fixture (#1820).
+- **Monte Carlo agreed with the deterministic schedule on completed tasks** (#1821):
+  `monte_carlo()`'s working-day index omitted an actuals term, so a completed task
+  whose recorded `actual_start`/`actual_finish` fell far after its planned duration
+  (a task that finished late) mapped past the index end and was silently clamped —
+  making P50/P80/P95 report a finish months *before* `schedule()` on the very same
+  fully-deterministic project. The index now covers the furthest future actual, so
+  the two engines agree again. (Pre-start actuals — a task completed before the
+  project began — remain floored at the project start; tracked separately.)
+- **Scheduler DoS guards** (#1822, #1824): two accepted-but-pathological inputs
+  could hang the scheduler. A "doubling" summary `children_map` fanned out to
+  `2^depth` root-to-leaf paths, materializing an exponential list *before* the
+  `MAX_EXPANDED_EDGES` guard (which reads its length) ran — hanging `find_cycle()`
+  (called on every proposed dependency edge) and `expand_summary_dependencies()`
+  for seconds-to-minutes; the leaf count is now bounded *during* traversal. And a
+  valid calendar whose exceptions blanket a long gap after the project start made
+  `schedule()` re-run the same working-day snap once per task (O(tasks × scan)); the
+  per-calendar snap is now memoized. Both cases now complete in milliseconds.
+- **Scheduler input-contract hardening** (#1823, #1825): several public scheduler
+  entry points leaked bare `AttributeError`/`TypeError` past the documented
+  `SchedulerError` contract when called with the wrong type on the direct-object
+  path (the one the API uses to build projects from ORM rows). `Project.start_date`
+  is now type-guarded; `find_cycle()` and `expand_summary_dependencies()` reject a
+  non-dict `children_map` and non-list child values (a string value previously
+  produced *corrupt* expanded dependencies with no error at all); and
+  `monte_carlo(runs=…)` rejects a non-int `runs`. All now raise
+  `InvalidScheduleInput`, mirroring the existing #1209 guards.
+- **Monte Carlo sensitivity tornado omits completed tasks** (#1827): a completed
+  task that still carried a three-point estimate (ordinary data — the estimate
+  outlives completion) was sampled and surfaced in the duration-sensitivity tornado
+  as pure bootstrap noise, contradicting the documented contract that completed
+  tasks are omitted. Its sampled column is now collapsed to a constant *after*
+  sampling, so it drops out of the tornado while the seeded RNG stream — and
+  therefore P50/P80/P95 — stays byte-for-byte unchanged.
+- **Free float correct across non-working days** (#1828): a task's `free_float`
+  was wrong whenever a dependency's calendar-day lag spanned a weekend, holiday, or
+  other non-working stretch — both over- and under-stated. Free float was measured
+  as the working-day gap from the forward-imposed date to the successor's early
+  date, a proxy that assumes one working day of slip moves the imposed date by one
+  working day; a calendar-day lag re-landing across non-working days breaks that
+  assumption. Both the Python and Rust engines now compute free float by inverting
+  the forward constraint against each successor's early date — the same inversion
+  the backward pass already uses for total float — so it is exact for every
+  dependency type, any lag, and any calendar (alternate weekends, four-day weeks,
+  and whole-week vacations included).
+Added a PEP 561 `py.typed` marker to the `trueppm_api` package so mypy treats every `trueppm_api.*` module as typed regardless of how it is resolved, eliminating the intermittent `import-untyped` type-check failure on shared CI runners.
+- **Corrected the project domain from `trueppm.dev` to `trueppm.com`** (#1843).
+  `trueppm.dev` was never a real TruePPM domain but appeared in the hosted demo
+  host (now `try.trueppm.com`), the default superuser email (now
+  `admin@trueppm.com`), Helm values, the compose files, the nginx demo config, and
+  the documentation. All references now use `trueppm.com`.
+Fixed the MCP first-run connect flow so the docs and UI agree on one path. The **Personal Access Tokens** page now offers a **"Read-only for AI assistants" (`mcp:read`)** scope and, on creating one, shows the ready-to-paste `claude_desktop_config.json` snippet — the same copy-paste panel the project Integrations page already had. This is the token the MCP read surface actually accepts (it admits only owner-scoped personal tokens), so evaluators can mint the right token from the page the docs point them at. Also corrected the read-only tool count to **18** across the MCP docs and fixed the connect guide, which previously told users to mint the token from the project Integrations page (a scoped token the MCP surface rejects).
+Schedule value derivations (`derive_value`) now explain `free_float` with the same constraint inversion the engine uses, so the derived value and binding successor match the engine when a dependency's lag crosses non-working days or the task has its own calendar.
+- **Summary-task Start-to-Start / Start-to-Finish links no longer schedule late**:
+  an `SS` or `SF` dependency *from* a summary task was expanded to the full leaf
+  cross-product, silently anchoring the successor on the summary's *last*-starting
+  leaf instead of its start (its earliest leaf) — over-constraining the successor by
+  up to the summary's whole internal span. Per ADR-0370 (aligning with ADR-0024 and
+  MS Project, which forbids these links on summaries), such a link is now rejected
+  with an actionable error telling the user to link a specific leaf task instead.
+  Finish-anchored links (`FS`/`FF`) from a summary are unaffected and still fan out
+  correctly.
+- **WASM scheduler no longer rejects validator-legal long task durations.** The
+  Rust engine's duration-expansion walk (`finish_from_start` / `start_from_finish`)
+  applied its calendar-scan guard to the *whole* expansion instead of per
+  non-working gap, so a Mon–Fri task longer than ~26,144 working days (and far
+  shorter on sparser calendars) errored in the browser/offline recompute with a
+  misleading "calendar has no working day" diagnosis while the Python engine
+  scheduled it. The scan budget now resets on every working-day hit, mirroring
+  the Python per-gap bound, and a new `max_duration_boundary` conformance fixture
+  pins both engines to identical output at exactly `MAX_DURATION_DAYS` (#1855).
+`derive_value(..., LATE_FINISH)` no longer returns `binding=None` when an SS/SF successor pulls a task's late start back and the engine re-expands late finish from it (the backward-pass LS-pullback branch). The derivation now emits a `duration_from_late_start` binding contribution naming the tightest SS/SF successor as the driver, restoring the exactly-one-binding invariant (#1857).
+Scheduler date fields now accept strict ISO-8601 `YYYY-MM-DD` only. **Behavior change for `trueppm-scheduler` (PyPI):** `Project.from_dict`/`from_json`, `Task.from_dict`, and calendar `DateRange.from_dict` previously inherited Python 3.11+ `date.fromisoformat` leniency and silently accepted compact (`20260401`), week-date (`2026-W15-1`), and ordinal (`2026-092`) forms that the Rust/WASM engine rejects — the same document would schedule in Python but fail to parse in the browser engine. Lenient forms now raise `InvalidScheduleInput` naming the field and the expected `YYYY-MM-DD` format, matching the canonical `to_json` output both engines parse. (#1861)
+- **Scheduler input strictness & robustness** (audit batch): the Python scheduler now
+  rejects several malformed inputs that previously parsed silently while the Rust/WASM
+  engine rejected them — a duplicate JSON key, a non-numeric `hours_per_day` or
+  non-string `timezone` on a calendar, and a duration carrying sub-microsecond precision
+  that would be silently quantized. The result task-list ordering is now documented as
+  **unspecified** (look tasks up by `id`, not list position — the Python and Rust engines
+  legitimately differ). The Rust engine now reports a cyclic dependency as the full cycle
+  path (`A → B → A`) matching the Python engine, instead of a doubled single node.
+- **Project span cap enforced at the write boundary**: the API now rejects a task or
+  dependency write whose projected sum of durations + lags would exceed the engine's
+  `MAX_PROJECT_SPAN_DAYS`. Previously such data persisted and then broke every subsequent
+  schedule recalculation and Monte Carlo run until it was hand-corrected; the error now
+  surfaces on the offending write with an actionable message.
+- Added large-scale scheduler bench cases (5k-task mixed-topology `schedule()` and a
+  1k-task/10k-run `monte_carlo()`) as regression tripwires against super-linear scaling.
+- **Completed tasks no longer appear on the critical path.** The CPM engine pins a
+  finished task to zero total float (it is done and has no slack), which was being
+  read as "critical" — so every 100%-complete task rendered red and inflated the
+  schedule's "N critical" count, while the live work that actually drives the finish
+  went unhighlighted. Both the Python (`trueppm-scheduler`) and Rust/WASM engines now
+  exclude completed tasks (`percent_complete >= 100` or an `actual_finish`) from the
+  critical path, regardless of float, keeping the two implementations in conformance
+  (#1863).
+- **The Board now reads as a clear grid of cells instead of cards floating on a flat
+  surface.** Phase swimlanes and status columns are separated by proper grid rules, and
+  each phase×column cell is delineated — a readability fix that was especially hard to
+  see in light mode, where the previous faint dividers nearly disappeared on the
+  warm-paper canvas. Drag-over targets and WIP-limit highlights stay distinct from the
+  new resting grid (#1866).
+Task drawer Activity feed now refreshes immediately after task edits, drags, completions, and collaborator changes instead of going stale (#1867)
+Task edits pushed by an external system or agent through the inbound task-sync API now write a task history record, so they appear in the task's Activity/History feed instead of being invisible (#1876).
+Deleting a risk now records a `risk_unlinked` activity event on every task it was linked to, so task activity feeds no longer lose the unlink when a risk is removed (#1877).
+Task activity timeline no longer splits one person into two actors: change events now carry the author's display name (new additive `history_user_display` API field) and the person filter dedupes history and comment events by username (#1878)
+Task activity feeds keep the `attachment_uploaded` event after an attachment is soft-deleted and now add an `attachment_deleted` event with the deleting user, instead of retroactively erasing the upload from history (#1879).
+Activity timeline "Load more" button now stays available while a group or person filter is active, so filtered views no longer silently truncate to already-loaded pages (#1880)
+Task activity merged feed (`?include=`) now supports stable keyset pagination via `until`/`page_size` (with a `next_until` resume cursor), so deep pages no longer drift when new events arrive or rescan the newest rows. The bare field-diff feed is unchanged.
+Task history OpenAPI docs now list all valid `include` tokens (including `schedule` and `risks`) and all event types (`cpm_recalculated`, `baseline_drift_detected`, `risk_linked`, `risk_unlinked`), generated from the same source of truth as the API validation (#1884)
+Sprint-backlog reorders (`sprint_rank`) no longer flood the task activity timeline with bookkeeping noise, and priority changes now get an Estimates filter chip (#1885)
+Deleting a logged time entry no longer erases it from the task activity feed. Soft-deleted entries now retain their `time_logged` event and gain a synthesized `time_deleted` event (attributed to the user who removed it), so revised or removed hours always leave a trace — closing an EVM/billing integrity gap where logged time could be silently changed. The stream stays scoped to the requesting user, so no other member's hours are exposed (#1888).
+The oldest visible change in a truncated task or project history no longer silently disappears: the row just past the cap is kept as a diff seed so the cap-boundary record still renders its changes (#1889)
+Removed the no-op `IsProjectNotArchived` permission from the read-only task history and board activity endpoints and corrected ADR-0160's claim that archived projects were read-blocked — history/activity deliberately stays readable after archiving (#1890)
+- **The bundled Atlas sample's waterfall Monte Carlo now shows a real forecast band.**
+  The "Migration Tooling" project's completion milestone was pinned to a fixed date
+  sitting ~2 weeks after its remaining work, so every task's duration uncertainty was
+  absorbed by the intervening float and the risk analysis collapsed to a flat
+  P50=P80=P95 — the feature demoed as a certainty. The cutover tail now runs up to the
+  committed go-live and drives the milestone, so Monte Carlo reports a genuine
+  probabilistic spread (P50 slightly past the committed date, a right-skewed P95 tail)
+  and the sensitivity tornado spotlights the remaining cutover work (#1891).
+Fixed the project methodology indicator disappearing between 768px and 1023px — the #1680 shell redesign moved it to a left-rail subtitle that only renders while the rail is expanded, but the rail auto-collapses in that band. A compact, always-visible badge (HY/WF/AG) with a full accessible name (e.g. "Hybrid workspace") is restored in the TopBar, shown only while the rail is collapsed so it never duplicates the rail subtitle.
+- **Dirty-guard on Plan sprint and Add calendars**: `PlanSprintModal` and `AddCalendarPicker` now use the standard unsaved-changes guard (web-rule 217, matching every other editable dialog) on Escape, scrim-click, and Cancel. A dirty form prompts "Discard unsaved changes?" instead of silently dropping the sprint draft or the in-progress calendar selection; a clean form still dismisses immediately.
+Fixed three remaining "black on blue" dark-mode contrast anti-patterns left over from the #1638 sweep: the Program Schedule legend's "Limited-view task" hatch swatch, the resource Allocation Timeline's partial-allocation stripe overlay, and its status-bar legend swatch each hardcoded an `rgba(0,0,0,…)` diagonal-stripe fill that didn't adapt to the dark navy surface. They now use new mode-aware `--hatch-limited-view` / `--allocation-partial-stripe` / `--allocation-partial-stripe-legend` custom properties (WCAG 1.4.11), and the `design-system-v2` gate's black-rgba ratchet baseline dropped from 8 to 5.
+- **Project notification preferences now upgrade on read like other saved-state
+  surfaces.** `ProjectNotificationPreference.matrix` gained a `schema_version`
+  column and was registered in the ADR-0086 / ADR-0204 forward-migration
+  registry alongside `BoardSavedView.config`, so a matrix stored at an older
+  shape is upgraded to the current shape on read instead of only being
+  covered by the view-layer defaults overlay (#1916).
+- Board cards now wrap a long task title to a second row instead of cutting it off on one line, so card titles stay readable without opening the card. Hovering a card shows its full name. The compact card density keeps its single-line bar.
+Fixed logging time on the weekly timesheet failing with a "Sync error — Request failed with status code 400". Future-day cells are now inert (a day that hasn't happened yet is not loggable), "today" is computed in the browser's local timezone instead of UTC, and the server tolerates a one-day timezone skew so a contributor whose zone is ahead of the server can still log today.
+- **Off-by-one forecast dates west of UTC**: Schedule, Monte Carlo, and forecast
+  date labels rendered one calendar day early for viewers in timezones west of
+  UTC. Server date-only fields are UTC calendar dates; the affected formatters
+  now pin `timeZone: 'UTC'` so the displayed day matches the schedule everywhere.
+- **"Today" near midnight**: the sprint planning modal's default start date and
+  the risk register's overdue-mitigation badge computed "today" in UTC, so for
+  contributors west or east of UTC they used the wrong calendar day around
+  midnight — seeding tomorrow as a sprint's default start, or flagging a
+  mitigation as overdue a day early. Both now use the browser's local calendar
+  day via a shared `localTodayIso` helper.
+Monte Carlo now reports the same project finish as CPM when a completed task's `actual_finish` falls on a non-working day, keeping the recorded weekend date verbatim instead of snapping it to the previous working day (#1929, also closes #1830).
+Schedule-health bands, overdue counts, and "this week" windows now use the server's configured time zone instead of the container's OS clock, so they no longer flip a day early or shift a week off when TruePPM runs under a non-UTC `TIME_ZONE`.
+- **Workspace email settings now show their status colors again.** The transport
+  validation error, the "test email sent" confirmation, and the SPF/DKIM/DMARC
+  deliverability chips used a non-existent color token that compiled to nothing, so
+  they rendered in plain neutral text; they now correctly show red/green status
+  color (#1933).
+- **The board's empty state is now the warm, guided empty state.** A project with no
+  tasks previously showed a bare "No tasks yet" line on the board; it now shows the
+  same illustrated empty state (with an "Add task" action) used by the Grid and
+  Schedule views (#1934).
+- **Personal pages (Connected accounts, API tokens, external sources) use legible
+  text sizes.** Secondary text on the `/me` pages dropped below the 12px minimum;
+  it is now at least 12px, meeting the accessibility floor (#1935).
+- **Disabled controls in Settings stay readable.** Several disabled buttons, selects,
+  and pills across Settings (roles, guardrails, calendars, signal privacy, workspace
+  dialogs) faded their text to 50% opacity, which failed the contrast floor; they now
+  use the standard readable disabled treatment, and the guardrail touch targets stay
+  44px on phones (#1936, #1944).
+- **The Sprints view shows a proper error state with Retry when it can't load.**
+  A failed sprints fetch previously printed the raw error text with no way to retry;
+  it now renders the shared "Couldn't load — Retry" state (#1937).
+- **The Schedule forecast bar distinguishes "couldn't load" from "never run."** When
+  the Monte Carlo forecast failed to load it read as if no simulation had ever run;
+  it now shows a distinct load-error message with a Retry that re-fetches instead of
+  forcing a full recompute (#1938).
+- **The account menu is easier to tap on phones.** The avatar button that opens the
+  account menu was below the 44px touch-target minimum on mobile; its tap area now
+  meets 44px without changing the avatar's size (#1939).
+Board collapsed-lane cells with no cards now render a dashed hollow 0 (accessible name ends "empty") instead of an em-dash that read as n/a.
+A rejected timesheet cell edit now explains itself in place instead of raising a false alarm. When the server refuses a save with a validation error (for example, a future date or an over-limit value), the reason appears inline on the offending cell — the global sync-status badge no longer flips to "Sync error", no phantom "Pending change — Failed" row lingers, and "Retry now" no longer replays a request the server already rejected. Online write failures are kept out of the offline-pending queue entirely; a real retry is simply correcting the value and saving again (#1945).
+On touch devices, a compact board card's health badge and truncated title now offer a tap-to-peek that reveals their full meaning, which was previously reachable only on hover.
+Log timestamps now render in UTC instead of container-local time, so they no longer drift by the host offset on non-UTC nodes.
+- **Duplicate comment reaction wedged the sync queue**: reacting with an emoji you
+  had already reacted with (a double-tap, or an offline-sync replay of an
+  already-applied change) hit a database unique constraint and returned a 500. The
+  offline sync queue retried that same change forever, surfacing as a permanent
+  "Sync error" with stuck pending changes. Reacting is now idempotent — a repeat
+  reaction is a no-op that returns the existing reaction.
+- **The board no longer looks "cut off" when a column runs past the bottom of the
+  screen.** A phase lane taller than the viewport now shows a bottom edge-fade cue
+  when there is more below, and the last card gains breathing room above the fold, so
+  a deep column reads as scrollable rather than truncated — the fix is most visible on
+  platforms with auto-hiding scrollbars (macOS, touch) (#1962, #1963).
+Board swimlane view now reserves bottom padding below the last lane, so the final card no longer shears flush at the scroll fold and reads as scrollable rather than truncated.
+- **The "Browse projects and programs" switcher now closes when you pick a
+  destination.** Selecting a program, project, or organization link from the left-rail
+  switcher navigates and dismisses the flyout automatically, instead of leaving it open
+  to be closed by hand. Expanding a program to reveal its projects still keeps the
+  switcher open, so you can browse before you choose (#1964).
+Board swimlane lane-header progress is now easier to read at a glance: the bar is slightly thicker and fills with a single neutral (sage) color for progress amount, instead of shifting amber→green by how far along the lane is. A lane's health is no longer implied by its progress color — an early lane no longer looks "at risk" just for being early.
+Settings dropdowns and menus (the ceremony actions menu, project-lead / program-manager pickers, member-invite search, and the entity switcher) no longer clip off-screen on narrow viewports or inside scrolling panels — they now portal out and flip above / clamp to the viewport.
+Schedule build-mode quick-add now lets you set a story-point estimate on non-agile (waterfall) projects, matching the board task form (ADR-0418). Previously the estimate step was hidden behind the sprint-assignment gate, so it was unreachable on any project without agile features enabled.
+Fixed the project health popover clipping off the left edge of the screen on phone-width viewports. The panel is now positioned relative to the viewport so it always stays fully on-screen.
+Board: the rightmost status column no longer reads as "cut off." The board matrix now reserves a right-edge gutter and shows a right edge-fade cue when it scrolls horizontally, the horizontal analog of the existing bottom-fold affordance — so a fixed-width board that overflows the viewport reads as scrollable rather than truncated.
+- **The task Duration field can now be cleared and retyped.** In the Edit/New Task
+  dialog, the Duration (working days) input coerced an empty value back to `1` on
+  every keystroke, so the field could never be cleared — the leading `1` was sticky
+  and typed digits only appended to it (`12`, `13`… but never `5`). The field now
+  holds what you type (including an empty string) while editing and normalizes to a
+  valid duration on blur.
+Fixed the project Overview "Recalculating…" badge spinning forever when a schedule recalculation completed without producing a finish date (for example an empty project, a project whose tasks are all backlog items, or a run that escalates to its program). The badge now clears as soon as any schedule recalculation finishes.
+- **A single invalid task in one project no longer blanks the whole program schedule.**
+  The compute-on-read program schedule (`GET /api/v1/programs/{id}/schedule/`) previously
+  returned an unhandled `500` — and the Program → Schedule view showed a dead "Couldn't
+  load… / Retry" — whenever any member project held a task the CPM engine rejects (e.g. an
+  out-of-order three-point estimate). It now returns a structured `422` naming the offending
+  project and task, and the view renders an actionable state that links straight to that
+  project's schedule instead of an unrecoverable retry loop (#1981).
+- **Task estimates that violate `optimistic ≤ most_likely ≤ pessimistic` are now rejected at
+  write time.** The task write API previously accepted an out-of-order three-point estimate
+  (e.g. `optimistic=1, most_likely=5, pessimistic=0`), which then persisted and detonated at
+  compute time — a `500` on the program schedule or a silently-failed single-project recompute
+  serving stale dates. The serializer now enforces the same ordering invariant the scheduling
+  engine does, validating the merged instance + payload state so a partial PATCH that crosses
+  the invariant against stored values is also rejected (#1982).
+Project Overview "Needs attention", "My tasks this week", and "Critical path" rows now link to the task's detail page, so you can jump straight from a callout to the item it names.
+- **Settings sections are now visually separated.** Adjacent sections on the
+  consolidated settings page (workspace, program, and project scopes) now carry a
+  warm-canvas gap and a hairline rule above each section's title, so the boundary
+  between one section and the next is clear at a glance instead of running together
+  (#1986).
+- **The "New label" control in Settings → Labels is no longer clipped.** The Labels
+  section body now uses the same padded content wrapper as every other settings
+  section, and the create control itself reflows — the color picker stacks above the
+  name field and Add button, and the name input can shrink below its old minimum width
+  instead of pushing itself and the Add button past the section card's edge. The label
+  list and "New label" row stay fully visible and aligned at every breakpoint (#1988).
+- **Creating the first item in an empty program backlog now works.** On the program
+  backlog page, the "New item" and "Create your first item" buttons opened the create
+  form correctly once the backlog had items, but did nothing on an empty backlog
+  because the pane hosting the form was not mounted in the empty state. The create
+  form now appears in both cases (#1990).
+- **Pulling a program backlog item now carries its tags onto the created task.** An
+  item's tags become (or reuse, case-insensitively) project labels on the pulled
+  task, so a product owner's thematic grouping survives the crossing into the project
+  instead of being silently dropped. The pull dialog now lists tags among the copied
+  fields (#1992).
+Program backlog: a pulled item now keeps its wayfinding. The backlog serializer exposes the created task's project (id and name) so the "Pulled" row and its deep-link survive a reload instead of vanishing, and the pull confirmation toast gained a "Go to task" link that opens the newly created task.
+- **Pulled backlog items keep their type.** The program backlog create dropdown and
+  the backend item-type enum are now one reconciled taxonomy (epic, feature, story,
+  task, bug, spike, chore), so a bug, spike, or chore no longer silently becomes a
+  plain task when pulled into a project — each maps to its Task type (chore → tech
+  debt, feature → task). Previously the dropdown offered types the backend could not
+  store (#1995).
+Program backlog accessibility and UX polish: the pull target-project picker now moves keyboard focus with the arrow keys, the create form guards a typed-but-unsaved draft (Cancel/close/Escape) instead of discarding it silently and offers a keyboard reorder (Alt+↑/↓) alternative to drag-and-drop, empty states announce via `role="status"`, the loading state is a shape skeleton, a failed load offers Retry, mobile touch targets and focus restoration were corrected, and low-contrast disabled-token text was raised to a legible token.
+Velocity suggestion Accept is now accessible-disabled (focusable, with a screen-reader reason) while a three-point estimate edit is staged, and Dismiss stays actionable.
+Enterprise-gated Enforce/Lock radios on the Methodology and General (Monte Carlo run-history, iteration terminology, duration-change) workspace settings pages now expose their Enterprise requirement to screen readers via `aria-describedby` pointing at an sr-only hint (web-rule 265 backport).
+Invalid three-point (PERT) estimates can no longer be persisted through velocity-suggestion accept or MS Project import, where an out-of-order `optimistic ≤ most_likely ≤ pessimistic` triple previously slipped past validation and crashed the next schedule/program recompute.
+- **The Schedule now opens framed on today instead of the project start.** The
+  Gantt's initial viewport is meant to place today ~25% from the left edge, but the
+  framing ran before the timeline had reached its full scrollable width, so the
+  browser clamped the scroll to 0 and the view opened pinned to the project start —
+  leaving all current and upcoming work scrolled off the right edge. The framing now
+  applies once the timeline is fully sized, so the schedule opens on the work that
+  matters now.
+A single task with a mis-ordered three-point estimate (`optimistic ≤ most_likely ≤ pessimistic` violated) can no longer wedge a whole program's schedule. The ordering invariant is now enforced by a database constraint, so no write path — a bulk import, the admin, a shell, or a seed — can persist an estimate that would later crash the cross-project schedule computation; existing invalid triples are cleared on upgrade. Complements the #2002 code-path guards.
+- **Programs with calendar exceptions or long risk titles can be re-imported after
+  export again.** The JSON export emitted calendar non-working `exceptions` and risk
+  slugs that its own importer rejected — the v1 seed schema had no `exceptions` field,
+  and slugs derived from risk titles longer than 40 characters overflowed the schema's
+  length cap. Calendar exceptions now validate on the v1 import path, and generated
+  slugs are capped at 40 characters (kebab-case and unique) so the export→import
+  round-trip holds for any real program (#2006).
+Fixed entity Settings (Workspace/Program/Project) blanking the screen when you clicked **Override** on an inheritable setting. Focusing the override control no longer scrolls the whole app off-screen; the settings page stays put.
+- Project settings now edit the working **base calendar** in one place. The General page's calendar control was a second write path that could silently overwrite the base calendar out from under the holiday overlays composed on the Working calendars page (ADR-0441). The base calendar (inherit or override) is now edited only on the **Working calendars** page — alongside its overlays and effective-time preview — and the General page shows a read-only summary that links there.
+- **Forecast-history override radio no longer 400s on save**: the workspace
+  General page's forecast-history override control sent a frontend-only `allow`
+  value the backend never accepted, so touching the radio and saving returned a
+  DRF 400 "not a valid choice". The control now uses the real three-value
+  `inherit` / `suggest` / `enforce` policy (matching the Methodology, Calendar
+  and duration-change controls), so saving succeeds.
+- **Workspace settings no longer shows enabled controls to project-admins who can't
+  save them.** The consolidated Workspace settings page (`/settings`) admitted anyone
+  who was an Admin of *any* project, but every write there is gated on the workspace
+  Admin role — so a project-admin who was a plain workspace member landed on a page of
+  controls whose saves all failed with 403, with the Groups section failing to load at
+  all. The page is now gated on the workspace Admin role specifically: a non-workspace-
+  admin is routed to their personal settings, and the "Workspace settings" menu entry
+  and the "Workspace" scope tab are hidden for them (#2012).
+- **Workspace settings no longer show fabricated or hardcoded values.** The
+  scope pill on the Settings, Trash, and System Health shells now reads the real
+  workspace name instead of a hardcoded placeholder; the "guests currently in the
+  workspace" hint (which always read "3") is removed; the subdomain row is hidden
+  on self-hosted installs that have none (no more `https://.trueppm.app`); the
+  default-project-view select now persists the lowercase token the model expects
+  instead of a capitalized label; and the Trash / System Health left rails are fed
+  from one shared source so they no longer drift out of sync with the main
+  settings rail (#2013).
+- **Schedulers can change project methodology again**: the project Methodology
+  settings page gated its picker at Admin+, though the API grants Scheduler+ write
+  access to `methodology` under the ADR-0041 role model. A Scheduler saw a
+  read-only picker and had to ask an Admin or use the raw API. The UI gate now
+  matches the serializer, so a Scheduler can change the methodology directly.
+- **Personal settings pages now share one navigation.** All four `/me/settings`
+  pages (General, Notifications, Connected accounts, API tokens) render a single
+  subnav listing every page, so you can move freely between them instead of
+  reaching dead ends; the user menu lists all four; and a bare `/me/settings` URL
+  now redirects to General instead of returning "Page not found" (#2023).
+- **You're now warned before a reload or tab close would drop un-synced offline
+  edits.** Most offline writes sit in an in-memory queue that a page reload silently
+  discarded — even though the offline banner promised the changes would sync. The app
+  now shows the browser's native "leave site?" prompt while any write is still queued
+  or in flight, and the offline banner gives honest guidance ("keep this tab open;
+  scheduling changes need a connection") instead of over-promising durability.
+  Full durable persistence of the queue is tracked separately (#2028, #1427).
+Deleting a summary/phase row in the schedule now asks for confirmation, naming how many nested rows go with it, and the delete Undo is honest that it recovers only the parent row (subtasks, dependencies, and assignments are not restored). Grid bulk delete now states up front that it can't be undone.
+- **Backlog quick-capture no longer silently loses an idea when the create fails.**
+  The intake rail cleared the field on submit but fired the create with no error
+  handling, so a failed POST discarded the typed idea with no trace. A failed
+  quick-capture now shows an error toast and restores the typed text into the
+  field (unless you've already started the next idea), and the "Add phase" button
+  toasts on failure too (#2030).
+- **Task drawer deep-links now work**: the `?task=<id>` URL emitted by
+  notifications and "My Work" rows was read by nothing, so those links dropped
+  you onto the Schedule with the task un-found. The Schedule, Board, Sprints, and
+  Grid now open the drawer on the linked task, and mirror the open task back into
+  the URL so a refresh or shared link round-trips the drawer state.
+- **The top-bar "at risk / critical" popover now takes you to the task.** Picking a
+  task from the health cluster now navigates to that project's Schedule (where the
+  selection and scroll-to-task land) instead of the stale `/` path that dumped you on
+  your landing page (My Work) with nothing selected (#2032).
+Workspace settings (members and team invites, calendars, email, SSO) is now reachable from the account menu: admins get a "Workspace settings" entry linking straight to the Members section, so a fresh workspace can invite its team without knowing the `/settings` URL.
+A brand-new user with no projects now has an obvious way to start. The zero-project My Work empty state leads with a "Create your first project" button (with "Explore a demo project" and "Browse programs" as secondary paths), and the sidebar's off-project fallback offers "create one or load a demo" instead of un-actionable "pin a project" advice (#2034).
+Rebuilt the workspace invite-acceptance page on the shared auth shell with a password strength meter, a requirements checklist, field-level error messages, and a redirect to a pre-filled sign-in on success instead of a dead-end re-login prompt.
+- **A concurrent edit no longer discards your work in the task form.** When someone
+  else changed an overlapping field while you were editing a task on the board, the
+  form used to close on save and throw away everything you typed. It now stays open
+  with an inline banner that names the fields that changed on the server and offers
+  "Keep my edits & save" — which rebases onto the latest version and re-saves your
+  values — so the highest-collaboration surface never silently loses work (#2036).
+- **Board card drops now land instantly online instead of snapping back.** The
+  online status-move mutation had no optimistic update, so a dragged card sat in
+  its source column for the full PATCH + refetch round-trip — a visible
+  snap-back-then-jump on every drag (the offline path was, perversely, snappier).
+  The move now applies an optimistic cache patch on drop and rolls back with an
+  error toast if the write fails (#2037).
+- **The task detail drawer now protects against silent lost updates on concurrent
+  edits.** Saving name/description/estimate changes from the drawer now declares the
+  version the edit was based on (`X-Base-Version`, ADR-0217), so two people editing
+  the same task no longer silently overwrite each other — a disjoint concurrent edit
+  merges, and an overlapping one surfaces the "Someone else changed this" conflict
+  prompt. The drawer previously omitted this on both its Save and Save-and-open paths,
+  giving it weaker concurrency protection than the board task form (#2038).
+- **Role changes now refresh permission gates immediately.** When an admin changes
+  your role on a project (or adds/removes a member), the app now refetches your own
+  role right away instead of leaving write buttons and edit affordances active for up
+  to five minutes on stale cache — actions that would then fail with a generic
+  "Couldn't save". A toast tells you when it was your own role that changed (#2039).
+- **Losing access to a project now shows a clear message instead of a broken page.**
+  Opening a project you no longer have access to (a revoked membership, or a stale
+  bookmark) previously left every view stuck on a "Retry" that could never succeed,
+  plus a dead WebSocket reconnect loop. The project shell now recognizes this state,
+  shows an honest "this project isn't available — you may no longer have access"
+  message with a link home, and stops the reconnect loop (#2040).
+Fixed low-contrast primary buttons in dark mode across settings, admin, dialog, and board surfaces by pairing the brand-primary fill with navy-on-sage ink instead of white text (WCAG 1.4.3 AA).
+Board, sprints, and backlog standalone triggers (card menus, toolbar controls, dropdown triggers, menu rows, filter chips) now show a visible focus ring on pointer-initiated focus in Firefox and desktop Safari by using `focus:` ring classes instead of `focus-visible:`, matching the already-migrated shell controls. Text inputs, selects, and textareas keep `focus-visible:`.
+Lifted sub-12px text to the design-system 12px floor: source/owner monogram tiles (My Work rows, exported schedule PDF), the public schedule share page (month axis, bar labels, task meta, critical-path chip, legend), share-link dialog body copy, the schedule Display menu group headers and filter-count badge, label overflow counts, the backlog quick-capture hint, and the sign-in open-source chip.
+The empty Schedule now shows a discoverable "+ Add task" button in its empty state (mirroring the Board), so a new user no longer has to hunt for the small toolbar button to author their first task. The CTA is hidden for read-only roles (#2044).
+- **The project's left-rail "This project" tier now includes a Settings row.** It
+  trails the grouped views, mirroring the program tier, so project settings
+  (members/access, working calendars) are reachable where the rest of a project's
+  navigation lives — not only via the account menu. Removed the dead `ViewTabs`
+  component that used to render this link but is mounted nowhere (#2045).
+Task detail drawer sections now remember whether you expanded them for the session, so the Estimates accordion no longer collapses every time you open a different task — reviewing estimates across many tasks before a Monte Carlo run no longer means re-expanding it each time.
+- **The WIP-limit breach prompt is now a styled dialog instead of a native
+  `window.confirm`.** Moving a card into a column at its WIP limit previously
+  interrupted the drop with an unstylable browser prompt that named no task and
+  returned focus unpredictably. It's now a `role="alertdialog"` that names the
+  card and the breached column, is Cancel-first (dismissing keeps the card in
+  place), and is reachable by both drag-and-drop and the keyboard Move-to path
+  (#2050).
+- **A stalled request no longer spins forever.** API requests now time out after 30
+  seconds, so a black-holed or half-open connection surfaces as a normal error with a
+  Retry affordance instead of an endless loading skeleton. Long, user-initiated
+  imports and exports are exempt so large files still complete (#2051).
+- **Signing back in after a session expiry now returns you to where you were.** The
+  session-expired re-auth prompt (both the blocking modal and the read-only banner's
+  "Sign in again") now carries the interrupted location as a `?next=` parameter, which
+  the login page already honors — so after re-authenticating you land back on the task
+  or board you were working on instead of your default landing surface (#2052).
+The sync status badge (visible on phones) now shows a "Not live" state when the real-time connection is down but you're still online, instead of a falsely-reassuring "Synced". Board and task data already fall back to a slow refresh while the socket is down, so the view stays current — the badge just makes the degraded state visible.
+The task detail drawer no longer silently discards your unsaved edits when someone else deletes the task you're editing — it keeps your draft on screen with a warning and a "Copy my text" rescue action.
+- **A share link's expiry date now honors your date-format preference.** The
+  "Expires …" line in the share dialog is rendered through the user date-format
+  setting instead of the browser's raw locale, so it can no longer show a different
+  calendar day than the rest of the app on a security-relevant string (#2059).
+Removed two dead conditional branches flagged by CodeQL Code Quality: the unreachable "Loading calendars…" option in the program working-calendar picker (the page already renders a loading skeleton upstream) and a redundant `!isMobile` guard on the Schedule toolbar's Grid/Timeline toggle (the whole toolbar is already desktop-only). No behavior change.
+- **Mobile bottom sheets requesting `size="large"` now actually render tall.** The
+  `BottomSheet` `large` size was a silent no-op — it emitted the same height class as
+  the default — so the mobile filter and pull-to-project sheets grew only to their
+  content instead of filling the screen. `large` now fills a fixed `85vh`. Also
+  cleaned up several dead conditional branches flagged by static analysis (a burn-chart
+  scope-dot position, a forecast prefix, and a two-element focus trap) with no behavior
+  change (#2088).
+The schedule timeline's decorative canvas layers are now explicitly non-focusable
+(`tabIndex=-1`), so their `aria-hidden` never hides a focusable element from screen
+readers — the accessible schedule grid remains the sole ARIA surface. The burn-up/
+burn-down chart's toolbar buttons (export menu, variant toggles, retry) now declare
+an explicit `type="button"`, so they can no longer trigger an accidental form submit
+when the chart is embedded in a form (#2101).
+Scheduler now rejects a task whose `actual_start` is after its `actual_finish` (a task recorded as finishing before it started) with a clear `InvalidScheduleInput` error, instead of silently producing an inverted early window (`early_start > early_finish`). The guard is enforced identically by both the Python and WASM engines.
+Added a regression guard so the OIDC SSO endpoints (`/api/v1/auth/oidc/discover/`, `/login/`, `/callback/`, and the provider admin surface) cannot silently start returning HTTP 500 again. If `allauth.socialaccount` or `django.contrib.sites` were ever dropped from `INSTALLED_APPS`, the `sso.0002` migration that creates the `sso_provider_policy` table would be stranded and never applied on a fresh database; a test now asserts those dependency apps stay wired and that the table exists after migrate (#2124).
+A malformed UUID in a URL path segment or query parameter now returns 404 (bad path id) or 400 (bad query param) instead of HTTP 500.
+- **Malformed input returned 500 instead of 4xx**: hardened API input validation
+  across several endpoints. A non-object JSON body on the login, notification-preset,
+  and program-split endpoints is now rejected as 400; a non-ASCII share-link token
+  resolves as an unknown token (404) rather than crashing; and program lifecycle
+  events (split/delete/close/reopen/sponsorship-transfer) no longer attempt a
+  project-scoped replay-buffer write that violated a foreign key.
+Fixed API response bodies that violated the declared OpenAPI schema. Nullable fields (dependency `accepted_by`, project `recalculated_at`, task baseline dates, and the nested project/program `lead_detail`) are now advertised as nullable; the task `external_link_summary` object, the paginated vs. bare-array list endpoints (trash, task search, credentials, active-sprints, project health-summary, workspace members), the task duration-events feed, and the mark-all-read counter now describe their real payloads. This keeps the generated TypeScript client types in sync with what the API actually returns.
+Grid write controls now honor the project role: the select-all box, per-row selection checkboxes, bulk **Delete**, **+ Task**/**+ Child**, and the empty-state create CTA are hidden for Viewers, matching the Schedule. The Schedule's **+ Task** button now disables with its **+ Milestone**/**+ Phase** peers and, like Import/Share/Baseline, gates pessimistically while the role loads so a Member-only control never flashes enabled (#2145).
+Board and sprint-lifecycle write controls are now role-gated. Viewers no longer see **Plan next sprint**, **Close sprint**, **Activate →**, add-to/remove-from-sprint, board quick-capture, per-lane add, card drag, or **Move to…** — controls that previously rendered for everyone and failed with a raw 403 on click. The `BoardSettingsPanel`'s designed view-only mode is now wired: column/WIP editing is limited to Schedulers and above (#2146).
+The project **Settings** navigation rows — in the desktop sidebar, the account menu, and the mobile "More" overflow sheet — are now hidden from members who cannot reach the admin settings shell, instead of silently bouncing them to their personal notification preferences when clicked. All three rows are gated on the same predicate the route guard enforces (#2147).
+- **Modal dialogs now trap keyboard focus and restore it on close.** A generation of
+  aria-modal surfaces — the mobile navigation drawer, command palette, board
+  dependency/risk popovers and keyboard cheatsheet, sprint scope-review panels, the
+  risk and resource-overallocation drawers, the roster add-member sheet, and the
+  settings transfer/split/webhook/token/automation/retention confirms — hand-rolled or
+  omitted focus handling, so Tab walked out behind the scrim into content hidden from
+  assistive tech and focus was never returned to the trigger. They now share the
+  `useFocusTrap` hook: focus moves into the dialog on open, Tab/Shift+Tab cycle inside,
+  Escape closes, and focus returns to the element that opened it (WCAG 2.4.3 / 2.1.2).
+  The risk inspector, which is intentionally non-modal beside the register, no longer
+  wrongly traps Tab (#2148, #2193).
+- **Accepting or rejecting a mid-sprint scope injection now gives feedback.** Accept
+  confirms with a toast; a single reject removes the task and offers a one-tap Undo
+  that re-adds it; and any failed decision — including the server's authoritative
+  permission denial — now surfaces an error toast instead of silently leaving the
+  pending chip in place. Previously the accept/reject controls in the sprint review
+  panel and on board cards implemented none of their feedback contract (#2149).
+- **Failed sprint-planning, roster, and estimation-poker writes no longer fail
+  silently.** Activating a sprint, editing sprint capacity/WIP, adding or removing a
+  story from a sprint, opening/revealing/committing an estimation-poker round, and
+  adding, editing, or removing a roster resource now surface an error toast when the
+  write fails — including the designed single-active-sprint conflict, whose reason is
+  now shown. Previously only a `409` sync conflict produced any feedback; a
+  `403`/`500`/network failure just rolled back with no on-screen signal (#2150).
+- **A failed MS Project import is now visible on the Schedule that launched it.** When
+  an async import (MS Project or Jira) fails in the background worker, the app now
+  raises an error toast pointing to the recent-imports list on the project Overview,
+  instead of leaving the user waiting on the Schedule for tasks that will never
+  arrive — the failure was previously only recorded as a chip on a page they had no
+  reason to open (#2151).
+Stopping, restarting, or undoing the running timer now refreshes the weekly timesheet and My Work views, so a logged entry appears immediately instead of staying invisible until the next refetch.
+Task drawer no longer silently discards a half-written comment, reply, or decision-log note. Composers now register their unstaged text with the drawer's unsaved-changes guard, so closing the drawer or switching to another task prompts before discarding, and pressing Escape inside a non-empty composer no longer closes the drawer.
+The expand-to-full-page task view now renders an editable name and the Description field (previously both were missing — the page dropped the description entirely and showed the name read-only), and gates every write on the same server-derived per-task edit verdict the drawer uses. The Estimates section now derives its edit gating from that same verdict plus the Scheduler role floor, instead of a separate role lookup that could disagree with the rest of the drawer.
+Clicking a task in the Decisions log now opens that task's detail page instead of doing nothing (and no longer latches a surprise drawer on the next Schedule visit).
+- **The Reports tabs and the Decisions scope control are now keyboard-reachable.**
+  Both segmented controls used a roving `tabIndex` but registered no arrow-key
+  handlers, so a keyboard user could tab onto the selected option but never reach
+  the unselected one — the Decisions report and the "Current sprint" scope were
+  unreachable without a pointer (WCAG 2.1.1). They now follow the rule-167 roving
+  pattern: Arrow/Home/End move focus across the options (skipping a disabled one)
+  and activation applies the choice; focus movement alone never commits (#2158).
+Make the canvas Gantt timeline touch-navigable on tablets: a single finger on empty canvas now pans both axes (task-bar drags still win), and two fingers pinch-zoom the timeline. Previously the desktop canvas served to tablets (768–1024px) could not be panned, pinched, or vertically scrolled by touch, leaving the schedule beyond the first viewport unreachable.
+The project Calendar now shows a loading skeleton while tasks fetch and a retry-able error state when the fetch fails, instead of always displaying the "No tasks yet" empty message. The empty state gained a role-gated "Add task" call-to-action, and the documented under-768px reflow — a vertical date-grouped agenda list — has shipped in place of the unusable 7-column grid.
+Pressing **⌘K / Ctrl+K** on the Sprints view no longer opens two stacked overlays at once. The view-local task-create shortcut, which collided with the global command palette, has been rebound to **`c`** (add a task to the active sprint); the command palette now owns ⌘K everywhere (#2162).
+The **Copy** button on an existing share link's management row no longer writes a known-broken URL to the clipboard while claiming "Link copied". It is relabeled **Copy ID**, copies the link's reference fragment (not a full URL), and shows an honest notice that the working link was only available at creation time (#2163).
+Roster add-member sheet can now be dismissed by touch: tapping the scrim or the new Cancel button closes the mobile bottom sheet, and the desktop add-member popover now dismisses on an outside click.
+- **The workspace Roles & permissions matrix no longer mislabels basic SSO as
+  Enterprise.** "Manage SSO" and "Export workspace data" dropped their "EE" upsell
+  badge — self-service OIDC/OAuth single sign-on and workspace data export ship in
+  the Apache-2.0 core (only enforced org-wide SSO and identity governance are
+  Enterprise). The matrix also drops the hardcoded, fabricated member counts on the
+  role cards, corrects the working-calendar and resource-heatmap gates to Scheduler+
+  to match what the server enforces, surfaces the ADR-0041 Scheduler-writable
+  methodology/estimation split, and now renders as a real accessible table with row
+  and column headers so screen readers can associate each grant with its role
+  (WCAG 1.3.1) (#2165).
+Clicked buttons, rows, and toggles now show their focus ring in Firefox and desktop Safari. These browsers do not match `:focus-visible` on pointer focus, so standalone trigger controls (the shared Button, toolbar overflow menu, entity-select combobox, settings context switcher, and the My Work, risk, grid, resources, and task-drawer section trees) previously showed no ring when clicked, failing WCAG 2.4.7. Their ring utilities now use `focus:` instead of `focus-visible:`; text inputs keep `focus-visible:` so they do not ring on programmatic focus (#2166).
+- **The desktop account menu is now a proper keyboard-operable dialog.** It
+  declared `role="menu"` with `menuitem` rows but held heterogeneous controls (the
+  Theme and View-focus toggle groups are buttons-in-divs, invalid `menuitem`
+  children), never moved focus into itself on open, and implemented none of the
+  arrow-key roving a menu advertises — so it told assistive-tech users a keyboard
+  model that did not work (WCAG 4.1.2 / 2.4.3). It is now a non-modal
+  `role="dialog"` (matching the notification panel and the account menu's own
+  mobile bottom sheet): Tab navigates its controls, focus is seated inside it on
+  open and restored to the trigger on Escape, and the trigger advertises
+  `aria-haspopup="dialog"` (#2167).
+Enlarged undersized touch targets on mobile-reachable daily surfaces to meet the 44px floor (WCAG 2.5.5), shrinking back to desktop density at `md`: task-drawer section row actions (comment reply/ack/react, attachment download/delete/attach/pin, note save/pin/edit), the Resources page search / add / "show deactivated" switch, the resource detail panel actions, and the resource heatmap week pager.
+The over-limit **WIP breach confirmation** when moving a card into a full column is now computed independently of the cosmetic "Show WIP limits" display toggle. Turning that toggle off — or loading a saved view with it off — no longer silently disables the guardrail (#2169).
+Keyboard parity for pulling a backlog card into a sprint: on a board scoped to a PLANNED or ACTIVE sprint, the backlog card's "Schedule…" dialog now assigns that sprint in the same promote (matching drag-to-assign, WCAG 2.1.1) instead of leaving the card committed-but-unscoped and hidden from the sprint board. The dialog names the target sprint and flags an ACTIVE-sprint add as pending scope.
+- **The task drawer now warns before overwriting a concurrent edit to any staged field,
+  and no longer floods the API when you adjust progress by keyboard.** The
+  "changed elsewhere" signal previously covered the description only; a concurrent change
+  to the task name or a three-point estimate while your draft was open was silently
+  overwritten on the conflict-retry path. The save bar now names every staged field a
+  teammate changed under you (Name, Description, Estimates). Separately, stepping the
+  progress slider with the arrow keys committed one PATCH per step (~50 requests to go
+  from 0 to 50); the keyboard commit is now debounced to a single request — the value
+  stays live on screen, and Enter, blur, or releasing the mouse still commits immediately
+  (#2172).
+Time capture: a submitted week now tells you to reopen it (top-right) to edit, instead of wrongly pointing every cell to My Work with broken "0 entries / 1 entries" grammar. The global Log time picker is no longer a dead end for work you aren't assigned to — it falls back to searching every task in your projects, and its empty state names that path.
+Burn-down/up/combined charts now expose a screen-reader summary (committed, remaining, pace, and scope changes) and hide the decorative SVG from assistive technology (WCAG 1.1.1).
+- **Program-tier polish**: removing a project from a program now asks for
+  confirmation and spells out the consequence — the project leaves the program's
+  shared backlog, rollup, and combined schedule — instead of unassigning it the
+  moment "Remove" is clicked. The program list, overview, and projects pages now
+  show a retryable error state when their data fails to load rather than a
+  dead-end message. The risk register's placeholder "Trend" column has been
+  removed until a trend data source ships.
+The Resource view now renders a shaped loading skeleton and a retry-able error state instead of bare "Loading…" and dead-end "Failed to load" text. The Assets filter chips were corrected from misused radio/checkbox roles to proper single-select radiogroups with roving-tabindex keyboard support and an explicit "All providers" option.
+- **`trueppm-scheduler`: the SCRUM/velocity path now holds the documented exception contract.**
+  Two hostile agile inputs reachable from `Project.from_json(...)` leaked raw Python
+  exceptions past the `SchedulerError`/`InvalidScheduleInput` contract: `story_points`
+  divided by a near-zero mean velocity overflowed float64 and raised a bare
+  `OverflowError` from `math.ceil(inf)`, and a non-numeric `sprint_length_days`
+  (`"abc"`, a list, a dict) raised a bare `TypeError` from the `<= 0` compare. Both now
+  raise `InvalidScheduleInput`. `sprint_length_days` is additionally pinned to an
+  integer on `from_dict`/`from_json` (rejecting `bool` and fractional floats such as
+  `2.5`), closing a silent Python↔Rust divergence where Python simulated a fractional
+  sprint the Rust engine only round-trips as an integer (#2178).
+- **`trueppm-scheduler`: `UnknownTaskError` is now catchable via `except SchedulerError`.**
+  The exception raised by the exported `derive_value()` on an unknown task id
+  subclassed a bare `ValueError`, so it escaped `except SchedulerError` — the single
+  catch-all the base class documents. It now subclasses `SchedulerError` (still an
+  `is-a ValueError`, so existing `except ValueError` handlers keep working). Resolved
+  ahead of the 1.0 public-surface freeze, where adding the common base would be a
+  breaking change (#2180).
+Auth screens now associate their validation errors with the inputs that caused them. Sign-in, forgot-password, choose-a-new-password, and invite-accept forms wire `aria-invalid` and `aria-describedby` so screen-reader users hear which field is wrong when they focus it, not just once when the error appears. The login marketing panel's "CPM live" status pill and milestone diamond now use theme-aware brand tokens instead of a hardcoded sage-400 that failed contrast in light mode.
+- **Shell wayfinding**: fixed four navigation and accessibility dead-ends. Five
+  pages that rendered a second `<main>` inside the app shell's landmark now use
+  labeled `<section>`s, so "jump to main content" is unambiguous for screen-reader
+  users. Unknown URLs no longer strand you on a bare "404" outside the shell — the
+  Not-Found page keeps the sidebar and command palette, moves focus to its heading,
+  and offers "Go to My Work". Trash (recoverable deleted projects) is now reachable
+  from the account menu, so a project owner who is not a workspace admin can restore
+  a deleted project. The desktop status bar now derives the active-view label from
+  the shared view metadata, so views like Backlog, Today, Grid, Reports, Activity,
+  and Assets show their real names instead of a raw slug.
+Gantt interaction fixes: short task bars (narrower than the resize handle) keep a drag-to-move zone instead of every pointer hit resolving to resize and silently changing duration; milestones are now draggable and never resizable; the schedule grid's `aria-selected` state tracks canvas-click and keyboard selection changes live; and the build-mode reorder handle is now visible on touch tablets and when a row has keyboard focus.
+Fixed a keyboard trap in the Grid Outline view: pressing Tab inside the task tree was intercepted for indent/outdent, so keyboard users could never move focus out and every escape attempt issued a WBS mutation. Indent and outdent are now bound to Alt+Right and Alt+Left (matching the Alt+Up/Down move keys), Tab moves focus normally, and the tree's keyboard model is announced to screen readers.
+- **The board's keyboard model now works end-to-end.** `j`/`k`/`l`/`h` move real DOM
+  focus onto a card (screen readers announce it and the card scrolls into view) instead
+  of only painting a highlight, so `Enter` opens card detail and `E` opens the edit modal
+  as the shortcuts help advertises. Cards no longer announce a dead "press space or enter
+  to pick up" drag instruction, and the shortcuts cheatsheet drops the two shortcuts that
+  never worked (Space-to-drag, "Show comments") and documents the real path to move a card
+  — the card's actions menu (#2194).
+Estimation poker card row no longer casts a throwaway vote on every arrow key. Arrow keys now move focus between Fibonacci cards without committing; a vote is recorded only on activation (click, Enter, or Space), so keyboard voters no longer flicker a vote per keystroke to their peers (WCAG 2.1.1).
+Fixed the `danger` Button variant failing WCAG 1.4.3 contrast in dark mode. Its `semantic-critical` fill is mode-aware (`#B91C1C` light / `#F87171` dark), but the white label was not, dropping to 2.77:1 on the lighter dark-mode fill. The variant now uses dark navy ink in dark mode (`dark:text-navy-900`, 4.9:1 on `#F87171`), mirroring the primary variant's dark treatment; light mode is unchanged (6.47:1). Also nudged the primary button's hover fill from `sage-600` (navy-on-sage 4.46:1, marginally under AA) to the AA-safe `sage-400`, so light-mode hover now brightens like dark mode already does.
+Fixed amber risk/identity chips failing WCAG 1.4.3 contrast. `text-brand-accent-dark` (`#C17A10`) on the `brand-accent-light` (`#FFF3CD`) tint is only 3.13:1 — a fill/border weight mis-used as foreground text. Added a dedicated readable amber text token (`brand-accent-text` = `#92400E`, ≥6:1 on the tint) and applied it to the affected surfaces: the HIGH risk-severity chip, workspace role/member (Scheduler, Lead, GUEST, pending-invite) chips, the project-workflow "Custom" chip, and the program risk-policy thresholds — the last of which also gained the rule-86 dark-mode overrides it was missing. The task-estimates "Pending approval" banner now uses the mode-aware semantic at-risk status-card recipe (it previously composited to 2.55:1 and failed outright in dark mode). Also corrected the false "all combinations achieve WCAG 4.5:1" claim in the web design-rules doc.
+Restored the danger styling on the workspace "Remove logo" affordance. It referenced undefined `danger-*` Tailwind tokens (`text-danger-text`, `bg-danger-surface`, `ring-danger-text`), which emit no CSS, so the destructive control rendered with inherited color and lost its danger signal. It now uses the defined semantic tokens (`text-semantic-critical`, `bg-semantic-critical-bg`, `ring-semantic-critical`). Also fixed a cosmetic undefined `rounded-pill` on the email settings status chip (`rounded-full`).
+The workspace-name field and the inline phase/status rename fields now carry accessible names, so screen readers no longer announce them as unnamed edit boxes (WCAG 4.1.2).
+Client-side navigation now announces the new page to screen readers and moves keyboard focus into the main content region, instead of only mutating the browser-tab title (WCAG 4.1.3 / 2.4.3). The project Overview landing page also gains an accessible page heading, matching the Board, Schedule, and Resources views (#2200).
+Made drag-to-reorder handles keyboard- and screen-reader-accessible. The Grid Outline row handle and the board Workshop-mode phase handle were focusable but `aria-hidden` (Outline) or had their sortable role/tabindex on the whole swimlane wrapper (board), so keyboard and screen-reader users hit unnamed tab stops with no discoverable reorder path. Both are now real labeled buttons ("Reorder <task>" / "Reorder phase: <name>") carrying the dnd-kit sortable attributes, so keyboard reordering works as announced.
+Screen-reader announcements are now reliable across the shell: toasts and the offline banner keep their live region permanently mounted so their messages are actually spoken, toasts pause auto-dismiss while hovered or focused (so an Undo action stays reachable, WCAG 2.2.1), WebSocket connection-state changes are announced through a persistent live region, board and outline drag-and-drop name the task being moved instead of speaking a raw UUID, and the command palette announces its result count and keeps result options out of the tab order (#2203).
+Corrected ARIA structure across grid, schedule, board, sprints, and settings surfaces: task grids now nest their column headers and rows under a single `role="grid"` with valid rows/gridcells and per-row `aria-rowindex`; the outline tree and schedule task list expose a single roving tab stop instead of dozens; board cards announce their column/status and filtered-out cards leave the tab order via `inert`; the sprint scope switcher is a keyboard-operable segmented control; duplicate backlog-group ids and a mismatched header colspan are fixed; and the consolidated settings page now has exactly one page heading with regions named by their visible titles instead of raw slugs, and in-flow confirmation strips no longer masquerade as focus-trapping alert dialogs.
+Keyboard operability fixes across the schedule, board, and integration settings (WCAG 2.1.1 / 3.3.4): Enter on a focused Gantt bar now opens the task details drawer (Shift+Enter or R starts a keyboard reschedule); schedule task-list columns are resizable by keyboard (focusable separators with arrow/Home/End) and the resize indicator meets non-text contrast; the board no longer hijacks the four arrow keys window-wide (arrows are claimed only while board focus is engaged, j/k/l/h always work); a stray backdrop click no longer discards a one-time API token reveal; and the rotate-webhook-secret dialog first-focuses Cancel so Enter-on-open can't invalidate the secret.
+The "passwords don't match" hint on the reset-password screen and the out-of-order warning on the three-point estimate inputs are now programmatically tied to their fields. The confirm-password input carries `aria-invalid` and points at the mismatch message; the Optimistic/Most Likely/Pessimistic inputs each carry `aria-invalid` and reference the ordering error while the triple is invalid — so a screen-reader user in any of those fields learns what is wrong without leaving it.
+- **Accessibility: contrast and color-only fixes across board, sprints, charts,
+  and forms.** Input placeholders and readable text painted with the 2.70:1
+  disabled token now use the AA secondary token; new ≥3:1 `input-border` and
+  `chart-neutral` tokens back form-field boundaries and burndown/Monte-Carlo
+  marks; the drag-preview ghost bar border now clears WCAG 1.4.11 in both themes;
+  workshop avatar initials pair dark-mode pastels with navy ink; the dark-mode
+  warning and at-risk states no longer collapse to the same hue; the burndown
+  "Actual" and "Completed" series are now distinguishable by hue and its
+  scope-removed dots render hollow; the chart exposes an sr-only summary; and
+  backlog/queue card priority is folded into the accessible name instead of being
+  a color-only cue (#2207).
+- **Board controls now meet the 44px touch-target floor.** The lane collapse
+  chevron, lane add-task button, backlog rail collapse, backlog-card schedule
+  action, and backlog clear-search glyph gained invisible hit-area padding, and
+  the board toolbar's icon toggles, layout segmented control, and Columns & WIP
+  button now floor to 44px on touch-reachable breakpoints (relaxing to their dense
+  size at `md`) — meeting WCAG 2.5.5 on board surfaces (#2208).
+The OpenAPI schema now accurately describes two program endpoints, so their responses no longer violate the published contract: `GET /programs/{id}/export/` is documented as a JSON object (it was declared as opaque binary), and `GET /programs/{id}/projects/` is documented as a bare array (it was declared as a paginated envelope). Surfaced by the nightly API fuzzer (#2213).
+Several API endpoints no longer return HTTP 500 on malformed input, returning a proper 4xx instead: sprint-review outcome actions (flag-for-backlog, set-note, set-presenter, toggle-demo) now answer `Accept: text/html` with 406 rather than crashing on the browsable-API form; the product-backlog, queue, and sprint reorder endpoints and the task reparent endpoint now return 400 on a non-object request body; and the task list's `start__gte` / `finish__lte` date filters now return 400 on an invalid date. Surfaced by the nightly API fuzzer (#2213).
+Capturing your first baseline now activates it automatically, so board cards flip from "estimated" to "baselined" without a separate "Set active" step. Capturing an additional baseline while one is already active leaves the active baseline unchanged, and the capture confirmation dialog now describes exactly what will happen.
+- **API 500s on malformed input hardened** (#2229): a NUL byte (`0x00`) in any
+  API query parameter — e.g. `?provider=` on the SSO login endpoint — reached the
+  database and raised an uncaught PostgreSQL `DataError`; it is now rejected as a
+  clean 400 before the request opens a transaction. Separately, an `OPTIONS`
+  request against a serializer-less endpoint (such as the sprint-task-outcome
+  actions) built request metadata via a serializer that does not exist and
+  returned a 500; OPTIONS now degrades to empty action metadata and returns 200.
+Settings left rail: the System group items (System health, Retention & purge, Trash) now show the active "you are here" highlight when you're on their page. Previously only scroll-spy sections could highlight, so route-based settings pages left the rail with no indication of the current location.
+Schedule `?task=<id>` deep-links now open the task drawer when clicked from a Notification or My Work row while you are already viewing that project's schedule — previously the drawer stayed closed and the link was silently dropped from the URL.
+- **CI container images now run correctly as a non-root user.** The custom
+  `ci-scheduler` and `ci-api` images `chown` the full `/usr/local` tree to the
+  unprivileged `ci` user, so a job-time `pip install` of a package that writes
+  data files outside `lib`/`bin` (e.g. Jupyter for the scheduler notebook checks)
+  no longer fails with `Permission denied: /usr/local/etc/...` (#2236).
+- **"Remember me" now works, and there is a real session-only login**: the login
+  form's *Keep me signed in* checkbox was previously inert — the backend ignored
+  it and **every** login (checked or not) set a persistent 7-day cookie, so
+  declining to be remembered on a shared machine was silently ignored, and the
+  "30 days" copy was false. Now: checking it issues a persistent 30-day session;
+  leaving it unchecked (the default) issues a **session cookie** that dies on
+  browser close with a short 12-hour sliding idle bound. SSO logins are always
+  session-scoped. The choice is carried on the refresh token so it survives
+  rotation, and existing sessions are not disrupted (pre-existing tokens keep
+  their 7-day behavior until the next login). Both windows are tunable via
+  `TRUEPPM_REFRESH_TOKEN_REMEMBER_DAYS` / `TRUEPPM_REFRESH_TOKEN_SESSION_HOURS`.
+The SSO provider and email/SMTP admin settings forms now highlight the specific field(s) a server rejects — the offending inputs get `aria-invalid`, a red border, and an inline message, instead of flattening the error to a single banner line that promised highlighting that never appeared (WCAG 3.3.1 / 4.1.2).
+- **The settings scope switcher no longer shows confusing disabled Program/Project
+  tabs.** On workspace-only tool pages (System Health, Observability, Trash) — where a
+  program or project scope can never apply — those segments are now hidden instead of
+  rendered disabled with an imperative the user can't act on. On general settings pages
+  the segments stay disabled (so the scope model is still discoverable) but carry
+  guiding copy — "Scoped settings appear once you create a program/project" — instead
+  of a flat "No programs yet" dead-end (#2251).
+- **The workspace settings page no longer skips its System group when scrolling.** The
+  System tools (System health, Observability, Retention & purge, Trash) are separate
+  pages, not in-page scroll sections, so they now sit in a clearly-separated navigation
+  cluster after the scrollable sections and are marked with a "opens a separate page"
+  affordance — instead of appearing mid-list between Email and Archive/Delete as
+  un-scroll-to-able entries (#2252).
+- **The settings rail scrolls reliably and its active-section highlight no longer
+  sticks.** The left settings navigation column now scrolls on short viewports so the
+  System group stays reachable instead of being clipped, and scrolling the page to the
+  bottom now highlights the final section (Archive / Delete) in the rail instead of
+  leaving the highlight frozen on the previous section (#2252).
+Migrated three hand-rolled primary buttons in the schedule feature (before-project-start prompt, keyboard date-entry popover, estimate accept) to the shared `<Button>` component, fixing the sub-AA `hover:bg-sage-600` contrast (4.46:1) by inheriting the corrected `hover:bg-sage-400` recipe (WCAG 1.4.3).
+- **Task-drawer action buttons now show a visible focus ring when clicked in Firefox
+  and desktop Safari.** The comment, note, blocker, attachment, subtask, related-link,
+  and guardrail-notice action buttons used `focus-visible:`, which suppresses the ring
+  for pointer-driven focus on those browsers; standalone buttons now use `focus:` so
+  the ring is always visible. Text inputs and selects keep `focus-visible:` (no ring on
+  pointer focus is correct there) (#2263).
+Raised secondary and muted text contrast to meet WCAG 2.1 AA (4.5:1) on warm surfaces across the schedule and board toolbars, command palette chips, settings controls, task drawer, status chips, and the add-milestone button, and gave the TruePPM logo and read-only settings readouts a proper image role so their labels are announced correctly by screen readers.
+- **Settings fields can now associate their help text with the control for screen
+  readers.** The shared `FieldRow` settings primitive renders its hint with a
+  generated `id` and forwards `hintId`/`errorId` (and a ready-to-use `describedBy`)
+  through an opt-in render-prop child, so a control can point its `aria-describedby`
+  at the visible hint and inline error instead of leaving them as unassociated
+  adjacent text (web-rule 269, WCAG 1.3.1 / 4.1.2). This is the a11y foundation for
+  the settings help-text rollout (#2266).
+Loading a bundled sample program no longer 500s when the global resource catalog already holds two people sharing an email, and the `GET /api/v1/me/search/` OpenAPI schema now declares its paginated `{count, next, previous, results}` envelope instead of a bare array.
+Capped the Schedule view's page-fetch burst at four concurrent requests. Opening a large project previously fired one request per remaining page in a single batch — around 25 at once for a project at the 5,000-task ceiling, and again for its dependencies — which saturated the browser's connection pool and delayed everything else the page needed to become interactive, without making the schedule itself arrive any sooner.
+- **The web pod now boots on Kubernetes.** The chart previously deployed the web
+  (SPA) image with its baked-in nginx config, which reverse-proxies the API at the
+  host `api` — correct only under docker-compose. In a Helm release the API Service
+  is release-scoped (`<release>-api`), so nginx failed to resolve the upstream at
+  startup and the web pod crash-looped with `host not found in upstream "api"`. The
+  chart now renders the nginx server config into a ConfigMap that targets the
+  release-scoped API Service and mounts it over the baked file, so `/api`, `/ws`,
+  `/admin`, and `/static` proxy correctly on any pre-built web image.
+- **Settings rail no longer reads as if you can scroll to the System tools.** The
+  workspace Settings left rail sets off its route-departure tool group (System
+  health, Observability, Retention & purge, Trash) with a divider and an "Opens a
+  separate page" caption, so it reads as a distinct cluster of pages you open
+  rather than more scroll-spy sections you scroll down to (#2291).
+Group cards on **Settings → Groups & teams** now show member names (for small groups) and real member initials + colors in the avatar stack (for larger groups), instead of anonymous colored dots. Empty groups read "No members yet".
+Fixed a 500 error when the Monte Carlo forecast endpoint (`POST /api/v1/projects/{id}/monte-carlo/`) was called with a JSON `null` request body; a null or absent body now correctly falls back to the default simulation count.
+Reworded the Schedule task-list data-integrity chip from the misleading "missing dates" to "no committed start". The chip fires when an in-progress task has no PM-committed start date even though CPM auto-calculates the dates the grid shows; the new label, tooltip, and screen-reader text name that real gap and explain that the visible dates are auto-calculated, not committed.
+Fixed the task-detail drawer's "Related Tasks" section always showing "Couldn't load related tasks" — the `/task-relations/` endpoint returned a paginated envelope while the client expected a bare array.
+Transferring project ownership, transferring program sponsorship, and reordering project phases no longer return a 500 when the request body is a JSON array or scalar instead of an object — the endpoints now fall through to their existing 400 validation.
+The offline "Unblock queued" badge no longer disappears the moment you queue an unblock. Queuing an offline unblock optimistically clears the blocker flag, which (via progressive disclosure) folded the whole Blocker drawer section — and its pending-sync badge — behind "Add detail" until reconnect. The section now stays revealed while an offline blocker write is queued, so the "will sync when you reconnect" affordance stays visible (#2348).
+Deleting a working calendar or a skill that is still in use now returns
+`409 Conflict` instead of a `500`. Every foreign key into `Calendar` is `PROTECT`
+— a project's base calendar, a project overlay, a program default, the workspace
+default, or a resource's calendar — so a calendar can never be deleted out from
+under a live schedule; both foreign keys into `Skill` are `PROTECT` too, so a
+catalog entry cannot be removed while resources are tagged with it or tasks
+require it. Those refusals were correct but surfaced as unhandled
+`ProtectedError`s, i.e. server errors. `DELETE /api/v1/calendars/{id}/` and
+`DELETE /api/v1/skills/{id}/` now answer with a conflict whose body carries
+`reference_count` and a `references` sample naming what still references the row,
+so a client can tell the user what to detach first.
+
+Two confirmed hard-delete paths also stopped failing outright: permanently
+deleting an archived project (`?force=true`) and removing a sample program both
+raised `ProtectedError` once a mention group existed, because each pre-deleted
+only the membership rows that were `PROTECT`-ing when the code was written. Both
+now resolve the protected children from the model metadata, so neither can rot as
+new foreign keys land. Any remaining `PROTECT`-ed delete that no endpoint claims
+degrades to a generic `409` rather than a `500` (#2364).
+Board: Space+drag panning and the board's edge-fade overflow cues no longer go missing on a cold page load. Effects that wire up a scroll container attached it only if the container already existed on the first render, so whenever the board showed its loading skeleton first the wiring never happened and panning was silently dead for that visit.
+- **Trash retention no longer stalls on a project that had an `@mention` group.** The
+  background purge that hard-deletes projects past
+  `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` pre-removed only the membership rows
+  blocking the delete, on the assumption those were the only ones. Once admin-curated
+  mention groups landed they became a second blocker, so a single soft-deleted project
+  that had ever carried one raised `ProtectedError` and rolled back its whole batch —
+  silently, with no operator signal, leaving every project batched with it in the trash
+  past its retention window indefinitely. The purge now resolves the blocking child
+  rows from the model metadata instead of a hand-written list, so it cannot go stale
+  again as new relations are added (#2372).
+A `#task-<id>` deep link to a milestone no longer positions its pulse animation at
+an invalid coordinate when the target's date cannot be parsed. The guard was a
+`try`/`except` commented "dateToLeft can throw on out-of-range dates" — it cannot
+throw, so the case it claimed to handle fell straight through and the pulse was
+placed at `NaN`. It now checks the value instead of waiting for an exception that
+never comes.
+
+The pulse also records which milestone it fired for in a `data-pulsed-task-id`
+attribute that outlives the 1.5-second animation, so the behavior can be verified
+without racing the animation itself.
+- **Saved board views no longer discard their label filter.** Selecting labels,
+  saving a view, and reopening it silently lost the label selection: the client's
+  wire type and both of its mappers omitted the key, the serializer's
+  `validate_config()` returned a whitelist that dropped anything unlisted, and the
+  config migration defaults never backfilled it — every layer failed open with no
+  error. `filter_labels` is now persisted end to end and round-trips through the
+  API, and the `board_saved_view` config surface is versioned to 3 so views saved
+  before the fix upgrade to an empty label selection on read. Label ids are
+  deliberately not checked against the project's labels, so a view whose label was
+  later deleted keeps the id rather than being silently rewritten (#2385).
+Loading a bundled demo sample no longer times out in the browser, and neither of the seed-import endpoints can be looped into a resource-exhaustion vector. `POST /programs/load-sample/` and `POST /programs/import/` each rebuild an entire program per call — a teardown of the caller's previous copy plus a full import, run synchronously — but both inherited the general 1000/min authenticated default, so a single account could drive a thousand teardown-and-rebuild cycles a minute. Each now carries its own 6/min per-account cap, tunable with `TRUEPPM_THROTTLE_SAMPLE_LOAD_RATE` and `TRUEPPM_THROTTLE_SEED_IMPORT_RATE`. The web client also no longer applies its 30-second request timeout to the demo load, which could abort the first action a new evaluator takes while the server kept building the program.
+Program rollup KPIs that have no data source yet — Cost variance, Budget utilization, and P80 completion date — can no longer be switched on in Program settings. Previously the picker offered all ten KPIs as if they were live, so enabling one saved a config that rendered a permanent blank with no indication the switch did nothing. Each locked row now states why, and `GET /api/v1/programs/{id}/rollup-config/` publishes the set as `unavailable_kpis` so API clients get the same fact rather than hard-coding it. A KPI already enabled from an earlier config or a methodology default stays switchable off.
+The web app no longer contacts Google Fonts. Every page load of a self-hosted TruePPM used to fetch its three typefaces from `fonts.googleapis.com` and `fonts.gstatic.com` — from the end user's browser, carrying their IP and referrer to a third party, which contradicted the self-hosted, air-gapped-capable positioning the product is sold on and was disclosed nowhere in the admin docs. Worse, on an air-gapped or network-restricted install the request simply failed and the design system's entire type scale silently rendered in a substitute face, with no warning to the operator.
+
+Space Grotesk, Inter, and JetBrains Mono are now vendored as `woff2` and served from your own origin under `/fonts/`. Every weight and every unicode subset the CDN served is included (latin, latin-ext, vietnamese, greek, greek-ext, cyrillic, cyrillic-ext), so an online install renders exactly as before and no script loses its typeface — while the per-subset `unicode-range` split is preserved, so a Latin-only page still downloads only the Latin slices. All three fonts are SIL OFL 1.1, whose texts ship alongside them. A Playwright assertion fails the build if any third-party request reappears on a page load.
+On-bar task name labels no longer collide with dependency arrows and neighboring bars on the Schedule. Labels are drawn without collision detection, so an arrowhead could terminate inside label text or a label could overdraw the row above it. The Grid view now hides on-bar labels by default — the task table beside the chart already carries every name — and the Timeline view defaults to the aligned-left name gutter, which cannot collide. Both remain selectable from the Display menu.
+Opening the Schedule view no longer lands on empty canvas. The initial framing put today at 25% from the left regardless of where the project's work actually sat, so a project whose tasks are mostly behind today — the normal state past a project's midpoint — opened with a populated task list beside a blank grid. The view now checks its own framing and fits the whole project instead whenever framing on today would leave most visible rows without a bar.
+The task detail drawer no longer shows the same value twice. Status, Finish and Float each rendered once in the at-a-glance summary strip and again in the editable sections just below it, with nothing to say which was authoritative. The strip is now a read-only surface carrying the owner and the baseline comparison, the editable sections own the rest, and the `FLAGS` band appears only when the task actually has a flag — float, a routine metric every task has, has moved to the schedule grid where it is marked as computed.
+Settings navigation icons are now distinct. Six of the nine rows in a project's **Configuration** settings group previously shared a glyph, and Attachments and Sharing used an external-link arrow that wrongly implied they navigated away from TruePPM. Labels, Signal privacy, Surfaces, Integrations and Sharing gain purpose-built icons, and the project, program and workspace settings rails now render a unique icon for every row within a group.
+The Schedule forecast bar no longer renders three identical percentile chips for a run that produced a single date. When every simulation finishes on the same day the bar now shows one forecast chip, and any `+Nd` risk delta renders alongside the CPM finish date it is measured from instead of appearing unexplained on the middle chip. The desktop bar, the mobile card and the histogram now derive their state and wording from one place, so they can no longer disagree about the same run.
+Board swimlanes no longer render tall empty columns. In a lane made tall by one full column, the empty columns beside it stretched to the full lane height as blank tracks; they now size to their own content, leaving the space as lane background. Column header counts, which are board-wide, now state that scope so a count sitting above a lane that holds none of those cards no longer reads as a lane count that disagrees with the lane.
+The project Overview's **Team utilization** card now shows a real number. The overview endpoint had hardcoded the value to null with a note saying the resource module would fill it in later — long after that module shipped — so the card rendered a permanent bare em-dash with no sub-line while both cards beside it carried one. It now reports this week's committed load as a percentage of the team's working capacity, computed by the same calendar-aware engine as the resource heatmap so the two surfaces cannot disagree. When the ratio is genuinely undefined the card is muted and says why ("Needs people on the project roster", "Roster has no working hours this week") instead of going blank; **0%** stays a real reading, so "nobody is allocated" no longer looks identical to "this is broken".
+Every route navigation now opens on a shell skeleton instead of a bare, unstyled "Loading…" line. The chunk-loading fallback was the first frame of every navigation and the one place that still broke the skeleton contract — a Board navigation showed several seconds of centered text before the board's own skeleton appeared. The same sweep replaces the bare "Loading…" text in twelve settings sections (project guardrails, notifications, sharing, workflow phases and statuses; program cadence, access, rollup, risk policy, stakeholders, phase gate; and the dead-letter inspector) with compact ghost rows, and the `/` root-redirect hold with the shell skeleton.
+- **Hardened the Grid's filtered-empty diagnosis against an empty facet list.** The
+  fold that picks which filter to offer dropping now carries an explicit initial
+  value, so the guard that keeps it safe can no longer drift away from the fold
+  itself and turn a filtered-empty Grid into a blank app. Behavior is unchanged;
+  the diagnosis panel gains its first unit-test coverage (#2435).
+- **Task deep-links now open on the view your lens actually uses.** Selecting a ⌘K
+  Epic/Story result or clicking a task notification always landed on the Schedule,
+  regardless of the "View focus" lens — so a Scrum Master who clicked a story on their
+  own board was taken to the CPM Gantt instead. Both now open the task drawer on the
+  lens's landing view (PM → Schedule, Scrum Master → Board), falling back to the
+  Schedule for the Unified lens, whose Today view has no task drawer (#2441).
+Gave the Schedule "No committed start" popover and the timesheet cell's validation message an opaque background. Both floated over page content on a translucent semantic tint, so the task rows or neighbouring day cells behind them read straight through the text. Light mode was affected more than dark.
+The task detail drawer's Activity tab no longer contains a section also headed "Activity". The merged chronological feed — every field change, system recalculation, schedule, risk, time and attachment event, plus the comment lifecycle — is now headed "All events", which says what distinguishes it both from the tab that contains it and from the Comments section above it, and matches its own leading "All · N" filter chip. Screen-reader users no longer hear the same word for the container and one of its four children. The "Activity →" shortcut on the Details tab now also expands that feed instead of leaving you on four collapsed headers.
+- **Adding a task note no longer shows the text twice.** The note composer cleared its
+  draft only once the server replied, while the note itself appeared in the list
+  immediately — so between the click and the response the same text rendered in both
+  the list and the (disabled) composer. The composer now clears the moment the note is
+  submitted and restores the draft if the save fails (#2449).
+Corrected the published OpenAPI schema for the program export and program pin endpoints. A decorator stack had drifted onto the wrong action, so `GET /api/v1/programs/{id}/export/` was documented as returning a `Program` (it returns a JSON seed document), `POST` to the same path was documented as `200 Program` instead of `202 ProgramExportJob` and as accepting a `Program` request body it ignores, and `POST /api/v1/programs/{id}/pin/` advertised itself as queueing a program export bundle. Both pin endpoints now also document the `400 pin_limit_reached` rejection. No endpoint behavior changed — only what the schema claimed about it.
+- **Monte Carlo forecast on completed tasks**: a completed task recording an
+  `actual_finish` but no `actual_start` had its simulated start pinned one working
+  day before the finish regardless of duration, so every Start-to-Start and
+  Start-to-Finish successor was anchored up to `duration - 1` working days late and
+  the P50/P80/P95 dates disagreed with the deterministic CPM finish. The start is
+  now laid a full duration back from the recorded finish, matching `schedule()`.
+  This is the ordinary shape of a task dragged straight from To Do to Done, which
+  deliberately records no start date.
+- **Monte Carlo forecast on weekend/holiday actuals**: a completed task whose
+  recorded actual fell on a non-working day had its successors anchored off the
+  nearest working day, while the deterministic schedule anchors off the recorded
+  date itself — so the two disagreed by a working day whenever the link carried a
+  lag or was start-anchored, and a project could be reported as finishing on a
+  Sunday. Completed tasks' constraints are now resolved from their recorded dates
+  directly, and the project finish is floored at the latest recorded completion.
+  Completes the fix started in 0.4 for the terminal date only.
+- **Stale calendar after editing exceptions**: `Calendar` cached a lookup index
+  built from its `exceptions`, and editing that list in place without changing its
+  length left the cache untouched — so `is_working_day` kept answering from the
+  pre-edit calendar and whole schedules were computed against holidays that had
+  been removed. Changing the exception set now reliably takes effect.
+Scoped `seed_demo_project`'s destructive reset to its own output. The command previously deleted every workspace `Resource` matching a demo-roster name — unconditionally, on every invocation, and regardless of whether demo data was present — and matched projects on a non-unique name, so a real employee or a real project sharing a name with the demo data was silently deleted. In Helm demo mode this ran on every `helm upgrade`. The reset now reaps only projects the seeder flagged `is_sample`, and only resources whose every project membership is one of those demo projects.
+- **Project calendar "today" ring and risk-CSV export filename now use your local day, not UTC**: the working-calendars preview grid could ring the wrong day, and an exported risk CSV could be named for the wrong day, for any viewer whose local date and UTC date disagree near midnight. Both now derive "today" from the browser's local calendar day, evaluated fresh each time rather than once at page load.
+- **Offline sync no longer silently drops edits.** The delta pull
+  (`GET /api/v1/projects/{id}/sync/?since=`) compared each row's own
+  `server_version` — a per-row save counter — against a project-wide maximum. That
+  is not a valid ordering: a frequently-edited row dragged the checkpoint above
+  every other row's counter, and those rows stopped being delivered until they had
+  been saved enough times to climb past it. It affected every synced table, it was
+  the steady state of any project with unevenly-edited rows, and it was silent in
+  both directions — the client believed it was fully synced and the server believed
+  it had delivered everything. Rows now carry `sync_seq`, a cursor drawn from a
+  per-project monotonic sequence, so the checkpoint is meaningful and the delta is
+  correct (ADR-0686, #2491).
+
+  `server_version` is unchanged: it is still the per-row save count and still the
+  optimistic-lock token you send as `X-Base-Version`. **No client change is
+  required** — `since`/`timestamp` have always been documented as an opaque
+  checkpoint to echo back. The new numbering starts above the old watermark, so the
+  first pull after upgrading redelivers each project once under upsert semantics,
+  repairing anything the old scheme had already dropped.
+
+- **Bulk-written rows now reach offline clients at all.** Several paths write rows
+  in one statement rather than row-by-row, which skipped the versioning the delta
+  pull selects on — so an MS Project import's tasks, dependencies, and labels, and
+  the action items on a saved sprint retro, were invisible to an offline client
+  indefinitely. A project moved to Trash or restored had the same problem in its
+  cascade: the child tombstones never arrived, so a client went on showing tasks the
+  server had deleted. All of these now draw a delta cursor (#2491).
+- **Viewers can now see the Monte Carlo forecast on desktop.** The Schedule view
+  gated the docked forecast bar at Member and above, while the server grants the
+  forecast read to any project member and the mobile forecast card was ungated —
+  so the same Viewer saw P50/P80/P95 on a phone but not on a laptop. The desktop
+  gate is removed; desktop and mobile now agree for every role, and the Scheduler+
+  restriction on *recording* an attributed run in the drift history is unchanged
+  (#2492).
+- **Program sync no longer drops edits from quiet programs.**
+  `GET /api/v1/sync/user/programs/` compared each row's `server_version` — a count
+  of that row's own saves — against a maximum taken across *every* program the
+  caller could see. A frequently-edited program therefore raised the client's
+  cursor above every other program's counter, and those programs' edits stopped
+  being delivered permanently, since the cursor only moves forward. A
+  `ProgramMembership` role change on a quiet program could never reach a client
+  enforcing offline RBAC from it. This is the same defect fixed for projects in
+  0.4 (#2491), one level up, where the per-project sequence could not reach because
+  programs have no single owning row.
+
+  Program and program-membership rows are now ordered by an installation-wide
+  monotonic sequence, which makes the cursor's maximum meaningful again. **The wire
+  contract is unchanged** — `since` and `timestamp` remain scalar integers and no
+  client update is required. The upgrade migration renumbers existing rows above
+  the old scale, so the first pull after upgrading re-delivers each caller's
+  programs and memberships once (safe under upsert, and it repairs whatever the old
+  scheme had already dropped); every pull after that is a normal delta. (#2498,
+  ADR-0747)
+Evaluation walkthroughs are now followable in the order they are printed. The
+evaluation guide and all eight role guides open each walkthrough with a complete,
+copy-pasteable setup step — `make up`, the full
+`docker compose exec api python manage.py …` seed command, the app URL, and the
+honest password rule — instead of a bare command name and a prerequisite buried
+in a second numbered list further down the page. Every step now names where to
+click (left-rail view, control, or route), the forecast is described as the
+**Forecast** bar docked on the Schedule rather than a "Monte Carlo modal" that
+does not exist, task history points at the drawer's **Activity** tab rather than
+a nonexistent "History" tab, and the PMO walkthrough loads the Atlas sample its
+program steps actually require. The executive walkthrough no longer routes the
+reader into a Viewer role that cannot see the forecast it is built around.
+A CSV or Excel import rejected for a circular `Predecessors` column now names the
+spreadsheet rows that form the loop ("row 2 -> row 5 -> row 2") instead of echoing an
+internal error code and a raw id list. The pin-limit message on projects and programs now
+reads "You have reached the maximum of N pinned items. Unpin one to add another.", matching
+the documented API contract in ADR-0627.
+`GET /api/v1/programs/samples/` returns a bare array, but the OpenAPI schema declared a `PaginatedSampleCatalogEntryList` envelope that no response could satisfy. The action now opts out of the auto-paginated response shape, so the published schema matches the endpoint. Generated clients that trusted the envelope were given a contract the API never honored.
+Project changelog filter ordering is now pinned to an explicit UTF-16 code-unit comparator, so the request params and query-cache keys it builds stay byte-identical across locales and browser updates.
+The status cluster in the top bar — the methodology badge, the project health chip and the running timer — now scrolls horizontally when it runs out of room instead of pushing the `Program › Project › View` breadcrumb and the account chip off the edge of the bar. The breadcrumb keeps its full width at every desktop size, and the quick-log, "+ New", sync, notification and account controls stay pinned and reachable. Phone layout is unchanged.
+Corrected the documented unit for dependency lag in the scheduler. Lag is applied in **calendar days** and then snapped to the successor's next working day — the PyPI page and docs previously stated it was working-day counted, which meant a 1- or 2-day lag after a Friday finish appeared to add wait that the weekend actually absorbs. Also removed a stale caveat claiming free float only accounted for finish-to-start successors (all four dependency types tighten it), documented the `find_cycle()` and `expand_summary_dependencies()` pre-flight helpers, and exported `MAX_DEPENDENCIES` from the package root alongside the other validator caps.
+**Personal Access Tokens can now authenticate against general API endpoints**: a full-access (`legacy:full`) PAT minted from **Settings → Personal access tokens** previously had no endpoint to use at all — token authentication was never wired into the default authentication stack, and the only two views that referenced it directly required a project/program-scoped token a personal token can never carry. A PAT now authenticates the general API surface exactly as its owner's own session would, with the same RBAC (#2547). Project- and program-scoped integration tokens and read-only (`mcp:read`) PATs are unaffected and keep authenticating only against their existing narrow surfaces.
+Program Settings → External stakeholders: the header and read rows now collapse to a single column below `md`, matching the inline edit row's responsive layout. Previously both were a hard 5-column grid at every viewport width, so on a narrow screen the fixed "Added by" and actions tracks left almost no room for Name, Email, and Note, truncating all three.
+Program settings no longer offer Add/Edit/Remove-style controls (external stakeholders, general fields, working calendar, attachments, risk policy, rollup KPIs, cadence & ceremonies, bulk project fields, member invites/role changes) on a **closed** program — the server already rejected these writes with a 403; the affordances now fold in the closed state up front and explain why, instead of letting the user act and then hit a confusing rejection.
+- **Email & SMTP: a blank username no longer saves a mail transport that cannot
+  authenticate.** SMTP sign-in is a username/password pair, and Django's SMTP
+  backend authenticates only when both are set — so a blank username made the
+  validate-before-persist probe open an *unauthenticated* connection that
+  succeeded, storing a configuration whose every real send then failed with
+  `530 Authentication Required`. The workspace email settings now reject a blank
+  username on the Custom SMTP, Gmail/Microsoft 365/Fastmail preset, and Amazon SES
+  transports (SendGrid is unaffected — its username is fixed server-side to
+  `apikey`). The Username field also gained the provider-aware guidance it never
+  had: an inline hint naming exactly what that provider expects, and a help
+  popover covering where to obtain it — including that an app password replaces
+  your account *password*, never your username (#2552).
+- **Pinned projects now show as pinned on a program's Projects tab.** The
+  `GET /api/v1/programs/{id}/projects/` endpoint builds its own queryset and so
+  never picked up the per-caller `is_pinned` annotation, and the web hook behind
+  the tab dropped the field as well — between them, every pinned project on that
+  tab rendered with the outline (unpinned) pin, which is invisible until hovered.
+  Clicking it re-pinned an already-pinned project, and there was no way to unpin
+  one from that surface. The endpoint now annotates the caller's own pin (still
+  bound positionally to the requesting user, so it can never report anyone else's),
+  the hook maps it, and pinning from the tab flips the row immediately instead of
+  waiting for an unrelated refetch (#2553).
+Corrected the Valkey high-availability documentation, which recommended two topologies TruePPM cannot configure. Sentinel and Cluster are now documented as unsupported (tracked in #2554) rather than recommended, and the page leads with Valkey — what actually ships — instead of Redis. Adds licensing and managed-service cost guidance for operators who do not want a commercial Redis. The page moved from `/administration/redis-ha/` to `/administration/valkey-ha/`; the old URL redirects.
+**S3 attachment storage now actually works.** `django-storages` was not a dependency of the API, yet the configuration reference, the Helm README, a shipped `values.yaml` comment, and `.env.example` all told operators to set `TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage` — and production refuses to boot on the ephemeral local default (#775), so the boot guard steered operators at the one value the image could not import. The S3 backend now ships in the image, and the bucket is configurable via `TRUEPPM_S3_BUCKET_NAME` plus `TRUEPPM_S3_ENDPOINT_URL` / `TRUEPPM_S3_ADDRESSING_STYLE` / `TRUEPPM_S3_REGION_NAME` / `TRUEPPM_S3_ACCESS_KEY_ID` / `TRUEPPM_S3_SECRET_ACCESS_KEY` / `TRUEPPM_S3_SIGNATURE_VERSION` / `TRUEPPM_S3_QUERYSTRING_EXPIRE`. Credentials are optional so an EKS deploy can use IRSA or an instance profile instead of static keys. Two new startup checks replace opaque runtime failures: `trueppm.E007` names the exact package to install when the configured backend cannot be imported (GCS and Azure Blob are recognized but not bundled), and `trueppm.E008` catches an S3 backend with no bucket rather than letting the first upload fail on `Required parameter name not set`. Presigned URLs now default to SigV4 — without an explicit signature version the SDK falls back to SigV2, which AWS rejects in regions created after 2014 — and `file_overwrite` is disabled so two people uploading `report.pdf` to one task no longer destroy each other's attachment. The attachment **Get signed download URL** action now applies its `?ttl=` to the signature rather than only to the reported `expires_at`: that code path was unreachable while no S3 backend was installed, and shipping one would otherwise have made it live with a URL that expired after the backend default (900s) while the response claimed up to the requested 3600. A new `api:s3-drill` CI job exercises the documented configuration against a live MinIO service, asserting the round-trip, that the presigned URL downloads unauthenticated, and that an unsigned URL is denied. The MinIO setup recipe now uses placeholder credentials and states plainly that TruePPM should be given a key scoped to the attachments bucket rather than the MinIO root account. Closes #2559.
+**Datastore NetworkPolicy isolation is now tested, and two components it was silently blocking are fixed.** `networkPolicy.enabled` defaults to true and is the chart's compensating control for shipping plaintext PostgreSQL and Valkey — the chart even relaxes the API's unencrypted-database boot guard (`TRUEPPM_ALLOW_UNENCRYPTED_DB`) on the strength of it. Nothing verified it worked: `helm:template` proves the object renders, and the `helm:install` drill boots the chart on a kind cluster whose default CNI (kindnetd) does not implement NetworkPolicy at all, so the policy was admitted and ignored. Under that blind spot the ingress allow-list had drifted — the **backup CronJob** (`pg_dump`) and the **demo-seed Job** (`migrate` + `seed_demo_project`) both open PostgreSQL but neither was listed, so on any real policy-enforcing cluster their connections were dropped while every CI gate stayed green. Both are now allow-listed, and the duplicated selector block is factored into a `trueppm.datastoreClientSelectors` helper so the list has one home. Two new gates keep it honest: `helm-structure-check.sh` statically fails when any workload receives `DATABASE_URL`/`REDIS_URL` without appearing in the matching allow-list (seconds, no cluster), and a new `helm:netpol` CI job runs `scripts/helm-netpol-drill.sh` against a kind cluster with Calico, asserting that every allowed tier reaches the datastores, that an unlabeled pod *and* a pod carrying the chart's labels but a non-client component are both denied, that datastore egress is default-deny, and — via two control probes — that the denials come from the policy rather than a broken CNI. `administration/security.md` also no longer describes the policy as "opt-in / off by default", which contradicted the chart. Closes #2560.
+- Resizing a task bar onto a non-working day no longer offers a "7d → 7d" confirmation that appears to commit and then snaps the bar back. Because duration is counted in working days, a drop on a Saturday or Sunday cannot lengthen the task — TruePPM now says so, naming the day you dropped on and the task's actual finish, instead of sending a change that does nothing.
+- The Schedule resize popover's working-day count now comes from the project's working calendar instead of assuming Monday–Friday, so a six-day work week reports the right duration and a Saturday drop correctly extends the task.
+Tightened the client-side email pre-flight on the program **External stakeholders** settings page. The pattern is now linear rather than super-linear on a long malformed address, and it additionally rejects a domain with an empty label (`name@client..example`) — the server's validation remains the authority on what is deliverable.
+Fixed silent data loss on a multi-page offline sync pull. The delta pull recomputed its high-water mark on every page while the client was told to adopt the last page's value, so any row written into an already-drained collection during the drain fell above the adopted checkpoint and was never delivered again. The checkpoint is now pinned when the session's first page is served and echoed unchanged on every continuation page, so such a row simply arrives on the next pull. Server-side and wire-compatible; a continuation token minted by an older server is rejected with a `400` and the client restarts the drain at the same unchanged `since`. Hardened the cursor decoder alongside: a token carrying the non-standard JSON literals `Infinity` or `1e400` previously reached an unhandled `500` on this unthrottled endpoint, and a checkpoint above the project's live sequence is now rejected instead of echoed back for the client to persist.
+**Helm: the Celery worker no longer OOM-kills itself on multi-core nodes.** The worker ran a hardcoded command with no `--concurrency` flag and the chart exposed no way to add one, so Celery prefork fell back to `cpu_count()` — which inside a container reads the *node's* core count rather than the cgroup CPU limit. On a 32-core node that forked 32 children at ~150–250 MB RSS each against a 2Gi limit, OOM-killing the background tier at zero load and taking CPM recalculation, imports, notification email, and Beat with it. Concurrency is now pinned via `celeryWorker.concurrency` (default `2`), with `celeryWorker.maxTasksPerChild` (default `100`) to recycle children on long-running exports and `celeryWorker.extraArgs` as a general escape hatch. The sizing guide previously prescribed a command override that a values-only operator could not apply; it now references the new value.
+- **Monte Carlo under-reported risk on tasks marked complete without actual
+  dates**: a task at `percent_complete = 100` with no `actual_start` or
+  `actual_finish` was pinned in the simulation at the project start, ignoring both
+  its "start no earlier than" date and every predecessor link — constraints the
+  deterministic schedule does apply. P50/P80/P95 could therefore land *earlier*
+  than the plain CPM finish for the same project, understating rather than
+  overstating schedule risk. The simulation now takes these tasks' positions
+  straight from the deterministic pass, so the two can no longer disagree. This
+  shape arrives most often from an MS Project, CSV, or Jira import, which carries a
+  percent-complete figure without dates.
+Schedule real-time: a CPM recalculation now broadcasts only the tasks whose dates actually moved, instead of every task in the project. Because a recalculation always re-writes every task, the `task_dates_updated` delta previously exceeded its 500-task cap on any project above that size and shipped a `truncated` flag, which made every connected client re-fetch the whole paginated task list — roughly 20 requests per client for a single-field edit on a 1,000-task project, multiplied again across a program's member projects. Edits now splice in place as ADR-0091 intended, and the truncation fallback is back to being what it was designed for: a backstop for genuinely wide recalculations such as a first-ever pass or a project-start shift.
+- **Program re-import no longer silently destroys a matching live program**:
+  importing a JSON seed whose `program.slug` matched the code of a program you
+  own hard-deleted that program and every project, task, sprint, risk and
+  baseline under it — with no confirmation, nothing left in Trash, no tombstone
+  for offline clients, and no notification to collaborators working in it.
+  Replacement is now explicit: `POST /programs/import/` answers `409` naming the
+  colliding program and what it holds, and only proceeds with `replace=true` (or
+  a matching `expected_program_id`). Confirmed, the previous program's projects
+  are **soft**-deleted — each recoverable individually from Trash as a standalone
+  project, with a `project_deleted` broadcast and a real sync tombstone. The
+  program shell itself is not recoverable. The seed dry run
+  (`POST /programs/import/validate/`) now reports the pending replacement up
+  front in a new `replaces` field. Bundled demo data still reloads in place.
+- **Six endpoints published an OpenAPI response type they never returned, breaking
+  generated SDKs on the first call.** `GET /sprints/{id}/duration-events/` advertised
+  a `Sprint` while returning `{events: [...]}`; `GET /workspace/audit-events/`
+  advertised a bare array while returning the cursor envelope
+  `{next, previous, results}`; `GET /projects/{id}/history/` declared no response body
+  at all while returning a pagination envelope; and the project- and program-scoped
+  `GET /webhooks/{id}/deliveries/` advertised a page-number envelope whose `count` a
+  cursor response can never carry. Each now declares its real payload. The runtime
+  responses are unchanged — only the published contract was wrong, so no client that
+  was already working needs to change. The per-sprint duration-change feed is
+  documented in the API reference for the first time, and the cursor-paginated
+  endpoints now say plainly that they return no `count` (#2583).
+- **Blocker chip queued state now visible to read-only viewers**: a task blocked
+  while offline (ADR-0247) showed its "queued" age and pending-sync badge only
+  in the editable blocker view. A viewer without edit rights on the task saw
+  the "Blocked" badge with no age and no indication the flag hadn't reached the
+  server yet. The read-only chip row now shows the same queued/pending-sync
+  state as the editable one.
+- **Estimate approval no longer revoked by a no-op edit**: re-sending a three-point
+  estimate's identical value (for example, tabbing through the field without
+  changing it) no longer flips an approved (`accepted`) estimate back to
+  `pending` in Suggest & Approve mode. Only a genuine value change requires
+  re-approval, as before.
+Closed four CI gate blind spots found by the 0.4 pre-release audit. The Apache 2.0 boundary rule — OSS never imports from `trueppm-enterprise` — is now enforced by a gate (`boundary:imports`, and `make pre-push`) instead of by convention alone. `packages/mcp`, which ships to PyPI, joined the OSV vulnerability scan and gained a license audit; `packages/website` and `packages/mobile` gained one too. A new `suppressions:check` gate fails the pipeline when a suppression outlives the issue it was waiting on.
+Imports larger than 1 MB no longer fail with an unexplained `413` on a default Helm install. The chart shipped an empty `ingress.annotations` and no `client_max_body_size` in the production nginx branch, so both inherited a 1 MB transport default while the application's own caps allow up to 50 MB. The ingress now defaults `proxy-body-size` to `50m`, the web tier gains a `web.maxBodySize` value (default `50M`), and the Docker Compose nginx templates move from 20 MB to 50 MB so both deployment paths agree. The relationship — transport limit at or above the largest app cap, app cap as the enforcement point — is documented in the Helm values reference.
+The OpenAPI schema no longer advertises the wrong version. `info.version` was a hardcoded `"0.3.0"` that only the release script ever updated, so it drifted for the whole cycle after each tag and told every generated client that a 0.4.0-beta.1 API was 0.3.0; it is now derived from the package version and cannot drift. The `trueppm-scheduler` CHANGELOG had a dated `0.4.0b1` section written before the release, which stranded that version's **breaking** `Calendar.exceptions` change under `[Unreleased]` and made the release-time rotation a silent no-op — the entries are merged back into `[Unreleased]` so the release dates them, and the rotation script now refuses a dated heading for a version with no tag instead of skipping quietly. The scheduler package also declares `Development Status :: 4 - Beta`, matching its beta version.
+A bug in an enterprise signal receiver can no longer break the OSS write path that fired it. Eight of the fifteen OSS→Enterprise extension signals were dispatched with `Signal.send()`, which propagates a receiver's exception back to the sender — and one of them, `history_record_created`, is fired from the save of every Project, Task, and Dependency history row, so a single raising receiver would have failed every task save in the product. All non-veto signals now dispatch through a shared helper that contains the failure *and logs it*, and a new `api:extension-signals` CI gate keeps it that way. `agent_action_prune_requested` deliberately keeps raising: it is the legal-hold veto on agent-action pruning, where a raising receiver is the mechanism rather than a fault.
+Two live-collaboration fixes. Public share links now stop resolving when their project is moved to Trash — previously an owner who removed a project was still publishing it to anyone holding a link. Restoring from Trash brings the links back exactly as they were, so one revoked while the project was in Trash stays revoked. And the "who is here" roster no longer empties about a minute into every session: presence entries carried a TTL refreshed only by a client heartbeat that no client sends, so each open socket now re-arms its own TTL server-side for as long as it is connected.
+Five documentation pages described 0.4 features — in-app baseline capture, public share links, the external-stakeholder registry, session-only "Remember me", and the separate JWT signing key — as though they were available, when the latest release is `v0.3.0-alpha.3`. Each now carries a "Ships in 0.4" callout naming what the current release does instead. The RBAC and Security pages documented the legacy, off-by-default `?token=<jwt>` WebSocket handshake rather than the current ticket-based flow, and per-account login lockout was undocumented; both are corrected. The version-tense CI gate, which reported clean throughout, now pairs a `documentedFor` front-matter key against the roadmap so a page describing an unreleased feature in plain present tense is caught.
+Three contracts that documented themselves as live turned out not to be wired, and now say so. ADR-0029's enterprise overlay loader does not exist — `main.tsx` imports nothing and the `*Edition.ts` seams have no build alias — so all fifteen widget slots are currently unreachable, not just the nine marked reserved; the ADR and the slot registry both record that. The rail's hardcoded "Portfolio rollup" link pointed at a route nothing serves and is removed, leaving the extension-point slot beside it as the single mechanism. `packages/web/src/api/types.ts` is hand-maintained, not generated from the OpenAPI schema, and the three places claiming otherwise are corrected. And `IsOrgAdmin` no longer promises a signals/middleware override seam that was never built.
+
+Removing that rail link also removed the app's only startup read of `/api/v1/edition/`, which the "Report a bug" dialog had been relying on being already cached: it snapshotted its report body once on mount, so with the query no longer warm every report was stamped `TruePPM: unknown`. The body is now derived from the build identity until the user types, so it corrects itself when the response lands and still keeps their edits.
+A CSV import that pulls the project start date back under an imported task now tells connected collaborators. The MS Project importer has broadcast this since the auto-shift landed; CSV and Jira run the same importer but each had its own task wrapper, and the broadcast was only ever added to one of them — so a CSV import moved the schedule boundary silently and everyone else's Gantt shifted with no signal. All three wrappers now share one broadcast helper.
+The documented S3 backup destination now actually uploads. Setting `backup.s3.*`
+in the Helm chart previously injected bucket and credential environment variables
+into the backup CronJob, which printed a note about them and left every artifact on
+the in-cluster PVC — so an operator following the runbook believed they had
+off-cluster backups when every copy sat on the same cluster as the database it
+protected. `scripts/backup.sh` gained `--s3-bucket` / `--s3-endpoint` /
+`--s3-prefix`, `scripts/restore.sh` gained a matching `--from-s3` (including
+`--from-s3 latest`), and the CronJob now runs the upload in a container that
+carries an S3 client, because the PostgreSQL image it used has neither `aws` nor
+`mc`. A failed upload now fails the job. Path-style addressing is forced whenever a
+custom endpoint is set, so MinIO works as a destination. Retention is unchanged and
+now documented plainly: `keepDaily` prunes the local directory only and never
+deletes from the bucket — set a lifecycle policy for remote retention.
+The project delta sync endpoint's published API description claimed its watermark snapshot ran "inside REPEATABLE READ isolation". It never did — the pull runs at PostgreSQL's default READ COMMITTED — and a second comment had begun reasoning from that false premise. The pull is safe, but for a different reason: because it reads the watermark *before* the delta queries, a write landing mid-pull always draws a cursor above the checkpoint the client adopts, and so arrives on this pull or the next. The description now states the guarantee clients can actually rely on, and tests pin both the real isolation level and the ordering that makes it lossless (#2613).
+- **Methodology-hidden views no longer invite the deviation they're meant to discourage**: `/sprints` and `/backlog` on a Waterfall project (and `/schedule` and `/calendar` on an Agile one) are hidden from the nav but reachable by direct URL — that policy is unchanged. What was wrong was landing on one: it showed the generic cold-start empty state, primary "start using this" CTA included, with no signal the project is configured otherwise. It now names the mismatch, points the primary action at the view the project's methodology actually uses, and demotes "use it anyway" to a secondary action into Settings → How this team works.
+- **A methodology flip no longer orphans existing sprints**: switching a project to Waterfall hides the Sprints nav entry but never touched the sprint data itself — a team's already-committed sprints became reachable only by URL with no on-screen sign they still existed. The Sprints view now renders them with a banner explaining the mismatch instead of a "No sprints yet" empty state, and the Settings → How this team works picker warns before a save that would hide existing sprints.
+- **Inherited-vs-explicit methodology is now distinguishable in the shell**: the rail subtitle, the compact methodology badge, and the location-switcher subtitle used to render `"{Methodology} workspace"` regardless of whether that value was the workspace-wide default or this project's own override — mislabeling a per-project value as the workspace's. They now read `"{Methodology} methodology"`, with a `"(workspace default)"` qualifier only when the project's resolved methodology actually matches the workspace default.
+- **A methodology-hidden view that already holds work now says so**: the explanatory
+  state added for #2619 rendered only when the hidden surface was *empty*, so the case
+  it was written for had no signal at all — a project with a real CPM schedule switched
+  to Agile, or a groomed backlog switched to Waterfall, showed the ordinary populated
+  view with nothing indicating the surface now sits outside the project's workflow. The
+  mismatch banner that previously appeared only on Sprints now appears on Schedule,
+  Calendar and the product backlog too (and on their mobile counterparts), naming the
+  mismatch above the work rather than instead of it. Waterfall surfaces name how much
+  is there — sprints committed, stories groomed. The banner is read-only and cannot be
+  dismissed: it states the project's current configuration and clears itself when either
+  the preset or the work changes. Hidden views remain reachable by direct URL — this
+  fixes the affordance, not the access (#2619).
+Fixed the CPM engine so an in-progress task's recorded `actual_start` now floors its `early_start` (ADR-0132 §2), in both the Python and Rust/WASM engines. Previously the remaining-work bar for an in-progress task ignored where work actually began and could detach entirely from `actual_start`, sliding to the earliest network-driven slot and pulling the whole downstream chain earlier on every progress update — with a sudden backward jump once the task reached 100%. Projects with in-progress tasks whose `actual_start` is later than their predecessor-driven schedule position will see those tasks (and their successors) move to their correct, later dates on the next recalculation (#2621).
+Fixed the Schedule view drawing an in-progress task's remaining-work window
+instead of its full span: a 4-day task at 83% complete rendered as a single
+day, indistinguishable from the estimate itself having been cut, because the
+Gantt bar's geometry and the progress fill inside it were both computed from
+the same already-shrunken window (ADR-0752). The bar now keeps its full
+planned length and the fill advances inside it as work progresses — the
+convention most PMs already expect from other scheduling tools.
+
+Added `scheduled_start` (and a computed `scheduled_finish`/`remaining_duration`
+pair) to the task API, serializers, and sync payload: `early_start`/
+`early_finish` keep naming the CPM engine's remaining-work window (unchanged
+since ADR-0132), and `scheduled_start` now separately names the task's span
+start, so a consumer no longer has to know a task's status to know what its
+date fields mean. The task detail drawer's Duration cell gained a "Nd left"
+qualifier chip that shows only once a task's remaining work has shrunk below
+its full estimate.
+
+Read-only share links (`/share/schedule/:token`) now include `scheduled_start`
+so the public Gantt draws the same span the authenticated product does,
+rather than a shrinking remaining-work-window bar — for an in-progress task
+this is the same fact as `actual_start`, which the projection otherwise
+withholds; the widening is deliberate and documented at the projection
+(#2622).
+- **Resource utilization no longer shrinks as a task's progress is reported.** The
+  Team utilization heatmap and card windowed an in-progress task's assignments on
+  its remaining-work window, which narrows toward the finish date as
+  `percent_complete` rises — so logging progress on a task looked like it was
+  quietly shedding a person's allocated load, and a task could vanish from the
+  heatmap window entirely before it was actually done. Utilization is now windowed
+  on the task's full span instead, matching the schedule bar (#2622).
+- **Every separately-distributed package now ships its own Apache 2.0 license text.**
+  `packages/wasm-scheduler` declared `license = "Apache-2.0"` in `Cargo.toml` but had
+  no `LICENSE` file on disk, and the API Docker image — the primary redistribution
+  vehicle for TruePPM's own code, including the compiled WASM scheduler in the web
+  bundle — carried `NOTICES` (third-party components only) without the root `LICENSE`
+  it points readers at. Apache 2.0 §4(a) requires recipients of a distribution to
+  receive a copy of the License. `LICENSE` is now present in `wasm-scheduler`,
+  `mobile` and `helm`, is included in the packaged crate via `Cargo.toml`'s
+  `include`, and is copied into the API image. A new `lint:package-licenses` CI gate
+  enforces the rule going forward and fails on any package under `packages/` that is
+  classified as neither distributed nor bundled, so a new package cannot silently
+  default to unchecked. (#2632)
+- **The board resize handles now announce their size to assistive tech.** Both the
+  column-width and phase-lane-height handles are focusable `role="separator"`
+  elements — WAI-ARIA window splitters — and declared only `aria-valuemin`. A
+  focusable splitter *requires* `aria-valuenow`, so a screen-reader user was told a
+  resizer existed but never what it was set to (WCAG 4.1.2). The failure was
+  invisible because the Board's axe scan suppressed `aria-required-attr` while
+  citing an issue that had already closed, so nothing tracked it. Both handles now
+  declare `aria-valuenow`, `aria-valuemax` and an `aria-valuetext`, kept in step
+  with the persisted size as the user drags or nudges. `aria-required-attr` is
+  enforced on the Board scan again. Board columns and phase lanes also gained an
+  upper resize bound (800px), which an unbounded drag previously lacked — it makes
+  the announced range coherent and stops a drag from stranding the rest of the
+  board off-screen. (#2635)
+- **Setting task progress to 100% now confirms the status change it triggers.**
+  Dragging the progress slider (or the schedule grid's inline percent cell) to
+  100% auto-promotes a task's status as a side effect — to Review for
+  contributors, straight to Complete for a Project Manager or Project Admin
+  (Option E, #381 follow-up) — and used to do so silently, with the same
+  gesture producing a different, invisible outcome depending on who performed
+  it. A confirmation dialog now names the actual target status ("Mark task
+  Complete?" / "Send task to Review?") before the write commits; cancelling
+  sends no write and the control reverts to its last saved value (#2639).
+- **The velocity privacy gate no longer blanks the deterministic schedule read.**
+  `MilestoneBridgeForecast` gated its entire render on the ADR-0104 velocity
+  suppression flag, so a reader outside the velocity audience lost the whole
+  "Velocity vs schedule" region — including the **Schedule (CPM)** column, its
+  date, and the critical-path/float annotation, which are deterministic schedule
+  facts with no team-performance content. Because velocity is team-private *by
+  default*, this fired on a default-configured project: a PM or PMO reader opening
+  a milestone-bound sprint saw an empty region with nothing to explain why. The
+  server had already drawn the line correctly — `/forecast/` nulls the velocity
+  band, remaining points and sprints-to-complete for a below-audience reader while
+  keeping `cpm_finish` intact — and only the client discarded it. The schedule
+  column now always renders, and the velocity half is replaced by an explicit
+  "Hidden by this team's signal settings" notice so absence reads as policy rather
+  than as a broken page. (#2640)
+- **The milestone binding-drift caveat and its provenance now render.** ADR-0106 §1
+  designed `binding_drifted` so that a scope change after a sprint is bound to a
+  milestone "lights a caveat rather than silently moving the bound forecast
+  underneath the PM". The value was computed, broadcast, and typed in the web
+  client — and rendered in zero places, so the safeguard existed everywhere except
+  on screen. `AdvancingToMilestoneCard` now shows a "Scope changed since this
+  milestone was bound" caveat, reusing the existing at-risk variance tone, plus a
+  "Bound by {user} on {date}" attribution line. The sprint API gains a read-only
+  `milestone_bound_by_name`: the provenance field on the wire was a bare user id,
+  which no card can render. (#2641)
+Stopped the `helm:netpol` NetworkPolicy drill reporting an allowed connection as a policy denial. A denial is inferred from silence — no connection inside the probe timeout — so a genuinely-permitted connection that was merely slow (a pod still waiting on CNI programming or a DNS answer) was misread as blocked, failing the job on roughly one run in six. Probes that expect to connect are now retried before the port is called blocked; probes that expect to be blocked stay single-shot, and a real denial still fails the drill.
+**The seed dry run's OpenAPI contract now says `replaces` can be null.**
+`POST /api/v1/programs/import/validate/` reports `replaces: null` whenever the
+document would not tear anything down — a free program slug, a slug owned by
+someone else, or a document too malformed to state one — but the published
+schema typed the field as a non-nullable object, so a client generated from
+`docs/api/openapi.json` mis-typed the ordinary case and could break on it. The
+`409` refusal envelope is unchanged: a refusal always names the conflict that
+caused it. No runtime behavior changed (#2649).
+The `lint:design-system-v2` hex ratchet no longer counts an issue reference as a
+hardcoded color. The pattern matched a `#` preceded by a quote, bracket, or colon,
+so a comment like `the "#2495 scope boundary" test` registered as a color literal
+and failed branches that added none. Issue numbers are always decimal, so only the
+all-decimal case now has to be closed by its own delimiter; a run containing `a-f`
+is unambiguously a color and matches as it always did. `BASELINE_HEX` re-anchored
+121 → 118. The gate additionally self-tests its pattern against known colors and
+known issue references before counting, so a malformed pattern fails loudly instead
+of reporting zero and passing.
+- **Forecast-horizon caveat mount gate**: `ForecastHorizonHelp`'s (#2495) mount
+  list was hand-maintained with nothing tying "renders a clamped-sampler
+  forecast" to "carries the floor caveat" — #2643 found one drifted site. A new
+  test now fails automatically if a component reading `useSprintForecast` omits
+  the caveat, or if the known mount set silently changes. Investigating the
+  panel's flagged second site (`VelocityForecastLine`'s backlog re-pace) found it
+  reads a different, unclamped computation (`_sprints_to_complete`) that does not
+  carry the bias the caveat describes — that determination is now recorded as an
+  explicit, tested scope boundary (matching `MilestoneBridgeForecast`'s identical
+  case) instead of an undocumented gap.
+Workspace > General settings no longer hangs on a permanent loading skeleton when the workspace settings request fails (500, database not ready during a `helm upgrade`, etc.). The page now surfaces a retry-capable error card, matching the pattern already used across the app for failed data fetches (#2656).
+Corrected the published OpenAPI schema for the read-only MCP surface: 82 write operations (POST/PUT/PATCH/DELETE on `ProjectViewSet`, `ProgramViewSet`, and other views mixing in `McpReadableViewMixin`) advertised the `projectApiTokenAuth` security scheme even though a project/program API token has always been refused on those methods at runtime (`TokenReadOnlyMethods` confines a token caller to safe methods). A generated API client built from the schema believed it could call these operations with a token and would always get a 403. Schema generation now derives `security` per-operation from the same safe-methods rule the runtime permission already enforces, so the scheme is only advertised where a token caller can actually succeed. No runtime behavior changed — only what the schema claimed about it.
+- **Task drawer estimate chip**: the header's "Unestimated" chip (and the pointed
+  `{pts} · {Readiness}` chip) now explain themselves on hover, keyboard focus, and
+  tap, not just to screen readers. On a Hybrid or Agile project, "Unestimated"
+  could sit right above a fully populated three-point (O/M/P) estimate with no way
+  to learn it means story points specifically — separate from the duration
+  estimate the schedule uses.
+The **New project** modal now caps its panel height and scrolls only the step
+body, keeping the step indicator and the Back/Cancel/Create project footer
+pinned. Previously the panel had no height cap or scroll container, so step 3
+(Planning model) could overflow a laptop-height viewport in both directions
+and leave the Create button pointer-unreachable (#2665).
+- **New project modal now names the program it attaches to.** The shell's global
+  "+ New project" button silently attached the new project to whatever program was
+  in route context, without ever naming it in the dialog — the only clue was an
+  optional step-3 checkbox that, from that entry point, fell back to the generic
+  word "program" because the resolved name was never passed through. The target
+  program is now shown as a first-class field on step 1 whenever one is set, and
+  the name is threaded through the shell's create-intent dispatch so it can never
+  be silently dropped again (#2666).
+- **Task Classification now follows the project's methodology**: creating a task on a Waterfall project used to default Governance class to Flow ("agile, sprint- or kanban-governed work") while defaulting Delivery mode to Waterfall — two fields that disagreed with each other and with the project. New tasks now default to Gated/Waterfall on a Waterfall project, Flow/Scrum (or Flow/Kanban on a continuous-flow board) on an Agile project, and keep the existing Flow/Waterfall default on Hybrid. Every value stays selectable on every methodology — the picker just lists the methodology-consistent options first. The default resolves server-side so web, mobile, and MCP agree. Also fixed the create dialog's Duration-field visibility to read the project's resolved methodology instead of its raw per-project override.
+- **Program-backlog edit drawer no longer contradicts itself.** The item detail
+  drawer showed two different-weight "Save changes" buttons for the same action, a
+  "No tags yet" message on items that already had tags, a bare `#` for items with no
+  assigned priority rank, and silently discarded an in-progress edit when the drawer
+  was closed. It now has a single deferred Save/Discard bar (the same
+  `useDirtyDraft`/`DialogFooter`/`useUnsavedChangesGuard` contract the create form
+  already used), an accurate tag empty-state message that distinguishes "no tags in
+  the program" from "every existing tag is already on this item", a `—` for an
+  unranked item instead of a bare `#`, and a confirmation prompt before discarding
+  unsaved edits on close. New items created through the UI are now also assigned a
+  priority rank on create, instead of staying permanently unranked (#2668).
+The top-bar program segment's name is now a direct link to the current program's own Overview, separate from its switcher chevron. Previously, from a project route, the only way to interact with the program name was the "Find a program…" switcher — and picking the checked (current) row inside it was an explicit no-op, leaving no way back to the program you were already in. This also fixes the single-program workspace, where the segment rendered as dead, non-focusable text with no link at all (#2669).
+- **Raw hex task/sprint IDs on more surfaces**: `T-0000000A`-style raw
+  identifiers still leaked onto the Product Backlog (list rows, story/epic
+  drawers, mobile grooming cards), the global "Log time" quick-log popover
+  (including its search, where typing a task's real number never matched),
+  My Work's task row and per-row log-time popover, the mobile Schedule
+  view, the cross-project relation and dependency pickers, and every Sprint
+  reference (`SP-0000000A` instead of `SP-10`) across Planning, Board,
+  My Work's active-sprint card, and the sprint carryover preview. All of
+  these now render the server-decoded reference (`T-10` / `ENG-2026-10` /
+  `SP-10`), matching the fix already shipped for board cards.
+- **The resource allocation timeline and cross-program contention view no longer
+  shrink or drop a task's bar as progress is reported.** Both windowed and
+  rendered an in-progress task's assignments on its remaining-work window, which
+  narrows toward the finish date as `percent_complete` rises — so logging
+  progress could shrink the allocation bar, and a task could disappear from the
+  timeline (or misreport who is over-allocated across sibling projects) entirely
+  before it was actually done. Both now window and render on the task's full
+  span instead, matching the schedule bar (#2622) and the Team utilization fix
+  (#2623). The heat-map week drawer, which reads the same endpoint, is fixed
+  the same way.
+- **Baseline drift no longer inflates as an in-progress task's progress is reported.**
+  The task-baseline comparison (and baseline capture) read `early_start`, which
+  narrows toward the finish date as `percent_complete` rises — so `start_delta_days`
+  grew purely from logging progress, not from any actual schedule slip. The
+  comparison and capture now read the task's full span instead, matching the
+  resource-utilization fix (#2623).
+- **Board: collapsed lanes and columns can now accept dropped cards**: a collapsed
+  phase lane and a board-wide collapsed column rendered with no drop target at all, so
+  dragging a backlog card onto either one silently failed — on a board where every
+  lane starts collapsed (the common single-lane new-project case) there were zero
+  places to drop a card anywhere on the board. Both surfaces now accept a drop and
+  highlight while a card is dragged over them, matching the rest of the board.
+- **Board drop now re-parents outside Workshop mode**: dragging a card onto a different phase lane changed its status but left it parented to the original phase, so the card snapped back into the lane it came from. Cross-phase drops now always update the card's phase, matching the phase-lane grouping used everywhere else — Workshop mode no longer gates it. A backlog idea dropped onto a phase lane now lands in that lane instead of falling into the synthetic "Project Tasks" catch-all. Cross-lane drops under assignee/epic grouping are unaffected — those remain status-only moves with the existing "Drag-to-reassign isn't available yet" notice.
+Corrected the release documentation that describes 0.4. The README status banner reported 0.3-alpha while both packages carry `0.4.0-beta.1`, and listed spreadsheet (CSV/Excel) import as 0.5 work after it was pulled forward into 0.4. The CHANGELOG preamble still described 0.3 as upcoming and `0.3.0-alpha.1` as in flight, five weeks after 0.3 tagged. The roadmap's 0.4 section said the natural-language query layer, the local-model adapter, and the one-time Jira migration import move to 0.5, contradicting both its own 0.6 section and the tracker; and it overstated seven things about what 0.4 contains — issue and commit counts, MCP token scoping, baseline comparison on the Gantt, how external stakeholders resolve, when deployable images are built, the number of dialogs given focus traps, and the release cadence.
+MS Project import now rejects a file whose predecessor links form a cycle, or in which a task lists itself as its own predecessor, instead of writing an infeasible dependency network that later crashed the schedule recalculation. The file is refused before anything is written — no tasks, no dependencies, and no change to the project name or start date — and the rejection is terminal, so a deterministically bad file is not retried forever. Spreadsheet and Jira imports already had this guard.
+The Known Issues page now lists the open defects and limitations in what 0.4 will ship — schedule editing and export rough edges, the baseline comparison having no Gantt overlay, a submitted timesheet week that looks locked but is not, the team-level agent opt-out existing at project scope only, and a refused agent request that does not say why — each with its symptom, a workaround where one exists, and its tracking issue. The Connected Accounts page now declares that its "Available sources" section (the personal Jira pull) ships in 0.4 and is absent from the current release, instead of describing unreleased behavior in present tense.
+- **MCP agent opt-out docs**: the MCP server admin guide claimed a "Program settings → Agents" and a workspace-scope Agents settings screen; neither exists yet — only project scope has a settings UI today. Docs now say so, and document the working API path (`PATCH /api/v1/workspace/`, `PATCH /api/v1/programs/{id}/`) for setting the other two scopes until their settings pages ship.
+- **The Schedule legend no longer names a baseline overlay that is not drawn.** The
+  legend listed a "Planned baseline" swatch, and the `Baseline` model and viewset
+  docstrings described baseline dates rendering as ghost bars on the Gantt canvas.
+  ADR-0376 defers that overlay to 0.5 — in 0.4 baseline dates surface as the
+  comparison table and the per-task variance in the detail drawer. The legend entry
+  is removed until the overlay lands, and both docstrings now describe what the
+  release actually does (#2696).
+A public share link withdrawn by turning the "Public sharing" setting off now returns `410 Gone` instead of `404 Not Found`, matching the setting's own help text and the response a revoked, expired, or trashed link already gives. The recipient sees the "this link is no longer active" page, which tells them to ask the project owner for a new link, rather than a page implying the link never existed. A token that never existed still returns `404`.
+- **A submitted timesheet week no longer looks like it is locked.** The grid renders a
+  submitted week read-only, which read as a server-enforced lock — it is not. Submission
+  is a week-level marker (ADR-0224: no approver, no lock, no return) and your entries stay
+  editable, which is why Reopen week exists. The Timesheet page now says so next to the
+  Submitted chip, and the API view records that omitting a submitted-week guard is
+  deliberate so it is not "fixed" into the lock that milestone 0.5 owns (#2701).
+- **Schedule PDF export discoverability**: the client-ready PDF export was only
+  reachable via the "Project actions" (⋯) overflow menu, and that menu entry was
+  hidden entirely below the `md` breakpoint. Added a dedicated, always-visible
+  "Export PDF" button to the Schedule toolbar (visible whenever the toolbar itself
+  renders, ≥768px) so the weekly steering-pack / exec-prep export is no longer
+  buried for PM and PMO users.
+- **Board drag-to-promote wiping the task cache**: dragging a backlog card onto a phase column could, if it raced an in-flight cache invalidation, wipe every task in the project from view instead of just moving the dragged card. Fixed by making the optimistic cache update a no-op when the cache is momentarily absent, instead of replacing it with an empty list.
+- **Schedule — Unscheduled gutter zero-state**: once every To Do/Backlog task had a
+  planned date, the "Unscheduled (0)" header stayed permanently visible with no way
+  to collapse it. It now defaults to collapsed (and is dismissible via the same
+  toggle used when there is real unscheduled work) so a fully-scheduled project
+  doesn't carry a permanent, non-actionable banner in the Gantt view.
+Fixed `POST /projects/:id/tasks/bulk/` 207 responses omitting the required `id` field on `dependencies.rejected` entries, which violated the documented `TaskBulkProblemEntry` schema.
+- **Schedule authoring tokens**: the autocomplete now strips a `:modifier` from a token
+  fragment in linear time and on every input. The previous `/:.*$/` expression backtracked
+  once per character on any fragment its anchor rejected, and on a pasted multi-line
+  `[Phase: name]` fragment it stripped nothing at all, leaking the modifier into the query
+  the picker searched on. Both `@owner` and the wider token grammar now share one helper.
+  (#2759)
+The nightly API fuzz job now fails when an operation was never fuzzed, rather than
+reporting 580 of 581 operations green. `POST /projects/{id}/tasks/bulk/` had been
+silently exempt from contract fuzzing since 2026-08-04 because a Schemathesis health
+check aborts generation for an operation instead of reducing it.
+Corrected the "Reproduce" claim on the *Computed, not guessed* page and its companion
+*Agent oversight* page. Both described the agent-action log as covering every answer and
+every refusal; the shipped record covers calls made with an `mcp:read`-scoped token plus
+identity refusals of revoked or expired tokens, and the refusal constraint code and
+projected impact sit outside the hashed body by design (ADR-0421). Both pages now state
+the recorded scope, what is inside the hash and what is not, and declare
+`documentedFor: "0.4"`.
+- **CSV/Excel import**: uploading a file failed at step 1 with "Unsupported media type application/json". The shared API client's default JSON content-type header caused the browser to silently drop the uploaded file from the request. Fixed by sending the CSV import preview and commit requests as `multipart/form-data` with no client-side timeout.
+**The hosted demo's own share link no longer 410s on a fresh install.** Minting a share link and *serving* one are separate gates: `create_demo_share_link` called `mint_share_link()` directly, which does not consult the ADR-0135 "Public sharing" policy, while the read does — and `Workspace.public_sharing` defaults to off. So both demo manifests (`docker-compose.demo.yml` and the Helm demo-seed Job) logged a confident `URL: https://try.trueppm.com/share/schedule/<token>` on startup that answered `410 Gone` to every recipient. The command now enables public sharing on the demo project as part of minting — as a **project-scoped override**, so a self-hoster who seeds the sample onto a real install does not find the workspace-wide default loosened underneath them, and the `is_sample` scoping means it can only ever touch a project the seeder created. It also re-reads the effective posture before printing and reports the cause instead of a dead URL when the instance kill switch (`TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED=false`, → 404) or an Enterprise workspace `ENFORCE` lock (→ 410) still blocks the read. Regression tests assert the whole seed → mint → `GET` chain returns 200 from default workspace state for both the schedule and board links — the gap that hid this, since every existing test asserted on the mint and the share-endpoint fixtures set `public_sharing=True` themselves. ADR-0658 gains D12. Closes #2781.
+Schedule: creating a task or phase no longer leaves the rest of the task list dimmed and unclickable. Focusing a row that is being renamed no longer triggers the dependency-chain de-emphasis, and a de-emphasized row stays interactive so hovering it re-targets the chain instead of being swallowed.
+Fixed the nightly perf-load harness's endpoint digest to sort endpoint names with an explicit locale-aware compare function instead of relying on the default lexicographic sort (SonarCloud S2871).
+- **Two API endpoints returned a 500 instead of a 400 when a body field arrived as
+  the wrong JSON type.** `POST /api/v1/tasks/delete-untouched-seeded/` crashed with
+  an `AttributeError` when `project` was a list, dict, or number rather than a
+  string, and `POST /api/v1/project-templates/publish/` did the same for `project`,
+  `name`, and `description`. Both now reject a non-string value with a 400, matching
+  what they already returned for a malformed string (#2785).
+Fixed the left rail's "This project" card subtitle overflowing its card and being clipped mid-word. The methodology phrase was `shrink-0`, so on a project inheriting the workspace default it could not fit and simply spilled past the card, while the program name collapsed to zero width behind an orphan separator. The visible phrase now drops the "(workspace default)" qualifier — which is carried by the line's `title` and the collapsed-rail methodology tooltip — and truncates as a last resort instead of overflowing.
+- `POST /api/v1/tasks/delete-untouched-seeded/` no longer returns a 500 when the
+  request body is a top-level JSON array or scalar instead of an object. A body
+  that is not an object carries no `project` field, so it now fails closed at the
+  same 400 an omitted field already returned (#2795).
+Three documentation pages — Architecture Overview, AI-Native Architecture, and the MCP Server feature page — were publishing with no body content at all, showing only navigation chrome. Every page on the docs site that contains a Mermaid diagram was affected. The docs site's Playwright dependency had drifted to a version whose browsers are absent from the pinned CI image, so build-time diagram rendering failed; Astro dropped each affected page's entire content and the build still reported success. Playwright is now pinned to an exact version across all four places it is declared, and two CI gates keep it that way: one fails the pipeline when the pins disagree with the image, and one fails the docs build when a Mermaid fence does not reach the published page as a rendered diagram (#2797).
+**The one-command local demo now prints a share URL you can actually open.** The demo stack has no accounts by design, so the tokenized read-only share link it logs on startup is its *only* entry point — and with nothing configured that link named the hosted demo's domain. `docker-compose.demo.yml` defaulted `TRUEPPM_DEMO_BASE_URL` to `https://try.trueppm.com` and `create_demo_share_link`'s own fallback matched, so an evaluator following the documented zero-config path (`docker compose -f docker-compose.demo.yml up`) was handed a URL on a host they do not control; once that domain goes live it resolves to a different instance where their locally minted token does not exist. Both defaults are now `http://localhost` — the origin the demo's nginx publishes on and one `ALLOWED_HOSTS` already accepts — matching what the [Try TruePPM](/getting-started/try-it/) page has always documented. Hosted deployments are unaffected: they set the origin explicitly, and the Helm demo-seed Job fails its render outright when `demo.baseUrl` is empty rather than falling back. Closes #2801.
+Zero total float and free float now persist as `0` instead of NULL after a schedule recalculation. Critical-path tasks — which by definition have zero total float — previously stored no float at all, which blanked the Float cell in the schedule view and made project forecast snapshots report the tightest slack as the smallest *positive* float on the plan. Existing rows correct themselves on the next recalculation.
+Released container images are no longer deleted by the registry cleanup policy. The policy matched every tag and protected none, so its daily sweep removed the published `api` and `web` images for `v0.3.0-alpha.3`. Release tags are now protected, and a nightly CI job (`registry:release-images`) fails red if the latest `v*` release tag is not pullable for both images. The `v0.3.0-alpha.3` `api` image specifically cannot be restored — a CVE fix it needs falls outside that tag's dependency pin ceiling — so the gate carries a documented, exact-match exception for that one image:tag pair rather than staying permanently red for a reason nobody decided on (#2822).
+Fixed three defects on the Docker Compose production path. The stack now runs a
+`celery-beat` service, so periodic work (outbox and email drains, retention purge,
+burndown and forecast snapshots) actually runs and `/api/v1/health/beat/` reports
+healthy instead of 503. The bundled-database services set
+`TRUEPPM_ALLOW_UNENCRYPTED_DB=true` — matching what the Helm chart already does for
+its bundled PostgreSQL — so the documented setup no longer crash-loops on the
+`sslmode` boot guard against a database that cannot serve TLS. Let's Encrypt
+certificates now renew: `init-prod.sh` writes `COMPOSE_PROFILES=letsencrypt` into
+`.env` so the certbot service survives every later restart, renewal runs through the
+webroot instead of a port that nginx already holds, and nginx reloads periodically to
+pick up the renewed certificate. Deployment docs gained the two startup-blocking
+values their "Required minimums" omitted (`INTEGRATION_ENCRYPTION_KEY` and the
+attachment-storage choice).
+- **Helm dead-letter alert and dashboard panel never fired**: the starter
+  `TruePPMDeadLetterPresent` alert and the "Dead-letter parked tasks" Grafana panel
+  queried `trueppm_deadletter_parked`, which nothing emits — the API publishes
+  `trueppm_task_dead_letter_parked`. Prometheus evaluates an unknown name to an
+  empty vector rather than an error, so the alert could never fire and the panel
+  was permanently blank, leaving permanently-lost background work unnoticed. Both
+  now use the emitted name.
+- **Observability docs**: the Helm observability page now states that the
+  dead-letter gauge is Prometheus text exposition on `/api/v1/health/dead-letter/`
+  and needs its own scrape job — it does not arrive over OTLP like the outbox and
+  database gauges.
+- **New `helm:metric-names` CI gate**: fails the pipeline whenever the chart's
+  PromQL references a `trueppm_*` series the application does not emit, in either
+  direction (a chart-only edit or an API-side rename).
+`/api/v1/readyz` now detects migration drift in **both** directions. It previously
+compared only the migrations the running image ships against what the database has
+applied, so a database carrying migrations the image does not know about — an image
+rolled back without restoring the schema — was invisible to it and the pods reported
+ready. The response gains a coarse `migration_state` field (`in_sync`, `behind`,
+`ahead`, `unknown`); `checks` keeps its existing keys and `ok`/`fail` values, so
+probes and scrapers reading only `status`/`checks` are unaffected. `ahead` gates
+only a pod that *booted* into it — the rollback case — so a forward rolling
+upgrade, which drives every old pod `ahead` the moment the new pod's `migrate`
+runs, never pulls those pods out of the Service. `TRUEPPM_READYZ_ALLOW_DB_AHEAD=true`
+additionally re-opens the gated case for a classified additive-only rollback,
+without hiding the reported state. The upgrade
+runbook and the selector docstring, which both claimed the old check already caught
+a downgrade, have been corrected: schema presence is not data compatibility, and
+rolling back across a destructive migration still requires restoring from backup.
+`GET /api/v1/tasks/` paginated its results with no `ORDER BY`. The model's WBS ordering never reached the endpoint — the annotations give the query a `GROUP BY`, and Django discards model-declared ordering when one is present — so page boundaries were not guaranteed stable, and the Schedule's parallel all-pages fetch could return the same task twice and miss another whenever the query plan changed. The list now carries an explicit, deterministic order at no measured cost. Ask for `?ordering=wbs_path` if you need WBS order.
+- **The Helm chart no longer renders a managed database or cache password into a
+  workload manifest, and the documented external-Secret form now works.** With the
+  bundled datastores disabled (the `values-prod.yaml` posture), a plaintext
+  `env.DATABASE_URL` / `env.REDIS_URL` was emitted verbatim into every API, Celery
+  worker, Celery beat, init, backup, and demo-seed container *alongside* the
+  correct `secretKeyRef` — contradicting the chart's "no plaintext credentials in
+  any Deployment" guarantee. The documented alternative was broken outright: the
+  `secretKeyRef` map form stringified into the chart's connection Secret as
+  `map[secretKeyRef:map[...]]` and crash-looped the app on an unparseable URL, so
+  there was no correct way to configure an external datastore. Both URLs are now
+  always injected by reference: a string is stored once in the chart-owned
+  connection Secret, and a `secretKeyRef` map passes straight through to the
+  Secret you manage without the chart copying the value. Setting either URL while
+  the matching bundled datastore is still enabled now fails the render instead of
+  being silently ignored (#2810).
+- **Helm: a default `helm install` no longer pulls a tag that cannot exist.** With `image.tag` left empty the chart pinned itself to its bare `appVersion` (`.../api:0.4.0`), but release images are only ever published to the registry the chart points at under v-prefixed tags (`api:v0.4.0`) and `:latest` — so a stock install sat in `ImagePullBackOff` on the `migrate` init container with no application log to diagnose from. The empty default now resolves to `v<appVersion>`, and a chart check asserts the default render against that contract so the failure lands in CI rather than on an operator. Installs that pin `image.tag` explicitly are unaffected; the tag is still used verbatim.
+Every documented minimal Helm install now actually boots. `settings.prod` validates four values at import time — `SECRET_KEY`, `ALLOWED_HOSTS`, `INTEGRATION_ENCRYPTION_KEY`, and an attachment-storage choice — but the chart README quickstart supplied none of them, the deployment guide's "at minimum" list named only two, and the root README's Helm walkthrough named none, so each documented path crash-looped in the `migrate` init container. All three now carry the complete `kubectl create secret generic trueppm-env` block, and every example external `DATABASE_URL` carries `sslmode=require`, which the app also refuses to boot without. The chart ships a `NOTES.txt` that names the exact missing keys when no app-env source is configured, and the claim that a default `helm install` "boots without crash-looping" is corrected: the chart generates datastore credentials, but the application secrets are still the operator's to supply.
+- **Schedule drag preview now respects progress**: the in-browser CPM preview
+  ignored ADR-0132, so rescheduling anything in or downstream of an in-flight
+  chain forecast a slip the server then contradicted. Completed work with
+  recorded actuals is now pinned (it never moves, and it stops the ripple the way
+  the scheduler does), in-progress work contributes only its remaining duration
+  rather than its full estimate, its start is floored at the day work actually
+  began, and a drop in the past is floored at the project's data date. The
+  milestone-impact readout during a drag or keyboard nudge now matches what the
+  recalculation commits.
+The nightly `perf:load` harness now measures the task list against a 1,000-task project instead of a one-task one. Its `task_list` p95 was previously the latency of serializing a single row, so it could not detect an N+1, a dropped index, or a full-table scan — the three regression classes it exists to catch. CI seeds a capacity fixture alongside the smoke fixture, the harness resolves its target by name, a `task_list_deep` row puts deep-page OFFSET cost on the trend line, and the digest publishes the row count behind every number.
+- **Pre-release docs banners survived the tag**: the version-status gate
+  recognized exactly one banner form, `:::note[Ships in 0.X]`, so its
+  post-release reverse check — the one that fails the pipeline when a version
+  ships but its "not yet available" banner is still on the page — was blind to
+  seventeen 0.4 banners phrased as `Coming in 0.4`, `… lands in 0.4`,
+  `Task CSV / Excel import ships in 0.4`, or a bare `:::note[0.4]` badge, among
+  them the beta's front-door pages (Try TruePPM, MCP server, MCP client setup,
+  single sign-on, OpenTelemetry). All seventeen are normalized to the canonical
+  form and the gate now recognizes the `ships` / `coming` / `lands` / `changing`
+  variants with title text before the verb, so the drift cannot recur silently.
+  `README.md` sits outside every docs gate's scan root and is now reported for
+  manual review by the release-time callout sweep.
+The Schedule's drag preview never appeared. Dragging a bar (or rescheduling one with the keyboard) computed the full downstream impact — the ghost preview bars, the critical-path flip badge, the "+N more affected" count, the keyboard legend — and then rendered none of it: the component that draws all of that had no place in the page at all, and the drag state it reads was being reset to idle within a frame or two by an unrelated task-list row re-rendering. Both are fixed, so the preview now shows what a move will cost before you commit to it. Dragging a task whose dates come from recorded actuals also now says why the drop will not move it, instead of letting the bar land and silently snap back.
+Three list endpoints paginated their results with no `ORDER BY`, the same defect as the task list in 0.4's `#2807`. Sprints and baselines declared an order on the model that never reached the endpoint — their annotations give the query a `GROUP BY`, and Django discards model-declared ordering when one is present — while the dependency list declared no order anywhere. Page boundaries were therefore not guaranteed stable, and a query-plan change could serve one row on two pages while dropping another. The dependency list mattered most: the Schedule fetches every page of it in parallel, so an unstable boundary drew a Gantt with one dependency arrow duplicated and another missing. Sprints now come back in start-date order and baselines in creation order — the orders their models always declared — and all three carry a unique tiebreak.
+- **A release cut can no longer silently strip "not yet available" docs callouts for a
+  version that has not reached its promised maturity.** Moving `0.X` into the roadmap's
+  `## Shipped` section is what licenses `scripts/release.sh` to delete every
+  `Ships in 0.X` / `Coming in 0.X` callout in the docs tree — 131 blocks across 78 pages
+  for 0.4 — and nothing stated when that edit is correct to make. Promoting `0.4` in
+  order to cut an alpha would therefore have published roughly a release's worth of
+  unshipped features as available, with the version-status gate still passing (it
+  polices the reverse direction) and no pipeline failure anywhere. The promotion rule is
+  now written down in `CLAUDE.md` and in the roadmap's `## Shipped` header — a version
+  moves up when its release line reaches the maturity that version promises, which for
+  0.4 is the first `beta` tag, and alpha prereleases on the way there do not promote it
+  — and `scripts/check-early-promotion.sh` enforces it, refusing an alpha cut against an
+  already-promoted version whose callouts are still live before any manifest is touched
+  (override: `--allow-early-promotion`) (#2824).
+CI: `web:integration` no longer runs against a stale `ci-integration` image. The image is now tagged with the Playwright base version instead of a fixed `:noble`, so a Playwright bump mints a tag name that runners cannot serve from their local `if-not-present` cache — the failure mode that broke `main` after the 1.62.1 bump.
+The nightly `perf:load` harness no longer reports spurious threshold breaches on its `program_list` and `project_list` rows. Their `p(95)<1500` budgets predated #2816, which grew the task fixture from one row to a thousand; because the scenario is a closed loop of five sequential requests against a single server process, those two endpoints now spend most of their time queued behind task reads that take 8–50 s, and their p95 swung between 183 ms and 2,610 ms across four nightlies with no relevant code change. Both rows are untracked until #2826 re-derives budgets for all four endpoints from measured runs, so a breach once again means a regression rather than a busy runner.
+Schedule keyboard reschedule now refuses only the tasks the server actually pins. `Shift`+`Enter` / `r` used to be rejected on every complete task, including one complete by percentage alone with no recorded actuals — a task the scheduling engine still places through the network and the mouse could already drag. The gate now mirrors the server predicate (complete **and** carrying an actual start or finish), so both input paths agree, and a refusal is announced to screen readers instead of being silently ignored (#2827).
+The public read-only demo stack (`docker-compose.demo.yml`) carried the same four faults as the production stack and, like it, could never have started: a static volume mounted inside a read-only mount at a path that does not exist, an entrypoint whose line breaks survived into the shell as a syntax error, no writable location for the rendered nginx config, and collected assets that never reached the process serving them. All four are fixed.
+The production Docker Compose stack could not serve anything — its nginx service had never been able to start. Three independent faults each prevented it: the collected-static volume was mounted inside the read-only frontend volume at a path the web image does not contain; the container's entrypoint was written so that YAML preserved its line breaks, handing the shell a script with a syntax error; and the entrypoint's rendered config had nowhere writable to go under the container's read-only filesystem. Separately, the assets `collectstatic` produced never reached the process that serves them, so the Django admin and API documentation stylesheets would have 404'd even once nginx started. All four are fixed, and the new prod-compose CI gate boots the stack and fetches a real stylesheet through nginx on every run.
+**Monte Carlo forecasts no longer report a finish date earlier than the CPM
+schedule for projects with work in progress.** The simulation never applied the
+"work already underway starts where it actually started" floor that the
+deterministic CPM pass has applied since ADR-0132 — it floored remaining work at
+the data date alone. A task that actually began after the last status report was
+therefore simulated from the status date instead, and every percentile came back
+against a window CPM had already ruled out: with a data date of 31-Jul and a
+20-day task 50% done that actually started 10-Aug, the schedule finished 21-Aug
+while P50, P80 and P95 all reported 13-Aug. The risk panel's `delta_vs_cpm` went
+negative — a risk forecast under-reporting risk. The forecast now floors
+in-progress work at the later of the data date, the start-no-earlier-than pin,
+and the recorded actual start, so the percentiles are never optimistic against
+the deterministic date.
+
+The 24-hour forecast read cache is versioned as part of this change, so the
+first read after upgrading recomputes instead of serving a pre-fix result.
+Forecast *history* is not rewritten: a project whose last simulation predates the
+upgrade keeps showing those percentiles until it is re-run, and the history chart
+will show a one-time step upward at the upgrade boundary. Re-run Monte Carlo on
+any project that records actual start dates; the new dates will be at or later
+than the old ones (#2833).
+A render error on My Work, My Assets, Timesheet, the notification inbox, personal settings, the resource catalog, or the programs list no longer replaces the whole app: the error is now contained to the page body, so the sidebar stays put and the unsaved-changes protection keeps running. The error screen's Reload and Go-to-home buttons now warn before discarding changes that have not yet reached the server.
+Corrected the published OpenAPI contract for 15 `@action` endpoints that carried no schema annotation, so `docs/api/openapi.json` described a shape drf-spectacular had guessed from the viewset's serializer rather than the shape the endpoint honors. The eight `@mention`-group roster actions (`add-member`, `remove-member`, `mute`, `unmute`, on both the project- and program-scoped groups) now declare the required `{"user": <uuid>}` body — previously they published no request body at all, so a generated client had no way to send it. `POST /api/v1/me/notification-preferences/apply-preset/` now declares its real `{"preset": …}` body and its array-of-preferences response instead of a single preference object. `POST /api/v1/programs/{id}/backlog-items/{id}/pull/` now declares `{"project_id": …}` and its `201 {task, backlog_item}` envelope. The no-body actions (`dependencies/{id}/accept` and `reject`, `resources/{id}/restore`, `velocity-suggestions/{id}/accept` and `dismiss`, and the four mute/unmute routes) no longer advertise a required full write-serializer payload. A new conformance test fails CI if any future `@action` ships without a declared schema.
+
+Documented four structured error codes that were live but absent from the API error reference (`invalid_graph_input`, `subtree_too_large`, `self_reference`, `cyclic_dependency`), added reference coverage for the mention-group, notification-preference, and program-backlog endpoints, and fixed a broken CSV-import link.
+Monte Carlo run attribution ("Run attribution visible to") can be changed again on the
+project, program, and workspace settings pages. The web client transcribed the audience
+enum in SCREAMING_CASE while the API's wire values are lowercase (`admin_owner`,
+`scheduler_plus`, `none`), so saving the setting was rejected with a 400 and the current
+value rendered as an empty selection. The client now sends and reads the wire values, and
+the round trip is covered by pytest, vitest, and Playwright.
+Two WebSocket events emitted from the retrospective paths (`task_updated` on carryover, `task_created` on action-item promotion) now carry the documented `id` key. They previously named the task as `task_id` only, so clients keying on `payload.id` skipped the per-task version dedup and invalidated the whole project's task history instead of one task's. The workshop channel now delivers a single `{event_type, payload}` frame shape for both server-pushed events and peer-relayed frames, instead of multiplexing two incompatible shapes under one `protocol_version`.
+Three write paths that mutate shared state now push live updates over WebSocket instead of leaving collaborators on stale data: accepting or dismissing a velocity suggestion, signal-privacy ceiling voting (proposals, votes, and audience/ceiling changes), and calendar or holiday-exception edits. Accepting a velocity suggestion additionally emits the standard `task_updated` delta, because `most_likely_duration` is a Monte Carlo input the CPM recompute's delta does not carry.
+Documentation: corrected four claims the 0.4 tag would have published as commitments. The WebSocket reference no longer presents the five `program_*` lifecycle events as a subscribable surface — no client can join a program's channel group until the program channel ships in 0.8 (#836), and the taxonomy now says so on every listing. The board and interface pages now scope their 0.4-only behavior (card health badge, off-project findability in the ⌘K palette) instead of describing it in unqualified present tense, and the board page gains the fixed-width scrolling grid, sticky headers, column collapse-to-stub and phase-lane focus mode it never documented. The license page's Community Edition list now reads correctly at the tag rather than understating what is free. Fixed a broken link to the CSV import reference in the API docs. Two new CI gates close the detector gaps behind these: a declaration-coverage ratchet that makes an undeclared docs page loud rather than silent, and a WebSocket event reachability gate that fails when the docs advertise an event no client can receive.
+The task list no longer issues a database query per blocked task when checking whether the viewer was @-mentioned — the ADR-0124 reason-privacy check is now primed as a subquery on the list path. The blocked-task roll-ups (`GET /projects/{id}/blocked/`, `GET /sprints/{id}/blocked/`) are capped at 500 rows, oldest-blocked first, and report `truncated: true` when the tail was dropped; they previously returned every flagged-blocked task with no limit.
+- **Roster showed a failed fetch as an empty team**: when the project resource-pool
+  request failed, the roster rendered the same "No one on this project yet" pane a
+  genuinely empty project shows. It now renders "Couldn't load the roster." with a
+  Retry that re-runs just that request.
+- **Focus rings missing after a mouse click on disclosure and menu triggers**: 27
+  triggers across the board, sprints, backlog, reports, roster, import and settings
+  surfaces were styled so that Firefox, Safari and Chrome painted no focus ring at all
+  after a pointer click (WCAG 2.4.7). All now show the ring.
+- **11px interface text raised to the 12px legibility floor**: ten places — link
+  status/type chips, the deleted-label chip, the task trash dialog's explanation and
+  path chips, the assets file-type chip, the feedback dialog, the saved-view summary,
+  the agent copy button and the import wizard's step markers.
+- **Status tints rendered in the wrong hue**: seven surfaces, including the "move
+  program" warning banner and the at-risk banners on the task drawer and the
+  deleted-label notice, used an opacity modifier on the status *text* color instead of
+  the status *fill* token, producing a muted off-hue wash. They now use the intended
+  color.
+- **"Yours" template badge and the import format picker's "Supported" labels rendered
+  unstyled**: both referenced a color token that does not exist, so the browser
+  received no styling at all for them.
+`CONTRIBUTING.md`, the contributing guide, and the architecture overview no longer tell contributors to verify the Apache 2.0 boundary with a command that reports it as broken on a clean tree; they now point at `make enterprise-boundary-check`. The issue-boundary gate's remediation message no longer contradicts the project's own carve-outs by calling basic SSO and cross-project work "enterprise". The enterprise-check skill's three pre-doctrine misclassifications (risk register, custom fields, offline WASM CPM) are corrected against the shipped code.
+Three settings that saved, validated, rendered back and were documented while nothing read them are now real. The Email page's **Max recipients** and **Throttle per minute** actually bound the notification-email drain, which previously capped every tick at a hardcoded 50 regardless. `TRUEPPM_INTEGRATION_ALLOWED_HOSTS` is now bound by the settings module, so an operator can finally allow-list a self-hosted Jira Data Center or GitLab CE — the escape hatch the rejection message has always pointed at. The OpenTelemetry guided-setup card emits a Helm `env:` map the chart actually reads, instead of an `extraEnv:` list key the chart has nowhere and Helm accepted silently.
+- **Comment, note, pin, poker and backlog lists briefly collapsing to a single row**: posting a task comment or note, adding a risk comment, pinning a project, casting an estimation-poker vote, or editing a program backlog item could momentarily blank the rest of the list — if the write raced a real-time invalidation of the same list, the optimistic update replaced the loaded list with only the row just added. Same defect class as the 0.4 board-cache fix, which had been applied only to the board. All six sites now leave a momentarily-absent list alone rather than rebuilding it from empty, and a shared helper plus a source-scanning conformance test keep new optimistic updates from reintroducing it.
+- **OTLP export over `http/protobuf` reached the collector root, not the signal
+  path**: traces and metrics were POSTed to the configured endpoint verbatim
+  (e.g. `http://otel-collector:4318`), which a collector answers with 404 — and
+  404 is not retryable, so every export failed permanently and the deployment
+  emitted no telemetry. TruePPM now appends `/v1/traces` and `/v1/metrics` for
+  the HTTP transport, and normalizes an endpoint that already carries a signal
+  path so it is never doubled. gRPC (the default) was unaffected and is
+  unchanged.
+Single sign-on: editing the issuer of a provider that already has linked accounts is now **refused**, as the documentation has always said it was. Rewriting the issuer under live bindings silently locked out every federated user — their bindings kept the old issuer, so the next sign-in failed closed with "not a member yet" and no re-link was possible. To move a provider to a different issuer, remove and re-add it; users then re-link by their verified email. Removing a provider is also no longer a silent one-way door: the API and the Remove dialog now report how many members sign in **only** through that provider and have no password (an SSO-created account cannot use the password-reset flow), and the delete is refused unless that consequence is explicitly acknowledged. The documentation's claim that those members "fall back to password sign-in" was wrong and has been corrected.
+Documentation: corrected five inaccuracies on the single sign-on surface. The provider lists on the roadmap, evaluation guide, security, API reference and "SSO is not an enterprise feature" pages omitted Okta, Auth0 and Microsoft Entra ID — which all ship dedicated presets — while listing Authelia alongside them, which works but through the Generic OIDC option; every list now says which is which. Identity providers are configured in the app, not through environment variables, and the page that pointed readers at non-existent env vars now says so. `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` — required to reach an identity provider running on a private in-cluster address — has been added to the Configuration reference. Four sign-in failures that rendered as a generic "Something went wrong" (unverified email, provider unreachable, invalid identity token, token exchange declined) now each explain what happened and what to do.
+- **Full-access personal access tokens can write again**: a `legacy:full` PAT was
+  refused with `403` on every write to Task, Project, Risk, Sprint, Label, Program
+  and backlog item — most of the core CRUD API — while the docs and the settings UI
+  both promised "reads and writes everything your account can". The MCP guard layer
+  asked "is this an API token?" when it meant "is this an AI agent?", so it caught a
+  person's own CI script alongside the agent traffic it was written for. The guards
+  now discriminate on the token's **scope**: `mcp:read` keeps every restriction
+  (still read-only, still owner-scoped, still subject to both agent controls), while
+  `legacy:full` is governed by exactly the RBAC its owner's browser session gets.
+- **The MCP kill switch and the team agent opt-out no longer blank a person's own
+  reads**: with `TRUEPPM_MCP_ENABLED=false`, a full-access PAT's task list returned
+  `403` while its calendar list returned `200`; with a project opted out of agent
+  reads, the same token's collections silently returned `count: 0` — a `200` a
+  nightly export cannot tell apart from "no tasks", so it wrote an empty file. Both
+  controls now bind agent (`mcp:read`) credentials only, which is what
+  `administration/mcp-server.md` always said they did. The per-token MCP rate limits
+  follow the same rule: a full-access token is bounded by the ordinary per-account
+  rate rather than the tighter agent budget.
+- **A token can no longer be minted with both `legacy:full` and `mcp:read`**. The two
+  scopes now select mutually exclusive enforcement postures, so the combination is
+  rejected at both mint paths; existing tokens carrying both are collapsed to
+  `legacy:full` by a migration, which is what they already behaved as.
+- **Telemetry setup snippet no longer breaks the release it is pasted into**: the
+  Telemetry card's Helm tab emitted a top-level `envFrom:` list. Helm *replaces*
+  lists rather than merging them, so pasting the snippet dropped the operator's own
+  app-secret Secret (`SECRET_KEY`, `ALLOWED_HOSTS`, `INTEGRATION_ENCRYPTION_KEY`),
+  which `settings.prod` validates at import time — the `migrate` init container
+  crash-looped before any application log. The same three lines also required the
+  Secret's key to be named `OTEL_EXPORTER_OTLP_HEADERS`, which the documented
+  `--from-literal=headers=…` recipe never produces, so collector auth silently never
+  applied. The snippet now emits the chart's own
+  `observability.otlp.{endpoint,protocol,serviceName,tracesSampler,tracesSamplerArg,headersSecret}`
+  block, which merges cleanly, maps any Secret key onto the headers variable, and
+  keeps the `TRUEPPM_POD_NAME` and export-health wiring that raw `env:` entries lost.
+- **The chart now rejects unknown values keys**: `packages/helm/values.schema.json`
+  closes the root with `additionalProperties: false`, so `helm upgrade` fails on a
+  key no template reads instead of accepting it in silence and changing nothing on
+  the pod. `helm:lint` validates every shipped overlay against it. Blocks a whole
+  class of "the UI says it is configured, the cluster disagrees" bugs, not just this
+  instance.
+- **Post-install notes name the `envFrom` sources they trust** instead of only
+  counting them, and say the list is replace-not-merge — so an operator whose
+  app-secret Secret was replaced by another values file can see it missing.
+- **Request spans now carry the `trueppm.*` identity attributes they promised**:
+  five published span keys had no emit site at all, so a collector-side processor
+  keyed on `trueppm.task.id` or `trueppm.user.id` never fired. HTTP server spans now
+  carry `trueppm.project.id`, `trueppm.program.id`, and `trueppm.task.id` when the
+  route names one, plus `trueppm.user.id` (opaque UUID) and `trueppm.user.role`
+  (`VIEWER` … `OWNER`) for the acting account. All of it is derived from the resolved
+  route and the permission layer's existing per-request role cache, so enabling
+  telemetry adds no database query.
+- **Three attribute keys are now declared reserved rather than implied**:
+  `trueppm.project.key`, `trueppm.board.id`, and `trueppm.request.edition` are
+  documented as never emitted, with the reason — there is no `Project.key` field, no
+  board entity to identify (board events fan out on the project id), and edition
+  already rides on every span as the `trueppm.edition` resource attribute. Use
+  `trueppm.project.id` and `trueppm.edition` instead.
+- **New `TRUEPPM_OTEL_ACTOR_ATTRIBUTES_ENABLED`** (Helm:
+  `observability.otlp.actorAttributes`, default on) exports no per-user identifier
+  when set to `false`. TruePPM never exports an email, username, display name, or
+  client IP under `trueppm.*`.
+- **The live export-health strip refreshes**: it was rendered only on a page pinned
+  to no-poll, so a stall beginning after page load was invisible and the success path
+  had no way to re-read. The Observability page now polls while open, and the strip
+  carries a **Refresh** control everywhere it appears.
+- **"Test export" no longer claims more than it proves**: the canary runs in the
+  request, so it exercises only the pod that served the click. The result and the
+  documentation now say so and point at the live strip for the cross-pod answer;
+  the failure message also names a protocol/port mismatch as a likely cause.
+- **`TRUEPPM_FAILED_TASK_BULK_ACTION_MAX` actually works**: the dead-letter bulk
+  requeue/drop cap was documented as tunable but read through a `getattr` default
+  that no settings module ever bound, so the 500 always won. It is now bound from the
+  environment.
+- **Draft pull/merge requests no longer advance the card.** Opening a GitHub draft
+  PR (`draft: true`) or a GitLab work-in-progress MR moved the task straight to
+  Review, and forward-only automation meant it could never come back. A draft is now
+  inert; the card moves when the request is marked **ready for review**. A merge
+  still completes the card either way.
+- **A failed or unmatched Git webhook is no longer invisible.** The Git-event
+  automation settings card now shows what the receiver did with the most recent
+  webhook — the outcome, the provider, when it arrived, and what to do about it. The
+  most common failure ("verified fine, but no task links to this pull request")
+  previously returned HTTP 200, showed a green check in the provider, and appeared
+  nowhere in TruePPM. Verified deliveries and refused ones are reported as **two
+  separate rows**, because the receiver is public: a refusal is recorded before the
+  signature is checked, so anyone who knows a project's ID can produce one, and
+  keeping them apart is what stops unauthenticated traffic overwriting a real
+  diagnosis or prompting you to rotate a working secret. Every refused or unmatched
+  delivery is also logged as a structured warning naming the project, the reason, the
+  client address, and the provider's delivery id.
+- **Documented the prerequisite that makes the feature work at all.** Card matching
+  is an exact-URL comparison against a link saved on a task, and nothing said so —
+  an operator could complete every documented setup step and have no card ever move.
+  The Git-event automation guide now leads with how to add the link, and explains
+  every delivery outcome.
+- **Corrected the connectors card**, which described the push-only inbound task-sync
+  endpoint as "Pull issues and status changes from your existing tracker" — TruePPM
+  never fetches anything; your tracker posts to it. The shipped Git-event automation
+  connector is now listed under "Available now" as well.
+- **Published the real response shapes** for the four Git endpoints, which the API
+  schema had declared as "200: No response body" — including the receiver's `reason`
+  taxonomy and the fact that rotate-secret returns `201`.
+The webhook event picker in Settings → Integrations now offers all 19 event types
+the backend can fire. It had drifted to 11, missing the three `sprint.*` events and
+the five `risk.*` / `baseline.captured` / `comment.created` events, which shipped
+backend-only. More seriously, saving a webhook no longer deletes subscriptions the
+picker cannot render: an admin who opened an API-created webhook to change its URL
+previously lost every unrecognized event, with a success message and no warning.
+Unrendered subscriptions are now listed in their own section and are removed only
+if you clear them. The Slack renderer has the same gap closed — sprint, risk,
+baseline, and comment events now render with a real title and their own fields
+instead of posting a bare event name and an empty message.
+Outbound webhook delivery failures are now visible and bounded. A permanently
+failed delivery is recorded in the dead-letter queue, so it reaches the alert log
+and the `trueppm_task_dead_letter_parked` metric instead of leaving evidence only
+on a delivery row that purges after 7 days. A permanent 4xx response (anything
+outside 408, 425, and 429) is no longer retried five times over 13.5 minutes for
+every matching event — one attempt, then terminal. A subscription that fails
+terminally five times in a row is deactivated automatically, with the reason and
+failure counters surfaced on the webhook. Re-enabling it clears that record.
+"Send test" now renders the ping through the subscription's own format, so a
+Slack-format webhook is sent an actual Slack message rather than a body Slack
+rejects, and the Test button reports the receiver's real response instead of
+flipping to a checkmark on the enqueue acknowledgement.
+A dead SMTP relay no longer reports healthy. The System Health **Notification dispatcher** card's "stuck" query was mutually unsatisfiable exactly when SMTP was what had broken — it required emails to be *still queued* an hour after a failed attempt, but the delivery queue abandons a row after three attempts (~90 s on its 30 s cadence) and rewrote the failure timestamp on every attempt, so an hour could never elapse. The card now watches three independent signals — permanent failures in a rolling window, deliveries in the same window, and a queue aging past an hour measured on the immutable creation timestamp — and reports `crit` on the failures-with-zero-deliveries fingerprint. Outbound-email health is also exported for alerting at `GET /api/v1/health/email/` (four Prometheus gauges), with three new `PrometheusRule` alerts in the Helm chart; before this, not one shipped alert mentioned email at all. A workspace SMTP credential that cannot be decrypted now **fails closed** — sends stop and are reported, instead of silently rerouting to the server-default transport while the settings page still showed the configured one — and the queued rows keep their retries so they deliver once the password is re-entered. The backup/restore runbook now documents that `INTEGRATION_ENCRYPTION_KEY` lives outside the database dump and that a restore without it orphans every stored SMTP credential and integration token.
+The Workspace → Email delivery limits now describe and enforce what they actually do. **Max recipients** (renamed **Max queued emails per batch**) still said "Per single message" and "the most To, Cc, and Bcc addresses TruePPM will put on one outbound message" — a behavior that cannot occur, since every message TruePPM sends has exactly one recipient and no Cc/Bcc — while the field had already been rebound to "queued emails per delivery pass". A value above the 50 ceiling is now **rejected with a 400** instead of being saved, echoed back, and silently discarded at send time. **Throttle per minute** claimed to bound all outbound mail but was consulted by the notification queue alone; it is now a shared per-minute allowance drawn on by the notification queue, the invite queue, password resets, and export-ready notices, so a bulk-invite burst can no longer run at double the configured rate (the two transactional one-offs charge the allowance but are never refused by it). The per-tick divisor is derived from the Beat schedule instead of being a hand-copied constant that nothing kept in step. A throttled or failed **Send test email** now reports an outcome instead of silently returning to idle. The non-conforming `List-Unsubscribe-Post: One-Click` header is no longer sent: it promises an unauthenticated POST endpoint TruePPM does not have, which is a deliverability liability rather than a help.
+- **Jira connection "Projects" filter now scopes the pull**: the project keys you
+  enter when connecting your Jira account were stored, echoed back and documented
+  as limiting the import, but nothing read them — every assigned issue was
+  mirrored in, including from projects you had deliberately excluded. The keys are
+  now composed into the query as an `AND project IN (...)` clause on top of
+  whichever filter you chose, so they can only narrow the pull and a custom JQL
+  cannot widen past them. Project keys and the JQL's own parentheses and quotes
+  are validated when you connect, so a filter that could not be scoped safely is
+  rejected on the field rather than stored.
+- **A connection whose saved filter is no longer usable now says so**: previously
+  it would have reported the source as unreachable and retried forever while
+  serving items pulled under the old, unscoped query. It is flagged distinctly
+  with an "Update filter" prompt on Connected Accounts and in My Work, and is
+  skipped by polling until you fix it.
+- **Jira import: completed issues arrive at 100%, not 1%**: the importer wrote
+  `percent_complete` as a 0–1 fraction into a field the rest of the app reads as a
+  0–100 percent, so every Done or In Review issue landed at 1% and every progress
+  ring, Gantt fill, EVM figure and parent rollup disagreed with the board column it
+  came from. This is the same defect fixed for MS Project import in 0.4; both
+  importers are now on the one 0–100 scale, with a cross-importer test that pins
+  it. Re-import an affected file to correct existing tasks.
+- **AI-assistant tokens are minted where they work**: the project and program
+  **Settings → Integrations** pages offered a "Read-only for AI assistants"
+  (`mcp:read`) scope and generated an MCP client config from it, but a token minted
+  at project or program scope has no owner and the MCP read surface accepts only
+  personal tokens — so the config failed at the MCP server's first startup with no
+  message explaining why. The scope is no longer offered there (and is rejected by
+  the API with a message naming the right endpoint); the page now points at
+  **Personal Settings → API tokens**, which mints the credential that connects.
+- **MCP connect panel now shows the install step**: the generated config invokes a
+  `trueppm-mcp` executable, so the reveal dialog now gives you the
+  `pip install trueppm-mcp` command alongside the config snippet instead of jumping
+  straight to "restart the client".
+- **MS Project import no longer silently drops schedule commitments**: an MSPDI
+  file's `<ConstraintType>`/`<ConstraintDate>` and `<ActualStart>`/`<ActualFinish>`
+  are now imported. A Start No Earlier Than constraint maps exactly onto
+  `Task.planned_start`, and the **constraint date takes precedence over the
+  computed `<Start>`** — reading `<Start>` alone meant a migrated plan came back
+  scheduled from CPM with the PM's committed dates gone. Must Start On is applied
+  as the same start floor and reported as partial.
+- **Everything the import cannot carry over is now reported**: deadlines,
+  `<Baseline>` blocks, non-default priority, work and cost, and every constraint
+  type TruePPM cannot express each add an import warning naming the family and
+  the number of tasks affected. Previously all of them were dropped with
+  `warnings == []`. Fields MS Project writes on every row by default (Priority
+  500, zero Work, zero Cost) are not reported, so the list stays actionable.
+- **`GET /api/v1/projects/{pk}/imports/` returns `warnings`**: the import summary
+  already recorded them and nothing exposed them.
+- **MS Project export writes `ConstraintType`/`ConstraintDate` and the actual
+  dates**, closing the round trip — a plan exported and re-imported keeps its
+  commitments instead of promoting computed dates to committed ones.
+- **`.mpp` now means one thing across every surface**: the import-into-existing
+  dialog no longer offers it, matching the create-from-import format picker. The
+  REST endpoint still accepts `.mpp` where an operator has installed the optional
+  MPXJ / Java toolchain; the reference image bundles neither, so a `.mpp` selected
+  in the UI could only ever 202 and then dead-letter. First-class `.mpp` import
+  remains planned for 0.6 (#128). The docs, the file pickers, and the accepted
+  extension list now agree.
+- **A constraint date earlier than the project start now pulls the project start
+  back** instead of being clamped away. MS Project keeps a `<ConstraintDate>` that
+  predates the project start while computing `<Start>` at it, so keying the
+  start-shift on `<Start>` dropped exactly the commitments this fix exists to
+  preserve. Actual start dates are honored the same way.
+- **Imported actual dates are reconciled against the file's own progress.** An
+  `<ActualFinish>` on a task the same file reports as 0% complete produced a
+  finished-but-unstarted task — a state the API cannot otherwise reach, and one
+  that silently corrupts schedule variance and sprint forecasts, both of which read
+  `actual_finish` unconditionally. The contradicting date is dropped and reported.
+A sprint close that fails is now retried and can be observed. Previously one
+failure was terminal: the close task marked its request FAILED without
+re-raising, so the Celery retry budget never fired; re-entry short-circuited on
+the FAILED row; and the drain recovered only stalled in-flight rows. A single
+unsnapshottable task left the sprint ACTIVE indefinitely behind a dead request,
+with no path back except manual database intervention — while two comments in
+the source asserted the opposite, that the drain retried.
+
+Failures are now classified. A transient one carries a retry clock and the drain
+re-queues it, up to three attempts; a failure nothing can fix — the sprint was
+cancelled or is not closable — is terminal immediately and is never retried.
+
+`GET /api/v1/sprints/{id}/close-request/` is new, and reports the outcome of the
+most recent close attempt including its error and whether it will be retried.
+The close endpoint has always returned `202` with a `request_id` and documented
+that clients poll for completion, but no read route existed, so the id addressed
+nothing and a failed close surfaced no error anywhere.
+The program Cadence settings screen no longer claims capabilities the product
+does not have. It stated that gate reviews are scheduled automatically when a
+phase boundary milestone is saved, that ceremony instances are created when the
+program starts and linked to milestones, and that the invite template supports
+`{{milestone.name}}`-style variables. None of that happens: `PhaseGateConfig` and
+`CeremonyTemplate` are both config-only, `invite_template` is read by no code,
+there is no ceremony instance model, and nothing substitutes a placeholder. A PM
+could configure phase gates, believe a review was booked, and find out in the
+room — a claimed compliance control is worse than an admitted gap, because only
+the admitted gap can be planned around.
+
+The page subtitle, the section copy, and the slide-over now describe storage and
+say what you still have to do yourself, and the caveat is bound to the button
+that opens the panel so it reaches screen-reader users too. The program settings
+documentation matches. Dispatch is tracked as #2983.
+Sprint scope-change notifications now reach everyone authorized to rule on the change. A task entering or leaving an active sprint notified project role Admin and above only, while the accept/decline gate authorizes Admin and above *plus* the team's Scrum Master and Product Owner — so the two roles the notification was built for were exactly the two it never reached, because a Product Owner is normally seated as a Team Member. The recipient cohort now reads the gate's own facet source, and a role × facet matrix test pins the two sets together.
+The task create contract is now published and self-reporting. `parent_id` and `is_subtask` are honored on `POST /api/v1/tasks/` but were absent from the request schema entirely, so an integrator reading only the published contract could not discover how to create a child task; both are now declared as create-only, write-only inputs. `is_subtask` no longer reads `"yes"` or `1.0` as *false* — a value it cannot interpret is a `400` rather than a silently structural task — and a malformed `parent_id` returns `400` instead of `500`.
+A task create or update body that carries keys the endpoint does not write now says so. Unrecognized keys — most consequentially `predecessors`, which has never been a task field — were dropped by DRF's silent-ignore and returned `200`/`201`, so a tool migrating dependency-bearing tasks out of Jira or MS Project believed every edge had landed. Such keys are now reported in the response `warnings` array under the `dropped_fields` rule, naming the endpoint that does the job. `warnings` is now part of the published create and update response schema.
+- **The bundled demo data now produces a populated resource heatmap.** All four sample
+  packs assign roughly 150 tasks between them and declared **no** `assignments` arrays at
+  all, so the seed importer's allocation step was dead code for every sample that ships.
+  Because capacity, utilization and the heatmap sum `TaskResource.units` and never read
+  `Task.assignee`, an evaluator who clicked **Load demo data** and opened the resource
+  heatmap, the roster timeline, or a sprint capacity preflight saw nothing — on a project
+  whose boards showed an owner on every card. The importer now synthesizes an allocation
+  row for any task that names an owner it also staffs as a resource, which covers future
+  fixtures that forget too. An explicit `assignments` array still wins, and milestones
+  stay unallocated. The demo on-ramp that reassigns the first open sprint to the loading
+  user now moves the allocation along with the assignee, so the board and the capacity
+  views no longer disagree about who is doing the work (#2900).
+- **Task creation duplicate on retry**: if a new task saved but its assignee/dependency
+  sync failed, pressing Save again to retry re-created the task instead of retrying
+  the failed sync, leaving a duplicate row. Retrying now reuses the already-created
+  task and only retries the assignment/dependency sync.
+- **Recurring occurrences now carry the template's resource allocation**: a
+  recurring task spawned each occurrence with the template's assignee but none
+  of its `TaskResource` rows. Since capacity, utilization and the heat map are
+  all computed from allocated units and never from the assignee, a
+  correctly-staffed recurring template produced a permanently zero-load
+  occurrence once per interval, forever — staffed-looking on every board and
+  invisible to every allocation view. Occurrences now inherit the template's
+  assignments at the same units, gated by the existing **Inherit assignees**
+  toggle so opting out clears both.
+`GET /projects/{id}/status-summary/` returns the three values it had been hard-coding to `null`. `monte_carlo_p80` is now the P80 of the project's most recent Monte Carlo run, `recalculated_at` the completion time of the last CPM pass, and `last_saved` the newest human-caused write to any live task. All three underlying values already existed; a hard null is indistinguishable from "no data yet", so an API or MCP consumer keyed on that distinction was silently wrong for every project that *had* run a forecast. The endpoint also now publishes a real response schema instead of an untyped object.
+- **The project notification matrix no longer promises deliveries that never happen.**
+  Eight of the nine `ProjectNotificationEventType` values — task assigned, task overdue,
+  status change, budget alert, risk created, milestone reached, sprint start, sprint end
+  — were defined, persisted, rendered in **Project Settings → Notifications**, and
+  defaulted **on** across in-app, email and Slack, while being dispatched by nothing.
+  Only `comment_mention` is wired. Because eight rows defaulted on, the page actively
+  told an admin that eight kinds of notification were being delivered; turning one *off*
+  was the only action that appeared to mean anything, and it had no effect either. Those
+  eight now default **off**, the API reports per-event delivery status as a server fact,
+  and the settings page labels them **not delivered yet** — while keeping the toggles
+  live, so a preference you set now applies once the event is wired up (#2904, wiring
+  tracked in #3016).
+Paste-many now reports an Owner column value it could not resolve, instead of dropping it before the request with no signal. The receipt distinguishes the two failures because their repairs differ: a name nobody on the project matches ("check the spelling, or add them to the team") and a name matching several people ("use a fuller name"). The row still commits in both cases — an unresolvable owner has never been a rejection, and TruePPM still never picks one of several candidates on your behalf.
+- **Program backlog pull now keeps the item's priority rank**: pulling an item
+  into a project dropped `priority_rank`, so a product owner's intake ordering
+  was lost at the crossing and had to be rebuilt by hand on the other side —
+  and because there is no un-pull endpoint, undoing the pull could not recover
+  it. Items pulled from the same pool now keep their relative order; an
+  unranked item stays unranked.
+The Share dialog now says when public sharing is turned off, and links a workspace admin
+straight to the setting that enables it. Public sharing is off by default, so on a fresh
+install an admin could open the dialog from any of its three launch points, fill it in,
+submit, and receive a 403 from the server — with nothing on screen pointing at the
+setting that unblocks it. Read-only share links are the only way to show someone a live
+schedule without provisioning them an account, so this was often the first thing an
+evaluator hit.
+The project Overview's KPI cards, health chip, blocked-task rollup and critical-path
+panel now refresh when a collaborator edits a task or a CPM recompute completes. They
+were invalidated by no WebSocket event at all, so with a 60-second stale time and no
+refetch-on-focus they sat unchanged until the route was remounted — and a stale critical
+path looks exactly like a current one.
+Closing a sprint with `carry_over_to: "backlog"` no longer rewrites an in-flight task's status. The policy overwrote every carry-eligible status with `BACKLOG`, so a task somebody was actively working on came back marked as un-started — sprint housekeeping they did not perform, silently discarding their real state, while the sprint-target policy preserved status all along. `IN_PROGRESS` and `REVIEW` are now preserved; `NOT_STARTED` still becomes `BACKLOG`, because "committed, not begun" stops being true once the task leaves every sprint and that is what keeps the row in the product-backlog grooming list. The asymmetry is now documented on the endpoint.
+- **Sprint story picker commits transactionally, and reconciles per story**: the
+  picker used to fire one `PATCH` per selected story, so a failure partway through
+  left a half-committed sprint with no statement of which stories landed — during a
+  time-boxed planning ceremony, and moments before the committed-points snapshot
+  that feeds velocity. The commit is now a single
+  `POST /projects/{id}/tasks/bulk/` batch applied inside one transaction. When the
+  server refuses some rows, the picker stays open and reports the committed count,
+  each refused story by name with the server's reason, and a retry scoped to just
+  those rows. A failed request now states plainly that nothing was committed.
+- **Documentation: an internal-only Jira Data Center / GitLab CE host *is* supported.**
+  `TRUEPPM_INTEGRATION_ALLOWED_HOSTS` was documented as requiring a publicly-routable
+  host, stating that an internal-only Data Center instance was "not yet supported".
+  The outbound SSRF guard has had an operator escape hatch since ADR-0590: a host named
+  in `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` bypasses the private-address deny-list. Reaching
+  a private/in-cluster integration host needs **both** variables — the first governs
+  where a token may be sent, the second whether the address may be dialed at all. Both
+  are now documented together and carried into the Helm chart's `env:` catalog, where
+  neither previously appeared (#2923).
+- **A rate-limited call now says how long to wait, on both AI-facing surfaces.** The
+  MCP client folded every non-401 response into `Unexpected response from <path>: HTTP
+  429.`, so a model that hit the compute bucket (12/min, covering `whatif`, the latest
+  Monte Carlo, and both forecast tools — exactly what an agent exercises in a burst)
+  saw a sentence it could not act on. It now raises a distinct rate-limit error
+  carrying the parsed `Retry-After`, phrased so the model waits and repeats the call.
+  On the egress side a Jira `429` became a generic transport failure and the sync
+  worker dead-lettered the row as "unreachable", so a transient rate limit read to the
+  owner as a broken connection; it is now re-queued against the source's own
+  `Retry-After` clock, with the connection left **Active** and the cached items intact
+  (#2924).
+A connected external task source now reports what its last pull actually did, not just when it happened. The connection summary and the Connected Accounts card carry the pulled count, and — when the source had more items than one pull can carry — an explicit "Showing the first 100 of 412 items assigned to you." The same line appears in My Work beside the external feed it qualifies, so a contributor past Jira's 100-issue page size is no longer shown a truncated list with no indication it is partial. A pull that fails while the token is still valid (an unreachable host, an exhausted rate-limit budget) now names the reason instead of reading as a healthy "Active" connection.
+`scripts/backup.sh --help`, `restore.sh`, and the MCP connect panel pointed at `docs/administration/`, a second copy of eight published administration pages that had diverged from the maintained ones — the backup page they named was missing the warning that restoring onto a fresh cluster silently orphans every stored SMTP credential and integration PAT. That tree is gone; every pointer now names the published docs, and a new `docs:tree-split` gate fails the build if a page basename reappears in both trees or a source pointer names a published page that is not there.
+`packages/web/CLAUDE.md` no longer has two different rules numbered 295. The
+count-narrowing rule moved to 323; the forced-colors rule kept 295, because
+`GanttRenderer.ts` and ADR-0803 already cite that number. A new
+`web:rule-numbers` CI job (also in `make pre-push`) fails on any duplicate — the
+collision only ever exists on the merged tree, so neither contributing branch's
+own pipeline could see it.
+- **Risk-register CSV import no longer reads a UTF-16 file as gibberish**: the
+  importer required strict UTF-8, which correctly refused a UTF-16 file that
+  carried a byte-order mark — but because NUL is a valid UTF-8 character, a
+  UTF-16 file saved *without* one decoded without error and imported risks with
+  a NUL between every letter, with no warning. It now uses the same decoder as
+  the task CSV/Excel importer: byte-order marks decide the encoding, Windows-1252
+  exports are read correctly (they were previously refused), and a file that
+  decodes to unreadable text is refused with the re-save instruction instead of
+  imported. Both importers now share one implementation, so the guard cannot
+  drift between them again.
+Three CSV download buttons — workspace members, the roles matrix, and the risk register (both its toolbar and its overflow menu) — now confirm the download in a polite live region. A download is the one user-initiated action that produces no in-page change, so without an announcement it is indistinguishable from a dead button for screen-reader and low-vision users (WCAG 4.1.3). The confirmation is now part of the shared download helper via a `useDownloadAnnouncer()` hook rather than something each caller has to remember, and a conformance test fails any component that can reach a download without mounting a region.
+- **Order-dependent API test flake**: `django_capture_on_commit_callbacks` harvested
+  `transaction.on_commit()` callbacks by list index, so a savepoint unwind inside the
+  captured block could shrink the callback list below the remembered offset and hide a
+  callback that had genuinely been registered — surfacing as an unreproducible
+  `assert 0 == 1` on a request that succeeded. The API test suite now captures by
+  callback identity instead, which is correct regardless of what is already registered
+  on entry and of whether the list shrinks. Test-infrastructure only; no runtime
+  behavior changed.
+Board: the same task no longer renders as both a swimlane and a card. A phase is always a lane and never a card, at any depth; every task appears exactly once, in the lane of its top-level phase, carrying the name of the nested phase it belongs to when that differs. The synthetic "Project Tasks" lane is replaced by the project's own lane, which is named after the project and hidden when it holds nothing.
+Schedule: a user with view-only access no longer sees the authoring toolbar greyed out. The create controls and the Author/Read toggle are hidden entirely, replaced by a single "View only" note saying who to ask for edit rights. An editor who deliberately switches to Read still sees the controls in place and inert, so one keystroke brings them back.
+Dependency picker: it no longer offers tasks that would create a circular dependency — including loops that run through a milestone or a phase, which have no dependency link of their own and so were invisible to the previous check. Those choices used to be accepted and then rejected by the server with no way to tell which options were real. Searching also now treats a leading digit as a WBS number ("1." finds everything in phase 1) rather than matching it loosely against task names, and the list says how many matches it found and whether it is showing all of them.
+- **A viewer's schedule reads as a plan, not a locked form**: a project member without edit rights no longer sees the row-level authoring apparatus — reorder grips, indent/outdent, insert points, delete, the row menu — and names, estimates and percentages render as text rather than as fields. Mutation gestures on those rows are silent: with nothing offering the action there is no refusal to explain. Navigation is untouched: arrow traversal, selection, fold carets, the Properties button and the Grid/Timeline switch all still work.
+Sprint panel: when velocity is kept private to a team, the delivery forecast now says so instead of showing the "working toward your first forecast" warm-up message. A reader who simply isn't shown the team's velocity was being told the team had no forecast at all — which could be untrue after twenty sprints — and pointed at settings that weren't the problem.
+API: the 409 returned when a task's declared structural role contradicts its children is now described in the published OpenAPI schema, with its response body spelled out field by field. It was working but undeclared, so an integrator diffing the schema had no way to see a new refusal had appeared on an endpoint they already call.
+Schedule Timeline: right-clicking a task now opens the task menu instead of the browser's own "Save Image As…" menu. In Timeline the chart is drawn on a canvas, so a right-click was landing on the image rather than on anything the app owned. Right-clicking the date ruler or empty space below the plan still gives you the normal browser menu, since there is nothing of ours to offer there.
+- **API 500 on an unsupported URL format suffix**: `GET`/`PUT`/`PATCH`/`DELETE` on
+  `/api/v1/projects/{id}/`, `/api/v1/programs/{id}/`, and `/api/v1/tasks/{id}/` returned
+  an unhandled 500 instead of a clean 4xx when the URL's `{id}` was followed by an
+  unrecognized format suffix (e.g. `/projects/0.5/`). Fixed by guarding the MCP agent
+  action audit hook against lazily re-authenticating after a pre-authentication request
+  failure.
+- **A sprint now has at most one live close request.** `POST /sprints/{id}/close/`
+  had no dedupe: the sprint stays ACTIVE until the async close lands, so every repeat
+  POST wrote an outbox row and dispatched a worker — and since the close-retry budget
+  landed, each of those bought up to three attempts, every attempt taking a row lock on
+  the sprint plus a full task-outcome snapshot. A repeat POST now joins the close already
+  running and returns its existing `request_id` with `deduplicated: true`, alongside the
+  `carry_over_to` and `pending_disposition` that close is actually using. This also fixes
+  the read side: `GET /sprints/{id}/close-request/` answers with the most recent row, so
+  a duplicate that lost a race made it report `FAILED` — "the close failed and will be
+  retried" — for a sprint that had already completed (#2996).
+A failed membership read no longer shows a permission wall. `useCurrentUserRole` returns `role: null` both for "you are not a member" and for "the request failed", and with retries off a single blip was enough — so the Resources view told Schedulers, Admins and Owners that resource utilization was above their access level, with no way to tell it from a real refusal. A permission wall is actionable, so the user goes and asks a colleague for a role they already hold. Resources now renders a distinct, retryable "couldn't check your role" state, and the recurrence editor treats an unreadable role as unsettled rather than as denial instead of silently removing a control the user can use. The hook exposes `refetch` so a failed read no longer needs a page reload to clear.
+Splitting a story now carries the parent's backlog position onto the new half. `split_story` named the fields it copied and never mentioned `priority_rank`, so a split of the #3 story landed **below every ranked item** — the client sorts unranked work last — which is close to the opposite of where the remaining work belongs. Both halves now sit at the parent's position; ranks are not unique and ties already break on a secondary sort, so no neighbor is renumbered. Estimates still deliberately do not carry, and story points are never auto-divided.
+Indenting a task now **declares** the row above it a container, the same way grouping does. Previously only group, ungroup, task create and task delete recorded the promotion, so the most common way to build a phase — indent a row under the one above — left the parent declared as ordinary work: its authored status and estimate were never parked, and the first rollup overwrote them with no way back. All four restructure endpoints (`indent`, `outdent`, `reparent`, `reorder`) now sync the declaration on both the new parent and any former parent that just lost its last child, so promotion and de-promotion are symmetric and the version bump reaches offline clients.
+
+Undoing a structural operation now persists its shadow-value resync. It previously recomputed the declaration in memory and discarded it before the transaction closed.
+
+Deleting and restoring a task no longer reach into other projects. Both `Task.soft_delete`'s subtask cascade and `cascade_task_children_restore` filtered on a `wbs_path` prefix with no project scope — and because every project numbers its outline from `1`, that prefix matched the same-shaped path in every other project. Deleting a task tombstoned other projects' live subtasks; restoring one un-deleted their tombstoned subtasks and dependency edges and stamped them with a sync cursor drawn from the wrong project.
+- **Restructure graph guard exception chaining**: `assert_graph_feasible` raised
+  `GroupingRejected(...) from failure` where `failure` was typed `Exception | None`,
+  which SonarCloud flagged as a potential `TypeError` on the exception cause. The
+  guard's own `None` check already ruled that out at runtime, but the value is now
+  explicitly re-bound to a non-nullable `Exception` before the raise so the guarantee
+  is legible to static analysis as well.
+- **Adding a row on the Schedule outline now announces itself and joins the session
+  trail.** Every other structural gesture — indent, outdent, move, drag, group,
+  ungroup, milestone toggle, delete — routed a sentence through the outline's live
+  region and left an entry in "changes this session". Insert, the most frequent act
+  on the surface, did neither: a screen-reader user adding a row heard nothing, and
+  the row never appeared in the trail. All four insert paths (`⏎` below, `⇧⏎` above,
+  `⌘⏎` as a child, and the footer's "Add a task at the end") now say where the row
+  landed, on success rather than on the keystroke, so a create the server refuses
+  leaves no record claiming otherwise. The `⏎` sentence names the row the new one
+  actually follows — the last sibling — matching the statement the toolbar already
+  showed beside the button. The outline's live region also carries its declared
+  `role="status"` (#3018).
+The Schedule's **Comfortable rows** display option now actually changes the row height. It persisted to `localStorage` and was read by nothing — row height came from the pointer class alone, so a user on a mouse who turned it on saw no change at all. The preference is now a second input to the row model's single owner, resolved as the larger of the pointer-class height and the comfortable height: turning it on lifts a mouse from 28px to 44px, and a coarse pointer stays on the 44px touch floor either way.
+The Schedule's how-to bar taught `⇥` for "Indent an item", but Tab is deliberately bound to nothing — binding it reproduces a keyboard trap (WCAG 2.1.2). The chip now names `⌥→`, the key that is actually bound and the one the row buttons and the cheatsheet already showed.
+The Schedule dependency picker is now fully usable from the keyboard, and can add several links in one visit. `Space` adds the highlighted row and keeps the picker open (`Enter` still adds and closes), so linking three predecessors no longer means three trips through the row menu — `Space` types normally until `↓` moves you into the results, so you can still search for a two-word phrase. `↓` now walks into the results as a real listbox: it moves `aria-activedescendant`, so a screen reader is told the list exists and which row is selected, and the **first** press lands on the **first** row rather than skipping to the second. The part of a row that matched the search is highlighted, so a WBS-prefix hit and a name-substring hit are distinguishable, and the result count reads `N of M matches` in every scope — program scope previously showed no count at all. Adding a link by pointer still closes the picker; multi-add is a keyboard capability for now.
+The Schedule outline now states a phase's child count as text on the row — `4 inside` when it is open, `4 hidden` when it is folded. Previously the count existed only as a tooltip and an accessible name, so learning what was inside a phase (or whether a collapsed one contained anything at all) cost a hover dwell, and was unreachable on touch. The screen-reader announcement, the fold caret's label and the visible text are now derived from one function and use the same words; the announcement previously said "N children visible", a third wording for the same fact. The count also never reached the live Schedule at all — it was computed and handed only to the print layout, so every caret announced a phase with no count.
+The Schedule outline's indent and outdent buttons no longer disappear when the WBS column is switched off in Display ▸ Columns. They lived inside that column's cell, so a column choice unrelated to restructuring removed both controls from every row and left the right-click menu as the only pointer route; they now have a lane of their own at the row's left edge, beside the WBS number where the design places them and well away from delete. On a coarse pointer both buttons now meet the 44x44 touch minimum instead of staying 16px inside a 44px row — resolved from the same row-height owner as every other Schedule measurement, so the control is as tall as its row by construction rather than by coincidence.
+- **Schedule:** the outline's headers, create affordances and placeholders now say **item** rather than **task**. A row on the Schedule declares its own type — phase, milestone or task — so chrome that names one before the author has chosen was asserting an identity the row does not carry. The name column and the print/summary table now head **Item**; the toolbar create reads **+ Item**, the outline footer **Add an item at the end**, the phase hint **Add first item to this phase**, and the blank-project row invites **Type your first item**. The specific words are unchanged wherever the type actually is known (**+ Phase**, **+ Milestone**).
+- **Schedule:** a summary row's estimate tooltip no longer claims it rolls up from *tasks*. A container can summarize phases and milestones too, so the count now reads **items** — the previous wording was wrong about what had been summed, not merely off-vocabulary.
+Keyboard shortcuts in the Schedule, the backlog band and the CSV import wizard are
+now spelled for the platform reading them — `Ctrl+Alt+G` on Windows and Linux
+where they previously showed the macOS `⌥⌘G`, naming keys those keyboards do not
+have. The keyboard layer already resolved the binding correctly; only the
+on-screen spelling was wrong.
+- **Schedule (accessibility):** the row-edge **+** that inserts a row below its neighbour now meets the 44x44 touch minimum on a touch device. Its tap area was two pixels short of the floor — it was built by insetting a box around the 16px disc, and the control's own border ate the difference — which made the primary route to inserting a row on a tablet the smallest target on a 44px row. The visible disc is unchanged, and on a mouse the affordance keeps its compact hover-revealed target: growing it there would put an invisible click target over the row's name cell, where it would sometimes insert a row instead of renaming one.
+Phases created by a bulk write are now declared containers. An MS Project, Jira or CSV
+import, an applied project template, and a seed pack all wrote their parent rows through
+`bulk_create`, which never reaches the code that marks a row a container — so an imported
+project arrived with every phase undeclared and the Board rendered it as a card instead of
+a swimlane. Each phase now also parks its authored status and estimate on the way in, and
+hands them back if it later loses its last child. Every bulk writer of tasks now goes
+through one funnel, and a guard test fails the build if a new one goes around it.
+Two frontend rules both numbered 330 landed within twenty minutes of each other from
+different branches; the later one is now 331. Neither branch could have seen the
+collision — it came into being on the merged tree, which is what `web:rule-numbers`
+exists to catch.
+- **Scheduler role is no longer offered an authoring apparatus the server
+  refuses**: the Project Designer's Read/Author gate derived edit rights from a
+  client-side role comparison (`role >= Member`), which admits the Scheduler
+  (Resource Manager) role — a role the server explicitly refuses task content.
+  A Scheduler was shown the Author/Read pill, insert affordances, the row menu
+  and editable cells, and then refused two different ways: paste-many and the
+  classification cascade failed outright, while a single row committed and every
+  subsequent edit failed. Both the Schedule and the Grid now read the server's
+  own `can_author` verdict, so a Scheduler sees the same "View only" absence a
+  Viewer sees. `POST /api/v1/tasks/` also refuses the Resource Manager band
+  directly, closing the half-authored-row window at its source.
+Tasks created through the batch endpoint now declare their parent as a container. A row given its first child by `POST /projects/{id}/tasks/bulk/` — the endpoint behind paste-many — was left classified as work, so the Board drew it as a card instead of a lane.
+- **Pasted rows now record their real provenance**: `POST /projects/{id}/tasks/bulk/`
+  accepts an optional `origin: "paste"` on the request; paste-many now sends it, and
+  rows it creates record `source_kind: "paste"` instead of the hand-authored default.
+  Previously every pasted row reported as hand-authored, which was a wrong answer
+  (not a missing one) to "what wrote this row" for audit and provenance readers.
+The Schedule outline and the timeline now draw a row's delivery mode from one value. A phase whose subtree mixes modes reads `MIXED` on the outline and carries a matching split mark on its bar, instead of the outline saying `MIXED` while the bar drew a single mode or nothing at all. The timeline's screen-reader overlay announces the mixed state and names the modes it is composed of, so the split is no longer conveyed by color and texture alone.
+"What moved and why" now shows the rows you did not touch. The reforecast panel sourced its rows from the local preview store, so it could only ever explain dates this user had just written — the downstream cascade, which is the set a planner actually has to defend in a plan review, was the one thing it could not show. Rows moved by a committed schedule run now appear with their driver named, carrying a distinct outline marker that reads as a knock-on change rather than as an unconfirmed edit of your own, and the polite announcement counts them. The client still refuses to invent a cause: a move it cannot attribute renders with no driver rather than a plausible one.
+The `#Nh` duration token in the Schedule now converts through the project's working
+calendar instead of a fixed 8-hour day, so it agrees with the same value entered in the
+task drawer. Both surfaces previously computed against 8 hours regardless of the
+calendar's `hours_per_day`, which under- or over-planned every hours entry on a
+part-time or custom-hour calendar.
+`lint:todo-grep`'s check that a `TODO(#NNN)` marker still points at an open issue never actually ran: it authenticated against the GitLab Issues API with a CI job token, which cannot read that API at all, so every lookup failed and the job silently skipped the check instead of failing the pipeline. The gate now sends an anonymous request when no dedicated token is configured (this project's issue tracker is public, so that resolves correctly) and fails the job — rather than warning and continuing — if an issue lookup cannot be resolved at all. Added `TODO(upstream#NNN)` as an explicit, deliberately-unchecked spelling for references to third-party trackers (#3043).
+- **Malformed/format-suffix path segment on project, program, and task detail routes**: `GET`/`PUT`/`PATCH`/`DELETE` on `/api/v1/projects/{id}/`, `/api/v1/programs/{id}/`, and `/api/v1/tasks/{id}/` (including `?force=true`) with a non-UUID id such as `0.5` now reliably returns a clean 4xx instead of risking a `TransactionManagementError` 500. The underlying fix landed in #2989; this closes #3044 by pinning the exact fuzzer-reported surface (all three resources, all four methods, real JWT auth) with regression coverage.
+- Replaced two backtracking-prone regular expressions with bounded equivalents: the board lane-key slugifier (`slugifyLaneKey`) and the duration rounding explanation (`describeEntry`). Both rewrites are behavior-preserving — the lane-key trim and the trailing-zero trim produce identical output for every input — but neither pattern can now degrade super-linearly on a long adversarial label.
+- **Overallocation check ignored bare-assignee tasks**: `_check_overallocation` summed only `TaskResource.units`, so a task assigned solely via `Task.assignee` (no `TaskResource` row — possible via `PATCH /tasks/`, retro promotion, or Jira import) silently contributed zero load and could hide real overallocation. The check now falls back to a full-unit estimate for bare-assignee tasks on resources linked to a user account, and surfaces a new `assignment_not_unit_tracked` warning so the caller knows the total includes an estimate.
+- **WBS path integrity**: added a database-level uniqueness constraint on
+  `(project, wbs_path)` for live tasks. Previously nothing stopped two tasks in the
+  same project from silently sharing a WBS path — a duplicate corrupted the next
+  WBS-level rewrite instead of raising an error. A soft-deleted task's path is
+  excluded from the constraint so it remains free for reassignment. The constraint
+  is deferred to transaction commit, so the reorder, indent/outdent, group/ungroup
+  and structural-undo paths — which renumber a whole sibling level one row at a
+  time — are unaffected. Self-hosters: this adds a requirement on the `btree_gist`
+  PostgreSQL extension, created automatically by the migration.
+Restored drag-to-link on the Schedule for the Resource Manager (Scheduler) role. One
+read-only flag was fronting two different server permissions — task content requires
+Member+ *excluding* Scheduler, dependency edges require Scheduler+ *excluding* Member —
+so it was wrong for one role whichever way it resolved. The two gates are now separate:
+a Scheduler can draw dependencies again, and a Member is no longer offered a link
+handle the server refuses. A withheld gesture is now withheld outright — no handle, no
+crosshair, no silent no-op on release.
+The Schedule outline's WBS column now reads as a ladder. It was right-aligned, which flushed `1`, `2`, `2.1` and `3` to a common right edge and made a nested number look like a peer of its parent's sibling. In a monospace column the indent is already in the path itself, so left-aligning it puts the `2.` of `2.1` directly under the `2` of its parent, and this row's own number is picked out in the primary ink so it stays easy to find. The full path remains the cell's tooltip and its accessible name, untruncated.
+A phase you created deliberately now keeps looking like one after its last task is moved out. The Schedule outline decided phase styling purely from "does this row have children", so an emptied container lost its band, its edge and its heading face and dropped back to looking like ordinary work — even though the server still records it as a container and restores it as an empty lane on purpose. The outline now honors that declaration: the row keeps its full phase identity, shows no fold caret because there is nothing to fold, and keeps its "Add first item to this phase" prompt.
+A phase that is waiting for its first item now shows its own name. The
+"Add first item to this phase" hint sat in a fixed-width name cell and refused to
+shrink, so on a declared-but-empty container the row name was squeezed to zero width —
+present in the DOM and to screen readers, invisible on screen. The hint now yields,
+clipping its own label instead of the name.
+- **Applying a second project template no longer collides with existing tasks**:
+  template documents number their tasks from `1`, and those paths were written into
+  the target project verbatim. Adopting a second template — or any template into a
+  project that already had tasks — put two live tasks on the same WBS path, which
+  corrupted the next WBS-level rewrite instead of raising an error. Seeded tasks are
+  now appended past the rows already present, preserving the template's tree shape.
+- Task drawer: a task that has not started yet no longer presents its scheduler-calculated Start date as if a person had committed it. The Start cell now carries the same `computed` qualifier that in-progress tasks already showed, and the drawer explains why the task draws no bar on the timeline — with a one-click **Set committed start** to place it there. Previously this was the one case where the cue was suppressed, which is also the only case that reliably has no bar, so the drawer showed dates, a duration and a critical-path warning for a row that was visibly empty.
+Upgrading no longer crash-loops on a database that already contains two live tasks sharing a WBS path. The migration that adds the WBS uniqueness constraint now repairs those rows first — keeping the one that reached the project's write sequence earliest and moving the others onto free sibling paths — and logs every move at `WARNING` with its old and new path. Databases with no duplicates are unaffected.
+- **Re-importing into a project that already has tasks no longer fails.** MS Project,
+  CSV and Jira imports derived every WBS path from the source file's own outline
+  numbering, which starts at `1` — correct when the import creates the project, wrong
+  when it adds to one that already has rows. The second import wrote onto the existing
+  rows' paths, which used to corrupt the work breakdown silently and, since the
+  duplicate-path constraint landed, failed the whole import outright. Imports into a
+  non-empty project now number past the rows already there, moving each phase and its
+  entire subtree as a unit. Create-from-import still writes the file's numbering
+  verbatim.
+A bulk task batch that lands two rows on the same WBS position now reports the
+offending row as a `conflict` in its 207 body instead of failing the whole request
+with an opaque 500. The uniqueness constraint behind it is checked at `COMMIT`, which
+is after the response has been assembled — so the batch reported success for a row
+that had not landed, and the error that followed named a database constraint rather
+than the row that caused it. The check is now forced while the row's own savepoint is
+still open, so the report is attributed correctly and every other row in the batch
+still applies.
+Restoring a task from the Trash no longer fails with a server error when its WBS
+position was given to another task while it was deleted. Task numbers are no longer
+reissued after a delete at all, so the position is still there to come back to; and if
+one is occupied by any other route, the restore now says which task holds it instead of
+failing opaquely. A restore that brings back a whole subtree moves any descendant whose
+slot was taken rather than abandoning the rest of the subtree.
+Template adoption and MS Project / CSV import no longer stream one row per task to
+compute the WBS root offset — an inherited model ordering had silently widened the
+`DISTINCT` key so it was unique per task. A document carrying a root WBS label of `0`
+now also lands clear of the rows already in the project instead of colliding with the
+highest one.
+- **Backup & Restore runbook now names all three required PostgreSQL extensions.**
+  The managed-Postgres recipe — the documented procedure for operators whose
+  platform blocks unprivileged `CREATE EXTENSION` — pre-created only `ltree` and
+  `pg_trgm`. Following it produced a restore that failed when `projects_task`'s
+  exclusion constraint was built, because that constraint needs `btree_gist` for
+  GiST equality on the `uuid` project column. The recipe, the verification
+  checklist, and the surrounding narrative now cover `btree_gist` as well, and
+  the page records that all three are `trusted` on PostgreSQL 13+ — so most
+  operators do not need the workaround at all.
+Committing a start date on a To Do task no longer changes its status without saying so.
+When the date being committed is today or earlier, the server also moves the task to In
+progress — and records an actual start for a date in the past. Both surfaces that
+trigger this (the task drawer's *Set committed start*, and the unscheduled gutter's
+quick actions and *Promote to schedule*) now name that outcome in the control's label
+before the click, and the confirmation afterwards reports what actually happened. A
+future date is unchanged. Whether a date has "arrived" is judged against the server's
+date, which the project payload now carries as `server_date`, rather than the browser's
+— the two disagree across a time-zone boundary, which is the one case where it matters.
+The Schedule toolbar no longer clips its right-hand controls. The bar's natural width
+exceeded the space available at **every** supported window size — 1920 included — and the
+overflow was hidden rather than scrolled, so Export PDF, the project-actions `···` menu and
+everything in it (Import, Share, Capture baseline, Recently deleted) could be unreachable
+with no indication they existed. The toolbar now measures itself and concedes in a fixed
+order until it fits: readouts shorten, the zoom and mode clusters collapse into chips that
+still show their value, and only then do commands move into `···` — where they keep their
+name, their keyboard shortcut, and a heading saying whether they moved for want of room or
+because you unpinned them. `Display ▾` gains an **In the toolbar** section that pins the
+controls you want kept, states where each one is right now, and counts honestly when a pin
+cannot be honoured at the current width. The Read/Author mode indicator never moves into a
+menu, and the session-trail button no longer wraps its label inside the 40px bar.
+Schedule outline: the drag-to-reorder grip no longer draws on top of a row's ⇤ outdent button. On a mouse the grip had no lane of its own, so once the ⇤/⇥/◆ controls moved to the row's left edge the grip covered all but 2px of the outdent — and took its clicks — for as long as a row stayed selected. The grip now has its own lane at every pointer class.
+Fixed `DataError: value too long for type character varying(50)` raised by Django's `post_migrate` permission signal when running a targeted `manage.py migrate projects <n>` against an empty database. The `projects` app's initial migration now depends on `auth.0002_alter_permission_name_max_length`, so `auth_permission.name` is widened before `create_permissions()` inserts the app's 51-character historical-model permission names. A full `manage.py migrate` — the form every container entrypoint and Helm init container runs — was never affected. (#3081)
+A CSV or Excel import whose WBS column mixes bare phase numbers with dotted child codes
+(`1`, `1.1`, `1.2`, `2`, `2.1`, …) now reads every cell as a code. Previously the
+decision was made per cell rather than per column, so each bare phase number after the
+first was read as a nesting depth and the phase landed at its row position instead of
+its own number — leaving its children pointing at a number no task held, so they
+appeared at the top of the project rather than under their phase. A column of bare
+integers only is still read as nesting depths, as before.
+**Seeded personas can now see the projects they are named on.** Project access is scoped by `ProjectMembership`; a `ProgramMembership` reaches the program rail and no project. The seed importer granted a project row only to the importing user, so every persona in every bundled sample signed in to an **empty project list** — including `atlas-alex`, `bayside-sam`, `helios-jordan` and `aurora-priya`, the four accounts `getting-started/evaluation-guide.md` names in more than twenty steps. The documented 30-minute walkthrough dead-ended at its "sign in as" step while every CI gate stayed green. (#1760 fixed the *password* half of this and left the authorization half.)
+
+The importer now grants project memberships too. A new optional `projects[].members[]` key (`{account, role}`, in both the v1 and v2 schemas) declares a project's roster explicitly; omitting it grants every account its program-level `accounts[].role`, so a fixture written before the key existed gains working access with no edit. A declared roster **replaces** that fallback for its project, which is what lets one person hold different roles on different projects — the only way a sample can demonstrate project-scoped RBAC at all. `atlas-platform-launch` now ships that matrix: `priya` is Project Manager on Platform Core, Team Member on Migration Tooling, and cannot see GTM Readiness; `raj` sees one project; `ivan` and `ada` are read-only. Memberships round-trip through export, a `members` entry naming an unknown account is now a validation error rather than a silent skip, and the importing user can never be demoted by a seed. Closes #3092.
+**Four keys the seed schema declared are no longer read by nothing.** `seed_v*.json` sets `additionalProperties: false`, so an *unknown* key was already a validation error — but nothing checked the reverse, and four declared keys had no implementation behind them. A fixture author validating against the schema got a green light for all four.
+
+- **`baseline.captured_at`** — authored by all four bundled packs and never read. `Baseline.created_at` is `auto_now_add`, so every declared baseline recorded the moment somebody clicked *Load demo data*. That collapsed Bayside's 75-day gap between its contract baseline and its change-order rebaseline onto a single afternoon — the exact interval every planned-vs-actual view measures over. (The replay path already backdated correctly; only the declarative path did not.) Honoring it also exposed a duplicate: Bayside declared the rebaseline in `baselines[]` *and* emitted a `baseline.capture` event of the same name, producing two identically-named rows. The declared entry is canonical — it is active, carries explicit task rows, and is the only form the exporter round-trips — so the redundant event is gone.
+- **`task.dor`** — declared with an `enum` since v1. Aurora, the pure-scrum pack whose Definition of Ready is the point of its sprint-picker story, authored 23 `ready` and 2 `refine`; every one landed on the model default `idea`, because `task.ac_met` was the only writer.
+- **`project.board_columns`** — a bare label array the importer ignored, and one that could not have expressed `BoardColumnConfig.columns` even if read, since that is keyed on canonical `status`. It now mirrors the real shape (`status`, `label`, `visible`, `color`, `wip_limit`, `age_threshold_days`, `lanes`). Atlas's Platform Core board ships the WIP limit of 2 on Review that its own sprint-3 retro action already asked for, plus Building/Blocked lanes; Aurora gets renamed columns and its own limits.
+- **`project.agile_features`** — the model field was removed in migration `0123` and is now derived, so the key could only ever be a no-op. Removed from both schemas and all three fixtures that carried it.
+
+A new `test_declared_keys_are_implemented` gate closes the direction the validator cannot see: every key declared in either schema must be read by `importer.py`, `replay.py`, or `forecast_backfill.py`, and any genuine exception must carry its reason. It found six further keys on first run — five read via dynamically-built names in `_mc_series`, and `event.from`, which the exporter writes for timeline readability and replay deliberately ignores. Closes #3093.
+Paste-many now reads an allocation column, so a pasted plan can assign someone at partial capacity. A spreadsheet carrying an `Allocation` header — or an unheaded column of percent-suffixed values like `50%` — maps to the owner's units, and "Map columns…" offers *Allocation* for a column the header guess missed. Percentages honor the same 1–200% band as the `@ana:50` authoring token, and the paste receipt names allocation among the columns it matched. Previously every pasted row committed its owner at 100% however the source read, which left a bulk-authored plan reporting full demand on people who were only partly allocated.
+- **Dropdown menus cut off on short screens**: the Schedule "Display" menu (and about a dozen other menus/dropdowns across the app) could render taller than the browser window with no way to scroll to the remaining options. Every affected menu now caps its height to the viewport and scrolls.
+`scripts/wt stash` keeps a worktree's stashed changes to that worktree. Git's own
+`git stash` is not worktree-scoped — it stores to `refs/stash` in the shared common
+directory — so with several worktrees checked out, a `git stash pop` in one applies
+whatever another pushed most recently, and drops it in the process. `wt doctor` now
+also warns when `refs/stash` holds entries while more than one worktree is active.
+Exporting a program whose tasks carry informational relations produced a document that could not be re-imported. `export_program()` emits a v1 document and writes a `links` array onto any task with relations, but `links` was declared only in the v2 schema, so the exporter's own output failed validation at the import boundary. The v1 schema now declares `taskRelation` and `task.links`, matching what the exporter has always emitted.
+Seed imports no longer move a blocker's start date forward to the next working day. A blocker declared as starting on a weekend now records that weekend day, so its age reads correctly instead of being understated.
+Baseline capture dates in the bundled sample packs no longer shift to the next working day. The interval between two baselines — which planned-vs-actual views measure over — now matches what the pack authored, whatever day the demo data is loaded.
+- **Draft projects are now excluded from every aggregate, search and notification
+  surface, not just two of them.** The draft exclusion helper
+  (`visible_projects`) states that the exclusion "has to hold across program
+  rollup, portfolio health, search and notifications", but it was wired into only
+  the program rollup and the program's project list. Twelve further call sites now
+  route through it: the program-health digest's "top contributing project", the
+  `/projects/health-summary/` triage, the My Work schedule-health and forecast
+  signals, program resource contention, the Programs directory `project_count`
+  badge, the `/me/search/` command palette, the cross-project dependency picker's
+  task search, the merged program CPM graph and its persisted recalculation, the
+  nightly stale-task sweep, the weekly resource-overallocation digest, and the
+  daily forecast-snapshot floor. Drafts cannot be created yet, so nothing changes
+  for an existing install until the create-as-draft path lands — but the leak was
+  pre-armed for that moment (#3128).
+- **The weekly resource-overallocation digest no longer lets soft-deleted
+  projects consume its 25-project cap.** The digest sliced its project list before
+  filtering out deleted projects, so a deleted project could take a slot from a
+  live one — silently dropping a real overallocation — while the "showing the
+  first 25 of N" footer kept counting it. The filtering now happens before the
+  slice and the count, so the numerator and the denominator agree. This one is
+  visible today and needs no drafts to reproduce (#3128).
+- **`POST /projects/{id}/commit/` no longer 500s on a draft that already has a
+  baseline**: committing created its `Baseline v1` as active without standing down an
+  incumbent active baseline, so the one-per-project constraint raised an `IntegrityError`.
+  Reachable in practice — a draft can be given a baseline before anyone commits it. The
+  previous baseline is now deactivated and **kept** in history.
+- **Committing is Project Manager (Admin) only**, matching the role matrix in ADR-0773
+  and the floor already enforced by baseline capture and activation. It previously
+  admitted the Resource Manager band, which is a lower-privileged route to two writes
+  those sibling endpoints gate at Admin.
+- **Committing no longer discloses whether a project exists to non-members**: the
+  endpoint answered `403` for a real project and `404` for an unknown one, making it a
+  membership-scoped existence probe. It now answers `404` uniformly, matching
+  `/archive/`.
+- **`notified_resource_count` renamed to `assigned_resource_count`** in the commit
+  response. The old name — and its API documentation — asserted that the people with work
+  in the plan had been told what was committed. No notification is sent when a plan is
+  committed; the field counts the audience the commit concerns.
+- **A baseline captured by committing now emits `baseline.captured` and broadcasts
+  `baseline_created`**, like one captured manually. `Baseline v1` — the anchor every
+  variance number is measured from — was previously the single baseline invisible both to
+  webhook subscribers and to other connected clients. Its webhook payload carries
+  `source: "commit"` so a subscriber can tell the automatic first baseline from a later
+  manual capture.
+- **The New project sheet now leads with how you want to start, and says what
+  pressing Create will do.** The working calendar sat between the project's fields
+  and the Template / Blank / Import cards, so the sheet asked for a calendar before
+  it asked how the project would be built. The way in now comes first, followed by
+  name, program and start date, with the working calendar pinned in the footer
+  above the actions where it stays reachable however long the template list gets.
+  The footer also carries a line stating that nothing is created until the Create
+  button is pressed — worded to what the sheet actually does, since it creates a
+  real project on submit rather than a draft (#3130).
+- Schedule: the Unscheduled tray no longer stands across the bottom of the view when nothing is unscheduled. It appears only while it is holding something, and the reassurance caption ("All To Do and Backlog tasks have planned dates") is gone — absence is the empty state, matching the mobile Schedule tray.
+- Schedule: the Unscheduled tray's count is now a control rather than a caption. Clicking it walks the outline to the next row the tray is counting, expanding a collapsed phase when the row is hidden inside one. The separate "Schedule N…" button, which opens the bulk-edit sheet, is unchanged.
+The Schedule view's **Forecast** bar now offers its **Rerun** button only when the forecast is actually stale, instead of parking it on every forecast row. A fresh forecast states when the server last confirmed it; edit a task and the stamp is replaced by *Stale — rerun for updated forecast* with the Rerun button beside it. The button stays put while its own run is in flight and leaves when the fresh result lands, and the action group no longer resizes when it appears.
+- **Hiding the Schedule's how-to bar no longer drops keyboard focus.** Dismissing the bar
+  unmounted the container its close button lived in, so focus fell to the page body and a
+  keyboard user lost their place (WCAG 2.4.3, 2.4.7). Focus now lands on the **Display**
+  toolbar button — the control that brings the bar back, and the one the close button's
+  own label already pointed at (#3134).
+The Schedule forecast bar now learns that a forecast is out of date from the server rather than from a per-session counter, so **Rerun** is offered whenever there is something to rerun for. Previously only a Gantt drag or resize marked the forecast stale — inline cell edits, added or deleted rows, dependency changes, bulk edits, three-point estimate changes (the Monte Carlo inputs themselves) and a collaborator's edits were all missed, and the signal reset on every page reload, so a genuinely stale forecast could offer no recompute at all. The Monte Carlo payload now carries `forecast_staleness` (`current`, `project_changed`, `aged`, `unknown`) with the plan versions it was derived from, on the run and latest-forecast endpoints, the schedule-derivation endpoint and the project overview, so API and MCP clients get the same answer the UI does.
+- **The keyboard reschedule path now saves the change it announces.** Pressing `r`, nudging
+  with the arrow keys and confirming with Enter announced "Reschedule confirmed." to screen
+  readers and issued no request at all — the date never moved, and the false confirmation
+  left no reason to check. The keyboard path now persists through the same endpoint, the
+  same project-start floor guard and the same success hook as the pointer drag, announcing
+  confirmation only once the write lands and the reason when it fails. This also restores
+  the forecast-staleness signal on keyboard edits, which rode the same success hook (#3141).
+- **The schedule outline's dependency affordances now follow the dependency role band.**
+  The row menu's `Add dependency…` item and the Links-cell picker chip resolved the
+  task-content verdict, which is a different role band from the one the server enforces on
+  dependency edges. A Scheduler — the role that owns edges — was refused both, leaving the
+  outline's keyboard and right-click routes to dependency authoring dead for exactly the
+  band that needs them; a Member was offered both and got a 403. Both now resolve
+  `canAuthorDependencies`, and the row menu opens for a Scheduler carrying the dependency
+  item alone rather than staying shut because the task-content menu would be empty (#3142).
+- **Dependency write controls in the task drawer and the board card now respect the
+  viewer's project role.** The task drawer's Dependencies section rendered add-predecessor,
+  add-successor and per-edge Remove for every reader including a Viewer, and the board
+  card's predecessor editor gated on a predicate that never compared against the current
+  user. Both now resolve `canAuthorDependencies` (Scheduler and above), so a Viewer or
+  Member no longer sees controls the server refuses, and a Scheduler keeps the drawer
+  route that is their keyboard path to dependency authoring. The server always enforced
+  this correctly — no edge could be created or deleted without the role — so this closes
+  a false affordance and a stranded capability, not a data exposure (#3143).
+- **Helm structure check no longer reports a false NetworkPolicy regression on older
+  `yq` builds.** The chart's datastore-client allow-list check joined the rendered
+  NetworkPolicy components into a comma string and substring-matched it. That worked
+  only because the pinned `yq` v4.44.3 emits a blank line per skipped document; older
+  builds (v4.35.2, as packaged by Alpine) emit a `---` document separator instead,
+  which survived the whitespace squeeze and landed inside the list. The check then
+  failed with a confident, specific, and wrong message naming a chart file to edit.
+  The allow-list is now read one component per line and matched whole-line, so the
+  result no longer depends on the `yq` minor version (#3147).
+- **The Board lane header no longer states its progress twice.** Each phase swimlane
+  drew an `h-1.5` progress track *and* printed the same percentage as a numeral beside
+  it. The header now carries one progress slot: it renders the proportion as the bar,
+  or — when the phase holds no committed work — as an em-dash, never both and never
+  neither. The percentage moved to the bar's accessible name and to a tooltip that
+  opens on hover and on keyboard focus, so nothing that was readable before has become
+  unreachable; on a touch device, tapping the lane name still opens the phase, which
+  states progress in full. A fully complete phase is now told apart from a nearly
+  complete one by form rather than by four pixels of fill: 100% adds a detached
+  hairline. A phase with no committed work renders no progress element at all,
+  announcing itself to screen readers as "not applicable" — "indeterminate" would have
+  been a different, and wrong, claim — and trades its colored rail for a neutral one.
+  The cost row, when shown, stays in numerals under a dashed rule rather than adding a
+  second bar (#3148).
+- **A Board lane header now names what kind of work it holds.** The count beside the
+  progress slot read `4 tasks` on every lane. It now follows commitment — `8 items` on
+  a lane with committed delivery, `4 ideas` on a lane whose cards are all still
+  uncommitted — so the one place the header names its contents stops calling a backlog
+  of ideas a set of tasks. `items` is the same neutral noun the schedule outline uses,
+  taken from the shared vocabulary rather than spelled again, so the two surfaces
+  cannot drift apart (#3148).
+- **Toasts no longer stack without a bound**: the notification host now renders two fixed
+  slots — one for passive confirmations, one for a toast carrying an action such as Undo —
+  so at most two appear at once and routine confirmations can never push an Undo off the
+  screen before you reach it. A toast you have tabbed into is neither timed out nor
+  replaced until you leave it, and two toasts offering an Undo no longer displace each
+  other unless the undo is also recorded somewhere you can still reach it, so a queued
+  message waits its turn rather than destroying the one on screen. Repeated identical
+  confirmations collapse into a single pill with a count instead of flickering, a failure
+  notice is no longer pushed aside by a routine confirmation, and the announcement region
+  is explicitly non-atomic so one toast changing no longer makes a screen reader re-read
+  the other.
+The Schedule outline's Owner column now shows each assignment's allocation percentage at rest and states it in the cell's accessible name, instead of hiding it in a hover-only tooltip that touch and screen-reader users could not reach.
+Fixed the Schedule forecast bar clipping its own run history. With the bar expanded, a project with several Monte Carlo runs grew the bar taller than the schedule column it sits in — the older runs were cut off with no scrollbar, and the Gantt chart above could be squeezed to nothing. The bar now caps its height and scrolls its body, keeping the P50/P80/P95 chips pinned. The same fix is applied to the schedule's "changes" review list and to the MS Project import dialog, which had no height limit on desktop.
+- **The Calendar's Week toggle now renders an actual week.** Selecting **Week** used to
+  re-render the identical month grid — same six week rows, same "August 2026" heading,
+  same month-scoped chips — because the view mode was stored in the URL but never
+  reached the grid. Week mode now shows a single Mon–Sun row for the anchored week,
+  headed by its date range, and **drops the four-lane cap**: a week row no longer hides
+  work behind an unexpandable "+N more", so every task touching that week is visible.
+  Month mode keeps its layout and its four-lane cap, with two deliberate changes — the
+  grid is now exposed as a named landmark for screen readers, and chips in an
+  overflowing row are painted at their own lanes, fixing a bug where a capped row could
+  shift chips onto each other's lanes and push one outside the row (#3167).
+Deleting a summary or phase row on the Schedule now removes its whole WBS subtree, as the confirmation dialog has always said it would. Previously only drawer subtasks were deleted; structural children were left behind with no parent, surfacing at the top level of the outline still numbered as if they were nested. Undo restores the full subtree.
+The bootstrap superuser no longer defaults to an address at a domain the operator does not control. When `DJANGO_SUPERUSER_EMAIL` (or Helm's `admin.email`) is unset, the account is now created at `admin@example.com` — a reserved domain that cannot receive mail — and the Helm chart prints a warning telling you to set it. Previously the default was `admin@trueppm.com`, so password-reset mail for an un-overridden install's root account was addressed to the vendor's domain rather than the operator's. `create_admin` also now warns explicitly when it promotes an existing non-superuser account and resets its password.
+**A stock Helm install could never reach Ready, and `/static/` 404'd on every one that did.** Two independent defects in the chart, both invisible to CI.
+
+`ALLOWED_HOSTS` is required in production and Django validates the `Host` header inside `get_host()` — before any view, and out of reach of `SECURE_REDIRECT_EXEMPT`. The chart's api probes set no `Host` header, so kubelet connected by pod IP and sent `Host: <podIP>:8000`; a correct, documented `ALLOWED_HOSTS=trueppm.example.com` therefore made `/readyz` answer **400 DisallowedHost**. The pod never turned Ready, the Service never got an endpoint, and the Ingress served 503 — with nothing anywhere in that chain naming `ALLOWED_HOSTS`. Both probes now send an explicit `Host`, resolved from `ingress.hosts[0].host` and overridable with the new `probes.api.hostHeader` for deployments with no Ingress. Both runtime drills — `scripts/helm-install-drill.sh` and `scripts/helm-netpol-drill.sh` — had been installing with `ALLOWED_HOSTS='*'`, the value the docs mark `:::danger`, which is exactly why no gate saw this: they proved the chart boots under a configuration no operator should run. Each now derives a concrete list from the render, so the class fails in CI. (The one remaining wildcard, in the install drill's negative SECRET_KEY probe, is deliberate and commented — that throwaway pod must fail on the secret guard alone.)
+
+Separately, the chart never ran `collectstatic` and never set `STATIC_ROOT`. The image deliberately does not bake the output (`packages/api/Dockerfile` collects "at startup"), and the settings default resolves inside the read-only venv when the app is pip-installed, so the `/app/staticfiles` emptyDir the api container serves through WhiteNoise stayed empty: unstyled Django admin — the surface `web.adminAccess` exists to expose — and a blank Swagger UI. The Compose path had always done both. A `collectstatic` init container and an explicit `STATIC_ROOT` now ship, `helm test` asserts a real static asset resolves, and `helm-structure-check.sh` gained gates for both fixes (each verified to fail when the fix is reverted).
+
+Also: `.env` is now gitignored. `init-prod.sh` writes it at the repo root carrying `SECRET_KEY` (which is also the JWT signing key), `DB_PASSWORD` and `REDIS_PASSWORD`, and nothing had stopped `git add -A` from committing an operator's production secrets. `.env.example` now ships `localhost,127.0.0.1` in `ALLOWED_HOSTS`, without which the Compose api container reports `unhealthy` forever while the site serves fine.
+
+Closes #3183.
+**Local attachment storage now works, and says so at boot when it cannot.**
+`MEDIA_ROOT` was set nowhere, so Django resolved uploads against the container's
+working directory — a read-only filesystem on both supported production paths.
+Every upload failed with `EROFS` on a deployment the boot guard had reported
+healthy, and the documented escape hatch (mounting a claim through the chart)
+did not exist. `TRUEPPM_MEDIA_ROOT` is now a real Django setting defaulting to
+`/var/lib/trueppm/media`; the Helm chart gains `persistence.media.*`, which
+mounts a claim there on the api pod (init containers included), the Celery
+worker, and Celery beat; `docker-compose.prod.yml` mounts a named `media`
+volume at the same path; and the boot guard refuses `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true`
+when that path is not writable rather than deferring the failure to the first
+upload. Because api, worker, and beat all mount one claim, `persistence.media`
+defaults to `ReadWriteMany` and the chart refuses to render a `ReadWriteOnce`
+claim above one API replica — where an upload accepted by one pod would 404 from
+the next. Closes #3184.
+**`backup.enabled=true` no longer produces zero backups while reporting success.**
+With no destination configured the `backups` volume fell back to an `emptyDir`:
+the Job dumped, exited 0, the artifact died with the pod, and the CronJob
+reported success forever. The chart now refuses to render that combination and
+names the four ways to give it a destination. Enabling backups (with
+`alerts.enabled`) also ships `TruePPMBackupJobFailed`, `TruePPMBackupStale`, and
+`TruePPMBackupNeverSucceeded`, plus a `TruePPMVolumeFillingUp` rule covering
+every claim in the namespace — the CronJob template's own comment had promised a
+failed Job "the operator can alert on" while nothing shipped to do that. The
+CronJob's inline command has also been brought back into line with
+`scripts/backup.sh`: its `tar` no longer swallows failures with `|| true`, and
+its `MANIFEST` carries the same seven fields, so a restorer can tell whether
+media is inside the artifact they are holding. The CI restore drill now extracts
+that command from the render and round-trips it through `restore.sh`, which it
+had previously only ever triggered on. Closes #3185.
+**The Helm chart told operators to set a value that hard-deletes every trashed project.** `values.yaml` documented `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` as: *"Default 30. Set to `"0"` or omit to keep the default … Set to an empty string to disable auto-purge."* Both instructions were inverted. The setting is read with `env.int`, so `"0"` parses as the number zero rather than falling back to the default — and zero puts the retention purge cutoff at the present moment, so the next run hard-deletes **every** soft-deleted project, with its tasks, dependencies, sprints and baselines, via DB CASCADE. There is no tombstone and no undo. An empty string does not disable anything either: `env.int` raises `ValueError` at settings import and the container crash-loops.
+
+The comment is rewritten to say what the value actually does, and to point at the real disable lever: leave the variable unset and turn the policy off in **Settings → System Health**, which stores a `RetentionPolicy` override with `enabled: false`. That is also where the live window is tuned without a redeploy — the environment variable is only the fallback used when no override row exists.
+
+The API had always refused this value (`RetentionPolicyWriteSerializer.value` is `min_value=1`), so the save-bar could never store `0`; only the environment variable was unguarded. It no longer is: the app now refuses to boot on `0` with a message naming the consequence and the correct alternative, matching the fail-closed posture of the `SECRET_KEY`, attachment-storage and integration-key guards — asgi workers never run `manage.py check`, so the guard runs at settings import.
+
+Deliberately scoped to this one window. The other five cover log-shaped tables (webhooks, exports, imports, task runs, sync batches) where "keep nothing" is a defensible operator choice, and rejecting `0` there would crash-loop a working deployment on upgrade.
+
+Closes #3186.
+**Docker Compose production hardening.** No compose file set a log-rotation
+policy anywhere: Django emits single-line JSON per request in production, plus a
+Celery worker and beat at `--loglevel=info`, against Docker's uncapped
+`json-file` driver — a guaranteed disk-full incident on a long-running install,
+which takes PostgreSQL down with it. Every service in the production and demo
+stacks now caps at 10 MB x 5.
+
+**`client_max_body_size` is 110M everywhere**, not 50M. `MAX_ATTACHMENT_SIZE_BYTES`
+and `DATA_UPLOAD_MAX_MEMORY_SIZE` are both 100 MB, and that setting's own comment
+tells operators to configure nginx to match — but all three edge configs capped
+at 50M, so every attachment between 50 and 100 MB got a bare nginx 413 on every
+deployment path. The baked web image set nothing at all and inherited nginx's
+1 MB default. On Kubernetes the binding limit is the Ingress annotation, not the
+chart's `web.maxBodySize`: the default routing sends `/api` straight to the API
+Service, so an attachment upload never traverses the web tier's nginx. Both are
+now 110 — `ingress.annotations` proxy-body-size and `web.maxBodySize` — and the
+Helm values reference no longer omits the 100 MB attachment cap from its table of
+application limits, which is the omission that sized every transport limit
+against the 50 MB MS Project import instead.
+
+**The dev stack no longer publishes PostgreSQL on `0.0.0.0`** with its hardcoded
+password (Docker's published ports bypass most host firewalls), and the docs no
+longer recommend that stack for "small teams". **Production Valkey is persistent
+and bounded** — it was an unsized `tmpfs`, so every restart wiped the broker,
+channel layer, cache, and throttle counters, and the dev stack was the one with
+a durable volume. **Production services now have resource limits** (the demo
+stack limited everything and production limited nothing) and **nginx, celery,
+and celery-beat have healthchecks** — `restart: unless-stopped` only fires on
+process exit, so a wedged nginx or a stopped beat reported `Up` forever.
+
+**`init-prod.sh` no longer `source`s `.env`.** A documented `.env.example` line
+(`CSP_CONNECT_SRC='self' wss:`) made bash execute `wss:` and exit 127, and a
+password containing `$(...)` or a backtick would have been *executed*. It now
+parses key-value pairs and evaluates nothing.
+
+Also: the production compose file pins its project name (volume and container
+names were directory-dependent while the docs hardcode them), documents that the
+first run through `init-prod.sh` is mandatory, and gitignores the template that
+run generates. `/admin/`'s `allow 127.0.0.1` could never match — nginx tests
+`$remote_addr`, which for a request through a published port is the Docker
+bridge gateway — so the documented SSH-tunnel procedure returned 403; the rule
+now fails closed explicitly and the working procedure is documented. `APP_VERSION`
+is documented as needing a pin, the observability overlay binds to loopback, and
+`docker compose down -v` finally carries a warning. Closes #3189.
+- Empty states no longer re-announce themselves to screen readers. An empty surface is announced when it *becomes* empty, once — a route change, a project switch, or a filter edit that leaves the surface equally empty is now silent, and a Board with four empty columns announces once instead of four times (#3198, ADR-0989).
+- **Skill proficiency is now announced by screen readers and reachable without a
+  mouse.** A skill chip stated its proficiency in only two places — a `title`
+  tooltip and a run of `aria-hidden` dots — so a touch user got nothing (a `title`
+  has no touch affordance) and a screen-reader user heard the bare skill name. The
+  chip now completes its own text with the proficiency, so `HVAC, Expert` reaches
+  the accessible name of the resource-picker option and roster rows that contain it.
+  The dots and the tooltip are unchanged as visual and pointer conveniences; the
+  tooltip's separator changes from an em dash to a comma so the spoken and hovered
+  spellings are one string (#3200).
+Fixed the task detail drawer's schedule strip painting the duration unit picker over the Float cell. The picker overflowed its grid track by ~43px, making the float value unreadable and — because the Float cell's value sat on top of the `h` radio — leaving the picker un-clickable by pointer. The picker now sits below the duration value, inside its own cell.
+
+The duration input also now announces the unit it is actually read in ("Duration in hours" on an hours-authored task) instead of always saying days, and the `d`/`h` picker is available while the input is open.
+- **The `d` / `h` duration-unit picker now meets the 44px touch target minimum.** The
+  two segments in the task drawer's Duration cell were a fixed 28x32px with no
+  coarse-pointer branch, so they were the same size on a tablet as under a mouse —
+  below the WCAG 2.5.5 floor, on the only pointer route to switching a task between
+  days and hours. Each segment now resolves its size from the Schedule's row-height
+  owner: 28px square on a fine pointer (unchanged density for a mouse) and 44px square
+  on a coarse one. The drawer's Start / Finish / Duration / Float strip stacks two-up
+  below the `md` breakpoint so the larger picker still fits the phone bottom sheet;
+  the four-up desktop strip is unchanged (#3212).
+- **A phase-in-waiting keeps its "⊕ Add first item to this phase" hint across a page
+  reload.** The Schedule remembers which rows are phases awaiting their first child for
+  the length of a session, but the cleanup that prunes that memory ran before the task
+  list had loaded and read the not-yet-loaded state as "these rows are gone" — deleting
+  the memory and saving the deletion, so a reload silently dropped the hint. The
+  cleanup now waits for the task list to actually answer (#3213).
+- **Hiding a view no longer un-hides the others when you click before the page has
+  finished loading.** The Views menu and the Views section of General preferences send
+  the complete set of hidden views on every change, and both read an empty set while
+  the account was still loading — so a click in that window replaced everything you had
+  hidden with just the one view you clicked, on every device. Both surfaces now wait for
+  the account to load, and their switches stay visibly unavailable until it has (#3214).
+- **A board opened offline keeps its dependency arrows and its column layout.** The
+  offline snapshot was saved as soon as the task list arrived, without waiting for the
+  dependencies and board configuration, and recorded "none" for whichever had not
+  answered yet — overwriting the last good snapshot. The next offline open then showed a
+  board with every dependency link missing and the default columns restored. The
+  snapshot now waits for all three (#3214).
+**A mutmut run that measured nothing no longer reports as a healthy pass — and the run that had been measuring nothing for thirteen nights is fixed.** `check_mutation_score.py` returned `0` at any floor when the stats file carried no killed and no survived mutants, printing `no scoreable mutants — nothing to gate`. "Never measured" and "measured and fine" were the same green.
+
+That was not hypothetical. `scheduler:mutation` measured **zero mutants on thirteen consecutive nightlies**, 2026-08-18 through 2026-08-30, every one of them green. mutmut runs the test suite once before mutating anything; a test added in #2837 reads `CHANGELOG.md` off the package root, that file was not listed in `[tool.mutmut] also_copy`, so inside mutmut's copied `mutants/` sandbox it did not exist. The run died with `failed to collect stats`, the job's `|| true` swallowed it, `export-cicd-stats` wrote `{"killed": 0, "survived": 0}`, and every mutant in the published artifact read `not checked`. Nothing anywhere said so.
+
+Two fixes:
+
+- `also_copy` now carries `CHANGELOG.md` and `README.md` alongside `scripts/`, with a comment recording that a test reading a repo file is a change to that list. Verified locally: the same tree goes from `failed to collect stats` to 1042 killed / 78 survived.
+- The exit-code contract is now three states instead of two, and the three "not measured" cases agree where they previously disagreed (missing exited 2, unparseable exited 1 through an uncaught `JSONDecodeError`, zero-scoreable exited 0). **0** = measured and at or above the floor, or no floor requested; **1** = measured and below the floor; **2** = could not be measured — file missing, unparseable, not a JSON object, or zero scoreable mutants while a floor was set. Unparseable stats now produce a message naming the cause rather than a traceback.
+
+Fail-closed applies only when a floor was actually requested; at `--min 0` an empty run still exits 0, because nothing was being gated. The counter-argument — that an empty run is often a legitimate transient and failing on one reds a schedule nobody can act on — was weighed and rejected on this repo's own record: what it produced was not a transient but a thirteen-day silent regression that exit 0 concealed for its entire duration.
+
+Closes #3216.
+**The Apache-2.0 per-package license gate now runs in `make pre-push`, and a false opt-out reason is gone.** `check-prepush-parity.sh` excluded `check-package-licenses.sh` from pre-push with "requires installed dependency trees for five packages". That is not true of this gate: it reads `LICENSE` and `packages/*/LICENSE` and diffs them — no network, no toolchain, measured at 0.03s for the scan and 0.24s for its self-test. The reason had been written about the *dependency*-license jobs (`license:check:py|web|website|mcp|mobile`, `wasm:license-check`), which genuinely do need installed trees — the exact conflation `check-package-licenses.sh`'s own header exists to warn against, since a package shipping its own license text is a different obligation from the licenses of its dependencies.
+
+By the parity file's own criteria — offline, repo-only, seconds-scale — the gate qualified for pre-push all along, and Apache 2.0 §4(a) is a licensing obligation that was only being checked after push. There is now a `package-licenses-check` Makefile target in `pre-push-checks`, the `OPT_OUT` entry is deleted, and the parity gate still reports `0 unmirrored` (25 mirrored, 7 opted out).
+
+The `OPT_OUT` header gains the lesson: a reason that is false is worse than a missing entry, because a missing one gets caught on the next run while a wrong one reads as a considered judgement and stops anyone re-deriving it. If a reason names a sibling gate rather than the script in front of you, that is the tell.
+
+Closes #3217.
+- **The `helm:install` and `helm:netpol` CI drills no longer lose a run to the celery
+  worker's probes when the runner is busy.** The chart gives the worker a
+  `celery inspect ping` exec probe, and on a loaded kind-in-dind node that probe can
+  stop succeeding entirely: one traced run saw thirteen consecutive readiness failures
+  against a worker that had logged `ready.` sixteen seconds in and never restarted.
+  Because readiness needs one *success* to turn a pod Ready, and has no failure budget
+  to widen, `helm install --wait` could never finish and the job burned to its deadline
+  instead of passing in its usual ~200s. Both drills now install with the worker's
+  probes disabled, so the install completes and the drill's real assertions — migrate
+  and bootstrap, `helm test`, the admin password handoff, the fail-closed SECRET_KEY
+  guard, `/admin/` denied at the edge, and the pinned worker concurrency — are what
+  decide the result. Chart defaults are unchanged; production keeps its probes. The
+  underlying reason the ping stops answering is tracked separately in #3236 (#3218).
+Documented that the chart's generated PostgreSQL and Valkey passwords are only stable when Helm can reach the cluster. The read-back uses Helm's `lookup`, which returns empty under `helm template`, `--dry-run`, and `helm diff`, so those paths generate a new password on every render — which matters for Argo CD, since it applies the output of `helm template` and would overwrite the connection Secret on every sync while the datastore PVC keeps the old credential. `helm install` and `helm upgrade` were already correct and are unchanged. `values.yaml` and `templates/secret.yaml` now scope the idempotence claim, and `administration/deployment.md` documents the two supported postures.
+Pinned `certbot/certbot` to `v5.7.0` in the production Docker Compose stack and in `init-prod.sh`. It was the only unpinned image in that stack, so the component responsible for TLS issuance and renewal moved version on any `docker compose pull`. Both call sites carry the same pin: `init-prod.sh` writes the renewal lineage that the compose service reads back twice a day, and a skew between them surfaces at ~60 days as a renewal failure. A new `compose:image-pins` CI gate keeps every third-party compose image tagged.
+
+Corrected the `APP_VERSION` example in `docker-compose.prod.yml`, which showed a `v`-prefixed tag (`v1.0.0`). The release pipeline strips the `v` before pushing to GHCR, so the documented example named a tag that does not exist there.
+- The Schedule's keyboard hint strip no longer teaches edits to someone who cannot make them. A reader with view-only access reaches the same row-focused state as an author, and used to be shown `New row below`, `Indent` and `Edit` — three acts with no control on screen to look disabled. It now shows only what a reader can do (move between rows, open a row's details), and keeps the `?` All shortcuts route (#3231).
+Workspace **General** settings no longer claim behavior the product does not have. The **Work week** picker, **Default project view** and the *day* half of **Fiscal year starts** all save and reload but are read by no code — working days come from the project's working calendar, projects open on their own default view, and quarter boundaries derive from the fiscal-year *month* alone. Each control now says so in place, and `administration/workspace-settings` gains a "Settings that are stored but not yet read" section cross-linked to the issue that would make each one real. No setting changed value or behavior.
+The project roster's per-person bar now states **availability** instead of being colored and labelled as load. It previously applied a load ramp — amber at 85%, red above 100% — to `effective_max_units`, which is a person's availability *ceiling*, not their consumed work. Because that ceiling defaults to full time, every resource on a fresh install rendered in the amber "at risk" color at half bar width, and a deliberately-configured 1.5-FTE crew was announced to screen readers as "overallocated" while carrying no assignments at all. Each row now reads `N% available` in both the visible text and the accessible name, draws full time as a full bar, and uses one neutral fill with no health colors.
+Fixed the actual cause of #3236 (celery worker intermittently never answers a control-plane `inspect ping`): `packages/api`'s `redis` (redis-py) dependency floor had drifted to `>=7.0,<8.0` — a manifest-hygiene commit that raised the floor to match an already-resolved lockfile version, without checking that kombu 5.6.2 (this project's pinned Celery transport) only declares support for `redis!=4.5.5,!=5.0.2,<6.5,>=4.5.2`. redis-py 7.x silently breaks kombu's Redis pidbox (the control-plane broadcast/reply mechanism `inspect`/`control` commands use), a known incompatibility tracked upstream at redis/redis-py#4061 — the worker connects, processes tasks, and passes its heartbeat-file readiness check throughout, but the control-plane consumer stops responding, which is exactly the "Ready but never answers" signature two independent `helm:install` drill recurrences reproduced. Pinned to `redis>=6.4,<6.5`, the newest release inside kombu's declared window (verified clean of known vulnerabilities).
+**The Helm chart's API probes no longer stamp an example hostname onto a
+no-Ingress install.** `trueppm.probeHostHeader` resolved the probe `Host` header
+from `ingress.hosts` without ever testing `ingress.enabled` — and
+`ingress.enabled: false` is the chart default while `ingress.hosts` ships
+populated with the placeholder `trueppm.example.com`. Every install without an
+Ingress therefore sent `Host: trueppm.example.com` on both the readiness and
+liveness probes, a name no `ALLOWED_HOSTS` contains. Django answers
+400 DisallowedHost from `get_host()` before any view runs, so `/readyz` never
+passed, the pod never turned Ready, the Service never got an endpoint, and
+`/health/` failed liveness into a restart loop — with nothing in the output
+naming `ALLOWED_HOSTS`. The chart's own `values-demo.yaml` install was affected.
+
+The header now resolves to the first ingress host only when `ingress.enabled` is
+true, and otherwise to the api Service's own DNS name `<release>-trueppm-api` —
+the name the `helm test` connection probe already curls and that the deployment
+guide already tells you to allow, so the default install needs no
+`probes.api.hostHeader` value at all. An explicit `probes.api.hostHeader` still
+beats both branches.
+
+Operator note: if you worked around this by setting `probes.api.hostHeader`
+explicitly, that setting still wins and nothing changes for you. If you had not,
+add `<release>-trueppm-api` to `ALLOWED_HOSTS` (`trueppm-api` when your release
+name already contains "trueppm") — `values-demo.yaml` and the Helm README now
+document it in the `ALLOWED_HOSTS` they prescribe.
+
+`scripts/helm-structure-check.sh` asserted the old behavior and passed for the
+wrong reason: it rendered with defaults, where no Ingress exists, then required
+the header to equal `ingress.hosts[0].host`. It now checks both branches, the
+release-scoped Service name, that the fallback matches what `helm test` resolves,
+and that an explicit override beats each branch.
+
+Closes #3237
+**The Helm quickstart's `ALLOWED_HOSTS` now covers the port-forward path.** With
+`ingress.enabled: false` — the chart default — `NOTES.txt` tells the operator to
+`kubectl port-forward` to the web Service, and that is the only route into the
+app. The web tier's nginx proxies `/api/` with `proxy_set_header Host $host`, so
+Django receives `Host: localhost`. Every documented `ALLOWED_HOSTS` omitted it.
+
+The failure was deceptively partial: nginx serves the SPA document and its JS
+bundles off disk without ever touching Django, so the app **rendered**, and then
+every `/api/v1/...` XHR answered 400 DisallowedHost. It read as a broken build,
+with nothing anywhere naming `ALLOWED_HOSTS`. The Compose side of this was fixed
+in #3183; the Helm side was not.
+
+`packages/helm/README.md`, the deployment guide, and `NOTES.txt` now agree on an
+`ALLOWED_HOSTS` that includes `localhost` and `127.0.0.1`, and `NOTES.txt` prints
+the requirement next to the port-forward command it is a precondition for. The
+"Host names you must include" table in the configuration reference gains the
+port-forward row — the only reachable caller on a default chart install, and the
+one it was missing.
+
+**Also corrected: `trueppm-api` is not the Service name for every release.** The
+docs told operators to add `trueppm-api` for `helm test`, which is right only for
+a release literally named `trueppm`. `trueppm.fullname` collapses the duplicate
+segment only when the release name already contains the chart name, so
+`helm install ppm ...` produces `ppm-trueppm-api` and `helm test` failed with a
+400 that named nothing. Both the Helm README and the deployment guide now say so.
+
+Guarded by `scripts/helm-structure-check.sh`, which asserts the notice fires for
+both `web.enabled` topologies and that every `ALLOWED_HOSTS` the chart README and
+deployment guide prescribe contains `localhost` — the chart and the docs are
+checked against each other, because the defect was that they disagreed.
+
+Closes #3238
+- **Project notification settings no longer point at a Slack setup that does not
+  exist.** The Slack and Mobile push columns deliver nothing — no code path in
+  TruePPM sends on either channel, and no setting enables them — but the page
+  offered a "Slack channel routing" card telling you to configure Slack under
+  Project Settings → Integrations, a page that has no Slack configuration. Both
+  columns are now marked **not delivered yet** in the matrix header, and the card
+  says plainly that delivery does not exist yet, pointing instead to the
+  Slack-format webhook, which is real and does work — while noting it is a
+  project-wide feed that does not read the per-person matrix (#3249).
+**"Convert to milestone" now actually makes a milestone.** It previously sent only `duration: 0`, and because the API infers the milestone flags from neither a bare duration write nor each other in that direction, the act produced a *zero-duration task* — no diamond, no single-date treatment, no refusal when work was dropped onto it, and Board, CPM and sprint rollup all still counting it as work — while the session trail announced that a milestone had been created. The conversion is also **reversible** now: a milestone converts back to an item at the estimate it had before, the row menu shows it as a toggle with its state, and a phase refuses the conversion with the reason instead of silently doing nothing. A milestone's Duration column states `0d` rather than an em-dash, which read as "unknown" on the one row type defined by having no duration.
+- **Schedule outline row controls**: the how-to bar teaches `+ ⇤ ⇥ ◆` as the row's
+  hover controls, but the `◆` milestone toggle did not exist — the row rendered only
+  indent and outdent, and the toolbar's Milestone button had already been unpinned on
+  the strength of the row control replacing it. Every row now carries the `◆` toggle
+  beside `⇤`/`⇥`: it converts the row to a milestone and back through the same act as
+  the row menu, reads as pressed while the row is a milestone, meets the 44px floor on
+  touch, and on a phase stays readable while refusing with the reason. The row-controls
+  lane widened to fit the third control rather than overlapping the WBS column.
+**The Schedule's summary chip no longer calls every row a task, and now says how
+much of the plan is running in sprints.** It read `{N} tasks · {C} critical ·
+CPM ✓`, deriving `N` from every visible row regardless of type — so a plan of
+phases and milestones was announced as that many "tasks". The chip now reads
+`{N} items · {S} in sprints · {C} critical · CPM ✓`, taking its noun from the
+row vocabulary rather than a literal.
+
+`{S} in sprints` is the readout that was supposed to arrive when the Mode column
+was removed and never did, leaving a hybrid plan with nowhere on the Schedule to
+say how much of itself runs iteratively. It excludes phase summaries, matching
+the critical count, and **follows the project's configured iteration label** —
+a team running Iterations or PIs sees `3 in iterations` / `3 in PIs`, not
+"sprints".
+
+When the toolbar tightens, `in sprints` is the first token dropped, ahead of
+`critical`: the critical count drives the plan's dates, the sprint count
+describes how it is being run. The spoken form is unaffected — the accessible
+name carries all four counts at every width.
+
+The vocabulary lock (`rowVocabularyLock.test.tsx`) now renders this chip, in
+both of its noun-bearing states. This was the lock's first real miss: two hand
+sweeps and then the mechanism built to replace them all passed over the file
+because nothing rendered it. Fixing the string without adding it to the roster
+would have left the next chip exactly as unprotected.
+
+Closes #3259
+**Setting a task's duration to `0` now fails with a clear error instead of silently destroying the estimate.** Zero duration is what makes a task a milestone, but the API only enforced that in one direction: setting the milestone flag zeroed the duration, while writing `duration: 0` over a real estimate left a task that was zero-length and yet not a milestone — no diamond, no single-date treatment, and the Board, scheduler and sprint rollup all still counting it as work. Such a write is now refused with the stable code `zero_duration_not_milestone`, which names the payload that does work. Creating a task with no estimate is unaffected — a backlog idea or an empty phase is legitimately zero. Un-flagging a milestone without supplying a new duration now restores a duration of 1 day rather than leaving the gate's zero behind.
+- **Worktree test databases are cleaned up**: `scripts/wt remove` and
+  `scripts/wt prune` now drop the Postgres test database they caused to exist,
+  including the whole `_gw0…_gwN` family a `pytest-xdist` run creates.
+  pytest-django only drops it on a clean exit, so every interrupted run left one
+  behind permanently. `scripts/wt doctor` reports databases with no live
+  worktree behind them, and the new `scripts/wt prune-dbs` (`make wt-prune-dbs`)
+  reclaims them — skipping anything with an open connection, and never matching
+  outside the `test_trueppm_wt` prefix.
+- **The milestone diamond on the Schedule outline is visible again.** The glyph that
+  asserts a row is a milestone was rendering zero pixels wide: it is a direct child of
+  a flex cell whose content overflows, and without `shrink-0` it absorbed the entire
+  overflow and collapsed to `width: 0` (its height stayed correct, which is why the
+  row looked intact). Since the diamond is `aria-hidden` and is the only channel that
+  states the row *type* — every other cell states a consequence — neither sighted nor
+  screen-reader users had the type at all. The glyph now holds its 12px (#3273).
+CI: the `ci-api` image is now published under a content-stamped tag instead of a fixed `:py3.11`, and the mypy toolchain is pinned exact. Runners pull `if-not-present`, so a tag whose contents changed left each runner serving whatever digest it had cached — three digests ran the same commit and `api:type-check` reported 41 type errors under one and none under the other two. `scripts/check-ci-api-tag.sh` recomputes the stamp and fails when an image input changes without it.
+Endpoints that read named fields from a JSON request body now return **400** rather than **500** when the body is a JSON array or a scalar. A top-level array is a legal JSON body, and `request.data.get(...)` on one raises `AttributeError`, which DRF surfaces as a server error — so the caller was told the server broke rather than that their request was malformed. Eighteen handlers now narrow the body before the first field read; five further sites were confirmed unreachable (multipart-only parsers, or an envelope serializer that rejects a non-mapping first) and narrowed with a stated reason instead. The `field-values` endpoint is the sharpest case, because its `"value" not in request.data` check passed for a list body before failing on the subscript one line later — and the retro board item PATCH is the quietest, because a list body there was silently accepted as a no-op 200.
+- The Schedule's timeline no longer loses its bar track on a narrow window. The outline and the bar track share one row, and only the track could give ground, so between roughly 768px and 1024px the track had already been squeezed to a few pixels — and to nothing once the collapsed rail took its 64px. The track now keeps a 320px floor and the outline yields instead, clipping its rightmost columns; no column width you set is changed, and widening the window restores your layout exactly (#3279).
+Running `scripts/wt <subcommand> --help` now prints that subcommand's usage instead of creating a branch, a worktree, and an ADR reservation named after the flag. Any leading-dash token a subcommand does not declare is now rejected rather than silently adopted as the branch name or issue number, so a mistyped `--forse` fails loudly. `wt doctor` reports reservations held by a branch that no longer exists — these still raise the next free ADR number — and the new `wt release-reservation <branch>` drops them, refusing while the branch is still live.
+The Risk register and retro sticky-card edit buttons now use the house pencil icon instead of a `✎` character, and the Schedule's keyboard hint strip no longer leads with `⌨ Build mode`. The label was a readout of a constant — build mode is always on with a keyboard and pointer — so it restated on a teaching surface the thing the documentation says is not a mode you switch on.
+- **The project config-change notice now reaches the people who own the surface, not
+  only the people assigned to it.** Switching a project's methodology preset or hiding
+  one of the Reporting, Time tracking, Baselines or Monte Carlo views notified only
+  task assignees and booked resources, so a Product Owner, a Scrum Master, or a project
+  manager holding no assigned task — the three people the flip re-shapes hardest, and
+  the ones everyone else asks to explain it — were structurally excluded from the only
+  notification that existed. The surface-change notice now also reaches the project's
+  Scrum Master and Product Owner and every member at Scheduler or above, all still
+  intersected with live project membership so a removed member is never told. The
+  board-lane and board-column notices keep their assignee-only audience, which is
+  correct for them: a lane going away moves cards (#3291).
+- **Program methodology no longer claims to reach existing projects**: a program's
+  methodology seeds the projects created in it afterward — it has never changed the
+  projects already there — but the program General hint said otherwise. It now says
+  what happens and points at the Projects matrix, which is where existing projects
+  are changed.
+- **The project methodology banner names the scope it actually read**: the inherited
+  value resolves program → workspace, but the banner hard-coded "workspace default",
+  so a project inside a program was told the wrong scope. It now reads "Inherited
+  from the program default" whenever the project belongs to a program.
+- **A program methodology save now reports what it did and did not reach**: it states
+  the partition it left behind ("9 of 12 projects in this program run as Waterfall; 3
+  do not") and offers **Align the 3**, a link into the Projects matrix with those rows
+  checked and Methodology chosen. It stages nothing, so **Apply** stays disabled until
+  you pick a value. When every project already matches, or the program has none, it
+  says so rather than showing nothing.
+**The methodology flip warning now covers every view the flip hides, in both
+directions.** It counted sprints only, so a Waterfall flip on a project with a
+groomed product backlog and no sprints saved in silence even though Waterfall
+hides Backlog too — and a flip to Agile, which hides Schedule *and* Calendar,
+warned about nothing at all. Switching to Waterfall now names the sprint count
+and the backlog count (either one alone raises the dialog); switching to Agile
+names how many tasks are on the schedule and how many dependency links exist,
+plus the two views it takes away. The dialog reads the views it names from the
+methodology matrix rather than a second copy of that list, and its `Switching…`
+phase now writes its own sentence into the node screen readers re-read when
+focus is re-seated. Switching to Hybrid still never warns — Hybrid hides
+nothing — and Cancel still leaves the change unsaved with the form dirty (#3294).
+Program settings → Projects now shows which projects deviate from the methodology they would inherit. The flag was computed for every row and discarded before it reached the screen, so a 40-project scan told you each project's value and never which ones were a deliberate exception. Each deviating row now carries a `Waterfall ≠ program (Hybrid)` marker, the column header carries the count, and the methodology filter — new on this page — gains a "Deviates from default" option. Under a workspace `inherit` policy the comparison re-parents to the workspace, because that is the scope inheritance actually resolves against there.
+- **Bulk methodology apply now previews its impact before writing.** Setting
+  Methodology on up to 200 selected projects at once in a program's Projects
+  settings previously applied the instant Apply was pressed, with no warning —
+  unlike the single-project methodology picker, which already confirms before a
+  flip that hides data. Apply now shows how many of the selected projects have
+  sprints/backlog stories (hidden by Waterfall) or baselines/dependency links
+  (hidden by Agile), how many already match the target, and requires a second
+  press to proceed.
+- **Both methodology settings pages now report a failed load instead of pulsing
+  forever.** Workspace → Methodology defaults and Project → Methodology read only
+  `data` and `isLoading` from their queries, so a dropped or failing request left
+  them rendering loading placeholders indefinitely — no error, no retry, and no way
+  to tell a dead request from a slow one. Both now render the shared "Couldn't
+  load…" state with a **Retry** that re-runs just the failed request. The project
+  page also covers a failed workspace-settings read, which stalled it in exactly
+  the same way even when the project itself loaded fine.
+- **The "Switch to Waterfall?" confirmation now shows its progress state.** The
+  dialog has always been able to render `Switching…` with its buttons disabled, but
+  it closed the instant you confirmed and the state was never reachable — so a slow
+  save gave no feedback at all. It now stays up, disabled and labeled, until the
+  change has actually been saved, and keyboard and screen-reader focus stays inside
+  the dialog for that whole window instead of being dropped at the top of the page
+  when the confirm button disables itself (#3298).
+- **The classification popover now says why a cascade was refused.** The subtree
+  cascade returns three distinct refusals — a `403` naming how many rows your role
+  cannot author, a `400` reporting the resolved subtree against the row cap, and the
+  graph guard — and all three used to render as one generic sentence with the button
+  relabeled **Retry**, the single action that could not help. The server's own message
+  is now shown, an over-cap refusal also names what to do about it, and **Retry** is
+  offered only for failures a retry can actually clear (network loss, `5xx`, a
+  throttle) rather than for a decision the server has already made. The message is
+  announced as an alert instead of being appended to the preview region, and it is
+  retired as soon as you change the scope or axis it described (#3302).
+- **The task-classification docs no longer overstate what `governance_class`
+  does.** The page told a self-hoster the three classification fields were "read
+  everywhere" and drove "board lanes, rollups, and the hybrid overlay". That is
+  true of `type` and `delivery_mode`; `governance_class` is stored, inherited,
+  cascaded and round-tripped faithfully, but exactly one thing branches on its
+  value — a project template's gate count. The feature page, the data-model
+  annotation and the API reference now say which axis is read to what depth, so
+  classifying a subtree `gated` no longer implies a rollup or forecast will
+  change. Its future is #3299 (#3303).
+- **Classification cascade no longer offers an Undo the caller's role cannot use.**
+  Applying a cascade is open to a Team Member assigned to the subtree, but reversing
+  one is Project Manager or Project Admin — so a Member was shown an **Undo** action
+  on the success toast that returned `403`, inside an eight-second window with no
+  other route to the undo. `PATCH /api/v1/projects/{id}/tasks/classification/` now
+  reports a `can_undo` boolean alongside `operation_id`, computed from the same rule
+  the undo endpoint enforces, and the toast offers the action only when both say so.
+  Read `can_undo` rather than comparing role ordinals, as with `can_author` on the
+  project resource (#3304).
+- **Classification cascade receipts now describe what the cascade did**: the success
+  toast counted `governance.applied + delivery_mode.applied` and called the result
+  "fields written" — a per-axis row tally that is neither rows nor the model columns
+  actually written (a 10-row both-axes cascade reported "20 fields written" having
+  written 30 columns). It now reports rows, the unit you selected: *"3 rows
+  reclassified"*, or *"9 of 10 rows reclassified"* when part of the subtree was
+  skipped. The API response carries a new `rows_written` count alongside `matched`.
+- **An inheritance-only classification cascade is no longer invisible**: declaring a
+  governance class on a subtree already holding it still breaks the root's inheritance
+  — a real write that bumps the row's version, counts toward the receipt, and is
+  undoable — but the task's Activity tab showed nothing, because the inherit flag was
+  display-excluded and an entry with an empty diff was dropped. It now renders as a
+  **Governance source** entry (*Inherited from parent → Set on this task*), and stays
+  hidden when it moves alongside a governance-class change that already says so.
+- **A waterfall row no longer describes itself with a governance word.** The
+  Schedule outline resolved its row kind from `delivery_mode` but named the
+  baseline `gated` — a value on the other classification axis — so a task that
+  was `waterfall` delivery and `flow` governance rendered a chip reading GATED
+  and announced "Gated" to a screen reader, asserting the opposite of the row's
+  actual governance value. The kind, chip label, accessible description and
+  screen-reader phrase are now all on the delivery axis (`WATERFALL`); a MIXED
+  subtree names its waterfall branch as such (#3308).
+- **Template names no longer collide across programs.** Publishing looked an
+  existing template up by name alone, across the whole workspace, while
+  templates are program-scoped and the gallery shows a program only its own
+  plus the workspace-wide ones. So two programs sharing a template name — the
+  ordinary shape for a PMO running several programs — collided: republishing in
+  one program marked the *other* program's template `superseded`, with no way
+  for its owner to find out by what, and publishing without "new version"
+  returned a conflict naming a template the caller has no access to. The lookup
+  is now scoped the same way the gallery is, so a supersede can only happen
+  inside a pool the publisher can see (#3309).
+- **The Start sheet now asks before discarding what you entered.** Dismissing the
+  new-project sheet — by Escape, a backdrop click, the compact ×, or Cancel —
+  threw away the name, program, start date, calendar override and draft flag with
+  no warning. It is the only in-app project-create surface and is opened from six
+  places, so a stray backdrop click meant re-entering the whole setup with nothing
+  to say anything had been lost. A dismissal with edits in progress now opens the
+  standard unsaved-changes prompt; an untouched sheet still closes on one click,
+  with no prompt. Escape also now reliably reaches the sheet: the Browse switcher
+  behind it was consuming the first press (#3310).
+- **"Start empty" now lands where its card says it will**: the Start sheet's Blank card
+  promised to open "straight into the outline with the cursor already in the first
+  row", but a blank create routed to Overview. It now lands on the Schedule's blank
+  canvas — or, for an Agile project, the product backlog, which the card names instead
+  since Agile projects have no schedule outline.
+- **Schedule seeding state**: creating a project from a template dispatches the
+  apply and navigates immediately, so the Schedule was empty for a moment while
+  the rows were still being written. That window showed the project's ordinary
+  empty state — a live first row inviting you to type into a project the template
+  was mid-write on, or "No items yet" on mobile, which read as though the apply
+  had failed. The Schedule now shows a "Setting up your schedule…" skeleton until
+  the first rows land, matching the backlog's existing behavior for agile
+  projects, and withholds the blank-project draft row while it does.
+- **Methodology flip warning: a load race skipped it, and its sprint count was
+  page-1 only**: switching a project to Waterfall warns first when the project
+  already has sprints, but the check ran against a sprint count that had not
+  loaded yet — so a flip saved immediately on page load, or after a failed
+  sprint fetch, went straight through with no warning. The project settings save
+  now waits for the sprint count to settle, and a failed sprint read warns
+  ("this project may have sprints already committed") instead of reading as
+  "no sprints". The number in the dialog is now the project's total rather than
+  the first page of results, so a project with many sprints no longer understates
+  itself in the one sentence written to convey the risk.
+- **Workspace methodology settings no longer render editable to a non-admin**: the
+  `RequireWorkspaceAdmin` route guard redirects only on a positively-resolved
+  non-admin, so a failed or malformed `/auth/me` left a non-admin on a live, editable
+  Workspace → Methodology form whose save would `403`. The page now gates on the role
+  itself and renders read-only unless the caller is confirmed a workspace admin.
+- **Two template endpoints published a contract saying they take no body**:
+  `POST /api/v1/project-templates/publish/` and `POST /api/v1/project-templates/{id}/apply/`
+  each required a request body while declaring none, so a generated client could
+  not send the field they demand — `apply` answered `{"project": "This field is
+  required."}` naming a field the schema never mentioned. Both now declare their
+  body, and inherit the `400` every body-bearing write already carries. `publish`
+  also declares the `409 name_taken` it has always returned.
+- **28 bodyless write operations now declare the `400` they can return**: refusals
+  on the state of the thing being acted on — deleting a running sprint, a phase
+  that still has tasks, or the last Owner of a project; undoing a batch that was
+  already undone; force-deleting a project that is not archived. Each was checked
+  against the body it actually returns rather than against the house convention.
+- **Documented the third error shape**: three refusals answer with a bare JSON
+  array of messages rather than an object, which would make a client typed for an
+  object throw while parsing. `errors.md` now describes it and names the three
+  endpoints, and gains the `name_taken` conflict code.
+`ci:gate-selftest-parity` and `ci:prepush-parity` no longer fail nondeterministically
+with exit 141 and an empty log. Both gates' `opt_out_reason` piped `$OPT_OUT` into a
+`while read` loop that `return`s on the first match, leaving the writer blocked on a
+full pipe; it took SIGPIPE, `set -o pipefail` promoted that to 141, and `set -e`
+aborted before anything was printed. Each now reads its list from a here-string, and
+each `--self-test` plants an `$OPT_OUT` larger than the pipe buffer so the race is
+covered rather than raced.
+The `400` response declared in the published OpenAPI schema now describes DRF's nested field errors, not only the flat `{"field": ["message"]}` case. A list field reports per-item errors as an object keyed by item index, a nested object recurses by subfield name, and a list of objects returns one entry per submitted item — none of which fit the `array<string>` the schema promised, so a generated client had no correct type for the error body of any settings-shaped write (`allowed_attachment_types`, `hidden_views`, calendar `overlays`, …). The field-keyed value is now a recursive `ValidationErrorDetail` component whose leaves are message strings, which holds at any nesting depth. Runtime behavior is unchanged — the index a list field reports is the part a client needs, and it was the contract that was too narrow.
+- **Rejected list items now say what was wrong and which item it was.** When the
+  server refuses one element of a list field — an entry in a project's allowed
+  attachment types, a hidden view on your profile, a calendar overlay — the form
+  now shows the server's own message and highlights the offending input, instead
+  of falling back to a generic banner that highlighted nothing. The position
+  rides in the message (`Item 3: …`), because the field is already obvious from
+  where the message appears but the item within it is not (#3325).
+- **Workspace settings admitted anyone when the role check could not answer**: the
+  `/settings` route guard redirected only on a positively resolved "not a workspace
+  admin", so an `/auth/me` request that was still loading, had failed, or returned no
+  `workspace_role` fell through and rendered the whole consolidated settings page —
+  including its live Members, Groups, SSO, danger-zone and retention-purge controls —
+  to any signed-in user. The server refused every write regardless, so nothing could
+  actually be changed, but the page was reachable and its controls looked armed. The
+  guard now renders the absence of an answer instead of guessing at one: a loading
+  skeleton while `/auth/me` is in flight, and a "Couldn't confirm your workspace role"
+  error with a Retry when the read failed. A real workspace admin is still never
+  redirected out of settings by a slow or failed `/auth/me`.
+Nine write surfaces now show the server's own reason when a save is refused, and only offer a retry where a retry could help. The bulk-edit sheet, the schedule commit popover, the task/epic/story/program-backlog detail drawers and the mobile and desktop Monte Carlo cards previously replaced every refusal — a permission denial, a validation error, a rate limit — with one hardcoded sentence, and three of them relabeled their primary button to "Retry" on a `4xx` the server had already decided. The bulk-edit sheet's error is now a live region, so a refused batch is announced rather than silently drawn. The shaping has a single definition (`describeWriteRefusal`).
+A cascade refused by the dependency graph guard now names the tasks that form the
+cycle by WBS code and name — the same reference the plan itself shows — instead of
+printing a raw list of task ids. The message is resolved where the refusal is
+raised, so every consumer of the API gets it rather than only the web Schedule.
+The structured `offending` id list is unchanged, so clients that branch on it or
+highlight the offending rows keep working.
+- **Removed project members no longer receive sprint scope-change or impediment
+  notices**: a member whose project membership was revoked kept their Scrum Master
+  or Product Owner marker on the project's team, because removing someone from a
+  project does not remove them from its team. Two notifications read the team marker
+  without re-checking project membership, so an offboarded Scrum Master or Product
+  Owner kept receiving sprint scope-change notices and "task flagged blocked"
+  notices — each naming a task, a sprint and the person who made the change — for a
+  project they could no longer open. Both now reach only people still on the
+  project, and the check lives in the shared marker lookup so any future
+  notification built from it inherits it.
+- **A removed member still named as a task's assignee no longer receives that
+  task's "flagged blocked" notice.** Removing someone from a project does not
+  unassign their tasks, so the notice kept reaching them by a second route even
+  after the fix above. The blocker still reaches the project manager, so an
+  orphaned task's impediment is never silently dropped.
+Bulk-applying a program settings change no longer issues ~9 database queries per targeted project. The surface-change notice now hoists every read out of its per-project loop (`project_id IN (...)` + `GROUP BY project_id`) and processes projects in chunks of 50, so a 200-project apply costs about 36 queries instead of roughly 1,800 — all of which ran inline in the `POST /programs/{id}/bulk-project-fields/` response. Recipients and message bodies are unchanged.
+
+Note that per-project failure isolation is narrower than it was. Previously each project resolved and wrote its notices independently, so any failure cost exactly one project. Now only *rendering* is per-project; the reads and the insert are shared within a chunk, so a failing read or insert costs every project in that chunk (at most 50) rather than one. Rendering failures are still isolated to the single project that caused them, and a failing chunk cannot affect the others.
+
+The notification fan-out's `bulk_create` also now declares an explicit batch size, so a fan-out spanning many projects cannot silently exceed PostgreSQL's bind-parameter ceiling and drop every notice in the batch.
+- **Persona guides and the story walkthrough now name sign-in accounts the sample
+  loader actually creates.** All eight guides under `guides/` and `the-story.md` told
+  the reader to run `load_sample_project --with-personas` and then sign in as `raj`,
+  `maya`, `diana`, `sarah`, `carlos`, or `tom` — the logins of the retired
+  `seed_demo_project` seeder. Sample personas are namespaced `<sample>-<name>`, so a
+  reader following any guide failed at step two. Every sign-in step now names a real
+  account verified against the fixtures' `accounts[]` table, with its seeded role. The
+  PMO guide's duplicated Atlas command is collapsed to one, and the PM guide's
+  "Contract baseline" (a Bayside baseline, not an Atlas one) is corrected to Atlas's
+  actual Kickoff baseline and re-plan (#3336).
+- **The docs declaration-coverage ratchet now covers `guides/` and `the-story.md`.**
+  Those pages carry runnable walkthroughs and per-step product claims but sat outside
+  every gated directory, so #3336 produced no signal anywhere in the pipeline. They are
+  now in `scripts/check-version-status.sh`, which gained a `DECLARATION_EXTRA_PAGES`
+  opt-in for behavior pages at the docs root (#3336).
+Documentation: corrected the hybrid-bridge description across the docs tree. Closing a sprint recomputes the bound milestone's rollup and writes a P50/P80 velocity forecast band around that milestone's existing CPM date — it does not reschedule the master plan or rewrite any duration. Estimates change only when a PM accepts a velocity suggestion. Also removed four claims the story page made that no shipped surface backs (cost variance against a budget, a cross-program capacity heat map, a generated closeout report, and a manager view of actual hours), and documented sprint→milestone unlinking in the app and over the API.
+The documented `400` response schema no longer claims `code` and `detail` are always strings. Both are also serializer field names — `Program.code` and `Project.code` are real fields — and when one fails validation the API keys its errors by field name like any other field, yielding a list. The schema declared those two keys as `string`, which shadowed the field-keyed error map beneath them, so twenty-one write operations on programs and projects could return a body their own published contract rejected. The error reference now documents the discriminator: a refusal `code` is a refusal code only when it is a string.
+A template application that failed on the server is no longer silent on the Schedule. It now states that the apply did not complete, names the template, surfaces the server's reason, and says plainly that nothing was written — a failed apply rolls back completely, so the project is left exactly as empty as it was. Project admins get a **Try again** control that re-applies the same template in place; the blank canvas underneath is untouched, so continuing with an empty project stays one keystroke away.
+- **The admin settings shells admitted anyone when the access check could not
+  answer**: the guard on the Program settings page, the Observability setup and the
+  System Health tools redirected only on a positively resolved "not an admin", so an
+  `/auth/me` request that was still loading, had failed, or returned no
+  `can_access_admin_settings` fell through and rendered the shell — including the
+  dead-letter requeue/drop actions, the retention purge and every program setting — to
+  any signed-in user. The server refused every write regardless, so nothing could
+  actually be changed, but the pages were reachable and their controls looked armed.
+  The guard now renders the absence of an answer instead of guessing at one: a loading
+  skeleton while `/auth/me` is in flight, and a "Couldn't confirm your settings access"
+  error with a Retry when the read failed. A real admin is still never redirected out
+  of settings by a slow or failed `/auth/me`. This is the sibling of the same defect
+  fixed in the workspace settings guard, and completes that sweep.
+- **Program working calendar stuck loading**: when the workspace or program request failed, the program's Working calendar settings section showed two pulsing placeholders indefinitely — no error, no way to retry — so a transient outage was indistinguishable from a slow load. It now shows "Couldn't load this program's working calendar." with a **Retry** that re-runs only the request that actually failed.
+- **Paste-many and CSV import no longer offer an Undo your role cannot use**: pasting
+  rows into the outline needs Team Member, and running a spreadsheet import needs
+  Resource Manager — but reversing either in one step needs Project Manager. Both
+  surfaces offered the Undo regardless, so the control failed with a permission error
+  and the paste receipt's `⌘Z` taught a shortcut that could never work. The
+  `tasks/bulk/` `207` and the CSV import status payload now report `can_undo`,
+  computed by the same rule the undo endpoints enforce, and each surface omits the
+  control, leaves `⌘Z` alone, and says which role reversing needs and what you can do
+  instead. The import wizard also no longer takes the `⌘Z` claim away from the
+  template-apply banner when it cannot honor it.
+- **`GET /api/v1/projects/{id}/import/csv/{id}/` publishes a declared response
+  schema**: its `200` was typed as a free-form object with the field names listed in
+  prose, so a generated client could not see them. It is now the
+  `CsvImportStatusResponse` component.
+- **Batch undo and template apply no longer write to archived projects.** `POST` to
+  `/api/v1/paste-many-operations/{id}/undo/`, `/api/v1/cascade-classification-operations/{id}/undo/`
+  and `/api/v1/template-applications/{id}/undo/`, and to
+  `/api/v1/project-templates/{id}/apply/`, are now refused with a `403` when the
+  project is archived — matching every other write path in the family. Previously a
+  Project Manager could hard-delete tasks in an archived project through the undo
+  route, bypassing a gate enforced everywhere else. The floor is also enforced
+  underneath the endpoints, in the undo and apply services themselves, and in the
+  background task that seeds a template — a project archived after an apply was
+  queued no longer gets the skeleton written into it when the job finally runs; the
+  application is marked `failed` with a message instead. Reads are unchanged:
+  listing and polling an operation on an archived project still works, and
+  publishing a template *from* an archived project still works (#3354).
+- **`POST /api/v1/project-templates/{id}/apply/` answers `400` instead of `500` for a
+  malformed `project` id.** The lookup did not catch the error Django raises for an
+  unparseable UUID, and the failure was reachable by any authenticated user because
+  it ran before the role check (#3354).
+- **Pulling a program backlog item into an archived project is refused with a `403`.**
+  `POST /api/v1/programs/{program_id}/backlog-items/{id}/pull/` creates a task, but
+  only the *program's* closed state was checked — the target project's own archived
+  flag was not, so a Team Member could drop work into an archived plan (#3354).
+- **Schedule action toast now pauses its auto-dismiss**: the toast the Schedule
+  raises after a delete, a backlog move, or a classification cascade counted down
+  unconditionally, so it could vanish out from under an Undo button a keyboard or
+  screen-reader user was still traversing toward — dropping focus to the page body
+  and taking the only route to that undo with it. Hovering the toast, or moving
+  focus into it, now suspends the countdown (WCAG 2.2.1), and the toast is never
+  removed while it contains focus. Its Undo button also meets the 44x44px touch
+  target floor. The pause is the same implementation the global toast host has
+  used since 0.3, now shared rather than duplicated.
+**Nine API write operations now publish the request body they actually require.**
+`PUT .../git-automation/`, `POST .../git-webhook/`, `POST /me/api-tokens/`,
+`POST /programs/{id}/api-tokens/`, `POST /projects/{id}/api-tokens/`,
+`POST /projects/{id}/acceptance-results/`,
+`PATCH /projects/{id}/notification-preferences/` and both writes on
+`/workspace/email-settings/` declared no `requestBody` in `docs/api/openapi.json`
+while their handlers read one — so a client generated from the published schema had
+no parameter for the fields these endpoints require (`POST /me/api-tokens/` requires
+`name` and offered no way to send it). Each now declares its real write serializer,
+which also brings five of them under the automatic `400` declaration. The project
+notification matrix additionally publishes its real event-by-channel grid instead of
+untyped JSON. A new sweep in the API contract suite pins the whole class: no write
+operation may publish an absent or unusable `requestBody` while its handler reads
+the request body, following one level of helper delegation. Contract-only — no
+runtime request, validation, or permission behavior changed, and the schema diff is
+strictly additive with no `operationId` churn (#3364).
+- **Three project settings claimed effects they did not have.** Project Settings →
+  Surfaces offered a **Time tracking** toggle that no surface reads: every
+  time-logging surface in TruePPM is personal and spans all your projects, so there
+  was nothing per-project for it to hide. The row is now shown inert with a note
+  saying so instead of accepting a save that changed nothing, and hiding it no
+  longer sends the whole team a "hid Time tracking in this project" notice about a
+  change nobody could see.
+- **Default view** stays editable but no longer claims to decide where you land —
+  opening a project follows your own view focus, not the project setting.
+- **Time zone** on Project Settings → General is described accurately: it anchors
+  that project's notification quiet hours and nothing else. It never drove due
+  dates, Gantt rendering or sprint cutovers, and its in-product help link now points
+  at project settings rather than at your personal timezone preference.
+Project **Settings → Notifications** now says which columns TruePPM actually delivers
+on, and stops promising delivery it cannot make.
+
+- The API reports a new server-owned `channel_delivery` map on
+  `GET`/`PATCH /api/v1/projects/{id}/notification-preferences/`, alongside the
+  existing `event_delivery`. The settings page reads it instead of a hardcoded list,
+  so a column un-labels itself the day its delivery ships — with no web release.
+- Both maps are now declared in the published OpenAPI schema. They were injected
+  after serialization, so a generated client had no field for either.
+- Fixed copy that described Slack and mobile push as live channels waiting on
+  configuration: the routing help no longer says a toggle has the event "delivered
+  through that channel", the docs no longer say the Slack column "does nothing until
+  a Slack channel is wired up in Integrations" (there is nothing to wire up), and the
+  quiet-hours explanation no longer lists two channels that deliver nothing among the
+  ones it silences.
+- **Signal-privacy ratification counted people who had left the project**: the eligible-voter roster for a ceiling-raise vote was the project's default team, which keeps a row for every member the project has ever had — team rows are created when someone joins and are deliberately never deleted when they leave. Those departed members inflated the ratification denominator and the strict-majority threshold derived from it, while being unable to cast the votes that threshold now demanded. A team that lost enough members could reach a state where a proposal needed more approvals than the remaining team was able to give, with nothing in the UI explaining why. The roster is now the team's current members — those who still have access to the project — recalculated on every read (ADR-0104 Amendment C, #3387).
+- **A vote counts only while its caster is still on the project.** If a member votes and then leaves, their vote stops counting at the same moment their seat leaves the majority, so a raise is never ratified on the strength of someone no longer present. The vote is kept in the team-readable audit trail and is restored if they rejoin, and a proposal that was **already** ratified is never revisited — a later departure cannot undo a decision the team made while everyone was there. The ceiling-proposal tally gained a `disregarded_vote_count` field so a tally that moved because the roster moved says so.
+- **Ceiling-proposal notifications no longer reach members who have left the project.** The one deliberate exception is unchanged: a proposer who has since left still learns their own proposal's outcome.
+- Unaffected: a project Admin or PM who is not on the team still has no vote and never counted toward the majority — the new rule narrows the roster and cannot widen it.
+- **Persona walkthroughs reach what they describe**: the Atlas sample now seeds
+  `atlas-jordan` into both of its active sprints (Platform Core's Sprint 5 and
+  GTM Readiness's Enablement 2), so the `My Teams` multi-team sprints lens the
+  PMO directors guide walks actually renders for a bundled login. The scrum
+  master, agile coach, and evaluation guides now name the closed sprint whose
+  retrospective the samples seed (Atlas Sprint 3, Aurora Sprint 3) and describe
+  promotion the way the product does it — a per-item button that creates a
+  project-backlog task, not a checkbox that files work into the next sprint.
+  The seed-schema page no longer lists `retro.*` as deferred; the replay
+  actions have shipped.
+The Grid's bulk-delete confirmation strip no longer cancels itself while you are
+still using it. Its five-second countdown now pauses while the strip is hovered or
+holds keyboard focus you moved there, and the countdown bar stops draining with it —
+so a keyboard or screen-reader user tabbing to **Cancel** no longer loses the dialog
+out from under the focus ring (WCAG 2.2.1, 2.4.3).
+
+A strip you never touch still auto-cancels after five seconds, unchanged: the
+timeout declines the delete, so expiring is the safe outcome and the confirmation's
+mount-time focus is deliberately not treated as engagement.
+
+The five seconds are also a real deadline now. The countdown used to be restarted by
+any background re-render of the Grid — so on a project that was polling, the strip
+could stay open indefinitely instead of declining the delete.
+Corrected the reason given for the Admin-or-Owner floor on undoing a batch write
+(paste-many, classification cascade, CSV import fix). The docs and code comments said
+undo "removes work other collaborators may already be building on top of"; it does not —
+any row changed since the batch ran is skipped and reported as kept. The role required is
+unchanged.
+- **`GET`/`PATCH /api/v1/projects/{id}/notification-preferences/` published no
+  response schema at all**: both operations declared `200: No response body` while
+  returning a full document, and no `ProjectNotificationPreference` component
+  existed — so `quiet_hours_enabled`, `quiet_hours_from`, `quiet_hours_until` and
+  the newer `quiet_hours_timezone` / `quiet_hours_timezone_source` had never
+  reached a generated SDK. Both now declare a
+  `ProjectNotificationPreferenceDocument`: the stored row plus `event_delivery`,
+  with `matrix` typed as the event-by-channel grid and
+  `quiet_hours_timezone_source` as a four-member enum rather than a bare string.
+- **All four batch-undo actions declared a `200` that omitted the `undo` key they
+  return**: `paste-many-operations`, `cascade-classification-operations`,
+  `template-applications` and `structural-operations` each add `undo` to the body
+  after serializing, so a typed client had no field for the one value the call
+  exists to report. Each now declares an explicit envelope naming that action's
+  own counts.
+- Both fixes are envelopes, not bare serializer references — a serializer-shaped
+  declaration would have been self-consistent, drift-gate-clean and missing a key
+  every real response carries. Response-conformance tests now compare each
+  endpoint's declared property set against the live body, which JSON Schema
+  validation alone cannot do because it ignores undeclared keys.
+- **Calendar time zone validation**: a calendar's `timezone` was the last timezone
+  field the API accepted without checking it, so a value like `Pacific Time` saved
+  with a 200 and was echoed back on every read as if it meant something. It is now
+  rejected with a 400 like every other timezone field, and blank is refused because
+  a calendar has nothing to inherit from. Creating a project from another project's
+  settings no longer copies an unparseable stored timezone forward — it falls back
+  to the workspace default, which is what the quiet-hours resolver already did with
+  it at read time.
+- **Re-adding a project or program member you previously removed no longer fails with a
+  server error.** Membership uniqueness is enforced on `(project, user)` regardless of
+  whether the membership was revoked, so the row a removed member left behind still
+  occupied their slot and the add attempt collided with it. Re-adding now restores that
+  membership in place at the role you choose, and offline clients holding the removal see
+  the membership come back rather than a duplicate. A genuinely current member still
+  returns `409 Conflict`. Two consequences worth knowing: a restored member regains any
+  Scrum Master or Product Owner facet they held before, which grants apply independently
+  of the access role you just picked; and the member's **Joined** date is the date they
+  first joined, so it is not evidence of uninterrupted access (#3410, #3436). Seeded
+  program rosters re-imported over a removed member now restore access too, instead of
+  reporting success and granting nothing.
+- **A revoked project member is no longer treated as present by three membership
+  reads**: revoking access soft-deletes the membership row rather than removing it, so a
+  lookup that did not exclude soft-deleted rows handed back a departed member with their
+  old role intact. Two of the three were user-visible: a **person-type custom field**
+  still accepted someone who had left the project as a valid value, and the **project
+  overview card** could name a revoked Owner as the project's owner. The third, the
+  sprint **retro notes** visibility check, was already unreachable — the endpoint sits
+  behind a membership gate that refuses a revoked caller first — so that one is
+  defense-in-depth; it now resolves the caller's role through the same request-cached
+  seam every other gate on that payload uses, instead of a second lookup of its own. The
+  other two now share a `ProjectMembership.live()` helper, which the team-facet floor
+  added in the previous release also composes over, so those direct lookups have one
+  definition of "still has access" instead of a copy each. Custom field values recorded
+  *before* this change are deliberately left as
+  they are — a value written while the person was a member is a historical fact, not a
+  stale pointer, and nothing rewrites stored data.
+- **Inbound task-sync no longer writes into archived projects.** `POST
+  /api/v1/projects/{id}/task-sync/` accepted pushes from an external system into a
+  project that had been archived, creating tasks and rewriting existing ones on a plan
+  the project manager had marked read-only. It now answers `403` and writes nothing —
+  no task, no external-link row, no audit entry. The refusal is enforced underneath the
+  endpoint as well, so a non-request caller cannot route around it, and it clears the
+  moment the project is unarchived (#3413).
+- **Undoing a template application now reaches collaborators live**: the undo removed
+  the seeded rows on the server but broadcast nothing, so anyone else with the project
+  open kept seeing rows that no longer existed until they refreshed, and no schedule
+  recalculation was enqueued even though removing the rows moves CPM dates. It now emits
+  the same `tasks_restructured` event its forward path does and queues the recalculation,
+  both deferred until the transaction commits.
+- `scripts/wt prune-dbs` now drops every orphaned test database instead of one per run. `db_query` used `docker exec -i`, which attached stdin and let psql consume the sweep loop's remaining input, so the loop exited after the first drop while still reporting success. The command also reconciles its own totals now and exits non-zero if it sweeps fewer databases than it found. (#3417)
+- `scripts/wt prune-dbs` and `scripts/wt doctor` no longer exit 1 with no output when every `test_trueppm_wt*` database belongs to a live worktree. `orphan_test_dbs` ended its loop body with `(( owned == 1 )) && printf …`; on an owned database that test is false, so the `&&` list yielded 1, which became the loop's status and then the function's — and both callers assign it under `set -e`. The failure was data-dependent on sort order, so it appeared only once the orphan set was clean. (#3418)
+**`search` and `ordering` on the program routes now do what the schema says.**
+`ProgramViewSet` declares both query parameters on every list-shaped operation, but
+its custom actions built their own querysets and never applied them:
+
+- `GET /api/v1/programs/{id}/projects/` now honors `?search=` (project name or code)
+  and `?ordering=name`. Without either parameter the roster keeps its existing
+  start-date order, so current callers see no change.
+- Sending `?search=` to **any** program detail route — `retrieve`, `projects`,
+  `rollup`, `schedule` and the rest — returned `404`, because the search backend was
+  applied to the program's own primary-key lookup as well. The term was matched
+  against the program's name and code, so a program whose name did not contain it was
+  filtered out of its own detail route. Detail lookups no longer run the search and
+  ordering backends.
+- `GET /api/v1/programs/{id}/export/jobs/` and `GET /api/v1/programs/samples/` no
+  longer advertise `search` and `ordering` in the OpenAPI schema. Neither can honor
+  them — export jobs have no name or code column, and the sample catalog is not a
+  queryset — so the parameters are undeclared rather than silently ignored (#3420).
+A template application that failed on the server is no longer silent on the **Product Backlog** either. An agile project now lands with the application in hand, so the backlog reads the apply's real status instead of guessing from a flag and a 10-second timer: while the apply is still writing it shows the "Setting up your backlog…" state, and if the apply fails it says so — naming the template, surfacing the server's reason, stating that nothing was written, and offering project admins **Try again** — above the ordinary empty backlog. This is the same notice the Schedule shows for waterfall and hybrid templates.
+- **Three more write guards read a still-loading or failed request as an
+  all-clear** (the same class as the methodology flip warning fixed in 0.4):
+  a board opened on a shared link to a completed sprint was briefly editable,
+  with no read-only banner, until the sprint list arrived — long enough to drag
+  a card into a closed sprint; the story-points field on a task in the active
+  sprint was editable while the task dialog's own sprint lookup was in flight;
+  and the "cross-project links awaiting your review" banner disappeared when
+  the check failed, reading as nothing to review. The board now stays read-only
+  until the sprint's state is known (the closed banner still appears only once
+  it is known closed), committed points stay frozen until the sprint resolves,
+  and a failed review check shows an error with Retry instead of vanishing.
+  The sprint scope-review panel likewise shows a loading or error state instead
+  of "No items pending acceptance" while the task list has not loaded.
+  The task delete confirm now says when it could not count the dependency
+  links it will remove, rather than silently omitting them.
+- **MS Project import into a program ignored the program methodology**: a project
+  created by importing an MS Project file into a program landed as Hybrid (the model
+  default) regardless of the program's delivery model, and a standalone import
+  ignored the workspace default the same way. The import now seeds the new
+  project's methodology exactly as the New-project sheet does — the program's
+  effective methodology when one is chosen, else the workspace default — so the
+  program-settings hint ("new projects created in this program start with this
+  methodology") is true for imported projects too. The import dialog names the
+  methodology the project will start with.
+- **Project Activity page rendered raw column names**: field changes on the
+  project-level Activity page printed database identifiers (`governance_class`,
+  `wbs_path`, `assignee_id`) where the task drawer showed prose, because a second
+  history-diff pipeline had its own exclusion list and no label map. Both
+  pipelines now share one field policy (what is compared, hidden, and promoted —
+  including the #3306 rule that an inherit-bit-only governance change is never
+  invisible) and key every diff row by field name, and both surfaces render
+  through one label map with a humanized fallback. The history summary
+  endpoint's `by_field` counts are keyed the same way (`assignee`, not
+  `assignee_id`). Sprint-reorder ranks and other
+  housekeeping columns no longer flood the project Activity page, and a task's
+  soft delete now has a labelled row there.
+- **Grid bulk delete no longer loses your place**: the inline "Delete N tasks?"
+  confirm strip takes keyboard focus when it opens, and used to drop that focus
+  to nowhere when it closed — whether it timed out on its own, you clicked
+  Cancel, or you pressed Escape. All three now hand focus back to the bulk
+  **Delete** button, so keyboard and screen-reader users stay on the toolbar
+  instead of being returned to the top of the page (WCAG 2.4.3). Escape now
+  closes the strip, which it previously did not. Focus is left alone if you had
+  already moved it somewhere else.
+- **Grid bulk-delete confirm buttons are easier to hit**: **Confirm delete** and
+  **Cancel** were 28px tall, under the 44px minimum touch target — which mattered
+  most on a tablet, where moving focus into the strip is the only way to pause
+  its 5-second countdown. Both now have a full 44px tap area. The buttons look
+  the same and the toolbar no longer changes height when the strip appears.
+- **Schedule "Recalc %?" prompt outstayed its ~10s window**: the inline prompt shown
+  after a duration edit under the `confirm` policy re-armed its auto-dismiss timer on
+  every row re-render, so on a schedule that refetched or received live updates it
+  never dismissed on its own (the brief "Set to N%" confirmation had the same defect).
+  Both dwells now come from the shared pausable auto-dismiss hook, which also pauses
+  them while the prompt is hovered or holds keyboard focus.
+- **A failed sprint fetch no longer reads as "this project has no sprints"**: in the
+  task drawer, the iteration section rendered *"No active or planned sprints — create
+  one in the Sprints tab"* whenever the sprint list failed to load, sending you to
+  create a redundant sprint; a read-only viewer saw a flat "Not assigned" on a task
+  that may well have been committed. Both now show a "Couldn't load sprints" state
+  with Retry.
+- **The remaining-points field explains why it is locked**: when the sprint read
+  fails, the Estimates section could no longer tell an active sprint from an
+  unreachable one, so the input stayed disabled indefinitely under the message
+  "Remaining effort can be updated while the sprint is active" — a claim about the
+  sprint the app had not actually established. It now says the check failed and
+  offers a retry, and stays quiet while the read is still in flight.
+- **The weekly program-health digest no longer emails revoked program members.**
+  The digest resolved its audience from `ProgramMembership` with no live-membership
+  floor, so a user whose program access had been revoked kept receiving the weekly
+  mail — pushed, unrecallable content naming each at-risk program, its health band
+  and the project driving it. Both the program list and the `total_memberships`
+  count behind the "showing the first 25 of N programs" line now floor on
+  `is_deleted=False` and `program__is_deleted=False`, matching the resource
+  overallocation digest beside it (#3456).
+- **Seed export restored access for removed program members**: the exporter built
+  its account roster from every `ProgramMembership` row, including revoked
+  (soft-deleted) ones, so a program export → import — a support bundle, a demo
+  reseed, an environment clone — silently restored their last role to every
+  member removed since the program was created. Both exporter reads now floor on
+  live membership, matching the project-side roster, which already did. Note that
+  this fixes what new exports *contain*: a seed document produced before this
+  release still carries revoked members with their roles, and importing one still
+  grants them (a seed grant always confers access, by design). Regenerate or audit
+  any export you kept from an earlier build.
+- **Seed export dropped a project grant when the program grant was revoked**: a
+  user removed from a program who still held a live project membership was no
+  longer listed in the export at all, so their project access was lost on
+  re-import. Live project members are now listed in the export in their own
+  right, with no program role.
+- **Removed program members could still be resolved as current**: revoking someone's
+  program access soft-deletes their membership row rather than removing it, and the
+  program side had no shared "live membership" definition — so every read restated the
+  exclusion by hand, and any read that forgot handed back a departed member with the
+  role they used to hold. Two of those had already shipped: the weekly program-health
+  email reached people whose access had been taken away, and a program export wrote
+  removed members into its roster so importing it gave them access back. Program
+  membership now has the same single live-membership definition project membership has,
+  the program roster, permission lookups, last-owner guard and health digest read
+  through it, and `scripts/check-membership-live-floor.py` — new in `make pre-push` and
+  CI — fails any membership read that omits the check outside a short, documented list
+  of places that must see removed members (reviving a removed member, and telling
+  offline devices that access went away).
+- **Calendar failed on any project with more than one page of tasks**: the
+  project Calendar showed only "Couldn't load the calendar." whenever a task
+  window spanned more than a single API page. The hook followed the server's
+  absolute `next` link by handing axios a path that already began with
+  `/api/v1`, so page 2 was requested at `/api/v1/api/v1/tasks/` and 404'd.
+- **Paginated and signed-URL links are now resolved in one place**: My Work's
+  "load more" and the Assets download action each reduced a server-supplied
+  `/api/v1` link their own way, so both sent the request to whichever host the
+  API wrote into the link instead of to the page origin. All three now share
+  `toApiRelativePath`, and a source-scan guard fails the build if a fourth copy
+  appears.
+Sign-in now accepts your **email address** as well as your username (#3468). The
+login form asks for an email, but the API matched on username only — so an invited
+user, who chooses a username when they accept, was refused the identifier the form
+asked them for. The username is still matched first and unchanged, so existing
+logins and integrations are unaffected. An email address held by more than one
+account is refused rather than resolved to either, every refusal returns the same
+`401` with the same body so the endpoint cannot be used to test which addresses
+have accounts, and the per-account login throttle now enforces one guess budget per
+account rather than one per identifier.
+- **Program membership and the shell chrome**: on a project you cannot open, the
+  app shell kept describing a project that was not there — the left rail drew a
+  placeholder "Project · Hybrid methodology" card with Plan/Deliver views, the
+  health chip read "On track", the breadcrumb named a view, and the status bar sat
+  on "Connecting…" forever, all beside a page saying "This project isn't
+  available". The rail, health chip, location switcher, and status bar now render
+  their empty forms when the project's own request comes back 404 or 403.
+- **"No projects yet" for a program owner**: the rail's zero-project onboarding and
+  My Work's welcome state counted only projects you hold a membership on, so the
+  owner of a four-project program was greeted as a brand-new user. Both now count
+  the projects inside the programs you belong to.
+- **Program › Projects rows you cannot open**: a program's project list shows every
+  project in the program, including ones you hold no project membership on, and
+  every row was a link that dead-ended on "This project isn't available". Those
+  rows are now marked "No access" and are no longer links. Project membership is
+  still required to open a project; a control to add yourself is not part of this
+  change.
+- **A program you are not a member of**: opening a project whose program you do not
+  belong to no longer fires a failing `GET /api/v1/programs/{id}/` on every page,
+  and the breadcrumb no longer renders an empty leading segment or a rail subtitle
+  naming a program you cannot reach.
+The project health chip in the top bar now reads out the same three health words the rest of TruePPM uses — On track, At risk, and Critical. It previously had wording of its own: a project with a critical task read "At risk" while the page below it read "Critical", and a project with at-risk tasks read "On watch", a word used nowhere else. The three words now come from one place in the code, so a surface cannot quietly invent a fourth.
+Programs directory: `member_count` now reports a program's real live-membership headcount. The list queryset scoped visibility with a `memberships__user=...` join filter, which narrowed the joined rows to the caller's own membership before the `Count("memberships")` aggregate ran, so every program card said "1 member" regardless of its roster. Visibility is now scoped with an `Exists()` semi-join and the headcount computed as a correlated subquery. Revoked (soft-deleted) memberships are still excluded, and who can see which program is unchanged. (#3471)
+The Sprints page velocity card no longer says "No closed sprints yet" when the server has withheld velocity: it reads `velocity_suppressed` and states the same "Velocity is team-private (visible to the team)." sentence the Board shows, from one shared component. A failed velocity, capacity, or sprint-outcome fetch on the Sprints page now offers a retry instead of a skeleton that never resolves, and the planned sprint's velocity disclosure opens itself on failure rather than hiding the error behind a click.
+- **Project and program navigation no longer hides most of the rail's view list at
+  laptop heights.** At 1280×800 the rail showed the personal card, the project card
+  and about one and a half view rows — Calendar, Board, Sprints, Backlog, Risks,
+  Reports, Activity and Assets sat behind a scroll region with no scrollbar and no
+  fade, so a first-time user could not see that a Board or a risk register existed.
+  On a project or program route the personal "You" tier now folds to a single summary
+  row (its due-today and unread counts move onto that row; its four destinations sit
+  behind a disclosure), the Workspace band scrolls with the view list instead of being
+  pinned over it, and the tier's scroller carries top and bottom edge fades so any
+  overflow that remains is visible rather than silent. At 1280×800 the program rail now
+  fits every row without scrolling, and the project rail shows seven view rows where it
+  previously showed three (#3473).
+- **Program › Projects lost the project name on a phone**: at 390px the
+  methodology label, the overdue and at-risk chips, the pin and Remove together
+  claimed the whole row, so the project name collapsed to nothing and Remove
+  spilled past the card edge. Below `md` the metadata now wraps onto its own
+  line beneath the name, and the row's controls stay inside the card.
+Raised every remaining sub-12px text size in the web UI to the `text-xs` design-system floor. The program identity square no longer renders 7px initials — the program name beside it was always the readable signal — and the schedule's task summary strip, the global status bar, the My Work focus cards, and the board's critical-path chip now use `text-xs`. The `lint:design-system-v2` size gate could not see fractional sizes such as `text-[10.5px]`; it can now, and its sub-floor budget is zero.
+- **Program members — role selects had no accessible name**: every role dropdown on
+  Program › Members and Program Settings › Access carried only an `id`, so a screen
+  reader announced "combo box" once per member with no indication of whose role it
+  changed (axe `select-name`, critical). Each now names its member — "Role for
+  sofia.p". The identical gap on the project Members page is fixed in the same
+  change.
+- **Program members showed project role names**: a program surface offered and
+  displayed "Project Manager" / "Project Admin" for a program role, disagreeing with
+  the program card, which has always read the same membership as "Program Admin".
+  Program surfaces now use program vocabulary, from one shared module the role
+  picker and the read-only badge beside it both derive from.
+- **A role outside the built-in set was displayed as the lowest one**: a native
+  `<select>` paints its first option when the current value matches none, so a
+  member holding a custom role would have been shown — and could have been silently
+  re-saved — as "Viewer" on project and program members, and as "Member" on
+  Workspace › Members. All three now state the role actually held, name it as the
+  server named it, and refuse to re-grant it.
+- **Low-contrast helper text on the member surfaces**: "Can't leave", "No members
+  yet" and the invite search's status lines used the disabled-text token (2.7:1 on
+  white), failing WCAG 1.4.3. They now use the secondary token.
+- The accessibility gate (`e2e/a11y.spec.ts`) now scans `/programs/:id/members`.
+- Program docs now name program roles as the product does ("Program Manager" /
+  "Program Admin"), including every program-scoped permission table. The
+  program-role rename is called out as shipping in 0.4, since on 0.3 those
+  surfaces still read "Project Manager" / "Project Admin".
+- Program permission tables across the docs said "Program Admin" for a gate that
+  is the Admin *tier* — which the program surfaces now call "Program Manager", one
+  rank below "Program Admin". Every program-scoped gate is renamed to the tier the
+  product names, verified against its permission class.
+`load_sample_project --with-personas` now enables the persona logins it reports. Loading a sample is idempotent, so by the second run the persona accounts already exist — and the flag only ever passworded accounts the run *created*, leaving every listed `atlas-*` account with an unusable password while the command printed "Persona logins enabled". Re-running with the flag now sets the password on pre-existing sample persona accounts as well, and the report lists only the accounts the printed password verifiably opens, naming any it refused. A password a real user set is still never overwritten, and staff/superuser accounts are never touched. (#3484)
+- **Demo data: in-flight tasks loaded at 0%**: every IN_PROGRESS task in every
+  bundled sample imported with `percent_complete = 0` and its full story points
+  still remaining, however much progress the fixture authored. A task that ends
+  in flight is created at the base of the progression so the v2 event timeline
+  can walk it forward, and nothing put the authored numbers back — REVIEW and
+  COMPLETE recovered through the sign-off coercion, IN_PROGRESS had no restore
+  step. Because `percent_complete` sets the remaining duration the schedule is
+  computed from, this also billed each in-flight task at its full duration on
+  the Gantt, the utilization heat map, and the sprint burndown's "remaining".
+  Seed replay now restores the authored `percent_complete` and
+  `remaining_points` after the timeline runs.
+- **Seed task creation history no longer lands in the future**: a demo task planned or sprinted after the import anchor previously got a `+` history row dated to its plan position, so Change History and the activity feed could show a task being created months from now. Creation now backdates to a planning beat (the project's earliest declared baseline, or a few days before a sprint's kickoff) and is clamped so it never lands after any comment or status change already authored against the task, or after the import anchor itself.
+Sample-project seed replay now closes a sprint through the real close contract (ADR-0176) instead of setting `state`/`closed_at`/`goal_outcome`/`completed_points` directly: every closed sprint in a bundled sample gets a `SprintTaskOutcome` row per task that was on it at close (with `disposition=carried` and `next_sprint` set for anything that rolls forward), a synthesized close derives a real `goal_outcome` from committed-vs-completed points instead of leaving it `None`, and a project with enough closed-sprint history gets a `VelocitySuggestion`. Previously every closed sample sprint reviewed as empty in the sprint-review "what didn't finish" panel and the velocity-calibration flow (#3488).
+- **Seed replay now emits real notifications**: a fresh sample load produced
+  notifications only from @mention comments — every other beat (assignment,
+  comment, block, sprint carry-over, mid-sprint scope injection) wrote through
+  the ORM directly and never touched the notification service, so a persona
+  signing in saw an empty bell. Replay now dispatches `task.assigned`,
+  `comment_on_my_task`, `task.blocked`, `task.moved_sprint`,
+  `sprint.membership_changed`, a synthesized `task.stale` sweep, and one
+  `program.health_digest` for the sponsor persona — each backdated to its beat
+  and gated by real `NotificationPreference` rows, which are now seeded for
+  every persona alongside one quiet-hours-customized
+  `ProjectNotificationPreference`. The resulting inbox is a realistic mix of
+  read, unread, archived, and snoozed rows instead of a single fresh batch.
+- **Bundled sample baselines**: the Migration Tooling and Bayside Sitework
+  rebaselines are now authored as dated, attributed `baseline.capture` timeline
+  beats instead of silent static rows, so Change History shows each rebaseline
+  as a real act with a reason. Platform Core's Sprint-0 baseline now carries
+  more re-pointed backlog scope so its story-point variance reads as a real
+  signal rather than a single-task rounding artifact. Three of GA Launch's four
+  projects (Platform Hardening, SOC 2, Marketing) previously shipped with no
+  baseline at all; each now has an active baseline, with SOC 2's captured
+  before the cross-project remediation slip that drives its current variance.
+- **Top-bar health chip contradicted the project manager's own health report**:
+  a project reported **Critical** by hand on a plan with clean float read
+  "On track" in the top bar on Schedule, Board and Table, while the project's
+  Overview and My Work both said Critical — and a project reported **On track**
+  over a genuinely critical task read "Critical" in the same places. The chip
+  worked its band out from the at-risk and critical task counts, which cannot
+  see a manual report. `GET /api/v1/projects/{id}/status-summary/` now returns
+  `health_band`, decided by the same server-side rule
+  `GET /api/v1/projects/health-summary/` already used, and the chip prints it.
+- **`GET /programs/{id}/members/` now names roles for the program, not for a project.**
+  `role_label` on a program membership serialized through the project-scoped role
+  vocabulary, so the members list called a membership "Project Admin" / "Project
+  Manager" while `GET /programs/{id}/` called the same membership "Program Admin" /
+  "Program Manager" — one fact with two answers, and only TruePPM's own web client
+  knew which to believe. Ordinal 400 now reads `"Program Admin"` and 300 reads
+  `"Program Manager"` on every program membership response; the lower three roles
+  (Viewer, Team Member, Resource Manager) are named the same in both scopes and do
+  not change, and **project** memberships are unchanged. This is a *Behavioral*
+  change under the [API stability policy](https://trueppm.com/api/stability/) — the
+  display-only string changes value, no field is added, removed, renamed, or
+  retyped, and the canonical `role` ordinal beside it is untouched. A membership
+  holding an Enterprise custom-band ordinal (ADR-0072) now degrades to `"Role
+  <ordinal>"` instead of raising and returning a `500` (#3503).
+- **Permission refusals now name the role the surface actually shows.** A `403` from
+  a program-scoped endpoint said "Project Manager" / "Program Owner"; it now says
+  "Program Manager" / "Program Admin", matching the program members list. Moving a
+  project into or out of a program, and transferring program sponsorship, refuse in
+  the same vocabulary. Three project-scoped refusals that named the internal code
+  name "Scheduler" — spreadsheet import, task skill requirements, and the published
+  `403` descriptions for the import and reschedule endpoints — now say "Resource
+  Manager", which is what that role is called on every screen. Refusal prose is
+  outside the stable API surface by policy; no status code, error `code`, or field
+  changed (#3503).
+- **Phone top bar overflowed its own width**: on a 375px screen the top bar's status
+  cluster kept its full width instead of scrolling, so the bar grew past the edge of
+  the display. The account chip's 44px tap area was the part that left the screen —
+  by 2px on a healthy project, and by 8px (taking the visible avatar with it) on one
+  the project health chip described with a longer word. The status cluster now
+  absorbs the squeeze by scrolling at phone widths, as it already did on desktop, and
+  the location breadcrumb still gives up its width first.
+- **Team roster and member count included revoked members**: a project member
+  whose access was revoked kept appearing in their team's roster (and counted
+  toward `member_count`) because the mirrored `TeamMembership` row has no
+  cascade from `ProjectMembership` revocation. The roster list and count now
+  floor on live project membership, matching the facet and voter-roster gates
+  fixed earlier in 0.4. A revoked member's role/facets can also no longer be
+  edited through this endpoint.
+- **"Program Manager" named two different things in one dialog.** On Program
+  Settings → Lifecycle, the Transfer sponsorship dialog labeled the `lead` display
+  field "new program manager" while describing the permission tiers in the raw code
+  register ("Owner (sponsor)", "demoted to Admin") — so the same phrase meant a
+  non-privileged display field in one control and the ordinal-300 permission tier
+  everywhere else on Program → Members and Program Settings → Access. The display
+  field is now **Program lead** on both the General page and the transfer dialog
+  (mirroring the existing "Project lead" row), and the dialog names each tier the
+  way the members surfaces do: the selected member becomes **Program Admin** and you
+  step down to **Program Manager** (#3513).
+- **Playwright port isolation across git worktrees** (contributor tooling): the
+  E2E config hardcoded port 4173 and reused any server already listening there,
+  so a local run in one worktree silently asserted against another branch's
+  build — including in the direction that passes. `scripts/wt new` now derives a
+  per-worktree `TRUEPPM_E2E_PORT` / `TRUEPPM_E2E_DEV_PORT` pair and the
+  Playwright configs read them for `baseURL`, `webServer.url` and the served
+  `--port` together. Unset (the main checkout and CI) the defaults are unchanged.
+- **Demo data: REVIEW tasks loaded with their full points remaining**: every
+  REVIEW task in every bundled sample imported holding its full `story_points`
+  as `remaining_points`, however much progress the fixture authored — a story
+  in review with one point still open loaded showing all of them still open.
+  A task that ends in review is created at the base of the progression so the
+  v2 event timeline can walk it forward, and while the sign-off coercion
+  correctly fixes `percent_complete` at 100 ("work done, awaiting sign-off"),
+  nothing restored `remaining_points`, which has no such contract. Sibling of
+  the IN_PROGRESS fix shipped for #3486. Seed replay now restores the authored
+  `remaining_points` for REVIEW tasks too, without touching `percent_complete`.
+- **Role-tier copy now names the scope's actual role labels**: project, program, and
+  workspace lifecycle/provenance copy stopped printing the raw `Role` enum keys
+  ("Owner"/"Admin") in place of the labels a member actually sees. Transfer-ownership
+  copy on the Project Lifecycle page now names "Project Admin" / "Project Manager"
+  (previously "Owner" / "Admin" — "Admin" was the *wrong* tier, since it is the first
+  word of the ordinal-400 label). Every "managed by the program admin" read-only
+  provenance string on the Program Cadence, Rollup, Risk & Deps Policy, and Calendar
+  pages — plus the matching disabled-control hints and the stakeholder-reach notice —
+  now says "program manager", matching the `>= ROLE_ADMIN` gate they actually describe.
+  Workspace ownership-transfer copy was reviewed and left unchanged: `WorkspaceRole` is
+  a separate, workspace-scoped enum where ordinal 300 really is labeled "Admin".
+- **The health chip's popover now explains the word it prints, and never shows a
+  reassuring word it does not have.** Two fixes to the shell health chip. First,
+  the chip's word comes from the server's health band, which puts a project
+  manager's manual health report ahead of the at-risk / critical task counts — so
+  a reported **Critical** on a clean plan produced a red popover header sitting
+  above `At risk 0 tasks` / `Critical path 0 tasks`, with nothing saying which of
+  the two you were reading and no route to the report. `GET
+  /projects/{id}/status-summary/` and `GET /projects/health-summary/` now return
+  `health_band_source` (`reported` / `derived`) alongside `health_band`, and the
+  popover renders a "Reported by the project manager" row linking to the project
+  Dashboard whenever the band came from a person. It appears on every methodology,
+  including Agile, where the cluster shows no at-risk or critical rows at all and a
+  Critical chip previously had no drill-through of any kind. Second, a failed
+  `status-summary` request used to render a calm "On track" with an on-track dot
+  indefinitely: loading, failed and loaded are now three distinct states, a failed
+  read shows a muted "Health —" with a Retry, and a band change is announced to
+  assistive technology (#3525).
+- **Monte Carlo forecasts now simulate the real task network instead of the phase
+  rows.** Summary (phase) tasks are grouping nodes, not schedulable work, and the
+  deterministic CPM pass has always excluded them — but the forecast, what-if and
+  derivation endpoints fed them to the engine as ordinary tasks. Because a phase
+  stores `percent_complete = 0` and has no dependencies of its own, each one entered
+  the simulation as a large never-started block floored at the data date, and the
+  longest phase became the forecast. P50/P80/P95 collapsed to a single flat date
+  unrelated to the schedule, ignored completed work, and moved *later* when a task was
+  closed. Every project with phases was affected; a flat-WBS project was not. The
+  summary-stripping step is now shared with the CPM pass, so the forecast responds to
+  the network and to real progress (#3527).
+- **Phase and summary durations are now in working days, the unit they were always
+  documented in.** Every CPM recompute overwrote a summary task's `duration` with the
+  raw calendar-day span between its rolled-up start and finish — weekends and
+  holidays included — into a column whose contract is working days and which the MS
+  Project exporter, the project-span guard, the completion rollup and the scheduling
+  engine all read as such. A phase reading "18d" over ten days of work exported an
+  88-hour phase into a plan holding 80 hours, and made a summary look longer than the
+  longest task inside it. Both write-back paths (single project and program) shared
+  the defect, and the web client mirrored it independently; both halves are fixed, so
+  a phase's duration is now the working-day span of its own calendar, and it agrees
+  with its widest child. Existing summary rows correct themselves on their project's
+  next recompute. **Expect Monte Carlo percentiles to move on any project with
+  phases**: until #3527 lands, the forecast still simulates phase rows off this
+  field, so correcting it shrinks each phase block by roughly a third and shifts
+  P50/P80/P95 accordingly. Forecast history recorded before the upgrade is not
+  comparable with runs after it (#3530).
+- **Deleted dependencies still constrained the schedule**: removing a dependency
+  in the schedule view soft-deleted the link but left it binding every downstream
+  calculation, so the successor's dates never moved. The critical path, task
+  dates and float, the Monte Carlo forecast, the what-if forecast, and the
+  schedule-derivation ("why") endpoint all kept the removed link — the derivation
+  endpoint went as far as naming a link the user had already deleted as the
+  reason for a date. A two-task chain measured seven calendar days of phantom
+  delay. Scheduling now reads dependencies through a manager that excludes
+  deleted links, and `scripts/check-dependency-soft-delete.sh` keeps every
+  scheduler-input query on it.
+- **Overallocation warnings were date-blind**: the check on resource assignment
+  summed a resource's units across every active task in the project with no date
+  window at all, so three 80% tasks that never shared a calendar day reported as
+  240% allocated — 18 of 41 real (resource, project) pairs on the seeded
+  workspace produced a warning with no conflict anywhere. It now compares the
+  peak load on any single *working* day against capacity, using the same
+  calendar-aware resolution as the resource heat map (a resource's own calendar
+  wins, non-working days are not conflicts), and names the day in the warning
+  text. Tasks with no scheduled dates still count against every day: an
+  unscheduled task has no window that could rule out an overlap.
+Fixed the Gantt drag preview under-reporting downstream impact. Dragging a task
+*earlier* now pulls its successors in rather than leaving them frozen at their
+old dates, and a milestone that moves earlier is reported instead of being
+discarded as "on schedule". A task gated on a summary task is now reached by the
+preview at all — summary dependencies are expanded to leaf level the way the
+server expands them, so a drag inside a phase no longer shows nothing for the
+work waiting on that phase. The preview also honors a task's `planned_start`
+(start-no-earlier-than) date, which a pull-in would previously have slid past.
+- **Project forecast snapshots described a schedule that was never computed**: the
+  forecast-history capture aggregated the CPM finish date and the tightest total float
+  over *every* non-deleted task, rather than over the committed set the scheduling engine
+  is actually run on. Because a task groomed back to the backlog keeps whatever dates it
+  carried when it was last scheduled, a single stale row could hold the project's finish
+  date open or invent slack a project did not have — one project reported a finish six
+  days later than its committed work, another reported 30 days of float with none in its
+  plan. The same figure drives the "project end date shifted" notification, so the wrong
+  population could also email a project's owners about a shift that never happened, and
+  hide a real one. Snapshots (and their task counts) are now taken over the committed set.
+
+  **On upgrade, expect one corrected end-date notification per affected project.** Every
+  forecast snapshot already in your database was recorded under the old population, and
+  the shift notification compares a new snapshot against the previous one — so the first
+  capture after upgrading reports the correction as a shift. It is a one-time effect, the
+  date it delivers is the correct one, and it does not repeat.
+The task detail drawer no longer exposes a nameless `role="dialog"` to assistive technology while closed. On every project schedule route the drawer is mounted but translated off-screen (it holds the unsaved-draft rescue state), so screen readers previously encountered a dialog with an empty accessible name on a page where nothing was open.
+Bounded the project burn chart window (`GET /api/v1/projects/{id}/burn/`). A far-future `until` (for example `9999-12-31`) returned a 500 rather than a 400, and neither the window span nor the horizon was capped, so any project member could ask for an arbitrarily large day-by-day replay. `until` is now limited to 31 days past today and the span to 366 days, both refused with a 400 naming the bound; a defaulted `since` on a long-running project is clamped to the span instead of refused. `chart_type=combined` now derives both curves from a single history replay instead of two.
+Deactivating a resource now removes it from every downstream surface, not just the
+catalog. The person leaves each project roster, their load disappears from the resource
+heatmap, the daily utilization view, the allocation timeline and program resource
+contention, they stop counting toward `resources/summary` headcount and sprint capacity,
+they stop contributing capacity to the Team utilization denominator (which previously
+made an off-boarding read as the team getting *less* busy), and their skill tags stop
+appearing in the Workspace skill list. Task assignment rows are still retained for audit.
+Restoring a resource reverses both halves, including the roster memberships the
+deactivation removed — a membership ended by hand beforehand stays ended.
+
+While a resource is deactivated, adding it to a roster, assigning it to a task, or
+tagging it with a skill is now refused with a clear error against the `resource` field,
+rather than creating a row no view would show — or, when re-adding it to a roster it had
+just been cascaded off, failing with a confusing "must make a unique set" complaint about
+a membership row the caller cannot see.
+`POST /api/v1/skills/` now returns `201 Created` when it adds a skill to the catalog, and `200 OK` only when it returns an existing row on a case-insensitive name match. It previously answered `200` in every case — the `201` published in the OpenAPI schema was unreachable — because the created/existing flag was re-derived from a `server_version=0` probe that `VersionedModel.save` never leaves behind. The status now comes from the `get_or_create` flag itself, and the schema publishes both responses.
+A project roster's **capacity override** ("this person is only half on this project") is now applied by every per-project capacity read, not only by the Team utilization card on the project Overview. Previously the heatmap, the Team summary, daily utilization and its load bands, the allocation timeline, the assignment-time overallocation warning, the project attention feed, the task overallocation indicator and the sprint capacity preflight all measured against the resource's catalog-wide max units — so a person rostered at `0.5` and assigned `0.5` read 100% on the Overview card and 50% on the heatmap one click away. The task overallocation indicator had no capacity figure at all: it compared every assignee against a hardcoded 1.0. Cross-project views (a program's resource contention span) deliberately keep the resource's own max units — a per-project slice is not a statement about a person's total capacity. An override of `0` is honored as zero rather than read as "no override set".
+Writing inline task owners is now constant-cost in the number of owners instead of ~6 database statements each. A 50-row bulk paste with two owners apiece previously opened roughly 750 statements inside a single transaction; it now opens at most five per task. Resources imported from MS Project are also rostered with a correct `server_version`, which the bulk insert previously left at 0.
+- **A task groomed out of the plan no longer keeps its old schedule.** CPM wrote its
+  results only onto the tasks it had just scheduled, and the set it schedules excludes
+  BACKLOG cards, epics, recurring tasks and deleted rows — so a task that *left* that
+  set kept the Start, Finish, Float and critical-path flag it carried on its way out,
+  indefinitely. Those stale values were still read as current by the task API and by
+  around twenty project and program aggregates, including the project overview's
+  critical and late counts, the program "trending later than baseline" KPI, the
+  at-risk task total and the resource utilization figures — and by the MCP server,
+  which would tell an AI client that a backlog card was on the critical path. The
+  recompute now clears all eight scheduling columns on every task outside the
+  schedulable set, so an unscheduled task reports no schedule; pulling one back into
+  the plan repopulates it on the next recalculation. Existing rows are corrected by a
+  one-time migration. `duration` is deliberately left untouched — it is user-owned
+  (#3578, ADR-1152).
+- **Gantt drag preview showed no downstream impact**: the CPM preview worker was
+  bundled as an untranspiled `.ts` asset rather than compiled, so it failed to
+  load in every production build. Dragging or keyboard-rescheduling a bar painted
+  the preview chrome but no ghost bars, and never announced a milestone slip to
+  screen readers. The worker is now compiled into the build, and end-to-end
+  coverage asserts on bars only a running worker can produce.
+- **Program schedule phase durations**: the program schedule view showed a
+  phase's duration as its raw calendar-day span, disagreeing with the same
+  task's working-day duration on the project schedule (a 30-working-day phase
+  read as 39-40 days). The `GET /programs/{id}/schedule/` endpoint now emits
+  each task's and project lane's duration in working days, matching the
+  project schedule's own calculation.
+- **`buildSubgraph.ts` restored to a plain text file.** A literal NUL byte inside
+  a template literal (used as the drag-preview dedup-key delimiter) made git
+  classify the whole file as binary: `git diff` showed no line, `git grep`
+  found nothing inside it, and a plain `grep` sweep across the tree silently
+  skipped it. Replaced with an equivalent escape sequence — the delimiter's
+  runtime value is unchanged. A new pre-push/CI gate (`make nul-bytes-check`)
+  now fails on any tracked text file containing a raw NUL byte, to catch a
+  recurrence (#3601).
+Known Issues no longer lists the agent-refusal defect as open — the structured refusal envelope shipped in 0.4 (#2689). The still-open provenance gap it was bundled with (#2642) is now documented on its own, and the page declares the version it describes. A new entry discloses that a task carrying only an assignee, with no resource assignment, contributes zero load to the heatmap, utilization and overallocation views (#3605).
+- **Risk register table now signals when it can scroll.** At narrower widths the
+  Severity column could read as clipped inside its card, with nothing indicating the
+  table scrolls horizontally. A right edge fade now appears whenever the table
+  overflows its container and disappears once scrolled fully into view (#3618).
+- **Known Issues page cited ten closed issues as open defects**: `overview/known-issues.md`
+  removed three entries whose fixes verifiably merged to `main` (drag-to-link
+  affordance, Schedule PDF export placement, the timesheet submitted-week lock
+  copy), trimmed a stale half-reference on the MCP team opt-out entry, and
+  corrected a stray legend-swatch citation. A new `docs:known-issues-freshness`
+  CI gate now fails when a page reference resolves to a closed issue without an
+  explicit deliberate-citation marker, so this class of drift is caught
+  mechanically going forward.
+The program backlog now follows the program's methodology instead of assuming an agile team. On a Waterfall program the estimate field reads **Estimate** and a new item starts as a **Task**; Agile and Hybrid keep **Story points** and **Story**. The full item-type list is offered on every methodology — only the label and the starting default move — so an item already typed `story` survives a methodology switch.
+
+The pull preview is also honest about two things it previously got wrong. It said tags were "copied over" when pulling in fact *converts* them into project labels (matched case-insensitively against the target project's catalog, clamped to 50 characters), and it promised a task in the project's backlog even when the target was a Waterfall project, which hides that tab — the task actually lands undated on **Schedule**, in the **Unscheduled** tray. The preview now names whichever destination applies, keyed on the target project's own methodology rather than the program's, and the target picker shows each candidate project's methodology before you commit.
+- **Resource email exposure — fifth surface named**: `ProjectResourceSerializer.resource_detail` nests `ResourceSerializer`, so !2421's (#3569) workspace-Admin-only `email` gate already applied to the project roster read (`GET /api/v1/project-resources/`), not just the four catalog surfaces the changelog, ADR-0034, and the docs named. The behavior was correct; only the published scope claims were short by one surface, and the web roster hook's TypeScript types still promised `email` as a required `string`, so the address silently stopped rendering on the roster for every project Admin below workspace Admin with no type error. Corrected the changelog fragment, ADR-0034's #3569 amendment, and the resources feature doc to name the roster read, widened `email` to optional on the roster's client types (mirroring the catalog's `ApiResource.email`), and fixed a stale docstring in `has_org_role_from_live_project` that pointed the next reader at `IsWorkspaceOperator` (superuser) instead of `IsWorkspaceAdminStrict` for this class of surface.
+The published OpenAPI schema wrongly declared a paginated `{count, next, previous, results}` envelope for five list endpoints whose hand-written `list()` has always returned a bare array: project members, program members, project mention groups, program mention groups, and project phases. The schema now declares a plain array for each, matching the server, the web client, and the e2e mocks (#3649).
+- **`GET /api/v1/me/work/`'s published schema now matches its real response.** The
+  endpoint has always returned five extra top-level keys beyond the base
+  pagination envelope (`active_sprints`, `due_today_count`,
+  `server_version_high_water`, `retro_action_items`, and the first-page-only
+  `signals`/`external_items`/`external_sources`), but the OpenAPI schema declared
+  only `{count, next, previous, results}` — an integrator or generated client
+  reading the schema could not see those fields exist at all. Fixed by declaring
+  the full response envelope (#3650).
+Fixed several fields in `docs/api/openapi.json` that are genuinely `null` at runtime but were declared non-nullable: `mention` on notifications, `deleted_by` on task comments/notes/attachments, `started_by` on estimation-poker sessions, `refusal_detail` on the agent-action log, and `wbs_path` on the task create/update response. A correctly generated API client that trusted the published schema could crash dereferencing one of these as non-null (#3651).
+- **Flaky demo-data and empty-state E2E specs**: several Playwright specs located empty-state
+  copy with a plain text match, which could resolve to both the visible heading and the shared
+  screen-reader announcement region under worker contention, intermittently failing CI with a
+  strict-mode locator violation. Specs now locate the heading by role.
+- **Task-history requests with an empty task id**: opening the task or milestone
+  create dialog fired `GET /api/v1/projects/{id}/tasks//history/` — an empty path
+  segment where the task id belongs, and a route that does not exist, so every
+  open cost a guaranteed 404 round trip. The task-history query now waits for a
+  real project and task id before it fetches.
+- **An edit typed while a save is in flight is no longer silently lost.** The program
+  backlog item drawer, the product backlog epic and story drawers, and the schedule
+  task drawer all marked whatever the field held *when the save response arrived* as
+  saved. A keystroke typed after clicking Save but before the request finished never
+  reached the server, yet cleared the unsaved-changes state, so closing the drawer
+  discarded it without the "Discard unsaved changes?" prompt. The drawers now compare
+  against what was actually sent, so the Save bar stays up and the close is guarded
+  (#3658).
+- **Resource email exposure — skill-fit picker types corrected**: the skill-fit
+  resource picker reads `GET /api/v1/resources/?search=&task=`, the catalog list
+  whose `ResourceSerializer` **removes** the `email` key for every caller below
+  workspace Admin (#891, raised to the workspace-Admin gate in #3569). Its client
+  types still declared `email` as a required, non-nullable `string`, so a future
+  consumer could have dereferenced an address the server never sent with no type
+  error. No behavior change — the picker has never rendered an address; the client
+  types and their fixtures now match what the endpoint actually returns. This is
+  the remaining half of #3647, which corrected the same declaration on the project
+  roster read.
+Schedule: the "N changes this session" panel no longer opens with its left edge cut off. It
+was an in-flow `absolute right-0` panel 380px wide anchored to a trigger in the toolbar's
+left group, so it grew leftward past the Schedule's clipping edge and lost the first ~50px
+of every line. It is now portaled and clamped to the viewport, so the whole record is
+readable at every toolbar width.
+- **Outline row popovers no longer clip on the Timeline's narrow outline column.** The
+  task-name autocomplete, the `@owner` and `/` token pickers, the sprint-assignment
+  prompt (and its guardrail-warning panel), and the milestone date picker were all
+  positioned as in-flow `absolute` panels inside the outline's virtualized scroll
+  wrapper — on the Timeline surface (~268px wide) a 220-280px panel had nowhere to
+  grow without spilling past the wrapper's clipping edge, painting part of the panel
+  nowhere. All six now portal to `document.body` and position `fixed` via
+  `useAnchoredPopover`, clamping into the viewport the same way the session-trail
+  popover was fixed in #3663 (#3664).
+- **API schema**: the project analytics/rollup reads (`overview`, `burn`, `velocity`,
+  `blocked`, `attention`, `my-tasks`, `sprint-health`, `utilization`,
+  `resource-allocation`, `resources/heatmap`, `resources/summary`,
+  `retrospective/carryover`, `integrations-summary`) now declare their real response
+  shape in `docs/api/openapi.json` instead of a free-form object, so integrators, the
+  MCP server, and `api:fuzz` get a real contract to validate against.
+Documented a real response schema for the Monte Carlo endpoints (`monte-carlo/`, `monte-carlo/latest/`, `monte-carlo/history/`, `monte-carlo/whatif/`) instead of a free-form object, so generated SDKs and the Schemathesis fuzz gate can now validate their P50/P80/P95, risk-premium, and forecast-staleness fields.
+- **Backlog, queue, schedule-compute, and reorder endpoints now declare real
+  OpenAPI response schemas.** `GET /projects/{id}/product-backlog/`,
+  `POST /projects/{id}/product-backlog/auto-rank/`,
+  `POST /projects/{id}/product-backlog/reorder/`,
+  `POST /projects/{id}/queue/reorder/`, `POST /projects/{id}/schedule/`,
+  `POST /projects/{id}/sync/`, `POST /projects/{id}/acceptance-results/`, and
+  `POST /tasks/{id}/reorder/` previously declared their 2xx body as a
+  free-form `{"type": "object"}`, which meant no client, generated SDK, or the
+  `api:fuzz` Schemathesis conformance run could ever fail against them. Each
+  now declares the fields the endpoint actually returns (#3652 sub-issue,
+  #3681).
+- **Import endpoint response schemas**: the CSV/Excel, Jira, and MS Project
+  import endpoints (preview, commit, undo, and create-project-from-import)
+  previously declared their 2xx response body as a free-form object in
+  `docs/api/openapi.json`, so a generated SDK or MCP client saw an untyped
+  bag with no discoverable fields. They now declare the real response shape
+  (job-queued receipts, the CSV preview's full mapping/date-order/warnings
+  payload, and the undo result), so a caller can generate a typed client
+  against them.
+- **Task baseline, history, comment-acknowledge, and time-entry read endpoints now
+  declare real OpenAPI response schemas.** `GET .../tasks/{id}/baseline/`,
+  `GET .../tasks/{id}/history/`, `POST`/`DELETE .../comments/{id}/acknowledge/`,
+  and `GET /api/v1/tasks/{id}/time-entries/` previously declared their 2xx body as
+  a free-form `{"type": "object"}`, which meant no client, generated SDK, or the
+  `api:fuzz` Schemathesis conformance run could ever fail against them. Each now
+  declares the fields the endpoint actually returns (#3683, part of #3652).
+- **Personal time-tracking endpoints now declare real OpenAPI response
+  schemas.** `GET /me/time-entries/`, `GET /me/timer/`, `POST /me/timer/start`,
+  and `POST /me/timesheets/{week_start}/submit` previously declared their 2xx
+  body as a free-form `{"type": "object"}`, which meant no client, generated
+  SDK, or the `api:fuzz` Schemathesis conformance run could ever fail against
+  them. Each now declares the fields the endpoint actually returns (#3684,
+  sub-issue of #3652).
+- **Sprint-task-outcome curation actions and single-item scope-change decisions now
+  declare real OpenAPI response schemas.** `POST /sprint-task-outcomes/{id}/toggle-demo/`,
+  `.../set-note/`, `.../set-presenter/`, `.../flag-for-backlog/`, and
+  `POST /scope-changes/{id}/accept/` / `.../reject/` previously declared their 2xx
+  body as a free-form `{"type": "object"}`, so no client, generated SDK, or the
+  `api:fuzz` Schemathesis conformance run could ever fail against them. Each now
+  declares the fields the endpoint actually returns — the scope-change actions
+  reuse `SprintScopeChangeSerializer`'s row shape plus `pending_count` (#3685,
+  sub-issue of #3652).
+- **Workspace email test-send now declares a real OpenAPI response schema.**
+  `POST /api/v1/workspace/email-settings/send-test/` previously declared its
+  2xx body as a free-form `{"type": "object"}`, which meant no client,
+  generated SDK, or the `api:fuzz` Schemathesis conformance run could ever
+  fail against it. It now declares the `{"sent": boolean, "recipient": string}`
+  shape the endpoint actually returns (#3686, sub-issue of #3652).
+- **Notification panel readability**: the notification slide-out truncated body text to
+  one line with no way to read the rest (cutting off exactly the useful part of "date
+  shifted" notifications), and the category filter row clipped without any scroll
+  affordance. Notification previews now wrap up to two lines and expose the full text on
+  hover; the category filter wraps to a second row instead of clipping.
+- **SSO redirect URI on the first provider**: the Add-provider panel showed
+  "Shown here after you add the first provider" instead of the actual redirect
+  URI when no SSO provider was configured yet, making it impossible to
+  register the matching OAuth application with GitLab (or any OIDC provider)
+  before the provider could be saved. The panel now fetches the redirect URI
+  from its own endpoint, which is available before any provider exists.
+- **SSO login broken on the local development stack**: `make up`'s Compose stack
+  never pinned `TRUEPPM_PUBLIC_API_BASE_URL` or `TRUEPPM_FRONTEND_BASE_URL`, so
+  the Vite dev proxy's `changeOrigin` rewrite produced an OIDC `redirect_uri`
+  pointing at the API container's internal Docker hostname (unreachable from a
+  browser), and the post-login redirect landed on the API's own 404 page instead
+  of the SPA. Both are now pinned to `localhost` for the dev stack, matching the
+  pins CI and the Helm chart already carried.
+- **`helm:install` CI drill**: the celery-worker readiness probe's heartbeat-file
+  staleness window (30s) left almost no room for transient scheduling delays on
+  the shared CI runner fleet, so `helm install --wait` could time out even with a
+  healthy, never-restarted worker. Widened to 120s for the drill only (production
+  chart defaults are unchanged) and added a heartbeat-age diagnostic to make any
+  recurrence self-diagnosing.
+- **Sidebar Browse panel**: a project you were added to directly (without also being a member of its parent program) no longer silently vanishes from the Browse panel's Programs/Projects tree. It now renders in the standalone "Projects" section, matching what Command-K already found.
+- **E2E test hygiene**: replaced a fixed 1s `waitForTimeout` in `schedule-milestone-add.spec.ts`'s task-history regression guard with a deterministic double-animation-frame flush, removing a SonarCloud-flagged flaky-wait pattern (no test behavior change — verified stable across 32 repeated runs).
+Fixed toolbar overflow menus (Schedule mode chip, Display, Project actions, Structure, Board and Resource secondary controls) clipping their content against the viewport or a clipping ancestor when the trigger sat near an edge.
+Fixed the Schedule toolbar's Display menu clipping its content against the viewport or a clipping ancestor when the trigger sat near an edge.
+Fixed the Board view dropdown and its "Save current view" form clipping their content against the viewport or a clipping ancestor when the trigger sat near an edge.
+Fixed the top-bar account menu clipping its content against the viewport when the window was narrow, and stopped it from also appearing behind the mobile account sheet.
+Fixed the board card's "···" actions menu clipping its content against the column's scroll boundary or the viewport when the card sat near an edge.
+- **SonarCloud new-code quality gate**: cleared the remaining 4 findings dragging `new_reliability_rating`/`new_security_rating` to D — two dev-tooling scripts now sort with an explicit compare function instead of relying on default `.sort()` ordering, and two false-positive findings (a hardened `/tmp` heartbeat write already fixed in #3699, and a local-CLI-arg file read with no untrusted input) are scoped out in `sonar-project.properties` following the project's existing exclusion precedent.
+- **E2E fixtures for the product backlog grooming view**: `docs/api/openapi.json` narrowed `GET /api/v1/projects/{id}/product-backlog/` from a free-form response to a typed one (#3681), which turned on schema validation for two e2e fixtures that were never checked before. Fixed `product-backlog-grooming.spec.ts` sending `assignments[].units` as a number instead of the server's decimal string, and `sprint-story-picker.spec.ts` sending a non-existent `assignees` field and story-level `ac_met`/`ac_total` instead of `criteria_met_count`/`criteria_total`. No user-visible change — test-only.
+The ADR-1153 actual-date rules (ordering, the future/span bound, and the sign-off gate) now apply to every write path that persists `actual_start` / `actual_finish`, not just the REST API. The MS Project importer validates each task's actual dates against the target project and drops only the offending field, reporting it in the import summary's `warnings` and a new `tasks_with_invalid_actuals_dropped` count, instead of silently persisting a pair that would fail every later schedule recompute. An inbound external-source sync push to REVIEW now stamps `actual_finish`, matching the REST completion path (#3709).
+**The scheduler's nightly mutation-testing job measures again, and its measuring instrument no longer changes under it.** `scheduler:mutation` went red on 2026-09-13 with no commit on our side: `mutmut>=3.6,<4` floated to mutmut 3.8.0 overnight, which began mutating methods of `@dataclass` classes — every scheduler model. The mutant trampolines it injects (`xǁDateRangeǁ__post_init____mutmut_orig`, …) carry no leading underscore, so `test_public_surface.py`'s `__all__` docstring walk read them as undocumented public API; mutmut's stats pass died on that one failure and no mutant ran. The docstring walk now skips trampoline members using mutmut's own naming predicate, pinned in both directions so it cannot hide a real undocumented method. Fixing that alone would have left the job red at 90.1%: 3.8.0 widened the mutant set from 1120 to 1579, and 79 of the new mutants survived. Kill tests now cover every one of those that is not provably equivalent, in `test_models_hardening.py`, `test_derive_hardening.py` and `test_cli_hardening.py` — parser field labels and error messages, `from_dict` defaults, the `working_days` bounds, the duplicate-key hook on `from_json`, the exception-interval merge and cache, `Calendar.compose`'s AND, `Derivation.to_dict`, pullback driver selection, and the CLI seed path (whose reproducibility test had been running on a project with no variance, so it passed with `--seed` dropped). Two equivalent-mutant sources in `derive.py` are removed: a dead `es_terms` filter and an unused `task_map` parameter. The score is 1523/1573 = 96.8% against the unchanged 0.92 floor. mutmut is now pinned exactly (`==3.8.0`), and `scheduler:mutation` also runs on any MR that changes `packages/scheduler/pyproject.toml` or the score script, so the next bump is measured before it merges rather than the night after.
+- The Celery worker now waits for its broker to answer before it starts, instead of racing Valkey on a fresh install. Every recorded case of a worker that connected, logged `ready`, and then served nothing (no heartbeat, no `inspect ping` reply, readiness stuck at `0/1`) began with that race. The underlying mechanism is not yet confirmed (#3722). If the broker is still unreachable after `TRUEPPM_CELERY_BROKER_WAIT_SECONDS` (default 120), the worker exits so the container restarts.
+- **`TRUEPPM_SYNC_BATCH_MAX_OWNERS` now takes effect as an environment variable**:
+  the batch-wide inline-`owners` cap for mobile sync uploads was previously read
+  only as a Django settings override — setting the container environment
+  variable had no effect. It is now registered through `env.int()`, matching its
+  `TRUEPPM_SYNC_BATCH_MAX_ROWS` neighbor.
+- **Monte Carlo histogram percentile labels no longer overlap.** When P80 and
+  P95 (or any two percentile markers) fell on adjacent or identical buckets,
+  their labels rendered on top of each other as illegible text like "P80P95".
+  Colliding labels now stack onto their own row below the first; the P50/P80/P95
+  rule lines still render at their true data x-coordinate — only the label
+  moves (#3736).
+Mention autocomplete and the project and program export-bundle hints now name roles by their
+in-app labels (Project Manager, Resource Manager, Team Member) instead of internal role codes
+such as "Admin+" or "Admins + Owners".
+- **`scripts/wt prune` left merged worktrees behind**: a branch whose local tip was
+  rewritten after its last push (an amend, a local rebase, or a GitLab server-side
+  rebase) was reported as `local commits NOT in origin/main` and kept forever, and
+  a worktree with a tracked `.envrc` or `.wt-owner` was never reaped either. Prune
+  now also accepts a branch whose every patch is already in `origin/main`
+  (`git cherry`), or whose merged GitLab MR head is exactly the local tip (squash
+  merge). It ignores tracked harness files in the dirty check. The WIP-cap error
+  and the `/mr` report now point at `scripts/wt prune`, since nothing runs it
+  after a GitLab merge.
+- **The README's sign-in table named six demo accounts that no bundled sample
+  creates.** It now lists the Atlas sample's real logins with each one's job title
+  and per-project role. The docs' persona roster, the cast of The Story, and the
+  per-persona notes on the feature pages now match the canonical personas, and the
+  role-based walkthroughs in the guides are corrected against the sample data and
+  the permission checks: baseline capture needs Project Manager or above, and a
+  Viewer can see the Monte Carlo forecast (#3750).
+- **Twelve documentation pages that evaluators read first were checked against the code
+  and the 0.4 content.** The five persona guides, *Why now*, *SSO is not an enterprise
+  feature* and *What TruePPM doesn't do yet* now declare 0.4 and say what the latest
+  release does instead; the three Configuration sub-pages name exactly which settings are
+  new in 0.4. Stale claims fixed along the way: the natural-language query layer is
+  planned for 0.6, not 0.5; the i18n decision is 0.5; Jira Data Center is no longer sold to
+  new customers; the Reports tab carries a decisions log; and 0.4 includes Jira XML
+  import (#3755).
+- **Monte Carlo no longer forecasts a finish earlier than the deterministic CPM
+  schedule.** `schedule()` lays every task out at its `duration`, but
+  `monte_carlo()` sampled from the three-point estimate (or the velocity signal)
+  and ignored `duration` entirely — so a task whose estimates simply sat below its
+  planned duration produced P50/P80/P95 dates before the earliest date CPM
+  considers feasible. A 20-day task estimated at 1/2/3 days returned a P95 twenty-
+  five days ahead of its own CPM finish, a risk tool reporting less risk than the
+  plan it is stressing. Every sampled duration is now floored at the task's
+  `duration` before the network is solved, on both the PERT and velocity paths.
+  Estimates *above* the plan are untouched, so the risk premium in P80/P95 is
+  unchanged; an estimate below the plan no longer pulls the forecast in — lower the
+  task's `duration` to model finishing ahead of schedule. Re-run any saved forecast
+  after upgrading. The contract-fuzz property that was written to catch this class
+  drew no three-point estimates at all, so every example took the deterministic path
+  where the two passes agree by construction; its generator now draws triples that
+  both bracket and undercut the drawn duration (#3765).
+- **The Monte Carlo sensitivity tornado no longer reports an index above 1.0.**
+  `_duration_sensitivity` computed its Spearman correlation as a raw dot-product
+  ratio with no clamp, so a perfectly-correlated task rounded to
+  `1.0000000000000002` — outside the 0..1 range the public contract and ADR-0140
+  both state, and served straight through a `FloatField` with no `max_value`. The
+  overshoot was latent until the duration floor above made collinear rank vectors
+  common (measured: 0 of 800 sensitivity entries above 1.0 without the floor, 105
+  with it). The correlation is now clamped to [-1, 1] before its absolute value is
+  taken. The endpoint runs unseeded, so this surfaced as an unreproducible flake
+  rather than a clean failure (#3765).
+- **OpenAPI schema now declares every `409` an endpoint actually returns.** ~15
+  operations — project/program membership add, structural-operation undo,
+  phase reorder, signal-privacy ceiling raise/vote/withdraw, workspace export
+  download (also missing `410`), task-suggestion accept/decline/revoke, the
+  sample-program loader, and the five per-round estimation-poker actions
+  (vote/reveal/reopen/commit/cancel) — carried an `@extend_schema` whose
+  `responses=` omitted a `409` (or `410`) the view genuinely produces. A
+  generated SDK's typed error union, and an MCP tool's declared failure modes,
+  now match what the server actually does (#3766). A new static test,
+  `test_conflict_response_schema_contract.py`, AST-scans every view method for
+  an undeclared `409`/`410` so this class does not recur unnoticed a third
+  time (#1016, #3766).
+- **`DELETE /api/v1/project-resources/{id}/` 409 code renamed to `roster_has_assignments`**: the refusal returned when removing a resource from a project roster while it still has live task assignments (without `?force=true`) reused the `has_assignments` code already documented as a *2xx* advisory on task-restructure endpoints (indent/outdent/reparent/group). The two were unrelated events sharing one name, and the 409 sense was undocumented and undeclared in `docs/api/openapi.json`. **Breaking for any client switching on the old 409 `has_assignments` code** — update to `roster_has_assignments`. The response body shape (`affected_tasks`, `task_names`, `assignment_count`) is unchanged. The task-restructure 2xx `warning: "has_assignments"` value is untouched.
+- **Gantt dependency-arrow rendering no longer scans thousands of off-screen rows
+  per frame.** A dependency arrow whose source and target are far apart (e.g. row 5
+  to row 4,500) built its obstacle-avoidance and halo-cutting box list sized to that
+  full row span instead of the visible viewport, and rebuilt it twice per frame. The
+  scan is now intersected with the currently visible row range, and a redundant
+  parent-chain walk that re-ran once per row in the span is computed once per arrow
+  instead (#3769).
+- **Bulk dependency broadcast fanout**: `POST /tasks/bulk/` broadcast one
+  `dependency_created` WebSocket event per applied edge — up to 500 per batch,
+  each its own database insert and channel-layer round-trip in the request
+  thread. It now emits a single aggregated `dependencies_bulk_created` event
+  carrying every applied edge's id, mirroring the existing `tasks_bulk_mutated`
+  aggregation.
+- **Live collaboration now reaches three more surfaces that only refreshed on
+  manual reload.** The signal-privacy ceiling-voting panel (audience/ceiling
+  changes, raise proposals, and cast votes), the velocity-suggestion
+  accept/dismiss decision on the Estimates tab and the sprint reforecast card,
+  and a task's Related Tasks panel (create/edit/delete) now update live for
+  every connected collaborator instead of only after a manual refresh
+  (#3771, #3772, #3774).
+- **Guardrail policy updates now broadcast live**: a `PATCH` to a project's sprint-composition guardrail policy (Project Settings → Guardrails) previously wrote silently, so a second Owner or Admin viewing the same page concurrently never saw the change without a manual reload. The endpoint now emits `guardrail_policy_updated` over the project's WebSocket channel, deferred until the write commits, and connected clients refetch the policy live.
+- **`cpm_complete` WebSocket event now carries the same payload shape from
+  every schedule recompute.** The program-scoped cross-project pass (ADR-0120
+  D3) previously omitted `status_date` from its `cpm_complete` broadcast while
+  the single-project recompute always included it, so a client or integration
+  reading `status_date` off this event could silently lose the field the
+  moment a recompute escalated to the program-scoped pass. Both paths now
+  build the payload through one shared helper: `status_date` is always
+  present, and is `null` on the program-scoped pass, which deliberately
+  floors no single project's data date when merging multiple member
+  projects' schedules (#3776).
+- **Valkey Sentinel failover now has a documented manual verification runbook.**
+  `administration/valkey-ha.md` previously told operators to "verify a failover in
+  staging" with no procedure to follow. It now includes step-by-step instructions
+  for exercising a real Sentinel quorum promotion (kill the primary, confirm all
+  four Valkey-backed roles recover without a restart) and a results log template
+  to record what you found — and to report it on
+  [#2554](https://gitlab.com/trueppm/trueppm/-/issues/2554) (#3778).
+- Added a CI check (`scripts/tests/helm-sentinel-schema-experimental.test.sh`) that
+  fails the pipeline if any `valkey.sentinel.*` key in `values.schema.json` loses
+  its `EXPERIMENTAL` description marker.
+- **All single-provider extension hooks now guard against a silent duplicate
+  registration.** `guard_single_provider` (#2859) previously covered 6 of the 11
+  module-global `Callable | None` provider slots that a cross-repo Enterprise
+  build registers against. The remaining five — the forecast-history, task
+  duration, and attachment policy enforcement hooks, plus the two SSO
+  authorization seams (OIDC claims-to-role mapping and the enforced-SSO
+  local-login gate) — still used a bare unconditional-assignment setter, so a
+  second registration could silently overwrite the first with no error and no
+  log line, the winner decided only by import order. All five now route through
+  the same guard and raise `DuplicateProviderError` on a conflicting second
+  registration (#3779).
+Schedule Read mode (Alt+A) no longer lets an editor's own rename, duration, % complete, milestone-date, or structural row-menu edits (indent, outdent, insert, convert to milestone, duplicate, delete) silently commit while in Read — each now refuses with an explanatory message, matching every other mutating action on the surface (#3809).
+- **External guardrail-policy writes now broadcast too**: `apply_external_guardrail_policy`/`clear_external_guardrail_policy` (the seam Enterprise's cross-program guardrail templates call) wrote `ProjectGuardrailPolicy` silently, unlike the project's own `PATCH` endpoint. Both now emit `guardrail_policy_updated` on commit, so an open Guardrails settings page reflects a policy pushed or withdrawn from outside the project just as it already does for a same-project edit.
+- **OpenAPI contract**: two published response schemas disagreed with what the API actually returns. `refusal_reason` on `GET /agent-actions/` now correctly allows blank (not just `identity`/`policy`), and every `TimeField` in the schema (`time_of_day`, `quiet_hours_from`, …) no longer claims a `time` format it never satisfies. A generated SDK client built from the schema now matches real responses.
+Schedule Read mode (Alt+A) now also gates the task Properties drawer's Save (button and Cmd/Ctrl+S) — opening a row's Properties while in Read no longer lets its batched name/notes/estimate edit commit; the drawer shows a Read-mode indicator and refuses the same way the row's own rename does (#3812).
+- Patched fixable HIGH/CRITICAL CVEs in the API Docker image's Debian base layer (gzip, perl, openssl, sqlite3, pcre2) via an `apt-get upgrade` step in both build stages, so the published image always carries the latest OS security patches regardless of the upstream base tag's rebuild cadence.
+The "Pin a link" dialog now traps keyboard focus while open — Tab and Shift+Tab
+cycle only through its own controls instead of escaping into the page behind
+it, and closing the dialog returns focus to the button that opened it (WCAG
+2.4.3 / 2.1.2). The notification panel already moved focus in on open and
+restored it to the bell on close; both now share the same `useFocusTrap`
+pattern used across the app's other modals. Also replaces the raw `bg-black/40`
+color literal used for modal and slide-out backdrops with a semantic
+`bg-neutral-overlay` design token (#575).
+Notification filter tabs (bell panel and `/me/notifications`) now use the
+standard underline active state instead of a bordered/filled pill, matching
+the rest of the app's tab bars. The task comment character counter also
+appends " — getting long" and " — limit reached" at its warn/cap thresholds
+so the warning isn't color-only (WCAG 1.4.1).
+Board on mobile now defaults to the Queue layout on phones (below 768px) when no layout preference has been set, instead of rendering the unusable desktop phase-grid, and the mobile "Add task" button now opens the task create form preset to the group in view (Backlog under Queue, or the status column on screen). An explicit Rail or Drawer layout choice is preserved across the breakpoint.
+- **The sample demo project now reaches the "wow" surfaces on first load.** The
+  `seed_demo_project` command now gives every work package a three-point PERT
+  estimate, persists a Monte Carlo run, and binds the active sprint to the upcoming
+  cutover milestone — so a freshly seeded workspace shows real P50/P80/P95 schedule
+  forecasts and an "Advancing to Milestone" card instead of "—" and an empty state,
+  without anyone first running the scheduler by hand (#732).
+- **SMTP transport now configures from environment variables / Helm values.**
+  Django's standard `EMAIL_*` settings (`EMAIL_HOST`, `EMAIL_PORT`,
+  `EMAIL_USE_TLS`/`SSL`, `EMAIL_HOST_USER`/`PASSWORD`, `DEFAULT_FROM_EMAIL`) now
+  bind directly from the environment, and the Helm chart documents matching
+  values on the api/celery/celery-beat workloads (password sourced from a
+  Kubernetes Secret). Setting these previously had no effect, so outbound
+  notification email had no transport in a standard deploy (#764).
+- **MS Project import storage**: a completed (or terminally failed) MS Project
+  import no longer retains its uploaded file payload — the base64 blob is cleared
+  as soon as the import reaches a terminal state instead of lingering until the
+  nightly retention purge.
+Zoom control now announces only the settled zoom tier, avoiding stale screen-reader utterances during continuous pinch or Ctrl+wheel zoom.
+
+### Security
+Bounded the raw dependency-edge count submitted to the scheduler with a `MAX_DEPENDENCIES` cap (100,000), enforced identically by the Python and WASM engines before any per-edge pass runs. This closes the last unbounded multiplicative factor in the synchronous Monte Carlo request path: a project carrying tens of millions of edges is now rejected in O(1) as invalid input (surfaced as a clean 400) instead of tying up a worker on the O(E) validation and graph-build pre-passes.
+Running a Monte Carlo forecast no longer records a persisted, author-attributed
+history row unless the caller holds the Scheduler role or above. Any project
+member can still read the forecast, but Viewers and Members can no longer grow
+the retained-run history or pollute forecast-drift attribution over a schedule
+they do not own. Combined with the existing per-user rate limit on the endpoint,
+this closes the abuse vector where a low-privilege member could POST the
+simulation repeatedly to inflate history and misattribute drift (#1502).
+Fixed an access-control gap that let any authenticated user read another project's live presence data.
+Fixed the bulk task-update endpoint (`POST /api/v1/projects/{id}/tasks/bulk/`) allowing a project Member to edit tasks assigned to other users, bypassing the per-task ownership check enforced on the single-task update path. The bulk `update` operation now applies the same `can_user_edit_task` predicate and rejects the whole request with 403 if any task is not editable by the caller, matching the sibling `delete` operation.
+Fixed Viewer-role members being able to downgrade a BLOCK guardrail policy to WARN or toggle team acknowledgment via PATCH on `/api/v1/projects/<id>/guardrail-policy/`; writing the policy now requires at least Team Member role, while read access stays Viewer+.
+Production now refuses to boot when `DATABASE_URL` lacks an `sslmode` parameter, closing a gap where the database connection could silently fall back to unencrypted transport. Operators who terminate TLS to the database at the network layer can opt out with `TRUEPPM_ALLOW_UNENCRYPTED_DB=true`, which restores the previous warning-only behavior.
+Added rate limiting to the integration-credential connect/rotate/revoke endpoints and the Git webhook-secret config and rotation endpoints, closing an abuse gap where these credential-adjacent endpoints carried no throttle.
+Added rate limiting to the synchronous Monte Carlo simulation endpoint (`POST /api/v1/projects/{id}/monte-carlo/`) to prevent an authenticated resource-exhaustion DoS. The endpoint is now scoped-throttled at 10/min per member.
+Fixed individual ceiling-proposal vote choices being readable by non-team project members. Per-voter detail (who voted which way) is now team-scoped per ADR-0104: non-team project Admins/Viewers still see the governance aggregate (tally, threshold, proposed ceiling) but no longer the individual votes.
+Closed a cross-project relocation flaw (BOLA) on three writable relation FKs. `Task.project`, `TaskResource.task`, and `ProjectResource.project` were editable on PATCH, but object-level permission checks only validated the object's current parent — letting a member of one project relocate a task, assignment, or roster entry into a project they cannot see. Each serializer now rejects a change to these FKs on update with 400, matching the existing guard on acceptance criteria; the fields remain writable at create.
+Closed a confused-deputy gap on the read-only MCP surface where a project- or program-scoped API token — confined to its bound scope on the write path — was not confined on reads, so the collection tools (`list_projects`, `list_programs`, `list_tasks`, `/me/work/`) returned every project or program the token's human minter could see rather than only the bound scope. The MCP read surface now accepts only owner-scoped (personal) tokens, which act as their owner and are already RBAC-confined; project/program-scoped tokens are rejected there with a 401 and keep their unchanged write/sync surface.
+Hardened API tokens minted for the read-only MCP server so a leaked token cannot write and cannot live forever. An `mcp:read` token must now carry a non-null future `expires_at`, validated at mint time, and the MCP setup docs mint the credential as a personal `mcp:read` token (not a `legacy:full` project token that could also write and never expired). Personal access tokens can now be minted with the `mcp:read` scope. Existing `legacy:full` sync tokens are unaffected — they keep their optional-expiry behavior.
+- **Helm: chart-managed Ingress and edge TLS**: the `ingress.enabled` flag is no
+  longer a dead value — the chart now ships a real `Ingress` template with
+  `className`, `hosts`, `tls`, and annotation support (cert-manager friendly), so
+  a Helm install can terminate HTTPS at the edge without a hand-written manifest.
+  Off by default (cluster-specific class/host/cert); enable it and set `hosts`/`tls`
+  to expose the API over TLS. See the chart README and Deployment docs.
+- **Helm: NetworkPolicy on by default for the bundled datastores**: the bundled
+  PostgreSQL and Valkey pods speak plaintext on the pod network, so `helm install`
+  now enables the NetworkPolicy by default (`networkPolicy.enabled: true`) with a
+  default-deny egress posture on the datastore pods and ingress limited to the API
+  and Celery worker. This closes the previous default where any pod in the cluster
+  could reach 5432/6379. Requires a NetworkPolicy-enforcing CNI (documented in the
+  README/Deployment docs); the bundled datastores are explicitly dev/demo only.
+Added a per-account login throttle that bounds password guessing against a single account across all source IPs, closing a distributed credential-stuffing gap where the existing IP-only login limit let a rotating IP pool make unbounded guesses in aggregate. The account-keyed throttle (default `5/min`, tunable via `TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE`) stacks with the fixed per-IP `login` limit and keys on the hashed username, so raw credentials never reach the cache. Every rejected login now also emits a structured `auth.login_failed` audit event on the `trueppm.auth` logger (hashed username plus client IP) so operators can alarm on stuffing bursts.
+Hardened the sync upload rate limiter against authenticated denial-of-service. It now fails **closed** (deny) on a Redis error instead of failing open — a cache blip previously removed the only write-rate bound globally — and adds a per-user global bucket alongside the existing per-(project, user) bucket, so a member of many projects can no longer sustain `UPLOAD_LIMIT × N` heavyweight batch writes per minute by spreading them across projects. Denied uploads are safe because the offline client already retries with backoff (#1719).
+- **Import row-count cap (worker/broker DoS)**: MS Project and Jira imports now
+  reject files whose task, resource, or dependency count exceeds a configurable
+  limit (`MSPROJECT_MAX_ROWS` / `JIRA_IMPORT_MAX_ROWS`, default 20,000), and every
+  import `bulk_create` is chunked with a `batch_size` (`IMPORT_BULK_BATCH_SIZE`).
+  Previously only the upload size was capped, so a small file could still encode
+  ~1M tasks and exhaust worker memory in one unbounded insert.
+- **Bounded MPXJ subprocess for .mpp import**: converting a `.mpp` file now
+  streams the MPXJ subprocess stdout with a hard byte cap (`MPXJ_MAX_OUTPUT_MB`,
+  default 512) and runs the JVM with a bounded max-heap (`MPXJ_MAX_HEAP_MB`), so a
+  decompression-bomb `.mpp` — small enough to pass the upload cap but expanding to
+  multi-GB XML — is aborted instead of OOM-ing the worker.
+Closed two WebSocket credential-in-URL leaks. OpenTelemetry WS server spans no longer export the handshake query string — the single-use `?ticket=` and legacy `?token=<jwt>` credentials are stripped from the `url.query`/`http.target`/`http.url` span attributes before export, so a JWT can no longer be lifted from the trace store. The deprecated `?token=<jwt>` handshake is now disabled by default (a raw JWT in the URL leaks into proxy/ingress/Daphne access logs); an operator with clients still on the old path can re-enable it for one last release via `TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED=true`, and it is removed entirely next release. The single-use ticket flow is the only path that reaches production by default.
+Restricted the workspace invite-list and group read endpoints to Admins. `IsWorkspaceAdmin` admitted any authenticated member on safe methods (every authed user is an implicit workspace member), which leaked pending-invite PII (email, role, invited_by) via `GET /api/v1/workspace/invites/` and group rosters via `GET /api/v1/workspace/groups/[{id}/]`. These reads are now gated at Admin (all methods), matching their writes.
+- **Risk owner and retro action-item assignee must be project members**: setting
+  a risk's `owner` or a retrospective action item's `assignee` to a user who is
+  not a member of the project is now rejected, matching the existing guard on
+  task assignees. This closes a minor disclosure path where an arbitrary user id
+  echoed back that user's display name/initials.
+- **Workspace Admins can no longer grant or invite at a role equal to their own**:
+  both updating a workspace member's role and creating an invite are now limited
+  to roles strictly below the actor's own, matching the project membership rule.
+  Previously an Admin could promote or invite another member to Admin, creating a
+  peer that neither Admin could subsequently manage.
+- **Per-user concurrency cap on offline-sync uploads**: the mobile sync upload endpoint now bounds how many batch uploads one user can have applying at the same time (`TRUEPPM_SYNC_MAX_CONCURRENT_BATCHES`, default 4). Each accepted batch is a heavy transaction (row locks + a schedule recompute), so a burst of concurrent uploads from one account could tie up worker and database resources even while staying under the per-minute rate limit. Over the cap, the request gets an HTTP 429 with a short `Retry-After`. The guard fails open if the throttle store is unreachable — the existing rate limit remains the hard bound — and the in-flight counter is TTL-guarded so a crashed worker cannot leak a slot.
+Hardened the public read-only demo (`docker-compose.demo.yml`) so its reverse proxy exposes an explicit allowlist instead of the full API. Only the anonymous, read-only share-link projections (`/api/v1/share/…`), the liveness probe, static assets, and loopback-only admin reach the API container; every other `/api/` route — auth/token, project viewsets, the Admin-only share-link management endpoints, workspace SSO, the OpenAPI schema — and the live-collaboration WebSocket now return 404. A CI gate (`scripts/check-demo-nginx-allowlist.sh`) fails the pipeline if the demo template regresses to a blanket `/api/` proxy.
+WBS reorder (`POST /projects/{id}/tasks/reorder/`) now requires per-task edit authority on every sibling in the level, matching the indent/outdent/reparent gate. Previously any project Member could renumber a level containing colleagues' tasks they had no authority to edit.
+- **MCP read-surface rate limiting**: token-authenticated reads on the MCP
+  (`mcp:read`) surface are now rate-limited per token. Every MCP-readable view
+  carries a baseline per-token cap (`mcp_read`, default 120/min), and the four
+  compute-heavy tools — what-if, latest Monte Carlo, forecast, and sprint-forecast,
+  each of which runs a CPM + Monte Carlo recompute per call — stack a tighter bucket
+  on top (`mcp_read_compute`, default 12/min). This bounds an agent retry loop or a
+  leaked read-only token from burning arbitrary compute. Human session/JWT traffic
+  on the same views is unaffected. Both rates are env-tunable
+  (`TRUEPPM_THROTTLE_MCP_READ_RATE`, `TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE`).
+Closed a client-side DoS in the WASM scheduler's drag-preview session: `SchedulerSession.set_task_start` accepted any parseable date without re-validation, so a crafted far-future start (up to `NaiveDate::MAX`) reached the working-day counter's unchecked day-by-day walk — an overflow panic that trapped the whole WASM module until page reload, or a multi-second main-thread freeze for merely-large dates. The mutation path now re-runs the same validation guards as the stateless entry points (rejecting and rolling back out-of-bounds starts), and the two remaining unchecked date-increment loops in the calendar walks now bail with a clean error on absurd bounds instead of panicking or spinning.
+- **Sensitive query params in HTTP trace spans**: OpenTelemetry HTTP request
+  spans recorded the full request query string into their URL attributes, leaking
+  the OIDC/OAuth2 callback authorization `code` and `state` (and any `token`,
+  `client_secret`, `password`, or `secret` param) to the trace store. The Django
+  instrumentation now scrubs a sensitive-key allowlist to `REDACTED` in the
+  `http.target`/`http.url`/`url.query` span attributes while preserving
+  non-sensitive params, extending the #1723 WebSocket redaction to HTTP.
+- **SSO config disclosure**: the workspace SSO provider endpoints
+  (`/workspace/sso/` and `/workspace/sso/test-connection/`) previously permitted
+  any authenticated member to read the org's identity-provider configuration
+  (issuer URL, client_id, allowed email domains, redirect_uri) on GET, disclosing
+  org structure. Both endpoints are now gated with `IsWorkspaceAdminStrict`, so
+  reads — like writes — require workspace Admin.
+- **Seed export is now restricted to project/program Admins.** The synchronous
+  JSON seed export (`GET /projects/{id}/export/` and `GET /programs/{id}/export/`)
+  was reachable by any project or program member, including Viewers — dumping
+  team-private data such as story points and committed/completed/capacity velocity
+  raw, bypassing the per-audience gating the normal API applies. Both sync seed
+  exports now require Admin (Owner or Admin/Program Admin), matching the async
+  export bundle. Field-level redaction in the export path is tracked separately for
+  a later release.
+- **Email-settings read gate tightened**: the workspace SMTP configuration read
+  (`GET /api/v1/workspace/email-settings/`) is now gated on a genuine workspace
+  Admin (`IsWorkspaceAdminStrict`) rather than anyone holding ADMIN on a single
+  project. This aligns it with the SSO config read gate — installation
+  mail-transport posture (host, from-domain, bounce-webhook URL, rate limits) is
+  org-topology disclosure and should not be readable by a low-trust project
+  admin. Writes remain operator-only (superuser); no secret was ever exposed.
+- **SSRF guards no longer echo the resolved internal address**: when a workspace
+  SMTP host or bounce-webhook URL was rejected for resolving to a private/internal
+  address, the validation error reflected the DNS-resolved IP back to the client —
+  an internal-network-topology oracle. Both now return a curated message and log
+  the detail server-side only (CodeQL `py/stack-trace-exposure`).
+Webhook URL registration no longer echoes the DNS-resolved internal address when an SSRF egress guard rejects a URL. The endpoint now returns a generic "URL not allowed" message and logs the detail server-side, closing an internal-topology oracle (CodeQL `py/stack-trace-exposure`).
+Hardened deployment and build tooling: the Helm chart now sets `ephemeral-storage` limits on every workload and leaves the ServiceAccount token unmounted on the PostgreSQL and Valkey pods; the web image installs with `npm ci` (locked, reproducible) and the CI images run as a non-root user; build-time `curl`/`pip` invocations pin HTTPS and wheel-only installs.
+- **Separate JWT signing key + global sign-out lever**: the access/refresh JWT
+  signing key can now be set independently of `SECRET_KEY` via the optional
+  `JWT_SIGNING_KEY` environment variable (it still defaults to `SECRET_KEY`, so
+  existing deployments are unchanged). Setting a distinct key limits the blast
+  radius of a `SECRET_KEY` leak — a leaked secret alone can no longer forge
+  tokens — and gives operators a deliberate "sign everyone out now" lever:
+  rotating `JWT_SIGNING_KEY` invalidates every outstanding token without
+  churning Django's session/CSRF signing. An explicitly-set key is strength-
+  validated at boot in production exactly like `SECRET_KEY`.
+- **Auth-surface hardening**: the Django session and CSRF cookies now pin
+  `SameSite`/`HttpOnly` explicitly instead of relying on Django's implicit
+  defaults, and the production API authenticates with JWT only — DRF
+  `SessionAuthentication` is retained solely in development/test settings (where
+  it backs `client.force_login`) rather than shipping as an unused second auth
+  surface in production. Also documents why `ACCOUNT_EMAIL_VERIFICATION="none"`
+  is safe (allauth's self-service account URLs are not mounted). Defense-in-depth
+  cleanup from the 2026-07-20 login/session audit; no behavior change for the SPA.
+Bumped the web client's `axios` dependency from 1.16.0 to 1.18.1 to clear three OSV advisories, all fixed upstream in 1.18.0: excessive recursion in `formDataToJSON` (GHSA-42h9-826w-cgv3) and deep `formToJSON` key recursion (GHSA-pmv8-rq9r-6j72), both denial-of-service vectors, plus a prototype-pollution flaw where auth subfields could inject Basic auth credentials (GHSA-xj6q-8x83-jv6g). No API changes — axios 1.18.x is source-compatible with 1.16.x (#2257).
+Patched five HIGH-severity advisories in the web and docs-site dependency trees: `js-yaml` is bumped to 4.3.0 (packages/web and packages/website) and the transitive `brace-expansion` copies to their patched 1.1.16 / 2.1.2 / 5.0.7 releases (packages/web). Three remaining sub-HIGH `astro` advisories require a coupled astro 6→7 + Starlight upgrade and are tracked separately (#2258), documented under a self-expiring `security:osv` suppression in the interim.
+Bumped the transitive `brace-expansion` dependency in the mobile app to `1.1.16`, closing a denial-of-service advisory (GHSA-3jxr-9vmj-r5cp) where consecutive non-expanding `{}` groups triggered exponential-time expansion. The affected copies were dev-only (eslint toolchain) and never shipped in the app bundle; this is a lockfile-only patch with no direct-dependency or code changes.
+- **Updated `react-router` to 7.18.1** to remediate a HIGH-severity advisory
+  (GHSA-chx6-hx7r-mcp5, CVSS 8.7) allowing unauthenticated requests to degrade
+  server performance through inefficient route matching, plus three moderate
+  advisories, all fixed in 7.18.0 (#2357).
+- **Pinned `dompurify` to 3.4.12** (via an npm `overrides` floor on the transitive
+  jspdf dependency) to clear GHSA-c2j3-45gr-mqc4 (CVSS 2.1), the last remaining OSV
+  advisory (#2359).
+- **Bumped `postcss` to 8.5.22** (dev dependency, `packages/web`) to remediate a
+  HIGH-severity path-traversal advisory (GHSA-r28c-9q8g-f849, CVSS 7.5, CWE-22)
+  in which PostCSS loaded `sourceMappingURL`-referenced `.map` files without path
+  validation, allowing `../` traversal when processing untrusted CSS. Fixed in
+  8.5.18 (#2361).
+Bumped `react-router` to 8.3.0 to remediate GHSA-qwww-vcr4-c8h2 (HIGH, CSRF in unstable RSC code paths). TruePPM is a client-only SPA and does not use the affected RSC APIs, so it was not exploitable, but the fix keeps the dependency free of known HIGH advisories. Also bumps `react`/`react-dom` to 19.2.8 (react-router 8 peer requirement) and the web CI images to Node 22.
+Bumped `brace-expansion` to 5.0.8 (dev dependency, `packages/web`) to remediate
+GHSA-mh99-v99m-4gvg (HIGH, CVSS 7.5), a denial of service in which `expand()`
+bounds the *number* of results it produces but not their *length*, so chained
+brace groups exhaust memory and terminate the Node process with a fatal,
+uncatchable out-of-memory error. The two remaining resolutions (1.1.16 and
+2.1.2, reached through `minimatch@3` under the eslint plugins and `minimatch@5`
+under the OpenAPI codegen) have no patched release on their maintenance lines
+and are covered by documented, expiring, version-scoped suppressions in a new
+`packages/web/osv-scanner.toml`. All three are dev-only and are not bundled into
+the shipped app, and the brace patterns reaching `expand()` come from our own
+tooling config rather than user input, so none was exploitable (#2363).
+The capacity harness no longer ships a hard-coded password for its load-driver account. `seed_capacity` and `run_capacity.py` both read `TRUEPPM_CAPACITY_PASSWORD` from the environment and fail with instructions when it is unset, and the supplied value is held to the project's password validators. Mint a throwaway value before bringing the capacity stack up — see `packages/api/perf/capacity/README.md`.
+Brought `packages/mobile` under the `security:osv` dependency-scanning gate,
+which had never covered it, and remediated the two HIGH advisories that gap let
+sit open: GHSA-mh99-v99m-4gvg in `brace-expansion` (bumped to 5.0.8) and
+GHSA-r28c-9q8g-f849 in `postcss`, a path traversal in previous-source-map
+auto-loading that discloses arbitrary `.map` files (bumped to 8.5.23). Both were
+build-time only — the mobile app bundle ships neither — and both processed only
+our own config and stylesheets rather than user input, so neither was
+exploitable. The remaining `brace-expansion@1.1.16` resolutions, reached through
+`minimatch@3` under the eslint plugins and under React Native's own codegen and
+Babel toolchain, have no patched 1.x release and are covered by a documented,
+expiring, version-scoped suppression in a new `packages/mobile/osv-scanner.toml`
+(#2477).
+**Helm: Django admin is no longer exposed by a default install.** The web tier's nginx proxied `/admin/` with no source restriction and no rate limit, so an ingress-enabled install published an unthrottled password-guessing surface against the superuser the chart's own `bootstrap` initContainer creates on every deploy — Django admin is a plain Django view, so no DRF login throttle applies to it and there is no lockout backend. The block now fails closed: `web.adminAccess.allowCIDRs` defaults to empty and renders a bare `deny all`, and `web.adminAccess.rateLimit` applies the same 5r/m + burst 2 limit as the Docker Compose deployment. Set `web.adminAccess.enabled: false` to return `404` instead, or reach admin out-of-band with `kubectl port-forward svc/<release>-trueppm-api 8000:8000`. CI previously asserted `/admin/` was closed only on the demo render; the production render is now asserted too.
+- **A task's assignee can no longer approve their own three-point estimate.**
+  `estimate_status` was writable on the task API, so in Suggest & Approve estimation
+  mode a Team Member could send `{"estimate_status": "accepted"}` on a task update
+  and self-approve — bypassing the `approve-estimates` action that gates approval to
+  Resource Manager and above. The governance hook that normalizes the field only ran
+  when three-point durations were written alongside it, so a payload carrying the
+  status by itself was never inspected. `estimate_status` is now read-only on the
+  task API; `POST /api/v1/tasks/{id}/approve-estimates/` remains the only path to
+  `accepted` over the API and is unaffected. The MS Project and seed importers still
+  write `accepted` directly, but only ever on tasks they are creating — importing into
+  an existing project requires Project Manager, and the create-from-import endpoints
+  only ever build a new project or program owned by the caller (#2570).
+- **Task placement fields are no longer writable over the API.** `wbs_path` and
+  `is_subtask` were listed in `TaskSerializer.Meta.fields` and absent from
+  `read_only_fields`, so any Team Member who could PATCH their own assigned task
+  could relocate it anywhere in the project's WBS tree — bypassing all three
+  create-time placement guards (milestone-has-no-children, depth-1,
+  phase-vs-subtask), none of which is reachable from a PATCH. Because the
+  descendant probes are ltree prefix queries, a forged path could also make a later
+  delete tombstone a subtree the caller never owned, and could corrupt summary/phase
+  rollups. Both fields, and `parent_governance_inherited` (derived state whose write
+  left no audit row), are now read-only, which closes the REST path and the sync
+  upload from one declaration. The server always derives `wbs_path` from `parent_id`
+  on create; a client-supplied path is ignored rather than honored. (#2585, ADR-0743)
+- **The PM Only estimation mode is now enforced on the server.** It was documented
+  as a role restriction and enforced only by a disabled input in the browser, so a
+  Team Member assignee could write the three-point estimates the mode exists to
+  forbid. The consequence was worse than a plain unauthorized write: in Suggest &
+  Approve such a value at least lands `pending` and Monte Carlo withholds it, but in
+  PM Only that gate is inert and the estimate was stamped "not tracked", i.e. fully
+  trusted — so an unauthorized estimate fed P50/P80/P95 looking *more* trustworthy
+  than one submitted through the sanctioned flow. Writing any PERT field in a PM
+  Only project now requires the Project Manager role or above and returns `403`
+  otherwise, on create and update alike. The task API exposes the caller's own
+  authority as `can_edit_estimates`, and the web control now gates off that server
+  verdict instead of re-deriving the rule.
+
+  Estimates written under PM Only *before* this release are **not** retroactively
+  invalidated and continue to feed the forecast — review them once after upgrading
+  if your project has used this mode. (#2596, ADR-0743)
+- **Backup upload: warn on remote plaintext `S3_ENDPOINT`**: `scripts/backup.sh`
+  (and the Helm backup CronJob's off-cluster upload step) now log a `WARNING`
+  when `S3_ENDPOINT` / `backup.s3.endpoint` is `http://` and doesn't look
+  in-cluster or private-network — the artifact is a full database dump, and
+  plaintext to a remote endpoint puts it on the wire unencrypted. In-cluster
+  plaintext (the documented `http://minio:9000` default) stays silent. The
+  upload is never blocked; set `TRUEPPM_S3_ALLOW_PLAINTEXT=1` (CLI) or
+  `backup.s3.allowPlaintext: true` (Helm) to silence the warning for a
+  verified-trusted network path.
+- **Closed-sprint task status freeze, enforced server-side**: `PATCH /tasks/{id}/`
+  could still change a task's `status` inside a closed (`COMPLETED`) sprint —
+  including via the two auto-status side effects that promote status from a
+  `planned_start` or `percent_complete` edit alone, with no `status` field in
+  the payload at all. Any role `can_user_edit_task` otherwise permits (an Admin,
+  or the task's own assignee) could silently corrupt a sprint's already-closed
+  `completed_*`/velocity numbers this way; the web board's read-only guard was
+  client-side only. The API now rejects any status change — explicit or
+  auto-injected — on a task belonging to a closed sprint, matching the board's
+  existing (client-side) freeze.
+- **Backlog drag-to-promote now honors the board's read-only guard**: dragging a
+  card out of the backlog rail or drawer onto a phase column bypassed the
+  `readOnly` guard enforced everywhere else on the board (card menus, in-column
+  drag) — a Viewer or a closed-sprint session could still fire the status change
+  via drag, relying only on the server rejection above to snap it back.
+Closed a fail-open in the project permission layer. Routes declared
+`projects/<pk>/…` rather than `projects/<project_pk>/…` resolved no project at the
+permission layer, so every project-scoped permission class fell through to "allow"
+in `has_permission` — the class was listed on the view, read as a gate in review,
+and enforced nothing. Authorization on those routes rested entirely on a
+hand-written object check in the view body. Thirty views now declare which URL
+kwarg names the project, and the five task-authoring routes are denied to a Viewer
+by the permission class itself. Unknown project ids still return 404, and the
+in-body checks are retained as defense in depth and pinned by a test.
+- **Dependency security patches**: bumped `brace-expansion` 5.0.8 → 5.0.9 (web, mobile) and `postcss` → 8.5.25 (web, website) to clear HIGH/MODERATE OSV advisories flagged against the pinned versions.
+- **CSV import indent-depth DoS**: an extreme indent depth (leading whitespace/dots
+  in a task name, or a huge bare-digit WBS column value) could produce a WBS path
+  that exceeded the database's hierarchy-path limit, crashing the import silently
+  and leaving it stuck retrying forever. Depth is now capped during parsing, and
+  any unexpected import failure now fails the request visibly instead of looping.
+- **CSV formula-injection (CSV/DDE) hardening on export**: task CSV export
+  (`exportTasksToCsv`) and risk-register CSV export (`exportRisksToCSV`) now
+  neutralize a leading `=`, `+`, `-`, `@`, tab, or carriage-return character by
+  prefixing the cell with a leading `'` before applying RFC 4180 quoting. This
+  closes a stored formula-injection path where a task name imported from CSV
+  (which applies no character filtering on ingest) could execute as a formula
+  or command in a teammate's spreadsheet application when the schedule or
+  risk register was exported and opened in Excel, Google Sheets, or
+  LibreOffice.
+Hardened the read-only MCP server against indirect prompt injection from
+user-authored task/risk/sprint text. `SERVER_INSTRUCTIONS` now states
+explicitly that everything a tool returns is project data — never an
+instruction to follow, however it is phrased — and every free-text field
+(`description`, `notes`, `mitigation`, `response`, `summary`, `narrative`) is
+now wrapped in `<untrusted-content>` markers so client-side prompt
+construction has a structural signal to separate it from trusted system
+framing. This is a framing mitigation, not a content filter: it does not
+sanitize or reject text, and full closure of this class is not possible
+purely server-side (#2763).
+An `mcp:read` personal or project API token now has a maximum expiry of 365 days from mint time, in addition to the existing "must be non-null and in the future" rule. Previously a token could be minted with a far-future `expires_at` (e.g. `9999-01-01`), making it functionally non-expiring and defeating the self-limiting blast-radius property the expiry requirement exists for. `legacy:full` tokens are unaffected.
+The API's write surface is now pinned by a checked-in inventory. A route becoming
+writable by a personal access token, or a project-scoped route losing the object-level
+check that is its only real gate, fails a test instead of being discovered by the next
+audit.
+The hosted demo's read-only posture is now asserted rather than assumed. Adding
+`--with-personas` to either demo manifest, mounting a public registration route, or
+making the public share endpoint answer a write now fails a test or a CI job instead
+of silently publishing a login-capable public instance.
+Upgrade the transitive `js-yaml` dependency to 4.3.1 in the web, documentation-site, and mobile lockfiles (and to 3.15.1 for the nested `@istanbuljs/load-nyc-config` copy in mobile), clearing the HIGH-severity advisory GHSA-5p4m-2wfm-xmqj — quadratic CPU consumption in `!!omap` resolution, reachable from a plain `yaml.load()` on the default schema — flagged by the `security:osv` gate. All four are build-time-only consumers (eslint config loading, Redocly OpenAPI parsing, Astro content, and nyc/istanbul config), so no shipped TruePPM surface was exposed.
+Upgrade the transitive `nanoid` dependency to 3.3.18 in the web, documentation-site, and mobile lockfiles, clearing the HIGH-severity advisory GHSA-2v37-7h3g-55p8 — custom generators can loop indefinitely when `size` is zero — flagged by the `security:osv` gate. In the same scan, the HIGH-severity `image-size` advisories GHSA-5p2g-fcmc-qvqq and GHSA-w3rx-r6r6-pgpr are recorded as an accepted risk in `packages/mobile/osv-scanner.toml`: no patched release exists in any line (npm `latest` is 2.0.2 and both advisories mark 2.0.2 `last_affected`), and the package reaches us build-time only through metro's asset pipeline, which reads our own committed image assets and never ships in the app bundle.
+Upgrade `dompurify` to 3.4.13 in the web and documentation-site lockfiles and `mermaid` to 11.16.1 in the documentation-site lockfile, clearing the last seven advisories the `security:osv` gate reported in its non-blocking warn band. The most consequential is GHSA-55q2-fjhq-7xh7 against `dompurify`, a sanitizer bypass where removing an `IN_PLACE` hook leaves a detached subtree executable: in `packages/web` that copy is a runtime dependency of the shipped app, reached through `jspdf` for PDF export, rather than build tooling. The five `mermaid` advisories (prototype pollution in the configuration and architecture-diagram APIs, CSS injection, and denial of service in XY and radar charts) affect documentation-site build tooling only.
+The initial administrator password generated during setup was written to the container's log output instead of to the protected file the deployment docs tell you to read it from. The directory that file lives in was owned by root while the application runs as an unprivileged user, so the write failed and the command fell back to printing the credential — placing it in `docker compose logs` and anywhere container output is shipped. The documented retrieval command could never have succeeded. If you have already deployed the Docker Compose stack, treat the initial admin password as exposed in your logs and rotate it. The Kubernetes/Helm deployment was not affected.
+Cleared the 12 open SonarCloud `shell:S5332` cleartext-protocol findings on
+`scripts/prod-compose-drill.sh` — the project's entire open SECURITY backlog — by
+documenting them as verified false positives. The drill boots the prod compose stack with
+`TLS_MODE=none` against a throwaway dind daemon on the CI job's own network, so `https://`
+would not connect at all; the exclusion is scoped to that one script, keeping the rule
+active on every other shell that makes a real cleartext request.
+Off-boarding a workspace member now revokes their Personal Access Tokens and refresh tokens. Previously, deactivating or removing a member set `is_active = False` — which stopped their browser session and JWTs — but left every Personal Access Token they had minted fully live, with their pre-departure permissions and (for tokens without an expiry) indefinitely. As defense in depth, the API-token authenticator now also refuses a personal access token whose owning account is disabled, matching what the JWT and session authenticators in the same chain already did — so an account disabled outside the workspace UI is covered too. Revocation is durable: reactivating a member restores their login but does not un-revoke tokens — they mint new ones. Project- and program-scoped integration tokens are unaffected: they are neither revoked nor rejected, so a team's CI is not broken by an unrelated member's off-boarding.
+Brought all five shipped nginx configurations to one hardening baseline. The Helm chart's production web tier now sends `X-Frame-Options`, `X-Content-Type-Options`, and a `frame-ancestors 'none'` Content-Security-Policy on the SPA document — previously it sent none, while both Docker Compose paths sent four, leaving the deployment the docs recommend for production as the weakest. The header set is configurable through the new `web.securityHeaders.*` values (secure by default) so operators behind their own ingress or WAF can adjust the CSP rather than delete the block. Django's own CSP and framing middleware never covered this: `index.html` and the JS bundles are served off disk by nginx and never reach Django. The chart's demo branch gained the CSP it was missing, and the Compose demo template gained the `limit_req` its production sibling already had. Separately, the nginx config baked into the published `web` image no longer proxies `/admin/` wide open and unthrottled — the pre-hardening shape it kept after the rendered configs were fixed — and now fails closed with a `404`; every documented deployment mounts its own config and opts back in explicitly. A new `nginx:headers` CI gate renders all five configs and asserts they never drift apart again.
+Deactivating an account now immediately closes its live WebSocket connections on every project. Authorization ran only at connect and `is_active` was read only there, so an off-boarded member's open board or workshop socket kept streaming project events for the rest of the session even though their REST access had already stopped.
+Jira XML import now has a positive control proving its defusedxml hardening: XXE and billion-laughs payloads are asserted to be rejected by defusedxml itself, not merely to raise. A new conformance test discovers every app that parses untrusted uploaded bytes and requires each to carry a malicious-input test, so the next such parser cannot ship without one.
+The Apache 2.0 boundary gate now scans dependency manifests (`pyproject.toml`, `package.json`, `Cargo.toml`, `requirements*.txt`) in addition to source. A `trueppm-enterprise` entry there is a harder violation than an import — it makes the proprietary package a declared dependency of the Apache 2.0 distribution — and matched none of the previous source globs. The six single-provider extension hooks now reject a conflicting second registration instead of silently overwriting.
+Single sign-on: the SSO callback now refuses a **deactivated** account. It was the only login path that never checked `User.is_active`, so a member an admin had just revoked completed the whole handshake and was issued a fresh refresh token; the account is now rejected before any session is minted, with a distinct `SSO_ACCOUNT_DISABLED` message. Also hardened on the same path: ID-token validation allows 60 seconds of clock-skew tolerance (an identity provider whose clock ran marginally ahead previously produced unexplained sign-in failures), the provider's signing keys are cached instead of re-fetched on every single sign-in with an immediate refetch when a key rotation is detected, and adding a second provider of a type that is already configured returns `409 Conflict` instead of a `500`.
+- **A leaked API token can no longer mint or revoke API tokens.** A token-authenticated
+  caller reached `/me/api-tokens/` through the default authentication stack and could
+  create fresh tokens up to the 10-token cap, enumerate the owner's whole inventory, and
+  delete the owner's legitimate tokens. Revoking the leaked credential was therefore not
+  containment. Token management — personal, project, and program, including the audit
+  reads — is now session/JWT only and refuses any token caller with a `403`.
+- **`revoke_api_tokens` management command**: rotating `JWT_SIGNING_KEY` signs every
+  session out, but an API token carries no signature (it is a SHA-256 hash lookup), so
+  the documented breach-recovery procedure left every leaked token live. The command is
+  the missing half: `--user`, `--all-personal`, or `--all`, dry-run by default, with an
+  audit row per revoked token. `administration/security.md` now documents both steps.
+- **Password-reset and off-boarding revocations are audited.** Both revoked tokens
+  silently — routine self-service rotation was logged while the two security-relevant
+  revocations were not, exactly inverting the trail the feature page promises. Each now
+  writes an audit row naming the actor, the source IP, and the reason.
+- **`GET /api/v1/me/api-token-audit/`**: personal-token audit rows had no reader
+  anywhere — they matched no queryset and no route, so a user could not answer "when was
+  this token minted, and when was it cut off". This endpoint is that reader, scoped to
+  the requesting user.
+- **`list`, `retrieve` and `destroy` on the credential surface are rate limited.** An
+  overriding `get_throttles` *replaces* the default throttle classes rather than adding
+  to them, so those actions resolved to no throttle at all — an unthrottled
+  enumerate-and-delete pair on a credential-management surface. The same defect is fixed
+  on the task-attachment and task-comment viewsets. Revocation additionally gets its own
+  bucket (`TRUEPPM_TOKEN_REVOCATION_PER_MINUTE`, default `30/min`), sized above the mint
+  cap so cutting off a leak is never the slower action.
+- **Two refusal paths now say why.** An `mcp:read` token used on a general endpoint, and
+  a token refused at an MCP write, both answered with a bare body; they now carry the
+  refusal envelope (`identity`/`token_identity` and `policy`/`capability_scope`). The
+  generic `401` detail is unchanged, so token states stay indistinguishable to a caller
+  probing for them.
+- **Inbound Git webhook — closed an automation-disclosure oracle, added a per-IP
+  limit, and bounded the body.** The unauthenticated Git-event receiver crashed
+  with a 500 when a signature header contained a non-ASCII byte, and because a 500
+  was only reachable *after* the "is automation configured?" check, its mere shape
+  told anyone holding a project ID that the project has automation enabled with a
+  secret set — admin-only state. The 401 it returned for a bad signature leaked the
+  same fact. **Every refusal before signature verification now returns the same
+  `404`**: no automation, disabled, no secret, unrecognized provider, unreadable
+  secret, and invalid signature are indistinguishable. The reason is recorded on the
+  project's automation config (visible to Owner/Admin only) and logged. The receiver
+  also now enforces a **1 MB body cap** — it previously buffered up to 100 MB before
+  any check ran — and stacks a **per-client-IP rate limit**
+  (`TRUEPPM_THROTTLE_GIT_WEBHOOK_IP_RATE`, default 600/min) alongside the existing
+  per-project one, which a caller could defeat simply by rotating the project ID in
+  the URL. Two further ways the same 500 could be reached are closed: an unset or
+  malformed `INTEGRATION_ENCRYPTION_KEY` now refuses like any other unreadable secret
+  instead of raising, and a signed payload carrying a non-string pull-request URL no
+  longer errors deep in matching.
+
+  **Breaking, deliberately without a deprecation window** (see
+  [API stability](https://docs.trueppm.com/api/stability/)): a client branching on
+  `401` from this endpoint must treat `404` as the same condition. The window would
+  have been self-defeating — the `401` was the vulnerability.
+The outbound webhook signing secret is now encrypted at rest, closing the last
+plaintext secret in the product; a database dump or a read-only SQL finding no
+longer yields keys that can forge signed deliveries at every registered receiver.
+Existing secrets are encrypted by migration with no operator action required.
+Webhook deliveries also carry a new timestamped signature header,
+`X-TruePPM-Signature-V2: t=<unix>,v1=<hmac>`, computed over the timestamp and the
+body together, so a captured delivery can no longer be replayed indefinitely. The
+existing `X-TruePPM-Signature` header is still sent — no receiver breaks — but it
+is deprecated and will be removed at 1.0; see the webhooks documentation for the
+new verification recipe. The webhook editor now generates a strong secret by
+default and shows it once, rather than requiring a hand-typed one with no length
+check, and the registration example in the documentation has been corrected: it
+previously used an 18-character secret and claimed `events` could be omitted, both
+of which are rejected with a 400.
+- **CSV formula-injection guard applied to the workspace member and roles
+  exports** (the #2762 class at two further sites). A member display name
+  beginning `=`, `+`, `-`, `@`, tab or CR executed as a formula when an admin
+  opened the exported file in Excel or Sheets, and an interior lone carriage
+  return could split a record and smuggle a live formula past the guard. Both
+  pages carried their own quoting-only cell helper; both now use the shared
+  `escapeField`, and a conformance test fails the build if any module defines a
+  CSV escaper of its own.
+- **UTF-16 spreadsheet uploads no longer import as mojibake at "exact"
+  confidence**: the CSV importer now honors UTF-8, UTF-16 and UTF-32 byte-order
+  marks, so Excel's "Unicode Text" export reads correctly. A decode that produces
+  NUL bytes or mostly-unreadable characters is now **refused** with instructions
+  to re-save as UTF-8 CSV, rather than falling through to a lossy codec that maps
+  every byte and reports a confident column mapping over a misread file.
+- **European decimal commas no longer truncate silently**: `3,5` days imported as
+  3 days and `0,5` percent-complete imported as 0 %. Duration and percentage cells
+  now accept either decimal convention, with grouping separators resolved by an
+  explicit, documented rule; every value that parsed correctly before parses
+  identically.
+- **The CSV wizard's advertised `⌘Z` shortcut is wired, and no longer double-fires.**
+  The Undo button has named the shortcut since #2756 with nothing listening. Wiring
+  it surfaced that three surfaces on the Schedule view bind `⌘Z` to a *different*
+  destructive undo and are mountable side by side, so one keypress ran two of them
+  — reverting a template apply as well as the import. `⌘Z` is now arbitrated
+  through a claim registry (the mechanism `?` already used), the innermost surface
+  wins, and the handler yields to text fields.
+`GET /api/v1/me/active-sprints/` now applies the ADR-0104 velocity privacy gate and
+re-checks project membership. The multi-team sprints lens returned each project's
+rolling-velocity band with no audience check, so a project ADMIN or OWNER read the
+team-private point figures that `/velocity/` and `/forecast/` suppress for them at the
+default posture. It also inferred membership from a task assignment — and because
+`ProjectMembership` is soft-deleted, a revoked member kept reading a project's velocity
+band through this endpoint after every other route denied them. Each card's velocity
+block is now suppressed per project (the caller can be a member of one team and the PM
+of the next) and carries a `velocity_suppressed` flag distinguishing a gated band from a
+team with no closed sprints yet.
+Workspace invites now leave a durable record, and an accepted invite no longer loses its sender. The admin list was hard-filtered to `status=pending`, so accepting or revoking an invite erased it from the only surface that showed it, and no audit verb replaced it — `accepted_at` and `accepted_user` were written by the accept path and exposed by no endpoint at all. Adds `invite_sent` / `invite_accepted` / `invite_revoked` audit events, a `?status=` filter (default `pending`, `all` for the full history), and `accepted_at` / `accepted_by` on every invite row. `invite_accepted` carries the inviter explicitly: the accept endpoint is unauthenticated, so the `member_added` row written alongside it has the *invitee* as its actor and can say "X joined via invite" without ever recording who sent it.
+- **SSO callback crash on a non-ASCII `state`**: the OIDC callback compared the
+  `state` query parameter against its browser cookie with `secrets.compare_digest`,
+  which raises `TypeError` on a non-ASCII string. Because the endpoint is
+  `AllowAny`, any caller could turn one accented character into an unhandled 500
+  instead of the intended `invalid_state` redirect. Both sides of the comparison
+  are now compared as bytes through a single shared primitive
+  (`trueppm_api.core.constant_time`), which the Git-webhook receiver also uses, so
+  the guard cannot drift between the two constant-time comparison sites again.
+Updated Django to 5.2.17, which carries the fix for PYSEC-2026-3717. The minimum supported version was raised to match, so a fresh install cannot resolve back to an affected release.
+- **Velocity privacy at the reforecast preview**: `GET /api/v1/sprints/{id}/reforecast-preview/` returned the team's velocity forecast band (`velocity_low` / `velocity_high`) to every project member, including the PM/admin band that a project's default velocity audience (ADR-0104, `TEAM`) excludes. A reader suppressed on `/velocity/`, `/forecast/`, `/sprint-forecast/` and `/me/active-sprints/` could read the same two numbers with one GET against any sprint in the project. The band is now suppressed for a below-audience reader; the preview's date artifacts (`cpm_finish`, `p50`, `p80`, `p95`) are unchanged.
+Hardened the Kubernetes NetworkPolicy CI drill: the Calico manifest fetch — whose bytes are applied to the cluster as `kubectl apply -f` — now pins `--proto '=https' --proto-redir '=https' --tlsv1.2`, so neither the primary fetch nor the jsdelivr mirror fallback can be redirected onto plaintext HTTP. Matches the flags the CI images already use.
+Sprint detail endpoints now honor a project's agent-read opt-out. `SprintViewSet`
+enforces ADR-0678 by filtering the queryset — for its scope, the permission class
+deliberately allows the request and the queryset is the only enforcement point — but
+its per-action routes resolved their sprint from the bare model manager, which never
+consults that queryset. An `mcp:read` API token could therefore read burndown,
+outcome, capacity, daily delta, scope changes, incoming carryover, retro board and
+pulse data for a project whose team had explicitly opted out of agent reads. Because
+the opt-out is a team-consent control rather than an access-control setting, this was
+a consent bypass.
+
+Every read on the viewset now resolves through a single shared helper, so a future
+action cannot reintroduce the gap by copying the pattern from a neighbor. Four write
+actions that take a row lock keep their own lookup; they were never part of this,
+because an agent token is refused on any non-safe method before the request body runs.
+
+Two side effects of resolving through the membership-scoped queryset: a non-member now
+receives 404 rather than 403 from these routes, which removes a way to test whether a
+sprint id is real; and a `?state=` query parameter is applied only to the sprint list,
+where it belongs — on a detail route it could previously filter away the very sprint
+the URL named.
+Fixed server-side session revocation, which did not work against the session that mattered. A refresh token minted by rotation carried no `OutstandingToken` row, so "sign out every device" — the primitive behind password reset and member off-boarding — walked a set of already-dead rows and left the live session usable. Separately, the refresh cookie was `Path`-scoped to the refresh endpoint, so browsers never sent it to `/api/v1/auth/logout/` and logout cleared the cookie locally without revoking anything. Rotation now records its jti, the cookie is scoped to `/api/v1/auth/` so logout receives it, and the refresh endpoint rejects tokens belonging to a deactivated or deleted account.
+
+Operator note: refresh tokens minted before this release still have no bookkeeping row and remain unrevokable. If you need a hard cut across existing sessions, rotate `JWT_SIGNING_KEY`. If you override `TRUEPPM_AUTH_REFRESH_COOKIE_PATH`, it must cover both `/api/v1/auth/token/refresh/` and `/api/v1/auth/logout/`.
+Closed three agent-read opt-out bypasses (ADR-0678). `GET /projects/{id}/retrospective/carryover/` and `GET /projects/trash/` resolved their rows outside the filtered queryset, and `GET /me/work/`'s `retro_action_items` block was assembled without the exclusion set its three sibling blocks already applied — so an `mcp:read` token could read retro action-item text, promoted task rows, and deleted project names belonging to a team that had switched agent reads off. Replaced the "grep and review" obligation that let these drift with a conformance test asserting every GET `@action` on a queryset- or aggregate-scoped MCP-readable view reaches its rows through a seam that carries the opt-out.
+A member project's agent-read opt-out now withholds a **program-level bulk export** from an agent token by default, and the behavior is an operator setting. `ProgramViewSet` is aggregate-scoped, so the opt-out's row filter governed only the program's own switch — an `mcp:read` token at program Admin could read through the parent exactly the data a child team had closed to agents, via the synchronous JSON seed (`GET /programs/{id}/export/`, not previously identified) or the async `.tar.gz` bundle. Neither artifact can be narrowed, so the lever is serve-or-refuse: `TRUEPPM_MCP_PROGRAM_EXPORT_POLICY=withhold` (the new default) refuses the agent when any member project has opted out, and `allow` restores the previous program-level-artifact behavior. Humans are unaffected by either value. The setting is deployment-level on purpose — a workspace or program toggle would let a scope above a team override that team's own consent decision. An unrecognized value falls back to `withhold` and is reported by `manage.py check --deploy` as `trueppm.E009`.
+The agent-action audit log now records refused calls, not only successful ones. Every
+4xx on the agent surface — a 403 from an MCP opt-out guard and a 401 from a revoked or
+expired token alike — wrote its audit row inside the request's transaction, which DRF
+rolls back for every refusal under `ATOMIC_REQUESTS`. The row was silently discarded, so
+an operator reviewing the log saw a clean record of permitted reads and no evidence that
+an agent had probed projects that had closed themselves to it. Refusal rows are now
+written after the request transaction closes, by a single writer on the same hash chain
+(ADR-0902).
+A project's draft lifecycle can no longer be changed by a plain `PATCH`. `lifecycle`
+and `draft_started_at` were listed on the project serializer under a comment calling
+them read-only, but were left out of `read_only_fields`, so any Admin or Owner could
+set either one directly — and the published OpenAPI schema advertised both as
+writable. Two consequences, both closed here:
+
+- **`active` → `draft` was a silent denial of visibility.** A draft is dropped by
+  program rollup, portfolio health, omni-search, My Work, the notification fan-out
+  and digest audience, and the nightly forecast and program-schedule passes. One
+  request removed a project from all of them at once, for every member of the
+  program reading it, with nothing recording that the change had been asked for.
+- **`draft` → `active` walked past the commit moment and was unrecoverable.** It
+  flipped the project to committed without capturing baseline v1, and
+  `commit_project()` refuses a project that is already active — so the anchor every
+  variance figure is measured from could never be laid down afterwards.
+
+Both transitions already have an endpoint that does the surrounding work:
+`POST /projects/{id}/commit/` for the draft lifecycle, `POST /projects/{id}/archive/`
+and `/unarchive/` for the archive lifecycle. Those remain the only ways through.
+
+**API clients:** a request that names either field now succeeds with the write
+discarded, rather than being rejected — the standard read-only behavior, and the same
+shape the already-read-only `is_archived` has always had. Both fields are marked
+`readOnly` in the published OpenAPI schema and no longer appear in the project request
+schemas at all (#3127).
+Production now refuses to start when the database or Valkey password is a known placeholder (`change-me` and similar) or shorter than 12 characters, closing the one gap in the boot-time credential guards — `SECRET_KEY`, attachment storage, the integration encryption key, and `sslmode` were all validated while the datastore passwords were only checked for being non-empty. `.env.example` no longer ships `change-me` values, and `init-prod.sh` fails the same way before the stack starts. A URL with no password at all is left alone, so trust authentication (Unix socket, IAM, certificate) is unaffected.
+**`.env.example` no longer ships a `SECRET_KEY` that passes validation.** The
+placeholder it carried was 56 characters and did not start with
+`django-insecure-`, so it cleared both key guards — and `JWT_SIGNING_KEY`
+defaults to `SECRET_KEY`, so the `cp .env.example .env` that the README and the
+deployment guide both instruct produced a production install whose token-signing
+key was published in this repository. Anyone could forge an access token for any
+user. The key now ships empty, `init-prod.sh` generates one and writes it back,
+and both `validate_secret_key` and `validate_signing_key` reject documented
+placeholder prefixes as a backstop. `prod-compose-drill.sh` no longer overwrites
+the key with a generated one, so CI exercises the path an operator actually
+takes — the reason this survived as long as it did.
+
+> **Operator action required.** If you installed from a `.env.example` copied
+> before this release and did **not** replace the `SECRET_KEY` it shipped, your
+> install is signing every session cookie, CSRF token, and access/refresh JWT
+> with a string published in this repository — anyone can forge a token for any
+> user. Check with `grep '^SECRET_KEY=' .env`; if the value begins with
+> `REPLACE-WITH`, rotate it now:
+>
+> ```bash
+> python3 -c "import secrets; print(secrets.token_urlsafe(50))"
+> ```
+>
+> Write the result to `SECRET_KEY` in `.env` and restart the stack. Rotating
+> invalidates every session and every issued JWT — users must log in again — but
+> touches no stored data. If you also set `JWT_SIGNING_KEY` explicitly to the
+> same placeholder, rotate that too. (#3232)
+
+**The public demo no longer bootstraps a superuser.** `docker-compose.demo.yml`
+bakes a public `SECRET_KEY`, justified by a security note saying the stack has
+"zero user accounts and no authenticated write path" — while its `api-init` ran
+`create_admin`, making that account's tokens forgeable from a value printed in
+the repository, held back only by the nginx `/api/` allowlist. Three comments in
+that file and one in `load_sample_project` all asserted no superuser existed;
+the stack created one, and `_resolve_owner` took its superuser branch rather
+than the persona branch its own docstring described. `create_admin` is gone from
+the demo, and `scripts/check-demo-readonly.sh` now guards `create_admin`
+alongside `--with-personas` so the claim stays true.
+
+**`TRUEPPM_ALLOW_DEV_SETTINGS` is documented.** The one string that lets
+`settings.dev` — `AllowAny` on every endpoint, `ALLOWED_HOSTS=["*"]`, `DEBUG`,
+and a hardcoded encryption key — load outside a test runner appeared nowhere in
+the documentation, so nobody knew to alarm on it or keep it out of a manifest.
+Closes #3187. Closes #3232.
+Suppressed GHSA-vcc3-ghjq-m6fr (decode-uri-component denial of service via exponential decoding of malformed percent-encoded input, MODERATE) against the mobile app's locked `decode-uri-component@0.2.2`, with a documented, expiring `[[PackageOverrides]]` entry pinned to that exact version. The only patched release, 0.5.0, is ESM-only and exports a `default`, while its consumer `query-string@7.1.3` is CommonJS and calls the `require()` result directly — verified to throw `decodeComponent is not a function` under the app's own babel preset. `query-string` cannot be bumped either: `@react-navigation/core` still pins `^7.1.3` at its latest release, and query-string 8.x/9.x expose only a default export at the package entry, which breaks its `import * as queryString` usage. The decoder is reached only through the deep-link URL parser, and the mobile app configures no `linking` prop and no URL scheme, so no external input reaches it.
+- **Classification cascade authorizes before it resolves**: `PATCH
+  /projects/{id}/tasks/classification/` checked the caller's per-row edit rights only
+  *after* locking the subtree root, resolving its descendants and evaluating the
+  2000-task cap. A caller with no authorship on the subtree therefore received a `400`
+  whose body disclosed the subtree's exact task count, having first held write locks on
+  up to 2000 rows. The root is now authorized first, unlocked, so that caller gets a
+  `403` naming no counts and takes no locks at all.
+Bumped the locked `browserslist` resolution to 4.28.8 in the web and mobile dependency trees, clearing two HIGH advisories (GHSA-73wf-gq98-2v4g, an uncaught crash and prototype write when `normalizeStats` parses an untrusted `browserslist-stats.json`; and GHSA-c83g-rgw3-j3cx, unbounded cache growth leading to OOM). Both are fixed in 4.28.7 and were unpatched in every prior release. The same sweep took `postcss-selector-parser` to 6.1.4 in the web tree, clearing GHSA-w9m9-85wc-3x92 (uncontrolled AST recursion). Lockfiles only — every bump sits inside a caret range the manifests already declared.
+Upgraded Django REST Framework to 3.17.2, which closes two moderate advisories against
+3.17.1. GHSA-2m8g-3cmr-wg3w is the one that mattered here: DRF's `request.data` parsing did
+not enforce Django's `DATA_UPLOAD_MAX_MEMORY_SIZE`, so an oversized JSON or urlencoded body
+was parsed in full even though the same payload was rejected via `request.body`. Several API
+paths documented that 100 MB ceiling as their outer bound; it is now actually applied.
+GHSA-g47c-3xmw-q6m2 (`AdminRenderer` disclosing GET-protected data when rendering an invalid
+write) does not affect this deployment — `DEFAULT_RENDERER_CLASSES` is `JSONRenderer` only
+and `AdminRenderer` appears nowhere in the codebase — but the fix ships with the same release.
+
+The dependency floor moved from `>=3.15` to `>=3.17.2` so a fresh resolve cannot select an
+affected version, with a temporary `<3.18` ceiling while 3.18.0's `many=True` error-format
+and `set_rollback` changes are evaluated separately (#3323).
+Raised the dependency floors that keep the `fast-uri` and `@humanfs/node` fixes from being resolved away. The lockfile bumps themselves landed separately; this pins `fast-uri` to `^3.1.6` in the documentation site (the override floor still admitted the vulnerable 3.1.5) and adds an `@humanfs/node` `^0.16.8` override to the web app, which had no floor at all. Both are transitive development dependencies that never ship in a built artifact, so no released version of TruePPM is affected.
+Bumped the locked `fast-uri` resolution to 3.1.7 in the website dependency tree, clearing four HIGH advisories (GHSA-5jgf-p345-68v8, GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf, GHSA-jqff-g426-hqxp — all CVSS 7.5), each fixed in 3.1.6 and unpatched in every prior 3.x release. `fast-uri` is pulled transitively by `ajv`, which declares `^3.0.1`. The same sweep took `@humanfs/node` to 0.16.8 in the web tree, clearing GHSA-p498-v437-472g (a recursive copy following symlinked files out of the source tree); it arrives via `eslint`, which declares `^0.16.6`, and the mobile tree already resolved the patched version. Lockfiles only — every bump sits inside a caret range the manifests already declared.
+- **Revoked project members no longer keep their Scrum Master / Product Owner
+  facet, or their old role**: the team-membership mirror only ever creates rows, so
+  revoking someone's project access left their default-team row behind with its facet
+  flags intact. The facet lookup now requires a live project membership, closing the
+  gap in five write gates — product-backlog structural edits (permission class and
+  serializer), sprint scope accept/reject (permission class and service), and the
+  signal-privacy facilitator gate. A second, narrower hole on the role axis of the
+  same serializer gate is fixed alongside it: `TaskSerializer` resolved the caller's
+  role without excluding soft-deleted memberships, so a revoked **Admin** passed on
+  the role arm before the facet floor was ever consulted. The `my_facets` field on the
+  project detail response now agrees with both, so the UI stops offering controls the
+  server would refuse. None of this was reachable over HTTP before the change — every
+  route is backstopped by a member-scoped queryset that returns 404 first — but the
+  gates documented themselves as standing alone, and now they do.
+- **Archived projects were not read-only.** The archived-project gate's lifecycle escape
+  hatch was matched by action *name* rather than by viewset, and `destroy` is minted by
+  the router on every collection — so `DELETE` on a task, risk, dependency, comment,
+  attachment, note, link, label, phase, baseline, membership, custom field, API token or
+  resource assignment succeeded on an archived project, as did restoring a deleted task.
+  The hatch is now scoped to the project viewset, where it belongs: an Owner can still
+  unarchive, delete or restore the project itself.
+- **Nine more write paths are refused**, each of which declared the gate or should have
+  and could not fire it: adding to the roster, assigning a resource, adding an acceptance
+  criterion (all three name the project only in the request body), triggering a CPM
+  recalculation, running Monte Carlo (both spell the project `pk` on a function view),
+  ingesting CI acceptance verdicts, acknowledging a cross-project slip conflict,
+  creating/editing/deleting or test-firing a project webhook, and toggling Git automation
+  or rotating its webhook secret.
+- **Inbound Git webhook deliveries stop moving cards on an archived project.** The
+  refusal uses the receiver's existing bare `404`, byte-identical to every other
+  pre-verification refusal, so it cannot tell an unauthenticated caller that the project
+  exists or is archived. The reason is recorded as `project_archived` and the Git
+  automation settings card now names it and says to unarchive.
+- **Reads and revocation are unchanged.** Archived projects stay fully readable, and
+  fifteen write paths deliberately keep working while archived — revoking a share link,
+  revoking a project or program API token, removing *yourself* from a project,
+  cancelling an in-flight task run, exporting the plan, recording a visit, and the
+  workspace-level calendar and group-access writes. Taking access away is not a write to
+  the plan, and an archived project keeps serving what those routes revoke. Each states
+  its reason on the view itself.
+- A route-table invariant now enumerates every project-scoped write route and action and
+  fails the build if one loses its archived enforcement or gains an undeclared exemption
+  — including the case where the permission class is present but structurally cannot see
+  the project, which is what made the previous audit read as clean.
+Closed a narrow TOCTOU window in project and program membership creation: the caller's own role was read outside the transaction that grants a new membership, so an Owner demoted concurrently with their own in-flight `POST /members/` could still complete one more grant at their pre-demotion ceiling. The actor's role is now locked and re-read under the same `SELECT ... FOR UPDATE` discipline `partial_update` already used, together with the target row, in a single statement ordered by primary key so the two locks can never be acquired in conflicting orders across concurrent requests (#3438).
+**Program project roster no longer discloses project settings to non-members.**
+`GET /api/v1/programs/{id}/projects/` served the full 86-field project shape over
+every non-draft project in the program — including projects the caller held no
+membership on — to any caller with a program role, down to Viewer. That exposed the
+project lead's email address, the team's agent-read consent decision (`mcp_enabled`
+and its resolutions), the public-sharing and guest posture, the attachment policy,
+the Monte Carlo history attribution audience, the surface-visibility map and the
+default member role, for projects the caller cannot open.
+
+The route now serves a 20-field roster row: identity, dates, methodology, health,
+lifecycle and the per-project rollup counts, plus the caller's own role, pin and
+capability flags. The row set is unchanged — a program member still sees which
+projects the program contains — and the full project shape remains available on the
+membership-gated `GET /api/v1/projects/{id}/`. Clients reading only the program
+Projects tab's fields are unaffected (#3439).
+- **A revoked member's notification history no longer names the project's tasks.**
+  `NotificationViewSet` read every notification by `recipient` alone, with no
+  membership re-check, and only the mention-derived `snippet` field was ever
+  redacted against current project membership (#514) — `subject`, `body`, and
+  the `project` link are frozen at dispatch and were served unredacted forever
+  after, so a user removed from a project kept an inbox that went on naming
+  that project's tasks indefinitely. `subject`/`body`/`project` are now redacted
+  on every read the moment the recipient is no longer a current member of the
+  notification's project, matching the existing `snippet` treatment: the record
+  that a notification was sent is retained, its content is not. A notification
+  with no single owning project (the scheduled digest rows) is unaffected.
+  `NotificationViewSet` is also no longer subject to `Idempotency-Key` replay:
+  a cached reply from before a membership revoke would otherwise have served
+  the unredacted content back out, defeating the fix above.
+- **Production now states its position on the forwarded host, and refuses to boot on a
+  wildcard `ALLOWED_HOSTS`.** `settings.prod` trusted the proxy for the request scheme
+  (`SECURE_PROXY_SSL_HEADER`) but said nothing about the host, so Django's default
+  applied by accident rather than by decision. It is now pinned explicitly:
+  `USE_X_FORWARDED_HOST = False` and `USE_X_FORWARDED_PORT = False`, with the reasoning
+  in the file — every proxy TruePPM ships preserves the original `Host` and none sets
+  `X-Forwarded-Host`, so trusting that header would mean believing a value only the
+  client could have written. This is not a behavior change; it pins the behavior 0.3
+  already had so it cannot drift.
+
+  What *is* new: a bare `ALLOWED_HOSTS=*` now stops the boot with a message naming the
+  fix, because host validation is the only bound on the absolute URLs the API builds.
+  Wildcard subdomains (`.example.com`) are still accepted. An install that must keep `*`
+  sets `TRUEPPM_ALLOW_WILDCARD_HOSTS=true` to acknowledge it and boots with a warning
+  instead, so an upgrade has a one-variable remedy rather than a crash-loop.
+
+  The inbound Git-webhook URL — the one a project admin pastes into GitHub or GitLab —
+  now honors `TRUEPPM_PUBLIC_API_BASE_URL`, matching the OIDC `redirect_uri`. It was the
+  only absolute URL leaving the system with no way to pin its origin, so behind a proxy
+  that rewrites `Host` it rendered an internal name and the webhooks simply never
+  arrived (#3515).
+- **The weekly digests no longer email deactivated (off-boarded) users.** Both
+  scheduled digests resolved their audience from `NotificationPreference` rows alone
+  and never checked `User.is_active`, so an off-boarded account kept receiving a
+  weekly mail naming every at-risk program, its health band and its worst-contributing
+  project — at a possibly personal address, indefinitely. Account deactivation is a
+  second revocation axis independent of membership: off-boarding sets
+  `User.is_active = False` and leaves `ProjectMembership`/`ProgramMembership` intact,
+  so the live-membership floor added in #3456 did not reach it. The audience is now
+  floored on `is_active` at the sweep, above both digest event types and above the
+  `NotificationDigestRun` ledger, and the email outbox drain retires — rather than
+  sends — any notification email already queued for a since-deactivated recipient,
+  which closes the same gap for the mention, stale-task and event mail rails
+  (#3523).
+SSO provider configuration is now session-only: the provider collection, item, and test-connection endpoints under `/api/v1/workspace/sso/providers/` refuse personal access tokens on every method, reads included, exactly as the token-management surface does. Previously a `legacy:full` token belonging to a workspace admin authenticated on them, so a leaked token could widen `allowed_email_domains`, switch on `auto_create_members` with an ADMIN `default_role`, rotate the IdP client secret, or delete a provider with `?confirm_lockout=true` — and one SSO login at the widened domain then minted a real, persistent ADMIN session that revoking the token did not touch. Token callers now receive `403` with `reason: policy` and `constraint: capability_scope`, and the published OpenAPI schema no longer advertises either token security scheme on these operations.
+Password-reset links no longer carry their single-use credential in the URL path. The `uid`/`token` pair now rides in the URL **fragment** (`/reset-password/confirm#uid=…&token=…`), which browsers never transmit to a server — so a reset token can no longer reach a configured telemetry collector, a reverse-proxy access log, or the `Referer` header sent to a site the user visits next. Links minted before this change keep working. The client telemetry and route-error boundary additionally redact the `/reset-password/confirm` and `/invite` paths before export, and every deployment path (the published web image, both Compose templates, and the Helm chart) now sets `Referrer-Policy: strict-origin-when-cross-origin` on SPA responses — tunable on the chart via `web.securityHeaders.referrerPolicy`.
+Closed a silent-account-linking gap on SSO sign-in: the first time an SSO identity is linked to a pre-existing local account by verified email (including an account holding the Owner role), TruePPM now emails that account naming the identity provider and roughly when the link happened. Previously this bind was invisible to the account owner, unlike a password reset, which always notifies. The notice is sent once, at the link event only — a later sign-in through the same provider resolves by durable identity and does not re-send it — and is best-effort, so a mail delivery failure never blocks the sign-in.
+`oidc_role_for` now refuses a role above `WorkspaceRole.ADMIN` (or any value that is not a valid `WorkspaceRole` ordinal) returned by a registered enterprise SSO identity mapper, logging at ERROR and falling back to the admin-configured `default_role`. A buggy or malicious mapper could previously mint an Owner membership for an auto-created SSO member, bypassing the same OWNER-never-via-SSO restriction the OSS write serializer already enforces on `default_role`.
+- **Refresh/logout CSRF hardening**: `TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE` is now
+  validated at boot instead of being passed through as a free-form override.
+  `None` is refused unless the new `TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE_NONE_ACK`
+  acknowledgment is also set, and `Lax` logs a warning naming what it gives up.
+  `POST /api/v1/auth/token/refresh/` and `POST /api/v1/auth/logout/` additionally
+  reject a request whose `Sec-Fetch-Site` header is `cross-site`, or whose
+  `Origin` header names neither the request's own origin nor an entry in
+  `CSRF_TRUSTED_ORIGINS` — independent, defense-in-depth CSRF checks that no
+  longer depend solely on an operator-configurable cookie attribute. A request
+  with neither header (the mobile app, a non-browser API client) is unaffected.
+**Django admin is now off by default, and hardened when enabled.** `/admin/login/` was a second password login path with none of the API login's controls: DRF throttles do not apply to a plain Django view, so neither the per-IP `login` limit nor the per-account lockout ever saw it; no `auth.login_failed` / `auth.login_succeeded` audit line was emitted; and the enforced-SSO policy seam was never consulted, so "disable local accounts" did not cover it. The `create_admin` bootstrap guarantees a superuser exists, so an exposed `/admin/` was an unthrottled, unrecorded guessing surface against a known-present privileged account.
+
+Every path under `/admin/` now answers `404` — not `403`, so the path is not advertised — unless the API is started with `TRUEPPM_DJANGO_ADMIN_ENABLED=true`. **This is a behavior change for existing self-hosters:** if you use Django admin, set that variable before upgrading or `/admin/` will stop answering. The Helm chart ships it as `env.TRUEPPM_DJANGO_ADMIN_ENABLED: "false"`; `settings.dev` keeps the admin on, so the local Docker Compose development stack is unaffected.
+
+When an operator does enable it, the admin login now carries the same controls as `POST /api/v1/auth/token/`: the same `login` and `login_account` throttle buckets (shared with the API login, so the two doors cannot each hand out a full allowance; a refusal answers `429` with `Retry-After`), the same `auth.login_failed` / `auth.login_succeeded` lines on the `trueppm.auth` logger (`method=admin`), and the same `local_login_allowed` policy seam, with the session torn down on a refusal rather than a `403` served over a live cookie.
+
+The Helm chart's `web.adminAccess` nginx deny is unchanged and still correct — it is the edge half of the same posture. The new setting is the application half, and is what covers Docker Compose, bare-metal deploys, `web.enabled: false`, and `kubectl port-forward`, none of which traverse that nginx.
+Org-level authority is no longer derived from a self-grantable project role on the resource catalog's destructive and disclosing surfaces. Any account could reach `IsOrgAdmin`/`IsOrgScheduler` in two requests — project creation is ungated and makes the creator Owner — which admitted everyone to catalog email and email search (the org-wide address-harvest control, echoed identically on the project roster's expanded resource detail since `GET /api/v1/project-resources/` nests the same `ResourceSerializer`), the deactivated-resource pool (`?include_deleted=true`), resource deactivation and restore, and the cross-project `GET /api/v1/resources/{id}/assignments/` view. Those five surfaces — seven endpoints, counting `restore` alongside `DELETE`, email search alongside email exposure, and the project roster read alongside the catalog read — now require the **workspace Admin** role. Unlike a project role, a workspace role is stored and granted in-app by an existing workspace admin (or by SSO provisioning), so it cannot be self-granted by creating a project; a Django superuser with no membership row still resolves to workspace Owner, so a fresh install remains administrable. This does **not** yet close every path to a catalog address. Two other endpoints build their payload without the catalog serializer and still return `email` to a caller holding a project role they can grant themselves: the project and program `resource-allocation` views (#3599). The address-harvest control is therefore tightened wherever `ResourceSerializer` renders, not completed. (A third such endpoint, the project/program seed export, had the same gap and was closed separately to the same workspace-Admin invariant — see #3627.) Separately, both derivations stopped counting memberships on archived and soft-deleted projects, and `/api/v1/task-skill-requirements/` dropped a redundant org gate in favor of the per-target project check it already ran. Ordinary catalog and skill-catalog editing is unchanged.
+- **Skill requirements on tasks were writable on an archived project.**
+  `/api/v1/task-skill-requirements/` declared no archived-project gate at all, so a
+  Resource Manager could add, edit, repoint and delete a task's skill requirements on a
+  plan that is supposed to be frozen. It is refused now, on create as well as on update
+  and delete.
+- **Adding the gate alone would have enforced nothing**, which is why the model changed
+  too. The archived check resolves a project through `project_id`, `project` or
+  `predecessor`, and a skill requirement reaches its project only through its task — so
+  the check resolved nothing and answered "permitted". `TaskSkillRequirement` now exposes
+  the same `project_id` property `TaskResource` has carried since the assignment routes
+  hit this shape, and the route-table invariant fails the build on the class-without-a-
+  resolvable-project pattern.
+- Deleting a task assignment, and force-removing a roster member — which severs live
+  assignments and enqueues a schedule recalculation — are now pinned by tests on both
+  the archived-refusal and live-success sides. Both were enforced but untested.
+- **Resource catalog cross-project disclosure**: `GET /api/v1/resources/` is readable by
+  any authenticated user, but its `?exclude_project=` and `?task=` parameters accepted a
+  project or task id from any project with no membership check. Diffing the filtered list
+  against the bare one named every resource on a foreign project's roster, and `?task=`
+  returned `missing_skills[]` naming every skill a foreign project's task requires. Both
+  parameters are now honored only for members of the project they name; for anyone else
+  they are ignored, so the response is identical to omitting them and neither parameter
+  can confirm that an id exists.
+Added rate limiting to the burn chart and flow metrics reads (`GET /api/v1/projects/{id}/burn/` and `GET /api/v1/projects/{id}/flow-metrics/`), closing an abuse gap where these computed-on-read endpoints — reachable by any project member, including a Viewer — carried no throttle and fell through to the general 1000/min account default. Both endpoints reconstruct their series from `HistoricalTask` snapshots, so cost scales with project history even with the per-request window cap added in #3566. Scoped-throttled at 60/min per account (env-tunable via `TRUEPPM_THROTTLE_BURN_RATE`), shared between the two endpoints since they are the same cost class against the same table.
+- **The workspace data-export "ready" email is no longer sent to deactivated
+  (off-boarded) users.** `_send_export_ready_email` resolved its recipient from
+  `WorkspaceExportJob.requested_by` and never checked `User.is_active`, so an export
+  a member requested before off-boarding still mailed them when it completed —
+  announcing that a full copy of the workspace's data was ready to download, at a
+  possibly personal address. Account deactivation is a second revocation axis
+  independent of membership: it sets `User.is_active = False` and leaves the export
+  job and every project/program membership intact, so the credential closures that
+  cover JWT, session, PAT and live sockets never reached this pushed notice. The
+  recipient is now floored on `is_active` above the transport and the shared
+  per-minute send budget, so a suppression logs no "mail transport unusable"
+  warning, charges no budget, and leaves the export job `success` with an empty
+  `error_detail` — an off-boarding is never reported as a broken mail relay. The
+  invite rail is deliberately unchanged: an invitee has no account yet, so
+  `is_active` is not the right axis there (#3585).
+- **The inline `owners` list on a task write is bounded at 100 entries.** It had no cap,
+  and `apply_task_owners` replays the payload entry by entry into the task activity audit
+  trail and the `assignment_*` real-time fanout on purpose — so one request from any
+  member with write access on a single project could name one rostered resource ~100,000
+  times, varying the units between entries, and mint ~100,000 audit rows plus ~100,000
+  WebSocket broadcasts to every connected project member. (The units have to vary: a
+  repeat at the *same* units is not an ownership change and records neither.) One HTTP
+  request amplifying into six figures of writes and fanout is the vector; the cap closes
+  it. A longer list is refused with `400` under `owners` → `non_field_errors`, before any
+  roster lookup runs, with a message that states the limit and the two ways out.
+  `POST /projects/{id}/tasks/bulk/` and the offline-sync push
+  (`POST /projects/{id}/sync/`) both validate through the same serializer and inherit
+  the cap.
+- **Relatedly, a batch row rejected for a whole-list constraint reported a Python `dict`
+  repr as its `message`.** `rejected[].message` on `POST /projects/{id}/tasks/bulk/` is
+  declared as a human sentence, but its flattener stopped one level too early on any
+  nested error, so an internal `ErrorDetail(...)` repr went on the wire. It now descends to
+  the message string. This is the whole class, not just the owners case — a per-item
+  `owners` error previously reported as the literal `owners: {}`.
+- The cap counts payload **entries**, not distinct resources. Collapsing repeated ids was
+  considered and rejected: naming a resource twice at different units records an add
+  followed by a units delta, and de-duplicating would drop that intermediate delta from
+  the audit trail silently.
+- **Invite-resend rate limit now actually enforced**: `InviteResendThrottle`
+  declared its scope as a class attribute, which DRF's `ScopedRateThrottle`
+  silently clobbers to `None` at request time unless the view also declares
+  `throttle_scope` — so the 5/min cap on the single-invite and bulk resend-all
+  endpoints was dead config and every resend request was allowed. Both views
+  now declare `throttle_scope`, restoring the email-bomb bound from ADR-0149.
+The per-project resource allocation timeline (`GET /projects/{id}/resource-allocation/`) and the program resource contention view (`GET /programs/{id}/resource-contention/`) no longer return each resource's email address. Both built their response by hand and so never passed through the resource serializer where the org-wide address-harvest control lives, which let anyone who could create a project — creation is ungated, and the creator becomes Owner — assign catalog resources to a task in it and read back their addresses. The field had no reader in the web client and has been removed rather than gated.
+- **Seed imports cannot author audit evidence or share credentials**: the `agent_actions`
+  and `share_links` seed sections are honored only by the bundled-sample loader. The
+  REST import, the import dry run and `manage.py import_seed` reject a file carrying
+  either one with a validation error. Share-link tokens are always generated at load,
+  never read from a file, and seeded agent actions are marked as sample data in
+  hash-chained fields so they cannot pass as real audit history (#3603).
+- **Resource email write floor raised to workspace Admin**: `Resource.email` could
+  previously be written by any user with Project Manager or Project Admin role on a
+  single project — a role any account can self-grant by creating a project — even
+  though reading the field already required the stored workspace Admin role (#3569).
+  `PATCH`/`POST` requests that set `email` are now rejected with a `400` unless the
+  caller holds workspace Admin, closing a path to silently overwriting a resource's
+  email, spoofing a legacy resource's self-view, and hijacking its "My Work"
+  attribution.
+Closed a privilege-escalation gap in SSO auto-provisioning: a workspace Admin could set an SSO provider's `default_role` to Admin and self-service-provision a peer Admin account by signing in with a second identity provider identity, bypassing the strictly-below-your-own-role ceiling that the member-role-change and invite paths already enforce. Writing an SSO provider's `default_role` now requires a role strictly below the acting user's own workspace role — only an Owner can configure Admin auto-provisioning.
+- **Project/program seed export no longer leaks catalog and account email**:
+  `GET /api/v1/projects/{id}/export/` and `GET /api/v1/programs/{id}/export/`
+  (and their async `.tar.gz` bundle counterparts) built the seed JSON directly
+  from the models, bypassing the serializer gate that limits `email` to
+  workspace Admin+. Because the export endpoints are gated only at
+  project/program Admin+ — a role any account can self-grant by creating a
+  project — this let any authenticated user pull every resource's and every
+  project member's email address in a handful of requests. `resources[].email`
+  and `accounts[].email` are now withheld from the exported document unless the
+  requester holds workspace Admin+; a redacted export still re-imports (#3627).
+Project and program membership writes can no longer name an arbitrary account. `POST /api/v1/projects/{id}/members/` and `POST /api/v1/programs/{id}/members/` accepted any `auth.User` primary key in the install and answered with that account's email address in `user_detail`, so any authenticated user could create a project (which mints them Owner) and walk sequential ids to harvest every address on the install. The target is now bounded to accounts the caller can already reach — themselves, anyone already introduced to a project or program roster they belong to, or, for a workspace Admin, any active account. Deactivated accounts are out of reach at every tier. `PATCH` on either route no longer accepts `user` at all, closing the same harvest through a membership reassignment.
+- **The inline `owners` list is now also bounded batch-wide on `POST /projects/{id}/tasks/bulk/`
+  and the offline-sync push (`POST /projects/{id}/sync/`).** #3596 capped `owners` at 100
+  entries per task write, but both batch endpoints build one task serializer per
+  operation/row — up to 500 of them — so the per-row cap alone still let a single HTTP
+  request compose 500 × 100 = 50,000 owner entries, each minting a task-activity audit row
+  and a WebSocket broadcast. A batch whose `owners` entries sum past 500 across all
+  operations/rows is now refused with `400` before any row applies, mirroring the existing
+  batch-wide `dependencies` budget on the same endpoint.
+- **Both batch endpoints also stopped firing a redundant `assignment_*` broadcast per
+  owners entry.** Each already coalesces every row it touches into one `tasks_bulk_mutated`
+  (or, for the sync push, the same coalesced event added for #809) per request; an inline
+  `owners` write riding either endpoint no longer fires its own `assignment_*` event on top
+  of that, since the coarser event already covers the same rows. The plain single-task
+  `POST /tasks/` / `PATCH /tasks/{id}/` write is unaffected — it still fires `assignment_*`,
+  since it has no coarser event of its own.
+- **Membership grant/revoke audit trail**: granting, changing, or revoking a
+  project or program member's access now writes an `AuditEvent` (visible to
+  workspace Owners/Admins), notifies the added or role-changed user in-app, and
+  is bounded by a dedicated 60/min rate limit on membership creation. Access
+  changes were previously silent and unthrottled.
+- **Dependency advisories cleared across all three npm lockfiles**: bumped
+  `astro` to 7.3.2 (GHSA-26w7-cxv4-gfx2, CVSS 9.8 remote code execution through
+  AVIF image optimization; GHSA-376h-93r7-7g6f, authorization bypass when
+  stripping the configured base), `sharp` to 0.35.4 (GHSA-rgj7-g3m4-5g8c, bundled
+  libheif vulnerabilities), `svgo` to 4.1.0 (GHSA-w27v-7q3p-w38r and
+  GHSA-4vpr-x523-8j87, `removeScripts` leaving executable content in SVG),
+  `js-yaml` to 4.3.2 / 3.15.2 (GHSA-2883-xcg3-v3hh, unbounded CPU use on empty
+  merge sources), and `vitest` with `@vitest/mocker` to 4.1.11
+  (GHSA-82fw-gwwq-j7x9, arbitrary file read via the redirect mock). Only the
+  documentation site's `astro`/`sharp` and the web test runner are shipped or
+  developer-facing surfaces; the rest are build-time transitives.
+- **Task-label and task-custom-field-value routes no longer leak whether a task
+  id is real**: `POST`/`DELETE /projects/{id}/tasks/{id}/labels/` and
+  `PUT`/`DELETE /projects/{id}/tasks/{id}/field-values/{id}/` resolved the task
+  project-scoped but not membership-scoped, so an authenticated non-member
+  holding both ids got `403` for a task that exists in that project and `404`
+  for one that does not — a one-bit existence oracle. Both routes now resolve
+  the task through a membership-scoped queryset and answer `404` uniformly,
+  matching the convention `ProjectCommitView` adopted (#3129). A project member
+  who lacks write authority on the task (a Viewer, or a Member on someone
+  else's task) still receives `403`, because that refusal is a fact about
+  their role rather than about the task's existence (#3657).
+Notification rows now redact the deep-link task id and the source-comment reference, not just the subject, body, project and snippet, when the recipient is no longer a current member of the source project. A departed member's inbox kept two raw object references — `task_id` and `mention.task_comment` — that pointed into a project they can no longer read. Nothing could be fetched with them (task and comment reads re-check live membership), but they were a standing reference to content the reader has no access to. The mention's identity fields — who mentioned you, which group it came through — are deliberately kept, so a cross-project `@program-*` ping still tells you that you were pinged and by whom.
+- **Notification email drain now re-checks project membership before sending.** The
+  30-second email drain (`drain_notification_emails`) read a notification's frozen
+  `subject`/`body` and mailed it via SMTP without ever checking whether the recipient
+  was still a member of the notification's project — so a member removed from a
+  project during the retry window between a notification's creation and its eventual
+  successful send could still receive an email naming that project's tasks. The drain
+  now retires (without sending) any queued email whose recipient has since lost
+  project membership, mirroring the same check already applied to the in-app inbox
+  (#3510) (#3675).
+- **Celery worker heartbeat file hardening**: the readiness/startup heartbeat file under `/tmp` is now created with `O_NOFOLLOW` (refuses to follow a symlink planted at the path by another process on the same filesystem) and mode `0600` (owner-only read/write), closing a SonarCloud-flagged publicly-writable-directory finding.
+- **Project and program permission classes fail closed on unresolvable scope**: the
+  fourteen role/membership permission classes derived from `_project_pk_from_view` /
+  `_program_pk_from_view` ended `has_permission` with an unconditional allow whenever
+  the URL carried no project or program id — so an unsafe write on a route the
+  permission layer could not scope was gated only by whatever check the view happened
+  to do in its own body. No endpoint was exploitable (all 18 such `(route, action)`
+  pairs were verified to compensate), but nothing stopped a newly added write action
+  from reopening the gap. The layer now refuses an unsafe method it cannot scope
+  unless the view declares `resolves_scope_in_body` with a reason, and a route-table
+  invariant asserts that every such declaration is pinned by name. Reads, ViewSet
+  detail routes, and requests naming a project id that does not exist are unaffected
+  — the last so an unknown id keeps answering `404` rather than becoming a `403`
+  membership oracle.
+Fixed two task-attachment security-review follow-ups (!306 MED-1/MED-2, ADR-0075). A content-sniff mismatch between an uploaded file's real bytes and its declared/allowed MIME type (e.g. an executable posing as a PDF) now returns `415 Unsupported Media Type` instead of a generic `400`, matching ADR-0075's locked constraint. The attachment `signed-url` action now detects whether the configured storage backend actually produces a time-limited signed URL (S3/MinIO, GCS, and Azure Blob via `django-storages` are recognized); on `FileSystemStorage` or any unrecognized backend it refuses with `501 Not Implemented` instead of returning a stable, indefinite-lifetime URL labeled with a misleading `expires_at`. Self-hosters on an unlisted-but-signing-capable backend can opt in via `TRUEPPM_ATTACHMENT_STORAGE_SIGNS_URLS`.
+Hardened notification email and task-attachment uploads per the !306 security review follow-up. Notification emails now carry RFC 8058 `List-Unsubscribe` / `List-Unsubscribe-Post: List-Unsubscribe=One-Click` headers pointed at the recipient's notification-preferences page, and the embedded comment/task snippet is truncated, HTML-escaped, and word-wrapped so a very long unbroken string can no longer render unpredictably in a mail client. Separately, `TaskAttachmentViewSet.create` is now rate-limited to 60 uploads/min per user, closing a gap where an authenticated user could burst-upload attachments with no throttle at all.
+- **Task assignee membership**: task writes now reject an assignee who is not a
+  live member of the task's project. Previously any existing user id could be set
+  as assignee on the REST create/update path and the mobile sync-upload path,
+  including a user with no membership on the project.
+- **Signed, SBOM'd, scanned release artifacts**: every released `api`/`web` container image and the Helm OCI chart is Trivy-scanned (release fails on fixable HIGH/CRITICAL CVEs), ships a CycloneDX SBOM generated by Syft from the exact published image, and — from the 0.4 beta — is Cosign-signed keyless (Sigstore, via GitLab OIDC) with the SBOM attached to the GHCR digest as a CycloneDX attestation. Operators can `cosign verify` and `cosign verify-attestation` the exact digest they pull; see the installation guide for the verification commands.
+- **Published a vulnerability disclosure policy.** `SECURITY.md` now includes
+  explicit safe-harbor terms for good-faith security research, and the reporting
+  path (private email / confidential GitLab issue, response SLAs, coordinated
+  disclosure) is linked from the `trueppm-scheduler` PyPI README and the docs
+  site so external adopters know how to report a vulnerability (#944).
+Bumped Django from 5.2.15 to 5.2.16 (5.2 LTS security release) to resolve three medium-severity advisories flagged by the dependency scan: PYSEC-2026-2090, PYSEC-2026-2091, and PYSEC-2026-2092. Patch-level upgrade within the existing `>=5.2.15,<6.0` pin; no API changes.
+- **Upgraded `sqlparse` to 0.6.0**, clearing four advisories against the 0.5.5 pin that
+  Django depends on: three denial-of-service issues rated HIGH (ReDoS on dollar-quoted
+  literals, quadratic `group_comments`, and CPU exhaustion in `TokenList.__init__` before
+  the depth guard applies) plus a moderate SQL string-breakout in generated Python/PHP
+  snippets. Self-hosters upgrade by pulling the release image; no configuration changes.
+Upgrade the web app's transitive `fflate` dependency from 0.8.2 to 0.8.3, clearing GHSA-px8p-9vwx-vf98 (CVSS 7.5) — an infinite loop in `unzipSync()` on malformed ZIP64 archives — and pin the floor at `^0.8.3` in `overrides` so a future resolve cannot drop back under the fix.
+Upgrade the documentation site's `sharp` dependency from 0.33.5 to 0.35.3, clearing the HIGH-severity libvips advisory GHSA-f88m-g3jw-g9cj flagged by the `security:osv` gate.
 
 ## [0.3.0-alpha.3] — 2026-06-29
 

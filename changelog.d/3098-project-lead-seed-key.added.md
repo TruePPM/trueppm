@@ -1,1 +1,0 @@
-Seed documents can declare a per-project `lead` (`project.lead`), distinct from the program lead and from the OWNER membership — the workstream lead a program manager asks about that project, shown in the project header and the program roll-up.

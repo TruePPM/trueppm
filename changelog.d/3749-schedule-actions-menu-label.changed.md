@@ -1,1 +1,0 @@
-The Schedule toolbar's far-right menu, the only way in to import, export, baselines and sharing, is now labeled **Actions ▾** at 1024px and wider instead of an unlabeled `⋯`. Below 1024px it collapses back to `⋯` alongside the Display trigger. The Display menu now says a moved control is "in Actions" rather than "in ···". (#3749)

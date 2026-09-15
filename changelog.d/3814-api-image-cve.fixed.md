@@ -1,1 +1,0 @@
-- Patched fixable HIGH/CRITICAL CVEs in the API Docker image's Debian base layer (gzip, perl, openssl, sqlite3, pcre2) via an `apt-get upgrade` step in both build stages, so the published image always carries the latest OS security patches regardless of the upstream base tag's rebuild cadence.

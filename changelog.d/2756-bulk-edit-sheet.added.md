@@ -1,1 +1,0 @@
-Schedule outline: `⌘⇧K` opens a bulk-edit sheet that applies one change — owner, governance class, delivery mode, or committed dates — across a multi-row selection in a single batch, reporting per-row success and letting you re-select the rows that didn't apply.
