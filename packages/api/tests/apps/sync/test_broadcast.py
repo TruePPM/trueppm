@@ -7,7 +7,7 @@ including its best-effort failure handling.
 
 from __future__ import annotations
 
-import ast
+import pathlib
 from datetime import date
 from typing import Any
 from unittest.mock import patch
@@ -19,6 +19,19 @@ from trueppm_api.apps.sync.broadcast import (
     broadcast_board_event,
     evict_project_connection,
 )
+
+from .ws_event_scan import (
+    ScanError,
+    Waiver,
+    WaiverLedger,
+    broadcast_event_types_in_source,
+    evaluate,
+    handler_registrations_in_source,
+)
+from .ws_handler_waivers import LEDGER
+
+# The frontend registration table this file's conformance gate reads (#3775).
+_WEB_WS_HOOK = pathlib.Path(__file__).resolve().parents[4] / "web/src/hooks/useProjectWebSocket.ts"
 
 _GET_LAYER = "channels.layers.get_channel_layer"
 
@@ -347,8 +360,13 @@ def test_failed_broadcast_does_not_increment_counter(replay_project: Any) -> Non
 # of a helper (e.g. taskruns/tracker.py:_broadcast, projects/retro_board_services
 # .py:_broadcast) is itself a broadcast site whose real event types live at its
 # *call* sites as literals. Without this, a wrapper-emitted event (task_run_*,
-# retro_item_*) silently escapes the freeze guard. See _broadcast_event_types_in_
-# source below.
+# retro_item_*) silently escapes the freeze guard.
+#
+# The scanner itself moved to ws_event_scan.py in #3775 so the freeze guard and
+# the event-to-frontend-handler conformance gate share ONE implementation of
+# "what does the API broadcast". Two scanners answering that question separately
+# is how the halves of a contract drift apart. FROZEN_WS_EVENT_TYPES stays here:
+# scripts/check-ws-event-reachability.sh parses it out of this file by name.
 # ---------------------------------------------------------------------------
 
 FROZEN_WS_EVENT_TYPES = frozenset(
@@ -477,123 +495,22 @@ FROZEN_WS_EVENT_TYPES = frozenset(
 )
 
 
-_BROADCAST_HELPERS = {"broadcast_board_event", "abroadcast_board_event"}
-
-
-def _callee_name(call: ast.Call) -> str | None:
-    func = call.func
-    if isinstance(func, ast.Attribute):
-        return func.attr
-    if isinstance(func, ast.Name):
-        return func.id
-    return None
-
-
-def _str_const(node: ast.expr | None) -> str | None:
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return node.value
-    return None
-
-
-def _event_type_arg(call: ast.Call) -> ast.expr | None:
-    """The node in a helper call's ``event_type`` slot (2nd positional / kw)."""
-    if len(call.args) >= 2:
-        return call.args[1]
-    for kw in call.keywords:
-        if kw.arg == "event_type":
-            return kw.value
-    return None
-
-
-def _find_broadcast_wrappers(tree: ast.Module) -> dict[str, list[tuple[str, int]]]:
-    """Pass 1 — wrapper functions in one module.
-
-    A wrapper forwards one of its *parameters* into a helper's ``event_type`` slot.
-    Returns, per wrapper name, the parameter name and the positional index that
-    parameter occupies at the wrapper's call sites — a bound method drops
-    ``self``/``cls``, so the call-site index is one less than the def index.
-    """
-    wrappers: dict[str, list[tuple[str, int]]] = {}
-    for fn in ast.walk(tree):
-        if not isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
-            continue
-        params = [a.arg for a in fn.args.posonlyargs] + [a.arg for a in fn.args.args]
-        is_method = bool(params) and params[0] in {"self", "cls"}
-        for sub in ast.walk(fn):
-            if not isinstance(sub, ast.Call) or _callee_name(sub) not in _BROADCAST_HELPERS:
-                continue
-            ev = _event_type_arg(sub)
-            if isinstance(ev, ast.Name) and ev.id in params:
-                def_index = params.index(ev.id)
-                wrappers.setdefault(fn.name, []).append(
-                    (ev.id, def_index - 1 if is_method else def_index)
-                )
-    return wrappers
-
-
-def _wrapper_call_literals(call: ast.Call, slots: list[tuple[str, int]]) -> set[str]:
-    """Event-type literals passed at one wrapper call site, positionally or by keyword."""
-    found: set[str] = set()
-    for param_name, call_index in slots:
-        if 0 <= call_index < len(call.args):
-            lit = _str_const(call.args[call_index])
-            if lit is not None:
-                found.add(lit)
-        for kw in call.keywords:
-            if kw.arg == param_name:
-                lit = _str_const(kw.value)
-                if lit is not None:
-                    found.add(lit)
-    return found
-
-
-def _literals_in_module(tree: ast.Module, wrappers: dict[str, list[tuple[str, int]]]) -> set[str]:
-    """Pass 2 — literals from direct helper calls and from calls to a known wrapper."""
-    found: set[str] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        name = _callee_name(node)
-        if name in _BROADCAST_HELPERS:
-            lit = _str_const(_event_type_arg(node))
-            if lit is not None:
-                found.add(lit)
-        elif name in wrappers:
-            found |= _wrapper_call_literals(node, wrappers[name])
-    return found
-
-
 def _broadcast_event_types_in_source() -> set[str]:
-    """AST-scan the API source for literal event types reaching the broadcast helpers.
+    """Literal event types reaching the broadcast helpers, via the shared scanner.
 
-    Returns the set of distinct string literals that become a broadcast
-    ``event_type``, discovered two ways:
-
-    1. **Direct** — a string literal passed as the ``event_type`` argument
-       (2nd positional, or ``event_type=`` keyword) of a
-       ``broadcast_board_event`` / ``abroadcast_board_event`` call.
-    2. **One level of wrapper indirection** (#1381) — a local function/method
-       that forwards one of its *parameters* into the helper's ``event_type``
-       slot is a "wrapper"; its real event types are the literals passed for
-       that parameter at the wrapper's *own* call sites. This catches events
-       emitted only through a thin relay (``taskruns/tracker.py:_broadcast``,
-       ``projects/retro_board_services.py:_broadcast``), which would otherwise
-       escape the freeze guard because the helper sees a variable, not a literal.
-
-    Wrapper detection and resolution are scoped per-module (a wrapper is matched
-    against call sites in the same file), which keeps same-named wrappers in
-    different modules from cross-contaminating.
+    Delegates to ws_event_scan.broadcast_event_types_in_source (#3775) — the same
+    sweep scripts/check-ws-handler-conformance.sh runs, so the freeze guard and
+    the handler-conformance gate can never disagree about what the API emits. It
+    discovers event types two ways: a string literal in the ``event_type`` slot of
+    a ``broadcast_board_event`` / ``abroadcast_board_event`` call, and one level of
+    wrapper indirection (#1381) — a local function that forwards one of its
+    *parameters* into that slot, whose real types are the literals at the
+    wrapper's own call sites (``taskruns/tracker.py:_broadcast``,
+    ``retro_board_services.py:_broadcast``).
     """
-    import pathlib
-
     import trueppm_api
 
-    root = pathlib.Path(trueppm_api.__file__).resolve().parent
-    found: set[str] = set()
-    for path in root.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
-        found |= _literals_in_module(tree, _find_broadcast_wrappers(tree))
-    return found
+    return broadcast_event_types_in_source(pathlib.Path(trueppm_api.__file__).resolve().parent)
 
 
 def test_ws_event_type_set_is_frozen() -> None:
@@ -637,3 +554,257 @@ def test_wrapper_emitted_events_are_discovered_and_frozen() -> None:
         f"indirection regressed: {sorted(undiscovered)}"
     )
     assert wrapper_emitted <= FROZEN_WS_EVENT_TYPES
+
+
+# ---------------------------------------------------------------------------
+# WS event → frontend handler conformance (#3775, proposed in #2845).
+#
+# The freeze guard above proves the API's event set did not move. It says nothing
+# about whether anything on the client CONSUMES an event, and nothing did check
+# that: #2847, #3245 and the 0.4 pre-release pass each found a different slice of
+# "broadcast correctly, handled nowhere" because the only mechanism was convention
+# plus review.
+#
+# These tests run the same evaluator as the lint:ws-handler-conformance CI job
+# (scripts/check-ws-handler-conformance.sh), over the same shared scanner. The job
+# exists as well as these tests because api:test is gated on
+# `changes: packages/api/**` — deleting a handler is a WEB-only diff, which these
+# tests would never see.
+#
+# The negative controls below are the point. A conformance test that only passes
+# on the current tree proves nothing about whether it can fail; a scanner that
+# quietly matches nothing is the failure mode this gate exists to prevent.
+# ---------------------------------------------------------------------------
+
+
+def _ledger(
+    unhandled: dict[str, Waiver] | None = None,
+    unemitted: dict[str, Waiver] | None = None,
+) -> WaiverLedger:
+    """A ledger whose budgets match its contents, so a case tests one thing."""
+    unhandled = unhandled or {}
+    unemitted = unemitted or {}
+    return WaiverLedger(
+        unhandled=unhandled,
+        unemitted=unemitted,
+        unhandled_budget=len(unhandled),
+        unemitted_budget=len(unemitted),
+    )
+
+
+def _fixture_tree(tmp_path: pathlib.Path, api_body: str, ts_body: str) -> tuple[Any, Any]:
+    api_src = tmp_path / "api"
+    api_src.mkdir()
+    (api_src / "views.py").write_text(api_body, encoding="utf-8")
+    ts_path = tmp_path / "hook.ts"
+    ts_path.write_text(ts_body, encoding="utf-8")
+    return api_src, ts_path
+
+
+_EMIT_TWO = (
+    'def a(self):\n    broadcast_board_event(project_id, "alpha_happened", {})\n\n\n'
+    'def b(self):\n    broadcast_board_event(project_id, "beta_happened", {})\n'
+)
+
+
+def test_every_broadcast_event_has_a_frontend_handler_or_a_waiver() -> None:
+    """The live tree: every emitted WS event is handled, or waived with an issue.
+
+    If this fails with `emitted-no-handler`, a new broadcast landed with no
+    consumer in packages/web/src/hooks/useProjectWebSocket.ts. Wire the handler,
+    or — if the omission is deliberate or the event is structurally undeliverable
+    — add an entry to ws_handler_waivers.py with a reason and the issue number
+    that removes it, and raise that budget by one in the same diff.
+    """
+    violations = evaluate(
+        pathlib.Path(__import__("trueppm_api").__file__).resolve().parent, _WEB_WS_HOOK, LEDGER
+    )
+    assert not violations, "\n".join(v.render() for v in violations)
+
+
+def test_gate_fails_on_an_emitted_event_with_no_handler(tmp_path: pathlib.Path) -> None:
+    """NEGATIVE CONTROL — the exact defect #2847/#3245/the 0.4 pass each re-found.
+
+    Without this the suite could not tell a working gate from an inert one: a
+    conformance test that has only ever been run against a conformant tree never
+    executes its detection path.
+    """
+    api_src, ts_path = _fixture_tree(tmp_path, _EMIT_TWO, "on('alpha_happened', () => {});\n")
+    violations = evaluate(api_src, ts_path, _ledger())
+    assert [(v.kind, v.subject) for v in violations] == [("emitted-no-handler", "beta_happened")]
+
+    # ...and the same tree passes once the gap is waived.
+    waived = _ledger({"beta_happened": Waiver(reason="tracked", issue=2847)})
+    assert evaluate(api_src, ts_path, waived) == []
+
+
+def test_gate_fails_on_a_wrapper_emitted_event_with_no_handler(tmp_path: pathlib.Path) -> None:
+    """The #1381 wrapper indirection reaches the conformance half too.
+
+    An event emitted only through a parameter-forwarding helper (task_run_*,
+    retro_item_*) is invisible to a scanner that looks only at direct literals —
+    it would read as "not emitted" and silently need no handler.
+    """
+    api_src, ts_path = _fixture_tree(
+        tmp_path,
+        "def _broadcast(self, event_type, payload):\n"
+        "    broadcast_board_event(self.project_id, event_type, payload)\n\n\n"
+        'def run(self):\n    self._broadcast("wrapped_only", {})\n',
+        "on('something_else', () => {});\n",
+    )
+    kinds = {(v.kind, v.subject) for v in evaluate(api_src, ts_path, _ledger())}
+    assert ("emitted-no-handler", "wrapped_only") in kinds
+
+
+def test_gate_fails_on_a_duplicate_handler_registration(tmp_path: pathlib.Path) -> None:
+    """`on()` is last-write-wins, so a second registration is silent dead code.
+
+    `eventHandlers[type] = handler` overwrites rather than appending — the hook's
+    own comments warn about this twice — so a duplicate is a real defect, not a
+    style nit, and must not be collapsed by a `set()` on the way in.
+    """
+    api_src, ts_path = _fixture_tree(
+        tmp_path,
+        _EMIT_TWO,
+        "on('alpha_happened', () => {});\non(['beta_happened', 'alpha_happened'], () => {});\n",
+    )
+    assert [(v.kind, v.subject) for v in evaluate(api_src, ts_path, _ledger())] == [
+        ("duplicate-registration", "alpha_happened")
+    ]
+
+
+def test_waiver_ledger_is_shrink_only(tmp_path: pathlib.Path) -> None:
+    """The ratchet: a waiver whose gap has closed fails until it is deleted.
+
+    Both staleness directions, plus the budget line that makes an *addition*
+    visible in review. Without these a ledger only ever grows, which is how a
+    waiver list becomes a permanent exemption list.
+    """
+    api_src, ts_path = _fixture_tree(
+        tmp_path, _EMIT_TWO, "on(['alpha_happened', 'beta_happened'], () => {});\n"
+    )
+    # The handler landed; the waiver did not come off.
+    stale = _ledger({"beta_happened": Waiver(reason="tracked", issue=2847)})
+    assert [(v.kind, v.subject) for v in evaluate(api_src, ts_path, stale)] == [
+        ("stale-waiver", "beta_happened")
+    ]
+    # A waiver for an event the API no longer broadcasts at all.
+    ghost = _ledger({"ghost_event": Waiver(reason="tracked", issue=1)})
+    assert [(v.kind, v.subject) for v in evaluate(api_src, ts_path, ghost)] == [
+        ("stale-waiver", "ghost_event")
+    ]
+    # An entry added without the budget line a reviewer reads.
+    unbudgeted = WaiverLedger(
+        unhandled={"beta_happened": Waiver(reason="tracked", issue=2847)},
+        unemitted={},
+        unhandled_budget=0,
+        unemitted_budget=0,
+    )
+    assert any(v.kind == "waiver-budget" for v in evaluate(api_src, ts_path, unbudgeted))
+    # A waiver with no issue, or no reason, is a bug waiting to be re-found.
+    no_issue = _ledger({"beta_happened": Waiver(reason="tracked", issue=0)})
+    assert any(v.kind == "waiver-no-issue" for v in evaluate(api_src, ts_path, no_issue))
+    no_reason = _ledger({"beta_happened": Waiver(reason="   ", issue=2847)})
+    assert any(v.kind == "waiver-no-reason" for v in evaluate(api_src, ts_path, no_reason))
+    # The reverse-direction ledger is held to the same shape, not just the forward one.
+    reverse = WaiverLedger(
+        unhandled={},
+        unemitted={"never_emitted": Waiver(reason="", issue=0)},
+        unhandled_budget=0,
+        unemitted_budget=0,
+    )
+    kinds = {v.kind for v in evaluate(api_src, ts_path, reverse)}
+    assert {"waiver-no-issue", "waiver-no-reason", "waiver-budget"} <= kinds
+
+
+def test_gate_fails_on_a_handler_for_an_event_nothing_emits(tmp_path: pathlib.Path) -> None:
+    """Reverse direction — a registration for an event no call site broadcasts."""
+    api_src, ts_path = _fixture_tree(
+        tmp_path,
+        _EMIT_TWO,
+        "on(['alpha_happened', 'beta_happened', 'never_emitted'], () => {});\n",
+    )
+    assert [(v.kind, v.subject) for v in evaluate(api_src, ts_path, _ledger())] == [
+        ("handler-no-emitter", "never_emitted")
+    ]
+
+
+def test_a_commented_out_registration_is_not_a_handler(tmp_path: pathlib.Path) -> None:
+    """Prose naming an event is not coverage.
+
+    useProjectWebSocket.ts opens with a doc block that names most of the event
+    types in sentences. A scanner that did not strip comments would read those as
+    registrations and pass on a genuinely unhandled event — a gate reporting OK
+    because it matched the documentation instead of the code.
+    """
+    api_src, ts_path = _fixture_tree(
+        tmp_path,
+        _EMIT_TWO,
+        "// beta_happened is described here\n"
+        "/* on(['beta_happened'], () => {}); */\n"
+        "on('alpha_happened', () => {});\n",
+    )
+    assert [(v.kind, v.subject) for v in evaluate(api_src, ts_path, _ledger())] == [
+        ("emitted-no-handler", "beta_happened")
+    ]
+
+
+def test_an_on_call_inside_a_string_literal_is_not_a_handler(tmp_path: pathlib.Path) -> None:
+    """Stripping comments is not enough — a string literal can say `on('x')` too.
+
+    An error message, a log line or a doc string in the *code* reads exactly like a
+    registration to a comment-only scanner. This direction is the dangerous one: it
+    does not add a false finding, it MASKS a real `emitted-no-handler` one, which is
+    the silent pass this gate exists to prevent.
+    """
+    api_src, ts_path = _fixture_tree(
+        tmp_path,
+        _EMIT_TWO,
+        "const msg = \"register it with on('beta_happened') — see the guide\";\n"
+        "const alt = `or on('beta_happened') in a template literal`;\n"
+        "on('alpha_happened', () => {});\n",
+    )
+    assert handler_registrations_in_source(ts_path) == ["alpha_happened"]
+    assert [(v.kind, v.subject) for v in evaluate(api_src, ts_path, _ledger())] == [
+        ("emitted-no-handler", "beta_happened")
+    ]
+
+
+def test_scanner_refuses_to_pass_vacuously(tmp_path: pathlib.Path) -> None:
+    """Either half inspecting nothing raises, and never reports conformance.
+
+    An empty scan satisfies every set difference above, so "no violations" and
+    "nothing was scanned" are indistinguishable at the assertion. They must not be
+    indistinguishable at the exit code: `boundary:imports` passed a real
+    enterprise import for the whole life of the gate on exactly this shape (#3172).
+    """
+    api_src, ts_path = _fixture_tree(tmp_path, "def a(self):\n    return 1\n", "const x = 1;\n")
+    with pytest.raises(ScanError, match="no broadcast_board_event"):
+        broadcast_event_types_in_source(api_src)
+    with pytest.raises(ScanError, match="no on\\(\\.\\.\\.\\) handler registrations"):
+        handler_registrations_in_source(ts_path)
+
+
+def test_scanner_refuses_an_unreadable_registration_form(tmp_path: pathlib.Path) -> None:
+    """An `on(...)` whose types are not literals is loud, not silently "unhandled".
+
+    Registering from a variable would make every event in it read as having no
+    handler — a flood of false findings — or, if the parser skipped the call, make
+    a real gap invisible. Neither is acceptable silently.
+    """
+    ts_path = tmp_path / "hook.ts"
+    ts_path.write_text("on('alpha_happened', () => {});\non(EVENT_TYPES, () => {});\n", "utf-8")
+    with pytest.raises(ScanError, match="cannot read as a literal"):
+        handler_registrations_in_source(ts_path)
+
+
+def test_every_waived_event_is_in_the_frozen_set() -> None:
+    """A waiver naming an event the freeze guard does not know is a typo, not a decision.
+
+    The ledger keys are hand-written; nothing else would catch `label_creted`, and
+    a mistyped key silently waives nothing while looking like it waives something.
+    Unemitted waivers are exempt: they name events that reach the client by a path
+    the broadcast contract does not cover (`resync_required`, ADR-0236).
+    """
+    unknown = sorted(set(LEDGER.unhandled) - FROZEN_WS_EVENT_TYPES)
+    assert not unknown, f"waived events absent from FROZEN_WS_EVENT_TYPES: {unknown}"
