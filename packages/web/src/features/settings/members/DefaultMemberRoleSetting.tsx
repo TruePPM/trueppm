@@ -9,6 +9,7 @@
  */
 import { useProject } from '@/hooks/useProject';
 import { useUpdateProject } from '@/hooks/useProjectMutations';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { RolePicker } from './RolePicker';
 
 interface Props {
@@ -16,8 +17,13 @@ interface Props {
 }
 
 export function DefaultMemberRoleSetting({ projectId }: Props) {
-  const { data: project, isLoading } = useProject(projectId);
-  const { mutate, isPending, isError } = useUpdateProject(projectId);
+  const {
+    data: project,
+    isLoading,
+    isError: projectFailed,
+    refetch,
+  } = useProject(projectId);
+  const { mutate, isPending, isError: saveFailed } = useUpdateProject(projectId);
 
   return (
     <section aria-labelledby="default-role-heading">
@@ -31,7 +37,17 @@ export function DefaultMemberRoleSetting({ projectId }: Props) {
         The role a person gets when added to this project without one chosen. You can
         override it per person, and change this default any time.
       </p>
-      {isLoading || !project ? (
+      {/* A failed GET must read as broken, not as a stuck skeleton (rule 246,
+          #3542). `isLoading` settles to false on a terminal failure, but
+          `!project` never clears — without this branch the placeholder below
+          pulses forever. */}
+      {projectFailed ? (
+        <QueryErrorState
+          variant="inline"
+          message="Couldn't load this setting."
+          onRetry={() => void refetch()}
+        />
+      ) : isLoading || !project ? (
         <div className="h-8 w-48 rounded bg-neutral-surface-raised motion-safe:animate-pulse" />
       ) : (
         <div className="flex items-center gap-3">
@@ -45,7 +61,7 @@ export function DefaultMemberRoleSetting({ projectId }: Props) {
           {isPending && (
             <span className="text-xs text-neutral-text-secondary">Saving…</span>
           )}
-          {isError && (
+          {saveFailed && (
             <span role="alert" className="text-xs text-semantic-critical">
               Couldn&rsquo;t save — please try again.
             </span>

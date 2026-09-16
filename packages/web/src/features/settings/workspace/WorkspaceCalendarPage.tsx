@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { useUpdateWorkspaceSettings } from '../hooks/useUpdateWorkspaceSettings';
@@ -30,7 +31,7 @@ import type { CalendarOverridePolicy } from '@/api/types';
  */
 
 export function WorkspaceCalendarPage() {
-  const { data: ws, isLoading } = useWorkspaceSettings();
+  const { data: ws, isLoading, isError, refetch } = useWorkspaceSettings();
   const updateSettings = useUpdateWorkspaceSettings();
   const { calendars, isLoading: calendarsLoading, error: calendarsError } = useCalendars();
 
@@ -67,6 +68,24 @@ export function WorkspaceCalendarPage() {
   }, [initial]);
 
   useDirtyForm({ values, initialValues: initial, onSave, onReset, apiReady: true });
+
+  // A failed GET must read as broken, not as a stuck skeleton (rule 246, #3542).
+  // `isLoading` settles to false on a terminal failure, but `!ws` never clears —
+  // without this branch the two placeholders below pulse forever.
+  if (isError) {
+    return (
+      <div>
+        <SettingsPageTitle title="Working calendar" />
+        <div className="px-6 py-8">
+          <QueryErrorState
+            variant="inline"
+            message="Couldn't load this workspace's working calendar."
+            onRetry={() => void refetch()}
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading || !ws) {
     return (

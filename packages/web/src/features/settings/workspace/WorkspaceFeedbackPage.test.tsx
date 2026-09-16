@@ -8,6 +8,8 @@ import { DEFAULT_FEEDBACK_URL } from '@/lib/feedbackContext';
 const mockState = vi.hoisted(() => ({
   ws: undefined as unknown,
   isLoading: false,
+  isError: false,
+  refetch: vi.fn(),
   mutateAsync: vi.fn(),
   // useDirtyForm is the page's only save path, so the test drives the form
   // through the callbacks the page hands it rather than a Save button.
@@ -49,7 +51,12 @@ const WS: WorkspaceSettings = {
 };
 
 vi.mock('../hooks/useWorkspaceSettings', () => ({
-  useWorkspaceSettings: () => ({ data: mockState.ws, isLoading: mockState.isLoading }),
+  useWorkspaceSettings: () => ({
+    data: mockState.ws,
+    isLoading: mockState.isLoading,
+    isError: mockState.isError,
+    refetch: mockState.refetch,
+  }),
 }));
 vi.mock('../hooks/useUpdateWorkspaceSettings', () => ({
   useUpdateWorkspaceSettings: () => ({ mutateAsync: mockState.mutateAsync }),
@@ -64,6 +71,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockState.ws = { ...WS };
   mockState.isLoading = false;
+  mockState.isError = false;
   mockState.dirty.onSave = undefined;
 });
 
@@ -135,5 +143,31 @@ describe('WorkspaceFeedbackPage (#2392)', () => {
     expect(
       screen.getByRole('button', { name: 'About the Tracker URL options' }),
     ).toBeInTheDocument();
+  });
+});
+
+describe('WorkspaceFeedbackPage — failed GET (#3542)', () => {
+  // Before the fix, `isLoading || !ws` never cleared on a failed GET (`isLoading`
+  // settles to false on a terminal failure, but `!ws` stays true forever) — the
+  // page pulsed a skeleton placeholder with no error and no retry.
+  it('renders an error with Retry, not a perpetual skeleton, when the settings GET fails', () => {
+    mockState.ws = undefined;
+    mockState.isError = true;
+    const { container } = render(<WorkspaceFeedbackPage />);
+
+    expect(screen.getByText("Couldn't load feedback settings.")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(container.querySelector('[class*="animate-pulse"]')).toBeNull();
+    expect(screen.queryByLabelText('Tracker URL')).not.toBeInTheDocument();
+  });
+
+  it('retries the settings query on click', async () => {
+    const user = userEvent.setup();
+    mockState.ws = undefined;
+    mockState.isError = true;
+    render(<WorkspaceFeedbackPage />);
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(mockState.refetch).toHaveBeenCalledTimes(1);
   });
 });

@@ -274,4 +274,59 @@ test.describe('Role-based landing redirect (#1181, ADR-0129)', () => {
     await expect(page.getByRole('heading', { name: /get you started/i })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Explore a demo project' })).toBeVisible();
   });
+
+  // #3542 — before the fix, `isLoading || !user` never cleared on a failed
+  // `/auth/me/` (`isLoading` settles to false on a terminal failure, but
+  // `!user` stays true forever), so the app's `/` front door hung on "Taking
+  // you to your home screen…" forever with no error and no retry.
+  test('a failed /auth/me/ surfaces an error with Retry, not a perpetual "Taking you to your home screen…"', async ({
+    page,
+  }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await page.route('**/api/v1/edition/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ edition: 'community' }) }),
+    );
+
+    let requestCount = 0;
+    await page.route('**/api/v1/auth/me/', (r) => {
+      requestCount += 1;
+      // Unlike most queries, `useCurrentUser` sets `retry: false` explicitly
+      // (src/hooks/useCurrentUser.ts) — a single failed GET is terminal, with
+      // no automatic retry. Fail only the first request, so the explicit
+      // Retry click issues the second (successful) one.
+      if (requestCount <= 1) {
+        return r.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'boom' }),
+        });
+      }
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'e2e-user',
+          username: 'casey',
+          display_name: 'Casey',
+          initials: 'C',
+          email: 'casey@example.com',
+          max_project_role: 100,
+          workspace_role: null,
+          can_access_admin_settings: false,
+          default_landing: 'auto',
+          landing: { intent: 'my_work', path: '/me/work', resolved_by: 'role_policy' },
+        }),
+      });
+    });
+
+    await page.goto('/');
+
+    await expect(page.getByText("Couldn't sign you in.")).toBeVisible();
+    await expect(page.getByText(/Taking you to your home screen/i)).not.toBeVisible();
+    await expect(page).toHaveURL('/');
+
+    await page.getByRole('button', { name: 'Retry' }).click();
+    await page.waitForURL(/\/me\/work/, { timeout: 10_000 });
+  });
 });

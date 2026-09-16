@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { Toggle } from '../components/Toggle';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { AttachmentTypesChecklist } from '../components/AttachmentTypesChecklist';
@@ -20,7 +21,12 @@ import { ATTACHMENT_TYPE_CATALOG, DENIED_ATTACHMENT_TYPES } from '@/lib/attachme
  * state in which no file could be uploaded anywhere that inherits this policy.
  */
 export function WorkspaceAttachmentsPage() {
-  const { data: ws, isLoading } = useWorkspaceSettings();
+  const {
+    data: ws,
+    isLoading,
+    isError,
+    refetch,
+  } = useWorkspaceSettings();
   const updateSettings = useUpdateWorkspaceSettings();
 
   const [attachmentsEnabled, setAttachmentsEnabled] = useState(true);
@@ -74,6 +80,24 @@ export function WorkspaceAttachmentsPage() {
   useDirtyForm({ values, initialValues: initial, onSave, onReset, apiReady: !!ws });
 
   const showEmptyAllowlistWarning = attachmentsEnabled && allowedTypes.length === 0;
+
+  // A failed GET must read as broken, not as a stuck skeleton (rule 246, #3542).
+  // `isLoading` settles to false on a terminal failure, but `!ws` never clears —
+  // without this branch the two placeholders below pulse forever.
+  if (isError) {
+    return (
+      <div>
+        <SettingsPageTitle title="Attachments" />
+        <div className="px-6 py-8">
+          <QueryErrorState
+            variant="inline"
+            message="Couldn't load attachment settings."
+            onRetry={() => void refetch()}
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading || !ws) {
     return (

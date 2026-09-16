@@ -67,8 +67,9 @@ noise.
 
 The run prints a digest to the job log and writes the full k6 metrics blob to
 `perf-summary.json` (kept as a CI artifact for 30 days). Layout below; the
-latencies are **illustrative, not measured** — the two task rows have no published
-range yet (#2826):
+latencies are **illustrative**, not one specific night's numbers — see
+[Endpoint budgets](#endpoint-budgets) for the real 15-night ranges the four
+tracked rows were derived from:
 
 ```
 === TruePPM perf/load digest ===
@@ -78,11 +79,11 @@ task_list fixture:     1000 tasks
 p95 all endpoints:     1812 ms  (aggregate — not gated)
 
 p95 by endpoint (ms):
-  program_list     527  /     --  untracked
-  project_list     651  /     --  untracked
+  program_list     527  /   4700  ok
+  project_list     651  /   4400  ok
   sync_delta       911  /     --  untracked
-  task_list        843  /     --  untracked
-  task_list_deep  1904  /     --  untracked
+  task_list        843  /  58000  ok
+  task_list_deep  1904  /  50000  ok
 
 RESULT: all endpoint thresholds within budget
 ================================
@@ -106,32 +107,70 @@ threshold is invisible — it produces no row, no artifact entry, and no trend.
 Such endpoints are therefore given an always-true `p(95)>=0` threshold purely to
 materialize the submetric.
 
-**Every endpoint row is untracked today**, and `#2826` is where they get budgets
-back. `sync_delta` never had one. `task_list` and `task_list_deep` lost theirs in
-**#2816**: the old `p(95)<2000` was calibrated to serializing one row, so carrying
-it onto a 200-row page would breach every night — and a tripwire that always fires
-is worse than none, which is exactly what made #2767 un-bisectable.
+### Endpoint budgets
 
-`program_list` and `project_list` lost their `p(95)<1500` for the same reason one
-step removed. #2816 did not change what those two request; it changed what they
-queue behind. The scenario is a closed loop — 20 VUs issue the five requests in
-sequence against a single uvicorn process — so once the task reads went from ~1 ms
-to 8–50 s, a list request's p95 became mostly the wait for the heavy read in front
-of it. Over the four post-#2816 nightlies `program_list` ran 251 / 740 / 183 /
-2570 ms and `project_list` 431 / 979 / 352 / 2610 ms, a 14x spread with no
-relevant code change, and the 2026-08-14 breach that prompted this landed on a day
-whose only commit touched three unrelated viewsets. The coupling also runs the
-wrong way for a latency budget: the breach night was the one where the task reads
-were *fastest*, which let 50 iterations through instead of 24 — more list
-requests, higher concurrency, higher p95. Iterations and latency are the same
-variable here (#2767).
+**Four of the five endpoint rows are tracked; `sync_delta` still is not.**
+`task_list`, `task_list_deep`, `program_list` and `project_list` were
+re-baselined in **#2826** from 15 nightlies against the 1,000-task fixture
+(2026-09-04 → 2026-09-15). Per-night p95 (ms):
 
-So the harness currently gates only `http_req_failed`, and the endpoint rows are
-pure trend lines. When setting budgets in #2826, derive each from the observed
-range rather than picking a round number — a budget nobody measured is
-indistinguishable from noise. For the two list rows, prefer decoupling them into
-their own scenario window over simply widening the number: a wider budget on a
-contention-coupled metric buys a quieter nightly, not a better signal.
+| date | iterations | `program_list` | `project_list` | `task_list` | `task_list_deep` |
+|---|---|---|---|---|---|
+| 09-04 | 70 | 1895 | 2208 | 12815 | 9429 |
+| 09-05 | 36 | 3097 | 3256 | 21345 | 23602 |
+| 09-06 | 69 | 2637 | 3352 | 5240 | 6468 |
+| 09-07 | 20 | 156 | 493 | 50447 | 38850 |
+| 09-08 | 84 | 1913 | 1918 | 6295 | 3970 |
+| 09-09 | 55 | 2094 | 2753 | 18519 | 13080 |
+| 09-10 | 79 | 1394 | 1582 | 11919 | 8623 |
+| 09-11 01:32 | 57 | 3571 | 3224 | 6676 | 7423 |
+| 09-11 05:07 | 75 | 1593 | 1756 | 9032 | 9530 |
+| 09-12 | 81 | 1365 | 1478 | 11149 | 9825 |
+| 09-13 | 47 | 402 | 830 | 11668 | 13248 |
+| 09-14 | 38 | 197 | 450 | 17018 | 17727 |
+| 09-15 03:24 | 74 | 2529 | 2485 | 5105 | 4747 |
+| 09-15 05:07 | 41 | 389 | 517 | 14496 | 16317 |
+| 09-15 12:02 | 46 | 2844 | 3033 | 18622 | 11714 |
+
+Each budget is the observed ceiling in that table times roughly 1.3 (30%
+headroom), rounded — a gross-regression tripwire, not an SLA:
+
+| Endpoint | Ceiling | Budget |
+|---|---|---|
+| `program_list` | 3571 | `p(95)<4700` |
+| `project_list` | 3352 | `p(95)<4400` |
+| `task_list` | 50447 | `p(95)<58000` |
+| `task_list_deep` | 38850 | `p(95)<50000` |
+
+`task_list`'s budget is capped at 58,000 rather than the arithmetic ~65,600: k6's
+default per-request timeout is 60 s and `load.js` does not override it, so a
+response that actually took 65 s would already have aborted as a request error
+(`http_req_failed`) instead of landing in `http_req_duration` as a slow success. A
+budget above ~60,000 could never be exercised, so it is capped just under that
+wall instead of extrapolating past it.
+
+`program_list` and `project_list` are **not** decoupled into their own k6
+scenario, which is what !1964 recommended as the more correct fix — their p95 is
+still mostly a measure of queueing behind the heavy task reads in the same
+closed-loop iteration, not of the endpoint's own cost. Splitting the light reads
+into a separate scenario window (its own executor, its own VU pool) is a harness
+redesign that belongs in its own issue with an `architect` pass; #2826 stayed
+scoped to giving all four rows an honest number. Practically: a breach on either
+of these two rows means "the scenario got slower than any of the last 15
+nights," not "this endpoint regressed" — still worth triaging, just not
+attributable to that endpoint in isolation.
+
+The wider 15-night sample also complicates the original "faster task reads → more
+list-request concurrency → higher list p95" story from the 2026-08-14 breach:
+09-07 has both the fewest iterations *and* the slowest task reads *and* some of
+the lowest list p95s. Contention on shared CI hardware remains the working
+explanation for the spread; it is just not a clean function of iteration count
+once more nights are in the sample.
+
+`sync_delta` stayed out of #2826's scope — it has no nightly history of its own
+yet — and remains `untracked` under the always-true `p(95)>=0` expression
+(`UNTRACKED_EXPR` in `load.js`) purely so k6 materializes its submetric. A future
+issue can budget it the same way once a few nightlies establish its range.
 
 ## Run it locally
 
