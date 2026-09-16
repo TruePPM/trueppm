@@ -2,9 +2,10 @@
 
 **This package is a navigation shell and a set of typed module boundaries. It is
 not an app you can install, and it is not a build you can run.** It exists so
-that #41 (offline store + sync adapter) and the 0.6 native Android app have a
+that #41 (offline store + sync adapter) and a native app, if one is built, have a
 compiling place to land, and so the CI lint/type-check gates cover mobile code
-from the first line.
+from the first line. **No native app is currently scheduled** — see
+[Platform priority](#platform-priority).
 
 Read this before quoting the package's state anywhere. Ten artifacts described
 this scaffold as a working app; correcting them was #3367.
@@ -17,7 +18,7 @@ number here can only mislead — it read `0.4.0-beta.1` from 2026-07-18 to
 `api` and `web`.
 
 `scripts/release.sh` does **not** bump this manifest and must not start: mobile
-does not ship on the OSS release train until the native Android app does.
+does not ship on the OSS release train until a native app does.
 
 `scripts/check-mobile-version.sh` enforces this — `make pre-push` and the
 `mobile:version-pin` CI job both run it, and it fails on a version other than
@@ -110,10 +111,14 @@ it.
 
 ## Platform priority
 
-Android phones first, Android tablets second, iPhone deferred to 1.0 GA. The
-roadmap is the source of truth for this ordering and for the milestone — native
-Android is **0.6**; ADR-0026's own "Android 0.4 / iOS 1.0" text is the part of it
-that was superseded. Mobile is on the 1.0 critical path.
+**No native release is scheduled** (2026-09-16, #3834). The installable PWA
+(#1393) is the mobile story through 1.0; native Android at 0.6 and iPhone/iPad at
+1.0 were withdrawn from the roadmap, and native mobile is off the 1.0 critical
+path. It returns to a numbered release when real user reports name a workflow the
+PWA cannot serve. If it does, the earlier ordering — Android phones first, Android
+tablets second, iPhone after — is the starting point, not a commitment; the roadmap
+stays the source of truth. ADR-0026's "Android 0.4 / iOS 1.0" text was superseded
+earlier, and its amendment note records this change.
 
 ## Local commands
 

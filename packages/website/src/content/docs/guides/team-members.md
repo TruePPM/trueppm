@@ -67,7 +67,7 @@ To see everything assigned to you across all your projects and sprints, use the 
 
 Changes you make appear instantly for everyone on the project. Changes others make appear instantly for you. No manual refresh.
 
-The sync protocol supports offline clients — it is built for the native mobile app, which lands in **0.6** and will queue updates locally and replay them when the connection returns. No client implements it yet; the installable PWA in **0.5** is the offline surface before it. The web app today requires a connection for writes.
+The sync protocol supports offline clients that queue updates locally and replay them when the connection returns. No client implements it yet; the installable PWA in **0.5** is the offline surface, and a native mobile app is not currently scheduled. The web app today requires a connection for writes.
 
 → See [Real-time collaboration](/features/real-time/), [Offline sync](/features/offline-sync/)
 
@@ -120,7 +120,7 @@ The only question that matters: does this remove a click, or add one? Run these 
 Cards with a red border have an unresolved dependency, and the **Member** role can move cards but not restructure the schedule. Both are deliberate — see [your role and what you can do](#your-role-and-what-you-can-do).
 :::
 
-The two things you'd want that aren't here yet — automatic Jira sync so you never double-enter (lands in **0.4**) and mobile time entry (offline-capable time entry via the installable PWA lands in **0.5**; the native app's 15-second capture in **0.6**).
+The two things you'd want that aren't here yet — automatic Jira sync so you never double-enter (lands in **0.4**) and mobile time entry (offline-capable time entry via the installable PWA lands in **0.5**, with a push-triggered end-of-day quick-log prompt planned for **0.6**).
 
 ## Where to go next
 

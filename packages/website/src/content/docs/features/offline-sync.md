@@ -6,7 +6,7 @@ documentedFor: "0.4"
 
 **This page is for developers** building an offline-capable client against TruePPM's API — there is no end-user setting here. The sync endpoint provides a two-way delta protocol compatible with [WatermelonDB](https://watermelondb.dev/)'s `synchronize()` helper: `GET` pulls server changes since a watermark, and `POST` uploads a batch of local task mutations.
 
-This page documents the **server** side, which is live. **No client implements it yet.** The `packages/mobile` React Native package is a scaffold — its `src/sync/` is a typed boundary with no implementation behind it. The client that consumes this protocol arrives with the native Android app in 0.6; the 0.5 installable PWA is the offline mobile surface before that. You can call these endpoints yourself today.
+This page documents the **server** side, which is live. **No client implements it yet.** The `packages/mobile` React Native package is a scaffold — its `src/sync/` is a typed boundary with no implementation behind it. No native client is scheduled — a native app is conditional on user demand (#3834) — and the 0.5 installable PWA is the offline mobile surface. You can call these endpoints yourself today.
 
 ## Pull endpoint
 
