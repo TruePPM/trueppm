@@ -7136,10 +7136,11 @@ def is_agent_token(auth: object) -> TypeGuard[ApiToken]:
     The residual gap this predicate creates, stated so it is not rediscovered as a
     surprise: because the agent controls no longer bind ``legacy:full``, an operator's
     instance kill switch does not reach a member who points an MCP client at a
-    ``legacy:full`` token — and nothing tells that client it is not holding an agent
-    credential, because ``/auth/me/`` echoes no scope. TODO(#2938): surface the token's
-    posture on ``/auth/me/`` and make ``trueppm-mcp`` refuse to boot on a non-agent
-    token. Not closable here: restraining ``legacy:full`` is what #2877 removed.
+    ``legacy:full`` token. That gap is not closable here — restraining ``legacy:full``
+    is what #2877 removed — but it no longer travels silently: ``GET /auth/me/`` now
+    echoes the caller's own scopes and this predicate's verdict
+    (``MeSerializer.get_token``), and ``trueppm-mcp`` refuses to boot on a non-agent
+    token rather than running unprotected (#2938).
 
     Typed as a ``TypeGuard`` so a caller that branches on it also gets ``auth`` narrowed
     to ``ApiToken`` and can read ``.pk``/``.owner`` without a second ``isinstance``.

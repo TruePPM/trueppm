@@ -38,6 +38,7 @@ function makeCurrentUser(overrides: Partial<CurrentUser> = {}): CurrentUser {
     dnd_enabled: false,
     timezone: 'auto',
     date_format: 'auto',
+    token: null,
     ...overrides,
   };
 }

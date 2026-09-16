@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import secrets
+
 import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
+
+from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+from trueppm_api.apps.projects.models import SCOPE_LEGACY_FULL, SCOPE_MCP_READ, ApiToken
 
 User = get_user_model()
 
@@ -19,6 +24,26 @@ URL = "/api/v1/auth/me/"
 def _make_client(user: object) -> APIClient:
     c = APIClient()
     c.force_authenticate(user=user)
+    return c
+
+
+def _mint(owner: object, scopes: list[str]) -> str:
+    raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+    ApiToken.objects.create(
+        owner=owner,
+        name="test-token",
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+        created_by=owner,
+        scopes=scopes,
+    )
+    return raw
+
+
+def _token_client(owner: object, scopes: list[str]) -> APIClient:
+    raw = _mint(owner, scopes)
+    c = APIClient()
+    c.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
     return c
 
 
@@ -374,3 +399,47 @@ def test_me_reads_the_profile_row_exactly_once() -> None:
     assert data["timezone"] == "Asia/Tokyo"
     assert data["role_context"] == "unified"
     assert data["date_format"] == "auto"
+
+
+# ---------------------------------------------------------------------------
+# Token posture (#2938) — one caller kind per test, per the issue's own ask
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_me_token_is_null_for_a_session_caller(db: object) -> None:
+    """A session/JWT caller carries no token at all — ``token`` is null, not absent.
+
+    ``force_authenticate`` leaves ``request.auth`` at its default (``None``), the
+    same as a real JWT-authenticated request, so this exercises the code path a
+    human signed in through the web app actually takes.
+    """
+    user = User.objects.create_user(username="session_caller", password="pw")
+    resp = _make_client(user).get(URL)
+    assert resp.status_code == 200
+    assert resp.data["token"] is None
+
+
+@pytest.mark.django_db
+def test_me_token_reports_legacy_full_as_not_an_agent(db: object) -> None:
+    """A ``legacy:full`` PAT authenticates and is echoed back as ``is_agent: False``.
+
+    This is the exact caller the MCP client refuses to boot on (#2938): the token
+    that is not restrained by the kill switch or the team opt-out, because
+    restraining it would restrain the person who owns it.
+    """
+    user = User.objects.create_user(username="full_pat_owner", password="pw")
+    resp = _token_client(user, [SCOPE_LEGACY_FULL]).get(URL)
+    assert resp.status_code == 200
+    assert resp.data["token"] == {"scopes": [SCOPE_LEGACY_FULL], "is_agent": False}
+
+
+@pytest.mark.django_db
+def test_me_token_reports_mcp_read_as_an_agent(db: object) -> None:
+    """An ``mcp:read`` PAT authenticates and is echoed back as ``is_agent: True`` —
+    the credential ``trueppm-mcp`` is meant to run on.
+    """
+    user = User.objects.create_user(username="mcp_token_owner", password="pw")
+    resp = _token_client(user, [SCOPE_MCP_READ]).get(URL)
+    assert resp.status_code == 200
+    assert resp.data["token"] == {"scopes": [SCOPE_MCP_READ], "is_agent": True}

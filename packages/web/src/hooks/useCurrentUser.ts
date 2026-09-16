@@ -92,6 +92,21 @@ export interface CurrentUser {
    */
   timezone: string;
   date_format: DateFormatStyle;
+  /**
+   * The caller's own credential posture (#2938) — `null` for a session/JWT
+   * caller (every web login), non-null only for an API-token caller (a script
+   * or `trueppm-mcp` calling `/auth/me/` directly). The web app never signs in
+   * with an API token, so this is `null` in every real browser session; it is
+   * typed here for contract fidelity with the server response, not because any
+   * web surface currently reads it.
+   */
+  token: TokenPosture | null;
+}
+
+/** Nested shape of `CurrentUser.token` — see its doc comment (#2938). */
+export interface TokenPosture {
+  scopes: string[];
+  is_agent: boolean;
 }
 
 export interface UseCurrentUserResult {

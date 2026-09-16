@@ -731,6 +731,22 @@ class UserSearchResultSerializer(serializers.Serializer[Any]):
         return str(obj.username[:2].upper())
 
 
+class TokenPostureSerializer(serializers.Serializer[Any]):
+    """Nested shape of ``MeSerializer.token`` — schema-only, never instantiated
+    directly (``MeSerializer.get_token`` returns a plain dict; this class only gives
+    ``extend_schema_field`` something faithful to point at, per #2938).
+    """
+
+    scopes = serializers.ListField(
+        child=serializers.CharField(), help_text="Scopes this token carries, e.g. ['mcp:read']."
+    )
+    is_agent = serializers.BooleanField(
+        help_text="Whether trueppm_api.apps.projects.models.is_agent_token() treats this "
+        "token as MCP/agent traffic — false for a legacy:full personal access token, "
+        "which the operator kill switch and team opt-out do not govern."
+    )
+
+
 class MeSerializer(serializers.Serializer[Any]):
     """Read-only serializer for GET /api/v1/auth/me/."""
 
@@ -789,6 +805,15 @@ class MeSerializer(serializers.Serializer[Any]):
     #   - date_format: style for all displayed dates ("auto"/"iso"/"us"/"eu").
     timezone = serializers.SerializerMethodField()
     date_format = serializers.SerializerMethodField()
+    # Caller's own credential posture (#2938). ``is_agent_token()`` decides on every
+    # request whether the caller is governed by the MCP control layer (kill switch,
+    # team opt-out, row filtering) but reports it nowhere — so a member who points
+    # trueppm-mcp at a personal legacy:full token has no way to learn the switches
+    # they think are protecting them do not apply. This is the fix: the one endpoint
+    # the MCP client already calls at boot (verify_auth) now echoes the caller's own
+    # scopes and agent posture. Disclosing it leaks nothing — it is the caller's own
+    # credential. Null for a session/JWT caller, which carries no token at all.
+    token = serializers.SerializerMethodField()
 
     def get_max_project_role(self, obj: Any) -> int | None:
         # Memoized: get_can_access_admin_settings also needs this, so without the
@@ -896,6 +921,16 @@ class MeSerializer(serializers.Serializer[Any]):
             .first()
             or False
         )
+
+    @extend_schema_field(TokenPostureSerializer(allow_null=True))
+    def get_token(self, obj: Any) -> dict[str, Any] | None:
+        from trueppm_api.apps.projects.models import ApiToken, is_agent_token
+
+        request = self.context.get("request")
+        auth = getattr(request, "auth", None) if request is not None else None
+        if not isinstance(auth, ApiToken):
+            return None
+        return {"scopes": list(auth.scopes or []), "is_agent": is_agent_token(auth)}
 
     def get_display_name(self, obj: Any) -> str:
         name = f"{obj.first_name} {obj.last_name}".strip()

@@ -7,7 +7,13 @@ proprietary enterprise repo. RBAC is enforced once, at the API layer.
 
 from __future__ import annotations
 
-from trueppm_mcp.client import ApiError, AuthError, RateLimitError, TruePPMClient
+from trueppm_mcp.client import (
+    ApiError,
+    AuthError,
+    NonAgentTokenError,
+    RateLimitError,
+    TruePPMClient,
+)
 from trueppm_mcp.config import ConfigError, Settings
 from trueppm_mcp.server import build_server
 
@@ -17,6 +23,7 @@ __all__ = [
     "ApiError",
     "AuthError",
     "ConfigError",
+    "NonAgentTokenError",
     "RateLimitError",
     "Settings",
     "TruePPMClient",

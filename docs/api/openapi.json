@@ -56781,6 +56781,15 @@
                             }
                         ],
                         "readOnly": true
+                    },
+                    "token": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TokenPosture"
+                            }
+                        ],
+                        "nullable": true,
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -56797,6 +56806,7 @@
                     "max_project_role",
                     "role_context",
                     "timezone",
+                    "token",
                     "username",
                     "workspace_role"
                 ]
@@ -78778,6 +78788,27 @@
                 "required": [
                     "submitted_at",
                     "week_start"
+                ]
+            },
+            "TokenPosture": {
+                "type": "object",
+                "description": "Nested shape of ``MeSerializer.token`` — schema-only, never instantiated\ndirectly (``MeSerializer.get_token`` returns a plain dict; this class only gives\n``extend_schema_field`` something faithful to point at, per #2938).",
+                "properties": {
+                    "scopes": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Scopes this token carries, e.g. ['mcp:read']."
+                    },
+                    "is_agent": {
+                        "type": "boolean",
+                        "description": "Whether trueppm_api.apps.projects.models.is_agent_token() treats this token as MCP/agent traffic — false for a legacy:full personal access token, which the operator kill switch and team opt-out do not govern."
+                    }
+                },
+                "required": [
+                    "is_agent",
+                    "scopes"
                 ]
             },
             "ToneEnum": {
