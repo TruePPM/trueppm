@@ -143,7 +143,7 @@ This is where the honest losses are.
 | **Resource leveling** | **No** (a single-program engine is sequenced for 0.6) | Yes | Yes |
 | **Constraint types** | **1** (start-no-earlier-than; a deadline with negative float is planned for 0.5) | Full set | 8 + deadlines |
 | **Cost / earned value** | **No** (EV-lite planned 0.8) | Yes | Yes |
-| **Tested task ceiling** | **~2,000 in the Schedule view** (~1,000 on 0.4.0-beta.1; 16,000 takes ~45 s to open, and 100,000 is out of reach — see [where each part runs out](/administration/sizing/#toward-100000-tasks)) | Very large (100k+ activities in practice) | Large |
+| **Tested task ceiling** | **~2,000 in the Schedule view** (~1,000 on 0.4.0-beta.1; 16,000 takes ~40 s to open, and 100,000 is out of reach — see [where each part runs out](/administration/sizing/#toward-100000-tasks)) | Very large (100k+ activities in practice) | Large |
 | Sub-day scheduling | No (planned 0.6) | Yes | Yes |
 | Agile board / sprints | Yes, on the same objects | No | No |
 | Real-time multi-user web | Yes | Limited | Limited |

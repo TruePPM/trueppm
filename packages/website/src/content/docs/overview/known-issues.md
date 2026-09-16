@@ -197,7 +197,7 @@ specific defects behind them.
 
 | Issue | Symptom | Fix planned for |
 |---|---|---|
-| [#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381) | Each page of the task list skips the rows before it, and skipping a row still evaluates its per-task subqueries — the last page of a 100 000-task project takes 30 s against 0.13 s for the first. This is what sets the ~2 000-task comfort ceiling | 0.5 |
+| [#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381) | Each page of the task list skips the rows before it, and skipping a row still evaluates its per-task subqueries — the last page of a 100 000-task project takes 8.7 s against 0.11 s for the first. This is what sets the ~2 000-task comfort ceiling | 0.5 |
 | [#3119](https://gitlab.com/trueppm/trueppm/-/issues/3119) | The Schedule view loads the whole project before it draws anything — about 2.3 KB of JSON per task, 229 MB at 100 000 tasks | 0.5 |
 | [#3833](https://gitlab.com/trueppm/trueppm/-/issues/3833) | The API image runs one uvicorn process and the Helm chart has no setting to change it — eight users opening an 8 000-task Schedule at once wait 22.5 s, against 7.3 s with four workers | 0.4 |
 | [#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830) | The scheduler refuses a project — or a program with cross-project dependencies, which recalculates as one — whose task durations *sum* past 366 000 days, about 73 000 tasks at a 5-day average | 0.5 |

@@ -1,0 +1,3 @@
+FRESH n=16000 seed=8s first=69ms middle=442ms last=884ms est_full=38.1s measured_full=37.4s
+FRESH n=32000 seed=15s first=82ms middle=625ms last=1503ms est_full=126.8s measured_full=112.1s
+FRESH n=100000 seed=48s first=113ms middle=3276ms last=8738ms est_full=2212.8s

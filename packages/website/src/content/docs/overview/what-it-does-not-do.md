@@ -184,8 +184,8 @@ A project stays comfortable in the Schedule view to roughly **2,000 tasks** — 
 page of the task list (#3829). The database is not the constraint: it holds 100,000 tasks
 in 208 MB and serves the first page of them in 127 ms. The constraint is that opening a
 project makes the Schedule read *every* page, each page skips the rows before it, and
-skipping a row still costs its per-task subqueries. A 16,000-task project takes about 45
-seconds to open; a 100,000-task project would take about two hours, and would send 229 MB
+skipping a row still costs its per-task subqueries. A 16,000-task project takes about 40
+seconds to open; a 100,000-task project would take over half an hour, and would send 229 MB
 of JSON to the browser.
 
 Opening the Schedule is not the only wall on the way to 100,000 tasks. The scheduler
