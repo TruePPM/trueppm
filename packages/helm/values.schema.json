@@ -430,6 +430,16 @@
       "description": "Rendered wholesale with toYaml into every container spec. Open for the same reason as podSecurityContext.",
       "type": "object"
     },
+    "api": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "workers": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
     "celeryWorker": {
       "type": "object",
       "additionalProperties": false,

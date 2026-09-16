@@ -40,6 +40,20 @@
 # pinned singleton by design — a second beat double-fires every periodic task.
 replicaCount: 2
 
+# 4 uvicorn workers per API pod — the configuration measured in
+# /administration/sizing/#raising-the-uvicorn-worker-count (eight concurrent
+# Schedule opens: 22.5s at the chart's default of 1, 7.3s at 4). Each worker is
+# its own process (~160 MiB resident, measured) on top of Django's base import
+# footprint, so 4 workers fits comfortably inside the default
+# `resources.api.limits.memory: 2Gi` — raise that limit before raising this
+# further. Each worker also holds its own persistent PostgreSQL connection
+# (`CONN_MAX_AGE=600` under `ATOMIC_REQUESTS` in trueppm_api.settings.prod), so
+# `replicaCount x api.workers` here is 2 x 4 = 8 connections against
+# PostgreSQL's `max_connections` — cheap at this replica count, but the thing
+# to watch before raising either number (#2275).
+api:
+  workers: 4
+
 # ── Datastores ───────────────────────────────────────────────────────────────
 # The bundled subcharts are dev/demo only: single replica, small PVCs, and a
 # Valkey with no maxmemory policy. Production points at managed services.
