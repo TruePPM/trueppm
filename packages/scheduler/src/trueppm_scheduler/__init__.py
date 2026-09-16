@@ -42,6 +42,7 @@ from trueppm_scheduler.engine import (
     expand_summary_dependencies,
     find_cycle,
     monte_carlo,
+    perturb_task_duration,
     schedule,
 )
 from trueppm_scheduler.models import (
@@ -93,5 +94,6 @@ __all__ = [
     "expand_summary_dependencies",
     "find_cycle",
     "monte_carlo",
+    "perturb_task_duration",
     "schedule",
 ]
