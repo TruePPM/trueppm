@@ -336,6 +336,7 @@ _STATE_REFUSAL_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
         ("post", "/api/v1/me/connections/{source}/sync/"),
         ("post", "/api/v1/me/timesheets/{week_start}/submit"),
         ("post", "/api/v1/paste-many-operations/{id}/undo/"),
+        ("post", "/api/v1/programs/{id}/shift-sample-dates/"),
         ("post", "/api/v1/projects/{id}/tasks/{task_id}/indent/"),
         ("post", "/api/v1/projects/{id}/tasks/{task_id}/outdent/"),
         ("post", "/api/v1/slip-conflicts/{id}/acknowledge/"),
