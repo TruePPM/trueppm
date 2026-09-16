@@ -180,10 +180,11 @@ def test_schema_version_is_not_a_stale_literal() -> None:
     from importlib.metadata import PackageNotFoundError, version
 
     from django.conf import settings
+    from packaging.version import Version
 
     try:
         installed = version("trueppm-api")
     except PackageNotFoundError:  # pragma: no cover - source checkout, no metadata
         pytest.skip("trueppm-api is not installed; no package version to compare against")
 
-    assert settings.SPECTACULAR_SETTINGS["VERSION"] == installed
+    assert settings.SPECTACULAR_SETTINGS["VERSION"] == str(Version(installed))
