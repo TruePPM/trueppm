@@ -86,54 +86,74 @@ export const options = {
     // non-zero if any threshold is breached; the CI job is `allow_failure: true`,
     // so a breach surfaces as a warning + artifact, never a red merge gate.
     http_req_failed: ["rate<0.01"],
-    // TODO(#2826): all four endpoint rows ship untracked and need a budget
-    // derived from the first ~5 nightlies against the 1,000-task fixture.
+    // Budgets below are re-baselined (#2826) from 15 nightlies against the
+    // 1,000-task fixture, 2026-09-04 through 2026-09-15 (pipelines 2819164217 →
+    // 2850579238, all `main`, all `perf:load` job status `success`,
+    // `http_req_failed` 0.00% every night — no allow_failure job hid a real
+    // failure on any of them). Full per-night p95 (ms):
     //
-    // The two list rows carried `p(95)<1500` until the 2026-08-14 nightly broke
-    // them both (2570 / 2610 ms) on a day whose only commit touched the sprint,
-    // dependency and baseline viewsets — neither of these endpoints. They are
-    // untracked for the same reason the task rows are, one step removed: #2816
-    // did not change what these two request, it changed what they now QUEUE
-    // BEHIND. This is a closed loop — 20 VUs run the five requests in sequence
-    // against a single uvicorn process — so once the task reads went from ~1 ms
-    // (one row) to 8–50 s (a 200-row page), a list request's p95 became mostly
-    // the wait for whatever heavy read is in front of it. Measured p95 over the
-    // four post-#2816 nightlies:
+    //   date          iters  program  project  task_list  task_list_deep
+    //   09-04           70     1895     2208      12815       9429
+    //   09-05           36     3097     3256      21345      23602
+    //   09-06           69     2637     3352       5240       6468
+    //   09-07           20      156      493      50447      38850
+    //   09-08           84     1913     1918       6295       3970
+    //   09-09           55     2094     2753      18519      13080
+    //   09-10           79     1394     1582      11919       8623
+    //   09-11 01:32     57     3571     3224       6676       7423
+    //   09-11 05:07     75     1593     1756       9032       9530
+    //   09-12           81     1365     1478      11149       9825
+    //   09-13           47      402      830      11668      13248
+    //   09-14           38      197      450      17018      17727
+    //   09-15 03:24     74     2529     2485       5105       4747
+    //   09-15 05:07     41      389      517      14496      16317
+    //   09-15 12:02     46     2844     3033      18622      11714
     //
-    //   program_list  251 / 740 / 183 / 2570      (08-11 / 12 / 13 / 14)
-    //   project_list  431 / 979 / 352 / 2610
+    // Every budget below is (observed ceiling across the table) * ~1.3 — a
+    // gross-regression tripwire, not an SLA (see file header). Do not re-tighten
+    // by eyeballing a rounder number; re-derive from a fresh table the same way.
     //
-    // A 14x spread with no relevant code change, and 1500 sits inside it. Note
-    // the coupling runs the wrong way for a latency budget: 08-14 was the night
-    // the task reads were FASTEST (7811 ms vs 32743), which let 50 iterations
-    // through instead of 24 — so more list requests landed, at higher
-    // concurrency, and their p95 went up. Iterations and latency are the same
-    // variable here (#2767), which is why a threshold on the light endpoints
-    // reports the harness's own throughput and not the endpoint's cost.
+    // NOT decoupled into its own k6 scenario. !1964 recommended splitting the
+    // light list reads into their own scenario window so their p95 stops being a
+    // measure of queueing behind the heavy task reads. That is the more correct
+    // fix, but it is a harness redesign — a new executor, a separate VU pool, and
+    // re-deriving these same budgets again once the contamination is actually
+    // removed — and belongs in its own issue with an `architect` pass, not folded
+    // into this CI-config chore. Consequence, stated plainly: the program_list
+    // and project_list budgets below gate "something made this nightly slower
+    // than the last 15," not "this endpoint's own cost regressed." A breach is
+    // still a legitimate triage signal (the whole scenario got slower), just not
+    // an attribution to these two endpoints specifically.
     //
-    // Re-baseline all four together, and prefer decoupling the light reads into
-    // their own scenario window over widening the number — a wider budget on a
-    // contention-coupled metric buys a quieter nightly, not a better signal.
-    "http_req_duration{endpoint:project_list}": [UNTRACKED_EXPR],
-    "http_req_duration{endpoint:program_list}": [UNTRACKED_EXPR],
-    // The previous `p(95)<2000` is deleted rather than carried over because it was
-    // calibrated to serializing ONE row (#2816). Against a 200-row page it would
-    // breach every single night, and a tripwire that always fires is worse than no
-    // tripwire — that is precisely what made #2767 un-bisectable. No honest budget
-    // exists yet: nobody has measured this endpoint at this fixture size on this
-    // hardware. Measure first, then gate.
-    "http_req_duration{endpoint:task_list}": [UNTRACKED_EXPR],
+    // The wider sample also complicates the original throughput story: 09-07 has
+    // both the fewest iterations AND the slowest task reads AND some of the
+    // lowest list p95s, which does not fit "fewer/slower task reads → fewer
+    // concurrent list requests → lower list p95" cleanly. Contention on shared CI
+    // hardware remains the working explanation for the spread; it just is not a
+    // clean function of iteration count once more nights are in the sample.
+    "http_req_duration{endpoint:project_list}": ["p(95)<4400"],
+    "http_req_duration{endpoint:program_list}": ["p(95)<4700"],
+    // Ceiling 50,447 ms (09-07). *1.3 would be ~65,600 ms, but k6's default
+    // per-request timeout is 60 s (PARAMS sets no override) — a response that
+    // actually took 65 s would already have aborted as a request error, counted
+    // by http_req_failed, rather than recorded as a slow success. A budget above
+    // ~60,000 can therefore never be exercised either way, so this is capped at
+    // 58,000 instead of extrapolating past a ceiling the harness cannot produce.
+    "http_req_duration{endpoint:task_list}": ["p(95)<58000"],
     // The OFFSET cliff from #2814 (~570 ms at page 1, ~4,900 ms at page 70 on a
     // 4,000-task project), on the trend line rather than found by a user.
-    "http_req_duration{endpoint:task_list_deep}": [UNTRACKED_EXPR],
+    // Ceiling 38,850 ms (09-07); *1.3 headroom stays well clear of the 60 s
+    // request-timeout wall discussed above, so no cap is needed here.
+    "http_req_duration{endpoint:task_list_deep}": ["p(95)<50000"],
     // Not a budget. k6 only materializes a tagged submetric when a threshold
     // references the tag, so without this line `sync_delta` is requested on every
     // iteration and reported nowhere: it never reaches `data.metrics`, never
     // reaches perf-summary.json, and cannot be printed. `p(95)>=0` is true of any
     // sample, so it buys the submetric — and the trend line the digest prints —
     // without inventing an SLA for an endpoint we have never actually measured.
-    // Replace with a real budget once a few nightlies establish its range; the
-    // digest labels it `untracked` until then (see UNTRACKED_EXPR).
+    // sync_delta was out of #2826's scope (only the four table rows above were
+    // re-baselined); a future issue can budget it the same way once it has its
+    // own nightly history.
     "http_req_duration{endpoint:sync_delta}": [UNTRACKED_EXPR],
   },
 };

@@ -118,11 +118,13 @@ Four changes are sequenced for **0.5**, tracked together on
 
 **No new number is promised here, deliberately**, and the caution above is most of the
 reason. Each change has a measured *mechanism* but not a measured *outcome*; the cliff
-that sets the current ceiling is not explained by any of them; and
-[#2826](https://gitlab.com/trueppm/trueppm/-/issues/2826) means the nightly budgets are
-unset, so there is currently no instrument that could confirm an improvement. Quoting a
-0.5 target on that basis would be a forecast at a precision we have not earned. When the
-work is measured, the rows above will carry numbers instead of mechanisms.
+that sets the current ceiling is not explained by any of them; and the nightly budgets
+set in [#2826](https://gitlab.com/trueppm/trueppm/-/issues/2826) are gross-regression
+tripwires (roughly the observed ceiling plus headroom for run-to-run contention), not a
+capacity signal — a green nightly does not confirm an improvement, only the absence of a
+large regression. Quoting a 0.5 target on that basis would be a forecast at a precision
+we have not earned. When the work is measured, the rows above will carry numbers instead
+of mechanisms.
 
 One thing that is **not** on this list, and is deliberately not: loading only the visible
 part of the schedule. The outline numbers each task by its position among the siblings
@@ -168,10 +170,10 @@ docker compose -f packages/api/perf/capacity/docker-compose.capacity.yml down -v
 
 Raw results, including the per-step host load average and noise-control readings, are committed under `packages/api/perf/capacity/results/`.
 
-:::note[Nothing is currently watching this ceiling for you]
-TruePPM runs a separate k6 harness (`packages/api/perf/load.js`) on the nightly schedule, and it does target a 1,000-task project. But its four endpoint budgets are **unset** pending [#2826](https://gitlab.com/trueppm/trueppm/-/issues/2826), so the digest prints `RESULT: all endpoint thresholds within budget` no matter what the numbers are. Across the four nightlies ending 2026-09-04, `task_list` p95 at 20 virtual users came in at 5,961 / 12,815 / 16,584 / 33,043 ms — a 5.5× spread on identical data, which is contention on a shared CI runner rather than a product signal.
+:::note[This is a regression tripwire, not a capacity ceiling for you to plan against]
+TruePPM runs a separate k6 harness (`packages/api/perf/load.js`) on the nightly schedule, and it does target a 1,000-task project. As of [#2826](https://gitlab.com/trueppm/trueppm/-/issues/2826) its four endpoint rows carry budgets, but they are gross-regression tripwires — each is roughly the worst p95 observed across 15 nightlies (2026-09-04 → 2026-09-15) plus ~30% headroom, e.g. `task_list` ranged 5,105–50,447 ms across those nights, a ~10× spread on identical data. That spread is contention on a shared, single-process CI runner, not a product signal.
 
-Two things follow. Do not read a green nightly as evidence that this page's numbers still hold; and do not read those p95 figures as a concurrency envelope — they are too noisy to be one, which is exactly why concurrent users appear as **not measured** above.
+Two things follow. A green nightly means "no gross regression," not "this page's numbers still hold" — read it as a floor, not a confirmation. And do not read the p95 figures themselves as a concurrency envelope; they are too noisy to be one, which is exactly why concurrent users appear as **not measured** above.
 :::
 
 ## "Users" means concurrent active users
