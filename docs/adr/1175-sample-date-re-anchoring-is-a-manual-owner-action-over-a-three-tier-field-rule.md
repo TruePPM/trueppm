@@ -84,7 +84,7 @@ depends on it.
 ### Decision 2 — The anchor lives on `Program`; three tiers govern the columns.
 
 `Program.sample_anchor_date` (`DateField(null=True, blank=True)`, migration
-`0152_program_sample_anchor_date`) records the anchor the importer resolved. NULL on
+`0153_program_sample_anchor_date`) records the anchor the importer resolved. NULL on
 every non-sample program, and NULL is the honest "this predates the field" state for
 samples loaded before this ships — the endpoint refuses rather than guessing.
 
@@ -219,7 +219,7 @@ program can hold only sample projects — bounds the blast radius to disposable 
 
 - P3M layer: Programs and Projects
 - Affected packages: api, web (helm deferred, see Decision 1)
-- Migration required: **yes** — `0152_program_sample_anchor_date` (additive nullable
+- Migration required: **yes** — `0153_program_sample_anchor_date` (additive nullable
   `DateField`, no default backfill, no destructive operation)
 - API changes: **yes** — `POST /programs/{id}/shift-sample-dates/`, no request body,
   returns `{shifted: bool, days: int, anchor_date: str, rows_shifted: int, projects: int}`;

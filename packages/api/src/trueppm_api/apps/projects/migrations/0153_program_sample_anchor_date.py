@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0151_config_notice_request"),
+        ("projects", "0152_aggregate_task_wbs_name_idx"),
     ]
 
     operations = [
