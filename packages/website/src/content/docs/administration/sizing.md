@@ -174,7 +174,26 @@ The image's `CMD` is `uvicorn trueppm_api.asgi:application --host 0.0.0.0 --port
 |---|---|
 | **Docker Compose** | Override the `api` service's `command` in `docker-compose.override.yml`, appending `--workers 2`. |
 | **Single server with systemd** | Add `--workers N` to the `ExecStart` line. |
-| **Helm** | **There is no chart value for this yet** — [#3833](https://gitlab.com/trueppm/trueppm/-/issues/3833) adds one. The chart renders no `command` or `args` for the `api` container and exposes no `extraArgs` on it (unlike `celeryWorker.extraArgs`). Scale the API tier with `replicaCount` instead, or supply the flag with a post-render patch or a derived image. |
+| **Helm** | Set `api.workers` (default `1`, the shipped single-process behavior, unchanged). Builds that include [#3833](https://gitlab.com/trueppm/trueppm/-/issues/3833) render it as `--workers N` on the `api` container's command — the same escape-hatch shape as `celeryWorker.extraArgs`. See [`api.workers`](/administration/helm-values/#image-and-replicas) in the values reference. |
+
+Raising `api.workers` is a memory and database-connection decision, not just a
+CPU one. Each additional worker is its own process — about 160 MiB resident in
+the measurement above, on top of Django's base import footprint — and it comes
+out of the pod's `resources.limits.memory`; size that limit before raising the
+worker count. Each worker also holds its own PostgreSQL connection for most of
+its lifetime (`CONN_MAX_AGE=600` under `ATOMIC_REQUESTS` in
+`trueppm_api.settings.prod`, the settings module the chart sets), so
+`replicaCount x api.workers` counts against PostgreSQL's `max_connections` — add
+a connection pooler (PgBouncer) or raise `max_connections` before pushing
+either number far ([#2275](https://gitlab.com/trueppm/trueppm/-/issues/2275)).
+
+The **bundled PostgreSQL sub-chart is also part of the ceiling on what more
+workers buy you**: it is capped at 2 CPU (see [What the shipped defaults give
+you](#what-the-shipped-defaults-give-you)), and in the measurement above
+PostgreSQL itself used **11 cores** at 8 concurrent users against an
+unconstrained test database — well past what the bundled sub-chart could
+supply. Point extra API workers or replicas at a database sized to match, not
+at the bundled sub-chart, or the database becomes the next wall.
 
 On Kubernetes, `replicaCount` and multi-worker pods buy the same throughput; a
 replica additionally buys you redundancy, which a second worker in the same pod
@@ -190,7 +209,7 @@ The Helm chart (`packages/helm/values.yaml`) ships these defaults:
 - **Bundled PostgreSQL** requests `250m / 1Gi`, limits `2 CPU / 4Gi`, with an 8Gi PVC.
 - **Bundled Valkey** requests `100m / 256Mi`, limits `1 CPU / 1Gi`, with a 2Gi PVC and **AOF persistence enabled** (`valkey-server --appendonly yes`).
 
-The key constraint to understand: uvicorn runs a **single worker per pod** — `packages/api/Dockerfile` sets `CMD ["uvicorn", …]` with no `--workers` flag and the chart does not override it — so on Kubernetes request throughput scales by **replica count and nothing else**. That one process is a measured limit, not a theoretical one: eight people opening the same 8,000-task Schedule at once waited 22.5 s each with it, and 7.3 s with four workers ([Many users, many projects, and programs](#many-users-many-projects-and-programs)). [#3833](https://gitlab.com/trueppm/trueppm/-/issues/3833) adds a chart value for the worker count. Celery concurrency is pinned by the chart at `celeryWorker.concurrency` (default `2`); raise it toward the pod's CPU limit as you scale.
+The key constraint to understand: uvicorn runs a **single worker per pod by default** — `packages/api/Dockerfile` sets `CMD ["uvicorn", …]` with no `--workers` flag, and the chart's `api.workers` value (default `1`) preserves that until you raise it — so on Kubernetes request throughput scales by **replica count alone** unless you also raise the per-pod worker count. That one process is a measured limit, not a theoretical one: eight people opening the same 8,000-task Schedule at once waited 22.5 s each with it, and 7.3 s with four workers ([Many users, many projects, and programs](#many-users-many-projects-and-programs)). See [Raising the uvicorn worker count](#raising-the-uvicorn-worker-count) for the memory and database-connection cost of doing so. Celery concurrency is pinned by the chart at `celeryWorker.concurrency` (default `2`); raise it toward the pod's CPU limit as you scale.
 
 The **web** row was absent from this table until 0.4, and so was its redundancy:
 `web.replicaCount` shipped as a truthy `1`, which meant the fallback to the

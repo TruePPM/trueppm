@@ -156,6 +156,26 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          # Explicit command, not a bare reliance on the image's CMD (#3833).
+          # Every flag below must stay IDENTICAL to packages/api/Dockerfile's
+          # `CMD ["uvicorn", "trueppm_api.asgi:application", "--host",
+          # "0.0.0.0", "--port", "8000"]` except for the appended --workers —
+          # this only ADDS a worker count, it must never change the bind
+          # address or port out from under the readiness/liveness probes
+          # above, which target containerPort 8000 by name.
+          {{- $apiWorkers := int (.Values.api.workers | default 1) }}
+          {{- if lt $apiWorkers 1 }}
+            {{- fail (printf "api.workers must be >= 1, got %d — uvicorn requires at least one worker process (#3833)" $apiWorkers) }}
+          {{- end }}
+          command:
+            - uvicorn
+            - trueppm_api.asgi:application
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "8000"
+            - --workers
+            - {{ $apiWorkers | quote }}
           ports:
             - name: http
               containerPort: 8000

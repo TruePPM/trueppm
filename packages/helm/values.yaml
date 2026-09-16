@@ -453,6 +453,39 @@ containerSecurityContext:
   seccompProfile:
     type: RuntimeDefault
 
+# API/uvicorn worker process tuning (#3833, #3829 measurements).
+#
+# The shipped image's CMD runs a single uvicorn process, and that single
+# process pins at about one core — request CPU does not scale with the pod's
+# CPU limit at all, only with replicaCount. `workers: 1` here is that same
+# single-process behavior made an explicit, overridable value rather than a
+# hardcoded Dockerfile CMD with no chart knob (the render for the default value
+# is byte-identical in effect to the unmodified image CMD).
+#
+# Raising it is a memory AND a database-connection decision, not just CPU:
+# each additional worker is its own process (~160 MiB resident, measured) that
+# comes out of the pod's `resources.limits.memory` below, and — because
+# `trueppm_api.settings.prod` (the settings module this chart sets) holds each
+# connection open for `CONN_MAX_AGE=600` seconds under `ATOMIC_REQUESTS` — each
+# worker holds its own persistent PostgreSQL connection for most of its
+# lifetime. `replicaCount x api.workers` therefore counts against PostgreSQL's
+# `max_connections` (#2275); add a pooler (PgBouncer) or raise
+# `max_connections` before scaling this past a couple of workers per pod on a
+# large deployment.
+#
+# On Kubernetes, `replicaCount` buys the same request throughput as more
+# workers per pod AND buys redundancy, which a second worker in the same pod
+# does not — prefer replicas there and reach for this only inside a pod you are
+# already sizing generously. Only multi-worker pods have been measured (four
+# workers cut eight concurrent Schedule opens from 22.5s to 7.3s against a
+# single process, on an 18-vCPU host with the bundled PostgreSQL capped at 2
+# CPU, which itself used 11 cores at that concurrency and was the second
+# bottleneck); replicas are expected to behave the same but have not been.
+# https://docs.trueppm.com/administration/sizing/#raising-the-uvicorn-worker-count
+api:
+  # Must be >= 1. 1 preserves the shipped image's single-process default.
+  workers: 1
+
 # Celery worker process tuning (#2571).
 #
 # Celery prefork defaults its pool size to `cpu_count()`, which inside a
