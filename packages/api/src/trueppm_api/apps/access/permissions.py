@@ -2470,17 +2470,46 @@ class McpReadableViewMixin(_McpViewBase):
         place. A model with no reachable project relation is returned unfiltered —
         it holds no project-scoped rows to withhold.
         """
-        from trueppm_api.apps.projects.mcp_settings import mcp_visible_project_ids
+        from trueppm_api.apps.projects.models import is_agent_token
 
         request = getattr(self, "request", None)
         if request is None:
             return qs
+
+        model = qs.model
+
+        if model.__name__ == "Program":
+            # A program is withheld only when the program itself denied; its
+            # projects are filtered on their own endpoints. Reading the program row
+            # is not reading a project's data.
+            #
+            # Handled before ``mcp_visible_project_ids`` is even consulted (#3022):
+            # that helper fast-paths on whether any *project* has opted out, so a
+            # denying program with zero member projects contributed no rows to that
+            # set and this branch was never reached — the program's own denial went
+            # unenforced. `qs.exclude(mcp_enabled=False)` reads only the program's
+            # own column and needs no project-id set at all, so it does not depend
+            # on that fast path — only on whether this is an agent token at all,
+            # the same gate every other branch below applies via `visible is None`.
+            #
+            # The reasoning does not hold for the two program BULK EXPORTS
+            # (``ProgramViewSet.export`` and ``export_job_download``), which carry
+            # every member project's rows verbatim in one artifact this branch
+            # cannot narrow. Those are governed separately by
+            # ``McpProgramExportConsent`` (#3014); this branch is not their ruling.
+            if not is_agent_token(getattr(request, "auth", None)):
+                return qs
+            filtered = qs.exclude(mcp_enabled=False)
+            request._mcp_scope_filtered = True
+            return filtered
+
+        from trueppm_api.apps.projects.mcp_settings import mcp_visible_project_ids
+
         visible = mcp_visible_project_ids(request)
         if visible is None:
             # Not a token caller, or no project on the instance has opted out.
             return qs
 
-        model = qs.model
         field_names = {f.name for f in model._meta.get_fields()}
         if "project" in field_names:
             filtered = qs.filter(project_id__in=visible)
@@ -2488,17 +2517,6 @@ class McpReadableViewMixin(_McpViewBase):
             filtered = qs.filter(predecessor__project_id__in=visible)
         elif model.__name__ == "Project":
             filtered = qs.filter(pk__in=visible)
-        elif model.__name__ == "Program":
-            # A program is withheld only when the program itself denied; its
-            # projects are filtered on their own endpoints. Reading the program row
-            # is not reading a project's data.
-            #
-            # The reasoning does not hold for the two program BULK EXPORTS
-            # (``ProgramViewSet.export`` and ``export_job_download``), which carry
-            # every member project's rows verbatim in one artifact this branch
-            # cannot narrow. Those are governed separately by
-            # ``McpProgramExportConsent`` (#3014); this branch is not their ruling.
-            filtered = qs.exclude(mcp_enabled=False)
         elif "program" in field_names:
             # Program-owned rows with no project FK (the program backlog pool).
             # Governed by the program's own denial — a child project's opt-out does
