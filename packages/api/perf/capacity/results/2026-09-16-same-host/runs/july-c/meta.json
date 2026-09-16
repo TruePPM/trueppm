@@ -1,0 +1,17 @@
+{
+  "arm": "july",
+  "label": "run1c-18c-8g",
+  "code_sha": "89fc5137f387f8a526cf3c55d6b3d89156b8d2fd",
+  "code_overlay": "?? packages/api/src/trueppm_api/apps/projects/management/commands/seed_capacity.py",
+  "image_id": "sha256:f6b49bd181092f30f10cd7c3abce8768ebb91a43fecbd8347c435610b74ec127",
+  "harness_sha": "9dca6c525 + scripts/compose.diff",
+  "chip": "Apple M5 Pro",
+  "p_cores": "6",
+  "e_cores": "12",
+  "host_mem_bytes": "68719476736",
+  "docker_ncpu": "18",
+  "docker_mem_gib": "7.7",
+  "docker_version": "29.7.2",
+  "host_load_at_start": "1.93",
+  "pg_jit": "on"
+}

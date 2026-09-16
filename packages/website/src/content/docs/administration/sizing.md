@@ -12,7 +12,13 @@ This page has two halves. The **tested envelope** states what a pre-release buil
 
 ## Tested envelope
 
-First measured on **2026-07-26** against commit `89fc5137f`, and **re-measured on 2026-09-15** against commit `9dca6c525`, ahead of the **0.4 beta 2** tag. Two of the rows below moved substantially between those runs, and one previously published ceiling turned out to be a fault in the measuring instrument rather than a limit of the product — both are called out where they appear.
+The envelope has been measured three times, and the first two runs were read wrongly. **On 2026-09-16 both earlier measurements were re-examined on one machine, back to back** ([#3829](https://gitlab.com/trueppm/trueppm/-/issues/3829)). That run found:
+
+- The 2026-07-26 and 2026-09-15 runs were taken on **different computers**. This page previously recorded only the first, so the difference between them read as a change in the product.
+- The harness had been measuring whatever query plan PostgreSQL happened to pick **before its planner statistics caught up** with the freshly seeded data.
+- The cause of the 2,000-task "cliff" is **PostgreSQL's JIT compiler**, which TruePPM now turns off.
+
+The whole-project row below is from that run; the other rows carry their date and machine.
 
 These are the numbers TruePPM has been *tested* to hold. They are not the maximum it can hold, and they are not a promise about your hardware. Where a ceiling is set by known, already-triaged work, that issue is named — so you can judge whether your shape of project sits near an edge.
 
@@ -20,118 +26,101 @@ These are the numbers TruePPM has been *tested* to hold. They are not the maximu
 
 Measured with the capacity harness in [`packages/api/perf/capacity/`](https://gitlab.com/trueppm/trueppm/-/tree/main/packages/api/perf/capacity), which you can re-run yourself. It steps load up until the **first sustained breach** rather than driving a fixed profile, where a breach is **p95 > 2 s** or an **error rate > 1%**. 2 s is the "still usable" line for opening a schedule.
 
-The stack under test is an isolated Docker Compose stack running `settings.prod` with `DEBUG=False` and the **shipped image's default command** — which is a *single uvicorn process*. That single process is itself one of the constraints below.
+The stack under test is an isolated Docker Compose stack running `settings.prod` with `DEBUG=False` and the **shipped image's default command** — which is a *single uvicorn process*. That single process is itself one of the constraints below. PostgreSQL 16 runs with `shared_buffers=1GB`, `effective_cache_size=3GB`, `max_connections=200`.
 
-**Hardware:** Apple M1 Max, 10 cores (8 performance / 2 efficiency), 32 GiB RAM, macOS 26.5.1; Docker Desktop allocated 10 CPUs and 7.75 GiB. Postgres 16 with `shared_buffers=1GB`, `effective_cache_size=3GB`, `max_connections=200`.
+**Hardware.** Two machines have been used, and **figures from different machines cannot be compared with each other** — the chips differ in core generation, performance/efficiency core mix, and memory bandwidth, and those differences do not all point the same way:
 
-This is a **single-node developer-class machine**, which is deliberately close to what a 0.4 beta self-hoster actually runs — not a tuned multi-node production cluster. A dedicated server will do better; a small VPS will do worse.
+| Run | Machine | Docker Desktop allocation | Used for |
+|---|---|---|---|
+| 2026-07-26 | Apple M1 Max — 8 performance + 2 efficiency cores, 32 GiB | 10 CPU / 7.75 GiB | Dependency and workspace rows |
+| 2026-09-15 | Apple M5 Pro — 6 performance + 12 efficiency cores, 64 GiB | 18 CPU / 8 GiB / 1 GiB swap | Task-list page row |
+| 2026-09-16 | Apple M5 Pro, as above | 18 CPU / 8 GiB / 1 GiB swap | Whole-project row, and the diagnosis on this page |
+
+Both are **single-node developer-class machines**, not a tuned multi-node cluster, and both are faster per core than a typical small VPS. Do not read either as a worst case.
+
+**Statistics.** PostgreSQL chooses a query plan from statistics that `autovacuum` refreshes some time after data changes. The harness re-seeds a project at every step and does not run `ANALYZE`, so its readings depend on whether autovacuum has caught up yet. A real database has been running long enough that it has. **The whole-project row is therefore measured with `ANALYZE` run after seeding** — the steady state — and every load in it was measured individually, 7 per size. (The harness's own "p95" is its slowest of 7 samples, so it can be set by a single outlier.)
 
 ### What was measured
 
-| Dimension | Tested to | Measured p95 | What sets the ceiling |
+| Dimension | Tested to | Measured | What sets the ceiling |
 |---|---|---|---|
-| **Tasks per project** — one page of the task list | **10,000 tasks** | *2026-09-15:* 0.15 s @ 1k · 0.25 s @ 2k · 0.64 s @ 4k · **0.68 s @ 8k**; a separate targeted run measured **0.44 s @ 10k** — no breach at any size | Page-bounded — **on page 1**. Deep pages cost far more (see below). The 2026-07-26 run breached here at 8k (8.3 s); the re-run does not. **Why it improved is unattributed** ([#3828](https://gitlab.com/trueppm/trueppm/-/issues/3828)) — see the caution below before planning against it |
-| **Whole-project load** — every page, what the Schedule fetches before drawing a bar | **1,000 tasks** | *2026-09-15:* 0.09 s @ 100 · 0.20 s @ 250 · **1.67 s @ 1k** · breaches at 2k (**4.1 s** — was 60 s on 2026-07-26) | [#2815](https://gitlab.com/trueppm/trueppm/-/issues/2815) and [#2814](https://gitlab.com/trueppm/trueppm/-/issues/2814) — the Schedule still reads every page, and each page request pays a pagination `COUNT` that re-runs every annotation over every row. **The ceiling is unchanged**: 2,000 tasks still breaches the 2 s gate. What changed is how badly — 4 s reads as slow, 60 s read as hung. See [why this ceiling is where it is](#why-the-whole-project-ceiling-is-where-it-is) |
-| **Dependency edges per project** | **12,000 edges** on a 4,000-task project | 0.12–0.15 s, flat — **no breach found** | Not the binding constraint at this scale. Untested above 12,000 |
-| **Projects per workspace / total tasks** | **50 projects · 50,000 tasks** | 0.04–0.06 s, flat — **no breach found** | The project-list N+1 ([#1482](https://gitlab.com/trueppm/trueppm/-/issues/1482)) does not bite at this scale. Untested above 50 projects |
+| **Tasks per project** — one page of the task list | **10,000 tasks** | *2026-09-15, single run:* 0.15 s @ 1k · 0.25 s @ 2k · 0.64 s @ 4k · **0.68 s @ 8k**; a separate targeted run measured **0.44 s @ 10k** — no breach at any size | Page-bounded — **on page 1**. Deep pages cost far more (see below). Not re-measured at steady state; the 2026-07-26 breach at 8k (8.3 s) was on the other machine and cannot be compared |
+| **Whole-project load** — every page, what the Schedule fetches before drawing a bar | **8,000 tasks** | *2026-09-16, current `main` with JIT off:* 0.47–0.58 s @ 1k · **1.07–1.37 s @ 2k** · 2.70–3.05 s @ 4k · 7.6–8.4 s @ 8k — breaches the 2 s line between 2k and 4k | [#2815](https://gitlab.com/trueppm/trueppm/-/issues/2815) and [#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381) — each page still pays a pagination `COUNT` and an `OFFSET`, both of which grow with the project. **Without the JIT fix** the same build takes **14.4 s @ 2k** — see [why](#why-the-whole-project-ceiling-is-where-it-is) |
+| **Dependency edges per project** | **12,000 edges** on a 4,000-task project | *2026-07-26:* 0.12–0.15 s, flat — **no breach found** | Not the binding constraint at this scale. Untested above 12,000 |
+| **Projects per workspace / total tasks** | **50 projects · 50,000 tasks** | *2026-07-26:* 0.04–0.06 s, flat — **no breach found** | The project-list N+1 ([#1482](https://gitlab.com/trueppm/trueppm/-/issues/1482)) does not bite at this scale. Untested above 50 projects |
 
-:::caution[The 2026-09-15 re-run improved these numbers — read the defects before planning against them]
-The two task rows above were re-measured on 2026-09-15 and both moved in the product's favor. Neither figure is yet solid enough to plan a large program against, for four reasons:
+:::caution[Your PostgreSQL probably has JIT on — check it]
+PostgreSQL enables JIT compilation by default, and **0.4.0-beta.1 does not turn it off**. On that build a 2,000-task project takes **about 41 seconds** to open in the Schedule on the machine above. Builds that include [#3829](https://gitlab.com/trueppm/trueppm/-/issues/3829) turn JIT off on every database connection TruePPM opens, the API's and the Celery workers' alike, and need nothing from you.
 
-- **Single, unrepeated runs.** One sweep, 30 samples per step for the page row and 7 for the whole-project row, on one machine. No repeats.
-- **Not a quiet host.** The 1,000- and 2,000-task steps ran at host load 12.6–14.9 while the earlier steps ran at 3.2–3.4. The harness's own noise control never tripped (its control sample stayed at 8–9 ms), but this is a shared developer workstation, not an idle one.
-- **The cause of the improvement is unknown.** 788 commits touched `packages/api` between the two runs and none has been identified as responsible ([#3828](https://gitlab.com/trueppm/trueppm/-/issues/3828)). An unattributed gain is one no regression gate is protecting, so it can be lost as silently as it arrived.
-- **The 500-task data point was discarded** from both rows. It measured slower than the 1,000-task step in both dimensions — a known first-step artifact of the harness, not a property of the product.
+Two setups should also set it on the server:
 
-**One previously published ceiling has been withdrawn outright.** An earlier sweep recorded the task-list row breaching at 16,000 tasks with a 96.7% error rate. That was **the measuring instrument failing, not the product**: the harness caches one JWT for a whole sweep and never refreshes it, the sweep ran 17 min 51 s, and the access-token lifetime is 15 minutes — so the final step measured expired-credential rejections. A targeted re-run returned HTTP 200 on every request at 10,000, 12,000 and 16,000 tasks, with the API process never restarting and memory flat under 2% of its limit. Tracked on [#3826](https://gitlab.com/trueppm/trueppm/-/issues/3826).
+- **You run PgBouncer in transaction-pooling mode.** TruePPM's per-connection setting lands only on whichever server connection happened to serve it, so it is best-effort there.
+- **You are on 0.4.0-beta.1** and cannot upgrade yet.
 
-Figures above 10,000 tasks are deliberately **not** published here: the 12,000- and 16,000-task readings were slower than their own warm-up requests and one landed on exactly 5000.0 ms, which is too round to be a latency. That is unexplained and under investigation ([#3828](https://gitlab.com/trueppm/trueppm/-/issues/3828)).
+Check with `SHOW jit;` as the TruePPM database user, and turn it off for that role:
+
+```sql
+ALTER ROLE trueppm SET jit = off;   -- takes effect on new connections
+```
+
+Managed PostgreSQL services (RDS, Cloud SQL, Azure) expose `jit` as a parameter-group setting; set it there if you cannot `ALTER ROLE`. TruePPM issues only short, repeated queries, which JIT's compile cost never pays back.
+:::
+
+:::caution[What was corrected on 2026-09-16, and what is still open]
+- **Hardware was misattributed.** The 2026-09-15 figures were published as a re-run on the M1 Max. They were taken on the M5 Pro, so "the cause of the improvement is unknown" was comparing two computers. On one machine, the 2026-09-15 code was **slower** than the 2026-07-26 code at every size — 3× at 100 tasks, 6× at 500 — so there was no improvement to attribute ([#3828](https://gitlab.com/trueppm/trueppm/-/issues/3828)).
+- **The 2,000-task figure understated the problem.** 2026-09-15 published 4.1 s. At steady state that build takes **~41 s**. The 4.1 s reading came from stale statistics.
+- **The 2026-07-26 "60 s cliff" was real, not an artifact.** It is the JIT cost appearing once autovacuum had refreshed statistics, mid-step ([#3385](https://gitlab.com/trueppm/trueppm/-/issues/3385)).
+- **The 500-task point is not a harness artifact.** It measures slower than 1,000 tasks in 3 of 3 runs on the 2026-09-15 code, and in 0 of 3 on the 2026-07-26 code, and it persists with JIT off. It is unexplained.
+- **The 16,000-task task-list ceiling stays withdrawn.** It was the harness's cached token expiring after 15 minutes, not the product ([#3826](https://gitlab.com/trueppm/trueppm/-/issues/3826)). Figures above 10,000 tasks on the task-list row are still **not** published: two readings were slower than their own warm-up requests, and one landed on exactly 5000.0 ms, which is too round to be a latency.
 :::
 
 **Two things in this table matter more than the rest.**
 
-**The Schedule is the binding constraint, not the database.** A project holds several thousand tasks comfortably while you page through a list, and a workspace absorbs 50,000 tasks without noticing. But when the **Schedule** opens a project the client pulls *every* page, and that is a far lower ceiling. If you work in the Gantt, plan against **~1,000 tasks per project** in 0.4 — **not the 10,000 in the first row**, which measures a single page rather than opening a project. Those two numbers answer different questions, and the Schedule one is the one that decides whether your plan fits.
+**The Schedule is the binding constraint, not the database.** A project holds several thousand tasks comfortably while you page through a list, and a workspace absorbs 50,000 tasks without noticing. But when the **Schedule** opens a project the client pulls *every* page, and that is a far lower ceiling. Plan against **~2,000 tasks per project** on a build with the JIT fix, and **~1,000** on 0.4.0-beta.1 — not the 10,000 in the first row, which measures a single page rather than opening a project.
 
-**Past that point it degrades, but it no longer falls off a cliff.** On 2026-07-26 whole-project load went from 1.85 s at 1,000 tasks to **60 s at 2,000** — a 32× jump for 2× the data, which read as hung rather than slow. The 2026-09-15 re-run measures that same step at **1.67 s → 4.1 s**, a 2.45× increase for 2× the data. A 2,000-task project is still past the 2 s line this page treats as usable, so the recommendation is unchanged — but you are looking at a few seconds, not a minute. Whether that improvement is a fix or whether the original 60 s was itself a measurement artifact is **not yet established** ([#3385](https://gitlab.com/trueppm/trueppm/-/issues/3385)); the two have different consequences and one re-run cannot tell them apart.
+**Above that it slows steadily; it does not fall off a cliff.** With JIT off, each doubling of project size multiplies whole-project load by 2.2–2.7×, so a 4,000-task project opens in about 3 seconds and an 8,000-task one in about 8, rather than hanging. That is the shape of the two costs described below. The cliff this page used to warn about was JIT.
 
 ### Why the whole-project ceiling is where it is
 
-This is the number most likely to decide whether TruePPM fits your project, so here is the mechanism rather than just the figure. All measurements below are `EXPLAIN (ANALYZE, BUFFERS)` on a 4,000-task project, best of 3, recorded in [#2807](https://gitlab.com/trueppm/trueppm/-/issues/2807).
+This is the number most likely to decide whether TruePPM fits your project, so here is the mechanism rather than just the figure. Raw data for everything in this section is committed under [`packages/api/perf/capacity/results/2026-09-16-same-host/`](https://gitlab.com/trueppm/trueppm/-/tree/main/packages/api/perf/capacity/results/2026-09-16-same-host).
 
-**Most of each request is the pagination count, not the page.** `annotate_tasks_queryset` attaches aggregate annotations (`predecessor_count`, `linked_risks_count`, `external_link_count`, …). DRF's paginator calls `.count()` on that fully annotated queryset, and Django cannot count an aggregated queryset directly — so it wraps the whole thing and computes every annotation for every row in the project just to arrive at a number:
+**The cliff was JIT compilation.** PostgreSQL JIT-compiles a query whose *estimated* cost passes `jit_above_cost` (100,000 by default), and optimizes and inlines it past 500,000. The task list's page query carries a dozen correlated subqueries, and once statistics describe a ~2,000-task project its estimate crosses all three thresholds. `EXPLAIN (ANALYZE, BUFFERS)` of one page, 2,000 tasks, `OFFSET 1000`, on the 2026-09-15 code:
 
-| | Measured |
+| | Execution time |
 |---|---|
-| page query | **115 ms** |
-| pagination `COUNT` | **457–503 ms** |
+| `jit = on` (default) | **4,512 ms** — of which JIT: optimization 549 ms, emission 3,872 ms |
+| `jit = off` | **49 ms** |
 
-That is **~80% of the request's database time**, it is constant across pages, and the Schedule's all-pages fetch pays it **once per page**. This is the dominant term in the whole-project figure ([#2815](https://gitlab.com/trueppm/trueppm/-/issues/2815)).
+That cost is paid on **every page**, independent of the offset. The PostgreSQL slow-query log over seven 2,000-task loads recorded 56 statements over 3 s, **every one of them the page query** and none the pagination `COUNT`. Whether a given measurement paid it depended on whether statistics had caught up yet, which is why it appeared as one slow sample on some runs, as a 60 s outlier on another, and not at all on the fastest.
 
-**Deep pages are a cliff on top of that.** The `GROUP BY` group key contains four correlated subqueries, so `OFFSET n` cannot skip work — the aggregate must produce every group up to and including the page you asked for, evaluating those subqueries for each. Page 70 of the same project costs **4,890 ms** against page 1's **115 ms** ([#2814](https://gitlab.com/trueppm/trueppm/-/issues/2814)).
+**With JIT off, two costs remain, and both grow with project size.** A whole-project load is `ceil(N / 200)` page requests, and each one pays:
 
-**An index does not fix this, and it has been measured.** The obvious hypothesis — that the endpoint is slow because nothing serves its ordering — is wrong. `ORDER BY wbs_path, name` was measured at **5,753 ms with a `(project_id, wbs_path, name)` btree in place**. The index is never reached, because the sort lands *above* the `GroupAggregate` rather than under it. (The same ordered fetch against the bare table is 2.3 ms.) Removing the `GROUP BY` is the prerequisite; adding that index is worth doing **only after** #2814 lands, not before.
+- **A pagination `COUNT` that re-runs the annotations.** `annotate_tasks_queryset` attaches annotations (`predecessor_count`, `linked_risks_count`, `external_link_count`, …). DRF's paginator calls `.count()` on that annotated queryset, which computes every annotation for every row in the project just to arrive at a number ([#2815](https://gitlab.com/trueppm/trueppm/-/issues/2815)).
+- **An `OFFSET`** that has to produce every row before the page you asked for ([#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381)).
 
-**What this means for the ceiling.** The mechanism above is unchanged: the Schedule still reads every page, and each page still pays the pagination `COUNT`. [#2277](https://gitlab.com/trueppm/trueppm/-/issues/2277) closed in 0.4, but its fix capped the Schedule's page-fetch **burst** at four concurrent requests — it reduces browser connection-pool saturation, not total work, and the harness measures a serial fetch, so it does not account for the change either. The measured *cost* did drop sharply between the two runs, and nothing here explains why ([#3828](https://gitlab.com/trueppm/trueppm/-/issues/3828)) — which is itself a reason not to plan past the tested figure. **Plan against 1,000 tasks per project in 0.4.**
+Earlier figures for these costs — a `COUNT` of 457–503 ms against a 115 ms page, and page 70 at 4,890 ms, on a 4,000-task project ([#2807](https://gitlab.com/trueppm/trueppm/-/issues/2807)) — **predate the JIT finding and did not separate compile time from execution**. Treat them as upper bounds, not as the split between the two costs.
+
+**What has already moved it.** On one machine at 2,000 tasks with JIT on, whole-project load fell from ~41 s on the 2026-09-15 code to ~14 s on current `main`. That span includes [#2814](https://gitlab.com/trueppm/trueppm/-/issues/2814), which replaced the aggregate annotations with subqueries and removed the query's `GROUP BY`, but it also includes every other change merged in between, and the gain has not been isolated to #2814. Turning JIT off, the only difference between the last two builds measured, took the same load from ~14 s to ~1.1 s.
 
 ### How this ceiling is raised in 0.5
 
-The ceiling is not a fixed property of TruePPM. Two costs drive it, both of them
-**quadratic in task count** by construction, and both tracked work.
+With JIT off, the measured curve now has the shape the remaining costs predict:
 
-A whole-project load is `ceil(N / 200)` page requests, and each request pays:
-
-| Cost | Per request | Across the whole fetch |
+| Step | Whole-project load | Growth for 2× the data |
 |---|---|---|
-| a pagination `COUNT` over every row in the project | O(N) | **O(N²)** |
-| an `OFFSET` that cannot skip work under the `GROUP BY` | O(offset) | **O(N²)** |
+| 1,000 → 2,000 | 0.50 s → 1.10 s | 2.2× |
+| 2,000 → 4,000 | 1.10 s → 2.85 s | 2.6× |
+| 4,000 → 8,000 | 2.85 s → 7.7 s | 2.7× |
 
-:::caution[The measured curve does not match the analytical one, and the two runs disagree with each other]
-Those are the *analytical* costs. Neither measured run matches them, and the two runs do
-not match each other — so it would be misleading to present the mechanism as the
-explanation:
-
-| Step | 2026-07-26 | 2026-09-15 |
-|---|---|---|
-| 100 → 250 (2.5×) | 2.3× — **k ≈ 0.9** | 2.2× — **k ≈ 0.87** |
-| 250 → 1,000 (4×) | 3.7× — **k ≈ 0.9** | 8.2× — **k ≈ 1.52** |
-| 1,000 → 2,000 (2×) | **32.4× — k ≈ 5.0** | **2.45× — k ≈ 1.30** |
-
-On the 2026-07-26 run the curve was effectively linear up to 1,000 tasks and then jumped
-32×, where a quadratic predicts 4× (7.4 s, against 60 s measured) — a step, not a
-polynomial. On the 2026-09-15 re-run **that step is absent**: the whole curve is mildly
-superlinear, which is roughly the shape the two costs above predict.
-
-**Neither run is a settled answer.** The 2026-09-15 figures exclude the 500-task point
-(a first-step harness artifact, which is why this table brackets 250 → 1,000 across two
-doublings instead), and both runs step 1,000 → 2,000 with **nothing in between**, so
-where the transition happens has still never been measured. Whether the 60 s figure was
-fixed or was itself an artifact is open on
-[#3385](https://gitlab.com/trueppm/trueppm/-/issues/3385), and the cause of the
-improvement is unattributed on
-[#3828](https://gitlab.com/trueppm/trueppm/-/issues/3828). That unresolved gap is why
-this page recommends 1,000 rather than a number derived from the curve.
-:::
-
-Four changes are sequenced for **0.5**, tracked together on
-[#3383](https://gitlab.com/trueppm/trueppm/-/issues/3383):
+The per-doubling growth is climbing toward 4× — the quadratic that summing an O(N) `COUNT` and an O(offset) skip over `N / 200` pages produces. Three changes are sequenced for **0.5**, tracked together on [#3383](https://gitlab.com/trueppm/trueppm/-/issues/3383):
 
 | | What ships in 0.5 | Effect on the curve |
 |---|---|---|
 | [#2815](https://gitlab.com/trueppm/trueppm/-/issues/2815) | Count on the unannotated queryset, so pagination stops recomputing every annotation over every row | Removes one quadratic term outright |
-| [#2814](https://gitlab.com/trueppm/trueppm/-/issues/2814) | Aggregate annotations become subqueries, removing the `GROUP BY` | Collapses the constant on the other term — and is what makes an ordering index worth adding, which today it is not |
 | [#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381) | Keyset pagination on the task read | Removes the `OFFSET` term entirely — this is the step that makes the fetch **linear** |
 | [#3382](https://gitlab.com/trueppm/trueppm/-/issues/3382) | A slim bootstrap projection, so the Schedule stops fetching 99 fields per task to draw a bar | Cuts the constant, and removes the reason to walk pages at all for the first paint |
 
-**No new number is promised here, deliberately**, and the caution above is most of the
-reason. Each change has a measured *mechanism* but not a measured *outcome*; the steep
-step that set the 2026-07-26 ceiling is absent from the 2026-09-15 re-run, and neither
-that step nor its disappearance is explained by any of these four changes; and the
-nightly budgets set in [#2826](https://gitlab.com/trueppm/trueppm/-/issues/2826) are
-gross-regression tripwires (roughly the observed ceiling plus headroom for run-to-run
-contention), not a capacity signal — a green nightly does not confirm an improvement,
-only the absence of a large regression. Quoting a 0.5 target on that basis would be a
-forecast at a precision we have not earned. When the work is measured, the rows above
-will carry numbers instead of mechanisms.
+**No 0.5 number is promised here.** Each change has a mechanism but not yet a measured outcome. The nightly budgets set in [#2826](https://gitlab.com/trueppm/trueppm/-/issues/2826) are gross-regression tripwires (roughly the observed ceiling plus headroom for run-to-run contention), not a capacity signal: a green nightly rules out a large regression, and confirms no improvement. This page has already published one figure that a better measurement overturned. When the work above is measured, the rows will carry numbers instead of mechanisms.
 
 One thing that is **not** on this list, and is deliberately not: loading only the visible
 part of the schedule. The outline numbers each task by its position among the siblings
@@ -163,6 +152,8 @@ The seeded database is written with `bulk_create`, so it carries **no `django-si
 `docker-compose.capacity.yml` hard-codes an 8-character database password, and `settings.prod` refuses to boot on any service credential shorter than 12 characters — so `api-init` exits before the first migration runs. Until [#3826](https://gitlab.com/trueppm/trueppm/-/issues/3826) lands, substitute a longer password in the two places it appears: `POSTGRES_PASSWORD` under the `db` service, and the `DATABASE_URL` in the `&api_env` anchor.
 
 That issue tracks a second fault worth knowing before you trust any result it gives you: the harness authenticates once and caches the token for an entire sweep with no refresh, while the access-token lifetime is 15 minutes. **Any sweep that runs longer than 15 minutes will report an error-rate breach at whatever step it happens to reach**, and that breach looks exactly like a capacity ceiling. One previously published ceiling on this page was withdrawn for precisely that reason.
+
+Two more things before comparing a result with this page. The harness does **not** run `ANALYZE` after seeding, so a step can measure a plan chosen from stale statistics — run `ANALYZE` against the capacity database after each seed if you want the steady state this page reports. And it records only `os.cpu_count()` about the host, so **write down the machine and the Docker allocation yourself**: a figure without them cannot be compared with anything, which is how two computers came to be published as one.
 :::
 
 The numbers carry the version they were measured against so they can be compared next release:
@@ -181,7 +172,7 @@ python packages/api/perf/capacity/run_capacity.py --dimension all \
 docker compose -f packages/api/perf/capacity/docker-compose.capacity.yml down -v
 ```
 
-Raw results, including the per-step host load average and noise-control readings, are committed under `packages/api/perf/capacity/results/`.
+Raw results are committed under `packages/api/perf/capacity/results/`: the 2026-07-26 sweep at the top level, and the 2026-09-16 same-host run — every sweep, the steady-state diagnostics, `EXPLAIN` output, slow-query logs and the driver scripts — under `results/2026-09-16-same-host/`. The 2026-09-15 sweep's raw output was **not** committed.
 
 :::note[This is a regression tripwire, not a capacity ceiling for you to plan against]
 TruePPM runs a separate k6 harness (`packages/api/perf/load.js`) on the nightly schedule, and it does target a 1,000-task project. As of [#2826](https://gitlab.com/trueppm/trueppm/-/issues/2826) its four endpoint rows carry budgets, but they are gross-regression tripwires — each is roughly the worst p95 observed across 15 nightlies (2026-09-04 → 2026-09-15) plus ~30% headroom, e.g. `task_list` ranged 5,105–50,447 ms across those nights, a ~10× spread on identical data. That spread is runner variance, not contention: no job in `.gitlab-ci.yml` carries a `tags:` key, so every job is free-scheduled across three self-hosted runners of differing capability, and the same commit running the same test split has been recorded at 326 s on one and 783 s on another ([#3671](https://gitlab.com/trueppm/trueppm/-/issues/3671)).
@@ -364,6 +355,7 @@ These defaults are tuned for evaluation, not scale. At every tier above:
 
 - The **bundled PostgreSQL and Valkey sub-charts are dev/demo only** — single replica, small PVCs, and **no replication or failover on either**. Both *do* persist: PostgreSQL on an 8Gi PVC and Valkey with AOF on a 2Gi PVC (`--appendonly yes`, default `appendfsync everysec` → roughly a 1 s broker RPO). What they cannot do is survive the loss of their one pod — and because `/api/v1/readyz` gates on a live cache round-trip, losing the Valkey pod marks every API pod `NotReady` and returns 503 for the whole application. Use a **managed PostgreSQL** (RDS, CloudSQL, etc.) and **managed Valkey** (ElastiCache for Valkey, Memorystore for Valkey, etc.) instead; operator-managed in-cluster HA modes for both are planned for 0.5 ([#3403](https://gitlab.com/trueppm/trueppm/-/issues/3403), [#3404](https://gitlab.com/trueppm/trueppm/-/issues/3404)). See [Valkey High Availability](/administration/valkey-ha/) for which topologies are supported, and [Durability & Redundancy](/administration/durability/#broker-persistence-per-artifact) for how the Compose stacks differ — `docker-compose.prod.yml` runs Valkey on a `tmpfs` with **no** persistence at all.
 - **File attachments default to the local filesystem**, which is not durable and — above one replica — not even correct. From 0.4 the chart can back local storage with a claim (`persistence.media`), but a `ReadWriteOnce` claim binds to one node, so an upload accepted by one API pod is a `404` from the next; the chart refuses to render that combination. Every tier on this page runs the API at 2+ replicas, so at these sizes **object storage is a requirement, not a durability nicety**: set `TRUEPPM_DEFAULT_FILE_STORAGE` to an S3-compatible or MinIO backend together with `TRUEPPM_S3_BUCKET_NAME` — see [object storage](/administration/configuration/storage-and-networking/#object-storage-s3--minio). If you must stay on local disk, the claim needs a `ReadWriteMany` storage class (CephFS, NFS, Azure Files, EFS); see [attachment storage](/administration/helm-values/#attachment-storage-persistencemedia).
+- **Check `jit` on the database you bring.** PostgreSQL enables JIT by default, and on 0.4.0-beta.1 it makes a 2,000-task Schedule take tens of seconds to open. Later builds turn it off per connection; behind PgBouncer in transaction-pooling mode, or on 0.4.0-beta.1, set `ALTER ROLE <user> SET jit = off` or the managed service's `jit` parameter as well. See [the JIT caution under Tested envelope](#tested-envelope).
 - The **Horizontal Pod Autoscaler is off by default**, not absent. The chart ships an `autoscaling/v2` HPA for the API tier (and optionally the worker tier) behind `autoscaling.enabled`; the defaults scale the API between 2 and 6 replicas at 75% CPU utilization. It is opt-in because an HPA overrides the static `replicaCount` and **requires `metrics-server`** (or a custom metrics adapter) to be installed in the cluster. Without it, scale replicas manually. See the [values reference](/administration/helm-values/) for the full key list.
 - **Autoscale the API tier; keep the worker tier on fixed replicas.** The `celeryWorker.concurrency` pinning advice above and a CPU-utilization HPA are two different answers to the same load, and following both naively double-counts: the HPA adds worker pods while each pod's concurrency is already pinned to its CPU limit, so a Monte Carlo burst can multiply total in-flight tasks well past what the database connection ceiling tolerates. Until worker autoscaling keys off queue depth rather than CPU, the safe posture is `autoscaling.enabled=true` with `autoscaling.worker.enabled=false` — HPA for request-serving traffic, fixed replicas plus pinned concurrency for the CPU-bound queue.
 

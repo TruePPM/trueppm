@@ -1,0 +1,58 @@
+  stats after seed: projects_dependency|100|0|-|-|14:07:54 || projects_task|100|0|-|-|14:07:54
+== seeded 100 in 2.0s
+load 1: 257 ms  pages=1 rows=100 count=100
+load 2: 244 ms  pages=1 rows=100 count=100
+load 3: 236 ms  pages=1 rows=100 count=100
+load 4: 234 ms  pages=1 rows=100 count=100
+load 5: 229 ms  pages=1 rows=100 count=100
+load 6: 245 ms  pages=1 rows=100 count=100
+  stats after loads: projects_dependency|100|0|-|-|14:08:23 || projects_task|100|0|-|-|14:08:23
+load 7: 276 ms  pages=1 rows=100 count=100
+  stats after seed: projects_dependency|250|100|-|-|14:08:25 || projects_task|250|100|-|-|14:08:25
+== seeded 250 in 2.2s
+load 1: 638 ms  pages=2 rows=250 count=250
+load 2: 670 ms  pages=2 rows=250 count=250
+load 3: 705 ms  pages=2 rows=250 count=250
+load 4: 643 ms  pages=2 rows=250 count=250
+load 5: 689 ms  pages=2 rows=250 count=250
+load 6: 664 ms  pages=2 rows=250 count=250
+  stats after loads: projects_dependency|250|0|14:08:49|14:08:49|14:08:53 || projects_task|250|0|14:08:49|14:08:49|14:08:53
+load 7: 676 ms  pages=2 rows=250 count=250
+  stats after seed: projects_dependency|500|250|14:08:49|14:08:49|14:08:55 || projects_task|500|250|14:08:49|14:08:49|14:08:55
+== seeded 500 in 2.6s
+load 1: 336 ms  pages=3 rows=500 count=500
+load 2: 357 ms  pages=3 rows=500 count=500
+load 3: 321 ms  pages=3 rows=500 count=500
+load 4: 349 ms  pages=3 rows=500 count=500
+load 5: 339 ms  pages=3 rows=500 count=500
+load 6: 308 ms  pages=3 rows=500 count=500
+  stats after loads: projects_dependency|500|250|14:08:49|14:08:49|14:09:24 || projects_task|500|250|14:08:49|14:08:49|14:09:24
+load 7: 372 ms  pages=3 rows=500 count=500
+  stats after seed: projects_dependency|1000|750|14:08:49|14:08:49|14:09:27 || projects_task|1000|750|14:08:49|14:08:49|14:09:27
+== seeded 1000 in 3.2s
+load 1: 758 ms  pages=5 rows=1000 count=1000
+load 2: 757 ms  pages=5 rows=1000 count=1000
+load 3: 760 ms  pages=5 rows=1000 count=1000
+load 4: 784 ms  pages=5 rows=1000 count=1000
+load 5: 756 ms  pages=5 rows=1000 count=1000
+load 6: 758 ms  pages=5 rows=1000 count=1000
+  stats after loads: projects_dependency|1000|0|14:09:50|14:09:50|14:10:08 || projects_task|1000|0|14:09:50|14:09:49|14:10:08
+load 7: 13041 ms  pages=5 rows=1000 count=1000
+   t+2.0s  cpu[trueppm-capacity-api-1 8.21% | trueppm-capacity-celery-1 0.07% | trueppm-capacity-db-1 90.75%]
+      pg: active|0.1|SELECT COUNT(*) FROM (SELECT (EXISTS( SELECT 1 FROM projects_task c WHERE c.project_id = projects_task.project_id AND c.is_deleted = false AND c.id != projects_
+   t+6.2s  cpu[trueppm-capacity-api-1 0.09% | trueppm-capacity-celery-1 0.07% | trueppm-capacity-db-1 100.08%]
+      pg: active|2.1|SELECT "projects_task"."id", "projects_task"."server_version", "projects_task"."sync_seq", "projects_task"."is_deleted", "projects_task"."deleted_version", "pro
+   t+10.3s  cpu[trueppm-capacity-api-1 0.09% | trueppm-capacity-celery-1 0.02% | trueppm-capacity-db-1 99.98%]
+      pg: active|0.5|SELECT "projects_task"."id", "projects_task"."server_version", "projects_task"."sync_seq", "projects_task"."is_deleted", "projects_task"."deleted_version", "pro
+   t+14.4s  cpu[trueppm-capacity-api-1 0.21% | trueppm-capacity-celery-1 0.03% | trueppm-capacity-db-1 62.03%]
+      pg: active|4.6|SELECT "projects_task"."id", "projects_task"."server_version", "projects_task"."sync_seq", "projects_task"."is_deleted", "projects_task"."deleted_version", "pro
+  stats after seed: projects_dependency|2000|1000|14:09:50|14:09:50|14:10:12 || projects_task|2000|1000|14:09:50|14:09:49|14:10:12
+== seeded 2000 in 4.3s
+load 1: 2432 ms  pages=10 rows=2000 count=2000
+load 2: 2410 ms  pages=10 rows=2000 count=2000
+load 3: 2460 ms  pages=10 rows=2000 count=2000
+load 4: 2466 ms  pages=10 rows=2000 count=2000
+load 5: 2467 ms  pages=10 rows=2000 count=2000
+load 6: 2417 ms  pages=10 rows=2000 count=2000
+  stats after loads: projects_dependency|2000|1000|14:09:50|14:09:50|14:10:40 || projects_task|2000|1000|14:09:50|14:09:49|14:10:40
+load 7: 2444 ms  pages=10 rows=2000 count=2000

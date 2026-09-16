@@ -1,0 +1,110 @@
+{
+  "gates": {
+    "p95_ms": 2000.0,
+    "error_rate": 0.01,
+    "control_p95_ms": 150.0
+  },
+  "host": {
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "machine": "arm64",
+    "cpu_count": 18,
+    "load_avg_at_finish": [
+      2.4,
+      2.46,
+      2.63
+    ],
+    "note": "Shared developer workstation, not an idle host. Every step carries its own control measurement and load average; steps flagged `contaminated` were measured while the host was busy and must not be published as capacity numbers."
+  },
+  "git_sha": "9dca6c525f173506f639534f00d3b9837ef366a9",
+  "base_url": "http://127.0.0.1:28000",
+  "dimensions": [
+    {
+      "dimension": "full_project_load",
+      "description": "Every page of the task list for one project, fetched serially \u2014 the total the Schedule view pays before it can draw a single bar.",
+      "steps": [
+        {
+          "step": 100,
+          "label": "100 tasks \u2014 full load",
+          "n": 7,
+          "p50_ms": 210.8,
+          "p95_ms": 246.1,
+          "p99_ms": 246.1,
+          "max_ms": 246.1,
+          "error_rate": 0.0,
+          "breached": false,
+          "control_p95_ms": 30.3,
+          "load_avg": 2.05,
+          "contaminated": false,
+          "attempts": 1,
+          "notes": ""
+        },
+        {
+          "step": 250,
+          "label": "250 tasks \u2014 full load",
+          "n": 7,
+          "p50_ms": 621.0,
+          "p95_ms": 661.0,
+          "p99_ms": 661.0,
+          "max_ms": 661.0,
+          "error_rate": 0.0,
+          "breached": false,
+          "control_p95_ms": 8.0,
+          "load_avg": 2.37,
+          "contaminated": false,
+          "attempts": 1,
+          "notes": ""
+        },
+        {
+          "step": 500,
+          "label": "500 tasks \u2014 full load",
+          "n": 7,
+          "p50_ms": 1817.5,
+          "p95_ms": 1832.5,
+          "p99_ms": 1832.5,
+          "max_ms": 1832.5,
+          "error_rate": 0.0,
+          "breached": false,
+          "control_p95_ms": 7.9,
+          "load_avg": 2.22,
+          "contaminated": false,
+          "attempts": 1,
+          "notes": ""
+        },
+        {
+          "step": 1000,
+          "label": "1000 tasks \u2014 full load",
+          "n": 7,
+          "p50_ms": 963.1,
+          "p95_ms": 1004.2,
+          "p99_ms": 1004.2,
+          "max_ms": 1004.2,
+          "error_rate": 0.0,
+          "breached": false,
+          "control_p95_ms": 7.5,
+          "load_avg": 2.18,
+          "contaminated": false,
+          "attempts": 1,
+          "notes": ""
+        },
+        {
+          "step": 2000,
+          "label": "2000 tasks \u2014 full load",
+          "n": 7,
+          "p50_ms": 3587.4,
+          "p95_ms": 44598.5,
+          "p99_ms": 44598.5,
+          "max_ms": 44598.5,
+          "error_rate": 0.0,
+          "breached": true,
+          "control_p95_ms": 9.0,
+          "load_avg": 2.4,
+          "contaminated": false,
+          "attempts": 1,
+          "notes": ""
+        }
+      ],
+      "ceiling": 2000,
+      "constraint": "#2277 \u2014 no windowing; the client holds the entire task set"
+    }
+  ]
+}

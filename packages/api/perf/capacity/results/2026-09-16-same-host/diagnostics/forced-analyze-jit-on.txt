@@ -1,0 +1,50 @@
+######## 9dca
+  ran ANALYZE
+  stats after seed: projects_dependency|1000|0|-|-|14:11:53 || projects_task|1000|0|-|-|14:11:53
+== seeded 1000 in 2.5s
+load 1: 1173 ms  pages=5 rows=1000 count=1000
+load 2: 1176 ms  pages=5 rows=1000 count=1000
+load 3: 1220 ms  pages=5 rows=1000 count=1000
+load 4: 1201 ms  pages=5 rows=1000 count=1000
+load 5: 1169 ms  pages=5 rows=1000 count=1000
+load 6: 1203 ms  pages=5 rows=1000 count=1000
+  stats after loads: projects_dependency|1000|0|-|-|14:12:21 || projects_task|1000|0|-|-|14:12:21
+load 7: 1211 ms  pages=5 rows=1000 count=1000
+  ran ANALYZE
+  stats after seed: projects_dependency|2000|1000|-|-|14:12:25 || projects_task|2000|1000|-|-|14:12:25
+== seeded 2000 in 4.4s
+load 1: 41403 ms  pages=10 rows=2000 count=2000
+load 2: 41511 ms  pages=10 rows=2000 count=2000
+load 3: 41060 ms  pages=10 rows=2000 count=2000
+load 4: 40855 ms  pages=10 rows=2000 count=2000
+load 5: 40839 ms  pages=10 rows=2000 count=2000
+load 6: 40390 ms  pages=10 rows=2000 count=2000
+  stats after loads: projects_dependency|2000|0|-|14:12:50|14:17:31 || projects_task|2000|0|-|14:12:50|14:17:31
+load 7: 40505 ms  pages=10 rows=2000 count=2000
+slow statements logged: 56
+######## july
+  ran ANALYZE
+  stats after seed: projects_dependency|1000|0|-|-|14:18:03 || projects_task|1000|0|-|-|14:18:03
+== seeded 1000 in 2.4s
+load 1: 1179 ms  pages=5 rows=1000 count=1000
+load 2: 1152 ms  pages=5 rows=1000 count=1000
+load 3: 1169 ms  pages=5 rows=1000 count=1000
+load 4: 1212 ms  pages=5 rows=1000 count=1000
+load 5: 1177 ms  pages=5 rows=1000 count=1000
+load 6: 1172 ms  pages=5 rows=1000 count=1000
+  stats after loads: projects_dependency|1000|0|-|-|14:18:32 || projects_task|1000|0|-|-|14:18:32
+load 7: 1169 ms  pages=5 rows=1000 count=1000
+  ran ANALYZE
+  stats after seed: projects_dependency|2000|1000|-|-|14:18:36 || projects_task|2000|1000|-|-|14:18:36
+== seeded 2000 in 4.0s
+load 1: 30194 ms  pages=10 rows=2000 count=2000
+load 2: 30306 ms  pages=10 rows=2000 count=2000
+load 3: 30234 ms  pages=10 rows=2000 count=2000
+load 4: 30354 ms  pages=10 rows=2000 count=2000
+load 5: 30232 ms  pages=10 rows=2000 count=2000
+load 6: 30083 ms  pages=10 rows=2000 count=2000
+  stats after loads: projects_dependency|2000|0|-|14:19:21|14:22:21 || projects_task|2000|0|-|14:19:21|14:22:21
+load 7: 29455 ms  pages=10 rows=2000 count=2000
+slow statements logged: 56
+
+[exited with code 0]
