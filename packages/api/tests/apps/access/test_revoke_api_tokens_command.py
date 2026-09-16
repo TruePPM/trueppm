@@ -22,6 +22,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import override_settings
 
+from trueppm_api.apps.integrations.models import BoardAutomation
 from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
 from trueppm_api.apps.projects.models import (
     ApiToken,
@@ -29,6 +30,7 @@ from trueppm_api.apps.projects.models import (
     ApiTokenAuditEntry,
     Calendar,
     Project,
+    ShareLink,
 )
 
 User = get_user_model()
@@ -168,6 +170,61 @@ def test_all_includes_integration_tokens(alice: Any, project: Project) -> None:
         token.refresh_from_db()
     assert personal.revoked_at is not None
     assert team.revoked_at is not None
+
+
+@pytest.mark.django_db
+def test_all_sweeps_share_links_and_git_automation_secrets_instance_wide(
+    alice: Any, project: Project
+) -> None:
+    """#2939: the full-compromise lever must also reach the two non-token durable
+    grants a leaked token or compromised session can mint — instance-wide, not
+    scoped to one account, matching every other effect of ``--all``.
+    """
+    link = ShareLink.objects.create(
+        project=project,
+        token_prefix="tok-prefix1",
+        token_hash=sha256_hex("a-share-link"),
+        created_by=alice,
+    )
+    automation = BoardAutomation(project=project, enabled=True, configured_by=alice)
+    automation.set_secret("s3cr3t-webhook-token")
+    automation.save()
+
+    output = _run("--all", "--commit", "--yes")
+
+    assert "Active share links matched: 1" in output
+    assert "Configured git-automation secrets matched: 1" in output
+    assert "Revoked 1 share link(s), cleared 1 git-automation secret(s)." in output
+    link.refresh_from_db()
+    automation.refresh_from_db()
+    assert link.revoked_at is not None
+    assert automation.has_secret is False
+
+
+@pytest.mark.django_db
+def test_all_personal_and_user_scope_leave_share_links_and_secrets_alone(
+    alice: Any, project: Project
+) -> None:
+    """Only ``--all`` is the full-compromise lever; ``--user``/``--all-personal``
+    stay scoped to tokens, matching their own documented, narrower scope.
+    """
+    link = ShareLink.objects.create(
+        project=project,
+        token_prefix="tok-prefix2",
+        token_hash=sha256_hex("another-link"),
+        created_by=alice,
+    )
+    automation = BoardAutomation(project=project, enabled=True, configured_by=alice)
+    automation.set_secret("s3cr3t-webhook-token")
+    automation.save()
+
+    _run("--all-personal", "--commit", "--yes")
+    _run("--user", "alice", "--commit", "--yes")
+
+    link.refresh_from_db()
+    automation.refresh_from_db()
+    assert link.revoked_at is None
+    assert automation.has_secret is True
 
 
 @pytest.mark.django_db

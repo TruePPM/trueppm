@@ -485,12 +485,20 @@ class ProjectSyncView(IdempotencyMixin, APIView):
         return max(1, min(requested, maximum))
 
     def get_throttles(self) -> list[BaseThrottle]:
-        """Throttle the write (POST) path only; pull (GET) stays unthrottled."""
+        """POST gets the dedicated upload throttle; GET keeps the default `user`
+        scope (#2939 — same defect class #2878 fixed in four other views: a bare
+        list here *replaces* ``DEFAULT_THROTTLE_CLASSES`` instead of adding to it,
+        so this branch resolved to no throttle at all on the delta-export pull,
+        the largest read surface in the API). Mobile sync is high-frequency by
+        design, so it is bounded by the generous default (1000/min per account,
+        ``TRUEPPM_THROTTLE_USER_RATE``) rather than a dedicated tighter scope —
+        that is a real decision, not an oversight, and now it is enforced.
+        """
         if self.request.method == "POST":
             from trueppm_api.apps.sync.throttles import SyncUploadThrottle
 
             return [SyncUploadThrottle()]
-        return []
+        return super().get_throttles()
 
     @extend_schema(
         request=SyncUploadRequestSerializer,

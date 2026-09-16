@@ -9,8 +9,9 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.integrations.models import BoardAutomation
 from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
-from trueppm_api.apps.projects.models import ApiToken, Project
+from trueppm_api.apps.projects.models import ApiToken, Calendar, Project, ShareLink
 from trueppm_api.apps.workspace.models import (
     MemberStatus,
     Workspace,
@@ -503,6 +504,50 @@ def test_deactivate_revokes_personal_access_tokens_and_refresh_tokens(
     pat.refresh_from_db()
     assert pat.revoked_at is not None
     assert _blacklisted_count(member) == 1
+
+
+@pytest.mark.django_db
+def test_deactivate_revokes_share_links_and_git_automation_secret_the_member_minted(
+    superadmin: object, member: object
+) -> None:
+    """#2939: a share link or git-automation secret a departing member personally
+    minted is exactly as durable as a PAT, and must go with the rest of their
+    credentials — but a co-admin's own grants on the same project must survive.
+    """
+    calendar = Calendar.objects.create(name="Standard")
+    project = Project.objects.create(name="P", start_date=date(2026, 1, 1), calendar=calendar)
+    ProjectMembership.objects.create(project=project, user=member, role=Role.ADMIN)
+
+    coadmin = User.objects.create_user(username="coadmin", password="pw")
+    ProjectMembership.objects.create(project=project, user=coadmin, role=Role.ADMIN)
+
+    member_link = ShareLink.objects.create(
+        project=project,
+        token_prefix="member-tok",
+        token_hash=sha256_hex("member-link"),
+        created_by=member,
+    )
+    coadmin_link = ShareLink.objects.create(
+        project=project,
+        token_prefix="coadmin-tk",
+        token_hash=sha256_hex("coadmin-link"),
+        created_by=coadmin,
+    )
+    automation = BoardAutomation(project=project, enabled=True, configured_by=member)
+    automation.set_secret("s3cr3t-webhook-token")
+    automation.save()
+
+    resp = _client(superadmin).patch(
+        _detail(member), {"status": MemberStatus.DEACTIVATED}, format="json"
+    )
+    assert resp.status_code == 200
+
+    member_link.refresh_from_db()
+    coadmin_link.refresh_from_db()
+    automation.refresh_from_db()
+    assert member_link.revoked_at is not None
+    assert coadmin_link.revoked_at is None
+    assert automation.has_secret is False
 
 
 @pytest.mark.django_db

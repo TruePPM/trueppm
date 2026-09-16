@@ -504,13 +504,16 @@ def _revoke_offboarded_credentials(target: Any, *, actor: Any = None) -> None:
     provenance; a returning member mints new ones. This mirrors the password-reset
     path (``core/password_reset.py``), which revokes for the same reason.
 
-    Scope: personal (``owner=target``) tokens and refresh tokens only.
-    ``revoke_all_personal_access_tokens`` deliberately leaves project- and
-    program-scoped tokens alone — those are org assets minted *by* the departing
-    member for a team's integration, not their personal credentials, and killing
-    them would break a team's CI on an unrelated person's off-boarding.
+    Scope: personal (``owner=target``) tokens and refresh tokens only, plus the
+    non-token durable grants ``target`` personally minted — their share links and
+    any git-automation webhook secret they configured (#2939;
+    ``revoke_personal_durable_grants``). ``revoke_all_personal_access_tokens``
+    deliberately leaves project- and program-scoped *tokens* alone — those are org
+    assets minted *by* the departing member for a team's integration, not their
+    personal credentials, and killing them would break a team's CI on an
+    unrelated person's off-boarding.
 
-    Both writes are plain DB updates and run **inside** the caller's
+    All three calls are plain DB updates and run **inside** the caller's
     ``transaction.atomic()`` block, not under ``transaction.on_commit()``: they
     must roll back with a failed deactivation, and there is no external
     side effect that would justify deferring past commit. Deferring would open a
@@ -525,10 +528,12 @@ def _revoke_offboarded_credentials(target: Any, *, actor: Any = None) -> None:
     from trueppm_api.apps.access.services import (
         revoke_all_personal_access_tokens,
         revoke_all_refresh_tokens,
+        revoke_personal_durable_grants,
     )
 
     revoke_all_refresh_tokens(target)
     revoke_all_personal_access_tokens(target, actor=actor, reason="offboarding")
+    revoke_personal_durable_grants(target, actor=actor)
 
 
 def _apply_member_status_change(

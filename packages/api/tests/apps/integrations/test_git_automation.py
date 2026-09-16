@@ -26,7 +26,15 @@ from rest_framework.test import APIClient
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.integrations.encryption import CredentialEncryptionError
 from trueppm_api.apps.integrations.models import BoardAutomation, TaskLink
-from trueppm_api.apps.projects.models import Calendar, Project, Task, TaskStatus
+from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+from trueppm_api.apps.projects.models import (
+    SCOPE_LEGACY_FULL,
+    ApiToken,
+    Calendar,
+    Project,
+    Task,
+    TaskStatus,
+)
 
 User = get_user_model()
 
@@ -339,6 +347,24 @@ def _auth(user: object) -> APIClient:
     return c
 
 
+def _token_auth(owner: object) -> APIClient:
+    """A session-less client bearing a live ``legacy:full`` personal token for
+    ``owner`` — the "leaked PAT belonging to a project Admin" shape #2939 closes.
+    """
+    raw = f"{TOKEN_PREFIX}{uuid.uuid4().hex}{uuid.uuid4().hex}"
+    ApiToken.objects.create(
+        owner=owner,
+        name="leaked",
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+        created_by=owner,
+        scopes=[SCOPE_LEGACY_FULL],
+    )
+    c = APIClient()
+    c.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+    return c
+
+
 def test_config_get_admin_ok_member_forbidden(
     project: Project, admin: object, member: object
 ) -> None:
@@ -378,6 +404,21 @@ def test_rotate_secret_returns_plaintext_once_admin_only(
     assert auto.has_secret
     # The stored ciphertext is not the plaintext, and the GET never returns it.
     assert bytes(auto.secret_ciphertext) != secret.encode()
+
+
+def test_rotate_secret_refuses_a_token_caller_even_when_admin(
+    project: Project, admin: object
+) -> None:
+    """A leaked PAT must not be able to mint this durable, plaintext-once
+    credential (#2939) — the same PAT-manages-PAT rule #2878 applied to
+    ``/me/api-tokens/``, extended here because the webhook secret it mints is
+    exactly as durable and sits outside every revocation lever.
+    """
+    url = reverse("git-automation-rotate-secret", kwargs={"project_pk": str(project.pk)})
+    resp = _token_auth(admin).post(url)
+    assert resp.status_code == 403, resp.data
+    # Refused before the view's get_or_create ran — no secret was ever minted.
+    assert not BoardAutomation.objects.filter(project=project).exists()
 
 
 # --- #2881: the receiver is an unauthenticated attack surface -----------------

@@ -1065,7 +1065,15 @@ class GitAutomationRotateSecretView(IdempotencyMixin, APIView):
     # Minting a credential on an archived project is a write (#3414). Nothing is
     # stranded by refusing it: the receiver now refuses an archived project's
     # deliveries outright, so there is no live webhook left to rotate away from.
-    permission_classes = [IsAuthenticated, IsProjectAdmin, IsProjectNotArchived]
+    # IsNotTokenAuthenticated (#2939): this mints a durable, plaintext-once
+    # credential a leaked PAT should not be able to extend itself with — the
+    # same rule #2878 applied to /me/api-tokens/.
+    permission_classes = [
+        IsAuthenticated,
+        IsProjectAdmin,
+        IsProjectNotArchived,
+        IsNotTokenAuthenticated,
+    ]
     # Mints and returns a fresh plaintext webhook secret; scope it under the shared
     # credential bucket (#1551) so secret rotation cannot be hammered.
     throttle_classes = [ScopedRateThrottle]

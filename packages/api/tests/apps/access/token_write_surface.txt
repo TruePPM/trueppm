@@ -128,7 +128,6 @@ api/v1/health/retention/
 api/v1/health/retention/runs/
 api/v1/health/telemetry/test/
 api/v1/integrations/projects/<uuid:project_pk>/git-automation/
-api/v1/integrations/projects/<uuid:project_pk>/git-automation/rotate-secret/
 api/v1/me/connections/<slug:source>/
 api/v1/me/connections/<slug:source>/sync/
 api/v1/me/notification-preferences/<int:pk>/

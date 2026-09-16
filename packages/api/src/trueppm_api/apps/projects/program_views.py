@@ -678,18 +678,30 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         return [*self._rbac_permissions(), *self.mcp_token_guards()]
 
     def _rbac_permissions(self) -> list[BasePermission]:
-        if self.action in ("update", "partial_update"):
+        # Bootstrap actions: no program exists yet for these to be scoped against
+        # (create mints one; import_seed/validate_import work from a standalone seed
+        # document and load_sample from a bundled fixture, none an existing
+        # program), so there is no membership to check — "any authenticated user
+        # may create a program" (ADR-0070 §RBAC) extends to its three seed/sample-
+        # driven equivalents. Named explicitly rather than left to the fallback
+        # below so the fallback can fail closed for everything else (#2939): these
+        # are not the same case as an existing-program write, and conflating them
+        # would either 403 legitimate program creation or silently re-open the gap
+        # this branch exists to close.
+        if self.action in ("create", "import_seed", "validate_import", "load_sample"):
+            return [IsAuthenticated()]
+        # bulk_project_fields shares update/partial_update's exact gate (ADR-0161:
+        # program-admin authority over the program's own projects; the program PK
+        # in the URL is the IDOR boundary, and closed programs are not
+        # bulk-editable) — merged into one branch to keep this dispatch's branch
+        # count in budget (#2939 added the bootstrap-action branch below).
+        if self.action in ("update", "partial_update", "bulk_project_fields"):
             return [IsAuthenticated(), IsProgramAdmin(), IsProgramNotClosed()]
         if self.action == "bulk_fields":
             # Workspace → programs matrix (ADR-0161): org-level workspace-admin authority.
             # Program has no workspace FK — the workspace is the singleton — so this is the
             # org-wide admin gate, not a per-program one.
             return [IsAuthenticated(), IsWorkspaceAdmin()]
-        if self.action == "bulk_project_fields":
-            # Program → projects matrix (ADR-0161): program-admin authority over the
-            # program's own projects. The program PK in the URL is the IDOR boundary;
-            # closed programs are not bulk-editable.
-            return [IsAuthenticated(), IsProgramAdmin(), IsProgramNotClosed()]
         if self.action in (
             "destroy",
             "close",
@@ -802,7 +814,15 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             # "creator needs read access to both tasks" rule — the edge itself is
             # created later via the per-project ``/dependencies/`` POST, not here.
             return [IsAuthenticated(), IsProgramMember(), IsProgramNotClosed()]
-        return [IsAuthenticated()]
+        # Membership-bound, not bare IsAuthenticated (#2939): every action that
+        # legitimately needs no program scope is named above. A future @action
+        # landing here unnamed is therefore either a detail=True route (get_object()
+        # still runs the real membership check, matching prior behavior exactly) or
+        # a GET (`_unresolved_scope_allows` allows safe methods on an unscoped
+        # route, same as any other top-level list) — both unaffected — or an unsafe
+        # detail=False write, which `_unresolved_scope_allows` (#3767) now DENIES
+        # by default instead of silently inheriting bare-authenticated access.
+        return [IsAuthenticated(), IsProgramMember()]
 
     def perform_update(self, serializer: serializers.BaseSerializer[Program]) -> None:
         # ADR-0441: reassigning a program's working calendar (a different default, or
