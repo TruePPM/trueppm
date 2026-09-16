@@ -187,8 +187,10 @@ recomputes every annotation over every row.
 
 Raising that ceiling is tracked, sequenced work rather than a standing limitation: four
 changes are scheduled for 0.5 (#3383). We are not publishing a target number, and the
-honest reason is that the sharp part of the curve — the jump between 1,000 and 2,000
-tasks — is not yet explained by any of them (#3385).
+honest reason is that the jump between 1,000 and 2,000 tasks is not explained by any of
+them (#3385). That jump was measured at 32× on 2026-07-26 and at 2.45× on a 2026-09-15
+re-run — a large improvement that no one has yet traced to a specific change (#3828), and
+an unattributed gain is not a number to publish a forecast against.
 
 The full per-dimension measurement — tasks per project, dependency edges, concurrent
 users and WebSocket connections, Monte Carlo iterations at the task ceiling, the
