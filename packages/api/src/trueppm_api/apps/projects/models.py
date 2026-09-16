@@ -1048,6 +1048,20 @@ class Program(VersionedModel):
         related_name="programs_closed",
     )
 
+    # The anchor date a bundled sample's relative dates were resolved against
+    # (ADR-1175, #3481). Set by the seed importer on a sample import only; NULL on
+    # every program a person created, and NULL for samples loaded before #3481 —
+    # those cannot be re-anchored and the banner says so rather than guessing.
+    #
+    # ADR-0114 authors seed dates as offsets from an anchor resolved at *import
+    # day*, which makes a freshly loaded demo current and then lets it rot: seven
+    # weeks later the sample shows an "Active" sprint that completed six weeks ago.
+    # Persisting the anchor is what makes the drift computable — ``today - anchor``
+    # is the delta ``shift_sample_dates`` applies, and advancing this field to today
+    # in the same transaction is what makes that action idempotent (a second call
+    # computes a zero delta and writes nothing).
+    sample_anchor_date = models.DateField(null=True, blank=True)
+
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
 
     class Meta:
@@ -1056,6 +1070,23 @@ class Program(VersionedModel):
 
     def __str__(self) -> str:
         return self.name
+
+    @property
+    def sample_days_stale(self) -> int | None:
+        """Calendar days since this sample's dates were anchored (ADR-1175).
+
+        ``None`` for a non-sample program and for a sample that predates #3481 —
+        two different situations that both mean "no drift can be computed", which
+        the banner distinguishes using ``is_sample`` alongside this.
+
+        Never negative: an anchor in the future would only come from a
+        hand-edited fixture, and reporting "-3 days stale" would put a nonsense
+        number in front of an evaluator. Clamped to 0, which reads as "current"
+        and is the honest rendering of an anchor we cannot be behind.
+        """
+        if self.sample_anchor_date is None:
+            return None
+        return max(0, (timezone.localdate() - self.sample_anchor_date).days)
 
 
 class CeremonyCadenceType(models.TextChoices):

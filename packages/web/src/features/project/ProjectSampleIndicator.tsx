@@ -10,6 +10,10 @@ import { useProject } from '@/hooks/useProject';
  * keeps the cue present and links back to the program overview where the demo
  * can be removed — it deliberately does not duplicate the destructive teardown.
  *
+ * Once the demo's dates have drifted (#3481) the strip says so, but it carries
+ * **no** shift control — for the same reason it carries no teardown: notice in
+ * many places, act in one. "Manage demo data" is the route to both.
+ *
  * Renders nothing unless the project belongs to a bundled sample program.
  */
 export function ProjectSampleIndicator({ projectId }: { projectId: string | null }) {
@@ -17,6 +21,10 @@ export function ProjectSampleIndicator({ projectId }: { projectId: string | null
   if (!project?.is_sample) return null;
 
   const program = project.program_detail;
+  // Matches SampleDataBanner's STALE_THRESHOLD_DAYS. Below four weeks the drift
+  // is cosmetic and this strip has only one line to spend.
+  const daysStale = program?.sample_days_stale ?? null;
+  const isStale = daysStale !== null && daysStale >= 28;
   return (
     <div
       role="note"
@@ -30,6 +38,14 @@ export function ProjectSampleIndicator({ projectId }: { projectId: string | null
           <>
             {' — part of '}
             <span className="font-medium text-neutral-text-primary">{program.name}</span>
+          </>
+        ) : null}
+        {isStale ? (
+          <>
+            {' · '}
+            <span className="font-medium text-neutral-text-primary">
+              dates {daysStale} days out of date
+            </span>
           </>
         ) : null}
       </span>

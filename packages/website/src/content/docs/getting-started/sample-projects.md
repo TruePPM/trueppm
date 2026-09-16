@@ -65,6 +65,47 @@ know you are in demo data. **Remove sample data** (program owner only) tears the
 whole demo down when you are ready to start your own work — it also removes any
 changes you made to the demo, but never touches your own projects.
 
+### Keeping a demo current
+
+A sample's dates are anchored on the day you load it, so it looks live
+immediately — and then it ages. Four weeks on, the sprint the board calls
+"Active" has finished, the burndown ends before today, and every project shows
+overdue work the demo never meant to have. If you install on Monday and demo the
+following month, that is what your audience sees.
+
+Once a demo has drifted by a week or more, the sample banner offers
+**Shift dates to today** (program owner only). It moves every date in the demo
+forward — the plan, its sprints, the baselines, the activity history, and the
+forecast trend — and then recalculates the schedules. The banner reports how far
+things moved and how many records changed.
+
+Three things worth knowing:
+
+- **Nothing is deleted.** Any changes you made to the demo move forward with it,
+  rather than being discarded. If you would rather start from a pristine demo,
+  use **Remove sample data** and load it again.
+- **It moves in whole weeks.** Dates are placed on working days deliberately —
+  a sprint starts on a Monday because the sample means it to — so the shift
+  rounds to the nearest week to keep every date on the weekday it was authored
+  for. A demo can therefore sit up to three days off today, which is why the
+  control only appears once a full week has drifted.
+- **Baseline variance is preserved exactly.** Baselines move with the plan, so
+  the planned-versus-actual story the sample was built to show is unchanged —
+  you are not shown a fabricated slip.
+
+Schedules recalculate in the background afterwards, so the Schedule view shows
+its *Recalculating…* badge for a few seconds.
+
+A demo loaded before this feature shipped has no recorded anchor and cannot be
+shifted; the banner says so and points you at remove-and-reload instead.
+
+Operators automating a long-lived demo instance can do the same thing from the
+command line:
+
+```bash
+python manage.py shift_sample_dates
+```
+
 ### What each sample demonstrates
 
 Five samples ship in 0.4. Every one exercises the five-role RBAC model

@@ -387,6 +387,61 @@ export function useRemoveSampleProgram(): UseMutationResult<void, Error, string>
   });
 }
 
+/**
+ * Response envelope for POST /programs/{id}/shift-sample-dates/ (#3481, ADR-1175).
+ *
+ * `shifted: false` arrives with a **200**, not an error: re-anchoring is
+ * idempotent (the anchor advances with the rows), so a second press is a
+ * legitimate no-op and the banner says "already current" rather than failing.
+ *
+ * `days` is the derivation the UI shows — a bulk date move that cannot say how
+ * far everything moved is precisely the number nobody can defend afterwards.
+ * `rows_shifted` counts rows rewritten, not date columns.
+ */
+export interface ShiftSampleDatesResult {
+  shifted: boolean;
+  days: number;
+  /** The anchor AFTER the shift — advanced by `days`, not set to today. */
+  anchor_date: string;
+  rows_shifted: number;
+  projects: number;
+}
+
+/**
+ * POST /api/v1/programs/{id}/shift-sample-dates/ — re-anchor a demo (#3481).
+ *
+ * The "Shift dates to today" banner action. Owner-only server-side, and it sends
+ * **no body**: the offset is always `today - sample_anchor_date` rounded to whole
+ * weeks, computed server-side. There is deliberately no caller-supplied target
+ * date — an arbitrary delta would be a very different endpoint to secure.
+ *
+ * `timeout: 0` for the same reason `useLoadSampleProgram` opts out (#2402): this
+ * rewrites every dated row across the program's projects synchronously, which on
+ * modest self-hosted hardware is seconds. Timing it out would abandon the request
+ * while the server kept rewriting anyway.
+ *
+ * Invalidates `['programs']` **and** `['projects']`: every project's tasks,
+ * sprints and baselines moved, and the sidebar project list keys on `['projects']`
+ * (not a child of `['programs']`), so prefix invalidation does not reach it.
+ */
+export function useShiftSampleDates(): UseMutationResult<ShiftSampleDatesResult, Error, string> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (programId: string) => {
+      const res = await apiClient.post<ShiftSampleDatesResult>(
+        `/programs/${programId}/shift-sample-dates/`,
+        {},
+        { timeout: 0 },
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['programs'] });
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+}
+
 export interface ExportProgramInput {
   programId: string;
   /** Program code/slug — used as the download filename when present. */

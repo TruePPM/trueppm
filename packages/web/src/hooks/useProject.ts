@@ -304,8 +304,16 @@ export interface ApiProjectDetail {
   recalculated_at: string | null;
   /** True when this project is bundled demo data (#375 / #1053). */
   is_sample: boolean;
-  /** The project's program as {id, name} — drives the per-project demo indicator's "part of …" link. Null for unassigned projects. */
-  program_detail: { id: string; name: string } | null;
+  /**
+   * The project's program — drives the per-project demo indicator's "part of …"
+   * link. Null for unassigned projects.
+   *
+   * `sample_days_stale` (#3481) is how far a demo's dates have drifted, so the
+   * strip can say so without a second request. Null for a non-sample program and
+   * for a sample loaded before #3481. Optional on the type because older cached
+   * responses omit the key entirely — `undefined` must not read as "0 days".
+   */
+  program_detail: { id: string; name: string; sample_days_stale?: number | null } | null;
   /**
    * The caller's own Scrum-Master / Product-Owner team facets on this project
    * (ADR-0078 / #1095). Drives the render-gates for the sprint-goal edit (SM)

@@ -56,7 +56,11 @@ def test_detail_exposes_demo_fields_for_a_sample_project(client: APIClient, user
     assert resp.status_code == 200, resp.content
     assert resp.data["is_sample"] is True
     assert resp.data["recalculated_at"] is not None
-    assert resp.data["program_detail"] == {"id": str(program.pk), "name": "Atlas Platform Launch"}
+    assert resp.data["program_detail"] == {
+        "id": str(program.pk),
+        "name": "Atlas Platform Launch",
+        "sample_days_stale": None,
+    }
 
 
 def test_recalculated_at_is_null_before_first_cpm_and_program_detail_optional(

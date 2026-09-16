@@ -511,3 +511,180 @@ def test_remove_sample_refuses_non_sample_program(owner: Any) -> None:
     resp = _client(owner).post(f"/api/v1/programs/{program.pk}/remove-sample/")
     assert resp.status_code == 400
     assert Program.objects.filter(pk=program.pk, is_deleted=False).exists()
+
+
+# --- shift-sample-dates (#3481, ADR-1175) -----------------------------------
+
+
+def _age_anchor(program: Any, days: int) -> None:
+    """Rewind the recorded anchor so the endpoint computes a non-zero offset.
+
+    Endpoint-level tests care about status codes, the envelope and the gate — not
+    about which rows moved, which ``test_reanchor.py`` covers against a genuinely
+    aged import.
+    """
+    import datetime as dt
+
+    from django.utils import timezone
+
+    Program.objects.filter(pk=program.pk).update(
+        sample_anchor_date=timezone.localdate() - dt.timedelta(days=days)
+    )
+
+
+def test_shift_sample_dates_requires_auth(owner: Any) -> None:
+    program = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    resp = APIClient().post(f"/api/v1/programs/{program.pk}/shift-sample-dates/")
+    assert resp.status_code in (401, 403)
+
+
+def test_shift_sample_dates_owner_shifts_and_reports(owner: Any) -> None:
+    program = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    _age_anchor(program, 47)
+
+    resp = _client(owner).post(f"/api/v1/programs/{program.pk}/shift-sample-dates/")
+
+    assert resp.status_code == 200, resp.content
+    assert resp.data["shifted"] is True
+    # Whole-week quantum: 47 days of drift moves 49.
+    assert resp.data["days"] == 49
+    assert resp.data["rows_shifted"] > 0
+    assert resp.data["projects"] > 0
+
+
+def test_shift_sample_dates_is_idempotent_over_the_endpoint(owner: Any) -> None:
+    """A second press returns 200 with shifted:false — not an error.
+
+    The client renders "already current"; making this a 4xx would turn a safe
+    repeat into something that looks like a failure the user must act on.
+    """
+    program = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    _age_anchor(program, 47)
+    client = _client(owner)
+
+    assert client.post(f"/api/v1/programs/{program.pk}/shift-sample-dates/").data["shifted"] is True
+    second = client.post(f"/api/v1/programs/{program.pk}/shift-sample-dates/")
+
+    assert second.status_code == 200
+    assert second.data["shifted"] is False
+    assert second.data["rows_shifted"] == 0
+
+
+def test_shift_sample_dates_ignores_a_caller_supplied_target_date(owner: Any) -> None:
+    """The endpoint takes NO body — an attacker-supplied offset must not bind.
+
+    A bulk date rewrite that honours an arbitrary caller delta is a very
+    different endpoint to secure. The offset is always derived server-side from
+    the recorded anchor.
+    """
+    program = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    _age_anchor(program, 47)
+
+    resp = _client(owner).post(
+        f"/api/v1/programs/{program.pk}/shift-sample-dates/",
+        {"days": 99999, "target_date": "9999-12-31", "anchor_date": "1970-01-01"},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.content
+    assert resp.data["days"] == 49
+
+
+def test_shift_sample_dates_survives_a_non_dict_body(owner: Any) -> None:
+    """A JSON array body must not 500 (the #2126 raw-request.data class)."""
+    program = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    _age_anchor(program, 47)
+
+    resp = _client(owner).post(
+        f"/api/v1/programs/{program.pk}/shift-sample-dates/", [1, 2, 3], format="json"
+    )
+
+    assert resp.status_code < 500, resp.content
+
+
+def test_shift_sample_dates_non_owner_denied(owner: Any) -> None:
+    program = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    _age_anchor(program, 47)
+    stranger = User.objects.create_user(username="shift-stranger", password="pw")
+
+    resp = _client(stranger).post(f"/api/v1/programs/{program.pk}/shift-sample-dates/")
+
+    assert resp.status_code in (403, 404)
+
+
+def test_shift_sample_dates_program_admin_denied(owner: Any) -> None:
+    """Owner-only, mirroring teardown. An ADMIN member must not bulk-rewrite dates."""
+    from trueppm_api.apps.access.models import ProgramMembership
+
+    program = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    _age_anchor(program, 47)
+    admin = User.objects.create_user(username="shift-admin", password="pw")
+    ProgramMembership.objects.create(program=program, user=admin, role=Role.ADMIN)
+
+    resp = _client(admin).post(f"/api/v1/programs/{program.pk}/shift-sample-dates/")
+
+    assert resp.status_code in (403, 404)
+
+
+def test_shift_sample_dates_refuses_a_non_sample_program(owner: Any) -> None:
+    from trueppm_api.apps.access.services import create_program
+
+    program = create_program(name="Real", description="", methodology="HYBRID", created_by=owner)
+    Program.objects.filter(pk=program.pk).update(sample_anchor_date="2026-01-01")
+
+    resp = _client(owner).post(f"/api/v1/programs/{program.pk}/shift-sample-dates/")
+
+    assert resp.status_code == 400
+    assert resp.data["code"] == "not_a_sample"
+
+
+def test_shift_sample_dates_refuses_a_sample_with_no_anchor(owner: Any) -> None:
+    """A sample loaded before #3481 is reloaded, not shifted — and says so."""
+    program = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    Program.objects.filter(pk=program.pk).update(sample_anchor_date=None)
+
+    resp = _client(owner).post(f"/api/v1/programs/{program.pk}/shift-sample-dates/")
+
+    assert resp.status_code == 400
+    assert resp.data["code"] == "no_anchor_recorded"
+
+
+def test_shift_sample_dates_blocked_on_a_closed_program(owner: Any) -> None:
+    """Deliberately NOT in _CLOSE_BYPASS_ACTIONS.
+
+    Teardown must survive a closed program (an Owner has to be able to delete
+    one); re-anchoring a closed program's dates is meaningless.
+    """
+    program = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    _age_anchor(program, 47)
+    Program.objects.filter(pk=program.pk).update(is_closed=True)
+
+    resp = _client(owner).post(f"/api/v1/programs/{program.pk}/shift-sample-dates/")
+
+    assert resp.status_code in (403, 404)
+
+
+def test_program_serializer_exposes_the_drift_read_only(owner: Any) -> None:
+    program = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    _age_anchor(program, 47)
+
+    resp = _client(owner).get(f"/api/v1/programs/{program.pk}/")
+
+    assert resp.status_code == 200
+    assert resp.data["sample_days_stale"] == 47
+    assert resp.data["sample_anchor_date"] is not None
+
+
+def test_sample_anchor_date_is_not_client_writable(owner: Any) -> None:
+    """Read-only: a client that could set the anchor could force an unbounded shift."""
+    program = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    original = Program.objects.get(pk=program.pk).sample_anchor_date
+
+    resp = _client(owner).patch(
+        f"/api/v1/programs/{program.pk}/",
+        {"sample_anchor_date": "1970-01-01"},
+        format="json",
+    )
+
+    assert resp.status_code in (200, 400)
+    assert Program.objects.get(pk=program.pk).sample_anchor_date == original

@@ -96,6 +96,8 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     project_count: 3,
     member_count: 5,
     is_sample: false,
+    sample_anchor_date: null,
+    sample_days_stale: null,
     is_closed: false,
     closed_at: null,
     closed_by: null,

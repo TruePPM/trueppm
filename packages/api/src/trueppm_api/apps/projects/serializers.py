@@ -2219,6 +2219,17 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     # True when the program is bundled demo data (any project is_sample). Backed
     # by the viewset's ``_is_sample`` annotation to avoid an N+1 on list.
     is_sample = serializers.SerializerMethodField()
+    # Demo date drift (#3481, ADR-1175). ``sample_anchor_date`` is the day this
+    # sample's relative dates were resolved against; ``sample_days_stale`` is the
+    # drift since, as a SERVER fact rather than a client subtraction — the program
+    # banner and the per-project indicator both render it, and two components
+    # computing it independently is how they end up disagreeing.
+    #
+    # Both null for a program a person created, and both null for a sample loaded
+    # before #3481: those carry no anchor, cannot be shifted, and the banner tells
+    # the user to reload rather than offering an action the server would refuse.
+    sample_anchor_date = serializers.DateField(read_only=True, allow_null=True)
+    sample_days_stale = serializers.IntegerField(read_only=True, allow_null=True)
     # Read-only nested user payload so the General settings page can render
     # the lead's name + initials without a second per-program user fetch.
     # Null when ``lead`` is unset. The write side stays on the plain ``lead``
@@ -2400,6 +2411,9 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "project_count",
             "member_count",
             "is_sample",
+            # Demo date drift (#3481, ADR-1175) — read-only.
+            "sample_anchor_date",
+            "sample_days_stale",
             # Lifecycle (#530) — read-only; flipped via /close/ and /reopen/.
             "is_closed",
             "closed_at",
@@ -2416,6 +2430,8 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "my_role_label",
             "project_count",
             "member_count",
+            "sample_anchor_date",
+            "sample_days_stale",
             "effective_methodology",
             "inherited_methodology",
             "effective_task_duration_change_percent_policy",
@@ -10580,16 +10596,26 @@ class ProjectDetailSerializer(ProjectSerializer):
             return {"is_scrum_master": False, "is_product_owner": False}
         return user_facets(user, obj.id)
 
-    def get_program_detail(self, obj: Project) -> dict[str, str] | None:
-        """The project's program as ``{id, name}`` for the demo indicator link.
+    def get_program_detail(self, obj: Project) -> dict[str, str | int | None] | None:
+        """The project's program as ``{id, name, sample_days_stale}`` for the demo strip.
 
         Detail-only serializer (single object), so the ``obj.program`` access is
         not the N+1 risk it would be on the list serializer.
+
+        ``sample_days_stale`` (#3481) lets the per-project indicator say the demo's
+        dates have drifted without a second request. It is a cue only — the strip
+        never carries the shift control itself, exactly as it never carries the
+        teardown: notice in many places, act in one. Null for a non-sample program
+        and for a sample with no recorded anchor.
         """
         program = obj.program
         if program is None:
             return None
-        return {"id": str(program.pk), "name": program.name}
+        return {
+            "id": str(program.pk),
+            "name": program.name,
+            "sample_days_stale": program.sample_days_stale,
+        }
 
     def get_start_floor(self, obj: Project) -> str:
         """First working day on or after ``start_date`` — the effective schedule
