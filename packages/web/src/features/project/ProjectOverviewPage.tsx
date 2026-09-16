@@ -1109,8 +1109,21 @@ function buildUtilizationMetric(
   canSeeResources: boolean,
 ): OverviewMetric {
   const util = overview?.team_utilization_pct;
+  // A real, non-null 0% (roster + capacity both exist — see the `util == null`
+  // branch below for the genuinely-uncomputable case) is meaningful data and
+  // must stay visible as a number (#2428) — it just must never wear the
+  // on-track success color, or an unstaffed team this week reads as healthy
+  // (rule 416, #3477). `util === 0` here always means zero real assignments across the
+  // whole roster (capacity/utilization sums TaskResource.units), so it is
+  // never a "comfortably under capacity" on-track reading.
   const utilVariant: OverviewMetric['variant'] =
-    util == null ? 'neutral' : util > 100 ? 'critical' : util >= 85 ? 'at-risk' : 'on-track';
+    util == null || util === 0
+      ? 'neutral'
+      : util > 100
+        ? 'critical'
+        : util >= 85
+          ? 'at-risk'
+          : 'on-track';
 
   // Rule 119: a card that cannot be computed renders muted *with a reason*, never
   // as a bare em-dash — a blank card leaves the PM unable to tell "no one is

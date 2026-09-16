@@ -113,6 +113,7 @@ These rules are enforced at review time. Violations block merge.
 408. **A "previous value" ref that drives an announcement, a change badge, or a diff highlight must be keyed to the ENTITY the value describes — a component that outlives the entity turns NAVIGATION into a change event.** → [rule](../../docs/design/invariants/408-a-previous-value-ref-that-drives-an-announcement-a-change.md)
 410. **A value read from an async query that SEEDS a mount-frozen draft must be gated on that query RESOLVING — every other consumer of the same value self-corrects on re-render, and that is exactly what hides the one that cannot.** → [rule](../../docs/design/invariants/410-a-value-read-from-an-async-query-that-seeds-a-mount-frozen.md)
 413. **A chart label that collides with its neighbor moves to a new ROW — the marker it names never moves, and the packing is a generic N-label layout problem, not a special case for one named pair.** → [rule](../../docs/design/invariants/413-a-chart-label-that-collides-with-its-neighbor-moves-to-a.md)
+416. **A real, nonzero-denominator computed zero is a value, not a health signal — it must never wear the on-track/success color.** → [rule](../../docs/design/invariants/416-a-real-nonzero-denominator-computed-zero-is-a-value-not.md)
 
 ## Redundancy
 
