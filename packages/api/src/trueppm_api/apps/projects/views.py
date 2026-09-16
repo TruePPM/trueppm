@@ -26,7 +26,6 @@ from django.db.models import (
     F,
     IntegerField,
     Max,
-    Min,
     OuterRef,
     ProtectedError,
     Q,
@@ -4570,14 +4569,53 @@ def annotate_tasks_queryset(
     #   linked_risks_count      — count of active linked risks (OPEN + MITIGATING only).
     #   linked_risks_max_severity — Max(probability * impact) across active linked risks.
     # All four are read-only annotations; no migration. ADR-0035.
-    active_risk_filter = Q(risks__is_deleted=False) & Q(
-        risks__status__in=[RiskStatus.OPEN, RiskStatus.MITIGATING]
+    #
+    # #2814: predecessor_count / linked_risks_count / linked_risks_max_severity /
+    # latest_note_at were plain Count()/Max() aggregates on the OUTER queryset, which
+    # forces a GROUP BY on it — and that GROUP BY is the whole mechanism behind this
+    # endpoint's ~50x ORDER BY cost and its silently-discarded Task.Meta.ordering (see
+    # TaskViewSet.ordering's comment, and the roster_capacity_subq note below on why a
+    # correlated Subquery, not an outer Case/When over the same expression, is what
+    # keeps an aggregate OUT of the outer GROUP BY). Each converts to a correlated
+    # Subquery whose own Count()/Max() lives inside its OWN query.
+    from django.db.models.functions import Coalesce
+
+    from trueppm_api.apps.projects.models import RiskTask
+
+    predecessor_count_subq = (
+        Dependency.objects.filter(successor=OuterRef("pk"), is_deleted=False)
+        .order_by()
+        .values("successor")
+        .annotate(c=Count("pk"))
+        .values("c")
+    )
+    active_risk_filter = Q(risk__is_deleted=False) & Q(
+        risk__status__in=[RiskStatus.OPEN, RiskStatus.MITIGATING]
+    )
+    linked_risks_count_subq = (
+        RiskTask.objects.filter(task=OuterRef("pk"))
+        .filter(active_risk_filter)
+        .order_by()
+        .values("task")
+        .annotate(c=Count("id"))
+        .values("c")
+    )
+    linked_risks_max_severity_subq = (
+        RiskTask.objects.filter(task=OuterRef("pk"))
+        .filter(active_risk_filter)
+        .annotate(severity=F("risk__probability") * F("risk__impact"))
+        .order_by("-severity")
+        .values("severity")[:1]
+    )
+    latest_note_at_subq = (
+        TaskNote.objects.filter(task=OuterRef("pk"), is_deleted=False)
+        .order_by("-created_at")
+        .values("created_at")[:1]
     )
     qs = qs.annotate(
-        predecessor_count=Count(
-            "predecessors",
-            filter=Q(predecessors__is_deleted=False),
-            distinct=True,
+        predecessor_count=Coalesce(
+            Subquery(predecessor_count_subq, output_field=IntegerField()),
+            0,
         ),
         is_blocked=Exists(
             Dependency.objects.filter(
@@ -4585,21 +4623,16 @@ def annotate_tasks_queryset(
                 is_deleted=False,
             ).exclude(predecessor__status=TaskStatus.COMPLETE)
         ),
-        linked_risks_count=Count(
-            "risks",
-            filter=active_risk_filter,
-            distinct=True,
+        linked_risks_count=Coalesce(
+            Subquery(linked_risks_count_subq, output_field=IntegerField()),
+            0,
         ),
-        linked_risks_max_severity=Max(
-            F("risks__probability") * F("risks__impact"),
-            filter=active_risk_filter,
+        linked_risks_max_severity=Subquery(
+            linked_risks_max_severity_subq, output_field=IntegerField()
         ),
         # Freshness signal for the board card / schedule row (ADR-0143, #740):
         # timestamp of the most recent non-deleted note on the task.
-        latest_note_at=Max(
-            "notes_log__created_at",
-            filter=Q(notes_log__is_deleted=False),
-        ),
+        latest_note_at=Subquery(latest_note_at_subq, output_field=db_models.DateTimeField()),
     )
 
     # Progressive-disclosure signals (#2317, ADR-0605) — emptiness of the two
@@ -4657,29 +4690,54 @@ def annotate_tasks_queryset(
 
     # External-link summary (#767, ADR-0155): the count of a task's non-deleted
     # external links and the *worst* link status across them, for the at-a-glance
-    # glyph on the task-list row and the Gantt bar. Two filtered aggregates over the
-    # `links` relation (integrations.TaskLink, related_name="links"):
-    #   external_link_count      — distinct count of non-deleted links.
-    #   external_link_worst_rank — Min of the canonical rank (LINK_STATUS_RANK,
-    #                              most-attention-first); the serializer maps it back
-    #                              to a status string and null when count is 0.
-    # `distinct=True` keeps the count correct under the other multi-relation joins on
-    # this queryset; `Min` is multiplication-invariant so the worst rank is correct
-    # regardless of join fan-out (same reason linked_risks_max_severity uses a bare
-    # filtered Max above). No N+1.
-    live_link_filter = Q(links__is_deleted=False)
-    qs = qs.annotate(
-        external_link_count=Count("links", filter=live_link_filter, distinct=True),
-        external_link_worst_rank=Min(
-            Case(
+    # glyph on the task-list row and the Gantt bar. Two correlated subqueries over
+    # the `links` relation (integrations.TaskLink, related_name="links"):
+    #   external_link_count      — count of non-deleted links.
+    #   external_link_worst_rank — the canonical rank (LINK_STATUS_RANK,
+    #                              most-attention-first) of the worst live link; the
+    #                              serializer maps it back to a status string and
+    #                              null when count is 0.
+    # #2814: both were Count()/Min() aggregates on the outer queryset (a Min over a
+    # Case, matching the durable-memory trap from the earlier 115ms->5,753ms
+    # incident on THIS endpoint — that one was two Subqueries inlined into an outer
+    # Case/When; this is the inverse hazard, a Case/When that must stay INSIDE a
+    # Subquery rather than move to the outer query). Both now correlate against
+    # `task=OuterRef("pk")` inside their own query, same pattern as
+    # linked_risks_max_severity_subq above — no outer GROUP BY, no N+1.
+    from trueppm_api.apps.integrations.models import TaskLink
+
+    live_link_filter = Q(is_deleted=False)
+    external_link_count_subq = (
+        TaskLink.objects.filter(task=OuterRef("pk"))
+        .filter(live_link_filter)
+        .order_by()
+        .values("task")
+        .annotate(c=Count("id"))
+        .values("c")
+    )
+    external_link_worst_rank_subq = (
+        TaskLink.objects.filter(task=OuterRef("pk"))
+        .filter(live_link_filter)
+        .annotate(
+            rank=Case(
                 *(
-                    When(links__status=status_value, then=rank)
+                    When(status=status_value, then=rank)
                     for status_value, rank in LINK_STATUS_RANK.items()
                 ),
                 default=LINK_STATUS_RANK[LINK_STATUS_UNKNOWN],
                 output_field=IntegerField(),
-            ),
-            filter=live_link_filter,
+            )
+        )
+        .order_by("rank")
+        .values("rank")[:1]
+    )
+    qs = qs.annotate(
+        external_link_count=Coalesce(
+            Subquery(external_link_count_subq, output_field=IntegerField()),
+            0,
+        ),
+        external_link_worst_rank=Subquery(
+            external_link_worst_rank_subq, output_field=IntegerField()
         ),
     )
 
@@ -5849,37 +5907,18 @@ class TaskViewSet(
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name"]
     ordering_fields = ["wbs_path", "name", "early_start", "status"]
-    # Deterministic default ordering for pagination (#2807).
-    #
-    # `Task.Meta.ordering = ["wbs_path", "name"]` does NOT reach this endpoint.
-    # `annotate_tasks_queryset` attaches aggregate annotations (predecessor_count,
-    # linked_risks_count, external_link_count, …), which give the query a GROUP BY,
-    # and Django's SQL compiler drops *Meta*-derived ordering whenever a GROUP BY is
-    # present (`if self._meta_ordering: order_by = None`). So the shipped list query
-    # emitted `LIMIT 50` with no ORDER BY at all — DRF raised
-    # UnorderedObjectListWarning on every request, and the Schedule's parallel
-    # all-pages fetch (`fetchAllPagesParallel`) was one plan flip away from a Gantt
-    # with duplicated and missing tasks. An ordering set *here* is an explicit
-    # `.order_by()` applied by OrderingFilter, which the GROUP BY does not discard.
-    #
-    # Why `id` and not the WBS order the model declares: the ORDER BY sits above the
-    # GroupAggregate, whose group key contains four correlated SubPlans, so any sort
-    # key the aggregate does not already emit forces every group to be materialized
-    # before the first row is returned. Measured on a 4,000-task project
-    # (EXPLAIN ANALYZE, best of 3, page 1):
-    #
-    #   no ORDER BY (as shipped)     115 ms
-    #   ORDER BY id                  120 ms   ← no Sort node; free
-    #   ORDER BY wbs_path, name    5,753 ms   ← top-N Sort above GroupAggregate
-    #
-    # and 5,753 ms is *with* a `(project, wbs_path, name)` btree in place — the index
-    # is never reached, because the sort is above the aggregate rather than under it.
-    # `id` is the order the GroupAggregate already emits (its group key leads with
-    # `projects_task.id` over a pkey-presorted input), so naming it costs nothing and
-    # changes no response: it pins the order the endpoint was already returning.
-    # Clients that want WBS order ask for it explicitly via `?ordering=wbs_path`.
-    # Restoring WBS as the *default* requires removing the GROUP BY first (#2814).
-    ordering = ["id"]
+    # No `ordering = [...]` override (#2814, removes the #2807 workaround). #2807
+    # pinned `ordering = ["id"]` here because `annotate_tasks_queryset` attached
+    # several Count()/Max()/Min() aggregate annotations, which gave the query a
+    # GROUP BY — and Django's SQL compiler drops *Meta*-derived ordering whenever a
+    # GROUP BY is present (`if self._meta_ordering: order_by = None`), so the
+    # shipped list query paginated with no ORDER BY at all. #2814 converted every
+    # aggregate annotation to a correlated `Subquery(...)`, so the outer query has
+    # no GROUP BY any more and `Task.Meta.ordering = ["wbs_path", "name"]` reaches
+    # this endpoint unassisted — the same order the model declares, and the order a
+    # `(project, wbs_path, name)` btree can now actually serve (see that index's
+    # migration for the "why only now" reasoning). Clients that want a different
+    # order still ask for it via `?ordering=`.
     queryset = (
         Task.objects.select_related("project", "sprint")
         .prefetch_related("assignments__resource")
