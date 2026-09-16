@@ -179,18 +179,24 @@ filtering or the API.
 
 ## Scale — a measured ceiling, and an unflattering one
 
-A project stays comfortable in the Schedule view to roughly **1,000 tasks**. The engine
-itself handles considerably more, and so does the database — the constraint is that
-opening a project makes the Schedule read *every* page of its task list, and each of
-those requests spends about 80% of its database time on a pagination count that
-recomputes every annotation over every row.
+A project stays comfortable in the Schedule view to roughly **2,000 tasks** — about
+**1,000** on 0.4.0-beta.1, where PostgreSQL's JIT compiler spends seconds compiling every
+page of the task list (#3829). The database is not the constraint: it holds 100,000 tasks
+in 208 MB and serves the first page of them in 127 ms. The constraint is that opening a
+project makes the Schedule read *every* page, each page skips the rows before it, and
+skipping a row still costs its per-task subqueries. A 16,000-task project takes about 40
+seconds to open; a 100,000-task project would take over half an hour, and would send 229 MB
+of JSON to the browser.
 
-Raising that ceiling is tracked, sequenced work rather than a standing limitation: four
-changes are scheduled for 0.5 (#3383). We are not publishing a target number, and the
-honest reason is that the jump between 1,000 and 2,000 tasks is not explained by any of
-them (#3385). That jump was measured at 32× on 2026-07-26 and at 2.45× on a 2026-09-15
-re-run — a large improvement that no one has yet traced to a specific change (#3828), and
-an unattributed gain is not a number to publish a forecast against.
+Opening the Schedule is not the only wall on the way to 100,000 tasks. The scheduler
+refuses a project whose task durations *sum* past 1,000 years, as if every task ran in
+series — measured refusing at 64,000 tasks (#3830). Recalculation needs ~30 KB of memory
+per task against a 2 GiB worker limit (#3831). Every remote edit re-fetches the whole
+project for everyone watching (#2341). And a program with cross-project dependencies
+recalculates as one project the size of all its members together. Each is tracked for
+0.5, along with a first measurement of the browser at this scale (#3832); the sequence is
+on #3383. We are not publishing a target number until that work is measured — this page
+published two figures in 2026 that better measurement overturned.
 
 The full per-dimension measurement — tasks per project, dependency edges, concurrent
 users and WebSocket connections, Monte Carlo iterations at the task ceiling, the

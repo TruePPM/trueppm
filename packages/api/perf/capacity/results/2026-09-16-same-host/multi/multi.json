@@ -1,0 +1,92 @@
+{
+  "A": [
+    {
+      "users": 1,
+      "median_s": 3.4,
+      "max_s": 3.4,
+      "api_cpu_peak": 75.34,
+      "db_cpu_peak": 209.62
+    },
+    {
+      "users": 2,
+      "median_s": 5.3,
+      "max_s": 5.4,
+      "api_cpu_peak": 107.45,
+      "db_cpu_peak": 303.6
+    },
+    {
+      "users": 4,
+      "median_s": 11.0,
+      "max_s": 11.1,
+      "api_cpu_peak": 117.58,
+      "db_cpu_peak": 496.0
+    },
+    {
+      "users": 8,
+      "median_s": 22.5,
+      "max_s": 22.8,
+      "api_cpu_peak": 117.63,
+      "db_cpu_peak": 723.19
+    }
+  ],
+  "B": [
+    {
+      "projects": 1,
+      "tasks_in_db": 5000,
+      "schedule_open_s": 1.87,
+      "program_rollup_ms": 15,
+      "project_list_ms": 15
+    },
+    {
+      "projects": 20,
+      "tasks_in_db": 100000,
+      "schedule_open_s": 2.14,
+      "program_rollup_ms": 27,
+      "project_list_ms": 30
+    }
+  ],
+  "C": {
+    "member_project": {
+      "s": 1.4,
+      "state": "SUCCESS",
+      "error": null,
+      "peak_rss_mib": 176
+    },
+    "program": {
+      "s": 36.1,
+      "state": "SUCCESS",
+      "error": null,
+      "peak_rss_mib": 855
+    }
+  },
+  "A_workers4": [
+    {
+      "users": 1,
+      "median_s": 2.4,
+      "max_s": 2.4,
+      "api_cpu_peak": 83.85,
+      "db_cpu_peak": 293.35
+    },
+    {
+      "users": 2,
+      "median_s": 3.0,
+      "max_s": 3.0,
+      "api_cpu_peak": 199.05,
+      "db_cpu_peak": 507.55
+    },
+    {
+      "users": 4,
+      "median_s": 4.0,
+      "max_s": 4.2,
+      "api_cpu_peak": 338.25,
+      "db_cpu_peak": 852.06
+    },
+    {
+      "users": 8,
+      "median_s": 7.3,
+      "max_s": 7.4,
+      "api_cpu_peak": 433.58,
+      "db_cpu_peak": 1106.74
+    }
+  ]
+}

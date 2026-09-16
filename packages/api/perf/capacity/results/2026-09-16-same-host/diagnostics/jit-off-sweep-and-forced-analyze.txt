@@ -1,0 +1,45 @@
+##### harness sweep, 9dca, jit off
+pg jit=off
+    p95=106.4ms err=0.0 control=29.9ms load=2.66 breached=False
+    p95=389.7ms err=0.0 control=8.8ms load=2.53 breached=False
+    p95=1598.9ms err=0.0 control=7.8ms load=2.48 breached=False
+    p95=897.7ms err=0.0 control=7.7ms load=2.36 breached=False
+    p95=3764.5ms err=0.0 control=7.6ms load=3.4 breached=True
+sweep wall time: 60s
+##### forced ANALYZE, 9dca, jit off
+  ran ANALYZE
+  stats after seed: projects_dependency|2000|0|-|-|14:28:23 || projects_task|2000|0|-|-|14:28:23
+== seeded 2000 in 2.9s
+load 1: 1769 ms  pages=10 rows=2000 count=2000
+load 2: 1812 ms  pages=10 rows=2000 count=2000
+load 3: 1821 ms  pages=10 rows=2000 count=2000
+load 4: 1774 ms  pages=10 rows=2000 count=2000
+load 5: 1825 ms  pages=10 rows=2000 count=2000
+load 6: 1839 ms  pages=10 rows=2000 count=2000
+  stats after loads: projects_dependency|2000|0|-|-|14:28:51 || projects_task|2000|0|-|-|14:28:51
+load 7: 1841 ms  pages=10 rows=2000 count=2000
+  ran ANALYZE
+  stats after seed: projects_dependency|4000|2000|-|-|14:28:58 || projects_task|4000|2000|-|-|14:28:58
+== seeded 4000 in 6.5s
+load 1: 4985 ms  pages=20 rows=4000 count=4000
+load 2: 5023 ms  pages=20 rows=4000 count=4000
+load 3: 4926 ms  pages=20 rows=4000 count=4000
+load 4: 4483 ms  pages=20 rows=4000 count=4000
+load 5: 4438 ms  pages=20 rows=4000 count=4000
+load 6: 4434 ms  pages=20 rows=4000 count=4000
+  stats after loads: projects_dependency|4000|0|-|14:29:20|14:30:23 || projects_task|4000|0|-|14:29:20|14:30:23
+load 7: 4437 ms  pages=20 rows=4000 count=4000
+  ran ANALYZE
+  stats after seed: projects_dependency|8000|4000|-|14:29:20|14:30:34 || projects_task|8000|4000|-|14:29:20|14:30:34
+== seeded 8000 in 11.1s
+load 1: 20006 ms  pages=40 rows=8000 count=8000
+load 2: 19197 ms  pages=40 rows=8000 count=8000
+load 3: 18483 ms  pages=40 rows=8000 count=8000
+load 4: 18952 ms  pages=40 rows=8000 count=8000
+load 5: 18914 ms  pages=40 rows=8000 count=8000
+load 6: 18917 ms  pages=40 rows=8000 count=8000
+  stats after loads: projects_dependency|8000|0|-|14:37:16|14:39:25 || projects_task|8000|0|-|14:37:16|14:39:25
+load 7: 18893 ms  pages=40 rows=8000 count=8000
+slow statements logged: 1
+
+[exited with code 0]

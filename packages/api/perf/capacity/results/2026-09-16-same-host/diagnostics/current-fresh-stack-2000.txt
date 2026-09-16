@@ -1,0 +1,25 @@
+seeded 2000 in 2.7s
+load 1: 3520 ms  pages=10 rows=2000 count=2000
+load 2: 3544 ms  pages=10 rows=2000 count=2000
+load 3: 3544 ms  pages=10 rows=2000 count=2000
+load 4: 3514 ms  pages=10 rows=2000 count=2000
+load 5: 3572 ms  pages=10 rows=2000 count=2000
+load 6: 3715 ms  pages=10 rows=2000 count=2000
+load 7: 3542 ms  pages=10 rows=2000 count=2000
+celery-1  | DATABASE_URL does not include sslmode=require. Database connections may use unencrypted transport. Proceeding because TRUEPPM_ALLOW_UNENCRYPTED_DB=true is set; ensure TLS is enforced at the network layer.
+celery-1  |  
+celery-1  |  -------------- celery@6e86e44fc49a v5.6.3 (recovery)
+celery-1  | --- ***** ----- 
+celery-1  | -- ******* ---- Linux-6.12.76-linuxkit-aarch64-with-glibc2.41 2026-09-16 14:06:17
+celery-1  | - *** --- * --- 
+celery-1  | - ** ---------- [config]
+celery-1  | - ** ---------- .> app:         trueppm_api:0xffff8ee87790
+celery-1  | - ** ---------- .> transport:   redis://valkey:6379/0
+celery-1  | - ** ---------- .> results:     redis://valkey:6379/0
+celery-1  | - *** --- * --- .> concurrency: 2 (prefork)
+celery-1  | -- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)
+celery-1  | --- ***** ----- 
+celery-1  |  -------------- [queues]
+celery-1  |                 .> celery           exchange=celery(direct) key=celery
+celery-1  |                 
+celery-1  | 

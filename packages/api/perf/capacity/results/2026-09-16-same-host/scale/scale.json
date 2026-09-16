@@ -1,0 +1,461 @@
+[
+  {
+    "tasks": 2000,
+    "seed_s": 4.3,
+    "db_task_table_mb": 6.0,
+    "db_total_mb": 31.4,
+    "page_first_ms": 67,
+    "page_first_status": [
+      200
+    ],
+    "page_bytes": 478804,
+    "page_middle_ms": 86,
+    "page_middle_status": [
+      200
+    ],
+    "page_last_ms": 123,
+    "page_last_status": [
+      200
+    ],
+    "full_load_est_s": 0.9,
+    "payload_total_mb_est": 4.6,
+    "full_load_measured_s": 1.1,
+    "read_peaks": {
+      "api": {
+        "cpu": 47.73,
+        "mem_mib": 146.3
+      },
+      "celery": {
+        "cpu": 0.06,
+        "mem_mib": 216.4
+      },
+      "db": {
+        "cpu": 48.95,
+        "mem_mib": 91.57
+      },
+      "valkey": {
+        "cpu": 0.23,
+        "mem_mib": 4.102
+      }
+    },
+    "cpm_s": 1.7,
+    "state": "SUCCESS",
+    "error": null,
+    "peak_rss_mib": 189,
+    "cpm_peaks": {
+      "api": {
+        "cpu": 0.19,
+        "mem_mib": 146.3
+      },
+      "celery": {
+        "cpu": 0.18,
+        "mem_mib": 216.4
+      },
+      "db": {
+        "cpu": 6.79,
+        "mem_mib": 97.5
+      },
+      "valkey": {
+        "cpu": 0.67,
+        "mem_mib": 4.379
+      },
+      "seeder-run-3f6d383ae28a": {
+        "cpu": 239.33,
+        "mem_mib": 160.6
+      }
+    }
+  },
+  {
+    "tasks": 4000,
+    "seed_s": 6.6,
+    "db_task_table_mb": 13.6,
+    "db_total_mb": 44.7,
+    "page_first_ms": 73,
+    "page_first_status": [
+      200
+    ],
+    "page_bytes": 478805,
+    "page_middle_ms": 113,
+    "page_middle_status": [
+      200
+    ],
+    "page_last_ms": 176,
+    "page_last_status": [
+      200
+    ],
+    "full_load_est_s": 2.5,
+    "payload_total_mb_est": 9.1,
+    "full_load_measured_s": 2.6,
+    "read_peaks": {
+      "api": {
+        "cpu": 41.46,
+        "mem_mib": 151.0
+      },
+      "celery": {
+        "cpu": 0.1,
+        "mem_mib": 216.4
+      },
+      "db": {
+        "cpu": 67.55,
+        "mem_mib": 125.3
+      },
+      "valkey": {
+        "cpu": 0.77,
+        "mem_mib": 4.363
+      }
+    },
+    "cpm_s": 3.3,
+    "state": "SUCCESS",
+    "error": null,
+    "peak_rss_mib": 244,
+    "cpm_peaks": {
+      "api": {
+        "cpu": 3.22,
+        "mem_mib": 145.8
+      },
+      "celery": {
+        "cpu": 0.05,
+        "mem_mib": 216.4
+      },
+      "db": {
+        "cpu": 16.08,
+        "mem_mib": 119.3
+      },
+      "valkey": {
+        "cpu": 0.95,
+        "mem_mib": 4.586
+      },
+      "seeder-run-bc2b586f88b8": {
+        "cpu": 238.7,
+        "mem_mib": 203.9
+      }
+    }
+  },
+  {
+    "tasks": 8000,
+    "seed_s": 11.0,
+    "db_task_table_mb": 25.0,
+    "db_total_mb": 60.9,
+    "page_first_ms": 72,
+    "page_first_status": [
+      200
+    ],
+    "page_bytes": 478805,
+    "page_middle_ms": 151,
+    "page_middle_status": [
+      200
+    ],
+    "page_last_ms": 276,
+    "page_last_status": [
+      200
+    ],
+    "full_load_est_s": 7.0,
+    "payload_total_mb_est": 18.3,
+    "full_load_measured_s": 6.8,
+    "read_peaks": {
+      "api": {
+        "cpu": 39.13,
+        "mem_mib": 155.4
+      },
+      "celery": {
+        "cpu": 0.21,
+        "mem_mib": 216.5
+      },
+      "db": {
+        "cpu": 80.16,
+        "mem_mib": 141.7
+      },
+      "valkey": {
+        "cpu": 0.66,
+        "mem_mib": 4.266
+      }
+    },
+    "cpm_s": 6.9,
+    "state": "SUCCESS",
+    "error": null,
+    "peak_rss_mib": 357,
+    "cpm_peaks": {
+      "api": {
+        "cpu": 3.08,
+        "mem_mib": 156.2
+      },
+      "celery": {
+        "cpu": 0.15,
+        "mem_mib": 216.5
+      },
+      "db": {
+        "cpu": 30.24,
+        "mem_mib": 154.1
+      },
+      "valkey": {
+        "cpu": 0.69,
+        "mem_mib": 4.375
+      },
+      "seeder-run-9afcb9c0e57b": {
+        "cpu": 237.62,
+        "mem_mib": 329.8
+      }
+    }
+  },
+  {
+    "tasks": 16000,
+    "seed_s": 19.6,
+    "db_task_table_mb": 45.9,
+    "db_total_mb": 102.5,
+    "page_first_ms": 74,
+    "page_first_status": [
+      200
+    ],
+    "page_bytes": 479604,
+    "page_middle_ms": 568,
+    "page_middle_status": [
+      200
+    ],
+    "page_last_ms": 1147,
+    "page_last_status": [
+      200
+    ],
+    "full_load_est_s": 48.8,
+    "payload_total_mb_est": 36.6,
+    "full_load_measured_s": 44.7,
+    "read_peaks": {
+      "api": {
+        "cpu": 28.16,
+        "mem_mib": 160.1
+      },
+      "celery": {
+        "cpu": 0.04,
+        "mem_mib": 216.5
+      },
+      "db": {
+        "cpu": 97.17,
+        "mem_mib": 200.6
+      },
+      "valkey": {
+        "cpu": 0.68,
+        "mem_mib": 4.613
+      }
+    },
+    "cpm_s": 14.0,
+    "state": "SUCCESS",
+    "error": null,
+    "peak_rss_mib": 583,
+    "cpm_peaks": {
+      "api": {
+        "cpu": 3.24,
+        "mem_mib": 151.6
+      },
+      "celery": {
+        "cpu": 0.03,
+        "mem_mib": 216.5
+      },
+      "db": {
+        "cpu": 28.59,
+        "mem_mib": 197.2
+      },
+      "valkey": {
+        "cpu": 0.6,
+        "mem_mib": 4.43
+      },
+      "seeder-run-98447cada2d9": {
+        "cpu": 233.6,
+        "mem_mib": 557.9
+      }
+    }
+  },
+  {
+    "tasks": 32000,
+    "seed_s": 39.0,
+    "db_task_table_mb": 69.5,
+    "db_total_mb": 151.4,
+    "page_first_ms": 91,
+    "page_first_status": [
+      200
+    ],
+    "page_bytes": 479605,
+    "page_middle_ms": 1486,
+    "page_middle_status": [
+      200
+    ],
+    "page_last_ms": 4572,
+    "page_last_status": [
+      200
+    ],
+    "full_load_est_s": 373.0,
+    "payload_total_mb_est": 73.2,
+    "read_peaks": {
+      "api": {
+        "cpu": 7.1,
+        "mem_mib": 161.2
+      },
+      "celery": {
+        "cpu": 0.08,
+        "mem_mib": 216.5
+      },
+      "db": {
+        "cpu": 101.11,
+        "mem_mib": 264.3
+      },
+      "valkey": {
+        "cpu": 0.61,
+        "mem_mib": 4.918
+      }
+    },
+    "cpm_s": 28.4,
+    "state": "SUCCESS",
+    "error": null,
+    "peak_rss_mib": 1035,
+    "cpm_peaks": {
+      "api": {
+        "cpu": 3.25,
+        "mem_mib": 161.5
+      },
+      "celery": {
+        "cpu": 0.04,
+        "mem_mib": 216.5
+      },
+      "db": {
+        "cpu": 27.29,
+        "mem_mib": 289.5
+      },
+      "valkey": {
+        "cpu": 0.75,
+        "mem_mib": 4.934
+      },
+      "seeder-run-d134f5b1d6fe": {
+        "cpu": 232.7,
+        "mem_mib": 1011.0
+      }
+    }
+  },
+  {
+    "tasks": 64000,
+    "seed_s": 82.1,
+    "db_task_table_mb": 128.8,
+    "db_total_mb": 270.9,
+    "page_first_ms": 106,
+    "page_first_status": [
+      200
+    ],
+    "page_bytes": 479605,
+    "page_middle_ms": 5220,
+    "page_middle_status": [
+      200
+    ],
+    "page_last_ms": 9823,
+    "page_last_status": [
+      200
+    ],
+    "full_load_est_s": 1588.6,
+    "payload_total_mb_est": 146.4,
+    "read_peaks": {
+      "api": {
+        "cpu": 10.54,
+        "mem_mib": 157.0
+      },
+      "celery": {
+        "cpu": 0.08,
+        "mem_mib": 216.5
+      },
+      "db": {
+        "cpu": 111.85,
+        "mem_mib": 402.6
+      },
+      "valkey": {
+        "cpu": 0.69,
+        "mem_mib": 4.68
+      }
+    },
+    "cpm_s": 5.1,
+    "state": "FAILURE",
+    "error": "Total project span (511113 days across all task durations and lags) exceeds the maximum of 366000 days; the schedule cannot be computed within a representable date range.",
+    "peak_rss_mib": 1100,
+    "cpm_peaks": {
+      "api": {
+        "cpu": 0.18,
+        "mem_mib": 156.1
+      },
+      "celery": {
+        "cpu": 0.25,
+        "mem_mib": 216.5
+      },
+      "db": {
+        "cpu": 7.53,
+        "mem_mib": 374.0
+      },
+      "valkey": {
+        "cpu": 0.26,
+        "mem_mib": 4.922
+      },
+      "seeder-run-e8492e9a8bb5": {
+        "cpu": 240.42,
+        "mem_mib": 1077.248
+      }
+    }
+  },
+  {
+    "tasks": 100000,
+    "seed_s": 152.2,
+    "db_task_table_mb": 208.3,
+    "db_total_mb": 416.7,
+    "page_first_ms": 127,
+    "page_first_status": [
+      200
+    ],
+    "page_bytes": 479606,
+    "page_middle_ms": 14536,
+    "page_middle_status": [
+      200
+    ],
+    "page_last_ms": 30341,
+    "page_last_status": [
+      200
+    ],
+    "full_load_est_s": 7617.0,
+    "payload_total_mb_est": 228.7,
+    "read_peaks": {
+      "api": {
+        "cpu": 7.61,
+        "mem_mib": 166.9
+      },
+      "celery": {
+        "cpu": 0.11,
+        "mem_mib": 216.5
+      },
+      "db": {
+        "cpu": 104.04,
+        "mem_mib": 564.3
+      },
+      "valkey": {
+        "cpu": 0.71,
+        "mem_mib": 5.074
+      }
+    },
+    "cpm_s": 8.4,
+    "state": "FAILURE",
+    "error": "Total project span (799640 days across all task durations and lags) exceeds the maximum of 366000 days; the schedule cannot be computed within a representable date range.",
+    "peak_rss_mib": 1653,
+    "cpm_peaks": {
+      "api": {
+        "cpu": 3.14,
+        "mem_mib": 150.0
+      },
+      "celery": {
+        "cpu": 0.04,
+        "mem_mib": 216.5
+      },
+      "db": {
+        "cpu": 55.54,
+        "mem_mib": 517.1
+      },
+      "valkey": {
+        "cpu": 0.65,
+        "mem_mib": 4.918
+      },
+      "seeder-run-6922c5124c63": {
+        "cpu": 239.15,
+        "mem_mib": 1630.208
+      }
+    }
+  }
+]

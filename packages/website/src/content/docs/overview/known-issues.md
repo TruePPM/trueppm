@@ -197,7 +197,12 @@ specific defects behind them.
 
 | Issue | Symptom | Fix planned for |
 |---|---|---|
-| [#3119](https://gitlab.com/trueppm/trueppm/-/issues/3119) | The Schedule view loads the whole project before it draws anything, which is what sets the ~1 000-task comfort ceiling | 0.5 |
+| [#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381) | Each page of the task list skips the rows before it, and skipping a row still evaluates its per-task subqueries — the last page of a 100 000-task project takes 8.7 s against 0.11 s for the first. This is what sets the ~2 000-task comfort ceiling | 0.5 |
+| [#3119](https://gitlab.com/trueppm/trueppm/-/issues/3119) | The Schedule view loads the whole project before it draws anything — about 2.3 KB of JSON per task, 229 MB at 100 000 tasks | 0.5 |
+| [#3833](https://gitlab.com/trueppm/trueppm/-/issues/3833) | The API image runs one uvicorn process and the Helm chart has no setting to change it — eight users opening an 8 000-task Schedule at once wait 22.5 s, against 7.3 s with four workers | 0.4 |
+| [#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830) | The scheduler refuses a project — or a program with cross-project dependencies, which recalculates as one — whose task durations *sum* past 366 000 days, about 73 000 tasks at a 5-day average | 0.5 |
+| [#3831](https://gitlab.com/trueppm/trueppm/-/issues/3831) | Schedule recalculation holds about 30 KB of memory per task, so the chart's 2 GiB Celery worker limit is exceeded near 60 000 tasks in one project or one cross-linked program. Raise `resources.limits.memory` on the worker before then | 0.5 |
+| [#3832](https://gitlab.com/trueppm/trueppm/-/issues/3832) | The Schedule has never been measured in a browser at scale: heap size, first paint, and interaction latency above a few thousand tasks are unknown | 0.5 |
 | [#2340](https://gitlab.com/trueppm/trueppm/-/issues/2340) | The Kanban board renders every card as a DOM node with no virtualization | 0.5 |
 | [#2341](https://gitlab.com/trueppm/trueppm/-/issues/2341) | A remote `task_updated` event triggers a full multi-page task-list refetch instead of splicing the changed row | 0.5 |
 | [#2346](https://gitlab.com/trueppm/trueppm/-/issues/2346) | `TaskRelationViewSet` is unpaginated and returns every relation across all member projects | 0.5 |

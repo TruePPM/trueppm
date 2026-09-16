@@ -1,0 +1,17 @@
+{
+  "arm": "9dca",
+  "label": "run2-jitoff-18c-8g",
+  "code_sha": "9dca6c525f173506f639534f00d3b9837ef366a9",
+  "code_overlay": "",
+  "image_id": "sha256:560afde45eca337eb26075696031ba2d2bebc069a1b4abef65f21af8112bc2c4",
+  "harness_sha": "9dca6c525 + scripts/compose.diff",
+  "chip": "Apple M5 Pro",
+  "p_cores": "6",
+  "e_cores": "12",
+  "host_mem_bytes": "68719476736",
+  "docker_ncpu": "18",
+  "docker_mem_gib": "7.7",
+  "docker_version": "29.7.2",
+  "host_load_at_start": "1.93",
+  "pg_jit": "off"
+}

@@ -1,0 +1,72 @@
+== building cap-main
+== building cap-fix
+######## main, no fix (server jit=on)
+  ran ANALYZE
+  stats after seed: projects_dependency|1000|0|-|-|14:44:37 || projects_task|1000|0|-|-|14:44:37
+== seeded 1000 in 2.6s
+load 1: 746 ms  pages=5 rows=1000 count=1000
+load 2: 738 ms  pages=5 rows=1000 count=1000
+load 3: 773 ms  pages=5 rows=1000 count=1000
+load 4: 714 ms  pages=5 rows=1000 count=1000
+load 5: 738 ms  pages=5 rows=1000 count=1000
+load 6: 759 ms  pages=5 rows=1000 count=1000
+  stats after loads: projects_dependency|1000|0|-|-|14:45:06 || projects_task|1000|0|-|-|14:45:06
+load 7: 728 ms  pages=5 rows=1000 count=1000
+  ran ANALYZE
+  stats after seed: projects_dependency|2000|1000|-|-|14:45:11 || projects_task|2000|1000|-|-|14:45:11
+== seeded 2000 in 4.4s
+load 1: 14366 ms  pages=10 rows=2000 count=2000
+load 2: 14389 ms  pages=10 rows=2000 count=2000
+load 3: 14376 ms  pages=10 rows=2000 count=2000
+load 4: 14427 ms  pages=10 rows=2000 count=2000
+load 5: 14384 ms  pages=10 rows=2000 count=2000
+load 6: 14451 ms  pages=10 rows=2000 count=2000
+  stats after loads: projects_dependency|2000|0|-|14:45:35|14:47:01 || projects_task|2000|0|-|14:45:35|14:47:01
+load 7: 14331 ms  pages=10 rows=2000 count=2000
+slow statements logged: 0
+######## main + fix (server jit=on)
+  ran ANALYZE
+  stats after seed: projects_dependency|1000|0|-|-|14:47:42 || projects_task|1000|0|-|-|14:47:42
+== seeded 1000 in 2.6s
+load 1: 474 ms  pages=5 rows=1000 count=1000
+load 2: 583 ms  pages=5 rows=1000 count=1000
+load 3: 515 ms  pages=5 rows=1000 count=1000
+load 4: 504 ms  pages=5 rows=1000 count=1000
+load 5: 486 ms  pages=5 rows=1000 count=1000
+load 6: 522 ms  pages=5 rows=1000 count=1000
+  stats after loads: projects_dependency|1000|0|-|-|14:48:11 || projects_task|1000|0|-|-|14:48:11
+load 7: 477 ms  pages=5 rows=1000 count=1000
+  ran ANALYZE
+  stats after seed: projects_dependency|2000|1000|-|-|14:48:16 || projects_task|2000|1000|-|-|14:48:16
+== seeded 2000 in 4.6s
+load 1: 1102 ms  pages=10 rows=2000 count=2000
+load 2: 1102 ms  pages=10 rows=2000 count=2000
+load 3: 1135 ms  pages=10 rows=2000 count=2000
+load 4: 1065 ms  pages=10 rows=2000 count=2000
+load 5: 1373 ms  pages=10 rows=2000 count=2000
+load 6: 1137 ms  pages=10 rows=2000 count=2000
+  stats after loads: projects_dependency|2000|0|-|14:48:39|14:48:44 || projects_task|2000|0|-|14:48:39|14:48:44
+load 7: 1099 ms  pages=10 rows=2000 count=2000
+  ran ANALYZE
+  stats after seed: projects_dependency|4000|2000|-|14:48:39|14:48:51 || projects_task|4000|2000|-|14:48:39|14:48:51
+== seeded 4000 in 7.2s
+load 1: 3048 ms  pages=20 rows=4000 count=4000
+load 2: 2716 ms  pages=20 rows=4000 count=4000
+load 3: 2698 ms  pages=20 rows=4000 count=4000
+load 4: 2847 ms  pages=20 rows=4000 count=4000
+load 5: 2956 ms  pages=20 rows=4000 count=4000
+load 6: 2884 ms  pages=20 rows=4000 count=4000
+  stats after loads: projects_dependency|4000|2000|-|14:48:39|14:49:19 || projects_task|4000|2000|-|14:48:39|14:49:19
+load 7: 2696 ms  pages=20 rows=4000 count=4000
+  ran ANALYZE
+  stats after seed: projects_dependency|8000|6000|-|14:48:39|14:49:32 || projects_task|8000|6000|-|14:48:39|14:49:32
+== seeded 8000 in 12.3s
+load 1: 8355 ms  pages=40 rows=8000 count=8000
+load 2: 7564 ms  pages=40 rows=8000 count=8000
+load 3: 7586 ms  pages=40 rows=8000 count=8000
+load 4: 7822 ms  pages=40 rows=8000 count=8000
+load 5: 7613 ms  pages=40 rows=8000 count=8000
+load 6: 7671 ms  pages=40 rows=8000 count=8000
+  stats after loads: projects_dependency|8000|0|-|14:49:39|14:50:33 || projects_task|8000|0|-|14:49:39|14:50:33
+load 7: 7658 ms  pages=40 rows=8000 count=8000
+slow statements logged: 0

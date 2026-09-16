@@ -115,8 +115,8 @@ narrower than "TruePPM is better":
 TruePPM is also five months old and pre-1.0 against a project shipping since 2012.
 Expect rough edges, read [Known issues](/overview/known-issues/) before you pilot,
 and see the [tested scale envelope](/administration/sizing/#tested-envelope) for the
-measured limits — a project stays comfortable in the Schedule view to roughly 1,000
-tasks today.
+measured limits — a project stays comfortable in the Schedule view to roughly 2,000
+tasks (about 1,000 on 0.4.0-beta.1), and slows steeply past 8,000.
 
 ## A note on Taiga's maintenance status
 
@@ -143,7 +143,7 @@ This is where the honest losses are.
 | **Resource leveling** | **No** (a single-program engine is sequenced for 0.6) | Yes | Yes |
 | **Constraint types** | **1** (start-no-earlier-than; a deadline with negative float is planned for 0.5) | Full set | 8 + deadlines |
 | **Cost / earned value** | **No** (EV-lite planned 0.8) | Yes | Yes |
-| **Tested task ceiling** | **~1,000 in the Schedule view** (a lift is planned for 0.5; no target number is published — see [why](/administration/sizing/#how-this-ceiling-is-raised-in-05)) | Very large (100k+ activities in practice) | Large |
+| **Tested task ceiling** | **~2,000 in the Schedule view** (~1,000 on 0.4.0-beta.1; 16,000 takes ~40 s to open, and 100,000 is out of reach — see [where each part runs out](/administration/sizing/#toward-100000-tasks)) | Very large (100k+ activities in practice) | Large |
 | Sub-day scheduling | No (planned 0.6) | Yes | Yes |
 | Agile board / sprints | Yes, on the same objects | No | No |
 | Real-time multi-user web | Yes | Limited | Limited |

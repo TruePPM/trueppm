@@ -1,0 +1,206 @@
+SET
+Limit  (cost=712861.62..855365.37 rows=200 width=2742) (actual time=41.085..48.465 rows=200 loops=1)
+  Buffers: shared hit=18840
+  ->  GroupAggregate  (cost=342.87..1425380.38 rows=2000 width=2742) (actual time=2.356..48.437 rows=1200 loops=1)
+        Group Key: projects_task.id, ((SubPlan 1)), ((SubPlan 2)), ((SubPlan 3)), ((SubPlan 4)), t9.id, t10.id, projects_sprint.id
+        Buffers: shared hit=18840
+        ->  Incremental Sort  (cost=342.87..684052.85 rows=2000 width=2822) (actual time=1.468..39.698 rows=1202 loops=1)
+              Sort Key: projects_task.id, ((SubPlan 1)), ((SubPlan 2)), ((SubPlan 3)), ((SubPlan 4)), t9.id, t10.id, projects_sprint.id, projects_dependency.id
+              Presorted Key: projects_task.id
+              Full-sort Groups: 38  Sort Method: quicksort  Average Memory: 39kB  Peak Memory: 39kB
+              Buffers: shared hit=18720
+              ->  Nested Loop Semi Join  (cost=0.88..683962.85 rows=2000 width=2822) (actual time=0.236..38.700 rows=1217 loops=1)
+                    Buffers: shared hit=18709
+                    ->  Nested Loop Left Join  (cost=0.88..1532.84 rows=2000 width=2796) (actual time=0.069..4.116 rows=1217 loops=1)
+                          Join Filter: (projects_task.sprint_id = projects_sprint.id)
+                          Buffers: shared hit=2391
+                          ->  Nested Loop Left Join  (cost=0.88..1507.84 rows=2000 width=1940) (actual time=0.066..3.450 rows=1217 loops=1)
+                                Join Filter: (projects_task.blocked_by_id = t10.id)
+                                Rows Removed by Join Filter: 2434
+                                Buffers: shared hit=2391
+                                ->  Nested Loop Left Join  (cost=0.88..1446.81 rows=2000 width=1790) (actual time=0.058..2.914 rows=1217 loops=1)
+                                      Buffers: shared hit=2390
+                                      ->  Merge Left Join  (cost=0.60..576.66 rows=2000 width=1239) (actual time=0.049..2.454 rows=1217 loops=1)
+                                            Merge Cond: (projects_task.id = integrations_tasklink.task_id)
+                                            Buffers: shared hit=2390
+                                            ->  Merge Left Join  (cost=0.59..571.63 rows=2000 width=1172) (actual time=0.044..2.221 rows=1217 loops=1)
+                                                  Merge Cond: (projects_task.id = projects_tasknote.task_id)
+                                                  Buffers: shared hit=2390
+                                                  ->  Merge Left Join  (cost=0.58..566.60 rows=2000 width=1163) (actual time=0.039..1.990 rows=1217 loops=1)
+                                                        Merge Cond: (projects_task.id = projects_dependency.successor_id)
+                                                        Buffers: shared hit=2390
+                                                        ->  Nested Loop  (cost=0.30..346.33 rows=2000 width=1146) (actual time=0.026..1.199 rows=1216 loops=1)
+                                                              Buffers: shared hit=1207
+                                                              ->  Merge Left Join  (cost=0.30..320.31 rows=2000 width=614) (actual time=0.016..0.758 rows=1216 loops=1)
+                                                                    Merge Cond: (projects_task.id = projects_risk_task.task_id)
+                                                                    Buffers: shared hit=1206
+                                                                    ->  Index Scan using projects_task_pkey on projects_task  (cost=0.28..315.27 rows=2000 width=551) (actual time=0.009..0.581 rows=1216 loops=1)
+                                                                          Filter: ((NOT is_deleted) AND (project_id = '0e485214-22b5-41a5-a191-bd8de08fecef'::uuid))
+                                                                          Buffers: shared hit=1206
+                                                                    ->  Sort  (cost=0.02..0.03 rows=1 width=79) (actual time=0.006..0.007 rows=0 loops=1)
+                                                                          Sort Key: projects_risk_task.task_id
+                                                                          Sort Method: quicksort  Memory: 25kB
+                                                                          ->  Nested Loop Left Join  (cost=0.00..0.01 rows=1 width=79) (actual time=0.002..0.003 rows=0 loops=1)
+                                                                                Join Filter: (projects_risk_task.risk_id = projects_risk.id)
+                                                                                ->  Seq Scan on projects_risk_task  (cost=0.00..0.00 rows=1 width=32) (actual time=0.002..0.002 rows=0 loops=1)
+                                                                                ->  Seq Scan on projects_risk  (cost=0.00..0.00 rows=1 width=63) (never executed)
+                                                              ->  Materialize  (cost=0.00..1.02 rows=1 width=532) (actual time=0.000..0.000 rows=1 loops=1216)
+                                                                    Buffers: shared hit=1
+                                                                    ->  Seq Scan on projects_project  (cost=0.00..1.01 rows=1 width=532) (actual time=0.006..0.006 rows=1 loops=1)
+                                                                          Filter: (id = '0e485214-22b5-41a5-a191-bd8de08fecef'::uuid)
+                                                                          Buffers: shared hit=1
+                                                        ->  Index Scan using projects_dependency_successor_id_c3952da1 on projects_dependency  (cost=0.28..190.27 rows=2000 width=33) (actual time=0.010..0.436 rows=1216 loops=1)
+                                                              Buffers: shared hit=1183
+                                                  ->  Sort  (cost=0.01..0.02 rows=1 width=25) (actual time=0.004..0.004 rows=0 loops=1)
+                                                        Sort Key: projects_tasknote.task_id
+                                                        Sort Method: quicksort  Memory: 25kB
+                                                        ->  Seq Scan on projects_tasknote  (cost=0.00..0.00 rows=1 width=25) (actual time=0.001..0.001 rows=0 loops=1)
+                                            ->  Sort  (cost=0.01..0.02 rows=1 width=83) (actual time=0.004..0.005 rows=0 loops=1)
+                                                  Sort Key: integrations_tasklink.task_id
+                                                  Sort Method: quicksort  Memory: 25kB
+                                                  ->  Seq Scan on integrations_tasklink  (cost=0.00..0.00 rows=1 width=83) (actual time=0.001..0.001 rows=0 loops=1)
+                                      ->  Index Scan using projects_task_pkey on projects_task t9  (cost=0.28..0.43 rows=1 width=551) (actual time=0.000..0.000 rows=0 loops=1217)
+                                            Index Cond: (id = projects_task.blocking_task_id)
+                                ->  Materialize  (cost=0.00..1.03 rows=2 width=150) (actual time=0.000..0.000 rows=2 loops=1217)
+                                      Buffers: shared hit=1
+                                      ->  Seq Scan on auth_user t10  (cost=0.00..1.02 rows=2 width=150) (actual time=0.004..0.004 rows=2 loops=1)
+                                            Buffers: shared hit=1
+                          ->  Seq Scan on projects_sprint  (cost=0.00..0.00 rows=1 width=856) (actual time=0.000..0.000 rows=0 loops=1217)
+                    ->  Materialize  (cost=0.00..1.02 rows=1 width=16) (actual time=0.000..0.000 rows=1 loops=1217)
+                          Buffers: shared hit=1
+                          ->  Seq Scan on access_project_membership u0  (cost=0.00..1.01 rows=1 width=16) (actual time=0.004..0.004 rows=1 loops=1)
+                                Filter: ((NOT is_deleted) AND (project_id = '0e485214-22b5-41a5-a191-bd8de08fecef'::uuid) AND (user_id = 2))
+                                Buffers: shared hit=1
+                    SubPlan 1
+                      ->  Result  (cost=0.16..76.66 rows=20 width=0) (actual time=0.008..0.008 rows=0 loops=1217)
+                            One-Time Filter: (projects_task.wbs_path IS NOT NULL)
+                            Buffers: shared hit=4525
+                            ->  Index Scan using unique_task_wbs_path_per_project_live on projects_task c  (cost=0.16..76.66 rows=20 width=0) (actual time=0.008..0.008 rows=0 loops=1217)
+                                  Index Cond: ((project_id = projects_task.project_id) AND (wbs_path IS NOT NULL) AND (wbs_path ~ (((projects_task.wbs_path)::text || '.*{1}'::text))::lquery))
+                                  Filter: (id <> projects_task.id)
+                                  Buffers: shared hit=4525
+                    SubPlan 2
+                      ->  Result  (cost=0.16..76.66 rows=20 width=0) (actual time=0.008..0.008 rows=0 loops=1217)
+                            One-Time Filter: (projects_task.wbs_path IS NOT NULL)
+                            Buffers: shared hit=4499
+                            ->  Index Scan using unique_task_wbs_path_per_project_live on projects_task c_1  (cost=0.16..76.66 rows=20 width=0) (actual time=0.008..0.008 rows=0 loops=1217)
+                                  Index Cond: ((project_id = projects_task.project_id) AND (wbs_path IS NOT NULL) AND (wbs_path ~ (((projects_task.wbs_path)::text || '.*{1}'::text))::lquery))
+                                  Filter: ((NOT is_subtask) AND (id <> projects_task.id))
+                                  Buffers: shared hit=4499
+                    SubPlan 3
+                      ->  Limit  (cost=0.15..8.17 rows=1 width=16) (actual time=0.005..0.005 rows=0 loops=1217)
+                            Buffers: shared hit=4430
+                            ->  Result  (cost=0.15..8.17 rows=1 width=16) (actual time=0.005..0.005 rows=0 loops=1217)
+                                  One-Time Filter: ((projects_task.wbs_path IS NOT NULL) AND (nlevel(projects_task.wbs_path) > 1))
+                                  Buffers: shared hit=4430
+                                  ->  Index Scan using unique_task_wbs_path_per_project_live on projects_task p  (cost=0.15..8.17 rows=1 width=16) (actual time=0.005..0.005 rows=0 loops=1217)
+                                        Index Cond: ((project_id = projects_task.project_id) AND (wbs_path = subpath(projects_task.wbs_path, 0, (nlevel(projects_task.wbs_path) - 1))))
+                                        Buffers: shared hit=4430
+                    SubPlan 4
+                      ->  Aggregate  (cost=325.05..325.06 rows=1 width=8) (actual time=0.006..0.006 rows=1 loops=1217)
+                            Buffers: shared hit=2863
+                            ->  Result  (cost=7.42..323.70 rows=20 width=38) (actual time=0.006..0.006 rows=0 loops=1217)
+                                  One-Time Filter: (projects_task.wbs_path IS NOT NULL)
+                                  Buffers: shared hit=2863
+                                  ->  Nested Loop Anti Join  (cost=7.42..323.70 rows=20 width=38) (actual time=0.006..0.006 rows=0 loops=1217)
+                                        Buffers: shared hit=2863
+                                        ->  Bitmap Heap Scan on projects_task c_2  (cost=4.31..47.04 rows=20 width=67) (actual time=0.005..0.005 rows=0 loops=1217)
+                                              Recheck Cond: (wbs_path ~ (((projects_task.wbs_path)::text || '.*{1,}'::text))::lquery)
+                                              Filter: ((NOT is_deleted) AND (project_id = projects_task.project_id))
+                                              Buffers: shared hit=2863
+                                              ->  Bitmap Index Scan on projects_task_wbs_gist  (cost=0.00..4.31 rows=20 width=0) (actual time=0.005..0.005 rows=0 loops=1217)
+                                                    Index Cond: (wbs_path ~ (((projects_task.wbs_path)::text || '.*{1,}'::text))::lquery)
+                                                    Buffers: shared hit=2863
+                                        ->  Bitmap Heap Scan on projects_task gc  (cost=3.11..13.63 rows=20 width=29) (never executed)
+                                              Recheck Cond: (wbs_path ~ (((c_2.wbs_path)::text || '.*{1}'::text))::lquery)
+                                              Filter: ((NOT is_deleted) AND (project_id = projects_task.project_id))
+                                              ->  Bitmap Index Scan on projects_task_wbs_gist  (cost=0.00..3.11 rows=20 width=0) (never executed)
+                                                    Index Cond: (wbs_path ~ (((c_2.wbs_path)::text || '.*{1}'::text))::lquery)
+        SubPlan 6
+          ->  Seq Scan on projects_dependency u0_1  (cost=0.00..49.00 rows=2000 width=16) (actual time=0.001..0.082 rows=2000 loops=1)
+                Buffers: shared hit=29
+        SubPlan 8
+          ->  Hash Join  (cost=109.00..163.26 rows=2000 width=16) (actual time=0.234..0.454 rows=2000 loops=1)
+                Hash Cond: (u0_2.predecessor_id = u2.id)
+                Buffers: shared hit=88
+                ->  Seq Scan on projects_dependency u0_2  (cost=0.00..49.00 rows=2000 width=32) (actual time=0.001..0.088 rows=2000 loops=1)
+                      Filter: (NOT is_deleted)
+                      Buffers: shared hit=29
+                ->  Hash  (cost=84.00..84.00 rows=2000 width=16) (actual time=0.229..0.229 rows=2000 loops=1)
+                      Buckets: 2048  Batches: 1  Memory Usage: 110kB
+                      Buffers: shared hit=59
+                      ->  Seq Scan on projects_task u2  (cost=0.00..84.00 rows=2000 width=16) (actual time=0.001..0.142 rows=2000 loops=1)
+                            Filter: ((status)::text <> 'COMPLETE'::text)
+                            Buffers: shared hit=59
+        SubPlan 9
+          ->  Seq Scan on projects_task_relation u0_3  (cost=0.00..0.00 rows=1 width=0) (actual time=0.000..0.000 rows=0 loops=1200)
+                Filter: ((NOT is_deleted) AND (source_id = projects_task.id))
+        SubPlan 11
+          ->  Seq Scan on projects_task_relation u0_4  (cost=0.00..0.00 rows=1 width=0) (actual time=0.000..0.000 rows=0 loops=1200)
+                Filter: ((NOT is_deleted) AND (target_id = projects_task.id))
+        SubPlan 13
+          ->  Seq Scan on projects_taskrecurrencerule u0_5  (cost=0.00..0.00 rows=1 width=0) (actual time=0.000..0.000 rows=0 loops=1200)
+                Filter: ((NOT is_deleted) AND (task_id = projects_task.id))
+        SubPlan 16
+          ->  Nested Loop  (cost=0.00..0.01 rows=1 width=16) (actual time=0.001..0.002 rows=0 loops=1)
+                Join Filter: (u0_6.task_comment_id = u2_1.id)
+                ->  Seq Scan on notifications_mention u0_6  (cost=0.00..0.00 rows=1 width=16) (actual time=0.001..0.001 rows=0 loops=1)
+                      Filter: (mentioned_user_id = 2)
+                ->  Seq Scan on projects_taskcomment u2_1  (cost=0.00..0.00 rows=1 width=32) (never executed)
+        SubPlan 21
+          ->  Limit  (cost=8.38..8.49 rows=1 width=56) (actual time=0.003..0.003 rows=0 loops=1200)
+                Buffers: shared hit=3
+                ->  GroupAggregate  (cost=8.38..8.49 rows=1 width=56) (actual time=0.003..0.003 rows=0 loops=1200)
+                      Group Key: (COALESCE((SubPlan 17), (SubPlan 18), 1.00))
+                      Filter: (sum(v0.units) > COALESCE((SubPlan 19), (SubPlan 20), 1.00))
+                      Buffers: shared hit=3
+                      ->  Sort  (cost=8.38..8.38 rows=1 width=64) (actual time=0.001..0.001 rows=0 loops=1200)
+                            Sort Key: (COALESCE((SubPlan 17), (SubPlan 18), 1.00))
+                            Sort Method: quicksort  Memory: 25kB
+                            Buffers: shared hit=3
+                            ->  Nested Loop  (cost=0.28..8.37 rows=1 width=64) (actual time=0.000..0.000 rows=0 loops=1200)
+                                  Join Filter: (v0.task_id = v2.id)
+                                  ->  Nested Loop  (cost=0.00..0.01 rows=1 width=28) (actual time=0.000..0.000 rows=0 loops=1200)
+                                        Join Filter: (v0.resource_id = v1.id)
+                                        ->  Seq Scan on resources_task_resource v0  (cost=0.00..0.00 rows=1 width=44) (actual time=0.000..0.000 rows=0 loops=1200)
+                                        ->  Seq Scan on resources_resource v1  (cost=0.00..0.00 rows=1 width=16) (never executed)
+                                              Filter: (NOT is_deleted)
+                                  ->  Index Scan using projects_task_assignee_id_5061de72 on projects_task v2  (cost=0.28..8.30 rows=1 width=36) (never executed)
+                                        Index Cond: (assignee_id = projects_task.assignee_id)
+                                        Filter: ((NOT is_deleted) AND (project_id = projects_task.project_id) AND ((status)::text = ANY ('{NOT_STARTED,IN_PROGRESS,REVIEW}'::text[])))
+                                  SubPlan 17
+                                    ->  Limit  (cost=0.02..0.03 rows=1 width=528) (never executed)
+                                          ->  Sort  (cost=0.02..0.03 rows=1 width=528) (never executed)
+                                                Sort Key: u2_2.name
+                                                ->  Nested Loop  (cost=0.00..0.01 rows=1 width=528) (never executed)
+                                                      Join Filter: (u0_7.resource_id = u2_2.id)
+                                                      ->  Seq Scan on resources_project_resource u0_7  (cost=0.00..0.00 rows=1 width=28) (never executed)
+                                                            Filter: ((NOT is_deleted) AND (project_id = v2.project_id))
+                                                      ->  Seq Scan on resources_resource u2_2  (cost=0.00..0.00 rows=1 width=544) (never executed)
+                                                            Filter: (user_id = v2.assignee_id)
+                                  SubPlan 18
+                                    ->  Limit  (cost=0.01..0.02 rows=1 width=528) (never executed)
+                                          ->  Sort  (cost=0.01..0.02 rows=1 width=528) (never executed)
+                                                Sort Key: u0_8.name
+                                                ->  Seq Scan on resources_resource u0_8  (cost=0.00..0.00 rows=1 width=528) (never executed)
+                                                      Filter: ((NOT is_deleted) AND (user_id = v2.assignee_id))
+                      SubPlan 19
+                        ->  Limit  (cost=0.02..0.03 rows=1 width=528) (never executed)
+                              ->  Sort  (cost=0.02..0.03 rows=1 width=528) (never executed)
+                                    Sort Key: u2_3.name
+                                    ->  Nested Loop  (cost=0.00..0.01 rows=1 width=528) (never executed)
+                                          Join Filter: (u0_9.resource_id = u2_3.id)
+                                          ->  Seq Scan on resources_project_resource u0_9  (cost=0.00..0.00 rows=1 width=28) (never executed)
+                                                Filter: ((NOT is_deleted) AND (project_id = v2.project_id))
+                                          ->  Seq Scan on resources_resource u2_3  (cost=0.00..0.00 rows=1 width=544) (never executed)
+                                                Filter: (user_id = v2.assignee_id)
+                      SubPlan 20
+                        ->  Limit  (cost=0.01..0.02 rows=1 width=528) (never executed)
+                              ->  Sort  (cost=0.01..0.02 rows=1 width=528) (never executed)
+                                    Sort Key: u0_10.name
+                                    ->  Seq Scan on resources_resource u0_10  (cost=0.00..0.00 rows=1 width=528) (never executed)
+                                          Filter: ((NOT is_deleted) AND (user_id = v2.assignee_id))
+Planning:
+  Buffers: shared hit=3676
+Planning Time: 9.470 ms
+Execution Time: 49.028 ms

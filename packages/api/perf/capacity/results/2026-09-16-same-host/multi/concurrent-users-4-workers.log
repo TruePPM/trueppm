@@ -1,0 +1,7 @@
+== A_workers4. concurrent users, one 8,000-task project
+   tasks in db: 8000
+   {'users': 1, 'median_s': 2.4, 'max_s': 2.4, 'api_cpu_peak': 83.85, 'db_cpu_peak': 293.35}
+   {'users': 2, 'median_s': 3.0, 'max_s': 3.0, 'api_cpu_peak': 199.05, 'db_cpu_peak': 507.55}
+   {'users': 4, 'median_s': 4.0, 'max_s': 4.2, 'api_cpu_peak': 338.25, 'db_cpu_peak': 852.06}
+   {'users': 8, 'median_s': 7.3, 'max_s': 7.4, 'api_cpu_peak': 433.58, 'db_cpu_peak': 1106.74}
+exit=0

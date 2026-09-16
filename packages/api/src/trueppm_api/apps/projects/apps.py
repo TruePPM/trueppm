@@ -9,6 +9,15 @@ class ProjectsConfig(AppConfig):
 
     def ready(self) -> None:
         """Wire signal receivers when the app starts."""
+        from django.db.backends.signals import connection_created
+
+        from trueppm_api.core.db_session import disable_jit
+
+        # PostgreSQL JIT compiles the task list's page query for seconds on large
+        # projects (#3829). Registered here because this app owns that query; the
+        # receiver applies to every connection, including Celery workers'.
+        connection_created.connect(disable_jit, dispatch_uid="trueppm_disable_pg_jit")
+
         # Import for side-effects: registers receivers on task_status_changed.
         from trueppm_api.apps.projects import receivers
 
