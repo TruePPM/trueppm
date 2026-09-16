@@ -1,0 +1,6 @@
+== A. concurrent users, one 8,000-task project
+   tasks in db: 8000
+   {'users': 1, 'median_s': 3.4, 'max_s': 3.4, 'api_cpu_peak': 75.34, 'db_cpu_peak': 209.62}
+   {'users': 2, 'median_s': 5.3, 'max_s': 5.4, 'api_cpu_peak': 107.45, 'db_cpu_peak': 303.6}
+   {'users': 4, 'median_s': 11.0, 'max_s': 11.1, 'api_cpu_peak': 117.58, 'db_cpu_peak': 496.0}
+   {'users': 8, 'median_s': 22.5, 'max_s': 22.8, 'api_cpu_peak': 117.63, 'db_cpu_peak': 723.19}

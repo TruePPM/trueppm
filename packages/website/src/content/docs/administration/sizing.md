@@ -34,7 +34,7 @@ The stack under test is an isolated Docker Compose stack running `settings.prod`
 |---|---|---|---|
 | 2026-07-26 | Apple M1 Max — 8 performance + 2 efficiency cores, 32 GiB | 10 CPU / 7.75 GiB | Dependency and workspace rows |
 | 2026-09-15 | Apple M5 Pro — 6 performance + 12 efficiency cores, 64 GiB | 18 CPU / 8 GiB / 1 GiB swap | Task-list page row |
-| 2026-09-16 | Apple M5 Pro, as above | 18 CPU / 8 GiB / 1 GiB swap | Whole-project row, and the diagnosis on this page |
+| 2026-09-16 | Apple M5 Pro, as above | 18 CPU / 8 GiB / 1 GiB swap | Whole-project row, the diagnosis, and every section from "Toward 100,000 tasks" on |
 
 Both are **single-node developer-class machines**, not a tuned multi-node cluster, and both are faster per core than a typical small VPS. Do not read either as a worst case.
 
@@ -45,7 +45,7 @@ Both are **single-node developer-class machines**, not a tuned multi-node cluste
 | Dimension | Tested to | Measured | What sets the ceiling |
 |---|---|---|---|
 | **Tasks per project** — one page of the task list | **10,000 tasks** | *2026-09-15, single run:* 0.15 s @ 1k · 0.25 s @ 2k · 0.64 s @ 4k · **0.68 s @ 8k**; a separate targeted run measured **0.44 s @ 10k** — no breach at any size | Page-bounded — **on page 1**. Deep pages cost far more (see below). Not re-measured at steady state; the 2026-07-26 breach at 8k (8.3 s) was on the other machine and cannot be compared |
-| **Whole-project load** — every page, what the Schedule fetches before drawing a bar | **8,000 tasks** | *2026-09-16, current `main` with JIT off:* 0.47–0.58 s @ 1k · **1.07–1.37 s @ 2k** · 2.70–3.05 s @ 4k · 7.6–8.4 s @ 8k — breaches the 2 s line between 2k and 4k | [#2815](https://gitlab.com/trueppm/trueppm/-/issues/2815) and [#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381) — each page still pays a pagination `COUNT` and an `OFFSET`, both of which grow with the project. **Without the JIT fix** the same build takes **14.4 s @ 2k** — see [why](#why-the-whole-project-ceiling-is-where-it-is) |
+| **Whole-project load** — every page, what the Schedule fetches before drawing a bar | **100,000 tasks** | *2026-09-16, current `main` with JIT off:* 0.47–0.58 s @ 1k · **1.07–1.37 s @ 2k** · 2.6–3.05 s @ 4k · 6.8–8.4 s @ 8k · **44.7 s @ 16k** · ~6 min @ 32k · ~2 h @ 100k — breaches the 2 s line between 2k and 4k. Above 16k the figure is computed from first-, middle- and last-page timings, a method that came within 10% of a full load at 2k–16k | [#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381) — every page skips the rows before it with an `OFFSET`, and the skipped rows are not free: the last page of a 100,000-task project takes 30 s while the first takes 0.13 s. **Without the JIT fix** the same build takes **14.4 s @ 2k** — see [why](#why-the-whole-project-ceiling-is-where-it-is), and [toward 100,000 tasks](#toward-100000-tasks) for where everything else runs out |
 | **Dependency edges per project** | **12,000 edges** on a 4,000-task project | *2026-07-26:* 0.12–0.15 s, flat — **no breach found** | Not the binding constraint at this scale. Untested above 12,000 |
 | **Projects per workspace / total tasks** | **50 projects · 50,000 tasks** | *2026-07-26:* 0.04–0.06 s, flat — **no breach found** | The project-list N+1 ([#1482](https://gitlab.com/trueppm/trueppm/-/issues/1482)) does not bite at this scale. Untested above 50 projects |
 
@@ -78,7 +78,7 @@ Managed PostgreSQL services (RDS, Cloud SQL, Azure) expose `jit` as a parameter-
 
 **The Schedule is the binding constraint, not the database.** A project holds several thousand tasks comfortably while you page through a list, and a workspace absorbs 50,000 tasks without noticing. But when the **Schedule** opens a project the client pulls *every* page, and that is a far lower ceiling. Plan against **~2,000 tasks per project** on a build with the JIT fix, and **~1,000** on 0.4.0-beta.1 — not the 10,000 in the first row, which measures a single page rather than opening a project.
 
-**Above that it slows steadily; it does not fall off a cliff.** With JIT off, each doubling of project size multiplies whole-project load by 2.2–2.7×, so a 4,000-task project opens in about 3 seconds and an 8,000-task one in about 8, rather than hanging. That is the shape of the two costs described below. The cliff this page used to warn about was JIT.
+**Above that it slows steadily to 8,000 tasks, then steeply.** With JIT off, each doubling up to 8,000 multiplies whole-project load by 2.2–2.7×, so a 4,000-task project opens in about 3 seconds and an 8,000-task one in about 8. The next doubling is 6.6×: a 16,000-task project takes about 45 seconds. The sudden 2,000-task cliff this page used to warn about was JIT; the steepening past 8,000 is the `OFFSET` cost described below, and [toward 100,000 tasks](#toward-100000-tasks) covers what runs out after it.
 
 ### Why the whole-project ceiling is where it is
 
@@ -93,12 +93,18 @@ This is the number most likely to decide whether TruePPM fits your project, so h
 
 That cost is paid on **every page**, independent of the offset. The PostgreSQL slow-query log over seven 2,000-task loads recorded 56 statements over 3 s, **every one of them the page query** and none the pagination `COUNT`. Whether a given measurement paid it depended on whether statistics had caught up yet, which is why it appeared as one slow sample on some runs, as a 60 s outlier on another, and not at all on the fastest.
 
-**With JIT off, two costs remain, and both grow with project size.** A whole-project load is `ceil(N / 200)` page requests, and each one pays:
+**With JIT off, one cost dominates: the `OFFSET`.** A whole-project load is `ceil(N / 200)` page requests. Each page skips the rows before it, and skipping a row is not free: PostgreSQL still evaluates the task list's per-task subqueries for every row it passes over, and those subqueries themselves cost more in a bigger project. So a page's cost grows faster than its offset:
 
-- **A pagination `COUNT` that re-runs the annotations.** `annotate_tasks_queryset` attaches annotations (`predecessor_count`, `linked_risks_count`, `external_link_count`, …). DRF's paginator calls `.count()` on that annotated queryset, which computes every annotation for every row in the project just to arrive at a number ([#2815](https://gitlab.com/trueppm/trueppm/-/issues/2815)).
-- **An `OFFSET`** that has to produce every row before the page you asked for ([#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381)).
+| Tasks | First page | Middle page | Last page |
+|---|---|---|---|
+| 2,000 | 67 ms | 86 ms | 123 ms |
+| 16,000 | 74 ms | 568 ms | 1.1 s |
+| 32,000 | 91 ms | 1.5 s | 4.6 s |
+| 100,000 | 127 ms | 14.5 s | **30.3 s** |
 
-Earlier figures for these costs — a `COUNT` of 457–503 ms against a 115 ms page, and page 70 at 4,890 ms, on a 4,000-task project ([#2807](https://gitlab.com/trueppm/trueppm/-/issues/2807)) — **predate the JIT finding and did not separate compile time from execution**. Treat them as upper bounds, not as the split between the two costs.
+Keyset pagination ([#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381)) removes the skip, so every page costs about what the first page costs now.
+
+**The pagination `COUNT` is no longer a meaningful cost.** The first page includes it, and the first page takes 127 ms at 100,000 tasks. It used to dominate: `annotate_tasks_queryset`'s aggregate annotations made `.count()` recompute every annotation for every row ([#2815](https://gitlab.com/trueppm/trueppm/-/issues/2815)), measured at 457–503 ms against a 115 ms page on a 4,000-task project ([#2807](https://gitlab.com/trueppm/trueppm/-/issues/2807)). That figure and page 70 at 4,890 ms predate both #2814 and the JIT finding, and did not separate compile time from execution.
 
 **What has already moved it.** On one machine at 2,000 tasks with JIT on, whole-project load fell from ~41 s on the 2026-09-15 code to ~14 s on current `main`. That span includes [#2814](https://gitlab.com/trueppm/trueppm/-/issues/2814), which replaced the aggregate annotations with subqueries and removed the query's `GROUP BY`, but it also includes every other change merged in between, and the gain has not been isolated to #2814. Turning JIT off, the only difference between the last two builds measured, took the same load from ~14 s to ~1.1 s.
 
@@ -111,14 +117,16 @@ With JIT off, the measured curve now has the shape the remaining costs predict:
 | 1,000 → 2,000 | 0.50 s → 1.10 s | 2.2× |
 | 2,000 → 4,000 | 1.10 s → 2.85 s | 2.6× |
 | 4,000 → 8,000 | 2.85 s → 7.7 s | 2.7× |
+| 8,000 → 16,000 | 6.8 s → 44.7 s | **6.6×** |
 
-The per-doubling growth is climbing toward 4× — the quadratic that summing an O(N) `COUNT` and an O(offset) skip over `N / 200` pages produces. Three changes are sequenced for **0.5**, tracked together on [#3383](https://gitlab.com/trueppm/trueppm/-/issues/3383):
+Past 8,000 tasks growth is **worse than quadratic**, because the per-row cost of the skipped rows rises with project size as well as their number. The changes that bend this curve, in the order their measured effect now suggests, tracked on [#3383](https://gitlab.com/trueppm/trueppm/-/issues/3383):
 
 | | What ships in 0.5 | Effect on the curve |
 |---|---|---|
-| [#2815](https://gitlab.com/trueppm/trueppm/-/issues/2815) | Count on the unannotated queryset, so pagination stops recomputing every annotation over every row | Removes one quadratic term outright |
-| [#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381) | Keyset pagination on the task read | Removes the `OFFSET` term entirely — this is the step that makes the fetch **linear** |
-| [#3382](https://gitlab.com/trueppm/trueppm/-/issues/3382) | A slim bootstrap projection, so the Schedule stops fetching 99 fields per task to draw a bar | Cuts the constant, and removes the reason to walk pages at all for the first paint |
+| [#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381) | Keyset pagination on the task read | Removes the `OFFSET` term, which is now the dominant cost — every page costs about what page 1 does |
+| [#3382](https://gitlab.com/trueppm/trueppm/-/issues/3382) | A slim bootstrap projection, so the Schedule stops fetching 99 fields per task to draw a bar | Cuts the per-page cost and the ~2.3 KB of JSON per task (below) |
+| [#2341](https://gitlab.com/trueppm/trueppm/-/issues/2341) | Splice a remote `task_updated` into the cache instead of re-fetching | Stops every edit from costing every open Schedule a whole-project load |
+| [#2815](https://gitlab.com/trueppm/trueppm/-/issues/2815) | Count on the unannotated queryset | Now small — the first page, count included, is 127 ms at 100,000 tasks |
 
 **No 0.5 number is promised here.** Each change has a mechanism but not yet a measured outcome. The nightly budgets set in [#2826](https://gitlab.com/trueppm/trueppm/-/issues/2826) are gross-regression tripwires (roughly the observed ceiling plus headroom for run-to-run contention), not a capacity signal: a green nightly rules out a large regression, and confirms no improvement. This page has already published one figure that a better measurement overturned. When the work above is measured, the rows will carry numbers instead of mechanisms.
 
@@ -128,18 +136,76 @@ actually loaded, so a partial task set renders *wrong* rather than merely incomp
 Fetching less is a correctness hazard in a way that fetching more cheaply is not, which is
 why every change above makes the fetch cheaper instead.
 
+### Toward 100,000 tasks
+
+A 100,000-task project is not usable today, and the whole-project load is only one of the reasons. Measured 2026-09-16 on current `main` with JIT off, one project and one user, with `ANALYZE` after seeding, on the M5 Pro above:
+
+| Tasks | Whole-project load | JSON sent to the browser | CPM recalculation | Recalculation peak memory | Task table on disk |
+|---|---|---|---|---|---|
+| 2,000 | 1.1 s | 4.6 MB | 1.7 s | 189 MiB | 6 MB |
+| 8,000 | 6.8 s | 18 MB | 6.9 s | 357 MiB | 25 MB |
+| 16,000 | 44.7 s | 37 MB | 14.0 s | 583 MiB | 46 MB |
+| 32,000 | ~6 min | 73 MB | 28.4 s | 1.0 GiB | 70 MB |
+| 64,000 | ~26 min | 146 MB | **refused** | 1.1 GiB | 129 MB |
+| 100,000 | ~2 h | **229 MB** | **refused** | 1.6 GiB | 208 MB |
+
+Each part of the system runs out at a different size, and for a different reason:
+
+| Part | What limits it | Where it runs out | Tracked on |
+|---|---|---|---|
+| **Opening the Schedule** | The `OFFSET` cost above | Past the 2 s line near 3,000 tasks; ~45 s at 16,000 | [#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381), [#3382](https://gitlab.com/trueppm/trueppm/-/issues/3382) |
+| **Editing with others watching** | Every remote edit re-fetches the whole project for every open Schedule | Each edit costs each viewer a whole-project load — ~7 s at 8,000 tasks | [#2341](https://gitlab.com/trueppm/trueppm/-/issues/2341), [#2598](https://gitlab.com/trueppm/trueppm/-/issues/2598) |
+| **The browser** | ~2.3 KB of JSON per task, all held in memory, plus paint and hit-testing that scale with the task count | Never measured in a browser — 229 MB of JSON at 100,000 tasks | [#3832](https://gitlab.com/trueppm/trueppm/-/issues/3832), [#1539](https://gitlab.com/trueppm/trueppm/-/issues/1539), [#1540](https://gitlab.com/trueppm/trueppm/-/issues/1540), [#3119](https://gitlab.com/trueppm/trueppm/-/issues/3119) |
+| **Schedule recalculation — limits** | The engine refuses a project whose task durations and lags **sum** past 366,000 days, as if every task ran in series | Refused at 64,000 tasks here. At a 5-day average duration, ~73,000 tasks; at 10 days, ~36,000 | [#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830) |
+| **Schedule recalculation — memory** | ~30 KB of resident memory per task; the chart limits the worker to 2 GiB | Extrapolates past 2 GiB near 60,000 tasks | [#3831](https://gitlab.com/trueppm/trueppm/-/issues/3831) |
+| **Schedule recalculation — time** | Linear, ~0.9 ms per task, and repeated in full on every edit | Well inside the 480 s task limit at 100,000 tasks; the cost is per edit | [#235](https://gitlab.com/trueppm/trueppm/-/issues/235) |
+| **Dependencies** | `MAX_DEPENDENCIES` and `MAX_EXPANDED_EDGES` = 100,000 | 100,000 edges — about one per task | [#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825) |
+| **Monte Carlo** | `MC_TASK_CAP` = 5,000, and three runs × tasks matrices held at once | Refuses above 5,000 tasks; 2.3 GB at 50,000 if the cap were lifted | [#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825), [#3824](https://gitlab.com/trueppm/trueppm/-/issues/3824), [#2273](https://gitlab.com/trueppm/trueppm/-/issues/2273) |
+| **Import** | CSV/Excel parser limit | 5,000 rows per file | [#743](https://gitlab.com/trueppm/trueppm/-/issues/743) |
+| **The database** | Not a constraint at this size | 208 MB for 100,000 tasks fits in `shared_buffers`; the first page stays at 127 ms | — |
+
+The seeded projects are flat — leaf tasks with no summary rows — and their dependencies are strictly forward-linked, so a real WBS will cost more in the per-row subqueries, and a real network's sum of durations will be smaller than a single chain's. Treat the table as the shape of the problem, not as a guarantee at any size.
+
+### Many users, many projects, and programs
+
+Everything above is one user opening one project. Three more measurements, same machine and build, show what changes when that is not true.
+
+**Concurrent users on one project** cost far more than project size does, and the limit is the API process, not the database. Users open the same 8,000-task Schedule at the same moment, each fetching page 1 and then the rest four at a time, as the web client does:
+
+| Users at once | One uvicorn process (shipped default) | Four uvicorn workers |
+|---|---|---|
+| 1 | 3.4 s | 2.4 s |
+| 2 | 5.3 s | 3.0 s |
+| 4 | 11.0 s | 4.0 s |
+| 8 | **22.5 s** | **7.3 s** |
+
+With one process the API pins at one core (118%) while PostgreSQL still has room; with four workers the API used 434% and PostgreSQL 1,107% at eight users. The shipped image runs one process and the chart has no setting to change it — [#3833](https://gitlab.com/trueppm/trueppm/-/issues/3833) adds one; until then see [Raising the uvicorn worker count](#raising-the-uvicorn-worker-count), or scale `replicaCount`. Each edit a user makes then multiplies this: while [#2341](https://gitlab.com/trueppm/trueppm/-/issues/2341) is open, every open Schedule on the project re-fetches the whole project.
+
+**Other projects in the same database barely matter.** A 5,000-task project opened in 1.87 s on its own and in 2.14 s with 19 more 5,000-task projects beside it — 100,000 tasks in the database. The program rollup went from 15 ms to 27 ms and the project list from 15 ms to 30 ms. Per-project reads are indexed on the project, so a large workspace costs a little, not a lot.
+
+**A program with cross-project dependencies recalculates as one project the size of the whole program.** Once a program holds an accepted cross-project dependency, every change to any member project re-runs CPM over every member's tasks together (ADR-0120). Twenty 1,500-task projects: one project alone recalculated in 1.4 s and 176 MiB; the merged program — 30,000 tasks — took **36.1 s and 855 MiB**, in line with a single 32,000-task project. Every limit in [toward 100,000 tasks](#toward-100000-tasks) that is about recalculation — the span guard, worker memory, the dependency cap — therefore applies to the **program's total** task count, not to any one project's.
+
+### Would bigger machines, or Kubernetes, help?
+
+It depends on which limit you are hitting:
+
+- **Many users at once — yes.** This is a throughput limit, and it scales out. More API workers or replicas is the single most effective change measured on this page (22.5 s → 7.3 s at eight users). Give PostgreSQL the cores to match: the chart's bundled PostgreSQL is limited to 2 CPU, and eight users needed eleven.
+- **One large project opening — barely.** Each page request is a single query on a single PostgreSQL core, and the curve past 8,000 tasks is steeper than quadratic, so a core twice as fast buys well under twice the tasks. More cores and more replicas do not make one person's load faster. This is fixed in code ([#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381), [#3382](https://gitlab.com/trueppm/trueppm/-/issues/3382)), not in hardware.
+- **Recalculating a large project or program — memory, yes.** Raise the Celery worker's `resources.limits.memory` above the chart's 2 GiB before a project or program passes ~50,000 tasks ([#3831](https://gitlab.com/trueppm/trueppm/-/issues/3831)). No amount of hardware gets past the span guard ([#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830)).
+- **The browser — no.** A 100,000-task Schedule is a 229 MB download held in each user's browser. Server hardware does not change that.
+
 ### What was explicitly *not* measured
 
 These are **untested**, not unbounded. Do not read silence as a guarantee.
 
 | Dimension | Status |
 |---|---|
-| **Concurrent authenticated users** | **Not measured.** Three runs of the identical single-reader step returned 90 s, 12 s and 3 s for a read the task sweep measured at 1.3 s. The spread is contention on a shared developer workstation, and a ceiling asserted from it would be invented. Needs a quiet, dedicated host. Note that the shipped image runs **one uvicorn process**, so throughput scales by replica count — and [#2275](https://gitlab.com/trueppm/trueppm/-/issues/2275) (`ATOMIC_REQUESTS` with no connection pooler) is the expected first constraint |
+| **Concurrent authenticated users, beyond one scenario** | **Measured once:** up to eight users opening one 8,000-task Schedule ([above](#many-users-many-projects-and-programs)). Not measured: mixed read/write traffic, more than eight users, or a multi-node deployment. With many API workers, database connections become the next constraint — [#2275](https://gitlab.com/trueppm/trueppm/-/issues/2275) (`ATOMIC_REQUESTS` with no connection pooler) |
 | **Concurrent WebSocket connections per project** | **Not measured.** See [#2339](https://gitlab.com/trueppm/trueppm/-/issues/2339) — reconnect-storm scaling is a known open question |
 | **Monte Carlo iterations at the task ceiling** | **Not measured**, but **capped**: `MC_TASK_CAP` (default `5000`) bounds the tasks a simulation will accept, alongside `MC_SIMULATION_CAP`. Within that cap it is untested — and [#2273](https://gitlab.com/trueppm/trueppm/-/issues/2273) means Monte Carlo runs on the request thread, so your gateway timeout binds before the cap does |
 | **Import size (rows)** | **Not measured here.** CSV/Excel import ships in 0.4 ([#743](https://gitlab.com/trueppm/trueppm/-/issues/743)); its 10 MB / 5,000-row limit is enforced at the parser, not derived from this run. Note that importing to the row limit puts a project well past the whole-project Schedule ceiling above — the import preview warns when this would happen (see below), but does not block it |
 | **Board rendering at scale** | **Not measured.** [#1538](https://gitlab.com/trueppm/trueppm/-/issues/1538) / [#2340](https://gitlab.com/trueppm/trueppm/-/issues/2340) — the board renders every card with no virtualization |
-| **Gantt interaction at scale** | **Not measured.** [#1540](https://gitlab.com/trueppm/trueppm/-/issues/1540) / [#1587](https://gitlab.com/trueppm/trueppm/-/issues/1587) — O(N) hit-test per `pointermove` |
+| **Gantt interaction and browser memory at scale** | **Not measured.** [#3832](https://gitlab.com/trueppm/trueppm/-/issues/3832) adds the benchmark; [#1540](https://gitlab.com/trueppm/trueppm/-/issues/1540) / [#1587](https://gitlab.com/trueppm/trueppm/-/issues/1587) — O(N) hit-test per `pointermove` |
 | **Sustained multi-day / multi-user soak** | **Not measured.** Every figure above is a point-in-time read sweep |
 
 ### Fidelity caveats

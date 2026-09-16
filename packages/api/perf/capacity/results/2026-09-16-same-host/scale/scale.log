@@ -1,0 +1,56 @@
+== 2000 tasks: seeded in 4.3s, 10 pages, task table 6.0 MB
+   page first (#1): 67 ms  status=[200]  467 KiB
+   page middle (#5): 86 ms  status=[200]  467 KiB
+   page last (#10): 123 ms  status=[200]  468 KiB
+   whole-project load: est 0.9 s, measured 1.1 s; total payload ~4.6 MB
+   CPM recalc: 1.7 s  state=SUCCESS  peak RSS 189 MiB  error=
+   peaks (read): {'api': {'cpu': 47.73, 'mem_mib': 146.3}, 'celery': {'cpu': 0.06, 'mem_mib': 216.4}, 'db': {'cpu': 48.95, 'mem_mib': 91.57}, 'valkey': {'cpu': 0.23, 'mem_mib': 4.102}}
+   peaks (cpm):  {'api': {'cpu': 0.19, 'mem_mib': 146.3}, 'celery': {'cpu': 0.18, 'mem_mib': 216.4}, 'db': {'cpu': 6.79, 'mem_mib': 97.5}, 'valkey': {'cpu': 0.67, 'mem_mib': 4.379}, 'seeder-run-3f6d383ae28a': {'cpu': 239.33, 'mem_mib': 160.6}}
+== 4000 tasks: seeded in 6.6s, 20 pages, task table 13.6 MB
+   page first (#1): 73 ms  status=[200]  467 KiB
+   page middle (#10): 113 ms  status=[200]  468 KiB
+   page last (#20): 176 ms  status=[200]  468 KiB
+   whole-project load: est 2.5 s, measured 2.6 s; total payload ~9.1 MB
+   CPM recalc: 3.3 s  state=SUCCESS  peak RSS 244 MiB  error=
+   peaks (read): {'api': {'cpu': 41.46, 'mem_mib': 151.0}, 'celery': {'cpu': 0.1, 'mem_mib': 216.4}, 'db': {'cpu': 67.55, 'mem_mib': 125.3}, 'valkey': {'cpu': 0.77, 'mem_mib': 4.363}}
+   peaks (cpm):  {'api': {'cpu': 3.22, 'mem_mib': 145.8}, 'celery': {'cpu': 0.05, 'mem_mib': 216.4}, 'db': {'cpu': 16.08, 'mem_mib': 119.3}, 'valkey': {'cpu': 0.95, 'mem_mib': 4.586}, 'seeder-run-bc2b586f88b8': {'cpu': 238.7, 'mem_mib': 203.9}}
+== 8000 tasks: seeded in 11.0s, 40 pages, task table 25.0 MB
+   page first (#1): 72 ms  status=[200]  467 KiB
+   page middle (#20): 151 ms  status=[200]  468 KiB
+   page last (#40): 276 ms  status=[200]  468 KiB
+   whole-project load: est 7.0 s, measured 6.8 s; total payload ~18.3 MB
+   CPM recalc: 6.9 s  state=SUCCESS  peak RSS 357 MiB  error=
+   peaks (read): {'api': {'cpu': 39.13, 'mem_mib': 155.4}, 'celery': {'cpu': 0.21, 'mem_mib': 216.5}, 'db': {'cpu': 80.16, 'mem_mib': 141.7}, 'valkey': {'cpu': 0.66, 'mem_mib': 4.266}}
+   peaks (cpm):  {'api': {'cpu': 3.08, 'mem_mib': 156.2}, 'celery': {'cpu': 0.15, 'mem_mib': 216.5}, 'db': {'cpu': 30.24, 'mem_mib': 154.1}, 'valkey': {'cpu': 0.69, 'mem_mib': 4.375}, 'seeder-run-9afcb9c0e57b': {'cpu': 237.62, 'mem_mib': 329.8}}
+== 16000 tasks: seeded in 19.6s, 80 pages, task table 45.9 MB
+   page first (#1): 74 ms  status=[200]  467 KiB
+   page middle (#40): 568 ms  status=[200]  468 KiB
+   page last (#80): 1147 ms  status=[200]  468 KiB
+   whole-project load: est 48.8 s, measured 44.7 s; total payload ~36.6 MB
+   CPM recalc: 14.0 s  state=SUCCESS  peak RSS 583 MiB  error=
+   peaks (read): {'api': {'cpu': 28.16, 'mem_mib': 160.1}, 'celery': {'cpu': 0.04, 'mem_mib': 216.5}, 'db': {'cpu': 97.17, 'mem_mib': 200.6}, 'valkey': {'cpu': 0.68, 'mem_mib': 4.613}}
+   peaks (cpm):  {'api': {'cpu': 3.24, 'mem_mib': 151.6}, 'celery': {'cpu': 0.03, 'mem_mib': 216.5}, 'db': {'cpu': 28.59, 'mem_mib': 197.2}, 'valkey': {'cpu': 0.6, 'mem_mib': 4.43}, 'seeder-run-98447cada2d9': {'cpu': 233.6, 'mem_mib': 557.9}}
+== 32000 tasks: seeded in 39.0s, 160 pages, task table 69.5 MB
+   page first (#1): 91 ms  status=[200]  467 KiB
+   page middle (#80): 1486 ms  status=[200]  469 KiB
+   page last (#160): 4572 ms  status=[200]  468 KiB
+   whole-project load: est 373.0 s; total payload ~73.2 MB
+   CPM recalc: 28.4 s  state=SUCCESS  peak RSS 1035 MiB  error=
+   peaks (read): {'api': {'cpu': 7.1, 'mem_mib': 161.2}, 'celery': {'cpu': 0.08, 'mem_mib': 216.5}, 'db': {'cpu': 101.11, 'mem_mib': 264.3}, 'valkey': {'cpu': 0.61, 'mem_mib': 4.918}}
+   peaks (cpm):  {'api': {'cpu': 3.25, 'mem_mib': 161.5}, 'celery': {'cpu': 0.04, 'mem_mib': 216.5}, 'db': {'cpu': 27.29, 'mem_mib': 289.5}, 'valkey': {'cpu': 0.75, 'mem_mib': 4.934}, 'seeder-run-d134f5b1d6fe': {'cpu': 232.7, 'mem_mib': 1011.0}}
+== 64000 tasks: seeded in 82.1s, 320 pages, task table 128.8 MB
+   page first (#1): 106 ms  status=[200]  467 KiB
+   page middle (#160): 5220 ms  status=[200]  468 KiB
+   page last (#320): 9823 ms  status=[200]  468 KiB
+   whole-project load: est 1588.6 s; total payload ~146.4 MB
+   CPM recalc: 5.1 s  state=FAILURE  peak RSS 1100 MiB  error=Total project span (511113 days across all task durations and lags) exceeds the maximum of 366000 days; the schedule cannot be computed within a representable date range.
+   peaks (read): {'api': {'cpu': 10.54, 'mem_mib': 157.0}, 'celery': {'cpu': 0.08, 'mem_mib': 216.5}, 'db': {'cpu': 111.85, 'mem_mib': 402.6}, 'valkey': {'cpu': 0.69, 'mem_mib': 4.68}}
+   peaks (cpm):  {'api': {'cpu': 0.18, 'mem_mib': 156.1}, 'celery': {'cpu': 0.25, 'mem_mib': 216.5}, 'db': {'cpu': 7.53, 'mem_mib': 374.0}, 'valkey': {'cpu': 0.26, 'mem_mib': 4.922}, 'seeder-run-e8492e9a8bb5': {'cpu': 240.42, 'mem_mib': 1077.248}}
+== 100000 tasks: seeded in 152.2s, 500 pages, task table 208.3 MB
+   page first (#1): 127 ms  status=[200]  467 KiB
+   page middle (#250): 14536 ms  status=[200]  469 KiB
+   page last (#500): 30341 ms  status=[200]  468 KiB
+   whole-project load: est 7617.0 s; total payload ~228.7 MB
+   CPM recalc: 8.4 s  state=FAILURE  peak RSS 1653 MiB  error=Total project span (799640 days across all task durations and lags) exceeds the maximum of 366000 days; the schedule cannot be computed within a representable date range.
+   peaks (read): {'api': {'cpu': 7.61, 'mem_mib': 166.9}, 'celery': {'cpu': 0.11, 'mem_mib': 216.5}, 'db': {'cpu': 104.04, 'mem_mib': 564.3}, 'valkey': {'cpu': 0.71, 'mem_mib': 5.074}}
+   peaks (cpm):  {'api': {'cpu': 3.14, 'mem_mib': 150.0}, 'celery': {'cpu': 0.04, 'mem_mib': 216.5}, 'db': {'cpu': 55.54, 'mem_mib': 517.1}, 'valkey': {'cpu': 0.65, 'mem_mib': 4.918}, 'seeder-run-6922c5124c63': {'cpu': 239.15, 'mem_mib': 1630.208}}

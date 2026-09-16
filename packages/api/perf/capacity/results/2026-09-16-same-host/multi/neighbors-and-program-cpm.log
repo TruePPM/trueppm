@@ -1,0 +1,8 @@
+== B. 1 project(s) x 5,000 tasks
+   {'projects': 1, 'tasks_in_db': 5000, 'schedule_open_s': 1.87, 'program_rollup_ms': 15, 'project_list_ms': 15}
+== B. 20 project(s) x 5,000 tasks
+   {'projects': 20, 'tasks_in_db': 100000, 'schedule_open_s': 2.14, 'program_rollup_ms': 27, 'project_list_ms': 30}
+== C. program CPM: 20 x 1,500 tasks (30,000 merged)
+   one member project recalc: {'s': 1.4, 'state': 'SUCCESS', 'error': None, 'peak_rss_mib': 176}
+   merged program recalc:     {'s': 36.1, 'state': 'SUCCESS', 'error': None, 'peak_rss_mib': 855}  db_cpu_peak=24.91
+exit=0
