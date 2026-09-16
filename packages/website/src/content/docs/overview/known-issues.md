@@ -57,6 +57,31 @@ What remains after that is the API surface, which is why this entry is separate.
   combination manually — this understates joint risk and is not a substitute.
 - **Fix planned for 0.5** — [#2467](https://gitlab.com/trueppm/trueppm/-/issues/2467).
 
+### A Monte Carlo percentile can land before the CPM finish on FF/SF networks — planned for 0.5
+
+The published guarantee is that no simulated percentile forecasts a finish earlier
+than the deterministic [CPM](/features/scheduler/) finish. That holds on a network
+built only from Finish-to-Start and Start-to-Start dependencies. It does not hold
+on a network carrying a Finish-to-Finish or Start-to-Finish edge: those pin a
+task's *finish*, so a **longer** duration starts the task **earlier**, and an SS
+successor keyed on that start inherits the earlier start. CPM itself is
+non-monotone in duration there — no simulation is involved in demonstrating it —
+so no duration floor can bind `monte_carlo()` to a finish that is not a lower
+bound in the first place.
+
+- **Impact:** on an FF/SF-heavy project (an MS Project import of a plan that uses
+  these link types is the most likely way to hit one), a P50/P80/P95 date can read
+  earlier than the Gantt's deterministic finish while every sampled scenario
+  faithfully reproduces `schedule()`. Measured at ~0.5% of random projects,
+  all FF-carrying.
+- **Workaround:** none — treat a percentile earlier than the CPM finish on such a
+  project as expected, not as a bug, until the convention below is decided. See
+  [Interpreting results](/features/monte-carlo/#the-plan-is-the-floor) for the
+  full explanation.
+- **Fix planned for 0.5** — [#3806](https://gitlab.com/trueppm/trueppm/-/issues/3806)
+  decides whether the FF/SF convention itself should change; that is a semantics
+  decision for both engines, not a bugfix.
+
 ### The risk register does not affect the forecast — planned for 0.5
 
 The risk register and Monte Carlo are separate systems that do not exchange

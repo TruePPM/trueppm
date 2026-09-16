@@ -3511,13 +3511,32 @@ def monte_carlo(
     :func:`schedule` floors it (ADR-0132 §2, #2833), and zero-duration
     milestones occupy their start day exactly as in :func:`schedule` — a fully
     deterministic project (no estimates, no velocity signal) simulates to
-    precisely the CPM finish date. **Never before is the invariant**, and it holds
-    for an uncertain project too: the early-start floors bind the start dates (see
-    :func:`_mc_es_floors`) and the duration floor above binds the durations, so
-    every percentile is at or after the deterministic finish for any input. An
+    precisely the CPM finish date. **Never before is the invariant on an FS/SS
+    network**, and it holds for an uncertain one too: the early-start floors bind
+    the start dates (see :func:`_mc_es_floors`) and the duration floor above binds
+    the durations, so every percentile is at or after the deterministic finish for
+    any input built only from Finish-to-Start and Start-to-Start dependencies. An
     ``actual_start`` recorded on a *non-working* day, which the working-day index
     cannot represent, snaps to the next working day — so such a project simulates to
     at most one working day *after* its CPM finish, which is the permitted direction.
+
+    .. note::
+       **The invariant above does not hold on a network carrying a
+       Finish-to-Finish or Start-to-Finish edge.** Those pin a task's *finish*, so
+       the forward pass places its start back from that finish — a **longer**
+       duration therefore starts the task **earlier**, and any SS successor keyed
+       on that start inherits the earlier start. CPM itself is non-monotone in
+       duration on such a network (the five-task shape in #3806: raising every
+       duration to its pessimistic value moves the deterministic finish *back*,
+       from 2026-07-09 to 2026-06-05), so no duration floor can bind a simulation
+       to a finish that is not a lower bound in the first place. A percentile can
+       therefore land before :func:`schedule`'s finish on an FF/SF network while
+       ``monte_carlo()`` reproduces :func:`schedule` faithfully on every sampled
+       scenario — measured at ~0.5% of random projects, all FF-carrying.
+       ``test_monte_carlo_never_precedes_cpm`` in ``tests/test_contract_fuzz.py``
+       scopes its finish-level assertion to FS/SS-only networks for exactly this
+       reason. Whether the FF/SF convention itself should change is tracked
+       separately in #3806 — a semantics decision for both engines, not a bugfix.
 
     Per-task calendars (ADR-0120 D3) are honored, on the same rule
     :func:`schedule` applies: a task's duration expands on its own calendar, and

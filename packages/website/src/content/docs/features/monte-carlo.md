@@ -372,8 +372,11 @@ On a network containing an FF or SF dependency, CPM itself is not monotone in
 duration — those links pin a task's *finish*, so a longer task starts earlier,
 and an SS successor keyed on that start inherits the earlier start. A percentile
 can therefore still land before the deterministic finish on such a network, with
-the simulation reproducing CPM faithfully on every sampled scenario. The
-convention is under review; FS and SS networks are unaffected.
+the simulation reproducing CPM faithfully on every sampled scenario. FS and SS
+networks are unaffected — every percentile lands at or after the CPM finish
+there. The convention is under review in
+[#3806](https://gitlab.com/trueppm/trueppm/-/issues/3806); it is a semantics
+decision for both engines, not a bug.
 :::
 
 ### Agile tasks: velocity-based sampling
