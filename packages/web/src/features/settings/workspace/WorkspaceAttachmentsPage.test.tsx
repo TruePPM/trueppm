@@ -1,9 +1,15 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { WorkspaceAttachmentsPage } from './WorkspaceAttachmentsPage';
 import type { WorkspaceSettings } from '../hooks/useWorkspaceSettings';
 
-const mockState = vi.hoisted(() => ({ ws: undefined as unknown }));
+const mockState = vi.hoisted(() => ({
+  ws: undefined as unknown,
+  isLoading: false,
+  isError: false,
+  refetch: vi.fn(),
+}));
 
 const WS: WorkspaceSettings = {
   name: 'TrueScope',
@@ -40,7 +46,12 @@ const WS: WorkspaceSettings = {
 };
 
 vi.mock('../hooks/useWorkspaceSettings', () => ({
-  useWorkspaceSettings: () => ({ data: mockState.ws, isLoading: false }),
+  useWorkspaceSettings: () => ({
+    data: mockState.ws,
+    isLoading: mockState.isLoading,
+    isError: mockState.isError,
+    refetch: mockState.refetch,
+  }),
 }));
 vi.mock('../hooks/useUpdateWorkspaceSettings', () => ({
   useUpdateWorkspaceSettings: () => ({ mutateAsync: vi.fn() }),
@@ -55,6 +66,9 @@ vi.mock('@/hooks/useEdition', () => ({
 
 beforeEach(() => {
   mockState.ws = { ...WS };
+  mockState.isLoading = false;
+  mockState.isError = false;
+  mockState.refetch.mockReset();
 });
 
 describe('WorkspaceAttachmentsPage — override policy (#2014)', () => {
@@ -83,5 +97,32 @@ describe('WorkspaceAttachmentsPage — override policy (#2014)', () => {
     expect(
       screen.getByRole('button', { name: 'About the Allowed file types options' }),
     ).toBeInTheDocument();
+  });
+});
+
+describe('WorkspaceAttachmentsPage — failed GET (#3542)', () => {
+  // Before the fix, `isLoading || !ws` never cleared on a failed GET (`isLoading`
+  // settles to false on a terminal failure, but `!ws` stays true forever) — the
+  // page pulsed two skeleton placeholders with no error and no retry.
+  it('renders an error with Retry, not a perpetual skeleton, when the settings GET fails', () => {
+    mockState.ws = undefined;
+    mockState.isLoading = false;
+    mockState.isError = true;
+    const { container } = render(<WorkspaceAttachmentsPage />);
+
+    expect(screen.getByText("Couldn't load attachment settings.")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(container.querySelector('[class*="animate-pulse"]')).toBeNull();
+    expect(screen.queryByRole('radio', { name: /May narrow or widen these types/i })).toBeNull();
+  });
+
+  it('retries the settings query on click', async () => {
+    const user = userEvent.setup();
+    mockState.ws = undefined;
+    mockState.isError = true;
+    render(<WorkspaceAttachmentsPage />);
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(mockState.refetch).toHaveBeenCalledTimes(1);
   });
 });

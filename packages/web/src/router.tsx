@@ -14,6 +14,7 @@ import { RouteErrorBoundary } from '@/components/RouteErrorBoundary';
 import { NotFoundPage } from '@/components/NotFoundPage';
 import { RouteTitle } from '@/components/RouteTitle';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import type { RouteHandle } from '@/router/routeHandle';
 
 // Route-level code splitting — each chunk is loaded only when the route is
@@ -315,14 +316,30 @@ function RouteLoadingFallback() {
  * `loginRedirectDest`'s open-redirect protection, so an unreachable or
  * unexpected path degrades to My Work rather than a dead route.
  */
-function RootRedirect() {
-  const { user, isLoading } = useCurrentUser();
+// Exported for direct unit testing (#3542) — mounting these through the full
+// route tree would drag in AppShell and every lazy-loaded page chunk for what
+// is a small, isolated guard around one query.
+export function RootRedirect() {
+  const { user, isLoading, isError, refetch } = useCurrentUser();
   const navigate = useNavigate();
 
   useEffect(() => {
     if (isLoading || !user) return;
     void navigate(safeLandingPath(user.landing?.path), { replace: true });
   }, [user, isLoading, navigate]);
+
+  // A failed `/auth/me/` must read as broken, not as an eternal "Taking you to
+  // your home screen…" (rule 246, #3542). `isLoading` settles to false on a
+  // terminal failure (`retry: false`), but `!user` never clears, so without
+  // this branch the app's front door hangs on a lie forever with no retry.
+  if (isError) {
+    return (
+      <QueryErrorState
+        message="Couldn't sign you in."
+        onRetry={() => refetch?.()}
+      />
+    );
+  }
 
   // Hold the loading state while `me` resolves — never flash a fallback first.
   // While resolving, ghost the shell (rule 248) rather than printing bare text:
@@ -350,8 +367,24 @@ function RootRedirect() {
  * the redirect is synchronous. The lens is presentation-only: this only changes
  * where you *start*, never what you may access.
  */
-function ProjectIndexRedirect() {
-  const { user, isLoading } = useCurrentUser();
+export function ProjectIndexRedirect() {
+  const { user, isLoading, isError, refetch } = useCurrentUser();
+  // A failed `/auth/me/` must read as broken, not as a blank pane forever
+  // (rule 246, #3542). `isLoading` settles to false on a terminal failure, but
+  // `!user` never clears, so without this branch the project entry route
+  // renders nothing — inside the still-painted ProjectShell chrome — with no
+  // way forward.
+  if (isError) {
+    return (
+      <div className="p-6">
+        <QueryErrorState
+          variant="inline"
+          message="Couldn't determine where to take you."
+          onRetry={() => refetch?.()}
+        />
+      </div>
+    );
+  }
   if (isLoading || !user) return null;
   return <Navigate to={lensDefaultView(user.role_context)} replace />;
 }
