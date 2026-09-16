@@ -155,6 +155,21 @@ def test_schema_version_tracks_the_package_version() -> None:
     assert settings.SPECTACULAR_SETTINGS["VERSION"] == settings.TRUEPPM_VERSION
 
 
+def test_package_version_is_pep440_normalized(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The version must not depend on how the build backend spells it.
+
+    hatchling 1.32.1 began writing pyproject's "0.4.0-beta.1" verbatim into core
+    metadata where 1.32.0 wrote "0.4.0b1", which flipped the committed schema's
+    `info.version` and failed api:schema-drift with no source change.
+    """
+    import importlib.metadata
+
+    from trueppm_api.settings.base import _package_version
+
+    monkeypatch.setattr(importlib.metadata, "version", lambda _name: "0.4.0-beta.1")
+    assert _package_version() == "0.4.0b1"
+
+
 def test_schema_version_is_not_a_stale_literal() -> None:
     """Guard the specific regression: never "0.3.0" against a newer package.
 

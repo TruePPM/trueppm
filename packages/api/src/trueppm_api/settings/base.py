@@ -993,11 +993,18 @@ def _package_version() -> str:
     Read from installed metadata rather than hard-coded so it cannot drift from
     `pyproject.toml`; a source checkout that was never `pip install -e`'d has no
     metadata, and "dev" is a more honest answer there than a stale literal.
+
+    Normalized to PEP 440 here because the metadata spelling belongs to the build
+    backend: hatchling <=1.32.0 wrote "0.4.0b1", 1.32.1 writes pyproject's
+    "0.4.0-beta.1" verbatim, and `pip install -e` builds with whichever is newest.
+    Without this the published schema version flips on an upstream release.
     """
     try:
         from importlib.metadata import version
 
-        return version("trueppm-api")
+        from packaging.version import Version
+
+        return str(Version(version("trueppm-api")))
     except Exception:
         return "dev"
 
