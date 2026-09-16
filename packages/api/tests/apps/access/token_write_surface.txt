@@ -61,6 +61,7 @@ api/v1/^programs/(?P<pk>[^/.]+)/close/$
 api/v1/^programs/(?P<pk>[^/.]+)/export/$
 api/v1/^programs/(?P<pk>[^/.]+)/pin/$
 api/v1/^programs/(?P<pk>[^/.]+)/remove-sample/$
+api/v1/^programs/(?P<pk>[^/.]+)/shift-sample-dates/$
 api/v1/^programs/(?P<pk>[^/.]+)/reopen/$
 api/v1/^programs/(?P<pk>[^/.]+)/risk-policy/$
 api/v1/^programs/(?P<pk>[^/.]+)/rollup-config/$

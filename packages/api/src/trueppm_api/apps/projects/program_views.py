@@ -549,6 +549,27 @@ class LoadSampleResponseSerializer(serializers.Serializer[Any]):
     sample_key = serializers.CharField()
 
 
+class ShiftSampleDatesResponseSerializer(serializers.Serializer[Any]):
+    """Response envelope for the shift-sample-dates action (#3481, ADR-1175).
+
+    ``shifted`` is False — with a ``200``, not an error — when the sample is
+    already current. Re-anchoring is idempotent by construction (the anchor
+    advances with the rows), so a second press is a legitimate no-op rather than a
+    fault, and the client renders "already current" instead of a failure.
+
+    ``days`` is the derivation the UI shows the user: a bulk date move that cannot
+    say *how far* everything moved is exactly the number a delivery manager cannot
+    defend. ``rows_shifted`` counts rows rewritten, not date columns (see
+    ``ShiftReport``), and ``projects`` is how many projects were re-queued for CPM.
+    """
+
+    shifted = serializers.BooleanField()
+    days = serializers.IntegerField()
+    anchor_date = serializers.DateField()
+    rows_shifted = serializers.IntegerField()
+    projects = serializers.IntegerField()
+
+
 def _broadcast_projects_updated(project_ids: list[str]) -> None:
     """Fan ``project_updated`` out to each project's own channel group.
 
@@ -676,10 +697,28 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             "transfer_sponsorship",
             "split",
             "remove_sample",
+            "shift_sample_dates",
         ):
-            # Lifecycle actions bypass the IsProgramNotClosed gate via the
-            # class's _CLOSE_BYPASS_ACTIONS set — otherwise an Owner could
-            # never reopen or delete a closed program.
+            # Owner-only. The first six are lifecycle actions that bypass the
+            # IsProgramNotClosed gate via the class's _CLOSE_BYPASS_ACTIONS set —
+            # otherwise an Owner could never reopen or delete a closed program.
+            #
+            # `shift_sample_dates` (#3481) shares the permission LIST but is
+            # deliberately absent from that bypass set, so IsProgramNotClosed
+            # genuinely binds for it: teardown must survive a closed program, while
+            # re-anchoring a closed program's dates is meaningless. The branch is
+            # shared rather than split because the difference lives in
+            # _CLOSE_BYPASS_ACTIONS, not here — a second branch returning an
+            # identical list would imply a distinction this function does not make.
+            #
+            # IsOrgAdmin / IsOrgScheduler are NOT usable for any of these: both are
+            # effectively "any authenticated user" (self-grantable via project
+            # create, #3569). shift_sample_dates bulk-rewrites every dated row in a
+            # program, so its gate has to be a real object-level one.
+            #
+            # get_permissions() appends mcp_token_guards() around this list, which
+            # is what keeps a read-scoped agent token off a durable bulk write —
+            # OSS agents ship read + schedule:simulate only (ADR-0112).
             return [IsAuthenticated(), IsProgramOwner(), IsProgramNotClosed()]
         if self.action in ("rollup_config", "risk_policy"):
             # Method-level split: GET is read-open to any program member
@@ -2002,6 +2041,86 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 "sample_key": key,
             },
             status=status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(
+        summary="Shift a sample program's dates to today",
+        request=None,
+        responses={
+            200: ShiftSampleDatesResponseSerializer,
+            400: OpenApiResponse(
+                description=(
+                    "The program is not sample data (``code: not_a_sample``), or it is a "
+                    "sample loaded before #3481 and carries no anchor date "
+                    "(``code: no_anchor_recorded``) — that one is reloaded, not shifted."
+                )
+            ),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="shift-sample-dates")
+    def shift_sample_dates(self, request: Request, pk: str | None = None) -> Response:
+        """Re-anchor a sample's dates to today — "Shift dates to today" (#3481).
+
+        Owner-only, and blocked on closed programs. **Takes no request body**: the
+        offset is always ``today - sample_anchor_date`` rounded to whole weeks, so
+        there is no caller-supplied target date to validate, no unbounded offset,
+        and nothing to replay. That is a deliberate contract choice, not an
+        omission — a bulk date rewrite that accepts an arbitrary delta is a very
+        different endpoint to secure.
+
+        Idempotent: the anchor advances by exactly the offset applied, so pressing
+        the button twice returns ``shifted: false`` and writes nothing.
+
+        ADR-1175 for the three-tier field rule — what moves, what is recomputed,
+        and what is deliberately left alone.
+        """
+        from trueppm_api.apps.projects.seed.reanchor import (
+            NoAnchorRecorded,
+            NotASampleProgram,
+            shift_sample_dates,
+        )
+
+        program = self.get_object()
+        try:
+            report = shift_sample_dates(program, actor=request.user)
+        except NotASampleProgram as exc:
+            # A plain Response, never a raised APIException: DRF's exception
+            # handler calls set_rollback() for every APIException, and under
+            # ATOMIC_REQUESTS that would discard the refusal path's writes and any
+            # on_commit callback with them. This path writes nothing, so there is
+            # nothing to lose either way — returning directly keeps it that way.
+            return Response(
+                {"detail": str(exc), "code": "not_a_sample"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except NoAnchorRecorded as exc:
+            return Response(
+                {"detail": str(exc), "code": "no_anchor_recorded"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if report.shifted:
+            # Every task, sprint and baseline on every project moved, so each
+            # project's board is stale for any live subscriber. Deferred to commit
+            # — a broadcast sent inside the transaction would advertise dates a
+            # rollback could still take back.
+            broadcast_ids = [
+                str(pk_)
+                for pk_ in Project.objects.filter(program=program, is_deleted=False).values_list(
+                    "id", flat=True
+                )
+            ]
+            transaction.on_commit(partial(_broadcast_projects_updated, broadcast_ids))
+
+        return Response(
+            {
+                "shifted": report.shifted,
+                "days": report.days,
+                "anchor_date": report.anchor_date.isoformat(),
+                "rows_shifted": report.rows_shifted,
+                "projects": report.projects,
+            },
+            status=status.HTTP_200_OK,
         )
 
     @extend_schema(

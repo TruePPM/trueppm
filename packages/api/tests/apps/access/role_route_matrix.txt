@@ -423,6 +423,7 @@
 -++++++  POST api/v1/^programs/(?P<pk>[^/.]+)/pin/$::pin
 -++++++  POST api/v1/^programs/(?P<pk>[^/.]+)/remove-sample/$::remove_sample
 -++++++  POST api/v1/^programs/(?P<pk>[^/.]+)/reopen/$::reopen
+-++++++  POST api/v1/^programs/(?P<pk>[^/.]+)/shift-sample-dates/$::shift_sample_dates
 -++++++  POST api/v1/^programs/(?P<pk>[^/.]+)/split/$::split
 -++++++  POST api/v1/^programs/(?P<pk>[^/.]+)/transfer-sponsorship/$::transfer_sponsorship
 -----++  POST api/v1/^programs/(?P<program_pk>[^/.]+)/webhooks/$::create

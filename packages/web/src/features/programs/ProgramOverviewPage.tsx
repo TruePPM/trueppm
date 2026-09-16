@@ -369,7 +369,11 @@ export function ProgramOverviewPage() {
   return (
     <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-app-canvas">
       {program?.is_sample && programId && (
-        <SampleDataBanner programId={programId} canRemove={program.my_role === ROLE_OWNER} />
+        <SampleDataBanner
+          programId={programId}
+          canRemove={program.my_role === ROLE_OWNER}
+          sampleDaysStale={program.sample_days_stale}
+        />
       )}
       {/* Identity header (#963): the lg tile is the ONLY accent on this page —
           the KPI cards and health hero keep the semantic palette. The program

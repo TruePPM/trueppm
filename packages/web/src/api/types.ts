@@ -447,6 +447,23 @@ export interface Program {
   member_count: number;
   /** True when this is bundled demo data (any project is_sample) (#375). */
   is_sample: boolean;
+  /**
+   * The day this sample's relative dates were anchored (#3481, ADR-1175).
+   *
+   * `null` for a program a person created, and `null` for a sample loaded before
+   * #3481 — those carry no anchor, so `POST /programs/{id}/shift-sample-dates/`
+   * refuses and the banner tells the user to reload instead.
+   */
+  sample_anchor_date: string | null;
+  /**
+   * Calendar days since `sample_anchor_date` — how far the demo has drifted.
+   *
+   * A **server** fact, never a client subtraction: the program banner and the
+   * per-project indicator both render it, and two components computing it
+   * independently is how they end up disagreeing. `null` whenever
+   * `sample_anchor_date` is.
+   */
+  sample_days_stale: number | null;
   /** Lifecycle (#530) — closed programs are read-only at the program shell. */
   is_closed: boolean;
   closed_at: string | null;

@@ -1031,6 +1031,16 @@ class _SeedImporter:
             program.mc_history_enabled = data["mc_history_enabled"]
         if "mc_history_attribution_audience" in data:
             program.mc_history_attribution_audience = data["mc_history_attribution_audience"]
+        # Record the anchor every relative date in this document was resolved
+        # against, so the drift is computable later (ADR-1175, #3481).
+        #
+        # Sample path only. A caller-authored import is somebody's real program;
+        # stamping it would advertise a "Shift dates to today" action that would
+        # bulk-rewrite real work, and `shift_sample_dates` refuses on `is_sample`
+        # anyway — so a non-NULL anchor there would be a field promising something
+        # the server will not do.
+        if self.is_sample:
+            program.sample_anchor_date = self.anchor
         program.save(
             update_fields=[
                 "code",
@@ -1041,6 +1051,7 @@ class _SeedImporter:
                 "methodology",
                 "mc_history_enabled",
                 "mc_history_attribution_audience",
+                "sample_anchor_date",
             ]
         )
         self._grant_program_memberships(program)

@@ -11288,6 +11288,70 @@
                 }
             }
         },
+        "/api/v1/programs/{id}/shift-sample-dates/": {
+            "post": {
+                "operationId": "v1_programs_shift_sample_dates_create",
+                "description": "Re-anchor a sample's dates to today — \"Shift dates to today\" (#3481).\n\nOwner-only, and blocked on closed programs. **Takes no request body**: the\noffset is always ``today - sample_anchor_date`` rounded to whole weeks, so\nthere is no caller-supplied target date to validate, no unbounded offset,\nand nothing to replay. That is a deliberate contract choice, not an\nomission — a bulk date rewrite that accepts an arbitrary delta is a very\ndifferent endpoint to secure.\n\nIdempotent: the anchor advances by exactly the offset applied, so pressing\nthe button twice returns ``shifted: false`` and writes nothing.\n\nADR-1175 for the three-tier field rule — what moves, what is recomputed,\nand what is deliberately left alone.",
+                "summary": "Shift a sample program's dates to today",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ShiftSampleDatesResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "The program is not sample data (``code: not_a_sample``), or it is a sample loaded before #3481 and carries no anchor date (``code: no_anchor_recorded``) — that one is reloaded, not shifted."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/programs/{id}/split/": {
             "post": {
                 "operationId": "v1_programs_split_create",
@@ -63546,6 +63610,17 @@
                         "type": "boolean",
                         "readOnly": true
                     },
+                    "sample_anchor_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "sample_days_stale": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "is_closed": {
                         "type": "boolean",
                         "readOnly": true
@@ -63609,6 +63684,8 @@
                     "risk_slip_propagation",
                     "rollup_aggregation_policy",
                     "rollup_enabled_kpis",
+                    "sample_anchor_date",
+                    "sample_days_stale",
                     "server_version",
                     "updated_at"
                 ]
@@ -66446,10 +66523,18 @@
                     "program_detail": {
                         "type": "object",
                         "additionalProperties": {
-                            "type": "string"
+                            "oneOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "integer"
+                                }
+                            ],
+                            "nullable": true
                         },
                         "nullable": true,
-                        "description": "The project's program as ``{id, name}`` for the demo indicator link.\n\nDetail-only serializer (single object), so the ``obj.program`` access is\nnot the N+1 risk it would be on the list serializer.",
+                        "description": "The project's program as ``{id, name, sample_days_stale}`` for the demo strip.\n\nDetail-only serializer (single object), so the ``obj.program`` access is\nnot the N+1 risk it would be on the list serializer.\n\n``sample_days_stale`` (#3481) lets the per-project indicator say the demo's\ndates have drifted without a second request. It is a cue only — the strip\nnever carries the shift control itself, exactly as it never carries the\nteardown: notice in many places, act in one. Null for a non-sample program\nand for a sample with no recorded anchor.",
                         "readOnly": true
                     },
                     "my_facets": {
@@ -70931,6 +71016,35 @@
                     "show_milestone_dates",
                     "token",
                     "token_prefix"
+                ]
+            },
+            "ShiftSampleDatesResponse": {
+                "type": "object",
+                "description": "Response envelope for the shift-sample-dates action (#3481, ADR-1175).\n\n``shifted`` is False — with a ``200``, not an error — when the sample is\nalready current. Re-anchoring is idempotent by construction (the anchor\nadvances with the rows), so a second press is a legitimate no-op rather than a\nfault, and the client renders \"already current\" instead of a failure.\n\n``days`` is the derivation the UI shows the user: a bulk date move that cannot\nsay *how far* everything moved is exactly the number a delivery manager cannot\ndefend. ``rows_shifted`` counts rows rewritten, not date columns (see\n``ShiftReport``), and ``projects`` is how many projects were re-queued for CPM.",
+                "properties": {
+                    "shifted": {
+                        "type": "boolean"
+                    },
+                    "days": {
+                        "type": "integer"
+                    },
+                    "anchor_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "rows_shifted": {
+                        "type": "integer"
+                    },
+                    "projects": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "anchor_date",
+                    "days",
+                    "projects",
+                    "rows_shifted",
+                    "shifted"
                 ]
             },
             "SignalAudienceEnum": {

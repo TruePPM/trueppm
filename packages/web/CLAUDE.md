@@ -154,6 +154,7 @@ These rules are enforced at review time. Violations block merge.
 358. **A modal's PINNED chrome is a budget charged against its scroller, and a scripted mount-focus SCROLLS that scroller — so autofocusing a control below the fold silently pushes the surface's lead content off the top, at every viewport height the reviewer did not open.** → [rule](../../docs/design/invariants/358-a-modal-s-pinned-chrome-is-a-budget-charged-against-its.md)
 359. **A control gated on "there is something to do" must be gated on a fact the server owns or the client can always re-derive — never on a counter that only counts this session's own mutations.** → [rule](../../docs/design/invariants/359-a-control-gated-on-there-is-something-to-do-must-be-gated.md)
 364. **`?? []` says "the query has not answered" and "the answer is empty" with the same word — so nothing that REMOVES may read it.** → [rule](../../docs/design/invariants/364-says-the-query-has-not-answered-and-the-answer-is-empty.md)
+415. **A capability claim that decays with TIME must be REPLACED when it stops being true — not left standing beside a warning that contradicts it — and the freshness fact it branches on is a SERVER field, never a client subtraction.** → [rule](../../docs/design/invariants/415-a-capability-claim-that-decays-with-time-must-be-replaced.md)
 
 ## Motion
 

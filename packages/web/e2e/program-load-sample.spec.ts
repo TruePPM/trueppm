@@ -42,6 +42,10 @@ const FIXTURE_PROGRAM = {
   member_count: 15,
   is_sample: true,
   is_closed: false,
+  // Seven weeks of drift — the state the 2026-09-06 UX audit observed (#3481).
+  // The banner therefore renders its stale copy and offers the shift.
+  sample_anchor_date: '2026-07-30',
+  sample_days_stale: 47,
 };
 
 // load-sample now returns a {program, landing_project_id, sample_key} envelope
@@ -111,9 +115,37 @@ async function setup(page: Page) {
       ]),
     }),
   );
+  // STATEFUL: the shift flips the program's drift to 0, and the banner refetches
+  // on the mutation's invalidate. A stateless mock would keep replying "47 days
+  // stale" and the post-shift assertions would race the refetch — passing or
+  // failing depending on which resolved first.
+  let shifted = false;
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/**`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PROGRAM) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj(
+        shifted
+          ? { ...FIXTURE_PROGRAM, sample_days_stale: 0, sample_anchor_date: '2026-09-17' }
+          : FIXTURE_PROGRAM,
+      ),
+    }),
   );
+  // Registered after the catch-all so it wins for this specific path.
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/shift-sample-dates/`, (r) => {
+    shifted = true;
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        shifted: true,
+        days: 49,
+        anchor_date: '2026-09-17',
+        rows_shifted: 1284,
+        projects: 3,
+      }),
+    });
+  });
   // The program overview also fetches the rollup; the catch-all above would
   // otherwise return the program shape, and `Object.entries(rollup.kpis)`
   // throws on the missing `kpis`, crashing the page before the banner renders.
@@ -235,7 +267,37 @@ test.describe('Load demo data', () => {
     // The sample banner is owner-visible (my_role 400); revealing its confirm
     // step must spell out that the teardown also removes the evaluator's edits.
     await page.getByRole('button', { name: /Remove sample data/i }).click();
-    await expect(page.getByText(/including any changes you made/i)).toBeVisible();
+    // Scoped to the teardown confirm: the shift confirm (closed here) carries the
+    // same "including any changes you made" clause deliberately, so an unscoped
+    // getByText would become a strict-mode collision the moment both are open.
+    const confirm = page.getByText(/removes the entire demo program/i);
+    await expect(confirm).toContainText(/including any changes you made/i);
     await expect(page.getByText(/your own projects are not affected/i)).toBeVisible();
+  });
+
+  test('a stale demo stops promising the history renders, and offers the shift (#3481)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto(`/programs/${PROGRAM_ID}/overview`);
+
+    // The defect: at seven weeks "renders out of the box" is simply false, so the
+    // sentence must be REPLACED rather than left standing beside a warning.
+    await expect(page.getByText(/47 days ago/i)).toBeVisible();
+    await expect(page.getByText(/render out of the box/i)).toHaveCount(0);
+
+    await page.getByRole('button', { name: /Shift dates to today/i }).click();
+    await expect(page.getByText(/moves every date in the demo forward 47 days/i)).toBeVisible();
+    await expect(page.getByText(/nothing is deleted/i)).toBeVisible();
+
+    await page.getByRole('button', { name: /^Shift dates$/ }).click();
+
+    // The derivation, in the banner: how far, how much, and what happens next.
+    await expect(page.getByText(/Dates updated\./i)).toBeVisible();
+    await expect(page.getByText(/1,284 records across 3 projects/i)).toBeVisible();
+    // The stateful mock now reports zero drift, so the promise sentence returns
+    // and the control retires itself.
+    await expect(page.getByText(/includes 60 days of history/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: /Shift dates to today/i })).toHaveCount(0);
   });
 });
