@@ -3534,6 +3534,16 @@ class Task(VersionedModel):
         ordering = ["wbs_path", "name"]
         indexes = [
             models.Index(fields=["project"]),
+            # Covers the default list ordering (`Meta.ordering` above), which
+            # `GET /api/v1/tasks/` now actually reaches (#2814 removed the GROUP BY
+            # that used to sit between this queryset and its ORDER BY, sinking the
+            # sort above the aggregate where no index — this one included — could
+            # be reached: see #2814's issue body for the 5,753ms measurement with
+            # this exact index already in place but unreachable). Adding it before
+            # #2814 landed would have been dead weight; it is only worth its
+            # maintenance cost now that the planner can use it to satisfy the ORDER
+            # BY under a LIMIT instead of a top-N sort.
+            models.Index(fields=["project", "wbs_path", "name"], name="task_proj_wbs_name_idx"),
             # Composite index for the utilization window filter:
             # WHERE project_id = X AND early_start <= window_end AND early_finish >= window_start
             models.Index(

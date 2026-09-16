@@ -576,6 +576,47 @@ describe('ProjectWorkflowPage — Board cadence extras', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Board cadence — failed project GET (#3542)
+// ---------------------------------------------------------------------------
+
+describe('ProjectWorkflowPage — Board cadence failed GET (#3542)', () => {
+  const refetchProject = vi.fn();
+
+  // Before the fix, `isLoading || !project` never cleared on a failed GET
+  // (`isLoading` settles to false on a terminal failure, but `!project` stays
+  // true forever) — the section pulsed a skeleton placeholder with no error
+  // and no retry.
+  it('renders an error with Retry, not a perpetual skeleton, when the project GET fails', () => {
+    useProject.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      refetch: refetchProject,
+    });
+    renderPage();
+    const region = screen.getByRole('region', { name: /Board cadence/i });
+    expect(within(region).getByText("Couldn't load board cadence.")).toBeInTheDocument();
+    const retry = within(region).getByRole('button', { name: 'Retry' });
+    expect(retry).toBeInTheDocument();
+    expect(within(region).queryByRole('radiogroup')).not.toBeInTheDocument();
+  });
+
+  it('retries the project query on click', async () => {
+    const user = userEvent.setup();
+    useProject.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      refetch: refetchProject,
+    });
+    renderPage();
+    const region = screen.getByRole('region', { name: /Board cadence/i });
+    await user.click(within(region).getByRole('button', { name: 'Retry' }));
+    expect(refetchProject).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // PhaseRow — color picker, delete, rename revert, delete error
 // ---------------------------------------------------------------------------
 

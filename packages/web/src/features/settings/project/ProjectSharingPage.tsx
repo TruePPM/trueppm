@@ -6,6 +6,7 @@ import { ShareViewDialog } from '@/features/share/ShareViewDialog';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useRevokeShareLink, useShareLinks, type ShareLink } from '../hooks/useShareLinks';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { QueryErrorState } from '@/components/QueryErrorState';
 
 const BTN =
   'px-3 py-1.5 rounded-control border border-neutral-border text-[12px] font-medium ' +
@@ -136,7 +137,7 @@ export function ProjectSharingPage() {
   // so this is always set here; coerce to satisfy the string-typed hooks/props.
   const projectId = useProjectId() ?? '';
   const [dialogOpen, setDialogOpen] = useState(false);
-  const { data: links, isLoading } = useShareLinks(projectId);
+  const { data: links, isLoading, isError, refetch } = useShareLinks(projectId);
 
   const active = (links ?? []).filter((l) => l.isActive);
   const scheduleLinks = active.filter((l) => l.contentKind === 'schedule');
@@ -173,7 +174,16 @@ export function ProjectSharingPage() {
           </div>
         </div>
 
-        {isLoading ? (
+        {/* A failed GET must read as broken, not as "no links exist" (rule 246,
+            #3542) — `links` defaults to [] on error, which otherwise reads
+            identically to a genuinely empty set. */}
+        {isError ? (
+          <QueryErrorState
+            variant="inline"
+            message="Couldn't load share links."
+            onRetry={() => void refetch()}
+          />
+        ) : isLoading ? (
           <LoadingSkeleton label="Loading share links…" rows={2} />
         ) : hasAny ? (
           <>

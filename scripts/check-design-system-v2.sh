@@ -327,7 +327,25 @@ BASELINE_TINY_TEXT=0
 # 55 with the file reverted and 54 with the fix, so the delta this branch owns is 1.
 # #3351 also added check 4f below, which is what catches the OTHER destructure on that
 # same page — the `data`-only one this counter is structurally unable to see.
-BASELINE_QUERY_ERROR=54
+# 54 -> 44 at #3542, which enumerated the full 54-site population (the count this
+# ratchet had been holding flat since #3351) and fixed the ten genuinely
+# user-reachable dead-ends in the Settings area and the app's own auth front door:
+# the eight Workspace/Project settings pages whose `isLoading || !x` guard never
+# clears on a failed GET (WorkspaceAttachmentsPage, WorkspaceCalendarPage,
+# WorkspaceFeedbackPage, WorkspaceGroupsPage, ProjectLabelsPage, ProjectSharingPage,
+# ProjectWorkflowPage's CadenceSection, DefaultMemberRoleSetting), plus
+# router.tsx's RootRedirect and ProjectIndexRedirect — `/auth/me/` failing left the
+# app's `/` front door reading "Taking you to your home screen…" forever with no
+# retry, and the project-entry route rendering a blank pane inside the still-painted
+# ProjectShell chrome. Measured inside THIS merged tree per the #3472 trap: `scripts/wt
+# stash` to revert the ten edited files, re-run (reads 54), pop (reads 44) — not a
+# comparison against a separately exported origin/main.
+# The remaining 44 are triaged, not unreviewed: most read `data`/a list default
+# defensively (an empty-state message rather than a stall) or are inline
+# widgets/modals on a page whose siblings still work if the query fails. See
+# issue #3542 for the full per-site disposition; #2861 is the parent meta-issue for
+# the defect class itself.
+BASELINE_QUERY_ERROR=44
 
 # Under an injected scan root every ratchet floor is 0. The baselines above are
 # THIS TREE's grandfathered debt and mean nothing against an arbitrary
