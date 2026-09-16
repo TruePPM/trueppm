@@ -40,6 +40,7 @@ describe('useMyTasksFilter', () => {
         dnd_enabled: false,
         timezone: 'auto',
         date_format: 'auto',
+        token: null,
       },
       isLoading: false,
     });
@@ -67,6 +68,7 @@ describe('useMyTasksFilter', () => {
         dnd_enabled: false,
         timezone: 'auto',
         date_format: 'auto',
+        token: null,
       },
       isLoading: false,
     });
@@ -95,6 +97,7 @@ describe('useMyTasksFilter', () => {
         dnd_enabled: false,
         timezone: 'auto',
         date_format: 'auto',
+        token: null,
       },
       isLoading: false,
     });
@@ -123,6 +126,7 @@ describe('useMyTasksFilter', () => {
         dnd_enabled: false,
         timezone: 'auto',
         date_format: 'auto',
+        token: null,
       },
       isLoading: false,
     });

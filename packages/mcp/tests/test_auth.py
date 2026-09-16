@@ -13,13 +13,27 @@ import httpx
 import pytest
 
 from tests.conftest import SAMPLE_API_URL, SAMPLE_TOKEN
-from trueppm_mcp.client import AUTH_VERIFY_PATH, ApiError, AuthError, TruePPMClient
+from trueppm_mcp.client import (
+    AUTH_VERIFY_PATH,
+    ApiError,
+    AuthError,
+    NonAgentTokenError,
+    TruePPMClient,
+)
 from trueppm_mcp.config import Settings
 from trueppm_mcp.server import build_server, make_lifespan
 
 MockFactory = Callable[
     [httpx.Response | Callable[[httpx.Request], httpx.Response]], httpx.MockTransport
 ]
+
+#: An agent-posture identity payload — the shape #2938 added to /auth/me/. Tests
+#: that only care about the pre-existing HTTP-status contract use this so a 200
+#: response reads as the agent credential it is meant to represent.
+AGENT_IDENTITY: dict[str, object] = {
+    "id": "u-1",
+    "token": {"scopes": ["mcp:read"], "is_agent": True},
+}
 
 
 async def test_bad_token_raises_auth_error(settings: Settings, make_transport: MockFactory) -> None:
@@ -33,8 +47,13 @@ async def test_bad_token_raises_auth_error(settings: Settings, make_transport: M
 async def test_valid_token_returns_identity(
     settings: Settings, make_transport: MockFactory
 ) -> None:
-    """A 200 from /auth/me/ returns the identity payload (valid token → 200)."""
-    identity = {"id": "u-1", "display_name": "Ada Lovelace", "initials": "AL"}
+    """A 200 from /auth/me/ returns the identity payload (valid agent token → 200)."""
+    identity = {
+        "id": "u-1",
+        "display_name": "Ada Lovelace",
+        "initials": "AL",
+        "token": {"scopes": ["mcp:read"], "is_agent": True},
+    }
     transport = make_transport(httpx.Response(200, json=identity))
     async with TruePPMClient(settings, transport=transport) as client:
         result = await client.verify_auth()
@@ -50,7 +69,7 @@ async def test_verify_auth_calls_auth_me_with_bearer_header(
     def handler(request: httpx.Request) -> httpx.Response:
         seen["url"] = str(request.url)
         seen["authorization"] = request.headers.get("authorization", "")
-        return httpx.Response(200, json={"id": "u-1"})
+        return httpx.Response(200, json=AGENT_IDENTITY)
 
     transport = make_transport(handler)
     async with TruePPMClient(settings, transport=transport) as client:
@@ -58,6 +77,56 @@ async def test_verify_auth_calls_auth_me_with_bearer_header(
 
     assert seen["url"] == f"{SAMPLE_API_URL}/api/v1/{AUTH_VERIFY_PATH}"
     assert seen["authorization"] == f"Bearer {SAMPLE_TOKEN}"
+
+
+# ---------------------------------------------------------------------------
+# Agent-posture fail-closed boot (#2938)
+# ---------------------------------------------------------------------------
+
+
+async def test_legacy_full_token_raises_non_agent_error(
+    settings: Settings, make_transport: MockFactory
+) -> None:
+    """A 200 identity carrying a legacy:full (not-agent) posture fails closed."""
+    identity = {"id": "u-1", "token": {"scopes": ["legacy:full"], "is_agent": False}}
+    transport = make_transport(httpx.Response(200, json=identity))
+    async with TruePPMClient(settings, transport=transport) as client:
+        with pytest.raises(NonAgentTokenError) as exc_info:
+            await client.verify_auth()
+    # Names the consequence and the fix, not just "refused" (issue #2938's own ask).
+    assert "not an agent credential" in str(exc_info.value)
+    assert "mcp:read" in str(exc_info.value)
+
+
+async def test_missing_token_field_raises_non_agent_error(
+    settings: Settings, make_transport: MockFactory
+) -> None:
+    """A 200 identity with no ``token`` key at all also fails closed.
+
+    Covers an older API that predates #2938 (no field to trust) exactly the same
+    as a token this client can positively tell is not an agent — "unknown" reads
+    as "not verified as an agent", not as a pass.
+    """
+    transport = make_transport(httpx.Response(200, json={"id": "u-1"}))
+    async with TruePPMClient(settings, transport=transport) as client:
+        with pytest.raises(NonAgentTokenError):
+            await client.verify_auth()
+
+
+async def test_lifespan_aborts_boot_on_non_agent_token(
+    settings: Settings, make_transport: MockFactory
+) -> None:
+    """Boot lifespan raises NonAgentTokenError before yielding on a legacy:full token."""
+    identity = {"id": "u-1", "token": {"scopes": ["legacy:full"], "is_agent": False}}
+    transport = make_transport(httpx.Response(200, json=identity))
+    client = TruePPMClient(settings, transport=transport)
+    lifespan = make_lifespan(client)
+    server = build_server(client)
+
+    with pytest.raises(NonAgentTokenError):
+        async with lifespan(server):
+            pytest.fail("lifespan must not yield when the token is not an agent credential")
+    await client.aclose()
 
 
 async def test_unexpected_status_raises_api_error(
@@ -110,7 +179,7 @@ async def test_lifespan_verifies_auth_then_closes_on_valid_token(
     settings: Settings, make_transport: MockFactory
 ) -> None:
     """Boot lifespan calls verify_auth, yields the client, then closes it (200)."""
-    transport = make_transport(httpx.Response(200, json={"id": "u-1"}))
+    transport = make_transport(httpx.Response(200, json=AGENT_IDENTITY))
     client = TruePPMClient(settings, transport=transport)
     lifespan = make_lifespan(client)
     server = build_server(client)

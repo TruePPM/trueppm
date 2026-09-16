@@ -1442,7 +1442,9 @@ class MeView(McpReadableViewMixin, APIView):
 
     @extend_schema(responses={200: MeSerializer})
     def get(self, request: Request) -> Response:
-        return Response(MeSerializer(request.user).data)
+        # context={"request": request} so MeSerializer.get_token can read
+        # request.auth — the caller's own token, absent for a session/JWT caller (#2938).
+        return Response(MeSerializer(request.user, context={"request": request}).data)
 
 
 class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[ProgramMembership]):

@@ -95,6 +95,24 @@ class AuthError(TruePPMError):
     """Raised when the API rejects the configured bearer token (HTTP 401)."""
 
 
+class NonAgentTokenError(TruePPMError):
+    """Raised when the configured token authenticates (HTTP 200) but is not an
+    agent credential (#2938).
+
+    Distinct from :class:`AuthError`: the API did not reject the token — a
+    ``legacy:full`` personal access token authenticates fine and always will,
+    because restraining it would restrain the person who owns it (#2877). What
+    this error catches is the *honest mistake*: someone pasted their own PAT into
+    ``TRUEPPM_API_TOKEN`` instead of minting an ``mcp:read`` token. Left
+    unchecked, the server boots successfully on a credential the operator's
+    instance kill switch and the team's agent opt-out do not govern — a silent
+    bypass by configuration, not by attack. Raised by
+    :meth:`TruePPMClient.verify_auth`, before the server lifespan yields, so it
+    aborts the boot the same way a bad token does rather than letting every tool
+    call succeed unprotected.
+    """
+
+
 class RateLimitError(ApiError):
     """Raised when the API rate-limits the call (HTTP 429) — #2924.
 
@@ -285,6 +303,8 @@ class TruePPMClient:
         Raises:
             AuthError: On HTTP 401 — the token is missing, malformed, or revoked.
             ApiError: On any other non-success status.
+            NonAgentTokenError: The token authenticates but is not an agent
+                credential (#2938) — see that class's docstring.
         """
         response = await self._client.get(AUTH_VERIFY_PATH)
         if response.status_code == httpx.codes.UNAUTHORIZED:
@@ -311,6 +331,17 @@ class TruePPMClient:
                 refusal,
             )
         result: dict[str, Any] = response.json()
+        posture = result.get("token")
+        is_agent = isinstance(posture, dict) and bool(posture.get("is_agent"))
+        if not is_agent:
+            scopes = posture.get("scopes") if isinstance(posture, dict) else None
+            raise NonAgentTokenError(
+                "This token is a full-access personal credential"
+                f"{f' (scopes: {scopes})' if scopes else ''}, not an agent "
+                "credential — the instance kill switch and your team's agent "
+                "opt-out will not apply to it. Mint an mcp:read token instead: "
+                "Personal Access Tokens → Create token → 'Read-only for AI assistants'."
+            )
         return result
 
     async def get(self, path: str, params: Mapping[str, Any] | None = None) -> Any:

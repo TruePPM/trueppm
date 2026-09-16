@@ -27,6 +27,7 @@ function makeUser(id: string) {
     dnd_enabled: false,
     timezone: 'auto',
     date_format: 'auto' as const,
+    token: null,
   };
 }
 

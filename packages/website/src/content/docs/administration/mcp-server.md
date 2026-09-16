@@ -348,7 +348,10 @@ may follow in a later release.
   well-behaved client and model are still required to honor it.
 - **Fail-closed boot.** A token that does not authenticate fails startup with a
   clear message, so a misconfigured client never silently runs against the wrong
-  instance.
+  instance. A token that *does* authenticate but is not an agent credential —
+  `legacy:full` rather than `mcp:read` — also fails startup: neither the kill
+  switch below nor a team's opt-out binds that scope, so booting on it would run
+  unprotected rather than loudly refuse.
 - **Self-hosted.** All traffic stays between your AI client, the server, and your
   own API. No third-party service is involved, and no plan or inference leaves
   your box.
@@ -424,6 +427,12 @@ carries their own authority, so restraining it would mean restraining them.
 What the control does guarantee is that a credential minted *as an agent* is
 bound, always, by whichever scope objects. Treat it as the answer to "may an agent
 be pointed at this team's data," not as a data-loss-prevention boundary.
+
+`trueppm-mcp` itself refuses to boot on a `legacy:full` token (see
+[Fail-closed boot](#security-posture)), which closes the *honest-mistake* version
+of this gap — pointing our own client at your own PAT by accident. It does not
+close the deliberate one: nothing server-side can stop a member from writing (or
+running) a different MCP client that ignores the check.
 
 ### Program bulk exports are serve-or-refuse, and you choose which
 
@@ -534,5 +543,6 @@ own mint and revoke history is at
 |---------|--------------|
 | Exit code `2`, "Configuration error" on stderr | `TRUEPPM_API_URL` or `TRUEPPM_API_TOKEN` is unset or blank. |
 | Boot fails with "the TruePPM API rejected the configured token (HTTP 401)" | The token is missing, malformed, or revoked. Mint a fresh `mcp:read` token. |
+| Boot fails with "this token is a full-access personal credential ... not an agent credential" | `TRUEPPM_API_TOKEN` holds a `legacy:full` personal access token, not an `mcp:read` one — the default scope the token mint form gives you unless you pick "Read-only for AI assistants". It authenticates, but neither the [instance kill switch](#security-posture) nor a [team's agent opt-out](#team-level-opt-out) governs it, so the server refuses to boot on it rather than run unprotected. Mint an `mcp:read` token instead. |
 | A tool returns a 404 for a resource you expect to see | The token's role on its project/program does not permit reading that resource — 404 is the deliberate existence oracle, identical to the web client. |
 | A tool that used to work now errors on a write | An `mcp:read` token is refused at write paths by design; this server issues no writes, so this indicates a misrouted call, not a permission gap to widen. |
