@@ -617,3 +617,51 @@ def revoke_all_personal_access_tokens(
         ]
     )
     return revoked
+
+
+def revoke_personal_durable_grants(user: Any = None, *, actor: Any = None) -> tuple[int, int]:
+    """Revoke the two non-token durable grants a PAT (or a live session) can mint (#2939).
+
+    ``IsNotTokenAuthenticated`` (#2878) now blocks *minting* a ``ShareLink`` or
+    rotating a ``BoardAutomation`` webhook secret through a bearer token, but a
+    grant minted **before** that guard existed, or minted through a live session by
+    someone who is now being contained, is exactly as durable as a personal access
+    token and sits outside every existing revocation lever
+    (``revoke_all_personal_access_tokens``, password reset, off-boarding). This
+    closes that gap for the two grants #2939 scoped: a project's public share
+    links and its git-automation webhook secret.
+
+    ``user=None`` means instance-wide — every active grant, not one person's —
+    which is what the ``revoke_api_tokens --all`` full-compromise lever needs;
+    a scoped ``user`` is the off-boarding / single-account case.
+
+    Revoking a share link is cheap for a team to recover from (an Admin mints a
+    new one); clearing a webhook secret degrades ``GitWebhookIngestView`` to its
+    existing "no secret set" 404 refusal (fail-closed by construction, not a new
+    code path) until an Admin rotates a fresh one. Both are lower-disruption than
+    the project-/program-scoped *API tokens* this module deliberately leaves alone
+    on off-boarding (see ``_revoke_offboarded_credentials``) — those are shared
+    integration credentials embedded in other people's scripts and CI, not a
+    single admin's config action.
+
+    Returns ``(share_links_revoked, automation_secrets_cleared)``.
+    """
+    # Local import: projects/integrations import from access, so importing these
+    # at module top would create a circular dependency (mirrors the ApiToken
+    # import above).
+    from trueppm_api.apps.integrations.models import BoardAutomation
+    from trueppm_api.apps.projects.models import ShareLink
+
+    now = timezone.now()
+
+    links = ShareLink.objects.filter(revoked_at__isnull=True)
+    if user is not None:
+        links = links.filter(created_by=user)
+    links_revoked = links.update(revoked_at=now, revoked_by=actor)
+
+    secrets_qs = BoardAutomation.objects.exclude(secret_ciphertext=b"")
+    if user is not None:
+        secrets_qs = secrets_qs.filter(configured_by=user)
+    secrets_cleared = secrets_qs.update(secret_ciphertext=b"", secret_set_at=None)
+
+    return links_revoked, secrets_cleared

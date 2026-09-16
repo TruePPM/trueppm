@@ -1769,3 +1769,62 @@ def test_projects_endpoint_bulk_impact_preview_counts_are_not_n_plus_one(
     assert resp.status_code == 200
     assert len(resp.data) == 4
     assert len(ctx.captured_queries) <= 12, len(ctx.captured_queries)
+
+
+# Every action that legitimately needs no program scope to check — no program
+# exists yet for `create` (mints one), `import_seed`/`load_sample` (mint one from
+# a seed/sample), and `validate_import` (works from a standalone document, not a
+# saved program). Pinned by name (#2939) so a new bootstrap-shaped action can join
+# the list deliberately, but nothing else can silently fall through to it.
+_BARE_AUTHENTICATED_PROGRAM_ACTIONS = frozenset(
+    {"create", "import_seed", "validate_import", "load_sample"}
+)
+
+
+def _program_viewset_action_names() -> set[str]:
+    """Every action `ProgramViewSet` routes, discovered rather than hand-listed —
+    the standard `ModelViewSet` CRUD actions plus every `@action`-decorated method
+    (DRF stamps those with a `.mapping` attribute)."""
+    from trueppm_api.apps.projects.program_views import ProgramViewSet
+
+    names = {"list", "retrieve", "create", "update", "partial_update", "destroy"}
+    for attr in dir(ProgramViewSet):
+        if hasattr(getattr(ProgramViewSet, attr, None), "mapping"):
+            names.add(attr)
+    return names
+
+
+def test_no_unpinned_program_action_resolves_to_bare_is_authenticated() -> None:
+    """`_rbac_permissions()`'s fallback must fail closed, not silently reopen (#2939).
+
+    A prior version of this fallback was a bare `[IsAuthenticated()]` for *every*
+    action nobody had named in the if-chain above it — the shape that let a future
+    unsafe `@action` ship with no role gate at all. It is now `IsProgramMember()`,
+    which `_unresolved_scope_allows` (#3767) denies by default for an unsafe
+    `detail=False` write with unresolvable scope. This test pins the only actions
+    still allowed to resolve to bare `IsAuthenticated` — the program-bootstrap
+    actions, which have no program yet to be a member of — so a new action added
+    to that escape hatch is a reviewable diff here, not a silent one in
+    `program_views.py`.
+    """
+    from rest_framework.permissions import IsAuthenticated
+    from rest_framework.request import Request
+    from rest_framework.test import APIRequestFactory
+
+    from trueppm_api.apps.projects.program_views import ProgramViewSet
+
+    bare: set[str] = set()
+    for name in _program_viewset_action_names():
+        view = ProgramViewSet()
+        view.action = name
+        view.request = Request(APIRequestFactory().generic("POST", "/"))
+        perms = view._rbac_permissions()
+        if [type(p) for p in perms] == [IsAuthenticated]:
+            bare.add(name)
+
+    assert bare == _BARE_AUTHENTICATED_PROGRAM_ACTIONS, (
+        f"actions resolving to bare IsAuthenticated changed: {bare!r} != "
+        f"{_BARE_AUTHENTICATED_PROGRAM_ACTIONS!r} — a newly-bare action must be a "
+        "deliberate addition to _BARE_AUTHENTICATED_PROGRAM_ACTIONS in this test, "
+        "reasoned about the same way the existing four are in program_views.py."
+    )

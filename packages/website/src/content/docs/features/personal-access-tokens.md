@@ -121,12 +121,18 @@ in and at what role.
 
 It is not yet containment for *everything*. A leaked token belonging to a workspace
 admin can still send a workspace invite, change a member's role, add someone to a
-group or grant a group a role on a project; one belonging to the workspace owner can
-still transfer ownership; and one belonging to a project admin can still rotate a
-git-automation webhook secret or mint a public share link. None of those is undone by
-revoking the token, by a password reset, or by off-boarding. Treat revocation as
-cutting off the credential, then check what that credential did while it was live —
-your [token history](#your-token-history) is the starting point.
+group or grant a group a role on a project; and one belonging to the workspace owner
+can still transfer ownership. None of those is undone by revoking the token, by a
+password reset, or by off-boarding. Treat revocation as cutting off the credential,
+then check what that credential did while it was live — your
+[token history](#your-token-history) is the starting point.
+
+A project admin's token can no longer rotate a git-automation webhook secret or mint
+a public share link — those routes now refuse token callers the same way token
+management itself does. A grant either was minted before that changed, and off-boarding
+or the operator's `revoke_api_tokens --all` sweep (see
+[Rotating credentials after a suspected leak](/administration/security/#separating-the-jwt-signing-key-and-forcing-a-global-sign-out))
+now revokes it too.
 
 ## A password change revokes every PAT
 

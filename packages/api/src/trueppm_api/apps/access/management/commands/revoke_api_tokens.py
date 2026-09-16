@@ -15,8 +15,12 @@ the missing half of that procedure.
   * ``--all-personal`` — every personal token on the instance. The "our secret store
     leaked" case. Leaves project- and program-scoped integration tokens alone, so team
     CI keeps working.
-  * ``--all`` — every token of every kind, including integration tokens. This *will*
-    break every inbound sync until an admin re-mints; it is the full-compromise lever.
+  * ``--all`` — every token of every kind, including integration tokens, **plus**
+    every active share link and configured git-automation webhook secret instance-
+    wide (#2939) — the other two durable grants a leaked token or compromised
+    session can mint that no other lever reaches. This *will* break every inbound
+    sync and public share link until an admin re-mints; it is the full-compromise
+    lever.
 
 **Dry-run by default.** The command reports what it would revoke and exits; ``--commit``
 performs the revocation, prompting for confirmation unless ``--yes`` is given. Revocation
@@ -132,7 +136,21 @@ class Command(BaseCommand):
             kind = "personal" if token.owner_id else ("project" if token.project_id else "program")
             self.stdout.write(f"  {token.token_prefix}… ({kind}) {token.name}")
 
-        if not doomed:
+        # --all is the full-compromise lever: also sweep the two non-token durable
+        # grants a leaked token (or a compromised session) can mint (#2939). Counted
+        # ahead of --commit so a dry run reports the whole blast radius, not just
+        # the token count.
+        from trueppm_api.apps.integrations.models import BoardAutomation
+        from trueppm_api.apps.projects.models import ShareLink
+
+        links_matched = secrets_matched = 0
+        if options["all"]:
+            links_matched = ShareLink.objects.filter(revoked_at__isnull=True).count()
+            secrets_matched = BoardAutomation.objects.exclude(secret_ciphertext=b"").count()
+            self.stdout.write(f"Active share links matched: {links_matched}")
+            self.stdout.write(f"Configured git-automation secrets matched: {secrets_matched}")
+
+        if not doomed and not links_matched and not secrets_matched:
             self.stdout.write(self.style.SUCCESS("Nothing to revoke."))
             return
 
@@ -143,7 +161,8 @@ class Command(BaseCommand):
             return
 
         if not options["yes"]:
-            answer = input(f"Revoke {len(doomed)} token(s)? This cannot be undone. [y/N] ")
+            total = len(doomed) + links_matched + secrets_matched
+            answer = input(f"Revoke {total} grant(s)? This cannot be undone. [y/N] ")
             if answer.strip().lower() not in ("y", "yes"):
                 raise CommandError("Aborted.")
 
@@ -170,8 +189,20 @@ class Command(BaseCommand):
                     for token in doomed
                 ]
             )
+            links_revoked = secrets_cleared = 0
+            if options["all"]:
+                from trueppm_api.apps.access.services import revoke_personal_durable_grants
+
+                links_revoked, secrets_cleared = revoke_personal_durable_grants(actor=None)
 
         self.stdout.write(self.style.SUCCESS(f"Revoked {revoked} token(s)."))
+        if options["all"]:
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Revoked {links_revoked} share link(s), cleared "
+                    f"{secrets_cleared} git-automation secret(s)."
+                )
+            )
         self.stdout.write(
             "Sessions and JWTs are a separate credential class — rotate JWT_SIGNING_KEY "
             "as well if you have not already (administration/security.md)."
