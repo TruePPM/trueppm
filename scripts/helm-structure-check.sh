@@ -1392,6 +1392,50 @@ cp_beat="$(helm template trueppm "$CHART" --set image.tag=latest \
 helm template trueppm "$CHART" --set image.tag=latest --set probes.beat.readiness.periodSeconds=10 >/dev/null 2>&1 \
   && fail "values.schema.json accepts probes.beat.readiness — beat renders no readiness probe, so the key would be a control that writes and is never read (#3230)"
 
+# N+6. The API tier's uvicorn worker count must be a chart value, not a fixed
+#      single process baked into the image's CMD (#3833). The shipped image's
+#      CMD carries no --workers flag, so uvicorn runs one process per pod and
+#      request CPU pins at about one core — measured: eight concurrent Schedule
+#      opens took 22.5s each against one process and 7.3s against four.
+api_cmd() {
+  helm template trueppm "$CHART" --set image.tag=latest "$@" \
+    --show-only templates/api/deployment.yaml \
+    | yq '.spec.template.spec.containers[0].command | join(" ")'
+}
+
+# N+6.a — the DEFAULT must render exactly one worker, preserving the image's
+#         shipped single-process behavior. It may render an explicit
+#         "--workers 1" (this chart does — an unconditional command, like the
+#         celery worker's, is simpler to keep correct than a conditional one)
+#         or omit the flag entirely; either is a behavioral no-op, so this
+#         asserts the OUTCOME (exactly one worker) rather than which form.
+ac_default="$(api_cmd)"
+case "$ac_default" in
+  *"--workers 1"*) ;;
+  *"--workers"*) fail "api.workers default did not render as 1 worker: $ac_default" ;;
+  *) ;; # flag omitted entirely — also a valid rendering of the default
+esac
+grep -qE -- '^uvicorn ' <<<"$ac_default" \
+  || fail "api container command does not start with uvicorn — the override changed more than intended: $ac_default"
+grep -q -- '--host 0.0.0.0 --port 8000' <<<"$ac_default" \
+  || fail "api command dropped --host/--port from the Dockerfile CMD it is meant to only ADD --workers to: $ac_default"
+
+# N+6.b — the knob must actually be wired, and must not silently change the
+#         bind address/port the readiness/liveness probes and Service target.
+ac_four="$(api_cmd --set api.workers=4)"
+grep -q -- '--workers 4' <<<"$ac_four" \
+  || fail "api.workers=4 did not render '--workers 4' in the api container command — the values knob is not wired"
+grep -q -- '--host 0.0.0.0 --port 8000' <<<"$ac_four" \
+  || fail "api.workers=4 changed --host/--port away from the Dockerfile CMD: $ac_four"
+
+# N+6.c — 0 must be REJECTED, not passed through: uvicorn treats --workers 0 as
+#         an invalid argument, so a silent 0 would crash-loop the api container
+#         at whatever moment an operator or a values-merge produced it, instead
+#         of failing at `helm template`/`helm upgrade --dry-run` time.
+if api_cmd --set api.workers=0 >/dev/null 2>&1; then
+  fail "api.workers=0 rendered successfully — it must fail the render, uvicorn requires at least one worker (#3833)"
+fi
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches all $env_checked containers that import settings.prod"
@@ -1414,3 +1458,4 @@ echo "  - media claim: all $media_checked settings-importing containers agree on
 echo "  - backup: no-destination render refused; all $backup_dest_checked documented destinations accepted; CronJob and scripts/backup.sh agree on all $manifest_fields_checked MANIFEST fields"
 echo "  - placement: $place_checked previously-rejected keys accepted; $place_workloads workloads carry a self-scoped spread constraint; HPA owns replicas alone; web follows replicaCount and has a PDB"
 echo "  - celery probes: worker liveness ${cp_live_i}/${cp_live_p}x${cp_live_f} (detection ${cp_detect}s >= ${cp_grace}s grace, still 'inspect ping') and readiness ${cp_ready_i}/${cp_ready_p} (heartbeat-file freshness, #3346) are tuned apart; startup is the heartbeat-file existence check; kubelet timeout scales with the ping budget on liveness; flat keys still drive all three probes; beat is liveness-only"
+echo "  - api.workers=1 by default (image CMD behavior preserved), api.workers=4 renders --workers 4 without disturbing --host/--port, and 0 is refused (#3833)"

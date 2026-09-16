@@ -1054,12 +1054,13 @@ def test_program_own_denial_still_governs_under_allow(
     before the program's own ``mcp_enabled`` would turn it into a blanket bypass of
     the cascade rather than an answer to one unsettled question.
 
-    The ``project`` fixture is required, not incidental. A program with **zero**
-    member projects is not withheld at all today, regardless of policy — the mixin's
-    filter fast-paths on "has any *project* opted out?" and skips its own ``Program``
-    branch when the answer is no (#3022, pre-existing). Testing this invariant on an
-    empty program would assert that unrelated bug instead of the one property this
-    MR is responsible for.
+    The ``project`` fixture keeps this test focused on the ``allow``-policy property
+    alone. Before #3022 was fixed, a program with **zero** member projects was not
+    withheld at all — the mixin's filter fast-pathed on "has any *project* opted
+    out?" and skipped its own ``Program`` branch when the answer was no — so mixing
+    that gap into this test would have asserted a different bug than the one
+    property this test is responsible for. The zero-member-project case now has its
+    own direct regression, ``test_empty_program_denial_is_enforced_for_an_agent``.
     """
     program.mcp_enabled = False
     program.save(update_fields=["mcp_enabled"])
@@ -1092,10 +1093,10 @@ def test_program_detail_routes_honor_the_program_denial_for_an_agent(
     way. Rewrite ``get_object()`` as ``get_object_or_404(self.get_queryset(), …)`` and
     this test is what fails.
 
-    The ``project`` fixture is required, not incidental — same reason as the test above:
-    with no child project, ``mcp_visible_project_ids`` returns ``None`` and the mixin
-    fast-paths out before reaching its ``Program`` branch (#3022), so the assertions
-    would pass vacuously against a bypassed filter.
+    The ``project`` fixture pins this alongside a real member project, so it stays
+    a regression test for the ``get_object()`` seam specifically rather than for
+    the zero-member-project fast-path gap #3022 fixed — that case now has its own
+    direct regression, ``test_empty_program_denial_is_enforced_for_an_agent``.
     """
     program.mcp_enabled = False
     program.save(update_fields=["mcp_enabled"])
@@ -1106,6 +1107,54 @@ def test_program_detail_routes_honor_the_program_denial_for_an_agent(
 
     # A human with the same membership is unaffected — ADR-0678 governs agents.
     assert _human(owner).get(f"/api/v1/programs/{program.pk}/").status_code == 200
+
+
+@pytest.mark.django_db
+def test_empty_program_denial_is_enforced_for_an_agent(program: Program, owner: Any) -> None:
+    """A denying program with ZERO member projects is still withheld (#3022, fixed).
+
+    ``_mcp_filter_queryset`` used to reach its ``Program`` branch only after
+    ``mcp_visible_project_ids`` reported at least one *project* opted out anywhere
+    on the instance — a question a program with no member projects can never
+    answer yes to, since ``mcp_opted_out_project_ids()`` is a ``Project`` query.
+    So a program that denies agent reads for itself, with no children to trip that
+    fast path, was served in full: present in ``GET /programs/`` and readable at
+    ``GET /programs/{id}/``. ADR-0678's first rule — "any scope may deny for itself
+    and everything beneath it" — was not enforced for the empty case.
+
+    Deliberately uses the bare ``program`` fixture (no ``project``/``other_project``)
+    so the fast path this bug lived in cannot be sidestepped by an incidental
+    membership. Table from the issue, all three rows in one place:
+
+      * ``mcp_enabled=False``, zero member projects → 404 (this test's positive case)
+      * ``mcp_enabled=False``, >=1 member project    → 404 (already pinned by
+        ``test_program_detail_routes_honor_the_program_denial_for_an_agent``)
+      * ``mcp_enabled=True``                          → 200 (this test's negative case)
+    """
+    program.mcp_enabled = False
+    program.save(update_fields=["mcp_enabled"])
+    agent = _agent(owner)
+
+    detail = agent.get(f"/api/v1/programs/{program.pk}/")
+    assert detail.status_code in (403, 404), detail.status_code
+
+    listing = agent.get("/api/v1/programs/")
+    assert listing.status_code == 200, listing.data
+    ids = {row["id"] for row in listing.data["results"]}
+    assert str(program.pk) not in ids
+
+    # A human with the same membership is unaffected — ADR-0678 governs agents.
+    assert _human(owner).get(f"/api/v1/programs/{program.pk}/").status_code == 200
+
+    # Negative control: an `mcp_enabled=True` (still opted-in) empty program must
+    # keep being served — this pins the fix to the denial, not to "empty program".
+    program.mcp_enabled = True
+    program.save(update_fields=["mcp_enabled"])
+    agent2 = _agent(owner)
+    assert agent2.get(f"/api/v1/programs/{program.pk}/").status_code == 200
+    listing2 = agent2.get("/api/v1/programs/")
+    assert listing2.status_code == 200, listing2.data
+    assert str(program.pk) in {row["id"] for row in listing2.data["results"]}
 
 
 @pytest.mark.django_db

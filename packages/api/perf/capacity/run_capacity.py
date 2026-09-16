@@ -34,6 +34,7 @@ import time
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -68,12 +69,42 @@ ERROR_RATE_GATE = 0.01
 # with identical data. Publishing either number without qualification would be
 # meaningless.
 #
-# So every step also measures `/api/v1/health/`, which does a constant, trivial
-# amount of work: its latency is a proxy for what the host is doing to us. If the
-# control is above this gate the step is retried, and if it stays high the step is
-# marked `contaminated` and excluded from the published envelope.
+# So every step also measures `CONTROL_PATH` (below), whose latency is a proxy
+# for what the host is doing to us. If the control is above this gate the step
+# is retried, and if it stays high the step is marked `contaminated` and
+# excluded from the published envelope.
+#
+# `CONTROL_PATH` used to be the unauthenticated `/api/v1/health/`, measured at
+# ~6.7 ms. #3828: a >15-minute sweep let its cached JWT expire mid-run, and the
+# health-based control stayed green throughout because it needs no token at
+# all — it was structurally incapable of seeing the failure it existed to
+# catch. `CONTROL_PATH` now points at an authenticated, constant-cost endpoint
+# instead (see its definition below), so the control also doubles as an
+# auth-health check. That endpoint has not been re-benchmarked live against
+# this gate (this fix was written without bringing up the capacity stack, per
+# the #3828 harness-only scope) — it does one indexed `auth.User` primary-key
+# lookup plus a serializer call, the same shape of work `/health/`'s old ~6.7 ms
+# baseline was built on, so 150 ms (~22x that baseline) is kept as a
+# conservative gate rather than a re-measured one. Re-tighten it once a live
+# sweep records the new probe's real p95.
 CONTROL_P95_GATE_MS = 150.0
 MAX_STEP_ATTEMPTS = 3
+
+# Refresh margin for the cached bearer token (#3828).
+#
+# `ACCESS_TOKEN_LIFETIME` is 15 minutes
+# (packages/api/src/trueppm_api/settings/base.py). A single sweep *step* —
+# not just the whole sweep — can itself run for minutes at the largest sizes,
+# so the token has to stay valid for the entire step, not merely be fresh at
+# the moment the step starts. Refreshing at 10 minutes rather than at the
+# 15-minute deadline leaves every step a safety window instead of racing it.
+# Before this fix the token was cached for the life of the process with no
+# refresh at all: a 17m51s `tasks` sweep spent its final (16,000-task) step
+# entirely on 401s from an expired token, at the ~4.8 ms speed of an auth
+# rejection rather than a database read — and nothing detected it, because the
+# control sample of the time (`/api/v1/health/`) is unauthenticated and cannot
+# see a 401.
+TOKEN_REFRESH_AFTER = timedelta(minutes=10)
 
 
 @dataclass
@@ -98,6 +129,11 @@ class StepResult:
     max_ms: float
     error_rate: float
     breached: bool
+    # Per-status-code counts across the step's samples, e.g. {"200": 29, "401": 1}.
+    # `error_rate` alone cannot distinguish a wall of 401s (an expired token,
+    # #3828) from a wall of 500s or timeouts — this is the breakdown that makes
+    # that distinguishable after the fact, straight from the results JSON.
+    status_histogram: dict[str, int] = field(default_factory=dict)
     # Host-noise control — see `control_sample()`. `control_p95_ms` is the same
     # measurement taken against a constant-work endpoint at the same moment, and
     # `load_avg` is the 1-minute host load. A step whose control is elevated was
@@ -140,6 +176,12 @@ def measure_step(
     and why its number was not published — silently dropping it would misreport
     the sweep as having covered ground it did not.
     """
+    # Once per step, not per request (see `ensure_fresh_token`) — a step at the
+    # largest sizes can itself run for minutes, so it must start with a token
+    # good for its own duration, not one that was merely fresh when the sweep
+    # began.
+    client.ensure_fresh_token()
+
     best: StepResult | None = None
     for attempt in range(1, MAX_STEP_ATTEMPTS + 1):
         control_before = p95_of(control_sample(client))
@@ -167,9 +209,30 @@ def measure_step(
     return best
 
 
+# Constant-cost authenticated probe used as the host-noise / auth-health
+# control — see `control_sample()` and the `CONTROL_P95_GATE_MS` comment above
+# for why this replaced `/api/v1/health/`. `MeView` (auth/me/) does one indexed
+# `auth.User` primary-key lookup plus a `MeSerializer` call on `request.user` —
+# no project- or task-scoped query, so its cost does not grow with however much
+# data the capacity stack has been seeded with, which is what a noise control
+# requires: it must measure the host/auth path, never the size under test.
+CONTROL_PATH = "/api/v1/auth/me/"
+
+
 def control_sample(client: Client, n: int = 12) -> list[Sample]:
-    """Latency of a constant-work endpoint — the host-contention proxy."""
-    return [client.timed("/api/v1/health/") for _ in range(n)]
+    """Latency of a constant-work, authenticated endpoint — host-contention AND
+    auth-health proxy. See `CONTROL_PATH`.
+    """
+    return [client.timed(CONTROL_PATH) for _ in range(n)]
+
+
+def _status_histogram(samples: list[Sample]) -> dict[str, int]:
+    """Per-status-code counts, e.g. `{"200": 29, "401": 1}` — see `StepResult`."""
+    histogram: dict[str, int] = {}
+    for s in samples:
+        key = str(s.status)
+        histogram[key] = histogram.get(key, 0) + 1
+    return histogram
 
 
 def summarize(step: int | str, label: str, samples: list[Sample], notes: str = "") -> StepResult:
@@ -194,14 +257,35 @@ def summarize(step: int | str, label: str, samples: list[Sample], notes: str = "
         max_ms=round(max(times), 1) if times else 0.0,
         error_rate=round(rate, 4),
         breached=p95 > P95_GATE_MS or rate > ERROR_RATE_GATE,
+        status_histogram=_status_histogram(samples),
         notes=notes,
     )
 
 
 # The token endpoint carries a deliberately tight anti-credential-stuffing
-# throttle. A sweep re-authenticating at every step trips it and measures the
-# throttle instead of the API, so the token is minted once and shared.
-_TOKEN_CACHE: dict[str, str] = {}
+# throttle. Re-authenticating on every REQUEST would trip it and measure the
+# throttle instead of the API — so the token is still minted once and shared
+# across the harness, but now on a schedule (`TOKEN_REFRESH_AFTER`) rather than
+# cached for the life of the process. See that constant's comment for why an
+# indefinite cache was the #3828 root cause.
+@dataclass
+class _CachedToken:
+    """A minted bearer token plus when it was minted (`time.monotonic()`)."""
+
+    token: str
+    minted_at: float
+
+
+_TOKEN_CACHE: dict[str, _CachedToken] = {}
+
+
+def _token_is_fresh(cached: _CachedToken, *, now: float) -> bool:
+    """True while `cached` is still inside the refresh margin.
+
+    A standalone function so the refresh boundary is unit-testable without a
+    live token endpoint — see `tests/perf/test_capacity_harness.py`.
+    """
+    return (now - cached.minted_at) < TOKEN_REFRESH_AFTER.total_seconds()
 
 
 def owner_password() -> str:
@@ -231,8 +315,9 @@ class Client:
         self.token = self._login()
 
     def _login(self) -> str:
-        if cached := _TOKEN_CACHE.get(self.base_url):
-            return cached
+        cached = _TOKEN_CACHE.get(self.base_url)
+        if cached is not None and _token_is_fresh(cached, now=time.monotonic()):
+            return cached.token
         # Back off through the auth throttle rather than failing the sweep.
         last: requests.Response | None = None
         for attempt in range(6):
@@ -243,7 +328,7 @@ class Client:
             )
             if r.status_code == 200:
                 token = str(r.json()["access"])
-                _TOKEN_CACHE[self.base_url] = token
+                _TOKEN_CACHE[self.base_url] = _CachedToken(token=token, minted_at=time.monotonic())
                 return token
             last = r
             if r.status_code != 429:
@@ -252,6 +337,18 @@ class Client:
         if last is not None:
             last.raise_for_status()
         raise RuntimeError("Could not authenticate against the capacity stack.")
+
+    def ensure_fresh_token(self) -> None:
+        """Re-mint the bearer token if it has passed `TOKEN_REFRESH_AFTER`.
+
+        Called once per step (from `measure_step`), not per request: the cache
+        lookup is cheap, but the point is that the token only actually needs to
+        change on a ~10-minute cadence, so checking at request granularity buys
+        nothing. This is the fix for #3828 — a sweep step now always starts
+        with a token good for the whole step, not whatever was minted at the
+        start of the sweep possibly tens of minutes earlier.
+        """
+        self.token = self._login()
 
     @property
     def headers(self) -> dict[str, str]:

@@ -82,17 +82,49 @@ development the **same 2,000-task read measured 253 ms on a quiet host and
 4,147 ms at load average 14** — a 16× swing with identical data. Publishing either
 number unqualified would be meaningless.
 
-So every step also measures `/api/v1/health/`, which does a constant trivial amount
-of work, and records the host load average. If that control exceeds **150 ms** the
-step is retried up to 3 times; if it stays high the step is recorded with
-`contaminated: true` and **must not be published**. Contaminated steps are kept in
-the results rather than dropped — silently discarding them would misreport the
-sweep as having covered ground it did not.
+So every step also measures `/api/v1/auth/me/` (`CONTROL_PATH` in the code), which
+does one indexed `auth.User` primary-key lookup plus a serializer call — cost that
+does not grow with however much data the stack has been seeded with, and no
+project- or task-scoped query — and records the host load average. If that control
+exceeds **150 ms** the step is retried up to 3 times; if it stays high the step is
+recorded with `contaminated: true` and **must not be published**. Contaminated
+steps are kept in the results rather than dropped — silently discarding them would
+misreport the sweep as having covered ground it did not.
 
-**Known limitation of the control.** `/api/v1/health/` does not touch the database,
-so it detects host **CPU** starvation but not **database** contention. A step can
-pass the control and still be noisy. This is why `concurrent_users` is published as
+**Why the control is authenticated (#3828).** The control used to poll the
+unauthenticated `/api/v1/health/`. A sweep that runs longer than
+`ACCESS_TOKEN_LIFETIME` (15 minutes) lets its cached JWT expire mid-run — the
+harness minted the token once and never refreshed it — and every request past that
+point fails with `401` at the speed of an auth rejection (~4.8 ms), not a database
+read. The 16,000-task step of a 17m51s `tasks` sweep recorded `error_rate=0.9667`
+this way and was published as a capacity ceiling; a targeted re-run at the same
+sizes returned `200` on every request, with the API container's memory flat and
+`OOM=false`. Nothing was exhausted — the sweep had simply logged itself out.
+`/api/v1/health/` needs no token, so it stayed green (~6.7 ms) for the entire
+step and never saw the failure it existed to catch. The control now polls an
+authenticated endpoint instead, so an expired or rejected token shows up as an
+elevated, `contaminated` control sample rather than passing silently underneath a
+step that is actually failing. **Fixed alongside it:** the token cache is now
+time-aware (`TOKEN_REFRESH_AFTER`, refreshes at ~10 minutes — well inside the
+15-minute lifetime so a long step never crosses the deadline mid-flight) instead of
+cached for the life of the process, checked once per step rather than per request
+so the anti-credential-stuffing throttle is not tripped; and every step's results
+now carry a `status_histogram` (e.g. `{"401": 29, "200": 1}`) alongside
+`error_rate`, so a wall of `401`s is distinguishable from a wall of `500`s or
+timeouts without re-running the sweep.
+
+**Known limitation of the control.** Neither the old nor the new probe touches
+project- or task-scoped tables, so it detects host **CPU** starvation and auth
+failures but not **database** contention on the tables under test. A step can pass
+the control and still be noisy. This is why `concurrent_users` is published as
 *not measured* rather than as a number — see below.
+
+**Operational lesson.** Any capacity sweep that runs longer than the access-token
+lifetime will fabricate a ceiling at whatever step it happens to be on when the
+token expires, unless the token is refreshed mid-sweep and the control can see an
+auth failure. Both are now true of this harness; if `ACCESS_TOKEN_LIFETIME` is ever
+changed in `packages/api/src/trueppm_api/settings/base.py`, re-check that
+`TOKEN_REFRESH_AFTER` in `run_capacity.py` still leaves a comfortable margin under it.
 
 ## Dimensions
 
@@ -119,9 +151,12 @@ as untested until it can be run on a quiet, dedicated host.
 
 `results/capacity-<dimension>.json` carries the gates, the host description
 (platform, CPU count, load average), the **git SHA the measured image was built
-from**, and every step with `p95_ms`, `error_rate`, `control_p95_ms`, `load_avg`,
-`attempts` and `contaminated`. A number without its SHA and host is not repeatable,
-so both are recorded rather than assumed.
+from**, and every step with `p95_ms`, `error_rate`, `status_histogram`,
+`control_p95_ms`, `load_avg`, `attempts` and `contaminated`. A number without its
+SHA and host is not repeatable, so both are recorded rather than assumed.
+`status_histogram` (e.g. `{"200": 29, "401": 1}`) is the per-status-code breakdown
+behind `error_rate` — added after #3828, where a bare error rate could not tell a
+reader whether a step failed on auth, on the database, or on something else.
 
 ## Fidelity caveats
 
