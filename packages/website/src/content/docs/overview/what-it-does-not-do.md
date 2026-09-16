@@ -215,14 +215,14 @@ today, and we are not going to pretend otherwise.
   plus typed module boundaries for the offline store, the sync client, and
   authentication that are not yet implemented. There are no native Android or iOS
   projects, so it cannot be built or installed — not by us either. CI runs lint and
-  type-check on it; there is no test suite. Treat it as the foundation the 0.6 app
-  is being built on, not as an unreleased app.
+  type-check on it; there is no test suite. Treat it as a placeholder, not as an
+  unreleased app — no native app is scheduled.
 - **0.5:** an installable PWA with an offline shell — add to home screen, time entry
-  and board reads without a signal.
-- **0.6:** the scaffold above becomes a shipping app on Android — Android
-  phones first, tablets second — as the first mobile release anyone outside the
-  project can install.
-- **1.0:** iPhone and iPad parity.
+  and board reads without a signal. This is the mobile story through 1.0.
+- **Native Android and iOS apps:** not on the roadmap. An earlier plan put Android
+  at 0.6 and iPhone and iPad at 1.0; that plan was withdrawn on September 16, 2026
+  (#3834). A native app returns to a numbered release when people running TruePPM
+  report a mobile workflow the PWA cannot serve.
 
 ## Integrations — thin, deliberately
 

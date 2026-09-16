@@ -202,7 +202,7 @@ Priya updated one card. Alex's burndown moved. Sarah's milestone rollup moved wi
 
 Mid-program, Sarah runs a Monte Carlo on the milestone forecast. The simulation pulls historical sprint velocity (real, not estimated) for the team-driven nodes and PERT-style three-point estimates for the deterministic ones. The result is a probability distribution on the milestone date.
 
-**P50: Oct 12. P80: Oct 22. P95: Nov 1.** Janet opens her exec view on her phone (roadmap: the mobile exec view ships with the native app at 0.6). She sees a single sentence: *"82% likely to make Oct 15. Risk: velocity has been declining 4 sprints running."* No watermelon. No false precision. A defensible probability backed by the team's actual history.
+**P50: Oct 12. P80: Oct 22. P95: Nov 1.** Janet opens her exec view on her phone (roadmap: phone access arrives with the installable PWA at 0.5). She sees a single sentence: *"82% likely to make Oct 15. Risk: velocity has been declining 4 sprints running."* No watermelon. No false precision. A defensible probability backed by the team's actual history.
 
 And Sarah is no longer the only one who can run that question. With the read-only MCP server that lands in the 0.4 beta, an engineer can put the same what-if to an agent — *"slip the migration three days, do we still make October 15th?"* — and get the identical distribution, because the agent calls the same Monte Carlo the button does. The model phrases the answer; the engine computes it.
 

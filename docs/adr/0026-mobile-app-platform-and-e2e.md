@@ -7,6 +7,15 @@ primary reference design (Android phones → Android tablets → iPhone deferred
 The web + API scope originally bundled into issue #42 shipped; the mobile track is now
 roadmap-tracked under 0.4. See `packages/website/src/content/docs/overview/roadmap.md`.
 
+**Amended 2026-09-16 (#3834):** native mobile is no longer on the roadmap. The
+milestone ordering this ADR's supersession deferred to — Android phones at 0.6, iPhone
+and iPad at 1.0 — was withdrawn; the installable PWA (#1393) is the mobile story through
+1.0, and a native app returns to a numbered release only when real user reports name a
+workflow the PWA cannot serve. The platform choices this ADR still owns (bare React
+Native, à-la-carte Expo modules, EAS Build) are unchanged and apply if native resumes.
+The construction-site rationale quoted under Context below came from a modeled persona
+panel and has since been retired in `.claude/personas.md`.
+
 ## Context
 
 Issue #42 originally required mobile E2E coverage via Detox (iOS + Android) as part
