@@ -7,6 +7,7 @@ default), the 410-vs-404 semantics, the instance kill switch, and access meterin
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, timedelta
 
 import pytest
@@ -16,8 +17,10 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects import share_services
-from trueppm_api.apps.projects.authentication import sha256_hex
+from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
 from trueppm_api.apps.projects.models import (
+    SCOPE_LEGACY_FULL,
+    ApiToken,
     Calendar,
     Project,
     ShareLink,
@@ -77,6 +80,24 @@ def _public_url(token):
     return f"/api/v1/share/board/{token}/"
 
 
+def _token_client(owner):
+    """A session-less client bearing a live ``legacy:full`` personal token for
+    ``owner`` — the "leaked PAT belonging to a project Admin" shape #2939 closes.
+    """
+    raw = f"{TOKEN_PREFIX}{uuid.uuid4().hex}{uuid.uuid4().hex}"
+    ApiToken.objects.create(
+        owner=owner,
+        name="leaked",
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+        created_by=owner,
+        scopes=[SCOPE_LEGACY_FULL],
+    )
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+    return client
+
+
 # --------------------------------------------------------------------------- #
 # Management RBAC + token lifecycle
 # --------------------------------------------------------------------------- #
@@ -110,6 +131,20 @@ def test_member_cannot_create(member_client, project):
 def test_anonymous_cannot_create(project):
     resp = APIClient().post(_links_url(project), {}, format="json")
     assert resp.status_code in (401, 403)
+
+
+@pytest.mark.django_db
+def test_admin_token_cannot_create(project):
+    """A leaked PAT must not be able to mint this durable public-access grant
+    (#2939) — the same PAT-manages-PAT rule #2878 applied to ``/me/api-tokens/``.
+    Listing is unaffected: GET never carries the raw token, so it is not the
+    reconnaissance step ``/me/api-tokens/`` GET is.
+    """
+    admin = _member(project, "admin-token-holder", Role.ADMIN)
+    resp = _token_client(admin).post(_links_url(project), {"label": "x"}, format="json")
+    assert resp.status_code == 403, resp.data
+    assert ShareLink.objects.filter(project=project).count() == 0
+    assert _token_client(admin).get(_links_url(project)).status_code == 200
 
 
 @pytest.mark.django_db

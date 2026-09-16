@@ -1960,25 +1960,25 @@ class IsNotTokenAuthenticated(BasePermission):
     ``default_role``, and one SSO login at the widened domain then produces a real
     ADMIN session that revoking the token does not touch.
 
-    It does **not** cover every route that mints a durable grant of some kind: a leaked
-    PAT belonging to a project Admin can still rotate a git-automation webhook secret or
-    mint a public share link, and neither is revoked by password reset, off-boarding, or
-    the ``revoke_api_tokens`` sweep (TODO(#2939)).
+    Since #2939, it also covers the two other routes that mint a durable grant of
+    some kind: ``GitAutomationRotateSecretView`` (rotates a project's git-automation
+    webhook secret) and the POST branch of ``ProjectShareLinkListCreateView`` (mints
+    a public share link). Both grants are also now swept by off-boarding and by
+    ``revoke_api_tokens --all`` (``revoke_personal_durable_grants``), closing the
+    gap where a leaked PAT belonging to a project Admin could mint one and outlive
+    every revocation lever.
 
-    Several membership routes have the same shape and are not covered either —
-    workspace invites, member role change, group membership and group→project grants,
+    Several membership routes have the same shape and are **not** covered — workspace
+    invites, member role change, group membership and group→project grants,
     ``transfer-ownership`` (which hands OWNER away, and is therefore *above* the
     escalation #3551 closed), and the project/program membership viewsets in
-    ``apps/access/views.py``. **Nothing tracks that set.** #2939 is not its issue —
-    that one scopes the git-automation webhook secret and share links — and citing it
-    here would make an untracked gap read as filed. #3551's *Related* section defers the
-    filing to the team, so until an issue exists this paragraph is the only record of
-    it. Do not read the list as exhaustive either; ``tests/apps/access/
+    ``apps/access/views.py``. **Nothing tracks that set.** #3551's *Related* section
+    defers the filing to the team, so until an issue exists this paragraph is the
+    only record of it. Do not read the list as exhaustive either; ``tests/apps/access/
     token_write_surface.txt`` is the inventory and this docstring is not a second copy
-    of it. So "revoke the token and you are contained" is true for the credential and
-    sign-in-configuration surfaces and is not a whole-system property — say the narrower
-    thing in operator docs, and keep saying it after #2939 closes, because #2939 does
-    not reach these routes.
+    of it. So "revoke the token and you are contained" is true for the credential,
+    sign-in-configuration, share-link and git-automation surfaces and is not a
+    whole-system property — say the narrower thing in operator docs.
 
     **The predicate is ``request.auth``, and that is only sound because it runs as a
     permission.** An identity refusal is raised by the *authenticator*, so on that

@@ -1268,3 +1268,28 @@ def test_http_writes_commit_the_cursor_allocation_with_their_row() -> None:
     from django.conf import settings as dj_settings
 
     assert dj_settings.DATABASES["default"]["ATOMIC_REQUESTS"] is True
+
+
+def test_pull_get_throttles_is_not_the_empty_list(project: Project) -> None:
+    """#2939: a bare ``return []`` here silently dropped ``DEFAULT_THROTTLE_CLASSES``
+    on the delta-export pull — the same defect class #2878 fixed in four other
+    views (the override *replaces* the default rather than adding to it). GET must
+    resolve to the default `user`-scoped throttle instead of no throttle at all;
+    POST keeps its own dedicated upload throttle, unchanged.
+    """
+    from rest_framework.request import Request
+    from rest_framework.test import APIRequestFactory
+
+    from trueppm_api.apps.sync.throttles import SyncUploadThrottle
+    from trueppm_api.apps.sync.views import ProjectSyncView
+
+    get_view = ProjectSyncView()
+    get_view.request = Request(APIRequestFactory().generic("GET", "/"))
+    get_throttles = get_view.get_throttles()
+    assert get_throttles, "GET must not resolve to an empty throttle list"
+    assert not any(isinstance(t, SyncUploadThrottle) for t in get_throttles)
+
+    post_view = ProjectSyncView()
+    post_view.request = Request(APIRequestFactory().generic("POST", "/"))
+    post_throttles = post_view.get_throttles()
+    assert [type(t) for t in post_throttles] == [SyncUploadThrottle]

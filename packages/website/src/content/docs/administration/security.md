@@ -340,13 +340,20 @@ python manage.py revoke_api_tokens --all-personal --commit
 Use `--user <username-or-email>` to scope the sweep to one departing or
 compromised account, or `--all` to include project- and program-scoped
 integration tokens — which will break every inbound sync until an admin re-mints
-them, so reach for it only on a full-instance compromise. Every revocation is
-written to the token audit log tagged `operator_bulk_revoke`. See
-[`revoke_api_tokens`](/administration/management-commands/#maintenance-commands).
+them, so reach for it only on a full-instance compromise. `--all` also revokes
+**every active board share link and clears every configured git-automation
+webhook secret**, instance-wide — the two durable grants a leaked token or
+compromised session can mint that no other lever reaches, so a full-compromise
+sweep also breaks every public share link until an Admin re-shares. Every
+token revocation is written to the token audit log tagged `operator_bulk_revoke`.
+See [`revoke_api_tokens`](/administration/management-commands/#maintenance-commands).
 
 Two routine paths already revoke personal tokens on their own and need no manual
 step: a **password reset** and **deactivating or removing a member** each revoke
 that account's personal tokens in the same transaction, and both are audited.
+Off-boarding also revokes any board share link *that member personally minted*
+and clears any git-automation webhook secret *they configured* — the project's
+other admins keep their own.
 :::
 
 ## Helm secure-by-default

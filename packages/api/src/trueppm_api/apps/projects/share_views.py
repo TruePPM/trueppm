@@ -22,7 +22,11 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, BaseThrottle, UserRateThrottle
 from rest_framework.views import APIView
 
-from trueppm_api.apps.access.permissions import IsProjectAdmin, IsProjectNotArchived
+from trueppm_api.apps.access.permissions import (
+    IsNotTokenAuthenticated,
+    IsProjectAdmin,
+    IsProjectNotArchived,
+)
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects import share_services
 from trueppm_api.apps.projects.models import Project, ShareContentKind, ShareLink
@@ -91,6 +95,12 @@ class ProjectShareLinkListCreateView(IdempotencyMixin, APIView):
         perms: list[BasePermission] = [IsAuthenticated(), IsProjectAdmin()]
         if self.request.method == "POST":
             perms.append(IsProjectNotArchived())
+            # IsNotTokenAuthenticated (#2939): minting a share link is minting a
+            # durable public-access grant, same shape as #2878's PAT-manages-PAT
+            # rule. Scoped to POST — GET only returns the ShareLinkSerializer's
+            # metadata (never the raw token), so listing isn't a reconnaissance
+            # step the way /me/api-tokens/'s GET is.
+            perms.append(IsNotTokenAuthenticated())
         return perms
 
     def get_throttles(self) -> list[BaseThrottle]:
