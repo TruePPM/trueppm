@@ -16,17 +16,19 @@ The **project-size** figures below are measured, on one fast developer laptop, w
 
 Plan for **up to about 2,000 tasks per project**. That is where the Schedule (the Gantt view) still opens in about a second.
 
+This is a Schedule limit, not a data-capacity limit. The API and database hold far more: a single page of the task list has been tested to 10,000 tasks with no breach, and a workspace holds 50 projects and 50,000 tasks with no measurable slowdown. What sets the 2,000-task figure is that opening the Schedule fetches *every* task in the project, and that whole-project fetch is what crosses the 2-second line early — see [why the whole-project ceiling is where it is](#why-the-whole-project-ceiling-is-where-it-is).
+
 | Tasks in one project | What to expect in the Schedule |
 |---|---|
 | Up to 2,000 | Opens in about a second. **Recommended.** |
 | 2,000–4,000 | Opens in a few seconds. Workable. |
 | 4,000–8,000 | Takes 3–8 seconds to open — and, while other people are viewing it, about that long again for each of them every time someone makes a change. |
 | Above 8,000 | **Not recommended in 0.4.** A 16,000-task project takes about 40 seconds to open, and a 32,000-task one about two minutes. |
-| 100,000 | Not possible in 0.4. The work to get there is [tracked for 0.5](#toward-100000-tasks). |
+| 100,000 | **Not a supported target in 0.4.** The work to get there is [tracked for 0.5](#toward-100000-tasks). |
 
 If you are running **0.4.0-beta.1**, halve those numbers — plan for about 1,000 tasks — unless your IT team has done item 1 on the [checklist](#what-to-tell-your-it-team) below.
 
-Splitting a very large plan into several projects inside one program keeps each Schedule fast. [Other projects in the same system barely slow each other down](#many-users-many-projects-and-programs). The exception is a program whose projects have dependencies *between* them: its schedule is recalculated as one, so keep **the whole program under about 50,000 tasks**.
+Splitting a very large plan into several projects inside one program keeps each Schedule fast. [Other projects in the same system barely slow each other down](#many-users-many-projects-and-programs) — measured up to 50 projects and 50,000 tasks, with no breach found. The exception is a program whose projects have dependencies *between* them: its schedule is recalculated as one, so keep **the whole program under about 50,000 tasks** — a planning recommendation extrapolated from the recalculation worker's memory limit (see [Toward 100,000 tasks](#toward-100000-tasks)), not tested to the same degree as the workspace figure above.
 
 ### How large a team
 
