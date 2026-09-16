@@ -149,6 +149,53 @@ def test_recalculation_and_broadcast_fire_for_a_partial_batch(
 
 
 @pytest.mark.django_db
+def test_bulk_response_task_carries_converted_aggregate_annotations(
+    owner_client: APIClient, project: Project
+) -> None:
+    """TaskBulkView re-fetches through ``annotate_tasks_queryset`` too (#998) — the
+    issue that split #2814 out of #2807 calls this the second of two call sites
+    that "both need coverage" once the aggregate annotations become correlated
+    Subquery()s. A pred/risk/link fixture on the target row, updated through
+    bulk, must carry the same annotation values the single-task detail endpoint
+    already asserts (test_board_signals.py / test_external_link_summary.py) —
+    this only proves the BULK path sees them too.
+    """
+    from trueppm_api.apps.integrations.models import TaskLink
+    from trueppm_api.apps.projects.models import Risk, RiskStatus, RiskTask
+
+    target = Task.objects.create(project=project, name="Target", duration=2, wbs_path="1")
+    pred = Task.objects.create(project=project, name="Pred", duration=1, wbs_path="2")
+    Dependency.objects.create(predecessor=pred, successor=target)
+    risk = Risk.objects.create(
+        project=project, title="Risk", probability=3, impact=4, status=RiskStatus.OPEN
+    )
+    RiskTask.objects.create(risk=risk, task=target)
+    TaskLink.objects.create(
+        task=target, url="https://example.com/pr/1", provider="github", status="open"
+    )
+
+    with _no_side_effects():
+        r = owner_client.post(
+            url(project),
+            {
+                "operations": [
+                    {"op": "update", "id": str(target.pk), "data": {"name": "Target renamed"}}
+                ]
+            },
+            format="json",
+        )
+
+    assert r.status_code == 207, r.data
+    assert len(r.data["applied"]) == 1
+    row = r.data["applied"][0]["task"]
+    assert row["predecessor_count"] == 1
+    assert row["is_blocked"] is True
+    assert row["linked_risks_count"] == 1
+    assert row["linked_risks_max_severity"] == 12
+    assert row["external_link_summary"] == {"count": 1, "worst_status": "open"}
+
+
+@pytest.mark.django_db
 def test_dependency_edges_broadcast_one_aggregated_event_not_one_per_edge(
     owner_client: APIClient,
     project: Project,

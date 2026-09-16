@@ -15,6 +15,7 @@ Covers:
 from __future__ import annotations
 
 import itertools
+import json
 from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
@@ -936,6 +937,95 @@ def test_task_list_page_query_is_ordered(client: APIClient, project: Project) ->
         "return the same task twice and miss another. TaskViewSet.ordering supplies "
         "an explicit order_by that the GROUP BY cannot discard — see #2807."
     )
+
+
+def _main_line_node_types(plan_node: dict[str, object]) -> set[str]:
+    """Node types reachable WITHOUT descending into a SubPlan/InitPlan subtree.
+
+    Each of #2814's converted annotations is a correlated ``Subquery()`` whose own
+    ``.values().annotate(Count(...))`` legitimately compiles to a GroupAggregate —
+    but Postgres attaches that as a target-list SubPlan, not as an ancestor of the
+    main scan/sort/limit chain. A plain substring search for "GroupAggregate" in
+    the EXPLAIN text would match those expected, cheap, per-row SubPlans as
+    readily as a real regression — vacuous either way. Walking the JSON plan and
+    pruning every ``Parent Relationship`` of "SubPlan"/"InitPlan" keeps only the
+    nodes that govern the OUTER query's own execution, which is the plan shape
+    the issue's mechanism is actually about.
+    """
+    types = {str(plan_node.get("Node Type"))}
+    for child in plan_node.get("Plans", []) or []:
+        if child.get("Parent Relationship") in ("SubPlan", "InitPlan"):
+            continue
+        types |= _main_line_node_types(child)
+    return types
+
+
+@pytest.mark.django_db
+def test_task_list_page_query_has_no_group_by(client: APIClient, project: Project) -> None:
+    """#2814: annotate_tasks_queryset's Count()/Max()/Min() annotations are now
+    correlated Subquery()s, so the OUTER task page query has no GroupAggregate.
+
+    Pins the actual PLAN shape (see ``_main_line_node_types``) rather than a
+    substring check on the SQL text — every converted annotation's own subquery
+    legitimately contains a nested ``GROUP BY``, so "GROUP BY" is present in the
+    compiled SQL both before and after this fix; only the plan shape tells them
+    apart.
+    """
+    for i in range(3):
+        Task.objects.create(project=project, name=f"T{i}", duration=1, wbs_path=str(i + 1))
+
+    with CaptureQueriesContext(connection) as ctx:
+        r = client.get(f"/api/v1/tasks/?project={project.pk}&ordering=wbs_path,name")
+        assert r.status_code == 200, r.data
+
+    task_queries = [
+        q["sql"]
+        for q in ctx.captured_queries
+        if "LIMIT" in q["sql"] and "projects_task" in q["sql"]
+    ]
+    assert task_queries, "no task query captured"
+    # The page fetch and the pagination COUNT are the two top-level statements over
+    # projects_task; every other captured query is a correlated subquery's own
+    # dependency/risk/link/note fetch and is out of scope for this assertion.
+    page_sql = max((s for s in task_queries if "COUNT(*) FROM (" not in s), key=len, default=None)
+    count_sql = next((s for s in task_queries if "COUNT(*) FROM (" in s), None)
+    assert page_sql is not None, "no paginated task page query captured"
+
+    aggregate_node_types = {"Aggregate", "GroupAggregate", "HashAggregate"}
+    with connection.cursor() as cursor:
+        for label, sql in (("page", page_sql), ("count", count_sql)):
+            if sql is None:
+                continue
+            cursor.execute(f"EXPLAIN (FORMAT JSON) {sql}")
+            (raw_plan,) = cursor.fetchone()
+            plan = json.loads(raw_plan) if isinstance(raw_plan, str) else raw_plan
+            main_line = _main_line_node_types(plan[0]["Plan"])
+            assert not (main_line & aggregate_node_types), (
+                f"GET /tasks/?ordering=wbs_path,name {label} query's OUTER plan "
+                f"still contains {main_line & aggregate_node_types} — an aggregate "
+                f"annotation is forcing the outer queryset's GROUP BY instead of "
+                f"living inside its own correlated Subquery(). Main-line node "
+                f"types: {sorted(main_line)}"
+            )
+
+
+@pytest.mark.django_db
+def test_task_list_default_order_is_wbs_path(client: APIClient, project: Project) -> None:
+    """The restored default order is the model's declared key, not insertion order.
+
+    #2807 pinned `id` here because a WBS sort above the (then-present) GroupAggregate
+    cost 5,753 ms on a 4,000-task project. #2814 removed the GROUP BY the sort was
+    sitting above, so `TaskViewSet` no longer overrides `ordering` and
+    `Task.Meta.ordering = ["wbs_path", "name"]` reaches this endpoint on its own.
+    Tasks are created here in reverse WBS order so insertion order and the declared
+    order disagree — same shape as the sibling #2821 sprint-ordering guard.
+    """
+    for wbs, name in [("3", "Punch list"), ("1", "Design"), ("2", "Framing")]:
+        Task.objects.create(project=project, name=name, duration=1, wbs_path=wbs)
+
+    r = client.get(f"/api/v1/tasks/?project={project.pk}")
+    assert r.status_code == 200, r.data
+    assert [t["name"] for t in r.data["results"]] == ["Design", "Framing", "Punch list"]
 
 
 @pytest.mark.django_db

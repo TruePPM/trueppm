@@ -73,11 +73,14 @@ function renderPage() {
   );
 }
 
+const refetchWs = vi.fn();
+
 describe('WorkspaceCalendarPage', () => {
   beforeEach(() => {
     mutateAsync.mockReset();
     mutateAsync.mockResolvedValue(undefined);
-    useWorkspaceSettings.mockReturnValue({ data: WS });
+    refetchWs.mockReset();
+    useWorkspaceSettings.mockReturnValue({ data: WS, isError: false, refetch: refetchWs });
     useCalendars.mockReturnValue({ calendars: CALENDARS, isLoading: false, error: null });
     useSettingsSaveStore.getState().reset();
   });
@@ -136,5 +139,34 @@ describe('WorkspaceCalendarPage', () => {
     expect(
       screen.getByRole('radio', { name: /Suggest \(recommended\)/i, checked: true }),
     ).toBeInTheDocument();
+  });
+});
+
+describe('WorkspaceCalendarPage — failed GET (#3542)', () => {
+  beforeEach(() => {
+    useCalendars.mockReturnValue({ calendars: CALENDARS, isLoading: false, error: null });
+    useSettingsSaveStore.getState().reset();
+  });
+
+  // Before the fix, `isLoading || !ws` never cleared on a failed GET (`isLoading`
+  // settles to false on a terminal failure, but `!ws` stays true forever) — the
+  // page pulsed two skeleton placeholders with no error and no retry.
+  it('renders an error with Retry, not a perpetual skeleton, when the settings GET fails', () => {
+    useWorkspaceSettings.mockReturnValue({ data: undefined, isError: true, refetch: refetchWs });
+    const { container } = renderPage();
+
+    expect(screen.getByText("Couldn't load this workspace's working calendar.")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(container.querySelector('[class*="animate-pulse"]')).toBeNull();
+    expect(screen.queryByRole('combobox', { name: /Default working calendar/i })).toBeNull();
+  });
+
+  it('retries the settings query on click', async () => {
+    const user = userEvent.setup();
+    useWorkspaceSettings.mockReturnValue({ data: undefined, isError: true, refetch: refetchWs });
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(refetchWs).toHaveBeenCalledTimes(1);
   });
 });
