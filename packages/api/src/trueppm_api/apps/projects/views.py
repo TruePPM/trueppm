@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.paginator import InvalidPage
+from django.core.paginator import Paginator as DjangoPaginator
 from django.db import IntegrityError, transaction
 from django.db import models as db_models
 from django.db.models import (
@@ -39,6 +41,7 @@ from django.db.models.expressions import RawSQL
 from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.functional import cached_property
 from drf_spectacular.drainage import set_override
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -5640,6 +5643,79 @@ class ScheduleFetchPagination(pagination.PageNumberPagination):
     max_page_size = 500
 
 
+class _SeparateCountPaginator(DjangoPaginator):  # type: ignore[type-arg]
+    # Runtime `Paginator` is not subscriptable (only its .pyi stub is Generic), so
+    # the generic type arg above is mypy-only, suppressed rather than supplied.
+    """Django Paginator whose ``count`` comes from a caller-supplied queryset.
+
+    ``PageNumberPagination.paginate_queryset`` builds ``django_paginator_class(
+    queryset, page_size)`` and reads ``paginator.count`` to compute ``num_pages`` —
+    there is no hook to source that number from anywhere but ``object_list`` itself.
+    For a heavily annotated queryset (``annotate_tasks_queryset``), counting
+    ``object_list`` wraps every RawSQL/Exists/Subquery annotation in a
+    ``COUNT(*) FROM (SELECT …) subquery`` and Postgres evaluates them per row purely
+    to arrive at a number (#2815) — measured at ~80% of the request's DB time on a
+    4,000-task project. ``object_list`` still serves ``.page()`` slicing (the actual
+    annotated rows), only ``count`` is redirected.
+    """
+
+    def __init__(
+        self,
+        object_list: QuerySet[Any, Any] | Sequence[Any],
+        per_page: int,
+        *,
+        count_queryset: QuerySet[Any, Any] | None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(object_list, per_page, **kwargs)
+        self._count_queryset = count_queryset
+
+    @cached_property
+    def count(self) -> int:
+        if self._count_queryset is not None:
+            return self._count_queryset.count()
+        return super().count
+
+
+class TaskListPagination(ScheduleFetchPagination):
+    """``ScheduleFetchPagination`` that counts a separate, unannotated queryset (#2815).
+
+    ``TaskViewSet.list`` stashes the filtered-but-unannotated queryset (post
+    ``filter_backends``, so ``?search=``/``?ordering=`` still narrow it the same way)
+    on ``queryset._task_count_queryset`` before pagination runs; this subclass reads
+    it back instead of counting the fully annotated ``queryset`` DRF hands the base
+    ``paginate_queryset``. Falls back to the base ``DjangoPaginator`` count (i.e. the
+    normal behavior) when the attribute is absent, so this class is safe to reuse
+    anywhere the count-bypass isn't wired up.
+    """
+
+    def paginate_queryset(
+        self,
+        queryset: QuerySet[Any, Any] | Sequence[Any],
+        request: Request,
+        view: APIView | None = None,
+    ) -> list[Any] | None:
+        self.request = request
+        page_size = self.get_page_size(request)
+        if not page_size:
+            return None
+
+        count_queryset = getattr(queryset, "_task_count_queryset", None)
+        paginator = _SeparateCountPaginator(queryset, page_size, count_queryset=count_queryset)
+        page_number = self.get_page_number(request, paginator)
+
+        try:
+            self.page = paginator.page(page_number)
+        except InvalidPage as exc:
+            msg = self.invalid_page_message.format(page_number=page_number, message=str(exc))
+            raise NotFound(msg) from exc
+
+        if paginator.num_pages > 1 and self.template is not None:
+            self.display_page_controls = True
+
+        return list(self.page)
+
+
 @extend_schema_view(
     update=extend_schema(
         # TaskWriteResponse, not Task: a successful write can carry a ``warnings`` array
@@ -5903,7 +5979,10 @@ class TaskViewSet(
 
     serializer_class = TaskSerializer
     # issue 1519: let the Gantt request a large first page and parallelize the walk.
-    pagination_class = ScheduleFetchPagination
+    # #2815: TaskListPagination additionally counts a separate, unannotated
+    # queryset instead of the fully annotated one — see its docstring and
+    # `list()`/`get_queryset()` below.
+    pagination_class = TaskListPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name"]
     ordering_fields = ["wbs_path", "name", "early_start", "status"]
@@ -5930,6 +6009,11 @@ class TaskViewSet(
     # the lookup with a distinct queryset; get_object() then raises ValueError,
     # which get_object_or_404 silently converts to a 404 on every retrieve.
 
+    # #2815: set by get_queryset(), read by _build_task_count_queryset(). Declared
+    # here (rather than left to mypy's per-assignment inference) because it's read
+    # from a method other than the one that assigns it.
+    _task_count_base_queryset: QuerySet[Task]
+
     def get_queryset(self) -> QuerySet[Task]:
         # Each query param is an independent narrowing, applied in a fixed order.
         # They are grouped rather than chained inline so a new filter is one small
@@ -5941,7 +6025,42 @@ class TaskViewSet(
         qs = _filter_tasks_by_parent(qs, params)
         qs = _filter_tasks_by_labels(qs, params)
         qs = _filter_tasks_by_date_range(qs, params)
+        # #2815: stashed pre-annotation so `list()` can build a cheap COUNT off of
+        # it instead of the fully annotated queryset `annotate_tasks_queryset`
+        # returns. Every `_filter_tasks_by_*` call above is pure filtering (no
+        # annotations), so `qs` at this point already carries every project/RBAC
+        # and query-param narrowing — just none of the read-only annotation cost.
+        self._task_count_base_queryset = qs
         return annotate_tasks_queryset(qs, self.request, params.get("project"))
+
+    def _build_task_count_queryset(self) -> QuerySet[Any, Any]:
+        """Re-derive the pagination count queryset from the pre-annotation base (#2815).
+
+        ``self.filter_queryset()`` (``SearchFilter``/``OrderingFilter``, plus
+        ``McpReadableViewMixin``'s agent-scope narrowing) runs on the *annotated*
+        queryset, after ``get_queryset()`` has already returned — so it must be
+        re-applied here to the unannotated base or ``count`` and ``results`` could
+        disagree under ``?search=``/``?ordering=``, or (worse) an MCP-scoped token
+        could see a count wider than its actual results. Calling ``self.filter_queryset``
+        itself — rather than hand-rolling a loop over ``self.filter_backends`` — is
+        what keeps that guarantee: it is the same method the results queryset goes
+        through, MRO-resolved to ``McpReadableViewMixin.filter_queryset``, so a
+        future filter backend or mixin change can't silently diverge the two.
+        ``SearchFilter``/``OrderingFilter`` only ever touch real columns
+        (``search_fields = ["name"]``; ``ordering_fields`` are all concrete `Task`
+        columns), so running them again against the unannotated queryset filters
+        identically to the annotated one.
+
+        ``.order_by().values("pk").distinct()`` — not a bare ``.distinct()`` —
+        because `Task.Meta.ordering = ["wbs_path", "name"]` would otherwise inject
+        those columns into the SELECT list and silently defeat distinctness for a
+        filter that fans out over a to-many join (``_filter_tasks_by_labels``,
+        ``_filter_tasks_mine``): two rows that are duplicates on ``pk`` alone can
+        differ on injected ordering columns and stop collapsing. Counting distinct
+        ``pk`` values is fan-out-proof regardless of which filters are in play.
+        """
+        qs = self.filter_queryset(self._task_count_base_queryset)
+        return qs.order_by().values("pk").distinct()
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Attach batched milestone rollups to the page before serialization.
@@ -5952,6 +6071,13 @@ class TaskViewSet(
         reads an attribute instead of re-querying per milestone.
         """
         queryset = self.filter_queryset(self.get_queryset())
+        # #2815: pagination count re-ran every annotation (RawSQL/Exists/Subquery)
+        # over every row purely to arrive at a page count — ~80% of the request's
+        # DB time on a 4,000-task project. `TaskListPagination` reads this
+        # attribute (if present) and counts it instead of `queryset` itself.
+        queryset._task_count_queryset = (  # type: ignore[attr-defined]
+            self._build_task_count_queryset()
+        )
         page = self.paginate_queryset(queryset)
         if page is not None:
             _attach_milestone_rollups(list(page))
