@@ -2826,93 +2826,119 @@ function TaskListRowInner({
           inserts a sibling below the focused row and is what the coach bar and
           the cheatsheet teach — so this is a pointer affordance for an operation
           the keyboard already has, not a pointer-only capability. It still
-          carries `focus:opacity-100` so programmatic focus reveals it. */}
+          carries `focus:opacity-100` so programmatic focus reveals it.
+
+          Wrapped in `role="gridcell"` (#2618, matching the precedent
+          `RowStructureNudges` already set for this exact constraint):
+          `role="row"` in a treegrid may only own gridcell/columnheader/
+          rowheader, and this button — rendered as a direct child of the row
+          rather than inside a cell, so it can anchor to the row's bottom edge
+          independent of any one column — tripped `aria-required-children`.
+          The wrapper carries no size/position styling of its own: the button
+          stays `position: absolute` against the row (its containing block is
+          unaffected by an unstyled `static`-positioned ancestor), and an
+          absolutely-positioned-only child gives the wrapper zero footprint in
+          the row's flex layout, so nothing shifts. Kept a real `role="button"`
+          (not `aria-hidden`) because `e2e/schedule-row-chrome.spec.ts` and
+          `e2e/schedule-coarse-row-height.spec.ts` locate it via
+          `getByRole('button', { name: /Insert an item below/ })`.
+          `aria-label` given explicitly here (not left to name-from-content):
+          a gridcell's default accname aggregates its descendant's accessible
+          name, which folded the button's own "Insert an item below <task
+          name>…" label into THIS cell's computed name and made it a false
+          match for `getByRole('gridcell', { name: /<task name>/ })` — the
+          query the WBS gridcell is normally the only answer to (regressed
+          `schedule-row-chrome.spec.ts` #3078 on exactly this collision
+          before the label was added). */}
       {authoring && (
-        <button
-          type="button"
-          tabIndex={-1}
-          onClick={(e) => {
-            e.stopPropagation();
-            authoring.insertBelow(task.id);
-          }}
-          aria-label={insertBelowRowLabel(task.name)}
-          title={ROW_VOCABULARY.create.insertHereTitle}
-          className={[
-            'absolute left-0 bottom-0 translate-y-1/2 z-10',
-            'flex items-center justify-center rounded-full',
-            'border border-neutral-border bg-neutral-surface-raised',
-            'text-xs leading-none text-neutral-text-secondary',
-            // Hover-revealed on a mouse; permanently visible on a coarse
-            // pointer, where there is no hover to reveal it with. Without this
-            // branch the affordance is invisible AND out of the tab order on a
-            // tablet, so build mode's "insert a sibling here" has no pointer
-            // path at all on the device 44px rows exist for (#2997).
-            coarse ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus:opacity-100',
-            'hover:text-brand-primary hover:border-brand-primary',
-            'focus:outline-none focus:ring-2 focus:ring-brand-primary',
-            'transition-opacity',
-            // The 16px disc is the mark; the tappable box around it is the
-            // target. `before:` rather than a bigger button so the disc keeps
-            // its position between rows and the row's own layout does not move.
+        <div role="gridcell" aria-label="Insert row">
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={(e) => {
+              e.stopPropagation();
+              authoring.insertBelow(task.id);
+            }}
+            aria-label={insertBelowRowLabel(task.name)}
+            title={ROW_VOCABULARY.create.insertHereTitle}
+            className={[
+              'absolute left-0 bottom-0 translate-y-1/2 z-10',
+              'flex items-center justify-center rounded-full',
+              'border border-neutral-border bg-neutral-surface-raised',
+              'text-xs leading-none text-neutral-text-secondary',
+              // Hover-revealed on a mouse; permanently visible on a coarse
+              // pointer, where there is no hover to reveal it with. Without this
+              // branch the affordance is invisible AND out of the tab order on a
+              // tablet, so build mode's "insert a sibling here" has no pointer
+              // path at all on the device 44px rows exist for (#2997).
+              coarse ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus:opacity-100',
+              'hover:text-brand-primary hover:border-brand-primary',
+              'focus:outline-none focus:ring-2 focus:ring-brand-primary',
+              'transition-opacity',
+              // The 16px disc is the mark; the tappable box around it is the
+              // target. `before:` rather than a bigger button so the disc keeps
+              // its position between rows and the row's own layout does not move.
+              //
+              // SIZED and centered, not inset — rule 315's own corollary, and the
+              // two pixels no unit test could see. `before:-inset-3.5` resolves
+              // against the button's PADDING box, and the disc's 1px border sits
+              // inside its 16px border box, so the box measured 42 and this control
+              // was under the touch floor for its whole life while every vitest
+              // assertion agreed it was fine (jsdom renders no pseudo geometry at
+              // all). An explicit edge length is immune to the border.
+              //
+              // The size reads a CSS variable rather than a literal because it IS
+              // `ROW_HEIGHT_COARSE` and a Tailwind class is a static string —
+              // writing 44 here would be a second declaration of the touch floor,
+              // frozen at authoring time, which is the module-scope capture web
+              // rule 315(b) forbids (#3029). Coarse-only: on a mouse the disc is
+              // hover-revealed, so a 44px box would be an unseen target over the
+              // row's rename cell.
+              coarse
+                ? [
+                    'before:absolute before:content-[""]',
+                    'before:left-1/2 before:top-1/2',
+                    'before:-translate-x-1/2 before:-translate-y-1/2',
+                    'before:w-[var(--insert-tap-size)] before:h-[var(--insert-tap-size)]',
+                  ].join(' ')
+                : '',
+            ].join(' ')}
+            // Past BOTH left-edge lanes, and past what the TAP BOX overhangs
+            // (#3026). The `+` is `absolute left-0`, so its offset names every
+            // lane ahead of it by hand and a lane added later is invisible to it.
+            // Two separate mistakes are available here and the second is the
+            // subtle one: omit the nudge term and the disc lands inside the ⇤/⇥
+            // lane; include it but clear only the disc, and the `before:` box —
+            // which is what the browser actually hit-tests — still covers the
+            // indent button's bottom-right 10px. `resolveInsertLaneGap` owns
+            // both, so the gap is the one on a mouse (no `before:` box is drawn)
+            // and the one plus the overhang on a finger.
             //
-            // SIZED and centered, not inset — rule 315's own corollary, and the
-            // two pixels no unit test could see. `before:-inset-3.5` resolves
-            // against the button's PADDING box, and the disc's 1px border sits
-            // inside its 16px border box, so the box measured 42 and this control
-            // was under the touch floor for its whole life while every vitest
-            // assertion agreed it was fine (jsdom renders no pseudo geometry at
-            // all). An explicit edge length is immune to the border.
-            //
-            // The size reads a CSS variable rather than a literal because it IS
-            // `ROW_HEIGHT_COARSE` and a Tailwind class is a static string —
-            // writing 44 here would be a second declaration of the touch floor,
-            // frozen at authoring time, which is the module-scope capture web
-            // rule 315(b) forbids (#3029). Coarse-only: on a mouse the disc is
-            // hover-revealed, so a 44px box would be an unseen target over the
-            // row's rename cell.
-            coarse
-              ? [
-                  'before:absolute before:content-[""]',
-                  'before:left-1/2 before:top-1/2',
-                  'before:-translate-x-1/2 before:-translate-y-1/2',
-                  'before:w-[var(--insert-tap-size)] before:h-[var(--insert-tap-size)]',
-                ].join(' ')
-              : '',
-          ].join(' ')}
-          // Past BOTH left-edge lanes, and past what the TAP BOX overhangs
-          // (#3026). The `+` is `absolute left-0`, so its offset names every
-          // lane ahead of it by hand and a lane added later is invisible to it.
-          // Two separate mistakes are available here and the second is the
-          // subtle one: omit the nudge term and the disc lands inside the ⇤/⇥
-          // lane; include it but clear only the disc, and the `before:` box —
-          // which is what the browser actually hit-tests — still covers the
-          // indent button's bottom-right 10px. `resolveInsertLaneGap` owns
-          // both, so the gap is the one on a mouse (no `before:` box is drawn)
-          // and the one plus the overhang on a finger.
-          //
-          // The disc is sized here rather than by `w-4 h-4` so it and the tap
-          // box come from one place: `INSERT_DISC_SIZE` is what
-          // `INSERT_TAP_INSET_COARSE` is derived against, so the two cannot
-          // drift into a box that is no longer centered on its mark.
-          style={
-            {
-              marginLeft: gripReserve + nudgeLane + resolveInsertLaneGap(coarse) + (level - 1) * 12,
-              width: INSERT_DISC_SIZE,
-              height: INSERT_DISC_SIZE,
-              // Resolved for THIS pointer class, and emitted on both so the
-              // value is inspectable — on a mouse it is the disc's own size, so
-              // the variable states "the tap box is the mark" rather than
-              // carrying a 44 the surface has decided not to use. Only the
-              // coarse-only `before:` class above reads it.
-              '--insert-tap-size': `${resolveInsertTapSize(coarse)}px`,
-            } as React.CSSProperties
-          }
-          // The first glyph in the coach bar's `+ ⇤ ⇥ ◆` line; the teaching
-          // guard resolves each glyph against a rendered control (#3257).
-          data-glyph="+"
-        >
-          +
-        </button>
+            // The disc is sized here rather than by `w-4 h-4` so it and the tap
+            // box come from one place: `INSERT_DISC_SIZE` is what
+            // `INSERT_TAP_INSET_COARSE` is derived against, so the two cannot
+            // drift into a box that is no longer centered on its mark.
+            style={
+              {
+                marginLeft:
+                  gripReserve + nudgeLane + resolveInsertLaneGap(coarse) + (level - 1) * 12,
+                width: INSERT_DISC_SIZE,
+                height: INSERT_DISC_SIZE,
+                // Resolved for THIS pointer class, and emitted on both so the
+                // value is inspectable — on a mouse it is the disc's own size, so
+                // the variable states "the tap box is the mark" rather than
+                // carrying a 44 the surface has decided not to use. Only the
+                // coarse-only `before:` class above reads it.
+                '--insert-tap-size': `${resolveInsertTapSize(coarse)}px`,
+              } as React.CSSProperties
+            }
+            // The first glyph in the coach bar's `+ ⇤ ⇥ ◆` line; the teaching
+            // guard resolves each glyph against a rendered control (#3257).
+            data-glyph="+"
+          >
+            +
+          </button>
+        </div>
       )}
 
       {/* ── Structural-nudge lane (#3026) ───────────────────────────────────
