@@ -8,8 +8,8 @@ TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platfor
 
 Most P3M tools force a choice: Jira speaks Agile and translates poorly to a schedule; MS Project speaks Waterfall and ignores the team's actual cadence. TruePPM is built so a Scrum Master and a Project Manager look at the same underlying data, and each sees the view they need. The translation happens inside the tool, not in a spreadsheet.
 
-:::caution[0.3 shipped (alpha) · pre-GA]
-TruePPM 0.3 shipped in June 2026 (as the `0.3.0-alpha.1` pre-release) — the engine, API, real-time layer, web UI (Schedule, Board, Sprints, Risk, My Work, Programs), settings/administration platform, program foundations, and the agile-team feature set are all functional. 0.3 is an alpha release; the first beta is planned for 0.4. The product is pre-GA: expect API contract changes across 0.x point releases and a stable contract from 1.0 onward. Suitable for evaluation and early-adopter deployments.
+:::caution[0.4 shipped (beta) · pre-GA]
+TruePPM 0.4 shipped September 15, 2026 (as the `v0.4.0-beta.1` pre-release) — the engine, API, real-time layer, web UI (Schedule, Board, Sprints, Risk, My Work, Programs), settings/administration platform, program foundations, the agile-team feature set, a read-only MCP server, basic single sign-on, and in-app time capture and baselines are all functional. 0.4 is TruePPM's first beta: the release line leaves alpha here and hardens under further `beta.N` tags before an eventual `0.4.0` stable. The product is pre-GA: expect API contract changes across 0.x point releases and a stable contract from 1.0 onward. Suitable for evaluation and early-adopter deployments.
 :::
 
 ## Core capabilities

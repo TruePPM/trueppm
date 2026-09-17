@@ -6,8 +6,8 @@ documentedFor: "0.4"
 
 This page gets you from nothing installed to a running TruePPM instance you can open in a browser, using Docker Compose. If you have never run Docker before, see [Set up a container host](/getting-started/container-host/) first — it explains what a container is and gets one running on your machine.
 
-:::caution[0.3 shipped (alpha) · pre-GA]
-TruePPM 0.3 has shipped — the engine, API, real-time backend, web UI, and the 0.3 agile-team feature set are functional. The latest release is the `v0.3.0-alpha.3` pre-release; the release line stays alpha through 0.3, and 0.4 is planned as the first beta. 0.4 arrives as a beta directly — the next tag on the line is `0.4.0-beta.1`, with no alpha step in between ([how the 0.4 line is numbered](/overview/roadmap/#how-the-04-line-is-numbered)). The product is pre-GA: expect API contract changes across 0.x point releases; a stable contract arrives at 1.0. Install for evaluation and early-adopter deployments.
+:::caution[0.4 shipped (beta) · pre-GA]
+TruePPM 0.4 has shipped — the engine, API, real-time backend, web UI, and the first beta's feature set (read-only MCP server, basic single sign-on, time capture, in-app baselines) are functional. The latest release is the `v0.4.0-beta.1` pre-release; 0.4 is the first beta — the release line leaves alpha here and hardens under further `beta.N` tags before an eventual `0.4.0` stable ([how the 0.4 line is numbered](/overview/roadmap/#how-the-04-line-is-numbered)). The product is pre-GA: expect API contract changes across 0.x point releases; a stable contract arrives at 1.0. Install for evaluation and early-adopter deployments.
 :::
 
 :::tip[Already have a login?]
@@ -238,7 +238,7 @@ slash**) is the one that proves the install works: it runs a bounded `SELECT 1`,
 write-then-read round-trip against Valkey, and a migration-state comparison, and
 returns `503` with the failing key named if any of them is wrong.
 
-`/api/v1/readyz` ships in 0.4. On `v0.3.0-alpha.3` only `/api/v1/health/` exists.
+`/api/v1/readyz` shipped in 0.4. On `v0.3.0-alpha.3` only `/api/v1/health/` exists.
 
 ### 4. Celery worker — consuming the queue
 

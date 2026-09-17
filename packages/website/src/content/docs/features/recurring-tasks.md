@@ -6,7 +6,7 @@ documentedFor: "0.4"
 
 
 :::note[Added in 0.2 (alpha)]
-This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4.
+This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; 0.4 shipped as the first beta.
 :::
 
 Recurring tasks let you repeat a task on a calendar cadence — a daily standup, a weekly safety walk, a monthly steering review — without hand-creating each instance. You configure the cadence once on a template task, and TruePPM spawns the upcoming occurrences for you.

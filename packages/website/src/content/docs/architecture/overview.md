@@ -3,7 +3,7 @@ title: Architecture Overview
 description: System diagram, design decisions, and package structure.
 ---
 
-This page describes the architecture of TruePPM as it exists today. The scheduling engine, API, real-time layer, web frontend, and the 0.2 settings/administration and program platform are all functional as of 0.3 — the latest shipped pre-release is `0.3.0-alpha.1` (June 28, 2026), which layered the agile-team feature set and the v2 interface refresh on top of the 0.2 settings/administration and program platform.
+This page describes the architecture of TruePPM as it exists today. The scheduling engine, API, real-time layer, web frontend, and the 0.2 settings/administration and program platform are all functional as of 0.4 — the latest shipped pre-release is `v0.4.0-beta.1` (September 15, 2026), TruePPM's first beta, which layered the read-only MCP server, basic single sign-on, and in-app time capture and baselines on top of the 0.3 agile-team feature set and the v2 interface refresh.
 
 ## System diagram
 
@@ -198,7 +198,7 @@ make enterprise-boundary-check   # OK: no trueppm-enterprise imports in packages
 
 A plain `grep -r "trueppm_enterprise" packages/` is **not** the check. The tree legitimately names the package in extension-point docstrings and ADR pointers — that grep returns 12 lines across 8 files on a clean tree. The gate matches import syntax and quoted module paths, and ignores comments (#2603).
 
-**Community:** scheduling engine, CPM, Monte Carlo, Schedule (Gantt-style) UI, Board, Sprints workspace, program management (coordinating multiple projects within a program), baseline comparison, offline sync, real-time, 5-role RBAC, REST/WS API, Helm chart, MS Project import/export. On the Community roadmap but not yet shipped: basic single sign-on (OIDC/OAuth login against your own identity provider), time tracking with a weekly timesheet, and in-app baseline capture all land in 0.4; the installable PWA lands in 0.5 and the native Android app in 0.6.
+**Community:** scheduling engine, CPM, Monte Carlo, Schedule (Gantt-style) UI, Board, Sprints workspace, program management (coordinating multiple projects within a program), baseline comparison, offline sync, real-time, 5-role RBAC, REST/WS API, Helm chart, MS Project import/export. On the Community roadmap but not yet shipped: basic single sign-on (OIDC/OAuth login against your own identity provider), time tracking with a weekly timesheet, and in-app baseline capture all landed in 0.4; the installable PWA lands in 0.5 and the native Android app in 0.6.
 
 **Enterprise (separate repo):** portfolio analytics and health scores, cross-program resource leveling, org identity governance (SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO), immutable audit trail, custom roles, approval workflows, the org-wide Jira/GitLab/ServiceNow integration hub, AI scheduling, scenario modeling, multi-tenancy.
 

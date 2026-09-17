@@ -29,8 +29,8 @@ enterprise edition:
 
 | Capability | Edition |
 | --- | --- |
-| OIDC / OAuth2 login against your own IdP | **OSS core** (ships in 0.4) |
-| Self-service account linking | **OSS core** (ships in 0.4) |
+| OIDC / OAuth2 login against your own IdP | **OSS core** (shipped in 0.4) |
+| Self-service account linking | **OSS core** (shipped in 0.4) |
 | SAML 2.0 federation | Enterprise |
 | SCIM provisioning / deprovisioning | Enterprise |
 | LDAP / Active Directory directory sync | Enterprise |
@@ -51,7 +51,7 @@ source before quoting, because vendor packaging changes.
 
 | Tool | OIDC / OAuth login | SAML | Built-in or plugin | Verified |
 | --- | --- | --- | --- | --- |
-| **TruePPM (OSS core)** | **Free — OSS core** (ships in 0.4) | Enterprise | **Built-in** | 2026-07-03 |
+| **TruePPM (OSS core)** | **Free — OSS core** (shipped in 0.4) | Enterprise | **Built-in** | 2026-07-03 |
 | OpenProject | Enterprise add-on [^op] | Enterprise add-on [^op] | Built-in (paid) | 2026-07-03 |
 | Plane | Paid / Commercial editions only [^plane] | Paid / Commercial editions only [^plane] | Built-in (paid) | 2026-07-03 |
 | Leantime | Free in the open-source core [^lean] | Paid marketplace add-on [^lean] | Built-in (OIDC) | 2026-07-03 |

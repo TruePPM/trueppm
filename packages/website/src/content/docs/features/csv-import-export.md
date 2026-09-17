@@ -44,7 +44,7 @@ never authenticates against it, and never writes anything back.
 | Surface | Export | Import | Round-trips? |
 |---|---|---|---|
 | **Risks** | Yes | Yes | **Yes** — the two are counterparts |
-| **Tasks** | Yes | Ships in 0.4 | **No** — see below |
+| **Tasks** | Yes | Shipped in 0.4 | **No** — see below |
 | **Labels** | No | Yes | **No** — import-only; there is no label export to round-trip from |
 | Sprints, resources, calendars, dependencies | No | No | — |
 
@@ -64,7 +64,7 @@ eight columns are values TruePPM *calculated* rather than values you entered:
 | `Status` | you |
 | `Critical` | **calculated** — whether it's on the critical path |
 
-The task import that ships in 0.4 reads `Start` and `Finish` as dates *you are
+The task import that shipped in 0.4 reads `Start` and `Finish` as dates *you are
 committing to*. So if you export tasks to CSV and import that file back, you get
 new tasks whose committed dates are yesterday's calculated output — not a copy of
 your project.
@@ -104,7 +104,7 @@ successful one.
 Task CSV **export** is available today from the Table view's **CSV** toolbar
 action. It exports the rows currently shown — your filters and sort apply.
 
-Task CSV and Excel **import** ships in 0.4. Upload the sheet, confirm what
+Task CSV and Excel **import** shipped in 0.4. Upload the sheet, confirm what
 each column means in the wizard below, and TruePPM builds a
 CPM-schedulable network from it — tasks, durations, dates, a WBS hierarchy,
 dependencies, and assignees.

@@ -32,7 +32,7 @@ Step 5 ([Sprint planning](/the-story/#5-sprint-planning--the-team-pulls-work)) a
 
 ![The Sprints page for Sprint 5: sprint goal, burndown chart, capacity preflight per person, and velocity](../../../assets/screenshots/sprints.webp)
 
-## Standing up a run of sprints (ships in 0.4)
+## Standing up a run of sprints (shipped in 0.4)
 
 Creating a year of iterations one dialog at a time is data entry, not planning.
 **Generate sprints** in the Sprints workspace header opens a two-step wizard that
@@ -126,7 +126,7 @@ A read-only sidebar lists the unfinished tasks from the **previous closed sprint
 | `GET`  | `/api/v1/sprints/{id}/incoming_carryover/` | Unfinished tasks that rolled forward from the previous closed sprint, with points carried (added in 0.3) |
 | `POST` | `/api/v1/sprints/{id}/activate/` | PLANNED → ACTIVE; returns capacity warnings |
 | `POST` | `/api/v1/sprints/{id}/close/` | Async close via outbox; returns 202 + request id. **At most one close is live per sprint (0.4)** — if one is already running, a repeat POST returns that close's existing `request_id` with `deduplicated: true` rather than starting a second one |
-| `GET`  | `/api/v1/sprints/{id}/close-request/` | Outcome of the most recent close attempt — status, `failure_reason`, and whether it will be retried (Viewer+, ships in 0.4). The raw error text is shown to project admins only, and never to an API token; everyone else sets the reason plus a fixed summary. Branch on `terminal`, not on `status` — a failed close may still be retried automatically |
+| `GET`  | `/api/v1/sprints/{id}/close-request/` | Outcome of the most recent close attempt — status, `failure_reason`, and whether it will be retried (Viewer+, shipped in 0.4). The raw error text is shown to project admins only, and never to an API token; everyone else sets the reason plus a fixed summary. Branch on `terminal`, not on `status` — a failed close may still be retried automatically |
 | `POST` | `/api/v1/sprints/{id}/cancel/` | PLANNED → CANCELLED |
 | `GET`  | `/api/v1/sprints/{id}/outcome/` | Consolidated review read — commitment, goal, velocity, the "didn't ship" list, and the review breakdown (added in 0.3) |
 | `POST` | `/api/v1/sprints/{id}/demo-list/reorder/` | Reorder the demo walkthrough (Team Member+; full ordered outcome-id list, added in 0.3) |

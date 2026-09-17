@@ -7,7 +7,7 @@ documentedFor: "0.4"
 :::note[Added in 0.3 (alpha)]
 The Git-event automation settings UI was added in **TruePPM 0.3**, available
 since the `0.3.0-alpha.1` pre-release (Jun 28, 2026). 0.3 is an alpha release;
-the first beta is planned for 0.4.
+0.4 shipped as the first beta.
 :::
 
 **Git-event automation** moves a task's board card automatically when its linked

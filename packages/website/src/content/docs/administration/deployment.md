@@ -5,7 +5,7 @@ documentedFor: "0.4"
 ---
 
 :::caution[Pre-GA]
-TruePPM 0.3 has shipped (as the `0.3.0-alpha.1` pre-release) and is suitable for evaluation and early-adopter deployments; the release line stays alpha through 0.3, and 0.4 is planned as the first beta. 0.4 arrives as a beta directly — the next tag on the line is `0.4.0-beta.1`, with no alpha step in between ([how the 0.4 line is numbered](/overview/roadmap/#how-the-04-line-is-numbered)). Expect API contract changes across 0.x point releases; a stable contract arrives at 1.0.
+TruePPM 0.4 has shipped (as the `v0.4.0-beta.1` pre-release) and is suitable for evaluation and early-adopter deployments; 0.4 is the first beta — the release line leaves alpha here and hardens under further `beta.N` tags before an eventual `0.4.0` stable ([how the 0.4 line is numbered](/overview/roadmap/#how-the-04-line-is-numbered)). Expect API contract changes across 0.x point releases; a stable contract arrives at 1.0.
 :::
 
 :::tip[Before a production install, read Networking]
@@ -46,7 +46,7 @@ docker compose exec api cat /tmp/trueppm_admin_password
 **Not for shared or production use, even a small team.** This stack hardcodes
 `POSTGRES_PASSWORD: trueppm` and `SECRET_KEY: dev-secret-key-change-in-prod` in
 the tracked compose file, and it publishes PostgreSQL on the host. That port
-binds to `127.0.0.1` from 0.4 onward; on the current release it publishes on
+binds to `127.0.0.1` as of 0.4; before 0.4 it published on
 `0.0.0.0`, reachable from the network with that password — and Docker's
 published ports bypass most host firewalls, because the `DOCKER` chain is
 consulted before `INPUT`. For anything more than one developer's machine, use the
@@ -55,7 +55,7 @@ single-server production stack below or the Helm chart.
 ### Public read-only demo (`docker-compose.demo.yml`)
 
 `docker-compose.demo.yml` is a **separate, hardened** stack for a public hosted
-demo (the mechanism behind `try.trueppm.com`, which goes live at the 0.4 tag) —
+demo (the mechanism behind `try.trueppm.com`, which went live at the 0.4 tag) —
 not the dev stack above. It seeds the sample **without** persona logins, so the
 instance has **zero user accounts and no authenticated write path**; the only way
 in is the product's own anonymous, tokenized, read-only
@@ -128,8 +128,7 @@ else on this page applies unchanged.
 Prerequisites: Helm 3.14+, `kubectl` compatible with your cluster, and a
 running Kubernetes cluster 1.27+.
 
-**Get the chart.** Through 0.3 (alpha), install from the chart source in the
-repository:
+**Get the chart.** For now, install from the chart source in the repository:
 
 ```bash
 git clone https://gitlab.com/trueppm/trueppm.git
@@ -137,10 +136,12 @@ cd trueppm
 helm dependency update packages/helm
 ```
 
-The 0.4 beta will publish the chart to a public OCI registry
-(`oci://ghcr.io/trueppm/charts`) as an additional path — the clone-based
-install above keeps working after 0.4 too. Once that lands, the same install
-will work straight from GHCR, no clone needed:
+The 0.4 beta adds publishing the chart to a public OCI registry
+(`oci://ghcr.io/trueppm/charts`) as an additional path — not live yet, no tag has
+been published there (see [Installation](/getting-started/installation/) for the
+same caveat on the image references); the clone-based install above keeps
+working either way. Once it lands, the same install will work straight from
+GHCR, no clone needed:
 `helm install trueppm oci://ghcr.io/trueppm/charts/trueppm --version <version>`.
 
 **Prepare your values file.** Download the production values template and
@@ -566,8 +567,8 @@ optional `HorizontalPodAutoscaler` (`autoscaling.enabled=true`, api by default,
 worker optional). Both are **off by default**: the PDB is only meaningful at
 `replicaCount >= 2`, and the HPA needs `metrics-server` installed. These, along
 with the beat and web tiers, the probe hardening, the `DJANGO_LOG_LEVEL` and OTLP
-trace-sampler knobs, and the starter Grafana dashboard / Prometheus alerts, **ship
-in 0.4** (the first beta).
+trace-sampler knobs, and the starter Grafana dashboard / Prometheus alerts,
+**shipped in 0.4** (the first beta).
 
 ### Verifying a deploy
 
@@ -846,7 +847,7 @@ reverse cleanly.
 A task's `wbs_path` is the only thing that records its place in the work
 breakdown; there is no `parent_id` column. Before 0.4 nothing stopped two live
 tasks in one project from being written to the same path, and several code paths
-did exactly that. 0.4 will add a database constraint that forbids it.
+did exactly that. 0.4 adds a database constraint that forbids it.
 
 That constraint is **validated against every existing row** when it is created, so
 on a database that already holds a duplicate the upgrade would otherwise fail —

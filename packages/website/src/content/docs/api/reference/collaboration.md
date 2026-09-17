@@ -188,7 +188,7 @@ The chain is the project's own `timezone`, then the workspace `timezone`, then t
 server's `TIME_ZONE`, then UTC; an unparseable value at any tier falls through to the
 next. In normal operation only `project` and `workspace` occur — `server` means no
 workspace row exists yet, and `fallback` means no tier was usable at all. These two
-fields ship in 0.4; see [Project notifications](/features/settings/project-notifications/#which-timezone-the-window-is-read-in).
+fields shipped in 0.4; see [Project notifications](/features/settings/project-notifications/#which-timezone-the-window-is-read-in).
 
 Both methods return the same document, published as the
 `ProjectNotificationPreferenceDocument` schema — the stored row plus two fields the
@@ -199,7 +199,7 @@ view adds:
 | `event_delivery` | object of `event_type` → boolean | Whether a delivery path is wired for that matrix row. `false` means the row is stored and honored but nothing dispatches it yet, so render it as such rather than implying a delivery that never happens. |
 | `channel_delivery` | object of `channel` → boolean | Whether TruePPM delivers on that matrix column at all. `false` means the column is rendered and the preference stored, but nothing delivers on it yet and no setting anywhere turns it on — so label it rather than imply a delivery that never happens. |
 
-Both fields ship in 0.4. They are independent axes: a cell delivers only when its
+Both fields shipped in 0.4. They are independent axes: a cell delivers only when its
 event is dispatched **and** its channel delivers. Both are server-global — they
 report server wiring, not anything about the user or project whose document carries
 them — and both are read-only. Read them rather than hard-coding either list: a

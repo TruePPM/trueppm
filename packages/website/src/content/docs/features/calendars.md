@@ -99,7 +99,7 @@ Project Manager or Project Admin role on at least one **active** project
 
 Exceptions — the holiday and shutdown date ranges that override a calendar's weekly
 pattern — are managed through a nested sub-resource on the calendar. The exceptions
-sub-resource **lands in 0.4**.
+sub-resource **landed in 0.4**.
 
 | Method & path | Purpose |
 |---|---|

@@ -6,7 +6,7 @@ documentedFor: "0.4"
 
 
 :::note[Added in 0.2 (alpha)]
-This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4. The **Notes** section below was added separately in 0.3 — see its callout.
+This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; 0.4 shipped as the first beta. The **Notes** section below was added separately in 0.3 — see its callout.
 :::
 
 This is for anyone working on a task who needs to record why a decision was made, attach a file, or discuss the work with teammates — every task has its own decision log, file attachments, and comment thread inside its detail drawer. **Notes** capture the *why* behind the work — a flat, append-only log of decisions and reasoning, distinct from the back-and-forth of comments. **Comments** support `@user` and `@group` mentions; mentioned people get a notification in their inbox (the bell icon in the top bar) within about 30 seconds, with an optional email as well. Giving a comment a thumbs-up and formally acknowledging it ("I've seen this, I'm on it") are kept as two separate, structurally distinct signals, so a Scrum Master or coach reading team health from acknowledgements isn't drowned out by casual reactions.
@@ -444,11 +444,11 @@ Brief tour of the new endpoints:
   `?archived=true`, `?snoozed=true`, `?category=mentions|tasks|signals|project`.
   Every view except `?snoozed=true` excludes currently-snoozed rows — including
   the unread-count query — so a deferred notification never lights the bell.
-  Each row carries a derived read-only `category` and its `snoozed_until` (ships
-  in 0.4)
+  Each row carries a derived read-only `category` and its `snoozed_until`
+  (shipped in 0.4)
 - `PATCH /api/v1/me/notifications/{id}/` — `{ is_read, is_archived }`
 - `POST /api/v1/me/notifications/{id}/snooze/` — `{ preset: "1h"|"3h"|"tomorrow" }`
-  or `{ until: "<iso>" }`; `{ until: null }` un-snoozes (ships in 0.4)
+  or `{ until: "<iso>" }`; `{ until: null }` un-snoozes (shipped in 0.4)
 - `POST /api/v1/me/notifications/mark-all-read/`
 - `GET /api/v1/me/notification-preferences/` — defaults are backfilled
   on first request per user

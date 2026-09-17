@@ -193,7 +193,7 @@ ready-to-paste environment-variable or Helm-values snippets.
 
 ### Live export health
 
-When export is on, the card will also show a live strip (ships in 0.4) with the
+When export is on, the card will also show a live strip (shipped in 0.4) with the
 cross-process export health aggregated across the pods that actually export — the
 Celery worker and beat pods carry almost all the span and metric volume, not the
 web pod that serves this page. Per signal (traces, metrics) it reports the state —

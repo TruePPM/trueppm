@@ -5,7 +5,7 @@ description: How TruePPM detects a dead Celery Beat process, the heartbeat endpo
 
 
 :::note[Added in 0.2 (alpha)]
-This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4.
+This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; 0.4 shipped as the first beta.
 :::
 
 Every asynchronous job in TruePPM — CPM recalculation drains, webhook delivery,

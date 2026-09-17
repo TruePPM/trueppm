@@ -32,7 +32,7 @@ When at least one sprint targets a milestone task:
   `Sprint plan: -2d ahead`. This compares the latest active or planned
   sprint's finish date against the milestone's date on the schedule. Sprint dates are
   never automatically changed to match.
-- The variance chip **will be annotated with float** *(ships in 0.4)* — **float** is
+- The variance chip **is annotated with float** *(shipped in 0.4)* — **float** is
   how many days a task can slip before it delays the project, the schedule's built-in
   tolerance — so a slip reads against how much room the plan actually has, not just its
   raw size. Off the critical path it reads `Sprint plan: +3d slip · 8d float` and its

@@ -64,7 +64,7 @@ Delivery mode is what the rollup engine reads to interpret a parent's percent-co
 
 ## Defaults follow the project
 
-Creating a task pre-selects Governance class and Delivery mode from the project's [effective methodology](/features/methodology-preset/) *(ships in 0.4)* — the values a self-managing team would pick anyway, so the dialog never opens on a value that contradicts the project it belongs to:
+Creating a task pre-selects Governance class and Delivery mode from the project's [effective methodology](/features/methodology-preset/) *(shipped in 0.4)* — the values a self-managing team would pick anyway, so the dialog never opens on a value that contradicts the project it belongs to:
 
 | Project methodology | Governance class default | Delivery mode default |
 |---|---|---|

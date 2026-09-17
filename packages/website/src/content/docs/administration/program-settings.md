@@ -5,7 +5,7 @@ documentedFor: "0.4"
 ---
 
 :::note[Added in 0.2 (alpha)]
-This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4.
+This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; 0.4 shipped as the first beta.
 :::
 
 A **program** is a container for the related projects one PM or program manager
@@ -35,7 +35,7 @@ settings that cascade this way are:
 
 - **Methodology** (ADR-0107) and **iteration terminology** (ADR-0116)
 - **Estimation scale** (ADR-0510)
-- **Sprint story picker "Ready only" default** (ADR-0758) — *ships in 0.4*
+- **Sprint story picker "Ready only" default** (ADR-0758) — *shipped in 0.4*
 - **Public sharing** and **guest access** (ADR-0135) — see [Sharing & Access Inheritance](/administration/sharing-and-access/)
 - **Duration change → percent complete** policy (ADR-0151)
 - **Monte Carlo forecast-history** retention (ADR-0144)
@@ -81,7 +81,7 @@ here affect every project in the program.
 | Methodology | Planning model new projects created in this program start with. It seeds new projects only — projects already in the program keep their own. See [Methodology presets](/features/methodology-preset/). |
 | Iteration terminology | What the program calls its iteration container (Sprint, Iteration, Cycle…). Inherits the workspace default. |
 | Estimation scale | The estimate scale (story points, hours, T-shirt…) projects inherit. Inherits the workspace default. |
-| Story picker shows Ready stories only, by default *(ships in 0.4)* | Whether the [sprint story picker](/features/sprint-backlog/#story-picker) starts filtered to Definition-of-Ready stories for this program's projects. Advisory only — never a commit-time block. Inherits the workspace default. |
+| Story picker shows Ready stories only, by default *(shipped in 0.4)* | Whether the [sprint story picker](/features/sprint-backlog/#story-picker) starts filtered to Definition-of-Ready stories for this program's projects. Advisory only — never a commit-time block. Inherits the workspace default. |
 | Allow guests | Whether guests may be added to this program's projects. Inherits the workspace value — see [Sharing & Access](/administration/sharing-and-access/). |
 | Public sharing | Whether read-only view links may be shared. Inherits the workspace value. |
 | Keep Monte Carlo run history | Whether the program retains past [Monte Carlo](/features/monte-carlo/) forecast runs. Inherits the workspace policy. |

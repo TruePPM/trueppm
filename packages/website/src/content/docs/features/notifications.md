@@ -278,15 +278,15 @@ only: email is opt-in and off by default, and it is never a push interrupt.
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/api/v1/me/notifications/` | Your inbox. `?unread_only=`, `?archived=`, `?snoozed=`, `?category=mentions\|tasks\|signals\|project` (category, ships in 0.4). Every view except `?snoozed=true` excludes currently-snoozed rows, including the unread-count read, so a deferred notification never lights the bell. |
+| `GET` | `/api/v1/me/notifications/` | Your inbox. `?unread_only=`, `?archived=`, `?snoozed=`, `?category=mentions\|tasks\|signals\|project` (category, shipped in 0.4). Every view except `?snoozed=true` excludes currently-snoozed rows, including the unread-count read, so a deferred notification never lights the bell. |
 | `GET` | `/api/v1/me/notifications/{id}/` | Retrieve a single row. |
 | `PATCH` | `/api/v1/me/notifications/{id}/` | `{ is_read, is_archived }`. |
-| `POST` | `/api/v1/me/notifications/{id}/snooze/` | `{ preset: "1h"\|"3h"\|"tomorrow" }` or `{ until: "<iso>" }`; `{ until: null }` un-snoozes. Ships in 0.4. |
+| `POST` | `/api/v1/me/notifications/{id}/snooze/` | `{ preset: "1h"\|"3h"\|"tomorrow" }` or `{ until: "<iso>" }`; `{ until: null }` un-snoozes. Shipped in 0.4. |
 | `POST` | `/api/v1/me/notifications/mark-all-read/` | Bulk mark-read; returns `{ updated: N }`. |
 | `GET` | `/api/v1/me/notification-preferences/` | The matrix; defaults are backfilled on first read per user. |
 | `PATCH` | `/api/v1/me/notification-preferences/{id}/` | `{ enabled }` on one `(event_type, channel)` row. |
 | `POST` | `/api/v1/me/notification-preferences/apply-preset/` | `{ preset: "signal_only"\|"everything" }` — bulk-rewrites the whole matrix atomically. |
-| `GET`/`PATCH` | `/api/v1/me/notification-settings/` | Do Not Disturb (`dnd_enabled`, ships in 0.4) and the digest schedule (`digest_weekday`, `digest_hour`). |
+| `GET`/`PATCH` | `/api/v1/me/notification-settings/` | Do Not Disturb (`dnd_enabled`, shipped in 0.4) and the digest schedule (`digest_weekday`, `digest_hour`). |
 | `GET`/`PATCH` | `/api/v1/projects/{id}/notification-preferences/` | Per-project routing — see [Project notifications](/features/settings/project-notifications/). |
 
 All reads and writes on `/me/notifications*` are scoped to the authenticated
@@ -294,7 +294,7 @@ user by construction (the queryset filters on `recipient=request.user`) —
 there is no cross-user access and no admin surface to edit another member's
 routing; each person owns their own notification contract.
 
-### What an inbox row shows once you are not a member (ships in 0.4)
+### What an inbox row shows once you are not a member (shipped in 0.4)
 
 A delivered notification is a record that a message was sent, not a live view
 of the project — so the row is kept, and its **contents** are redacted instead.

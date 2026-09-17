@@ -6,7 +6,7 @@ documentedFor: "0.4"
 
 
 :::note[Added in 0.2 (alpha)]
-This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4.
+This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; 0.4 shipped as the first beta.
 :::
 
 TruePPM runs scheduling, notifications, webhooks, MS Project imports, and retention
@@ -161,7 +161,7 @@ The console is API-first; every surface is admin-only (`IsAdminUser`):
   payload, traceback, and (once acted on) the `resolution_note` / `resolved_at` audit.
 
 The three read endpoints above are on the latest release. The four write endpoints
-below ship in 0.4.
+below shipped in 0.4.
 
 - `POST /api/v1/admin/failed-tasks/{id}/requeue/` — re-enqueue the task through the
   durable workflow backend with an optional `{ "backoff_seconds": N }` (0–86400).

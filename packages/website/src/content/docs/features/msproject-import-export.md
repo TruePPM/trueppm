@@ -9,7 +9,7 @@ The import/export REST endpoints shipped in 0.1. The in-app create-from-import
 flow (with the format picker), the import-into-existing dialog,
 three-point / PERT round-trip, and the project import-history surface were all
 **added in 0.2**, available since the `0.2.0-alpha.1` pre-release. 0.2 is an
-alpha release; the first beta is planned for 0.4. Additional importers — Primavera P6,
+alpha release; 0.4 shipped as the first beta. Additional importers — Primavera P6,
 GanttProject, OmniPlan, ProjectLibre, and the top-10 PM tools (Jira, Asana,
 Trello, Notion, Linear, and more) — are planned for 0.6.
 :::
@@ -38,7 +38,7 @@ Six things on this page were added in **TruePPM 0.4**, the first beta. On
    empty warnings list.
 3. **`GET /projects/{pk}/imports/` returns no `warnings` key.** The
    [List recent imports](#list-recent-imports-project-history) example shows the
-   0.4 response — on the latest release the field is absent entirely, not empty.
+   0.4 response — on 0.3 and earlier the field was absent entirely, not empty.
 4. **Export writes no `ConstraintType` / `ConstraintDate` / `ActualStart` /
    `ActualFinish`**, so a round trip through 0.3 or earlier still promotes
    computed dates to committed ones. See the caution under

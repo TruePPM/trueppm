@@ -56,7 +56,7 @@ whether a given topology can work at all:
 |----------|-----------|-------|
 | **Replicated Valkey behind one stable endpoint** | Yes | Primary with one or more replicas, fronted by a managed service endpoint, Kubernetes Service, or VIP that always resolves to the current primary. **The simplest production path.** |
 | **Managed Valkey / Redis-compatible service** | Yes | Cluster mode must be **disabled** — see below. The provider handles failover, patching, and backups. |
-| **Sentinel** | **Experimental** | Ships in 0.4 as experimental. Configure it with the `TRUEPPM_VALKEY_*` settings below; all four databases are wired to follow the primary across a failover with no restart. **Not yet verified against a live Sentinel quorum** — see the caution below. |
+| **Sentinel** | **Experimental** | Shipped in 0.4 as experimental. Configure it with the `TRUEPPM_VALKEY_*` settings below; all four databases are wired to follow the primary across a failover with no restart. **Not yet verified against a live Sentinel quorum** — see the caution below. |
 | **Cluster mode** | **No** | Not supported, and not planned. A clustered endpoint exposes only database `0`, and TruePPM uses four. The Channels layer has no cluster support in any case. |
 
 :::caution[Do not enable Cluster mode]

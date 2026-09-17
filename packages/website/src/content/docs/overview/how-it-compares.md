@@ -40,7 +40,7 @@ and one constraint type.
 
 | | CPM with float | Monte Carlo | Agile board coupled to the schedule | Engine installable standalone | OIDC/OAuth login in the free core | MCP server in the free core |
 |---|---|---|---|---|---|---|
-| **TruePPM** | Yes | **Yes** | **Yes — same object** | **Yes** (`pip install trueppm-scheduler`) | **Yes** (ships in 0.4) [^sso] | **Yes** (ships in 0.4, read-only) |
+| **TruePPM** | Yes | **Yes** | **Yes — same object** | **Yes** (`pip install trueppm-scheduler`) | **Yes** (shipped in 0.4) [^sso] | **Yes** (shipped in 0.4, read-only) |
 | OpenProject | Gantt with dependencies; **no critical path** [^opcp] | No | Board and Gantt as adjacent views | No | Enterprise add-on [^op] | Enterprise add-on [^opmcp] |
 | Redmine | Via third-party plugins | No | No | No | Third-party plugin [^redmine] | No |
 | Plane | No | No | Agile-only | No | Paid / Commercial editions [^plane] | No |
@@ -190,7 +190,7 @@ compute a critical path, float, or a probabilistic finish date. TruePPM does all
 three, on the same task objects your team moves across a board.
 
 TruePPM's answer to Jira is deliberately **not** "switch." A personal, read-only,
-one-way Jira sync into My Work ships in 0.4 so contributors never double-enter, and a
+one-way Jira sync into My Work shipped in 0.4 so contributors never double-enter, and a
 one-time migration import follows in 0.6 for teams that decide to move. Run both and
 get the CPM forecast without asking anyone to change tools first.
 
