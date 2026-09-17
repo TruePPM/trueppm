@@ -298,6 +298,14 @@ anchored-popover-check: ## Fail if hand-rolled absolute-anchored panels exceed t
 	@bash scripts/check-anchored-popover-population.sh --self-test
 	@bash scripts/check-anchored-popover-population.sh
 
+focus-trap-focuskey-check: ## Fail if a dialog disables its own controls mid-request without a focusKey (web rule 362, #3352)
+	@# `useFocusTrap`'s FOCUSABLE_SELECTOR is `button:not([disabled])`, so an
+	@# in-flight flag that disables the dialog's controls empties the trap, the
+	@# browser drops focus to <body>, and Tab walks out of an aria-modal surface.
+	@# Rule 362 was prose-only for 17 issues and 26 dialogs; this is its gate.
+	@bash scripts/check-focus-trap-focuskey.sh --self-test
+	@bash scripts/check-focus-trap-focuskey.sh
+
 summary-duration-units-check: ## Fail if a CPM write-back assigns a summary duration from a day count (#3530)
 	@# A calendar-day span written into a field every consumer reads as working
 	@# days — a ~1.4x inflation on every recompute, 49 of 50 summary rows in dev.
@@ -584,6 +592,7 @@ pre-push-checks: web-row-vocabulary-check
 pre-push-checks: design-system-check
 pre-push-checks: dropdown-scroll-check
 pre-push-checks: anchored-popover-check
+pre-push-checks: focus-trap-focuskey-check
 pre-push-checks: adr-status-check
 pre-push-checks: version-status-check
 pre-push-checks: config-doc-links-check

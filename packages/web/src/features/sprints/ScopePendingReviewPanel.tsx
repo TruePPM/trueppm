@@ -105,16 +105,24 @@ export function ScopePendingReviewPanel({
   //    focus on its Cancel button. Previously it never seated focus, so focus
   //    stayed on the obscured "Reject all" button behind the overlay (#2148);
   //    Escape now dismisses just the confirm.
-  const panelRef = useFocusTrap<HTMLDivElement>(true, () => {
-    if (!confirm) onClose();
-  });
-  const confirmRef = useFocusTrap<HTMLDivElement>(confirm !== null, () => setConfirm(null));
-
   const busy =
     acceptOne.isPending ||
     rejectOne.isPending ||
     acceptBulk.isPending ||
     rejectBulk.isPending;
+
+  // `busy` is the panel trap's focusKey (web-rule 362): every accept/reject
+  // control carries `disabled={controlsDisabled}`, so an in-flight mutation
+  // empties the trap and the browser drops focus to <body>. The nested
+  // bulk-confirm's own buttons are never disabled, so `confirmRef` needs none.
+  const panelRef = useFocusTrap<HTMLDivElement>(
+    true,
+    () => {
+      if (!confirm) onClose();
+    },
+    busy,
+  );
+  const confirmRef = useFocusTrap<HTMLDivElement>(confirm !== null, () => setConfirm(null));
   const controlsDisabled = offline || busy;
   const offlineTitle = offline
     ? "You're offline — accept and reject are unavailable until you reconnect."

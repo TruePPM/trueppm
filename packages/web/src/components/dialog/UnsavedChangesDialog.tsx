@@ -78,7 +78,7 @@ export function UnsavedChangesDialog({
   saving = false,
   error = null,
 }: UnsavedChangesDialogProps) {
-  const trapRef = useFocusTrap<HTMLDivElement>(true, onKeepEditing);
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onKeepEditing, saving);
 
   // Initial focus. `useFocusTrap` seats focus on the first focusable ("Keep
   // editing") on activation; this effect — declared *after* the hook, so it runs
