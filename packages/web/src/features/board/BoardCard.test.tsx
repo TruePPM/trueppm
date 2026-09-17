@@ -257,6 +257,18 @@ describe('BoardCard', () => {
     expect(onMenuMove).toHaveBeenCalledWith(baseTask, 'COMPLETE');
   });
 
+  it('reveals the overflow trigger on keyboard focus, not only on hover (rule 417, #3619)', () => {
+    // `opacity-0 group-hover:opacity-100` alone leaves the trigger invisible
+    // to a keyboard user who Tabs onto it without hovering — a `focus:` (or
+    // `focus-within:`/`group-focus-within:`) counterpart is required so the
+    // control becomes visible on focus too, not only on :hover.
+    renderCard({});
+    const trigger = screen.getByLabelText(`Actions for ${baseTask.name}`);
+    expect(trigger.className).toContain('opacity-0');
+    expect(trigger.className).toContain('group-hover:opacity-100');
+    expect(trigger.className).toContain('focus:opacity-100');
+  });
+
   it('clamps the overflow menu to the viewport instead of clipping when the card sits near an edge (#3705)', () => {
     // The old `right-0` CSS anchor never escaped the board column's
     // `overflow-y-auto` ancestor and never accounted for the viewport, so a
