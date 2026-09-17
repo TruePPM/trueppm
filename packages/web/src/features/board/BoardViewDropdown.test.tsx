@@ -175,6 +175,44 @@ describe('BoardViewDropdown', () => {
     expect(screen.getByText('Sprint 7')).toBeInTheDocument();
   });
 
+  it('reveals the saved-view delete button on keyboard focus, not only on hover (rule 417, #3619)', () => {
+    // `opacity-0 group-hover:opacity-100` alone leaves the delete "×" button
+    // invisible to a keyboard user who Tabs onto it without hovering — a
+    // `focus:` (or `focus-within:`/`group-focus-within:`) counterpart is
+    // required so the control becomes visible on focus too, not only on
+    // :hover.
+    vi.spyOn(savedViewsHook, 'useBoardSavedViews').mockReturnValue({
+      views: [
+        {
+          id: 'sv-1',
+          name: 'Sprint 7',
+          config: DEFAULT_CONFIG,
+          schemaVersion: 1,
+          createdBy: 'user-1',
+          serverVersion: 1,
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+        },
+      ],
+      isLoading: false,
+      create: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<
+        typeof savedViewsHook.useBoardSavedViews
+      >['create'],
+      update: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<
+        typeof savedViewsHook.useBoardSavedViews
+      >['update'],
+      remove: { mutate: vi.fn(), isPending: false } as unknown as ReturnType<
+        typeof savedViewsHook.useBoardSavedViews
+      >['remove'],
+    });
+    renderDropdown({ currentUserId: 'user-1' });
+    fireEvent.click(screen.getByRole('button', { name: /board view/i }));
+    const deleteButton = screen.getByLabelText('Delete view "Sprint 7"');
+    expect(deleteButton.className).toContain('opacity-0');
+    expect(deleteButton.className).toContain('group-hover:opacity-100');
+    expect(deleteButton.className).toContain('focus:opacity-100');
+  });
+
   it('applies saved view on click', () => {
     vi.spyOn(savedViewsHook, 'useBoardSavedViews').mockReturnValue({
       views: [
