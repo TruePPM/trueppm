@@ -10,7 +10,7 @@
  * Presentational: all state + the export pipeline live in `useScheduleExport`.
  */
 import { useEffect } from 'react';
-import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { getFocusable, useFocusTrap } from '@/hooks/useFocusTrap';
 import { Button } from '@/components/Button';
 import { CheckIcon, CloseIcon, FilePdfIcon, PrinterIcon } from '@/components/Icons';
 import { Toggle } from '@/features/settings/components/Toggle';
@@ -107,9 +107,7 @@ export function ScheduleExportDialog({
   useEffect(() => {
     const panel = panelRef.current;
     if (!panel) return;
-    const first = panel.querySelector<HTMLElement>(
-      'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    );
+    const first = getFocusable(panel)[0];
     first?.focus();
   }, [phase, panelRef]);
 

@@ -8,19 +8,12 @@ import {
 } from '@/hooks/useImportRisks';
 import { ImportDropzone } from '@/components/import/ImportDropzone';
 import { CheckIcon, XMarkIcon } from '@/components/Icons';
+import { getFocusable } from '@/hooks/useFocusTrap';
 
 interface Props {
   /** Active project; the modal is gated on a non-null id by the caller. */
   projectId: string | null;
   onClose: () => void;
-}
-
-function getFocusable(container: HTMLElement): HTMLElement[] {
-  return Array.from(
-    container.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ),
-  );
 }
 
 /** Pull the server's `detail` message out of a failed request, if present. */

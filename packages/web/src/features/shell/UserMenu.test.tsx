@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, within } from '@testing-library/react';
 import { renderWithRouter } from '@/test/utils';
 import { UserMenu } from './UserMenu';
+import { FOCUSABLE_SELECTOR } from '@/hooks/useFocusTrap';
 
 // ---------------------------------------------------------------------------
 // vi.hoisted() — runs before vi.mock hoisting, so these values are available
@@ -450,8 +451,9 @@ describe('UserMenu', () => {
   // Both surfaces are now role="dialog" (the desktop dropdown became a non-modal
   // dialog in #2167), so JSDOM renders two dialogs named "User menu" — target the
   // modal mobile sheet by its data-testid instead of getByRole('dialog').
-  const TRAP_FOCUSABLES =
-    'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  // The trap's own selector (#3208) — a hand-copied literal here would go on
+  // passing after the shared one is corrected, testing a string nothing uses.
+  const TRAP_FOCUSABLES = FOCUSABLE_SELECTOR;
 
   it('traps Tab focus inside the mobile bottom sheet (Tab from last → first)', () => {
     renderWithRouter(<UserMenu />);

@@ -39,7 +39,14 @@ vi.mock('@/hooks/useTaskMutations', async (importOriginal) => {
   };
 });
 vi.mock('@/components/Toast', () => ({ toast: toastSpies }));
-vi.mock('@/hooks/useFocusTrap', () => ({ useFocusTrap: () => ({ current: null }) }));
+// Stub only the hook — spread the real module through, so the selector helpers
+// it also exports (#3208) stay live. A bare factory mock silently hands any
+// component that reaches for `getFocusable` an `undefined` (BottomSheet and nine
+// dialogs now import it), and the failure names the helper, not this mock.
+vi.mock('@/hooks/useFocusTrap', async (importActual) => ({
+  ...(await importActual<typeof import('@/hooks/useFocusTrap')>()),
+  useFocusTrap: () => ({ current: null }),
+}));
 
 const { TaskTrashDialog } = await import('./TaskTrashDialog');
 
