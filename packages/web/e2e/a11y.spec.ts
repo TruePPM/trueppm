@@ -621,6 +621,38 @@ test.describe('accessibility @a11y — routes', () => {
     });
   });
 
+  test('project Calendar has no critical/serious WCAG violations', async ({ page }, testInfo) => {
+    // This route carried no axe scan at all until #3241 — which is the reason a
+    // seven-column grid of role-less <div>s, with no accessible names and no key
+    // handling anywhere in the file, sat here unremarked: nothing looked. The
+    // scan is the guard, not the fix; without it the next surface to lose its
+    // roles does so silently again.
+    //
+    // Anchored on the fixture tasks' own month: the calendar defaults to today,
+    // and a window with no tasks renders the empty state instead of the grid, so
+    // an unanchored scan would cover a different surface every month.
+    await page.goto(`/projects/${PROJECT_ID}/calendar?calAnchor=2026-01-12`);
+    await expect(page.getByRole('grid', { name: 'Calendar dates' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // The one exclusion, and it is debt this scan FOUND rather than debt it
+    // hides: the two day-cell mutes both push the date number below 4.5:1 —
+    // weekend `opacity-60` over `text-neutral-text-primary` composites to
+    // #767F92 on white (4.02:1), and out-of-month `text-neutral-text-disabled`
+    // is #A09D99 on the sunken #EAE5D9 (~1.9:1). Raising either changes how the
+    // Calendar looks (both mutes are documented visual behavior), which is a
+    // ux-design question and not #3241's markup fix — and the naive token swap
+    // does not work, since `opacity-60` composites whatever sits under it.
+    // Every other rule runs live here, including the `aria-required-*` pair
+    // that is the whole point of the scan. SUPPRESSED-UNTIL(#3879) — delete the
+    // entry when that lands, do not narrow it.
+    await expectNoA11yViolations(page, testInfo, {
+      gateModerate: true,
+      disableRules: ['color-contrast'],
+    });
+  });
+
   test('project Settings (General) has no critical/serious WCAG violations', async ({
     page,
   }, testInfo) => {

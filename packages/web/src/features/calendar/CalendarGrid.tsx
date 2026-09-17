@@ -3,27 +3,35 @@
  *
  * Layout strategy:
  *   - 7-column CSS grid for day cells (date numbers, today tint, weekend mute)
- *   - Per-week chip overlay: position:absolute chips over the row, sized by %
- *     so no ResizeObserver is needed
+ *   - Chips are absolutely positioned inside the day cell they START in, sized
+ *     as a multiple of that cell's own width (every column is exactly 1/7 of
+ *     the row), so a multi-day chip overhangs its neighbours without needing a
+ *     ResizeObserver or a separate overlay layer
  *   - Lane assignment: greedy interval scheduling so non-overlapping chips
  *     share the same vertical lane; overlapping chips stack in separate lanes
  *   - MAX 4 chip lanes per row; overflow shows "+N more" in the cell corner
  *   - Milestone diamonds render in each day cell below the date number
  *
+ * Accessibility (#3241): the date grid implements the ARIA grid pattern —
+ * `role="grid"` > `row` > `gridcell`, each cell named with its full date, one
+ * roving tab stop, and arrow / Home / End traversal between cells.
+ *
  * Design rules applied (CLAUDE.md):
  *   - No drop shadows (rule 1) — border-neutral-border separation
  *   - Today cell: brand-primary/5 bg tint, brand-primary day number
  *   - text-xs floor (rule 50) — no text-xs
- *   - Focus rings (rule 4) on all chip buttons
+ *   - Focus rings (rule 4) on all chip buttons and on the roving day cell
  *   - tppm-mono for date numbers (rule 8c)
  */
 
+import { useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
 import type { Task } from '@/types';
 import {
   parseUTCDate,
   viewWeekStarts,
   weekDays,
   formatISODate,
+  formatDayCellLabel,
   isSameDay,
   buildChips,
   buildMilestoneMarks,
@@ -36,11 +44,31 @@ import { CalendarChip } from './CalendarChip';
 import { CalendarMobileList } from './CalendarMobileList';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 
-const DAY_HEADERS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+/**
+ * Column headers. The abbreviation is what the header cell prints; the full
+ * name is its accessible name, because "Mon" read aloud is an abbreviation a
+ * screen reader may or may not expand.
+ */
+const DAY_HEADERS: ReadonlyArray<{ abbr: string; full: string }> = [
+  { abbr: 'Mon', full: 'Monday' },
+  { abbr: 'Tue', full: 'Tuesday' },
+  { abbr: 'Wed', full: 'Wednesday' },
+  { abbr: 'Thu', full: 'Thursday' },
+  { abbr: 'Fri', full: 'Friday' },
+  { abbr: 'Sat', full: 'Saturday' },
+  { abbr: 'Sun', full: 'Sunday' },
+];
+const DAYS_PER_WEEK = 7;
 const MAX_LANES = 4;
 const LANE_HEIGHT_PX = 22; // chip height (18px) + 4px gap
 const DATE_NUMBER_HEIGHT_PX = 24;
 const CELL_MIN_HEIGHT_PX = DATE_NUMBER_HEIGHT_PX + MAX_LANES * LANE_HEIGHT_PX + 8;
+
+/** A chip plus the lane it was assigned, carried together (see visibleChips). */
+interface PlacedChip {
+  chip: CalendarChipData;
+  lane: number;
+}
 
 /**
  * Assign each chip a vertical lane using greedy interval scheduling.
@@ -88,7 +116,10 @@ function LegendSwatch({ className }: { className: string }) {
 
 function CalendarLegend() {
   return (
+    // role="group" is load-bearing, not decoration: an aria-label on a role-less
+    // <div> names nothing, so the label was invisible to AT entirely (#3241).
     <div
+      role="group"
       className="flex items-center gap-4 px-4 py-2 border-t border-neutral-border
         bg-neutral-surface-raised flex-shrink-0"
       aria-label="Calendar legend"
@@ -178,6 +209,50 @@ function MilestoneMarkButton({
   );
 }
 
+/**
+ * The chips that START in one day cell, drawn at their assigned lanes.
+ *
+ * Chips live inside their start day's cell rather than in a row-wide overlay
+ * (#3241): the overlay was a SIBLING rendered after all seven cells, so tab
+ * order per week row was "every milestone button in day order, then every
+ * chip in API list order" — an order unrelated to what is on screen. As a cell
+ * child, a chip's DOM position is its visual position.
+ *
+ * Widths are a multiple of the cell's own width because `grid-cols-7` makes
+ * every column exactly 1/7 of the row, so `chipDays * 100%` is the same span
+ * the row-relative overlay used to compute. `z-10` is what lets a chip overhang
+ * the cells to its right: sibling cells are `position: relative` with `z-auto`
+ * and so create no stacking context of their own.
+ */
+function DayChips({
+  chips,
+  weekStartIso,
+  onTaskClick,
+}: {
+  chips: PlacedChip[];
+  weekStartIso: string;
+  onTaskClick: (taskId: string) => void;
+}) {
+  return (
+    <>
+      {chips.map(({ chip, lane }, idx) => (
+        <div
+          key={`${chip.taskId}-${weekStartIso}-${idx}`}
+          data-cal-chip=""
+          className="absolute z-10"
+          style={{
+            top: DATE_NUMBER_HEIGHT_PX + lane * LANE_HEIGHT_PX + 2,
+            left: 2,
+            width: `calc(${chip.chipDays * 100}% - 4px)`,
+          }}
+        >
+          <CalendarChip chip={chip} onClick={onTaskClick} />
+        </div>
+      ))}
+    </>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main grid
 // ---------------------------------------------------------------------------
@@ -211,6 +286,17 @@ export function CalendarGrid({
   // Below the `md` breakpoint the 7-column grid collapses to unusable ~60px
   // columns; render the documented date-grouped agenda list instead (#2161).
   const breakpoint = useBreakpoint();
+
+  // The roving tab stop is keyed on the ISO DATE, never on an index into the
+  // day array or on its length: the whole day set is replaced on every
+  // month/week step and on every mode switch, and an index-keyed roving stop
+  // both points at a different day afterwards and (if re-focused from an
+  // effect) steals focus from whatever the user was actually on (web rule 280).
+  // An ISO that is no longer in the window simply falls back to the default
+  // below — a pure derivation, so no effect and no focus movement.
+  const [focusedIso, setFocusedIso] = useState<string | null>(null);
+  const cellRefs = useRef(new Map<string, HTMLDivElement>());
+
   // A landmark's accessible name is an IDENTITY, not a state readout — renaming
   // it on every Prev/Next would churn the rotor entry a user navigates by. The
   // volatile window lives in the toolbar heading and in CalendarView's live
@@ -239,6 +325,77 @@ export function CalendarGrid({
   const allMarks = buildMilestoneMarks(tasks, anchor, calView);
   const currentMonth = anchor.getUTCMonth();
 
+  // Every rendered day, in visual order — the grid's own coordinate space for
+  // keyboard traversal. Always a whole number of 7-day rows.
+  const windowDays = weeks.flatMap((ws) => weekDays(ws));
+  const windowIsos = windowDays.map(formatISODate);
+
+  // Where the single tab stop sits when the user has not moved it: today if the
+  // window contains it, else the anchor day, else the first day drawn. Tabbing
+  // into the grid should land on the day the view is *about*.
+  const todayIdx = windowDays.findIndex((d) => isSameDay(d, today));
+  let defaultIso = windowIsos[0];
+  if (todayIdx >= 0) defaultIso = windowIsos[todayIdx];
+  else if (windowIsos.includes(anchorIso)) defaultIso = anchorIso;
+  const activeIso =
+    focusedIso !== null && windowIsos.includes(focusedIso) ? focusedIso : defaultIso;
+
+  /**
+   * Resolve a key press to the ISO date it should move the tab stop to, or
+   * null if the grid does not own that key.
+   *
+   * Movement CLAMPS at the window's edges rather than wrapping or stepping the
+   * window. The grid does not own the anchor — stepping it is the toolbar's
+   * ‹ / › (which also drives CalendarView's live region) — and a window step
+   * unmounts every cell including the focused one, so silently doing it from an
+   * arrow key would drop focus to the document body. PageUp/PageDown are left
+   * unbound for the same reason.
+   */
+  function nextIso(fromIso: string, key: string, wholeGrid: boolean): string | null {
+    const i = windowIsos.indexOf(fromIso);
+    if (i === -1) return null;
+    const last = windowIsos.length - 1;
+    const rowStart = i - (i % DAYS_PER_WEEK);
+    switch (key) {
+      case 'ArrowLeft':
+        return windowIsos[Math.max(0, i - 1)];
+      case 'ArrowRight':
+        return windowIsos[Math.min(last, i + 1)];
+      case 'ArrowUp':
+        return windowIsos[Math.max(0, i - DAYS_PER_WEEK)];
+      case 'ArrowDown':
+        return windowIsos[Math.min(last, i + DAYS_PER_WEEK)];
+      case 'Home':
+        return wholeGrid ? windowIsos[0] : windowIsos[rowStart];
+      case 'End':
+        return wholeGrid ? windowIsos[last] : windowIsos[rowStart + DAYS_PER_WEEK - 1];
+      default:
+        return null;
+    }
+  }
+
+  function handleCellKeyDown(e: KeyboardEvent<HTMLDivElement>, iso: string) {
+    // Only the cell itself navigates. A chip or milestone button inside a cell
+    // is its own widget; arrowing off it would yank focus out from under a user
+    // who is on the chip, not on the day.
+    if (e.target !== e.currentTarget) return;
+    const target = nextIso(iso, e.key, e.ctrlKey || e.metaKey);
+    if (target === null) return;
+    // Swallow the key even when clamped at an edge, so ArrowDown on the last
+    // row scrolls nothing and Home does not jump the scroll container.
+    e.preventDefault();
+    if (target === iso) return;
+    setFocusedIso(target);
+    cellRefs.current.get(target)?.focus();
+  }
+
+  function handleCellFocus(e: FocusEvent<HTMLDivElement>, iso: string) {
+    // React's onFocus is focusin, so a chip inside the cell bubbles here too —
+    // and moving the day tab stop because a chip was focused would put the two
+    // out of step.
+    if (e.target === e.currentTarget) setFocusedIso(iso);
+  }
+
   // The 4-lane cap exists because a month packs 4-6 rows into one viewport, so
   // each row can only afford ~4 chips. A week row has that whole budget to
   // itself, so week mode lifts the cap entirely and shows every task touching
@@ -264,187 +421,222 @@ export function CalendarGrid({
     marksByWeekDay.set(key, list);
   }
 
+  // Week mode renders exactly one row, so "this row is empty" and "the window
+  // is empty" are the same statement — and stating it once, outside the grid,
+  // keeps `role="row"` owning nothing but `gridcell`s.
+  const windowIsEmpty = isWeek && allChips.length === 0 && allMarks.length === 0;
+
   return (
     <div role="region" aria-label={regionLabel} className="flex flex-col h-full overflow-hidden">
-      {/* Day-of-week header */}
-      <div className="grid grid-cols-7 border-b border-neutral-border flex-shrink-0">
-        {DAY_HEADERS.map((d) => (
+      <div className="relative flex flex-1 min-h-0 flex-col">
+        <div
+          role="grid"
+          aria-label="Calendar dates"
+          aria-rowcount={weeks.length + 1}
+          aria-colcount={DAYS_PER_WEEK}
+          className="flex flex-1 min-h-0 flex-col"
+        >
+          {/* Day-of-week header */}
           <div
-            key={d}
-            className="py-1.5 text-center tppm-mono text-xs font-semibold uppercase tracking-widest
-              text-neutral-text-secondary border-r last:border-r-0 border-neutral-border
-              bg-neutral-surface-sunken"
+            role="row"
+            aria-rowindex={1}
+            className="grid grid-cols-7 border-b border-neutral-border flex-shrink-0"
           >
-            {d}
+            {DAY_HEADERS.map((d, i) => (
+              <div
+                key={d.abbr}
+                role="columnheader"
+                aria-colindex={i + 1}
+                aria-label={d.full}
+                className="py-1.5 text-center tppm-mono text-xs font-semibold uppercase tracking-widest
+                  text-neutral-text-secondary border-r last:border-r-0 border-neutral-border
+                  bg-neutral-surface-sunken"
+              >
+                {d.abbr}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      {/* Week rows */}
-      <div
-        className={
-          isWeek
-            ? 'flex flex-1 min-h-0 flex-col overflow-y-auto divide-y divide-neutral-border'
-            : 'flex-1 overflow-y-auto divide-y divide-neutral-border'
-        }
-      >
-        {weeks.map((ws) => {
-          const wsIso = formatISODate(ws);
-          const days = weekDays(ws);
-          const weekChips = chipsByWeek.get(wsIso) ?? [];
-          const laneMap = assignLanes(weekChips);
-
-          const overflowByDay = new Map<number, number>();
-          weekChips.forEach((chip, idx) => {
-            const lane = laneMap.get(idx) ?? 0;
-            if (lane >= maxLanes) {
-              const dayOffset = chip.chipStartOffset;
-              overflowByDay.set(dayOffset, (overflowByDay.get(dayOffset) ?? 0) + 1);
+          {/* Week rows */}
+          <div
+            role="rowgroup"
+            className={
+              isWeek
+                ? 'flex flex-1 min-h-0 flex-col overflow-y-auto divide-y divide-neutral-border'
+                : 'flex-1 overflow-y-auto divide-y divide-neutral-border'
             }
-          });
+          >
+            {weeks.map((ws, weekIdx) => {
+              const wsIso = formatISODate(ws);
+              const days = weekDays(ws);
+              const weekChips = chipsByWeek.get(wsIso) ?? [];
+              const laneMap = assignLanes(weekChips);
 
-          // Carry each chip's lane alongside it rather than re-deriving it from
-          // an array position later. `laneMap` is keyed by index into
-          // `weekChips`, so any *filtered* array's indices stop corresponding to
-          // it — reading `laneMap.get(i)` with a filtered `i` paints chips at
-          // other chips' lanes, and can place one past the row's own height
-          // (see the regression test in CalendarGrid.test.tsx).
-          const visibleChips = weekChips
-            .map((chip, idx) => ({ chip, lane: laneMap.get(idx) ?? 0 }))
-            .filter(({ lane }) => lane < maxLanes);
+              const overflowByDay = new Map<number, number>();
+              weekChips.forEach((chip, idx) => {
+                const lane = laneMap.get(idx) ?? 0;
+                if (lane >= maxLanes) {
+                  const dayOffset = chip.chipStartOffset;
+                  overflowByDay.set(dayOffset, (overflowByDay.get(dayOffset) ?? 0) + 1);
+                }
+              });
 
-          // Week mode grows the row to fit however many lanes it actually uses,
-          // never below the month row's height so a quiet week doesn't collapse
-          // into a strip. Month mode keeps the fixed 4-lane height.
-          const laneCount = visibleChips.reduce((max, { lane }) => Math.max(max, lane + 1), 0);
+              // Carry each chip's lane alongside it rather than re-deriving it from
+              // an array position later. `laneMap` is keyed by index into
+              // `weekChips`, so any *filtered* array's indices stop corresponding to
+              // it — reading `laneMap.get(i)` with a filtered `i` paints chips at
+              // other chips' lanes, and can place one past the row's own height
+              // (see the regression test in CalendarGrid.test.tsx).
+              const visibleChips: PlacedChip[] = weekChips
+                .map((chip, idx) => ({ chip, lane: laneMap.get(idx) ?? 0 }))
+                .filter(({ lane }) => lane < maxLanes);
 
-          // Count THIS row's milestones, not the whole window's. Identical today
-          // because week mode renders exactly one row — but only by coincidence
-          // of the loop having one iteration, which a future multi-week mode
-          // would silently break.
-          const weekMarkCount = days.reduce(
-            (n, _d, i) => n + (marksByWeekDay.get(`${wsIso}:${i}`)?.length ?? 0),
-            0,
-          );
-          const rowMinHeight = isWeek
-            ? Math.max(CELL_MIN_HEIGHT_PX, DATE_NUMBER_HEIGHT_PX + laneCount * LANE_HEIGHT_PX + 8)
-            : CELL_MIN_HEIGHT_PX;
+              // Chips are dealt to the cell they start in, lane order within a
+              // cell — which is top-to-bottom on screen, and therefore the tab
+              // order a sighted keyboard user is looking at (#3241).
+              const chipsByDay = new Map<number, PlacedChip[]>();
+              for (const placed of visibleChips) {
+                const list = chipsByDay.get(placed.chip.chipStartOffset) ?? [];
+                list.push(placed);
+                chipsByDay.set(placed.chip.chipStartOffset, list);
+              }
+              for (const list of chipsByDay.values()) list.sort((a, b) => a.lane - b.lane);
 
-          return (
-            <div
-              key={wsIso}
-              className={`relative ${isWeek ? 'flex-1' : ''}`}
-              style={{ minHeight: rowMinHeight }}
-            >
-              {/* Day cells grid */}
-              <div className="grid grid-cols-7 h-full">
-                {days.map((day, dayIdx) => {
-                  const iso = formatISODate(day);
-                  const isToday = isSameDay(day, today);
-                  // Every day a week row renders is inside the window, so the
-                  // out-of-month graying is a month-mode concept only.
-                  const isCurrentMonth = isWeek || day.getUTCMonth() === currentMonth;
-                  const dayOffset = Math.round((day.getTime() - ws.getTime()) / 86_400_000);
-                  const overflow = overflowByDay.get(dayOffset) ?? 0;
-                  const dayMarks = marksByWeekDay.get(`${wsIso}:${dayOffset}`) ?? [];
-                  const isSprintBoundary = sprintBoundaries?.has(iso) ?? false;
+              // Week mode grows the row to fit however many lanes it actually uses,
+              // never below the month row's height so a quiet week doesn't collapse
+              // into a strip. Month mode keeps the fixed 4-lane height.
+              const laneCount = visibleChips.reduce((max, { lane }) => Math.max(max, lane + 1), 0);
+              const rowMinHeight = isWeek
+                ? Math.max(
+                    CELL_MIN_HEIGHT_PX,
+                    DATE_NUMBER_HEIGHT_PX + laneCount * LANE_HEIGHT_PX + 8,
+                  )
+                : CELL_MIN_HEIGHT_PX;
 
-                  return (
-                    <div
-                      key={iso}
-                      className={`
-                        relative border-r last:border-r-0 border-neutral-border p-1
-                        ${isToday ? 'bg-brand-primary/5' : ''}
-                        ${!isCurrentMonth ? 'bg-neutral-surface-sunken' : ''}
-                        ${dayIdx >= 5 ? 'opacity-60' : ''}
-                      `}
-                      style={{ minHeight: rowMinHeight }}
-                    >
-                      {/* Day number */}
-                      <span
+              return (
+                <div
+                  key={wsIso}
+                  role="row"
+                  aria-rowindex={weekIdx + 2}
+                  className={`relative grid grid-cols-7 ${isWeek ? 'flex-1' : ''}`}
+                  style={{ minHeight: rowMinHeight }}
+                >
+                  {days.map((day, dayIdx) => {
+                    const iso = formatISODate(day);
+                    const isToday = isSameDay(day, today);
+                    // Every day a week row renders is inside the window, so the
+                    // out-of-month graying is a month-mode concept only.
+                    const isCurrentMonth = isWeek || day.getUTCMonth() === currentMonth;
+                    const dayOffset = Math.round((day.getTime() - ws.getTime()) / 86_400_000);
+                    const overflow = overflowByDay.get(dayOffset) ?? 0;
+                    const dayMarks = marksByWeekDay.get(`${wsIso}:${dayOffset}`) ?? [];
+                    const isSprintBoundary = sprintBoundaries?.has(iso) ?? false;
+                    const dayLabel = formatDayCellLabel(day);
+
+                    return (
+                      <div
+                        key={iso}
+                        ref={(el) => {
+                          if (el) cellRefs.current.set(iso, el);
+                          return () => {
+                            cellRefs.current.delete(iso);
+                          };
+                        }}
+                        role="gridcell"
+                        aria-colindex={dayIdx + 1}
+                        aria-label={isToday ? `${dayLabel}, today` : dayLabel}
+                        tabIndex={iso === activeIso ? 0 : -1}
+                        onKeyDown={(e) => handleCellKeyDown(e, iso)}
+                        onFocus={(e) => handleCellFocus(e, iso)}
                         className={`
-                          block tppm-mono text-xs font-medium leading-5 w-5 text-center rounded-full
-                          ${
-                            isToday
-                              ? 'bg-sage-500 text-navy-900 font-semibold'
-                              : isCurrentMonth
-                                ? 'text-neutral-text-primary'
-                                : 'text-neutral-text-disabled'
-                          }
+                          relative border-r last:border-r-0 border-neutral-border p-1
+                          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset
+                          focus-visible:ring-brand-primary
+                          ${isToday ? 'bg-brand-primary/5' : ''}
+                          ${!isCurrentMonth ? 'bg-neutral-surface-sunken' : ''}
                         `}
+                        style={{ minHeight: rowMinHeight }}
                       >
-                        {day.getUTCDate()}
-                      </span>
+                        {/* The weekend mute is on the cell's OWN marks, not on
+                            the cell: chips live in the cell they start in now,
+                            so dimming the cell would dim a Saturday-starting
+                            bar and leave an identical Monday-starting one at
+                            full strength. It stays off the cell box for a
+                            second reason — a 60% focus ring is a weaker focus
+                            indicator on exactly two of seven columns. */}
+                        <div className={dayIdx >= 5 ? 'opacity-60' : ''}>
+                          {/* Day number — aria-hidden because the cell's own
+                              label already states the full date; without this
+                              the number is read a second time, bare. */}
+                          <span
+                            aria-hidden="true"
+                            className={`
+                              block tppm-mono text-xs font-medium leading-5 w-5 text-center rounded-full
+                              ${
+                                isToday
+                                  ? 'bg-sage-500 text-navy-900 font-semibold'
+                                  : isCurrentMonth
+                                    ? 'text-neutral-text-primary'
+                                    : 'text-neutral-text-disabled'
+                              }
+                            `}
+                          >
+                            {day.getUTCDate()}
+                          </span>
 
-                      {/* Sprint-boundary dot (issue 1230) — marks a sprint start/finish day. */}
-                      {isSprintBoundary && (
-                        <span
-                          className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-brand-accent-dark"
-                          title="Sprint boundary"
-                          aria-label="Sprint boundary"
-                          role="img"
-                        />
-                      )}
+                          {/* Sprint-boundary dot (issue 1230) — marks a sprint start/finish day. */}
+                          {isSprintBoundary && (
+                            <span
+                              className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-brand-accent-dark"
+                              title="Sprint boundary"
+                              aria-label="Sprint boundary"
+                              role="img"
+                            />
+                          )}
 
-                      {/* Milestone diamonds in this day cell */}
-                      {dayMarks.map((mark) => (
-                        <MilestoneMarkButton
-                          key={mark.taskId}
-                          mark={mark}
+                          {/* Milestone diamonds in this day cell */}
+                          {dayMarks.map((mark) => (
+                            <MilestoneMarkButton
+                              key={mark.taskId}
+                              mark={mark}
+                              onTaskClick={onTaskClick}
+                            />
+                          ))}
+
+                          {overflow > 0 && (
+                            <span className="absolute bottom-1 left-1 text-xs text-neutral-text-secondary">
+                              +{overflow} more
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Task chips starting on this day */}
+                        <DayChips
+                          chips={chipsByDay.get(dayOffset) ?? []}
+                          weekStartIso={wsIso}
                           onTaskClick={onTaskClick}
                         />
-                      ))}
-
-                      {overflow > 0 && (
-                        <span className="absolute bottom-1 left-1 text-xs text-neutral-text-secondary">
-                          +{overflow} more
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* A quiet week stretches to fill the viewport, and an empty
-                  stretched row reads as a failed render rather than as "nothing
-                  scheduled" — so name it. Month mode needs no equivalent: 30
-                  dated empty cells already say it. */}
-              {isWeek && visibleChips.length === 0 && weekMarkCount === 0 && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <p className="text-sm text-neutral-text-secondary">
-                    No tasks in {formatWindowNoun(anchor, calView)}.
-                  </p>
+                      </div>
+                    );
+                  })}
                 </div>
-              )}
+              );
+            })}
+          </div>
+        </div>
 
-              {/* Chip overlay — absolutely positioned over the day cells */}
-              <div
-                className="absolute inset-0 pointer-events-none"
-                style={{ top: DATE_NUMBER_HEIGHT_PX }}
-              >
-                {visibleChips.map(({ chip, lane }, idx) => {
-                  const top = lane * LANE_HEIGHT_PX + 2;
-                  const leftPct = (chip.chipStartOffset / 7) * 100;
-                  const widthPct = (chip.chipDays / 7) * 100;
-
-                  return (
-                    <div
-                      key={`${chip.taskId}-${wsIso}-${idx}`}
-                      className="absolute pointer-events-auto"
-                      style={{
-                        top,
-                        left: `calc(${leftPct}% + 2px)`,
-                        width: `calc(${widthPct}% - 4px)`,
-                      }}
-                    >
-                      <CalendarChip chip={chip} onClick={onTaskClick} />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
+        {/* A quiet week stretches to fill the viewport, and an empty stretched
+            row reads as a failed render rather than as "nothing scheduled" — so
+            name it. Month mode needs no equivalent: 30 dated empty cells
+            already say it. Drawn over the grid rather than inside a row so that
+            `role="row"` owns nothing but `gridcell`s. */}
+        {windowIsEmpty && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <p className="text-sm text-neutral-text-secondary">
+              No tasks in {formatWindowNoun(anchor, calView)}.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Legend */}
