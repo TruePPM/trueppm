@@ -157,7 +157,11 @@ function KpiCard({
       >
         {value}
       </span>
-      {sub && <span className="text-xs text-neutral-text-disabled tppm-mono truncate">{sub}</span>}
+      {/* `-secondary`, not `-disabled` (rule 169, #3477): `sub` is always
+          readable copy — a deferred KPI's plain-language reason, or a
+          variance card's "vs baseline" — never an inert control, and
+          `-disabled` falls below the WCAG AA contrast floor for text. */}
+      {sub && <span className="text-xs text-neutral-text-secondary tppm-mono truncate">{sub}</span>}
     </>
   );
 
@@ -340,8 +344,9 @@ function HealthHero({ rollup }: { rollup: ProgramRollup }) {
         </span>
         <span className="text-xs text-neutral-text-secondary">{subtitle}</span>
       </div>
+      {/* Rule 169 (#3477): readable prose uses `-secondary`, never `-disabled`. */}
       {!rollup.policy_available && (
-        <p className="text-xs text-neutral-text-disabled">
+        <p className="text-xs text-neutral-text-secondary">
           Budget weighting is unavailable — showing the average instead.
         </p>
       )}
@@ -486,8 +491,9 @@ export function ProgramOverviewPage() {
                 Configure rollup
               </Link>
               {/* OSS↔Enterprise boundary affordance (ADR-0070/0088): this rollup is
-                  per-program; comparing across programs is an Enterprise capability. */}
-              <p className="text-xs text-neutral-text-disabled">
+                  per-program; comparing across programs is an Enterprise capability.
+                  Rule 169 (#3477): readable prose uses `-secondary`, never `-disabled`. */}
+              <p className="text-xs text-neutral-text-secondary">
                 Rolling up across multiple programs? Cross-program portfolio rollups are part of
                 TruePPM Enterprise.
               </p>
