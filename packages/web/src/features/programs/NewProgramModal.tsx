@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ProgramMethodology } from '@/api/types';
 import { useCreateProgram } from '@/hooks/useProgramMutations';
+import { getFocusable } from '@/hooks/useFocusTrap';
 
 interface Props {
   onClose: () => void;
@@ -16,14 +17,6 @@ const METHODOLOGIES: ReadonlyArray<{
   { id: 'AGILE',     label: 'Agile',     description: 'Sprint-led projects with shared backlog' },
   { id: 'HYBRID',    label: 'Hybrid',    description: 'Mixed methodologies across projects (default)' },
 ];
-
-function getFocusable(container: HTMLElement): HTMLElement[] {
-  return Array.from(
-    container.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ),
-  );
-}
 
 /**
  * Single-step modal for creating a new Program (ADR-0070).

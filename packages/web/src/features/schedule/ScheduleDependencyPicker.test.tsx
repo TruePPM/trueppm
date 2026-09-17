@@ -8,6 +8,7 @@ import {
   ScheduleDependencyPicker,
   type ScheduleDependencyPickerProps,
 } from './ScheduleDependencyPicker';
+import { getFocusable } from '@/hooks/useFocusTrap';
 
 // mutate() invokes onSuccess synchronously with the response so the consent
 // toast branch (pending vs accepted) is deterministic. `response` is mutated
@@ -1540,4 +1541,48 @@ describe('ScheduleDependencyPicker — direction and the type reference (#3113)'
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog', { name: /Add dependency/ })).toBeInTheDocument();
   });
+});
+
+describe('focus trap vs. roving tab stops (#3208)', () => {
+  // The ScopeTabs are `<button role="tab" tabIndex={-1}>` roving members near the
+  // top of the dialog, and the broken selector counted them as tab stops.
+  //
+  // #3208 called this a LIVE escape ("ScopeTab becomes the trap's first, so
+  // Shift+Tab escapes"). Driving it says otherwise: the header's Close button is
+  // a real tab stop and precedes the tablist in DOM order, so the ScopeTabs are
+  // never the trap's `first` and focus does not actually leave today. Verified
+  // by negative control — the e2e walk over this dialog passes on the broken
+  // selector. The picker belongs in the issue's LATENT column, not its live one.
+  //
+  // The first assertion below is still a real regression test: it pins that the
+  // roving tabs are not counted, which is what the reorder would weaponize.
+  it('keeps the roving ScopeTabs out of the tab stops, and Shift+Tab inside', () => {
+    renderPicker({ programId: 'prog-1' });
+    const dialog = screen.getByRole('dialog', { name: /Add dependency/ });
+
+    // The roving scope tabs are rendered, and are not tab stops.
+    const scopeTabs = within(dialog).getAllByRole('tab');
+    expect(scopeTabs.length).toBe(2);
+    const stops = getFocusable(dialog);
+    expect(stops.some((el) => el.getAttribute('tabindex') === '-1')).toBe(false);
+    expect(scopeTabs.some((t) => stops.includes(t))).toBe(false);
+
+    const first = stops[0];
+    const last = stops[stops.length - 1];
+
+    first.focus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(last);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    last.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(document.activeElement).toBe(first);
+  });
+
+  // NOTE: the result rows are `<li role="option" tabIndex={-1}>`, NOT native
+  // focusables — the old selector's generic `[tabindex]:not([tabindex="-1"])`
+  // branch already excluded them, so an assertion about the rows passes on the
+  // broken build and proves nothing. The ScopeTabs above are the real instance
+  // here precisely because they are `<button>`s.
 });

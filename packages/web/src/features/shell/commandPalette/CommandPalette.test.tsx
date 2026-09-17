@@ -4,6 +4,7 @@ import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { CommandPalette } from './CommandPalette';
 import type { CommandItem } from './commandItems';
+import { getFocusable } from '@/hooks/useFocusTrap';
 
 // Stub the live item builder (router + data hooks) with deterministic items.
 const runMyWork = vi.fn();
@@ -112,6 +113,35 @@ describe('CommandPalette', () => {
     for (const opt of screen.getAllByRole('option')) {
       expect(opt).toHaveAttribute('tabindex', '-1');
     }
+  });
+
+  // #3208. The rows above are `tabIndex={-1}` roving members and they trail the
+  // dialog, so the broken selector made the LAST row the trap's `last` — a stop
+  // the user can never be on, so forward-Tab never wrapped and Tab left the
+  // palette entirely. Tabbing BACKWARDS from the real first stop is what catches
+  // it: a forward-Tab check reads as passing on the broken build.
+  it('keeps Tab inside the dialog with roving option rows present (#3208)', () => {
+    open();
+    render(<CommandPalette />);
+    const dialog = screen.getByRole('dialog', { name: 'Command palette' });
+
+    // The option rows must not be counted as tab stops at all.
+    const stops = getFocusable(dialog);
+    expect(stops.length).toBeGreaterThan(0);
+    expect(stops.some((el) => el.getAttribute('tabindex') === '-1')).toBe(false);
+    expect(screen.getAllByRole('option').some((o) => stops.includes(o))).toBe(false);
+
+    const first = stops[0];
+    const last = stops[stops.length - 1];
+
+    first.focus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(last);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    last.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(document.activeElement).toBe(first);
   });
 
   it('announces the settled result count to screen readers after a debounce (#2203)', () => {

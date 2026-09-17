@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { AgentAction } from '@/api/types';
 import { VERDICT_DISPLAY } from './agentDisplay';
 import { CheckIcon, CloseIcon } from '@/components/Icons';
+import { getFocusable } from '@/hooks/useFocusTrap';
 
 interface AgentActionDrawerProps {
   action: AgentAction | null;
@@ -45,9 +46,7 @@ export function AgentActionDrawer({
         return;
       }
       if (e.key !== 'Tab' || !drawerRef.current) return;
-      const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
-      );
+      const focusable = getFocusable(drawerRef.current);
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
