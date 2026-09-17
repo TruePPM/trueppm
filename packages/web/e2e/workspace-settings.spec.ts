@@ -1230,7 +1230,10 @@ test.describe('Workspace Groups — Manage drawer (#2253)', () => {
     // Alice is already a member, so Bob is the only addable option. Scope to the
     // combobox's own listbox — the Danger section (also mounted on the consolidated
     // page) has a transfer-owner <select> whose native "Bob Stone" option collides.
-    await dialog.getByRole('button', { name: 'Add' }).click();
+    // Exact match: Playwright's `name` is a substring match by default, so a
+    // stale 'Add' locator would silently keep matching the new accessible name
+    // "Add member" (#3540).
+    await dialog.getByRole('button', { name: 'Add member', exact: true }).click();
     await page
       .getByRole('listbox', { name: 'Select member' })
       .getByRole('option', { name: 'Bob Stone' })
@@ -1255,7 +1258,7 @@ test.describe('Workspace Groups — Manage drawer (#2253)', () => {
     await expect(dialog).toBeVisible();
 
     // Orion + Artemis are already linked, so Gemini is the only grantable project.
-    await dialog.getByRole('button', { name: 'Choose' }).click();
+    await dialog.getByRole('button', { name: 'Choose project', exact: true }).click();
     await page
       .getByRole('listbox', { name: 'Select project' })
       .getByRole('option', { name: 'Gemini' })

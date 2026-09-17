@@ -112,8 +112,11 @@ describe('ProgramArchivePage lifecycle (#967)', () => {
 
     // The dialog renders two pickers (new Program Admin + optional new program
     // lead); pick the first only — the lead stays unset and must not be sent.
-    const assignTriggers = screen.getAllByRole('button', { name: 'Assign' });
-    await user.click(assignTriggers[0]);
+    // Each trigger's accessible name now names its own picker (#3540), so the
+    // two "Assign" buttons in this one dialog are no longer indistinguishable —
+    // assert the full, disambiguating name rather than reaching for
+    // getAllByRole to paper over the collision.
+    await user.click(screen.getByRole('button', { name: 'Assign new Program Admin' }));
     await user.click(await screen.findByRole('option', { name: 'bob.martin' }));
 
     await waitFor(() => expect(confirm).toBeEnabled());

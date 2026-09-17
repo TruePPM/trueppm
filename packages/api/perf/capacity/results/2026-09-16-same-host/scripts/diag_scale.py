@@ -16,7 +16,20 @@ import time
 
 import requests
 
-HARNESS = os.environ.get("CAPACITY_HARNESS") or sys.argv[1]
+
+def _validated_harness(path: str) -> str:
+    """Reject a harness path that isn't a real directory or could be read as a CLI flag.
+
+    ``HARNESS`` is spliced unquoted into ``docker compose -f <HARNESS>/...`` and
+    ``psql`` argument lists below; a value starting with ``-`` would be read as an
+    option by those binaries rather than a path (argument injection).
+    """
+    if path.startswith("-") or not os.path.isdir(path):
+        raise SystemExit(f"diag_scale.py: not a harness directory: {path!r}")
+    return path
+
+
+HARNESS = _validated_harness(os.environ.get("CAPACITY_HARNESS") or sys.argv[1])
 sys.path.insert(0, HARNESS)
 import run_capacity as rc  # noqa: E402
 
