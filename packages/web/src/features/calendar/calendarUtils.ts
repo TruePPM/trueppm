@@ -293,6 +293,25 @@ export function formatDayLabel(d: Date): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
+/**
+ * Accessible name for a calendar day cell — "Wednesday, March 11, 2026".
+ *
+ * A day cell's visible content is a bare number, and the Mon–Sun column header
+ * sits in a different subtree from it — so nothing composes "which day is this"
+ * for a screen reader, and the accessible-name algorithm's text-node walk
+ * cannot reach across to the header to do it either. The weekday, month and
+ * year therefore have to be stated on the cell itself (#3241).
+ */
+export function formatDayCellLabel(d: Date): string {
+  return d.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 /** True if two UTC Dates fall on the same calendar day. */
 export function isSameDay(a: Date, b: Date): boolean {
   return (
