@@ -678,23 +678,19 @@ export const routes: RouteObject[] = [
                       </Suspense>
                     ),
                     handle: { title: 'Team' } satisfies RouteHandle,
+                    // The Roster / Allocation / Heatmap children deliberately carry
+                    // NO handle.title of their own (#3478) — RouteTitle walks the
+                    // match stack from the deepest route up and stops at the first
+                    // title it finds, so all three fall through to this parent's
+                    // "Team", matching the rail label and the location-switcher
+                    // crumb (both already "Team"). The tab bar (TeamView) is what
+                    // distinguishes the three sub-views; the document title,
+                    // breadcrumb, and page heading share one identity.
                     children: [
                       { index: true, element: <Navigate to="roster" replace /> },
-                      {
-                        path: 'roster',
-                        element: <RosterPage />,
-                        handle: { title: 'Roster' } satisfies RouteHandle,
-                      },
-                      {
-                        path: 'allocation',
-                        element: <ResourceView />,
-                        handle: { title: 'Resources' } satisfies RouteHandle,
-                      },
-                      {
-                        path: 'heatmap',
-                        element: <HeatmapPage />,
-                        handle: { title: 'Heatmap' } satisfies RouteHandle,
-                      },
+                      { path: 'roster', element: <RosterPage /> },
+                      { path: 'allocation', element: <ResourceView /> },
+                      { path: 'heatmap', element: <HeatmapPage /> },
                     ],
                   },
                   {

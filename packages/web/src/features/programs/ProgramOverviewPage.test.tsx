@@ -102,6 +102,14 @@ describe('ProgramOverviewPage (#713)', () => {
     expect(screen.getByText('Needs cost data')).toBeInTheDocument();
   });
 
+  it('renders the deferred-KPI reason as readable copy, not a sub-AA disabled token (rule 169, #3477)', async () => {
+    mockApi(rollup({ kpis: { p80_completion: { available: false, reason: 'no_montecarlo_store' } } }));
+    renderPage();
+    const reason = await screen.findByText('Needs a saved Monte Carlo run');
+    expect(reason.className).toMatch(/text-neutral-text-secondary/);
+    expect(reason.className).not.toMatch(/text-neutral-text-disabled/);
+  });
+
   it('renders a null variance as an em dash', async () => {
     mockApi(
       rollup({
