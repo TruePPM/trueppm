@@ -315,7 +315,10 @@ test.describe('Project lifecycle settings (#530)', () => {
     // Confirm is gated until a new owner is chosen.
     await expect(dialog.getByRole('button', { name: /Confirm transfer/i })).toBeDisabled();
 
-    await dialog.getByRole('button', { name: 'Assign' }).click();
+    // Exact match: Playwright's `name` is a substring match by default, so a
+    // stale 'Assign' locator would silently keep matching the new, longer
+    // accessible name "Assign new Project Admin" (#3540).
+    await dialog.getByRole('button', { name: 'Assign new Project Admin', exact: true }).click();
     // The picker's listbox portals to document.body (useAnchoredPopover, #1966),
     // so its options are no longer descendants of the dialog — scope to page.
     await page.getByRole('option', { name: 'bob' }).click();
@@ -403,8 +406,12 @@ test.describe('Program lifecycle settings (#530)', () => {
     await expect(dialog).not.toContainText(/new program manager/i);
 
     // Two pickers render (new Program Admin + optional new program lead); pick
-    // the first only.
-    await dialog.getByRole('button', { name: 'Assign' }).first().click();
+    // the first only. Each trigger's accessible name now names its own picker
+    // (#3540), so locate the owner trigger by its full, disambiguating name
+    // instead of `.first()` on two identically-named "Assign" buttons.
+    await dialog
+      .getByRole('button', { name: 'Assign new Program Admin', exact: true })
+      .click();
     // Listbox portals to document.body (useAnchoredPopover, #1966) — scope to page.
     await page.getByRole('option', { name: 'bob' }).click();
 

@@ -406,14 +406,14 @@ describe('ProgramGeneralPage (settings)', () => {
     renderPage();
     expect(screen.getByText(/Unassigned/i)).toBeInTheDocument();
     // The picker is wired now — the trigger is enabled, not a #966 stub.
-    expect(screen.getByRole('button', { name: /Assign/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Assign program lead' })).toBeEnabled();
   });
 
   it('opens the member picker from the lead Change trigger (#966)', async () => {
     const user = userEvent.setup();
     useProgram.mockReturnValue({ data: makeProgram() });
     renderPage();
-    const change = screen.getByRole('button', { name: 'Change' });
+    const change = screen.getByRole('button', { name: 'Change program lead' });
     expect(change).toBeEnabled();
     await user.click(change);
     expect(screen.getByRole('listbox', { name: 'Select program lead' })).toBeInTheDocument();
@@ -433,7 +433,7 @@ describe('ProgramGeneralPage (settings)', () => {
     expect(row).not.toBeNull();
     expect(row!).not.toHaveTextContent(/program manager/i);
     expect(row!).toHaveTextContent('grants no access');
-    expect(screen.getByRole('button', { name: 'Change' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Change program lead' })).toBeInTheDocument();
   });
 
   it('associates the Program lead hint with the picker trigger (web-rule 269, #3513)', () => {
@@ -662,7 +662,7 @@ describe('ProgramGeneralPage (settings)', () => {
     expect(screen.getByRole('radio', { name: 'Hybrid' })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Export to JSON/i })).toBeDisabled();
     // The manager picker drops its trigger entirely (rule 156 read-only render).
-    expect(screen.queryByRole('button', { name: 'Change' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Change program lead' })).not.toBeInTheDocument();
   });
 
   it('keeps the form editable for an Admin my_role', () => {
@@ -670,7 +670,7 @@ describe('ProgramGeneralPage (settings)', () => {
     renderPage();
 
     expect(screen.getByLabelText('Program name')).not.toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Change' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Change program lead' })).toBeEnabled();
   });
 
   // ----- Export parity naming + async bundle (#1958) -------------------------

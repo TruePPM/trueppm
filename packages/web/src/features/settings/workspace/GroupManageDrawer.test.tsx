@@ -127,9 +127,10 @@ describe('GroupManageDrawer', () => {
     render(<GroupManageDrawer group={GROUP} onClose={vi.fn()} />, { wrapper: makeWrapper() });
     await screen.findByRole('dialog', { name: 'Avionics' });
 
-    // Open the member picker (its trigger is labeled "Add") and choose the only
-    // addable workspace member (Sam is already in the group, so only Dana shows).
-    await user.click(screen.getByRole('button', { name: 'Add' }));
+    // Open the member picker (its trigger is labeled "Add", accessible name
+    // "Add member" — #3540) and choose the only addable workspace member (Sam
+    // is already in the group, so only Dana shows).
+    await user.click(screen.getByRole('button', { name: 'Add member' }));
     await user.click(await screen.findByRole('option', { name: 'Dana Cole' }));
 
     await waitFor(() =>
@@ -143,7 +144,8 @@ describe('GroupManageDrawer', () => {
     await screen.findByRole('dialog', { name: 'Avionics' });
 
     // Pick the project (Atlas V is already linked, so only Orion is grantable).
-    await user.click(screen.getByRole('button', { name: 'Choose' }));
+    // Accessible name is "Choose project" (#3540).
+    await user.click(screen.getByRole('button', { name: 'Choose project' }));
     await user.click(await screen.findByRole('option', { name: 'Orion' }));
 
     // Choose a non-default role, then Grant.
