@@ -206,6 +206,62 @@ describe('HeatmapPage — KPI section', () => {
     expect(stub.reload).toHaveBeenCalled();
     stub.restore();
   });
+
+  it('derives headcount from the heatmap resource list, not the summary (#3478)', () => {
+    // The summary and heatmap endpoints compute headcount independently and
+    // can disagree — the summary here says 3, the heatmap's own roster has 0.
+    // The KPI row must show the heatmap's count (0), matching the "No team
+    // members yet" empty state below it, never the stale "3 active".
+    summaryMock.mockReturnValue({
+      data: summary({ headcount: 3 }),
+      status: 'success',
+      error: null,
+    });
+    heatmapMock.mockReturnValue(heatmapSuccess([]));
+    renderWithProviders(<HeatmapPage />);
+
+    expect(screen.getByText('0 active')).toBeInTheDocument();
+    expect(screen.queryByText('3 active')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the summary headcount while the heatmap is still loading', () => {
+    summaryMock.mockReturnValue({
+      data: summary({ headcount: 5 }),
+      status: 'success',
+      error: null,
+    });
+    // heatmapMock stays 'loading' (beforeEach default).
+    renderWithProviders(<HeatmapPage />);
+
+    expect(screen.getByText('5 active')).toBeInTheDocument();
+  });
+
+  it('renders "No assignments yet" instead of a calm 0% when there is no team (#3477)', () => {
+    summaryMock.mockReturnValue({
+      data: summary({ headcount: 3, avg_utilization_pct: 0 }),
+      status: 'success',
+      error: null,
+    });
+    heatmapMock.mockReturnValue(heatmapSuccess([]));
+    renderWithProviders(<HeatmapPage />);
+
+    // Avg utilization card is muted with the shared reason, not a bare "0%".
+    expect(screen.getByText('No assignments yet')).toBeInTheDocument();
+    expect(screen.queryByText('0%')).not.toBeInTheDocument();
+  });
+
+  it('renders a real 0% avg utilization normally when the team is staffed', () => {
+    summaryMock.mockReturnValue({
+      data: summary({ headcount: 4, avg_utilization_pct: 0 }),
+      status: 'success',
+      error: null,
+    });
+    heatmapMock.mockReturnValue(heatmapSuccess([person()]));
+    renderWithProviders(<HeatmapPage />);
+
+    expect(screen.getByText('0%')).toBeInTheDocument();
+    expect(screen.queryByText('No assignments yet')).not.toBeInTheDocument();
+  });
 });
 
 describe('HeatmapPage — heatmap section', () => {
@@ -264,7 +320,7 @@ describe('HeatmapPage — heatmap section', () => {
     renderWithProviders(<HeatmapPage />);
 
     // Header still renders, body is empty of grid / empty-state / error.
-    expect(screen.getByRole('heading', { name: 'Resource allocation' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Team' })).toBeInTheDocument();
     expect(screen.queryByRole('grid')).not.toBeInTheDocument();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(screen.queryByText(/Could not load heatmap/)).not.toBeInTheDocument();

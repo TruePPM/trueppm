@@ -30,9 +30,22 @@ type HeatmapResult = ReturnType<typeof useResourceHeatmap>;
 type SummaryResult = ReturnType<typeof useResourceSummary>;
 
 /** KPI row for the Heatmap page: skeleton while loading, 4-card row on success, retry line on error. */
-function KpiSection({ summary }: { summary: SummaryResult }) {
+function KpiSection({ summary, heatmap }: { summary: SummaryResult; heatmap: HeatmapResult }) {
   if (summary.status === 'loading') return <ResourcesKpiRowSkeleton />;
-  if (summary.status === 'success') return <ResourcesKpiRow data={summary.data!} />;
+  if (summary.status === 'success') {
+    // Single source of truth for headcount + the "No team members yet" empty
+    // state below (#3478): derive headcount from the heatmap's OWN resource
+    // list rather than the summary endpoint's independently-computed count,
+    // so the two numbers on this page can never disagree. Falls back to the
+    // summary's headcount while the heatmap query is still loading or has
+    // errored — a transient heatmap failure should not blank an otherwise-
+    // successful KPI row.
+    const headcount =
+      heatmap.status === 'success' && heatmap.data
+        ? heatmap.data.resources.length
+        : summary.data!.headcount;
+    return <ResourcesKpiRow data={summary.data!} headcount={headcount} />;
+  }
   return (
     <div className="text-xs text-semantic-critical px-1">
       Could not load summary.{' '}
@@ -158,12 +171,11 @@ export function HeatmapPage() {
     <div className="flex flex-col gap-4 p-4 overflow-y-auto h-full">
       {/* Page header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        {/* Title block */}
+        {/* Title block — "Team" everywhere (rail, breadcrumb, heading, document
+            title; #3478): Roster / Allocation / Heatmap are its tabs, not
+            separate page identities. */}
         <div>
-          <h1 className="text-lg font-semibold text-neutral-text-primary">
-            Resource allocation
-          </h1>
-          <p className="text-xs text-neutral-text-secondary mt-0.5">Team</p>
+          <h1 className="text-lg font-semibold text-neutral-text-primary">Team</h1>
         </div>
 
         {/* Controls */}
@@ -229,7 +241,7 @@ export function HeatmapPage() {
         <ResourceEmptyState onRunScheduler={() => void triggerScheduler()} />
       ) : (
         <>
-          <KpiSection summary={summaryResult} />
+          <KpiSection summary={summaryResult} heatmap={heatmapResult} />
           <HeatmapSection heatmap={heatmapResult} weeks={weeks} projectId={projectId} />
         </>
       )}

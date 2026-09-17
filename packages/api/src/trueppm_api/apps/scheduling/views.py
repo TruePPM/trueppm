@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import logging
 import uuid
@@ -1054,46 +1053,6 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
 WHATIF_MC_SEED = 993_993
 
 
-def _shift_duration(td: timedelta | None, delta_days: int) -> timedelta | None:
-    """Shift a duration by ``delta_days``, flooring at zero; ``None`` passes through.
-
-    Used to perturb both the deterministic duration and each leg of a task's PERT
-    triple by the same signed offset, so the estimate's shape/order is preserved
-    while its center moves. A negative delta that would drive a duration below zero
-    is clamped to zero rather than producing a nonsensical negative duration.
-    """
-    if td is None:
-        return None
-    shifted = td + timedelta(days=delta_days)
-    return shifted if shifted > timedelta(0) else timedelta(0)
-
-
-def _perturb_task_durations(
-    baseline_tasks: list[Any], target_id: str, delta_days: int
-) -> list[Any]:
-    """Return a copy of the scheduler task list with only the target's durations shifted.
-
-    The target's deterministic ``duration`` and, when it carries a three-point
-    estimate, each PERT leg are shifted by ``delta_days``. Shifting the PERT triple
-    too matters because Monte Carlo samples a PERT task from its triple, not its
-    deterministic duration — perturbing only ``duration`` would leave the
-    probabilistic bands unmoved for an estimated task, defeating the what-if. Every
-    other task passes through unchanged.
-    """
-    perturbed = []
-    for st in baseline_tasks:
-        if st.id == target_id:
-            st = dataclasses.replace(
-                st,
-                duration=_shift_duration(st.duration, delta_days),
-                optimistic_duration=_shift_duration(st.optimistic_duration, delta_days),
-                most_likely_duration=_shift_duration(st.most_likely_duration, delta_days),
-                pessimistic_duration=_shift_duration(st.pessimistic_duration, delta_days),
-            )
-        perturbed.append(st)
-    return perturbed
-
-
 class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
     """Non-mutating Monte Carlo what-if: perturb one task's duration, recompute (#993).
 
@@ -1210,6 +1169,7 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
             CyclicDependencyError,
             SimulationCapExceeded,
             monte_carlo,
+            perturb_task_duration,
             schedule,
         )
         from trueppm_scheduler.models import Project as SchedProject
@@ -1314,7 +1274,6 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
 
         leaf_tasks = graph.tasks
         leaf_deps = graph.dependencies
-        perturbed_tasks = _perturb_task_durations(leaf_tasks, task_id, delta_days)
 
         velocity_samples, sprint_length_days = scheduler_velocity_inputs(
             project.pk, sched_calendar.working_days
@@ -1349,6 +1308,17 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
             # baseline + perturbed CPM and simulation — through the same helper the
             # real forecast uses, so the span name and attributes cannot drift.
             with monte_carlo_span(pk, simulation_count=n_simulations):
+                # The ENGINE owns the perturbation (#3533). Which input a task's
+                # sampled duration comes from is the engine's own priority rule
+                # (velocity → PERT triple → deterministic); an API-side shift of
+                # the fields this view happens to know about moved the CPM finish
+                # while leaving a velocity-sampled task's bands exactly where they
+                # were, and reported both. Passing the fully-built project — with
+                # the velocity signal on it — is what lets the engine reach the
+                # input it will actually sample.
+                perturbed_tasks = perturb_task_duration(
+                    _make_project(leaf_tasks, cpm_status_date), task_id, delta_days
+                ).tasks
                 baseline_cpm = schedule(_make_project(leaf_tasks, cpm_status_date))
                 perturbed_cpm = schedule(_make_project(perturbed_tasks, cpm_status_date))
                 baseline_mc = monte_carlo(

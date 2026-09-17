@@ -1223,6 +1223,17 @@ describe('ProjectOverviewPage — team utilization (#2428)', () => {
     expect(screen.queryByText('Needs people on the project roster')).not.toBeInTheDocument();
   });
 
+  it('does not color a real 0% as on-track success (#3477)', async () => {
+    // A literal 0% means zero real assignments across the whole roster — an
+    // unstaffed team reading "On track" green is the #3477 bug. The value
+    // still renders (see the test above), it just must not wear the
+    // on-track/success color.
+    withUtilization({ team_utilization_pct: 0, team_utilization_reason: null });
+    renderPage();
+    const value = await screen.findByText('0%');
+    expect(value.className).not.toMatch(/text-semantic-on-track/);
+  });
+
   it('gives an unavailable card the rule-119 dashed border and no drill-down', async () => {
     withUtilization({ team_utilization_pct: null, team_utilization_reason: 'no_roster' });
     renderPage();

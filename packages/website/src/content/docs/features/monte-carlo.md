@@ -232,6 +232,15 @@ Both forecasts sample with the same fixed RNG seed, so the delta isolates the ef
 of your change rather than run-to-run noise, and the same query always returns the
 same answer.
 
+**Sprint-delivered tasks.** A task set to the SCRUM delivery mode with story points,
+on a project that has a velocity history, is simulated from that team's throughput
+rather than from a duration estimate — so a day offset is translated into the
+equivalent story points at the team's mean pace before the simulation runs. The
+`cpm_finish` still moves by exactly the days you asked for; the `p50`/`p80`/`p95`
+bands move by that much *on average*, rounded to whole sprints, because that is how a
+sprint-delivered task's finish date actually behaves. A one-day slip on a two-week
+cadence either changes nothing or costs a sprint, and the forecast says so.
+
 This is the endpoint behind the MCP `whatif` read tool: because it is a pure,
 side-effect-free `GET`, an AI client with a read-only token can ask "what happens to
 the Apollo forecast if design review slips two weeks?" and the CPM/Monte Carlo engine

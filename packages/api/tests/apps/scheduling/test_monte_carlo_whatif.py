@@ -16,7 +16,14 @@ from rest_framework.test import APIClient
 from rest_framework.throttling import ScopedRateThrottle
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project, Task
+from trueppm_api.apps.projects.models import (
+    Calendar,
+    DeliveryMode,
+    Project,
+    Sprint,
+    SprintState,
+    Task,
+)
 from trueppm_api.apps.scheduling.models import MonteCarloRun, ProjectForecastSnapshot
 from trueppm_api.apps.scheduling.views import mc_latest_cache_key
 
@@ -171,6 +178,130 @@ class TestWhatIfHappyPath:
 
 
 # ---------------------------------------------------------------------------
+# CPM and the Monte Carlo bands move together, on every sampling branch (#3533)
+# ---------------------------------------------------------------------------
+
+
+def _velocity_history(project: Project) -> None:
+    """Four closed sprints, mean 30 points over a two-week cadence.
+
+    Gives the project the velocity signal a SCRUM task with story points needs to
+    take the engine's *first* sampling branch, which reads neither ``duration`` nor
+    the PERT triple.
+    """
+    rows = [
+        (20, date(2025, 10, 6), date(2025, 10, 17)),
+        (40, date(2025, 10, 20), date(2025, 10, 31)),
+        (25, date(2025, 11, 3), date(2025, 11, 14)),
+        (35, date(2025, 11, 17), date(2025, 11, 28)),
+    ]
+    for i, (points, start, finish) in enumerate(rows, start=1):
+        Sprint.objects.create(
+            project=project,
+            name=f"Sprint {i}",
+            state=SprintState.COMPLETED,
+            start_date=start,
+            finish_date=finish,
+            committed_points=32,
+            completed_points=points,
+        )
+
+
+@pytest.mark.django_db
+class TestWhatIfMovesCpmAndBandsTogether:
+    """The deterministic finish and the probabilistic bands must agree that the
+    perturbation happened (#3533).
+
+    The engine picks a task's sampled duration by priority — velocity, then the
+    three-point PERT triple, then the deterministic duration — and the what-if used
+    to shift only the last two. For a SCRUM task on a project with velocity signal
+    the CPM finish moved while P50/P80/P95 returned a flat zero delta, and the
+    response reported both: an MCP client reads that as ground truth that a proposed
+    slip carries no schedule risk. One test per branch, because the shipped bug was
+    exactly "two of the three branches covered".
+    """
+
+    def test_velocity_sampled_scrum_task(self, member_client: APIClient, project: Project) -> None:
+        """The branch that was silently unreachable.
+
+        ``duration=1`` against a ~55-point backlog keeps the sampled-column floor
+        (which clamps every sample up to the deterministic duration) well clear of
+        the velocity draws, so the bands here can only move if the perturbation
+        reached the input the velocity branch actually reads.
+        """
+        _velocity_history(project)
+        task = Task.objects.create(
+            project=project,
+            name="Story",
+            duration=1,
+            story_points=55,
+            delivery_mode=DeliveryMode.SCRUM,
+        )
+
+        r = member_client.get(
+            _url(project),
+            {"task_id": str(task.pk), "duration_delta": 20, "n_simulations": 400},
+        )
+        assert r.status_code == 200, r.data
+        deltas = r.data["delta_vs_current"]
+        assert deltas["cpm_finish"] > 0, deltas
+        for band in ("p50", "p80", "p95"):
+            assert deltas[band] > 0, f"{band} did not move with the CPM finish: {deltas}"
+
+    def test_three_point_estimated_task(self, member_client: APIClient, project: Project) -> None:
+        task = Task.objects.create(
+            project=project,
+            name="Estimated",
+            duration=10,
+            optimistic_duration=8,
+            most_likely_duration=10,
+            pessimistic_duration=20,
+        )
+
+        r = member_client.get(
+            _url(project),
+            {"task_id": str(task.pk), "duration_delta": 10, "n_simulations": 400},
+        )
+        assert r.status_code == 200, r.data
+        deltas = r.data["delta_vs_current"]
+        assert deltas["cpm_finish"] > 0, deltas
+        for band in ("p50", "p80", "p95"):
+            assert deltas[band] > 0, f"{band} did not move with the CPM finish: {deltas}"
+
+    def test_deterministic_task(
+        self, member_client: APIClient, project: Project, long_task: Task
+    ) -> None:
+        r = member_client.get(
+            _url(project),
+            {"task_id": str(long_task.pk), "duration_delta": 10, "n_simulations": 400},
+        )
+        assert r.status_code == 200, r.data
+        deltas = r.data["delta_vs_current"]
+        assert deltas["cpm_finish"] > 0, deltas
+        for band in ("p50", "p80", "p95"):
+            assert deltas[band] > 0, f"{band} did not move with the CPM finish: {deltas}"
+
+    def test_a_zero_delta_moves_neither(self, member_client: APIClient, project: Project) -> None:
+        """The other half of the invariant. Both runs share a fixed seed, so a flat
+        band here is the absence of a perturbation, not RNG noise cancelling out."""
+        _velocity_history(project)
+        task = Task.objects.create(
+            project=project,
+            name="Story",
+            duration=1,
+            story_points=55,
+            delivery_mode=DeliveryMode.SCRUM,
+        )
+
+        r = member_client.get(
+            _url(project),
+            {"task_id": str(task.pk), "duration_delta": 0, "n_simulations": 400},
+        )
+        assert r.status_code == 200, r.data
+        assert r.data["delta_vs_current"] == {"p50": 0, "p80": 0, "p95": 0, "cpm_finish": 0}
+
+
+# ---------------------------------------------------------------------------
 # Non-mutation guarantee
 # ---------------------------------------------------------------------------
 
@@ -202,6 +333,33 @@ class TestWhatIfNonMutating:
         assert MonteCarloRun.objects.count() == 0
         assert ProjectForecastSnapshot.objects.count() == 0
         assert cache.get(cache_key) is None
+
+    def test_story_points_are_not_persisted(
+        self,
+        member_client: APIClient,
+        project: Project,
+    ) -> None:
+        """A velocity-sampled task is perturbed through its ``story_points`` (#3533),
+        which is a *committed backlog* number a team reads off the board — so the
+        in-memory shift must not reach the row."""
+        _velocity_history(project)
+        task = Task.objects.create(
+            project=project,
+            name="Story",
+            duration=1,
+            story_points=55,
+            delivery_mode=DeliveryMode.SCRUM,
+        )
+
+        r = member_client.get(
+            _url(project),
+            {"task_id": str(task.pk), "duration_delta": 20, "n_simulations": 50},
+        )
+        assert r.status_code == 200, r.data
+
+        task.refresh_from_db()
+        assert task.story_points == 55
+        assert task.duration == 1
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +426,25 @@ class TestWhatIfErrors:
     ) -> None:
         r = member_client.get(_url(project), {"task_id": str(long_task.pk)})
         assert r.status_code == 400
+
+    @pytest.mark.parametrize("delta", [10**9, 10**12, 10**400])
+    def test_absurd_duration_delta_returns_400_not_500(
+        self, member_client: APIClient, project: Project, long_task: Task, delta: int
+    ) -> None:
+        """``duration_delta`` is an unbounded signed integer on the wire, so the
+        perturbation is the first thing a hostile value reaches.
+
+        Each magnitude overflows at a different layer — ``timedelta``'s day cap, the
+        C int behind it, and float conversion of the story-point shift — and all three
+        must surface as the documented 400, not an unhandled 500. This is why the
+        perturbation runs inside the view's ``OverflowError`` guard rather than ahead
+        of it.
+        """
+        r = member_client.get(
+            _url(project),
+            {"task_id": str(long_task.pk), "duration_delta": delta, "n_simulations": 10},
+        )
+        assert r.status_code == 400, r.data
 
     def test_milestone_target_returns_400(self, member_client: APIClient, project: Project) -> None:
         milestone = Task.objects.create(project=project, name="Gate", duration=0, is_milestone=True)

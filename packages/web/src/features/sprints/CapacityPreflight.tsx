@@ -2,6 +2,7 @@ import type { SprintCapacity } from '@/hooks/useSprints';
 import { capacityPointsChip } from './sprintMath';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { HEALTH_BAND_LABEL } from '@/lib/healthBand';
+import { NOT_COMPUTABLE_REASON, isNotComputable, isZeroValue } from '@/lib/notComputableMetric';
 
 interface Props {
   capacity: SprintCapacity;
@@ -43,7 +44,13 @@ const LABEL_COLOR: Record<SprintCapacity['totals']['label'], string> = {
 export function CapacityPreflight({ capacity, points }: Props) {
   const itl = useIterationLabel();
   const { totals, members } = capacity;
+  // Rule 119: `available_hours === 0` means no one has capacity configured
+  // for this {itl} at all — the ratio is 0/0, undefined, not "0% on track"
+  // (#3477). A real capacity with zero committed hours is left to the
+  // server's own `totals.label`, which already distinguishes that case.
+  const hoursNotComputable = isNotComputable(totals.available_hours);
   const pointsChip = points ? capacityPointsChip(points.committed, points.capacity) : null;
+  const pointsAllZero = pointsChip ? isZeroValue(pointsChip.total) : false;
   const ratioCapped = Math.min(totals.ratio, 1.5);
   const filled = CIRCUMFERENCE * Math.min(ratioCapped, 1);
   const ringStroke =
@@ -79,75 +86,90 @@ export function CapacityPreflight({ capacity, points }: Props) {
         )}
       </div>
 
-      <div className="flex items-start gap-4">
-        <svg
-          width={88}
-          height={88}
-          viewBox="0 0 80 80"
-          className="shrink-0"
-          role="img"
-          aria-label={`${Math.round(totals.ratio * 100)}% of capacity committed`}
-        >
-          <circle
-            cx={40}
-            cy={40}
-            r={DONUT_RADIUS}
-            fill="none"
-            strokeWidth={STROKE}
-            className="stroke-neutral-surface-sunken"
-          />
-          <circle
-            cx={40}
-            cy={40}
-            r={DONUT_RADIUS}
-            fill="none"
-            strokeWidth={STROKE}
-            className={ringStroke}
-            strokeDasharray={`${filled} ${CIRCUMFERENCE - filled}`}
-            strokeDashoffset={CIRCUMFERENCE / 4}
-            strokeLinecap="round"
-            transform="rotate(-90 40 40)"
-          />
-          <text
-            x={40}
-            y={44}
-            textAnchor="middle"
-            className="tppm-mono text-sm fill-neutral-text-primary font-medium"
+      {hoursNotComputable ? (
+        <div className="flex items-center gap-4">
+          <div
+            className="shrink-0 w-[88px] h-[88px] rounded-full border-2 border-dashed border-neutral-border flex items-center justify-center"
+            role="img"
+            aria-label="Capacity not available — no assignments yet"
           >
-            {Math.round(totals.ratio * 100)}%
-          </text>
-        </svg>
-
-        <div className="flex flex-col gap-1 min-w-0">
-          <p className="text-sm font-medium text-neutral-text-primary">
-            <span className="tppm-mono">{totals.committed_hours}</span>
-            {' / '}
-            <span className="tppm-mono">{totals.available_hours}</span> hours committed
-          </p>
-          <p className={`text-xs ${LABEL_COLOR[totals.label]}`}>
-            {LABEL_COPY[totals.label]}
-            {totals.buffer_hours !== 0 && (
-              <span className="text-neutral-text-secondary">
-                {' · '}
-                <span className="tppm-mono">{Math.abs(totals.buffer_hours)}</span> hours of{' '}
-                {totals.buffer_hours >= 0 ? 'buffer' : 'overrun'}
-              </span>
-            )}
-          </p>
-          {totals.pto_days > 0 && (
-            <p className="text-xs text-neutral-text-secondary">
-              <span className="tppm-mono">{totals.pto_days}</span> PTO days
-            </p>
-          )}
+            <span aria-hidden="true" className="tppm-mono text-sm text-neutral-text-disabled">
+              —
+            </span>
+          </div>
+          <p className="text-xs text-neutral-text-secondary">{NOT_COMPUTABLE_REASON}</p>
         </div>
-      </div>
+      ) : (
+        <div className="flex items-start gap-4">
+          <svg
+            width={88}
+            height={88}
+            viewBox="0 0 80 80"
+            className="shrink-0"
+            role="img"
+            aria-label={`${Math.round(totals.ratio * 100)}% of capacity committed`}
+          >
+            <circle
+              cx={40}
+              cy={40}
+              r={DONUT_RADIUS}
+              fill="none"
+              strokeWidth={STROKE}
+              className="stroke-neutral-surface-sunken"
+            />
+            <circle
+              cx={40}
+              cy={40}
+              r={DONUT_RADIUS}
+              fill="none"
+              strokeWidth={STROKE}
+              className={ringStroke}
+              strokeDasharray={`${filled} ${CIRCUMFERENCE - filled}`}
+              strokeDashoffset={CIRCUMFERENCE / 4}
+              strokeLinecap="round"
+              transform="rotate(-90 40 40)"
+            />
+            <text
+              x={40}
+              y={44}
+              textAnchor="middle"
+              className="tppm-mono text-sm fill-neutral-text-primary font-medium"
+            >
+              {Math.round(totals.ratio * 100)}%
+            </text>
+          </svg>
+
+          <div className="flex flex-col gap-1 min-w-0">
+            <p className="text-sm font-medium text-neutral-text-primary">
+              <span className="tppm-mono">{totals.committed_hours}</span>
+              {' / '}
+              <span className="tppm-mono">{totals.available_hours}</span> hours committed
+            </p>
+            <p className={`text-xs ${LABEL_COLOR[totals.label]}`}>
+              {LABEL_COPY[totals.label]}
+              {totals.buffer_hours !== 0 && (
+                <span className="text-neutral-text-secondary">
+                  {' · '}
+                  <span className="tppm-mono">{Math.abs(totals.buffer_hours)}</span> hours of{' '}
+                  {totals.buffer_hours >= 0 ? 'buffer' : 'overrun'}
+                </span>
+              )}
+            </p>
+            {totals.pto_days > 0 && (
+              <p className="text-xs text-neutral-text-secondary">
+                <span className="tppm-mono">{totals.pto_days}</span> PTO days
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       <ul
         aria-label="Per-person capacity"
         className="flex flex-col gap-1.5 max-h-44 overflow-y-auto pr-1"
       >
         {members.length === 0 ? (
-          <li className="text-xs italic text-neutral-text-disabled">
+          <li className="text-xs italic text-neutral-text-secondary">
             No assignments yet for this {itl.lower}.
           </li>
         ) : (
@@ -182,7 +204,15 @@ export function CapacityPreflight({ capacity, points }: Props) {
           className={`text-xs rounded px-2.5 py-1.5 ${
             pointsChip.over > 0
               ? 'bg-semantic-at-risk-bg text-semantic-at-risk'
-              : 'bg-semantic-on-track-bg text-semantic-on-track'
+              : // Zero points committed is real information (rule 416, #3477) —
+                // a genuine capacity ceiling with nothing planned against it
+                // yet — but it is not "good news" and must not wear the
+                // on-track success color; only a real, nonzero commitment
+                // earns that (#2428's "a real zero is a value, not an
+                // unavailable card" logic).
+                pointsAllZero
+                ? 'bg-neutral-surface-sunken text-neutral-text-secondary'
+                : 'bg-semantic-on-track-bg text-semantic-on-track'
           }`}
         >
           {pointsChip.over > 0
