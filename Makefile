@@ -290,6 +290,13 @@ dropdown-scroll-check: ## Fail if a role="menu"/role="listbox" panel has no scro
 	@# that are genuinely safe by construction — see the script header.
 	@bash scripts/check-dropdown-scroll.sh
 
+hover-reveal-focus-check: ## Fail if opacity-0 + hover:opacity-100 has no focus counterpart (web-rule 417, #3619)
+	@# A control revealed only on :hover, with no focus:/focus-within:/
+	@# focus-visible:/group-focus-within: counterpart, is unreachable by keyboard
+	@# — Tab lands on it and it never becomes visible. Point-fixed three times
+	@# (#1029, #1802, #3619) before this gate. Grep + window scan, ~1s.
+	@bash scripts/check-hover-reveal-focus.sh
+
 anchored-popover-check: ## Fail if hand-rolled absolute-anchored panels exceed the ratchet baseline (web rule 260, #3664)
 	@# An in-flow `absolute` panel inherits any overflow-clipping ancestor's clip
 	@# and z-index cannot rescue it — only useAnchoredPopover's portal can. A
@@ -583,6 +590,7 @@ pre-push-checks: web-rule-numbers-check
 pre-push-checks: web-row-vocabulary-check
 pre-push-checks: design-system-check
 pre-push-checks: dropdown-scroll-check
+pre-push-checks: hover-reveal-focus-check
 pre-push-checks: anchored-popover-check
 pre-push-checks: adr-status-check
 pre-push-checks: version-status-check
