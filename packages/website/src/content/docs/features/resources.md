@@ -243,10 +243,10 @@ starts being flagged at 90%. An assignee with no linked resource still uses 100%
 7. View project utilization across the team, on the resource heatmap and as a
    this-week percentage on the project Overview.
 8. See, from a resource's card, every task they are assigned to across all
-   projects — grouped by project, read-only (ships in 0.4).
+   projects — grouped by project, read-only (shipped in 0.4).
 9. Deactivate and restore resources — deactivation takes the person off every
    roster and out of every capacity figure while keeping their assignment history,
-   and restore reverses both (ships in 0.4). Remove them from a roster (cascading
+   and restore reverses both (shipped in 0.4). Remove them from a roster (cascading
    task assignments when forced).
 
 **Deactivating or restoring a resource in the Workspace catalog will require the
@@ -274,7 +274,7 @@ both the Workspace catalog and any create/edit that carries the field.
 `POST /api/v1/skills/` de-duplicates on the case-insensitive normalized name, so
 posting a name that already exists is not an error. Telling the two apart from the
 status code — `201` when the skill was added to the catalog, `200` when an existing
-row is returned unchanged — ships in 0.4; until then the endpoint answers `200` in
+row is returned unchanged — shipped in 0.4; before it, the endpoint answered `200` in
 both cases. The response body is identical either way, so a client that needs to
 know whether it created the skill must read the status code.
 

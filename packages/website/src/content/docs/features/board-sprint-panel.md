@@ -155,11 +155,11 @@ mid-sprint scope-change log. These are the endpoints it reads and writes:
 | `GET`  | `/api/v1/sprints/{id}/burndown/` | Burndown series for the active sprint |
 | `GET`  | `/api/v1/projects/{id}/velocity/` | Rolling 8-sprint velocity for the sparkline |
 | `GET`  | `/api/v1/sprints/{id}/scope-changes/` | Read-only audit of tasks added to the sprint after activation — backs the mid-sprint scope-change badge and drawer *(added in 0.3)* |
-| `GET`  | `/api/v1/projects/{id}/board/activity?sprint={sprintId}` | Board activity feed narrowed to one sprint's scope — backs the "This sprint" activity rail *(ships in 0.4)* |
+| `GET`  | `/api/v1/projects/{id}/board/activity?sprint={sprintId}` | Board activity feed narrowed to one sprint's scope — backs the "This sprint" activity rail *(shipped in 0.4)* |
 
 The scope-changes endpoint is the one genuinely new addition (added in 0.3); the
-rest of the panel reads data that already existed. 0.4 will add an optional sprint
-filter to the board activity feed, plus a notification event fired whenever a
+rest of the panel reads data that already existed. A future release will add an
+optional sprint filter to the board activity feed, plus a notification event fired whenever a
 task enters or leaves an active sprint, sent to everyone authorized to accept or
 decline it.
 

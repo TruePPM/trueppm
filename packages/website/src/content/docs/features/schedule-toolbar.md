@@ -153,7 +153,7 @@ The button is disabled with a "Read-only access" tooltip for **Viewer** role.
 
 ## Building phases
 
-Ships in 0.4 (Schedule/Gantt only — a phase-authoring action never appears on the board, sprints, or My Work).
+Shipped in 0.4 (Schedule/Gantt only — a phase-authoring action never appears on the board, sprints, or My Work).
 
 A **phase** is a WBS summary row — a non-subtask task with at least one structural child. It isn't a new task type: any summary task with a "real" (non-subtask) child under it is automatically a phase, the same way a task with subtasks is automatically a summary.
 

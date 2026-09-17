@@ -154,7 +154,7 @@ One honest note against your own test — *"does this work on my phone with no s
 |---------|--------|
 | CPM scheduling (all 4 dependency types) | Shipped |
 | Monte Carlo risk analysis (P50/P80/P95) | Shipped |
-| Baselines (capture & compare) | Shipped — API; in-app capture ships in 0.4 |
+| Baselines (capture & compare) | Shipped — API; in-app capture shipped in 0.4 |
 | Critical path highlighting | Shipped |
 | Risk register | Shipped |
 | Board / Kanban view | Shipped |

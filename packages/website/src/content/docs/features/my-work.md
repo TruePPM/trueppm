@@ -55,7 +55,7 @@ When you flag a task blocked, the **Scrum Master and PM are notified** (each can
 The Today / This Sprint / Upcoming grouping and the blocked badge were added in 0.3. Before 0.3, My Work grouped by active sprint.
 :::
 
-## Your focus row *(ships in 0.4)*
+## Your focus row *(shipped in 0.4)*
 
 Above your task list, a row of focus cards summarizes where you stand across every
 program you work in. The worst signal leads, so the card you most need to act on is
@@ -78,7 +78,7 @@ ships last among those you're on, but only once a forecast has actually been run
 it. A project with no forecast, no baseline, or no burndown history yet contributes no
 signal, so a card or panel never shows a made-up number.
 
-## My projects health *(ships in 0.4)*
+## My projects health *(shipped in 0.4)*
 
 If you're on **two or more projects**, a compact **My projects** strip sits above
 your work and answers one question at a glance: *which of mine is on fire?* It tallies
@@ -104,7 +104,7 @@ Tap the status chip on any row. A small picker opens with four choices. Pick one
 
 If the update fails (server unreachable, conflict with someone else's change), the chip rolls back and a toast explains what happened.
 
-## Log time *(ships in 0.4)*
+## Log time *(shipped in 0.4)*
 
 Every task row carries a **Log time** action — click it, or press **L** while the row has focus, and a compact popover opens right there, no navigation.
 
@@ -129,9 +129,9 @@ Tasks appear in My Work when:
 
 Separately, [Connected accounts](/features/connected-accounts/) let you attach your own GitLab/GitHub credentials to see live MR, PR, and issue status on the tasks themselves.
 
-## Work from connected tools *(ships in 0.4)*
+## Work from connected tools *(shipped in 0.4)*
 
-If you connect a personal, read-only Jira account, 0.4 will surface your assigned Jira issues **alongside** your native TruePPM tasks in the same feed — folded into the same Today / Upcoming sections so your day is one list, not two. Connecting Jira is a separate step: go to **Settings → Connected Accounts** (`/me/settings/connected-accounts`) and link your own Jira account first. This is the personal, one-way, read-only pull, not an org connector — only you see your own external items, and nothing about them is shared with your team.
+If you connect a personal, read-only Jira account, TruePPM surfaces your assigned Jira issues **alongside** your native TruePPM tasks in the same feed — folded into the same Today / Upcoming sections so your day is one list, not two. Connecting Jira is a separate step: go to **Settings → Connected Accounts** (`/me/settings/connected-accounts`) and link your own Jira account first. This is the personal, one-way, read-only pull, not an org connector — only you see your own external items, and nothing about them is shared with your team.
 
 External items are **strictly read-only**. Each one shows:
 

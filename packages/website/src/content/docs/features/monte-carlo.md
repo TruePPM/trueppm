@@ -119,7 +119,7 @@ removes it.
 | `p50` | 50% of simulated runs finished on or before this date. Closest to the deterministic CPM date. |
 | `p80` | 80% of runs finished by this date. The standard commitment date for most project plans. |
 | `p95` | 95% of runs finished by this date. Use for contractual deadlines and hard external commitments. |
-| `status_date` | *(coming in 0.4)* The data date this run was actually computed against — the project's explicit status date (set at **Project settings → General → Status date**, not API-only), or today when unset (see [Progress-aware forecasting](#progress-aware-forecasting) below). Recorded on every run so a past forecast states which "today" produced it. |
+| `status_date` | *(added in 0.4)* The data date this run was actually computed against — the project's explicit status date (set at **Project settings → General → Status date**, not API-only), or today when unset (see [Progress-aware forecasting](#progress-aware-forecasting) below). Recorded on every run so a past forecast states which "today" produced it. |
 | `distribution` | Full sorted list of all simulated finish dates. Use this to render a histogram or answer "what is the probability of finishing by date X?" |
 
 The most recent result is also available without re-running the simulation:
@@ -160,7 +160,7 @@ It will return persisted runs newest-first. Each run carries:
 | `cpm_finish` | The deterministic CPM spine at run time, for context. |
 | `n_simulations` | Number of runs in that simulation. |
 | `task_count` | Committed tasks included in that simulation — leaf tasks only, since phases are not simulated. |
-| `status_date` | *(coming in 0.4)* The data date that run was computed against — see [Progress-aware forecasting](#progress-aware-forecasting) below. `null` for runs recorded before this field existed. |
+| `status_date` | *(added in 0.4)* The data date that run was computed against — see [Progress-aware forecasting](#progress-aware-forecasting) below. `null` for runs recorded before this field existed. |
 | `delta` | Per-percentile signed day change versus the immediately previous run (positive = the forecast slipped later). `null` on the oldest/baseline run. |
 | `triggered_by_name` | Who ran the simulation — see the visibility note below. |
 
@@ -264,7 +264,7 @@ progresses, the simulation will:
   not from the status date — actuals are truth and are never smoothed back to an
   earlier slot in the network. This is the same floor the deterministic CPM
   schedule applies, so the Monte Carlo band can never claim a finish date the
-  Gantt has already ruled out. *(This floor lands in 0.4. Up to and including
+  Gantt has already ruled out. *(This floor landed in 0.4. Up to and including
   0.3 the forecast anchors in-progress work at the data date alone, so a project
   whose work started later than its last status report can read percentiles
   earlier than its own CPM finish — re-run those forecasts after upgrading.)*
@@ -708,7 +708,7 @@ of the distribution:
   `can_edit_estimates`, which is what the estimate inputs gate on.
 
   :::caution[Estimates written before this rule was enforced]
-  Server-side enforcement of **PM Only** ships in 0.4. Before it, the restriction
+  Server-side enforcement of **PM Only** shipped in 0.4. Before it, the restriction
   existed only as a disabled input in the web UI, so a contributor could write an
   estimate through the API in a PM Only project. Those existing values are **not**
   retroactively invalidated or flagged — they remain in the schedule and continue

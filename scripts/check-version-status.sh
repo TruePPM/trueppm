@@ -608,6 +608,80 @@ run_scan() {
   done <<< "$files"
   violations=$((violations + fm_violations))
 
+  # ── Stale-currency phrasing (#3837) ─────────────────────────────────────────
+  #
+  # The checks above are both DIRECTIONAL in a way that left a hole: they catch
+  # a version-anchored claim ("shipped in 0.X") or a callout TITLE ("Ships in
+  # 0.X") once that version ships — but neither one reaches plain inline prose
+  # or a table cell that says "Ships in 0.4" / "Coming in 0.4" outside a
+  # callout bracket, nor a sentence that names an OLDER release as "the latest"
+  # without ever saying "ships in". 0.4 promoted to Shipped and ~27 pages still
+  # called 0.3 the latest release or "Ships in 0.4" in plain prose, and this
+  # gate reported clean throughout (#3837) — `remove-ships-in-callouts.sh` only
+  # ever deleted `:::note[Ships in 0.X]` blocks, never inline text.
+  #
+  # Three phrasings, matched tree-wide (not just inside a callout title):
+  #   (a) inline "Ships/Lands/Comes/Coming in 0.X" — the same verb set as
+  #       callout_re above, wherever it appears in body prose or a table cell.
+  #   (b) "first beta is planned for 0.X" / "0.X is planned as the first
+  #       beta" — the specific still-planned framing this repo's own 0.2..0.3
+  #       page-banner boilerplate used for the 0.4 beta.
+  #   (c) "latest release is <tag>" / "<tag> (the latest release)" — a tag
+  #       naming an OLDER line once a newer one has shipped.
+  # All three fire only once the NAMED version has shipped — a page correctly
+  # saying "ships in 0.6" while 0.4 is highest must not be flagged, so this is
+  # additive to, not a replacement for, the future_re exemption above (which
+  # does not apply here: "ships in 0.X" carries no anchor phrase for future_re
+  # to pair with, which is exactly why it was invisible before).
+  local stale_status_re='\b(ships?|shipping|lands?|landing|comes?|coming)[[:space:]]+in[[:space:]]+0\.[0-9]+\b'
+  local stale_planned_re='first[[:space:]]+beta[[:space:]]+is[[:space:]]+planned[[:space:]]+for[[:space:]]+0\.[0-9]+|0\.[0-9]+[[:space:]]+is[[:space:]]+planned[[:space:]]+as[[:space:]]+the[[:space:]]+first[[:space:]]+beta'
+  local stale_latest_re='latest[[:space:]]+(tagged[[:space:]]+)?release[[:space:]]+is[^0-9]{0,40}0\.[0-9]+|0\.[0-9]+\.[0-9]+[^(]{0,30}\([^)]*latest[[:space:]]+release[^)]*\)'
+
+  local stale_violations=0
+  local stale_hits stale_hit stale_ver
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    # -z / null-joined so a phrase split across a markdown line-wrap (common —
+    # prose is hand-wrapped at ~80 cols) is not invisible to a line-oriented
+    # grep. Collapse whitespace (including the embedded newline) before
+    # matching so the regexes above stay simple single-line patterns.
+    local collapsed
+    collapsed="$(tr '\n' ' ' < "$f" | tr -s '[:space:]' ' ')"
+
+    stale_hits="$(printf '%s' "$collapsed" | grep -ozEi "$stale_status_re" 2>/dev/null | tr '\0' '\n' || true)"
+    while IFS= read -r stale_hit; do
+      [ -z "$stale_hit" ] && continue
+      stale_ver="$(printf '%s' "$stale_hit" | grep -oE '0\.[0-9]+')"
+      if [ "$(version_gt "$stale_ver" "$highest")" != "1" ]; then
+        echo "VIOLATION: $f: inline stale-currency phrase for shipped $stale_ver: \"$stale_hit\"" >&2
+        echo "    $stale_ver has shipped — use past tense (\"shipped in $stale_ver\") instead." >&2
+        stale_violations=$((stale_violations + 1))
+      fi
+    done <<< "$stale_hits"
+
+    stale_hits="$(printf '%s' "$collapsed" | grep -ozEi "$stale_planned_re" 2>/dev/null | tr '\0' '\n' || true)"
+    while IFS= read -r stale_hit; do
+      [ -z "$stale_hit" ] && continue
+      stale_ver="$(printf '%s' "$stale_hit" | grep -oE '0\.[0-9]+' | tail -n 1)"
+      if [ "$(version_gt "$stale_ver" "$highest")" != "1" ]; then
+        echo "VIOLATION: $f: \"first beta is planned\" phrasing for shipped $stale_ver: \"$stale_hit\"" >&2
+        echo "    $stale_ver has already shipped as the first beta — say so in past tense." >&2
+        stale_violations=$((stale_violations + 1))
+      fi
+    done <<< "$stale_hits"
+
+    stale_hits="$(printf '%s' "$collapsed" | grep -ozEi "$stale_latest_re" 2>/dev/null | tr '\0' '\n' || true)"
+    while IFS= read -r stale_hit; do
+      [ -z "$stale_hit" ] && continue
+      stale_ver="$(printf '%s' "$stale_hit" | grep -oE '0\.[0-9]+' | tail -n 1)"
+      if [ "$(version_gt "$stale_ver" "$highest")" != "1" ] && [ "$stale_ver" != "$highest" ]; then
+        echo "VIOLATION: $f: \"latest release\" points at superseded $stale_ver (highest shipped: $highest): \"$stale_hit\"" >&2
+        stale_violations=$((stale_violations + 1))
+      fi
+    done <<< "$stale_hits"
+  done <<< "$files"
+  violations=$((violations + stale_violations))
+
   # Declaration coverage (#2846) — only when a baseline path is supplied, so the
   # tense/pairing fixtures above keep testing exactly what they were written for.
   if [ -n "$baseline" ]; then
@@ -878,6 +952,54 @@ title: Email
 :::note[Added in 0.2 (alpha)]
 This page documents functionality added in **TruePPM 0.2**.
 :::' || return 1
+
+  # ── Stale-currency phrasing (#3837) ────────────────────────────────────────
+  # None of these carry documentedFor or a callout — the whole point is that
+  # they were previously invisible in plain prose / a table cell, not just in
+  # a callout title. Paired the same way as the widened-banner cases above:
+  # the unshipped form must stay accepted, and the shipped form must flip to
+  # rejected once the named version is the one that shipped.
+  fm_case "inline-ships-unshipped" expect-pass \
+    'The importer ships in 0.3.' || return 1
+
+  fm_case "inline-ships-shipped" expect-fail \
+    'The importer ships in 0.2.' || return 1
+
+  fm_case "inline-ships-shipped-capitalized" expect-fail \
+    '| **Sentinel** | **Experimental** | Ships in 0.2 as experimental. |' || return 1
+
+  fm_case "inline-lands-shipped" expect-fail \
+    'The exceptions sub-resource **lands in 0.1**.' || return 1
+
+  fm_case "inline-coming-shipped" expect-fail \
+    '`status_date` | *(coming in 0.2)* The data date this run was computed against.' || return 1
+
+  # A hand-wrapped markdown line splits the phrase across a newline — the
+  # exact shape that broke `**ship\nin 0.4** (the first beta).` in
+  # administration/deployment.md during the #3837 sweep. Must still be caught.
+  fm_case "inline-ships-line-wrapped" expect-fail \
+    $'These knobs, along with the rest, **ship\nin 0.2** (this release).' || return 1
+
+  fm_case "first-beta-planned-unshipped" expect-pass \
+    '0.2 is an alpha release; the first beta is planned for 0.3.' || return 1
+
+  fm_case "first-beta-planned-shipped" expect-fail \
+    '0.2 is an alpha release; the first beta is planned for 0.2.' || return 1
+
+  fm_case "is-planned-as-first-beta-shipped" expect-fail \
+    'the release line stays alpha through 0.1, and 0.2 is planned as the first beta.' || return 1
+
+  fm_case "latest-release-current" expect-pass \
+    'The latest release is the `v0.2.0-alpha.1` pre-release.' || return 1
+
+  fm_case "latest-release-stale" expect-fail \
+    'The latest release is the `v0.1.0-alpha.1` pre-release; the release line stays alpha.' || return 1
+
+  fm_case "latest-release-paren-form-stale" expect-fail \
+    'On `v0.1.0-alpha.3` (the latest release) only the username is matched.' || return 1
+
+  fm_case "latest-release-paren-form-current" expect-pass \
+    'On `v0.2.0-alpha.1` (the latest release) only the username is matched.' || return 1
 
   # -- Declaration coverage ratchet (#2846) ----------------------------------
   # The hole the two checks above cannot see: a page that documents unreleased

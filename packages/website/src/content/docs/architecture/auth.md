@@ -50,10 +50,9 @@ stolen refresh token is a single-use window, not a standing credential.
 The sign-in form asks for an email address, and Django's `ModelBackend` matches
 on the username column. Those are the same string for some accounts and not for
 others — an invited user chooses a username when they accept — so from **0.4**
-the login view will resolve the submitted identifier itself: it tries the
+the login view resolves the submitted identifier itself: it tries the
 username first, unchanged, and only if that fails looks for the one account
-whose email matches. On `v0.3.0-alpha.3` (the latest release) only the username
-is matched.
+whose email matches. Before 0.4, only the username was matched.
 
 Three properties of that fallback are load-bearing rather than incidental, and
 each exists because the email column carries no uniqueness constraint:
@@ -274,7 +273,7 @@ The dividing line is the same one used everywhere else in TruePPM: **log in
 via your own identity provider → open-source core; provision, deprovision, and
 govern accounts from a directory → Enterprise.** Single sign-on — multiple
 OIDC providers plus GitHub, configured independently, with auto-created
-membership at a single fixed default role — **ships in 0.4** as part of the
+membership at a single fixed default role — **shipped in 0.4** as part of the
 open-source core described here. Group-to-role claim mapping, enforced SSO
 (disabling local password accounts), SCIM provisioning, and LDAP/AD directory
 sync are Enterprise; the two extension seams this architecture exposes for

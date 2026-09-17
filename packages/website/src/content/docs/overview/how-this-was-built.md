@@ -245,9 +245,9 @@ stated because an evaluator will find them anyway and should find them here firs
   agent passes with a documented fast path and a documented skip, and their yield is
   self-reported. They are a discipline, not a mechanism, and a discipline is only as good
   as the last time it was checked.
-- **This is alpha software.** The latest tagged release is `0.3.0-alpha.3`, and 0.4 is
-  planned as the first beta. A rigorous harness is not the same as a mature product,
-  and nothing on this page should be read as claiming otherwise.
+- **This is beta software.** The latest tagged release is `0.4.0-beta.1`. A rigorous
+  harness is not the same as a mature product, and nothing on this page should be
+  read as claiming otherwise.
 
 ## Verify it yourself
 

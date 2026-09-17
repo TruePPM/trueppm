@@ -35,7 +35,7 @@ below.
 
 ## Import a file, or connect your account?
 
-Two separate Jira features ship in 0.4, and they solve different problems. Pick
+Two separate Jira features shipped in 0.4, and they solve different problems. Pick
 by what you want at the end:
 
 |  | **Jira import** (this page) | **Jira personal pull** |

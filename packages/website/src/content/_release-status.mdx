@@ -23,37 +23,36 @@
 */}
 
 {/* Latest version that has SHIPPED (tagged, in main). */}
-export const SHIPPED = "0.3";
+export const SHIPPED = "0.4";
 
-{/* The shipped line is an alpha pre-release; this is the tagged artifact. */}
-export const SHIPPED_TAG = "0.3.0-alpha.1";
-export const SHIPPED_DATE = "June 2026";
+{/* The shipped line is now a beta pre-release; this is the tagged artifact. */}
+export const SHIPPED_TAG = "0.4.0-beta.1";
+export const SHIPPED_DATE = "September 15, 2026";
 
-{/* The release line stays alpha through 0.3. IN_ALPHA mirrors SHIPPED while
-    the current shipped release is still an alpha. */}
+{/* The release line left alpha at 0.4 (the first beta) — see FIRST_BETA below.
+    IN_ALPHA is kept for banners describing the pre-0.4 alpha history; it no
+    longer mirrors SHIPPED now that the shipped release is a beta. */}
 export const IN_ALPHA = "0.3";
 
-{/* First release planned to leave alpha (the first beta). */}
+{/* First release to leave alpha (the first beta) — already shipped, at
+    SHIPPED_TAG above. Kept as its own constant because banners phrase this as
+    a named milestone ("the first beta") independent of the "latest" framing. */}
 export const FIRST_BETA = "0.4";
 
 {/* Currently UNDERWAY (next release in flight, not yet shipped). */}
-export const UNDERWAY = "0.4";
+export const UNDERWAY = "0.5";
 
-{/* The next artifact to tag on the UNDERWAY line.
+{/* The next artifact to tag. `v0.4.0-beta.1` shipped 2026-09-15 (now SHIPPED_TAG
+    above) and 0.4 hardens under further beta.N tags before an eventual 0.4.0
+    stable — moving off beta is a quality judgment, not a date, so it is not
+    yet known whether the next tag cut is another `v0.4.0-beta.N` or the first
+    tag on the 0.5 line. Currently unused by any page (index.mdx dropped the
+    import when 0.4 shipped); re-derive this constant, rather than trusting
+    the value below, before wiring it to a new banner.
 
-    0.4 is the first beta and arrives as one — the line's first tag IS the
-    beta. Hardening after that lands under further beta.N tags; moving off
-    beta is a quality judgment, not a date, so the beta count is deliberately
-    open-ended.
-
-        v0.4.0-beta.1  … beta.N    the first beta (the 0.4 milestone)  <- we are here
+        v0.4.0-beta.1  … beta.N    the first beta (the 0.4 milestone)  <- shipped, hardening
         v0.4.0-rc.N                optional, if a candidate is cut
         v0.4.0
-
-    An earlier plan (#2823) cut one or more `v0.4.0-alpha.N` tags ahead of the
-    beta. It was withdrawn in #2835 before any alpha was tagged — and before
-    the version manifests ever carried one; api/web have declared
-    `0.4.0-beta.1` and scheduler/mcp `0.4.0b1` throughout.
 
     Do not reach for a "candidate for the beta" spelling on the way to rc:
     `0.4.0-beta-rc.1` is INVALID under PEP 440 (`packaging` raises
@@ -67,5 +66,6 @@ export const UNDERWAY = "0.4";
 export const UNDERWAY_PRERELEASE_TAG = "0.4.0-beta.1";
 
 {/* PyPI companion tag for the same artifact, in PEP 440 normalized form
-    (matching scheduler-v0.3.0a1 … a3). */}
+    (matching scheduler-v0.3.0a1 … a3). Same caveat as above: this now names
+    the tag that already shipped, not one in flight. */}
 export const UNDERWAY_SCHEDULER_TAG = "scheduler-v0.4.0b1";

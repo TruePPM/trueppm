@@ -77,7 +77,7 @@ with nothing running and end with a signed-in browser.
    docker compose exec api python manage.py load_sample_project --sample aurora-mobile-app --with-personas
    docker compose exec api python manage.py load_sample_project --sample bayside-civic-center --with-personas
    docker compose exec api python manage.py load_sample_project --sample helios-crm-replacement --with-personas
-   docker compose exec api python manage.py load_sample_project --sample ga-launch --with-personas         # ships in 0.4
+   docker compose exec api python manage.py load_sample_project --sample ga-launch --with-personas         # shipped in 0.4
    docker compose exec api python manage.py load_sample_project --with-personas                          # Atlas (default)
    ```
 
@@ -129,7 +129,7 @@ fastest way to see the five-role model doing real work.
 
 Aurora, Bayside, and Helios give every persona the same role on every project,
 which is the right shape for a single-project team — the roster comes from each
-account's program role. **1.0 GA Launch** (which ships in 0.4) sets roles per
+account's program role. **1.0 GA Launch** (which shipped in 0.4) sets roles per
 project the way Atlas does, and goes one further: its *Security Pen-Test &
 Remediation* project seeds all five roles at once, so the whole matrix is
 visible on one screen.

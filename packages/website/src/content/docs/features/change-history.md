@@ -7,7 +7,7 @@ documentedFor: "0.4"
 :::note[Shipped in 0.2 (alpha)]
 Change history shipped in **TruePPM 0.2**, available since the `0.2.0-alpha.1`
 pre-release (May 31, 2026). 0.2 is an alpha release. The [Activity feed
-`?include=` parameter](#activity-feed-ships-in-04) below ships in 0.4.
+`?include=` parameter](#activity-feed-ships-in-04) below shipped in 0.4.
 :::
 
 TruePPM records a **change history** for tasks, projects, dependencies, sprints, and more. Each edit
@@ -61,9 +61,9 @@ paginating. When that cap is reached it sets `count_truncated: true` alongside t
 usual `{count, next, previous, results}` envelope, meaning older history exists but
 is not reachable through this endpoint.
 
-### Activity feed (ships in 0.4)
+### Activity feed (shipped in 0.4)
 
-The per-task history endpoint will gain an opt-in `?include=` parameter in **0.4**
+The per-task history endpoint gained an opt-in `?include=` parameter in **0.4**
 that merges non-diff activity into the same feed:
 
 | `?include=` token | Adds events |

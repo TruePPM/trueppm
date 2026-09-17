@@ -92,7 +92,7 @@ Auth events themselves are **not** an Enterprise capability. Recording of single
 sign-on administration — `sso_provider_created`, `sso_provider_updated` (with a
 per-field before/after diff), `sso_provider_deleted`, `sso_secret_rotated` — and of
 `sso_account_linked` in the [audit log](/administration/audit-log/), together with
-structured `trueppm.auth` lines for login success and failure, **ships in 0.4** in the
+structured `trueppm.auth` lines for login success and failure, **shipped in 0.4** in the
 community edition. What stays Enterprise is the *governed* trail layered on top: an
 immutable, signed, retained trail with SOC 2 evidence export, plus the auth events of
 the identity-governance layer itself (group→role mapping, enforced org-wide SSO).

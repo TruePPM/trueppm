@@ -57,7 +57,7 @@ versioned and safe to build against.
 
 An OpenAPI schema tells an agent *how* to call the API. The **[read-only MCP
 server](/features/mcp-server/)** (`trueppm-mcp`) gives it a curated, safe *place to
-start*. It ships in 0.4 as the beta headliner: point any [Model Context
+start*. It shipped in 0.4 as the beta headliner: point any [Model Context
 Protocol](https://modelcontextprotocol.io) client — Claude Desktop, Cursor, Zed —
 at your self-hosted instance and ask real questions of the live schedule.
 
@@ -151,8 +151,8 @@ team's own AI capability is OSS; org-level AI governance is Enterprise.**
 |---|---|---|
 | OpenAPI 3.0.3 contract, API-first surface | Community (OSS) | Shipped |
 | Deterministic engine (`trueppm-scheduler` on PyPI; Rust/WASM conformance reference, not yet browser-wired) | Community (OSS) | Shipped |
-| Read-only MCP server + provenance (query the schedule) | Community (OSS) | Ships in 0.4 |
-| Agent-action audit foundation — hash-chained record + `audit_verify` (the *reproduce* substrate; [ADR-0112](/architecture/decisions/) Accepted) | Community (OSS) | Lands in 0.4 |
+| Read-only MCP server + provenance (query the schedule) | Community (OSS) | Shipped in 0.4 |
+| Agent-action audit foundation — hash-chained record + `audit_verify` (the *reproduce* substrate; [ADR-0112](/architecture/decisions/) Accepted) | Community (OSS) | Landed in 0.4 |
 | Natural-language query layer, local-model adapter | Community (OSS) | Planned for 0.5 |
 | MCP write surface (create/update task, move card, log time), engine-as-referee safe writes | Community (OSS) | Planned for 0.6 |
 | Reproducible answers (engine-version + input hash) | Community (OSS) | Planned for 0.9 |

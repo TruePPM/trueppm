@@ -108,7 +108,7 @@ python manage.py shift_sample_dates
 
 ### What each sample demonstrates
 
-Five samples ship in 0.4. Every one exercises the five-role RBAC model
+Five samples shipped in 0.4. Every one exercises the five-role RBAC model
 (Owner / Admin / Scheduler / Member / Viewer).
 
 The four **methodology** samples — Atlas, Aurora, Bayside, and Helios — each also
@@ -236,7 +236,7 @@ without maintaining two representations of the same work.
 docker compose exec api python manage.py load_sample_project                          # Atlas (default)
 docker compose exec api python manage.py load_sample_project --sample aurora-mobile-app
 docker compose exec api python manage.py load_sample_project --sample bayside-civic-center
-docker compose exec api python manage.py load_sample_project --sample ga-launch        # ships in 0.4
+docker compose exec api python manage.py load_sample_project --sample ga-launch        # shipped in 0.4
 docker compose exec api python manage.py load_sample_project --sample helios-crm-replacement
 ```
 

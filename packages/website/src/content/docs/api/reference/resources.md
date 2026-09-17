@@ -210,8 +210,8 @@ off-boarding; it is the roster and every capacity read that drop the person.
 From **0.4**, every write on `/api/v1/project-resources/`, `/api/v1/task-resources/`
 and `/api/v1/task-skill-requirements/` — create, update, delete, and the
 `?force=true` cascade — is refused with a `403` when the project is archived, at
-every role including Owner. Reads are unaffected. In `v0.3.0-alpha.3` (the latest
-release) those writes still succeed on an archived project.
+every role including Owner. Reads are unaffected. Before 0.4, those writes still
+succeeded on an archived project.
 
 ## Teams
 

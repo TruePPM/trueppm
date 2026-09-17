@@ -334,7 +334,7 @@ additive change and is safe for every existing client.
 
 Two upcoming surfaces make an early, written contract worthwhile:
 
-- The **read-only MCP server shipping in 0.4** exposes the live schedule to MCP
+- The **read-only MCP server shipped in 0.4** exposes the live schedule to MCP
   clients. Integrators wiring an agent to it need to know which fields and
   computed values they can depend on across releases.
 - The **MCP write surface arriving in 0.6** will let automation create and
