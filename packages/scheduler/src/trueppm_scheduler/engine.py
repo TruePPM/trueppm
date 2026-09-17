@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import math
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from typing import Any, NoReturn
 
@@ -1692,6 +1692,24 @@ def _check_duration(td: timedelta, label: str) -> None:
         )
 
 
+def _velocity_mean(project: Project) -> float | None:
+    """Mean of the project's *positive* velocity samples, or ``None`` with no signal.
+
+    The team's mean pace in points per sprint. Non-positive and missing samples are
+    dropped rather than averaged in: a zero-throughput sprint would drag the mean
+    toward zero and inflate every sprints-to-completion estimate derived from it,
+    and the sampler (:func:`_sample_velocity_durations`) bootstraps from the same
+    positive-only series — so both must read the same filtered population or the
+    horizon bounds stop matching what is actually sampled.
+    """
+    if not project.velocity_samples:
+        return None
+    positive = [s for s in project.velocity_samples if s is not None and s > 0]
+    if not positive:
+        return None
+    return sum(positive) / len(positive)
+
+
 def _velocity_worst_case_days(task: Task, project: Project) -> int:
     """Upper bound (working days) on a scrum task's velocity-sampled duration.
 
@@ -1713,10 +1731,9 @@ def _velocity_worst_case_days(task: Task, project: Project) -> int:
         or project.sprint_length_days <= 0
     ):
         return 0
-    positive = [s for s in project.velocity_samples if s is not None and s > 0]
-    if not positive:
+    mean = _velocity_mean(project)
+    if mean is None:
         return 0
-    mean = sum(positive) / len(positive)
     # Deliberately the *uncapped* horizon — not clamped to MAX_VELOCITY_SPRINTS like
     # the sampler (#1202). This term must remain a safe upper bound for its two
     # callers: it sizes the MC working-day index (an under-estimate would undersize
@@ -2665,6 +2682,12 @@ def _sample_duration_matrix(
 
     Every sampled column is then floored at the task's deterministic
     ``duration`` — see :func:`_floor_sampled_at_duration` for why.
+
+    The priority order below is a contract, not an implementation detail: anything
+    that wants to *move* a task's sampled duration has to shift whichever input the
+    branch that claims it will read. :func:`perturb_task_duration` is the one place
+    that encodes it — add a fourth branch here and teach it there, or a what-if on a
+    task taking the new branch silently reports a zero risk delta (#3533).
     """
     dur_matrix = np.empty((runs, len(topo_order)), dtype=np.float64)
     for col, tid in enumerate(topo_order):
@@ -2714,6 +2737,109 @@ def _sample_duration_matrix(
         if _is_complete(t):
             dur_matrix[:, col] = base
     return dur_matrix
+
+
+def _shift_duration(td: timedelta | None, delta_days: int) -> timedelta | None:
+    """Shift a duration by ``delta_days``, flooring at zero; ``None`` passes through.
+
+    A negative delta that would drive a duration below zero clamps to zero rather
+    than producing a nonsensical negative duration.
+    """
+    if td is None:
+        return None
+    shifted = td + timedelta(days=delta_days)
+    return shifted if shifted > timedelta(0) else timedelta(0)
+
+
+def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Project:
+    """Return a copy of ``project`` with one task's duration shifted by ``delta_days``.
+
+    The single entry point for a what-if duration perturbation, and the reason it
+    lives in the engine rather than in its callers: a task's duration reaches the
+    forecast through **three different inputs**, and which one Monte Carlo actually
+    reads depends on the sampling priority documented in
+    :func:`_sample_duration_matrix` (velocity → three-point PERT → deterministic).
+    A caller that shifts only the fields it happens to know about moves the
+    deterministic CPM finish while the P50/P80/P95 bands stay exactly where they
+    were, and then reports both — a what-if that answers "this change carries no
+    schedule risk" about a change it never applied (#3533, the same mirror-drift
+    class as #3527). Encapsulating the priority here means a fourth sampling branch
+    is a one-file change rather than a silent divergence in every caller.
+
+    All three inputs are shifted, so the target is covered whichever branch claims
+    it — a branch that does not claim it never reads the input, so the extra shifts
+    are inert rather than compounding:
+
+    * ``duration`` — what :func:`schedule` lays the task out at, and the floor every
+      sampled column is clamped up to (see :func:`_floor_sampled_at_duration`).
+    * the three-point PERT triple, when complete. Shifting all three legs by the
+      same offset translates the sampled Beta **exactly**: the PERT sample is
+      ``optimistic + s * (pessimistic - optimistic)`` and neither the range nor the
+      normalized mean that sets the Beta's shape parameters changes under a common
+      shift, so the band moves by ``delta_days`` and keeps its shape.
+    * ``story_points``, when the task will take the velocity branch. That branch
+      never reads a duration at all — it asks how many sprints burn down the
+      committed points — so a day offset has to be converted into the unit it does
+      read, at the team's mean pace (``mean(velocity_samples) / sprint_length_days``
+      points per working day). The band then moves by ``delta_days`` in expectation,
+      quantized to whole sprints, which is what a sprint-delivered task's schedule
+      genuinely does.
+
+    Sampling semantics are untouched: this only changes what the engine is asked
+    about, never how it answers.
+
+    Args:
+        project: The baseline project. Read only — neither it nor any task on it is
+            mutated; a new :class:`Project` with a new task list is returned.
+        task_id: Id of the task to perturb.
+        delta_days: Signed day offset. Positive slips the task later, negative pulls
+            it in. Durations floor at zero, and so do story points — a shift that
+            would zero the remaining points drops the task to its deterministic
+            duration, the honest reading of "this work no longer takes a sprint".
+
+    Returns:
+        A new :class:`Project`, identical to ``project`` except for the target
+        task's shifted duration inputs.
+
+    Raises:
+        InvalidScheduleInput: If ``task_id`` names no task in ``project``. A silent
+            no-op is the failure this function exists to prevent, so an unknown id
+            is refused rather than returning an unperturbed project that the caller
+            would report as a zero-impact what-if.
+    """
+    target = next((t for t in project.tasks if t.id == task_id), None)
+    if target is None:
+        raise InvalidScheduleInput(f"Task {task_id!r} is not in project {project.id!r}.")
+
+    story_points = target.story_points
+    # Gate the points conversion on the same predicate the sampler uses, so a task
+    # that will NOT take the velocity branch keeps its points untouched.
+    if (
+        target.delivery_mode == DeliveryMode.SCRUM
+        and story_points is not None
+        and story_points > 0
+        and project.sprint_length_days is not None
+        and project.sprint_length_days > 0
+    ):
+        mean = _velocity_mean(project)
+        if mean is not None:
+            points_per_working_day = mean / project.sprint_length_days
+            story_points = max(0.0, story_points + delta_days * points_per_working_day)
+
+    # ``duration`` is non-optional on Task, so the shift is never None here.
+    new_duration = _shift_duration(target.duration, delta_days) or timedelta(0)
+    perturbed = replace(
+        target,
+        duration=new_duration,
+        optimistic_duration=_shift_duration(target.optimistic_duration, delta_days),
+        most_likely_duration=_shift_duration(target.most_likely_duration, delta_days),
+        pessimistic_duration=_shift_duration(target.pessimistic_duration, delta_days),
+        story_points=story_points,
+    )
+    return replace(
+        project,
+        tasks=[perturbed if t.id == task_id else t for t in project.tasks],
+    )
 
 
 def _mc_index_size(
