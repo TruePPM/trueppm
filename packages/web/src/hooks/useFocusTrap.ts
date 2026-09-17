@@ -1,7 +1,46 @@
 import { useEffect, useRef, type RefObject } from 'react';
 
-const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+/**
+ * The tab stops inside a trap container, in DOM order.
+ *
+ * `:not([tabindex="-1"])` is applied to **every** branch, not only the generic
+ * `[tabindex]` one (#3208). The tag-name branches match on the element type
+ * alone, so a native focusable carrying `tabIndex={-1}` — every non-selected
+ * option in a roving-tabindex group (`useRovingTabIndex`, web rule 167) — used
+ * to land in this list even though the real tab order can never reach it. The
+ * trap's `first` / `last` then resolved to elements the user is never focused
+ * on, so the `activeElement === first` / `=== last` wrap branches never fired
+ * from the stop they are actually on and Tab walked straight out of the dialog.
+ *
+ * Two surfaces shipped that defect: `CommandPalette`'s `role="option"` rows
+ * (the trap's `last`, so forward-Tab never wrapped) and
+ * `ScheduleDependencyPicker`'s `ScopeTab`s (the trap's `first`, so Shift+Tab
+ * escaped). Four more consumers were saved only by where their roving group
+ * happened to sit — one reorder from the same bug.
+ *
+ * This is the single implementation. Import it rather than re-deriving it;
+ * ten hand-copied siblings had already drifted into two directions of wrong
+ * (one dropping `:not([disabled])`, one dropping `textarea` and `select`).
+ */
+export const FOCUSABLE_SELECTOR = [
+  'a[href]:not([tabindex="-1"])',
+  'button:not([disabled]):not([tabindex="-1"])',
+  'textarea:not([disabled]):not([tabindex="-1"])',
+  'input:not([disabled]):not([tabindex="-1"])',
+  'select:not([disabled]):not([tabindex="-1"])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(', ');
+
+/**
+ * Every tab stop inside `container`, in DOM order.
+ *
+ * The shared helper behind both this hook's trap and the hand-rolled traps that
+ * predate it. Prefer `useFocusTrap` itself; reach for this only where a
+ * component owns trap behavior the hook deliberately does not provide.
+ */
+export function getFocusable(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+}
 
 /**
  * Trap keyboard focus inside a container while `active`, with initial focus and
@@ -44,8 +83,7 @@ export function useFocusTrap<T extends HTMLElement>(
     // restores focus to the real trigger, not an intermediate phase's control.
     const previouslyFocused = document.activeElement as HTMLElement | null;
 
-    const focusables = (): HTMLElement[] =>
-      container ? Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)) : [];
+    const focusables = (): HTMLElement[] => (container ? getFocusable(container) : []);
 
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
@@ -93,7 +131,7 @@ export function useFocusTrap<T extends HTMLElement>(
     const container = ref.current;
     const current = document.activeElement;
     if (!container?.contains(current) || current === container) {
-      const first = container?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)[0];
+      const first = container ? getFocusable(container)[0] : undefined;
       (first ?? container)?.focus();
     }
   }, [active, focusKey]);

@@ -993,6 +993,28 @@ lint:dropdown-scroll:
     - bash scripts/check-dropdown-scroll.sh --self-test
     - bash scripts/check-dropdown-scroll.sh
 
+lint:hover-reveal-focus:
+  extends: .fast-job
+  # Hover-only reveal keyboard-reachability gate (web-rule 417, #3619). A
+  # control shown only via `hover:opacity-100`/`group-hover:opacity-100` with
+  # no focus:/focus-within:/focus-visible:/group-focus-within: counterpart is
+  # unreachable by keyboard — Tab lands on it and it never becomes visible.
+  # Point-fixed three times (#1029, #1802, #3619) on three different
+  # components before this gate replaced the fourth point fix. See
+  # scripts/check-hover-reveal-focus.sh.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash grep sed
+  script:
+    # Self-test first (#3194) — a gate that cannot be shown to fail is
+    # indistinguishable from one that works.
+    - bash scripts/check-hover-reveal-focus.sh --self-test
+    - bash scripts/check-hover-reveal-focus.sh
+
 lint:e2e-catchall:
   extends: .fast-job
   # Playwright catch-all gate (#2366). A spec that mocks the API but omits

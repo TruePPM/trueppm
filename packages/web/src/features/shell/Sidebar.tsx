@@ -1138,7 +1138,7 @@ function PinnedTier({
                 <button
                   type="button"
                   onClick={() => go(`/programs/${prog.id}/overview`)}
-                  className="min-w-0 flex-1 truncate rounded-control text-left focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                  className="min-w-0 flex-1 truncate rounded-control text-left focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
                 >
                   {prog.name}
                 </button>
@@ -1552,7 +1552,7 @@ function BrowseContent({
               <button
                 type="button"
                 onClick={() => go(`/programs/${prog.id}/overview`)}
-                className="min-w-0 flex-1 truncate rounded-control text-left focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                className="min-w-0 flex-1 truncate rounded-control text-left focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
               >
                 {prog.name}
               </button>
@@ -2032,7 +2032,7 @@ function ProjectRow({
             .filter(Boolean)
             .join(', ')
         }
-        className="min-w-0 flex-1 truncate rounded-control text-left focus:outline-none focus:ring-2 focus:ring-brand-primary"
+        className="min-w-0 flex-1 truncate rounded-control text-left focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
       >
         {name}
       </button>

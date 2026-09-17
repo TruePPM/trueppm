@@ -3,6 +3,7 @@ import { useSprintMutations } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { UnsavedChangesDialog, useUnsavedChangesGuard } from '@/components/dialog';
 import { localTodayIso } from '@/lib/localDate';
+import { getFocusable } from '@/hooks/useFocusTrap';
 
 export interface ExistingSprintForEdit {
   id: string;
@@ -24,14 +25,6 @@ interface Props {
   existingSprint?: ExistingSprintForEdit;
   /** Optional callback after a successful edit. */
   onUpdated?: (sprintId: string) => void;
-}
-
-function getFocusable(container: HTMLElement): HTMLElement[] {
-  return Array.from(
-    container.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ),
-  );
 }
 
 function addDaysIso(iso: string, days: number): string {

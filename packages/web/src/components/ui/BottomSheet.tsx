@@ -1,7 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 
-const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+import { getFocusable } from '@/hooks/useFocusTrap';
 
 export interface BottomSheetProps {
   /** When false, renders nothing (parent controls open/close). */
@@ -80,7 +79,7 @@ export function BottomSheet({
     if (!isOpen) return undefined;
     const sheet = sheetRef.current;
     if (!sheet || sheet.contains(document.activeElement)) return undefined;
-    const first = sheet.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+    const first = getFocusable(sheet)[0];
     (first ?? sheet).focus();
     return undefined;
   }, [isOpen]);
@@ -91,7 +90,7 @@ export function BottomSheet({
     if (!isOpen) return undefined;
     function onTab(e: KeyboardEvent) {
       if (e.key !== 'Tab' || !sheetRef.current) return;
-      const focusable = sheetRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+      const focusable = getFocusable(sheetRef.current);
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
