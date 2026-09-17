@@ -12,16 +12,10 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { WORKSPACE_ADMIN_ROLE } from '@/hooks/useIsWorkspaceAdmin';
 import { initialsForUser, labelForUser, accountAccessibleName } from '@/lib/userIdentity';
 import { useProjectId } from '@/hooks/useProjectId';
-import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { getFocusable, useFocusTrap } from '@/hooks/useFocusTrap';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { RoleContextMenuRow } from '@/features/shell/RoleContextMenuRow';
 import { useShortcutsModalStore } from '@/stores/shortcutsModalStore';
-
-// Focusable-descendant selector for seating focus into the desktop dropdown on
-// open (mirrors useFocusTrap's own selector). The dropdown container carries
-// tabIndex={-1} and is excluded, so this lands on the first real control.
-const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 // ---------------------------------------------------------------------------
 // Menu content — shared between desktop dropdown and mobile bottom sheet
@@ -445,7 +439,10 @@ export function UserMenu() {
   // mobile sheet's own trap seats focus instead.
   useEffect(() => {
     if (!isOpen) return;
-    popoverRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
+    // Seats focus on the dropdown's first real tab stop on open. The container
+    // itself carries tabIndex={-1} and is excluded by the shared selector.
+    const popover = popoverRef.current;
+    if (popover) getFocusable(popover)[0]?.focus();
   }, [isOpen, popoverRef]);
 
   // Client-side identity fallback (display_name → username → email local-part).

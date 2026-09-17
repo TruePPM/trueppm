@@ -277,7 +277,7 @@ describe('ProjectGeneralPage', () => {
   it('wires the project-lead picker — an enabled trigger opens the member listbox (#966)', () => {
     renderPage();
     // SEED has no lead → the trigger reads "Assign" and is enabled, not a #966 stub.
-    const trigger = screen.getByRole('button', { name: 'Assign' });
+    const trigger = screen.getByRole('button', { name: 'Assign project lead' });
     expect(trigger).toBeEnabled();
     fireEvent.click(trigger);
     expect(screen.getByRole('listbox', { name: 'Select project lead' })).toBeInTheDocument();
@@ -418,7 +418,7 @@ describe('ProjectGeneralPage', () => {
     expect(screen.getByRole('combobox', { name: /timezone/i })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: /default view/i })).toBeDisabled();
     // The lead picker drops its trigger entirely (rule 156 read-only render).
-    expect(screen.queryByRole('button', { name: 'Assign' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Assign project lead' })).not.toBeInTheDocument();
   });
 
   it('keeps the form editable for an Admin role', () => {
@@ -426,7 +426,7 @@ describe('ProjectGeneralPage', () => {
     renderPage();
 
     expect(screen.getByRole('textbox', { name: /project name/i })).not.toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Assign' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Assign project lead' })).toBeEnabled();
   });
 
   it('gates pessimistically (read-only) while the role query is still loading', () => {

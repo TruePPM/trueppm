@@ -5,6 +5,7 @@ import { MonteCarloHistogram } from './MonteCarloHistogram';
 import { SensitivityList } from './SensitivityList';
 import { fmtUtcShort, fmtUtcLong } from '@/lib/formatUtcDate';
 import { CloseIcon } from '@/components/Icons';
+import { getFocusable } from '@/hooks/useFocusTrap';
 
 interface Props {
   result: MonteCarloResult;
@@ -69,9 +70,7 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
     if (!isOpen) return undefined;
     function trapFocus(e: KeyboardEvent) {
       if (e.key !== 'Tab' || !drawerRef.current) return;
-      const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
-      );
+      const focusable = getFocusable(drawerRef.current);
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (e.shiftKey) {

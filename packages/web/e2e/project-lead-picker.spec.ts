@@ -113,7 +113,10 @@ test.describe('Project Settings → General lead picker', () => {
     await expect(section.getByRole('heading', { name: 'General' })).toBeVisible();
     // No lead → Unassigned + an "Assign" trigger (no hardcoded "Anika Krishnan").
     expect(await section.getByText('Anika Krishnan').count()).toBe(0);
-    await section.getByRole('button', { name: 'Assign' }).click();
+    // Exact match: Playwright's `name` is a substring match by default, so a
+    // stale 'Assign' locator would silently keep matching the new, longer
+    // accessible name "Assign project lead" (#3540).
+    await section.getByRole('button', { name: 'Assign project lead', exact: true }).click();
 
     const listbox = page.getByRole('listbox', { name: 'Select project lead' });
     await expect(listbox).toBeVisible();
@@ -140,7 +143,7 @@ test.describe('Project Settings → General lead picker', () => {
     const section = page.locator('[data-settings-section="general"]');
     // Seeded lead renders from lead_detail.
     await expect(section.getByText('anika')).toBeVisible();
-    await section.getByRole('button', { name: 'Change', exact: true }).click();
+    await section.getByRole('button', { name: 'Change project lead', exact: true }).click();
     await page.getByRole('option', { name: 'Unassign' }).click();
 
     await page.getByRole('button', { name: /Save changes/i }).click();

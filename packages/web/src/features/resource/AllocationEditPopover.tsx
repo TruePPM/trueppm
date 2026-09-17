@@ -15,6 +15,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { AllocationTask } from './resourceUtils';
 import { taskSpanStart } from './resourceUtils';
+import { getFocusable } from '@/hooks/useFocusTrap';
 
 interface Props {
   assignmentId: string;
@@ -63,9 +64,7 @@ export function AllocationEditPopover({
   useEffect(() => {
     function trapFocus(e: KeyboardEvent) {
       if (e.key !== 'Tab' || !containerRef.current) return;
-      const focusable = containerRef.current.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
-      );
+      const focusable = getFocusable(containerRef.current);
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (e.shiftKey) {

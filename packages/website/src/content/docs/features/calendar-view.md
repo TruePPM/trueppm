@@ -97,6 +97,23 @@ Both pieces of state live in the URL, so a calendar you are looking at is a link
 
 Switching mode or stepping the window replaces the grid without moving focus, so both are announced to screen readers — *"Week view, Aug 24 – 30, 2026"* — and the grid itself is a labeled region naming the mode and window.
 
+### From the keyboard
+
+The date grid is a real grid, not a stack of boxes that happens to look like one: it carries the standard grid semantics, every day cell is named with its full date — *"Wednesday, March 11, 2026"*, and *"…, today"* on today — and you move around it with the arrow keys.
+
+| Key | Moves to |
+| --- | --- |
+| <kbd>←</kbd> / <kbd>→</kbd> | The previous / next day |
+| <kbd>↑</kbd> / <kbd>↓</kbd> | The same weekday one week earlier / later |
+| <kbd>Home</kbd> / <kbd>End</kbd> | The Monday / Sunday of the week you are on |
+| <kbd>Ctrl</kbd>+<kbd>Home</kbd> / <kbd>Ctrl</kbd>+<kbd>End</kbd> | The first / last day the window draws |
+
+The grid is a **single stop** in the page's tab order — <kbd>Tab</kbd> brings you into it once, at today if today is on screen and at the anchored day otherwise, and <kbd>Tab</kbd> again takes you on to the tasks in that day. From there, tasks tab in the order you see them: down the rows, left to right across each week, and top to bottom within a day.
+
+Movement stops at the edges of the window rather than rolling on into the next month. Stepping the window is what **‹** and **›** are for, and they announce where you have landed; an arrow key that silently changed the month would move the grid out from under the day you were standing on.
+
+
+
 ## Opening a task
 
 Clicking a chip or a milestone diamond selects that task and opens an **inline detail banner** directly under the toolbar, rather than a modal — the calendar stays on screen behind it. The banner carries the task's name, its status with a colored dot, its date range (a single date for a milestone), its assignees or **Unassigned**, and an **Open full detail** link through to the task page.

@@ -15,6 +15,7 @@ import {
   isSameDay,
   formatMonthLabel,
   formatDayLabel,
+  formatDayCellLabel,
   formatWeekRangeLabel,
   formatViewLabel,
   formatWindowNoun,
@@ -275,6 +276,18 @@ describe('formatMonthLabel', () => {
 describe('formatDayLabel', () => {
   it('returns abbreviated month + day number', () => {
     expect(formatDayLabel(parseUTCDate('2026-03-05'))).toBe('Mar 5');
+  });
+});
+
+describe('formatDayCellLabel (#3241)', () => {
+  it('names the weekday, day, month and year', () => {
+    expect(formatDayCellLabel(parseUTCDate('2026-03-11'))).toBe('Wednesday, March 11, 2026');
+  });
+
+  it('reads the date in UTC, not in the runner timezone', () => {
+    // parseUTCDate produces UTC midnight; formatting in local time would slide
+    // the label back a day for anyone west of Greenwich.
+    expect(formatDayCellLabel(parseUTCDate('2026-01-01'))).toBe('Thursday, January 1, 2026');
   });
 });
 

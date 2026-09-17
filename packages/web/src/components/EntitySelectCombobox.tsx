@@ -191,6 +191,23 @@ export function EntitySelectCombobox({
     );
   }
 
+  // The trigger's visible text is only the bare verb (default "Change" /
+  // "Assign", or a caller-supplied override) — the noun it acts on renders one
+  // node earlier as an unassociated <span> (the selected entity's name, or the
+  // italic unassignLabel placeholder), so without an explicit name a screen
+  // reader announces every trigger on a page identically (#3540, WCAG 1.3.1 /
+  // 2.4.6). Compose the accessible name from the actual verb + `label` (the
+  // noun already threaded through for the sibling search input and listbox)
+  // rather than hard-coding "Change"/"Assign", so a customized `triggerLabel`
+  // (e.g. "Add", "Choose") stays truthful instead of being overridden by a verb
+  // the button never shows. Skip the append when the verb already names the
+  // noun (e.g. AddTaskRow's "Add project or task") to avoid "Add project or
+  // task project or task".
+  const triggerText = value ? triggerLabel.set : triggerLabel.unset;
+  const triggerAriaLabel = triggerText.toLowerCase().includes(label.toLowerCase())
+    ? triggerText
+    : `${triggerText} ${label}`;
+
   return (
     <div ref={anchorRef} className="relative inline-flex items-center gap-2">
       {selected ? (
@@ -210,10 +227,11 @@ export function EntitySelectCombobox({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-describedby={describedBy}
+        aria-label={triggerAriaLabel}
         onClick={() => setOpen((o) => !o)}
         className="ml-1 rounded-control text-[12px] font-medium text-brand-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
-        {value ? triggerLabel.set : triggerLabel.unset}
+        {triggerText}
       </button>
 
       {open &&

@@ -19,6 +19,7 @@ import type { Methodology } from '@/types';
 import { ImportDropzone, type ImportRejectReason } from './ImportDropzone';
 import { FormatPicker, type ImportFormat } from './FormatPicker';
 import { SeedReplaceConfirmDialog } from './SeedReplaceConfirmDialog';
+import { getFocusable } from '@/hooks/useFocusTrap';
 
 interface Props {
   onClose: () => void;
@@ -52,14 +53,6 @@ const JSON_ONLY = ['.json'] as const;
 
 /** Shown when neither the request nor the job gives a usable reason. */
 const SEED_GENERIC_FAILURE = 'Import failed — please check the file and try again.';
-
-function getFocusable(container: HTMLElement): HTMLElement[] {
-  return Array.from(
-    container.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ),
-  );
-}
 
 /** Pull the server's `detail` message out of a failed MS Project request, if present. */
 function msProjectErrorMessage(error: unknown): string {

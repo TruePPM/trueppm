@@ -109,6 +109,60 @@ test.describe('Calendar week view (#3167)', () => {
     await expect(page.getByText('+4 more')).toHaveCount(0);
   });
 
+  test('the date grid is an ARIA grid, and its day-cell count states the mode (#3241)', async ({
+    page,
+  }) => {
+    // The structural assertion the #3167 class could not be written with: "how
+    // many days did this render", rather than "is some fixture task that falls
+    // outside the week absent". Before #3241 the day cells were bare <div>s
+    // with no role, no accessible name and no test hook of any kind.
+    await page.goto(url('week'));
+    await expect(page.getByRole('heading', { level: 2, name: 'Mar 9 – 15, 2026' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    const grid = page.getByRole('grid', { name: 'Calendar dates' });
+    await expect(grid.getByRole('gridcell')).toHaveCount(7);
+    // Each cell says which day it is — "Foundation Pour, due" never did.
+    await expect(grid.getByRole('gridcell', { name: 'Wednesday, March 11, 2026' })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Calendar legend' })).toBeVisible();
+
+    await page.goto(url('month'));
+    await expect(page.getByRole('heading', { level: 2, name: 'March 2026' })).toBeVisible({
+      timeout: 10_000,
+    });
+    // A month is 4-6 whole weeks; March 2026 starts on a Sunday and so needs
+    // all six rows (Feb 23 – Apr 5).
+    await expect(
+      page.getByRole('grid', { name: 'Calendar dates' }).getByRole('gridcell'),
+    ).toHaveCount(42);
+  });
+
+  test('arrow keys traverse the day cells (#3241)', async ({ page }) => {
+    await page.goto(url('week'));
+    await expect(page.getByRole('heading', { level: 2, name: 'Mar 9 – 15, 2026' })).toBeVisible({
+      timeout: 10_000,
+    });
+    const grid = page.getByRole('grid', { name: 'Calendar dates' });
+    const cell = (name: string) => grid.getByRole('gridcell', { name });
+
+    // Saturday is the first day the fixture's Mar 9-13 chips do not cover, so
+    // a real pointer click lands on the cell rather than on a chip.
+    await cell('Saturday, March 14, 2026').click();
+    await expect(cell('Saturday, March 14, 2026')).toBeFocused();
+
+    await page.keyboard.press('ArrowRight');
+    await expect(cell('Sunday, March 15, 2026')).toBeFocused();
+
+    // Clamped at the row's end — the grid does not own the anchor, so it never
+    // steps the window out from under the focused cell.
+    await page.keyboard.press('ArrowRight');
+    await expect(cell('Sunday, March 15, 2026')).toBeFocused();
+
+    await page.keyboard.press('Home');
+    await expect(cell('Monday, March 9, 2026')).toBeFocused();
+  });
+
   test('empty state: a week with no tasks says so instead of rendering a blank row', async ({
     page,
   }) => {
