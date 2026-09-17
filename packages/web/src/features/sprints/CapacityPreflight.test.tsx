@@ -129,5 +129,43 @@ describe('CapacityPreflight', () => {
       expect(chip.className).toMatch(/text-semantic-critical/);
       expect(screen.getByText('Team is at 125% of capacity (6 pts over).')).toBeInTheDocument();
     });
+
+    it('does not color a zero-committed footer as on-track (#3477)', () => {
+      render(
+        <CapacityPreflight capacity={makeCapacity()} points={{ committed: 0, capacity: 34 }} />,
+      );
+      const footer = screen.getByText('Team is at 0% of capacity. 34 pts free.');
+      expect(footer.className).not.toMatch(/text-semantic-on-track/);
+      expect(footer.className).toMatch(/text-neutral-text-secondary/);
+    });
+  });
+
+  describe('zero-denominator "not computable" state (#3477)', () => {
+    it('renders the shared muted reason instead of "0/0 hours committed · On track"', () => {
+      render(
+        <CapacityPreflight
+          capacity={makeCapacity({
+            totals: {
+              committed_hours: 0,
+              available_hours: 0,
+              ratio: 0,
+              buffer_hours: 0,
+              label: 'on_track',
+              pto_days: 0,
+            },
+          })}
+        />,
+      );
+      expect(screen.getByText('No assignments yet')).toBeInTheDocument();
+      expect(screen.queryByText(/hours committed/)).not.toBeInTheDocument();
+      expect(screen.queryByText('On track')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/% of capacity committed/)).not.toBeInTheDocument();
+    });
+
+    it('still renders the real ratio and label when available hours are nonzero', () => {
+      render(<CapacityPreflight capacity={makeCapacity()} />);
+      expect(screen.queryByText('No assignments yet')).not.toBeInTheDocument();
+      expect(screen.getByText(/hours committed/)).toBeInTheDocument();
+    });
   });
 });

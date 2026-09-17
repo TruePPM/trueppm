@@ -479,7 +479,9 @@ export function ResourceView({
   return (
     <>
       <div className="flex flex-col h-full overflow-hidden">
-        <h1 className="sr-only">Resources</h1>
+        {/* "Team" everywhere (#3478) — Roster / Allocation / Heatmap are tabs
+            on one page identity, not three separate ones. */}
+        <h1 className="sr-only">Team</h1>
         <ResourceToolbar
           viewMode={viewMode}
           onViewModeChange={setViewMode}
