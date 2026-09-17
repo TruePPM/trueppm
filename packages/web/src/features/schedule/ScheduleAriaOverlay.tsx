@@ -190,8 +190,7 @@ export function buildDepDescription(tasks: Task[], links: TaskLink[]): Map<strin
 
   const formatLink = (link: TaskLink, peerId: string): string => {
     const name = nameById.get(peerId) ?? 'Unknown task';
-    const lag =
-      link.lag !== 0 ? `, ${link.lag > 0 ? '+' : ''}${link.lag}d` : '';
+    const lag = link.lag !== 0 ? `, ${link.lag > 0 ? '+' : ''}${link.lag}d` : '';
     return `${name} (${link.type}${lag})`;
   };
 
@@ -546,124 +545,131 @@ export function ScheduleAriaOverlay({
   const scales = engine?.scales ?? null;
 
   return (
-    <div
-      ref={gridRef}
-      role="listbox" // dropdown-scroll-ok: sr-only accessibility tree mirroring the Gantt canvas, not a floating menu/listbox
-      aria-label="Schedule chart"
-      aria-describedby="schedule-grid-help"
-      // Reviewed exception to the clipped-content gate (#3166). This overlay is
-      // a `pointer-events: none` mirror of the canvas for the accessibility
-      // tree, not a visual surface: its option nodes are positioned per row over
-      // the FULL task set while the box is the canvas viewport, so it is taller
-      // than its container by construction. Nothing here is "unreachable" —
-      // reachability is the canvas's own scroll container, and these nodes
-      // reposition with it.
-      data-clip-ok="sr-only mirror of the canvas; the canvas scroller owns reachability"
-      style={{
-        position: 'absolute',
-        inset: 0,
-        pointerEvents: 'none',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Static keyboard help announced when the list is entered (#1031).
-          Wording must match the real key map (#1776): Left/Right are the nudge
-          keys inside a reschedule; Up/Down navigate rows. */}
-      <span id="schedule-grid-help" className="sr-only">
-        Use arrow up and down to move between tasks, and Home and End to jump to the first and
-        last task.{' '}
-        {anyRowAuthorable ? (
-          <>
-            Press Enter to add a task below the focused one, Shift+Enter to add one above, and
-            Command or Control plus Enter to add one underneath it. Press Alt+Enter to open the
-            focused task&apos;s details.
-          </>
-        ) : (
-          <>Press Enter to open the focused task&apos;s details.</>
-        )}{' '}
-        On a reschedulable task, press {anyRowAuthorable ? 'R' : 'Shift+Enter or R'} to reschedule
-        it with the keyboard: left and right arrow keys nudge the start date, Enter confirms,
-        Escape cancels. Press Space to select a task without rescheduling.
-        {emptyCadenceSentence ? ` ${emptyCadenceSentence}` : ''}
-      </span>
-      {/* Polite live region — names the focused row and its reschedule hint. */}
+    <>
+      {/* Polite live region — names the focused row and its reschedule hint.
+          Rendered as a SIBLING of the listbox below, not a child (#2618): a
+          listbox may only own option/group elements, and a status role here
+          tripped `aria-required-children`. `aria-live` announcement does not
+          depend on DOM position inside the listbox, so moving it out costs
+          nothing functionally. */}
       <span role="status" aria-live="polite" className="sr-only">
         {liveMessage}
       </span>
-      {tasks.slice(firstRow, lastRow + 1).map((task, sliceIdx) => {
-        const rowIndex = firstRow + sliceIdx;
-        const rowTop = rowIndex * rowHeight + chartHeaderHeight - scrollTop;
-        // Roving tabindex: until the user has focused a row, the first task is the
-        // tab stop so the listbox is reachable by Tab on initial load. Without the
-        // `?? tasks[0]?.id` fallback every option was tabIndex=-1 and keyboard/AT
-        // users could not enter it at all (#779).
-        const isFocused = task.id === (focusedTaskId ?? tasks[0]?.id);
+      <div
+        ref={gridRef}
+        role="listbox" // dropdown-scroll-ok: sr-only accessibility tree mirroring the Gantt canvas, not a floating menu/listbox
+        aria-label="Schedule chart"
+        aria-describedby="schedule-grid-help"
+        // Reviewed exception to the clipped-content gate (#3166). This overlay is
+        // a `pointer-events: none` mirror of the canvas for the accessibility
+        // tree, not a visual surface: its option nodes are positioned per row over
+        // the FULL task set while the box is the canvas viewport, so it is taller
+        // than its container by construction. Nothing here is "unreachable" —
+        // reachability is the canvas's own scroll container, and these nodes
+        // reposition with it.
+        data-clip-ok="sr-only mirror of the canvas; the canvas scroller owns reachability"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Static keyboard help announced when the list is entered (#1031).
+            Wording must match the real key map (#1776): Left/Right are the nudge
+            keys inside a reschedule; Up/Down navigate rows. */}
+        <span id="schedule-grid-help" className="sr-only">
+          Use arrow up and down to move between tasks, and Home and End to jump to the first and
+          last task.{' '}
+          {anyRowAuthorable ? (
+            <>
+              Press Enter to add a task below the focused one, Shift+Enter to add one above, and
+              Command or Control plus Enter to add one underneath it. Press Alt+Enter to open the
+              focused task&apos;s details.
+            </>
+          ) : (
+            <>Press Enter to open the focused task&apos;s details.</>
+          )}{' '}
+          On a reschedulable task, press {anyRowAuthorable ? 'R' : 'Shift+Enter or R'} to reschedule
+          it with the keyboard: left and right arrow keys nudge the start date, Enter confirms,
+          Escape cancels. Press Space to select a task without rescheduling.
+          {emptyCadenceSentence ? ` ${emptyCadenceSentence}` : ''}
+        </span>
+        {tasks.slice(firstRow, lastRow + 1).map((task, sliceIdx) => {
+          const rowIndex = firstRow + sliceIdx;
+          const rowTop = rowIndex * rowHeight + chartHeaderHeight - scrollTop;
+          // Roving tabindex: until the user has focused a row, the first task is the
+          // tab stop so the listbox is reachable by Tab on initial load. Without the
+          // `?? tasks[0]?.id` fallback every option was tabIndex=-1 and keyboard/AT
+          // users could not enter it at all (#779).
+          const isFocused = task.id === (focusedTaskId ?? tasks[0]?.id);
 
-        // Bar geometry for focus ring positioning (rule 68)
-        let barLeft = 0;
-        let barWidth = 0;
-        if (scales) {
-          barLeft = dateToLeft(task.start, scales) - (engine?.scrollLeft ?? 0);
-          // finish is inclusive — match the canvas bar's true (exclusive) right
-          // edge so the focus ring frames the whole bar (#950). Milestones
-          // (start == finish, drawn as a diamond) keep their narrow ring.
-          const barRight = task.isMilestone
-            ? dateToLeft(task.finish, scales) - (engine?.scrollLeft ?? 0)
-            : dateToRight(task.finish, scales) - (engine?.scrollLeft ?? 0);
-          barWidth = Math.max(2, barRight - barLeft);
-        }
+          // Bar geometry for focus ring positioning (rule 68)
+          let barLeft = 0;
+          let barWidth = 0;
+          if (scales) {
+            barLeft = dateToLeft(task.start, scales) - (engine?.scrollLeft ?? 0);
+            // finish is inclusive — match the canvas bar's true (exclusive) right
+            // edge so the focus ring frames the whole bar (#950). Milestones
+            // (start == finish, drawn as a diamond) keep their narrow ring.
+            const barRight = task.isMilestone
+              ? dateToLeft(task.finish, scales) - (engine?.scrollLeft ?? 0)
+              : dateToRight(task.finish, scales) - (engine?.scrollLeft ?? 0);
+            barWidth = Math.max(2, barRight - barLeft);
+          }
 
-        const depDesc = depDescriptions.get(task.id);
-        const depDescId = depDesc ? `schedule-deps-${task.id}` : undefined;
+          const depDesc = depDescriptions.get(task.id);
+          const depDescId = depDesc ? `schedule-deps-${task.id}` : undefined;
 
-        return (
-          <div
-            key={task.id}
-            role="presentation"
-            style={{
-              position: 'absolute',
-              top: rowTop,
-              left: 0,
-              right: 0,
-              height: rowHeight,
-              pointerEvents: isFocused ? 'auto' : 'none',
-            }}
-          >
+          return (
             <div
-              role="option"
-              data-task-id={task.id}
-              tabIndex={isFocused ? 0 : -1}
-              aria-label={buildTaskAriaLabel(
-                task,
-                sprintBandByTask.get(task.id),
-                rowModes?.get(task.id),
-              )}
-              title={sprintBandByTask.get(task.id)?.name}
-              aria-describedby={depDescId}
-              aria-selected={selectedTaskIds.has(task.id)}
-              aria-setsize={tasks.length}
-              aria-posinset={rowIndex + 1}
-              className="focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface rounded-control outline-none"
+              key={task.id}
+              role="presentation"
               style={{
                 position: 'absolute',
-                left: barLeft,
-                top: barTopOffset,
-                width: barWidth,
-                height: BAR_HEIGHT,
+                top: rowTop,
+                left: 0,
+                right: 0,
+                height: rowHeight,
                 pointerEvents: isFocused ? 'auto' : 'none',
               }}
-              onFocus={() => setFocusedTaskId(task.id)}
-              onKeyDown={(e) => handleKeyDown(e, task.id)}
-            />
-            {/* Hidden dep description read by aria-describedby when the bar is focused. */}
-            {depDesc && (
-              <span id={depDescId} className="sr-only">
-                {depDesc}
-              </span>
-            )}
-          </div>
-        );
-      })}
-    </div>
+            >
+              <div
+                role="option"
+                data-task-id={task.id}
+                tabIndex={isFocused ? 0 : -1}
+                aria-label={buildTaskAriaLabel(
+                  task,
+                  sprintBandByTask.get(task.id),
+                  rowModes?.get(task.id),
+                )}
+                title={sprintBandByTask.get(task.id)?.name}
+                aria-describedby={depDescId}
+                aria-selected={selectedTaskIds.has(task.id)}
+                aria-setsize={tasks.length}
+                aria-posinset={rowIndex + 1}
+                className="focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface rounded-control outline-none"
+                style={{
+                  position: 'absolute',
+                  left: barLeft,
+                  top: barTopOffset,
+                  width: barWidth,
+                  height: BAR_HEIGHT,
+                  pointerEvents: isFocused ? 'auto' : 'none',
+                }}
+                onFocus={() => setFocusedTaskId(task.id)}
+                onKeyDown={(e) => handleKeyDown(e, task.id)}
+              />
+              {/* Hidden dep description read by aria-describedby when the bar is focused. */}
+              {depDesc && (
+                <span id={depDescId} className="sr-only">
+                  {depDesc}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
