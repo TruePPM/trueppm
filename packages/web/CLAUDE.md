@@ -70,6 +70,7 @@ These rules are enforced at review time. Violations block merge.
 389. **A pane with a RENDER clamp has two widths, and every consumer must be told which one it is reading — the width the pane ASKED for positions nothing.** → [rule](../../docs/design/invariants/389-a-pane-with-a-render-clamp-has-two-widths-and-every.md)
 399. **A `::before`/`::after` overhang — a touch target, a hit-area cushion, a decorative bleed — is INVISIBLE to the eye and to `boundingBox()`, but it is real content for an ancestor's `scrollWidth`. "The control is inside the viewport" is therefore not the same assertion as "the container does not overflow", and a surface that asserts only the first is not guarded.** → [rule](../../docs/design/invariants/399-a-before-after-overhang-a-touch-target-a-hit-area-cushion-a.md)
 417. **`opacity-0` + a hover-reveal variant (`hover:opacity-100`, `group-hover:opacity-100`) needs a focus-reveal counterpart in the same class string — without one, a keyboard user can Tab onto the control and never see it. Machine-checked: `scripts/check-hover-reveal-focus.sh`.** → [rule](../../docs/design/invariants/417-opacity-0-a-hover-reveal-variant-needs-a-focus-reveal.md)
+420. **A container that holds real controls may not take a widget role; demoting it means moving the name and the tab stop onto an inner `<button>` — and stripping `aria-label`/`aria-roledescription` with the role, including the ones a library spreads on.** → [rule](../../docs/design/invariants/420-a-container-that-holds-real-controls-may-not-take-a-widget.md)
 
 ## Color and tokens
 

@@ -12,7 +12,7 @@ import { CustomFieldMarks } from '../CustomFieldMarks';
 import { phaseColor } from '../phaseColors';
 import { CardBadgeRow } from './CardBadgeRow';
 import { CardHealthPeek } from './CardHealthPeek';
-import { cardTitleToneClass, cpTooltip } from './cardFormat';
+import { CardTitleButton } from './CardTitleButton';
 import type { BoardCardView } from './useBoardCardView';
 import { useLaneCrumb } from '../LaneCrumbContext';
 
@@ -210,19 +210,17 @@ export function CardFullBody({
             isStalled={view.isStalled}
           />
         )}
-        <span
-          className={[
-            // line-clamp-2 (not truncate): comfortable/detailed cards wrap the
-            // title to a second row so longer task names stay readable without
-            // opening the card (issue #1924). Compact density keeps its
-            // single-line bar.
-            'text-xs font-medium line-clamp-2 min-w-0',
-            cardTitleToneClass(view.showCriticalState, view.isIdea),
-          ].join(' ')}
-          title={view.showCriticalState ? cpTooltip(task) : task.name}
-        >
-          {task.name}
-        </span>
+        {/* The title is the card's single tab stop and its open-detail control
+            (#2618) — see CardTitleButton. */}
+        <CardTitleButton
+          task={task}
+          view={view}
+          // line-clamp-2 (not truncate): comfortable/detailed cards wrap the
+          // title to a second row so longer task names stay readable without
+          // opening the card (issue #1924). Compact density keeps its
+          // single-line bar.
+          className="text-xs font-medium line-clamp-2 min-w-0"
+        />
       </div>
 
       <CardIdentityRow task={task} estimationScale={view.estimationScale} />

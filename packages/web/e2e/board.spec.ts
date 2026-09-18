@@ -705,7 +705,12 @@ test.describe('Board view', () => {
     // QA Gate (b5) carries several health signals (negative float, behind EVM,
     // long dwell). At comfortable density (default) they collapse behind one
     // worst-offender badge; the full chip set stays one tap away (non-lossy).
-    const qaCard = page.getByRole('button', { name: /^QA Gate,/ });
+    // Scope from the card ROOT, not from the named button. Since #2618 the
+    // card's accessible name lives on its title button, which contains nothing —
+    // the health badge is a sibling inside `[data-board-card]`.
+    const qaCard = page.locator('[data-board-card]', {
+      has: page.getByRole('button', { name: /^QA Gate,/ }),
+    });
     const badge = qaCard.getByRole('button', { name: /show health details/i });
     await expect(badge).toBeVisible();
     await expect(badge).toHaveAttribute('aria-expanded', 'false');

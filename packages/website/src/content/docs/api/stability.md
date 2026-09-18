@@ -64,8 +64,8 @@ to break on an additive change that this policy considers backward-compatible.
 
 One stable element is scheduled for deprecation — see
 [Current deprecations](#current-deprecations) below. The window mechanism has not yet
-been exercised through to a removal; the nine Breaking changes taken so far all
-bypassed it deliberately, and all nine are recorded inline in step 3. When a **breaking** change to a
+been exercised through to a removal; the ten Breaking changes taken so far all
+bypassed it deliberately, and all ten are recorded inline in step 3. When a **breaking** change to a
 stable element becomes necessary, the intent is for it to go through a
 deprecation window rather than being removed outright:
 
@@ -283,6 +283,34 @@ deprecation window rather than being removed outright:
    schema gate treats it as reviewed rather than accidental. `TaskHistoryListView` and
    `ProjectHistoryListView`'s shared `_MAX_HISTORY_ROWS` cap, and the unified project
    changelog (ADR-0201), are unaffected — see ADR-0011's dated Superseded note.
+
+   **Bypassed a tenth time, in 0.4 (#695).** `POST /api/v1/admin/failed-tasks/{id}/retry/`
+   and `POST /api/v1/admin/failed-tasks/{id}/dismiss/` — present in the published
+   `v0.3.0-alpha.3` schema — are renamed to `.../requeue/` and `.../drop/`. Renaming an
+   endpoint is **Breaking** by the table above, so this is recorded as a policy exception
+   rather than as routine; it was not caught and disclosed until #3880, well after the
+   0.4 cycle that shipped it.
+
+   The reasoning: the rename accompanied a rewrite of what each action does, not just
+   what it is called. The old `retry` re-enqueued a parked task through a raw `send_task`
+   side channel with no shipped caller ever exercising it in anger; `requeue` routes the
+   re-enqueue through the durable outbox-composing workflow backend (ADR-0210 §1) instead,
+   so a broker outage cannot silently drop it. The old `dismiss` had no audit trail beyond
+   the status flip; `drop` retains the row with an optional operator note
+   (`resolution_note`/`resolved_by`/`resolved_at`) so the audit survives (ADR-0084,
+   "no silent discards"). Both are admin-only (`IsAdminUser`) System Health operator
+   actions with no documented external integration and no caller in the web client's
+   Playwright suite, the mobile app, or the MCP server referencing the old names.
+
+   Unlike a pure removal, the old paths do not 404 into silence any more clearly than a
+   rename normally would: `retry` and `dismiss` are gone from the router entirely, so a
+   caller still using either gets a plain `404` with no `Deprecation` header and no
+   signpost to the new name — this is exactly the gap this entry exists to close. A client
+   calling `retry` should call `requeue` instead: an empty body behaves the same
+   (immediate re-enqueue), and the response gains a `workflow_id` field; an optional
+   `backoff_seconds` (0–86400, default `0`) is new. A client calling `dismiss` should call
+   `drop` instead: an empty body behaves the same, and an optional `note` (up to 1000
+   characters) is new.
 
    These exceptions are available because TruePPM is pre-1.0 alpha and the v1 surface is
    not yet under a GA compatibility promise. They should not be read as a precedent for

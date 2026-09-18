@@ -122,9 +122,15 @@ test.describe('Board mobile card readability (#1947)', () => {
   });
 
   test('long title peeks the full name and adds no card height when closed', async ({ page }) => {
-    // The card root exposes `${name}, ${pct}% complete` as its accessible name.
-    const card = page.getByRole('button', {
-      name: new RegExp(`^Implement the cross-team.*% complete`),
+    // `${name}, ${pct}% complete` is the card's accessible name, carried by its
+    // title button (#2618). The height assertion below is about the CARD, so
+    // resolve the `[data-board-card]` root that button sits in — measuring the
+    // button would pass for the wrong reason (a portaled popover cannot change
+    // the title's height whether or not it changes the card's).
+    const card = page.locator('[data-board-card]', {
+      has: page.getByRole('button', {
+        name: new RegExp(`^Implement the cross-team.*% complete`),
+      }),
     });
     await expect(card).toBeVisible({ timeout: 10_000 });
     const closedBox = await card.boundingBox();

@@ -45226,6 +45226,14 @@
                     },
                     {
                         "in": "query",
+                        "name": "id__in",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Comma-separated task UUIDs. Batch-resolves a known set of task ids (e.g. from an ID-only payload elsewhere in the API) to their rows in one request. Composes on top of the membership-scoped queryset, so an id outside a project you belong to (or a nonexistent id) is silently omitted from the results rather than erroring. A malformed UUID returns 400."
+                    },
+                    {
+                        "in": "query",
                         "name": "is_critical",
                         "schema": {
                             "type": "boolean"

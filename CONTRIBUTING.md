@@ -92,9 +92,15 @@ decision, and it needs no expiry.
 
 ```ts
 // The grid holds a role="status" child, which a grid may not have.
-// SUPPRESSED-UNTIL(#2618)
+// SUPPRESSED-UNTIL(#NNNN)   ← put the real issue number here
 disableRules: ['aria-required-children'],
 ```
+
+The `#NNNN` above is deliberately digit-free: this page is inside the gate's own
+scan range, so a real number here becomes a marker the gate will one day flag —
+on the day that unrelated issue closes, in a job log nobody has a reason to read.
+Do not "fix" it by substituting a live issue. (`scripts/check-suppression-issues.sh`
+keeps its own examples digit-free for the same reason.)
 
 `suppressions:check` fails the pipeline once that issue closes with the
 suppression still in the tree. This exists because it did not: six axe

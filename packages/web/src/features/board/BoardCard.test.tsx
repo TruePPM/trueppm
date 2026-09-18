@@ -757,13 +757,16 @@ describe('BoardCard', () => {
 
   it('applies the keyboard-focused ring when isKeyboardFocused', () => {
     const { container } = renderCard({ isKeyboardFocused: true });
-    const card = container.querySelector('[role="button"]')!;
+    // `[data-board-card]`, not `[role="button"]`: the card root is a roleless
+    // container since #2618 and the only `role="button"` inside it are its own
+    // controls (title, ··· menu, chips).
+    const card = container.querySelector('[data-board-card]')!;
     expect(card.className).toContain('ring-2');
   });
 
   it('dims the card when isDimmed is true', () => {
     const { container } = renderCard({ isDimmed: true });
-    const card = container.querySelector('[role="button"]')!;
+    const card = container.querySelector('[data-board-card]')!;
     expect(card.className).toContain('opacity-40');
   });
 
@@ -997,68 +1000,65 @@ describe('BoardCard', () => {
   });
 
   describe('onCardClick (issue #304)', () => {
-    function getCardRoot(): HTMLElement {
-      // The card root carries `aria-roledescription="draggable"` from dnd-kit;
-      // the menu trigger and chain icon are also `role="button"` but on
-      // smaller elements.
-      return screen
-        .getAllByRole('button')
-        .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
-    }
-
     it('fires onCardClick on root click with the task and the card root as anchor', () => {
       const onCardClick = vi.fn();
-      renderCard({ onCardClick });
-      const card = getCardRoot();
+      const { container } = renderCard({ onCardClick });
+      const card = container.querySelector<HTMLElement>('[data-board-card]')!;
       fireEvent.click(card);
       expect(onCardClick).toHaveBeenCalledTimes(1);
       expect(onCardClick).toHaveBeenCalledWith(baseTask, card);
     });
 
-    it('fires onCardClick on Enter and Space when focus is on the card root', () => {
+    // The card's keyboard route is its title button (#2618): activating it fires
+    // a click that bubbles to the root's handler, with the ROOT still the anchor
+    // the popover positions against. Before #2618 the root faked this with a
+    // hand-rolled Enter/Space keydown handler, which is what made it
+    // `role="button"` around real controls in the first place.
+    it('fires onCardClick when the title button is activated, anchored on the card root', () => {
       const onCardClick = vi.fn();
-      renderCard({ onCardClick });
-      const card = getCardRoot();
-      fireEvent.keyDown(card, { key: 'Enter' });
+      const { container } = renderCard({ onCardClick });
+      const card = container.querySelector<HTMLElement>('[data-board-card]')!;
+      fireEvent.click(container.querySelector<HTMLElement>('[data-card-title]')!);
       expect(onCardClick).toHaveBeenCalledTimes(1);
-      fireEvent.keyDown(card, { key: ' ' });
-      expect(onCardClick).toHaveBeenCalledTimes(2);
+      expect(onCardClick).toHaveBeenCalledWith(baseTask, card);
     });
 
     it('fires onCardClick on the comfortable density variant as well', () => {
       const onCardClick = vi.fn();
-      renderCard({ onCardClick, density: 'comfortable' });
-      const card = getCardRoot();
-      fireEvent.click(card);
+      const { container } = renderCard({ onCardClick, density: 'comfortable' });
+      fireEvent.click(container.querySelector<HTMLElement>('[data-board-card]')!);
       expect(onCardClick).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('keyboard focus & drag a11y (#2194)', () => {
-    function getCardRoot(): HTMLElement {
-      return screen
-        .getAllByRole('button')
-        .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
-    }
-
     it('does not announce the dead dnd-kit keyboard-pickup instruction', () => {
-      renderCard({});
-      const card = getCardRoot();
-      // Pointer/touch drag is real, so the card stays "draggable"…
-      expect(card).toHaveAttribute('aria-roledescription', 'draggable');
+      const { container } = renderCard({});
+      const card = container.querySelector<HTMLElement>('[data-board-card]')!;
+      const title = container.querySelector<HTMLElement>('[data-card-title]')!;
+      // Pointer/touch drag is real, so the card stays "draggable" — announced on
+      // the title button, because a roleless root is `generic` and may not carry
+      // `aria-roledescription` (#2618).
+      expect(title).toHaveAttribute('aria-roledescription', 'draggable');
+      expect(card).not.toHaveAttribute('aria-roledescription');
       // …but the "press space or enter to pick up" describedby is stripped: that
-      // keyboard path is dead (onKeyDown is overridden with open-detail).
+      // keyboard path is dead (Enter/Space open the card detail instead).
       expect(card).not.toHaveAttribute('aria-describedby');
+      expect(title).not.toHaveAttribute('aria-describedby');
+      // And the root is no longer a widget: that is the whole fix — its
+      // focusable descendants were `nested-interactive` under `role="button"`.
+      expect(card).not.toHaveAttribute('role');
+      expect(card).not.toHaveAttribute('tabindex');
     });
 
-    it('pulls real DOM focus onto the card when keyboard-focused', () => {
-      renderCard({ isKeyboardFocused: true });
-      expect(getCardRoot()).toHaveFocus();
+    it('pulls real DOM focus onto the card title when keyboard-focused', () => {
+      const { container } = renderCard({ isKeyboardFocused: true });
+      expect(container.querySelector('[data-card-title]')).toHaveFocus();
     });
 
     it('does not steal focus when not keyboard-focused', () => {
-      renderCard({ isKeyboardFocused: false });
-      expect(getCardRoot()).not.toHaveFocus();
+      const { container } = renderCard({ isKeyboardFocused: false });
+      expect(container.querySelector('[data-card-title]')).not.toHaveFocus();
     });
   });
 
@@ -1462,14 +1462,16 @@ function renderCardFull(props: Partial<ComponentProps<typeof BoardCard>>) {
   );
 }
 
+// The card root is a roleless container since #2618, so a role query cannot
+// reach it — and a filtered-out card is `aria-hidden`, which puts it outside the
+// accessibility tree entirely. `data-board-card` is the stable handle in both
+// states; `data-card-title` is its single tab stop.
 function cardRoot(): HTMLElement {
-  // A draggable card carries `aria-roledescription="draggable"` from dnd-kit; a
-  // read-only card drops the drag attributes (#2146) so it is never aria-disabled,
-  // but keeps the shared `rounded-card` container. Match on the container class so
-  // this resolves the outer card in both states.
-  return screen
-    .getAllByRole('button', { hidden: true })
-    .find((el) => el.className.includes('rounded-card'))!;
+  return document.querySelector<HTMLElement>('[data-board-card]')!;
+}
+
+function cardTitle(): HTMLElement {
+  return document.querySelector<HTMLElement>('[data-card-title]')!;
 }
 
 describe('BoardCard additional branch coverage', () => {
@@ -1575,10 +1577,12 @@ describe('BoardCard additional branch coverage', () => {
     expect(card.className).not.toContain('cursor-grab');
     // A read-only card must stay operable: click-to-open detail is the use case,
     // so it is never marked aria-disabled (dnd-kit would otherwise set it) and it
-    // stays a focusable button (#2146).
+    // keeps its focusable title button (#2146). The button reports no
+    // `aria-roledescription` here — the card genuinely is not draggable, and
+    // promising a gesture that does nothing is worse than saying nothing (#2618).
     expect(card).not.toHaveAttribute('aria-disabled', 'true');
-    expect(card).toHaveAttribute('role', 'button');
-    expect(card).toHaveAttribute('tabindex', '0');
+    expect(cardTitle()).not.toBeDisabled();
+    expect(cardTitle()).not.toHaveAttribute('aria-roledescription');
   });
 
   it('a non-read-only card keeps the grab cursor', () => {
@@ -1590,39 +1594,44 @@ describe('BoardCard additional branch coverage', () => {
 
   // isFilteredOut hard-dim + removal from tab order / a11y tree (#2204). `inert`
   // (React 19 boolean prop) is the fix: it removes the card AND its inner buttons
-  // (··· menu, signal chips) from the tab order — the old aria-hidden left those
-  // focusable (aria-hidden ≠ non-focusable). aria-hidden is retained alongside it.
-  it('comfortable: a filtered-out card is hard-dimmed, inert, aria-hidden, and out of tab order', () => {
+  // (title, ··· menu, signal chips) from the tab order — the old aria-hidden left
+  // those focusable (aria-hidden ≠ non-focusable). aria-hidden is retained
+  // alongside it. Since #2618 `inert` is the WHOLE tab-order mechanism: the root
+  // no longer carries a `tabindex` of its own to set to -1.
+  it('comfortable: a filtered-out card is hard-dimmed, inert, and aria-hidden', () => {
     renderCardFull({ isFilteredOut: true, density: 'comfortable' });
     const card = cardRoot();
     expect(card.className).toContain('opacity-30');
     expect(card.className).toContain('pointer-events-none');
     expect(card).toHaveAttribute('inert');
-    expect(card).toHaveAttribute('tabindex', '-1');
     expect(card).toHaveAttribute('aria-hidden', 'true');
+    // The card's own tab stop is inside that inert subtree, which is what takes
+    // it — and every control on the card — out of the tab order.
+    expect(card.contains(cardTitle())).toBe(true);
   });
 
-  it('compact: a filtered-out card is also inert, aria-hidden, and out of tab order', () => {
+  it('compact: a filtered-out card is also inert and aria-hidden', () => {
     renderCardFull({ isFilteredOut: true, density: 'compact' });
     const card = cardRoot();
     expect(card).toHaveAttribute('inert');
-    expect(card).toHaveAttribute('tabindex', '-1');
     expect(card).toHaveAttribute('aria-hidden', 'true');
+    expect(card.contains(cardTitle())).toBe(true);
   });
 
   // Column/status context in the card's accessible name (#2204) — a screen-reader
   // user tabbing card-to-card can tell which column each card sits in. baseTask is
-  // IN_PROGRESS; COLUMNS labels that column "IN PROGRESS".
-  it('comfortable: card aria-label carries its column label', () => {
+  // IN_PROGRESS; COLUMNS labels that column "IN PROGRESS". The name moved from the
+  // root onto the title button in #2618; the string itself did not change.
+  it('comfortable: the card name carries its column label', () => {
     renderCardFull({ density: 'comfortable' });
-    const card = cardRoot();
-    expect(card.getAttribute('aria-label')).toMatch(/, in IN PROGRESS$/);
+    expect(cardTitle().getAttribute('aria-label')).toMatch(/, in IN PROGRESS$/);
+    expect(cardRoot()).not.toHaveAttribute('aria-label');
   });
 
-  it('compact: card aria-label carries its column label', () => {
+  it('compact: the card name carries its column label', () => {
     renderCardFull({ density: 'compact' });
-    const card = cardRoot();
-    expect(card.getAttribute('aria-label')).toMatch(/, in IN PROGRESS$/);
+    expect(cardTitle().getAttribute('aria-label')).toMatch(/, in IN PROGRESS$/);
+    expect(cardRoot()).not.toHaveAttribute('aria-label');
   });
 
   // compact click open (L711)
@@ -1636,17 +1645,46 @@ describe('BoardCard additional branch coverage', () => {
   });
 
   // compact keyboard open (L713)
-  it('compact: Enter/Space on the card root fires onCardClick', () => {
+  it('compact: activating the title button fires onCardClick with the card anchor', () => {
     const onCardClick = vi.fn();
     renderCard({ onCardClick, density: 'compact' });
-    const card = cardRoot();
-    fireEvent.keyDown(card, { key: 'Enter' });
+    fireEvent.click(cardTitle());
     expect(onCardClick).toHaveBeenCalledTimes(1);
-    fireEvent.keyDown(card, { key: ' ' });
-    expect(onCardClick).toHaveBeenCalledTimes(2);
-    // a non-activating key does nothing.
-    fireEvent.keyDown(card, { key: 'x' });
-    expect(onCardClick).toHaveBeenCalledTimes(2);
+    expect(onCardClick).toHaveBeenCalledWith(baseTask, cardRoot());
+  });
+
+  // Compact density stops Enter/Space at the card so the window-level board
+  // keyboard registry does not ALSO claim them (#2194). That guard moved onto
+  // the title button with the tab stop (#2618) — and it must not preventDefault,
+  // or it would suppress the native activation the open now depends on.
+  it('compact: Enter/Space on the title do not reach the window keyboard registry', () => {
+    renderCard({ density: 'compact' });
+    const seen: string[] = [];
+    const onWindowKey = (e: KeyboardEvent) => seen.push(e.key);
+    window.addEventListener('keydown', onWindowKey);
+    try {
+      fireEvent.keyDown(cardTitle(), { key: 'Enter' });
+      fireEvent.keyDown(cardTitle(), { key: ' ' });
+      expect(seen).toEqual([]);
+      // A non-activating key still reaches the board's shortcut registry.
+      fireEvent.keyDown(cardTitle(), { key: 'x' });
+      expect(seen).toEqual(['x']);
+    } finally {
+      window.removeEventListener('keydown', onWindowKey);
+    }
+  });
+
+  it('comfortable: Enter is left to propagate to the window keyboard registry', () => {
+    renderCard({ density: 'comfortable' });
+    const seen: string[] = [];
+    const onWindowKey = (e: KeyboardEvent) => seen.push(e.key);
+    window.addEventListener('keydown', onWindowKey);
+    try {
+      fireEvent.keyDown(cardTitle(), { key: 'Enter' });
+      expect(seen).toEqual(['Enter']);
+    } finally {
+      window.removeEventListener('keydown', onWindowKey);
+    }
   });
 
   // compact idea title styling (L736)

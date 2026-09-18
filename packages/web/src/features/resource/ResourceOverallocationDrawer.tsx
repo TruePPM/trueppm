@@ -12,8 +12,11 @@
  */
 
 import { useRef, type RefObject } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '@/api/client';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { statusLabel } from './HeatmapCellDrawer';
 import { capacityHours } from './resourceUtils';
 import type { UtilizationDayEntry } from './resourceUtils';
 
@@ -27,12 +30,14 @@ export interface OverallocationTarget {
 }
 
 interface Props {
+  projectId: string;
   target: OverallocationTarget | null;
   isOpen: boolean;
   onClose: () => void;
 }
 
 interface DrawerBodyProps {
+  projectId: string;
   target: OverallocationTarget | null;
   pct: number;
   overHours: number;
@@ -40,6 +45,13 @@ interface DrawerBodyProps {
   drawerTitle: string;
   closeButtonRef: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
+}
+
+/** Slim task shape resolved from `GET /tasks/?id__in=` — just enough to label the pill (#3843). */
+interface ResolvedTask {
+  id: string;
+  name: string;
+  status: string;
 }
 
 function formatDate(iso: string): string {
@@ -55,6 +67,7 @@ function formatDate(iso: string): string {
 // Hoisted to module scope so React does not re-create the component type on every
 // render of the parent, which would cause unnecessary unmounts of the inner tree.
 function DrawerBody({
+  projectId,
   target,
   pct,
   overHours,
@@ -63,6 +76,32 @@ function DrawerBody({
   closeButtonRef,
   onClose,
 }: DrawerBodyProps) {
+  const taskIds = target?.entry.tasks ?? [];
+
+  // Batch-resolve the contributing task ids to names/status in one request
+  // (#3843) — same idiom as HeatmapCellDrawer's own task fetch, but against
+  // `?id__in=` (#3843's new filter) instead of the allocation endpoint, since
+  // all we have here is a bare list of ids, not a resource+window to re-derive
+  // them from. Query key is the sorted id list so re-opening on the same day
+  // cell (identical ids, any order) reuses the cache.
+  const {
+    data: resolvedTasks,
+    isLoading: tasksLoading,
+    isError: tasksError,
+    refetch: refetchTasks,
+  } = useQuery({
+    queryKey: ['overallocation-drawer-tasks', projectId, [...taskIds].sort()],
+    queryFn: async () => {
+      const res = await apiClient.get<{ results: ResolvedTask[] }>('/tasks/', {
+        params: { project: projectId, id__in: taskIds.join(',') },
+      });
+      return res.data.results;
+    },
+    enabled: !!projectId && taskIds.length > 0,
+  });
+
+  const taskById = new Map((resolvedTasks ?? []).map((t) => [t.id, t]));
+
   return (
     <>
       {/* Header — fixed min-h-14 to match TaskDetailDrawer and RiskDrawer (rule 89) */}
@@ -126,25 +165,65 @@ function DrawerBody({
             </section>
 
             {/* Contributing tasks */}
-            {target.entry.tasks.length > 0 && (
+            {taskIds.length > 0 && (
               <section>
                 <h3 className="text-xs font-semibold uppercase tracking-widest text-neutral-text-secondary mb-3">
-                  Contributing tasks ({target.entry.tasks.length})
+                  Contributing tasks ({taskIds.length})
                 </h3>
-                <ul className="space-y-1.5">
-                  {target.entry.tasks.map((taskId) => (
-                    <li
-                      key={taskId}
-                      className="text-xs text-neutral-text-primary bg-neutral-surface-raised rounded px-3 py-2 font-mono"
+                {tasksLoading ? (
+                  <ul className="space-y-1.5" aria-busy="true" aria-label="Loading contributing tasks">
+                    {taskIds.map((taskId) => (
+                      <li
+                        key={taskId}
+                        className="h-9 rounded bg-neutral-surface-raised motion-safe:animate-pulse"
+                      />
+                    ))}
+                  </ul>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {taskIds.map((taskId) => {
+                      const resolved = taskById.get(taskId);
+                      return (
+                        <li
+                          key={taskId}
+                          className="text-xs bg-neutral-surface-raised rounded px-3 py-2"
+                        >
+                          {resolved ? (
+                            <>
+                              <p className="text-neutral-text-primary font-medium">
+                                {resolved.name}
+                              </p>
+                              <p className="text-neutral-text-secondary mt-0.5">
+                                {statusLabel(resolved.status)}
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-neutral-text-primary font-mono">{taskId}</p>
+                              <p className="text-neutral-text-secondary mt-0.5 italic">
+                                {tasksError
+                                  ? 'Name unavailable — could not load task names.'
+                                  : 'Name unavailable — this task may have been deleted.'}
+                              </p>
+                            </>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                {tasksError && (
+                  <p className="mt-2 text-xs text-neutral-text-secondary">
+                    Couldn’t load task names.{' '}
+                    <button
+                      type="button"
+                      onClick={() => void refetchTasks()}
+                      className="underline text-brand-primary focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded-control"
                     >
-                      {taskId}
-                    </li>
-                  ))}
-                </ul>
-                {/* Task name resolution is deferred until the tasks API is wired in. */}
-                <p className="mt-2 text-xs text-neutral-text-secondary italic">
-                  Task names will appear once the tasks API is connected.
-                </p>
+                      Retry
+                    </button>
+                  </p>
+                )}
                 <p className="mt-3 text-xs text-neutral-text-secondary">
                   To resolve, reassign or delay one of the contributing tasks so this
                   resource is not scheduled beyond their daily capacity.
@@ -158,7 +237,7 @@ function DrawerBody({
   );
 }
 
-export function ResourceOverallocationDrawer({ target, isOpen, onClose }: Props) {
+export function ResourceOverallocationDrawer({ projectId, target, isOpen, onClose }: Props) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   // `sm` (< 768px) → bottom sheet; `md`/`lg` → right-side drawer. Render exactly
   // one shell (rule 211) so the body isn't double-mounted and closeButtonRef
@@ -175,6 +254,7 @@ export function ResourceOverallocationDrawer({ target, isOpen, onClose }: Props)
     : 'Overallocation';
 
   const bodyProps: DrawerBodyProps = {
+    projectId,
     target,
     pct,
     overHours,

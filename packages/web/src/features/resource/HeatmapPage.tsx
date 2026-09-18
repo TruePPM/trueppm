@@ -1,16 +1,34 @@
 import { useState } from 'react';
+import { ROLE_SCHEDULER } from '@/lib/roles';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useResourceHeatmap } from '@/hooks/useResourceHeatmap';
 import { useResourceSummary } from '@/hooks/useResourceSummary';
 import { useTriggerScheduler } from '@/hooks/useTriggerScheduler';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ResourcesKpiRow, ResourcesKpiRowSkeleton } from './ResourcesKpiRow';
 import { ResourcesHeatmap, ResourcesHeatmapSkeleton } from './ResourcesHeatmap';
 import { ResourceEmptyState } from './ResourceEmptyState';
+import { PermissionDeniedNotice } from './PermissionDeniedNotice';
+import { RoleReadFailedNotice } from './RoleReadFailedNotice';
 import { WeeksWindowControl, readPersistedWindow } from './WeeksWindowControl';
 import type { WeeksWindow } from './WeeksWindowControl';
 import { registry } from '@/lib/widget-registry';
 
 type GroupBy = 'role' | 'project' | 'none';
+
+/**
+ * Permission gate (rule 94, #3844): SCHEDULER (role >= ROLE_SCHEDULER) required,
+ * same floor as the Allocation tab (`ResourceView.tsx`) and the server-side
+ * `IsProjectScheduler` gate on the `heatmap` / `resources_summary` actions.
+ *
+ * Copied verbatim from `ResourceView.tsx`'s `roleIsDenied` rather than shared,
+ * since neither module exports it (#2998 covers why `roleLoading`/`roleError`
+ * are explicit parameters instead of inferring from `role === null`).
+ */
+function roleIsDenied(roleLoading: boolean, roleError: boolean, role: number | null): boolean {
+  if (roleLoading || roleError) return false;
+  return role === null || role < ROLE_SCHEDULER;
+}
 
 /** ISO date string for the Monday of the current week. */
 function currentWeekMonday(): string {
@@ -125,13 +143,47 @@ export function HeatmapPage() {
   const [weeks, setWeeks] = useState<WeeksWindow>(readPersistedWindow);
   const [groupBy, setGroupBy] = useState<GroupBy>('none');
 
+  // --- Permission gate (rule 94, #3844) ---
+  const {
+    role,
+    isLoading: roleLoading,
+    isError: roleError,
+    refetch: refetchRole,
+  } = useCurrentUserRole(projectId);
+  const denied = roleIsDenied(roleLoading, roleError ?? false, role);
+
+  // Check the role BEFORE firing the data query: a denied caller never gets a
+  // project id threaded into either hook, so no request for named per-person
+  // utilization data goes out. (The initial-load race while the role read is
+  // still in flight is the same one `ResourceView.tsx` accepts — the server's
+  // `IsProjectScheduler` gate is the actual enforcement point either way.)
+  const gatedProjectId = denied ? undefined : projectId;
+
   const heatmapResult = useResourceHeatmap(
-    projectId ?? undefined,
+    gatedProjectId,
     weekStart,
     weeks,
     groupBy,
   );
-  const summaryResult = useResourceSummary(projectId ?? undefined);
+  const summaryResult = useResourceSummary(gatedProjectId);
+
+  // A failed role read is its own state, rendered before the denial branch — see
+  // `ResourceView.tsx`'s identical gate (#2998) for why isError must not become a
+  // blanket denial.
+  if (!roleLoading && roleError) {
+    return (
+      <div className="flex flex-col h-full overflow-hidden">
+        <RoleReadFailedNotice onRetry={() => refetchRole?.()} />
+      </div>
+    );
+  }
+  if (denied) {
+    return (
+      <div className="flex flex-col h-full overflow-hidden">
+        <PermissionDeniedNotice />
+      </div>
+    );
+  }
 
   // --------------------------------------------------------------------------
   // Week navigation helpers

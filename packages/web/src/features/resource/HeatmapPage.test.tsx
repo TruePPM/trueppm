@@ -16,6 +16,7 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ROLE_SCHEDULER, ROLE_MEMBER } from '@/lib/roles';
 import { HeatmapPage } from './HeatmapPage';
 import { registry } from '@/lib/widget-registry';
 import { renderWithProviders } from '@/test/utils';
@@ -28,7 +29,7 @@ import type {
   UseResourceSummaryResult,
 } from '@/hooks/useResourceSummary';
 
-const { heatmapMock, summaryMock, triggerMock, projectIdMock } = vi.hoisted(() => ({
+const { heatmapMock, summaryMock, triggerMock, projectIdMock, roleMock } = vi.hoisted(() => ({
   heatmapMock:
     vi.fn<
       (
@@ -41,10 +42,12 @@ const { heatmapMock, summaryMock, triggerMock, projectIdMock } = vi.hoisted(() =
   summaryMock: vi.fn<(projectId: string | undefined) => UseResourceSummaryResult>(),
   triggerMock: vi.fn<() => Promise<void>>(),
   projectIdMock: vi.fn<() => string | undefined>(),
+  roleMock: vi.fn(),
 }));
 
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => projectIdMock() }));
 vi.mock('@/hooks/useTriggerScheduler', () => ({ useTriggerScheduler: () => triggerMock }));
+vi.mock('@/hooks/useCurrentUserRole', () => ({ useCurrentUserRole: roleMock }));
 vi.mock('@/hooks/useResourceHeatmap', () => ({
   useResourceHeatmap: (
     projectId: string | undefined,
@@ -135,6 +138,9 @@ beforeEach(() => {
   localStorage.clear();
   projectIdMock.mockReturnValue('project-1');
   triggerMock.mockResolvedValue(undefined);
+  // Every existing test in this file exercises a Scheduler-or-above view; the
+  // permission gate itself is covered in its own describe block below.
+  roleMock.mockReturnValue({ role: ROLE_SCHEDULER, roleLabel: null, isLoading: false });
   heatmapMock.mockReturnValue(loadingHeatmap);
   summaryMock.mockReturnValue(loadingSummary);
 });
@@ -145,6 +151,89 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
+
+describe('HeatmapPage — permission gate (rule 94, #3844)', () => {
+  it('shows the permission notice for a role below Scheduler, not the grid', () => {
+    roleMock.mockReturnValue({ role: ROLE_MEMBER, roleLabel: 'Member', isLoading: false });
+    heatmapMock.mockReturnValue(heatmapSuccess([person()]));
+    renderWithProviders(<HeatmapPage />);
+
+    expect(
+      screen.getByText('Resource utilization is only visible to Schedulers, Admins, and Owners.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('grid')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Team' })).not.toBeInTheDocument();
+  });
+
+  it('shows the permission notice when the role resolves to null', () => {
+    roleMock.mockReturnValue({ role: null, roleLabel: null, isLoading: false });
+    renderWithProviders(<HeatmapPage />);
+    expect(
+      screen.getByText('Resource utilization is only visible to Schedulers, Admins, and Owners.'),
+    ).toBeInTheDocument();
+  });
+
+  it('never issues the heatmap/summary request for a denied role', () => {
+    // The gate must stop the query before it fires, not just hide the result —
+    // the API confirms named per-person utilization data on these two actions.
+    roleMock.mockReturnValue({ role: ROLE_MEMBER, roleLabel: 'Member', isLoading: false });
+    renderWithProviders(<HeatmapPage />);
+
+    expect(heatmapMock).toHaveBeenCalledWith(undefined, expect.anything(), expect.anything(), expect.anything());
+    expect(summaryMock).toHaveBeenCalledWith(undefined);
+  });
+
+  it('defers the decision (does not deny) while the role is still loading', () => {
+    roleMock.mockReturnValue({ role: null, roleLabel: null, isLoading: true });
+    renderWithProviders(<HeatmapPage />);
+    expect(
+      screen.queryByText('Resource utilization is only visible to Schedulers, Admins, and Owners.'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Team' })).toBeInTheDocument();
+  });
+
+  // #2998 — role === null means two different things, and this component renders one
+  // of them as a permission wall. A failed read must not tell a Scheduler/Owner they
+  // lack access they already hold.
+  it('does not claim a permission denial when the role read failed', () => {
+    roleMock.mockReturnValue({ role: null, roleLabel: null, isLoading: false, isError: true });
+    renderWithProviders(<HeatmapPage />);
+    expect(
+      screen.queryByText('Resource utilization is only visible to Schedulers, Admins, and Owners.'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('says the read failed, and offers a way out', async () => {
+    const refetch = vi.fn();
+    roleMock.mockReturnValue({
+      role: null,
+      roleLabel: null,
+      isLoading: false,
+      isError: true,
+      refetch,
+    });
+    renderWithProviders(<HeatmapPage />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /Couldn.t check your role on this project/,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('still allows a Scheduler-or-above role through to the grid', () => {
+    roleMock.mockReturnValue({ role: ROLE_SCHEDULER, roleLabel: 'Scheduler', isLoading: false });
+    heatmapMock.mockReturnValue(heatmapSuccess([person()]));
+    renderWithProviders(<HeatmapPage />);
+
+    expect(
+      screen.queryByText('Resource utilization is only visible to Schedulers, Admins, and Owners.'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('grid', { name: 'Resource utilization heatmap' })).toBeInTheDocument();
+    expect(heatmapMock).toHaveBeenCalledWith('project-1', expect.anything(), expect.anything(), expect.anything());
+    expect(summaryMock).toHaveBeenCalledWith('project-1');
+  });
+});
 
 describe('HeatmapPage — level_loads extension slot', () => {
   it('renders no "Level loads" control when the slot has no override (OSS)', () => {
