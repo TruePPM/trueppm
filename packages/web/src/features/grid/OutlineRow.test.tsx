@@ -65,6 +65,27 @@ describe('OutlineRow', () => {
     expect(screen.getByText('1.0 FS+2')).toBeInTheDocument();
   });
 
+  it('surfaces the untruncated predecessor text via Tooltip on focus, not a bare title (#2454)', () => {
+    const node = makeNode({ id: 't1', wbs: '1.1', name: 'Discovery' });
+    renderRow(node, { predecessorText: '1.0 FS+2' });
+    const cell = screen.getByText('1.0 FS+2');
+    expect(cell).not.toHaveAttribute('title');
+    fireEvent.focus(cell);
+    // describe={false}: the cell has no aria-label, so its accessible name is
+    // already the full untruncated text — the panel is aria-hidden so a
+    // screen reader is not told the same string twice, and must be queried
+    // directly rather than via getByRole.
+    const panel = document.querySelector('[role="tooltip"]');
+    expect(panel).toHaveTextContent('1.0 FS+2');
+    expect(panel).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('has no predecessor Tooltip when there is no predecessor text', () => {
+    const node = makeNode({ id: 't1', wbs: '1.1', name: 'Discovery' });
+    renderRow(node, { predecessorText: '' });
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
   // #2201: the dnd-kit reorder handle must expose an accessible name instead of
   // aria-hidden, so keyboard/SR users hit a labeled control rather than an
   // unnamed, unexplained tab stop.
@@ -73,6 +94,19 @@ describe('OutlineRow', () => {
     renderRow(node);
     const handle = screen.getByLabelText('Reorder Discovery');
     expect(handle).not.toHaveAttribute('aria-hidden');
+  });
+
+  // #2454: deliberately NOT wrapped in `Tooltip` — dnd-kit's own
+  // onPointerDown/onKeyDown drive drag activation on this handle, and
+  // `Tooltip` clones a trigger's handlers rather than composing with them, so
+  // wrapping it would silently disable pointer- and keyboard-drag. See the
+  // comment at the handle's own definition.
+  it('does not wrap the drag handle in a Tooltip (would break dnd-kit activation)', () => {
+    const node = makeNode({ id: 't1', wbs: '1.1', name: 'Discovery' });
+    renderRow(node);
+    const handle = screen.getByLabelText('Reorder Discovery');
+    fireEvent.focus(handle);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
   });
 
   it('shows the expand button when the node has children', () => {
@@ -100,6 +134,19 @@ describe('OutlineRow', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it('surfaces the expand/collapse aria-label via Tooltip on focus, icon-only control (#2454)', () => {
+    const child = makeNode({ id: 'c', wbs: '1.1' }, 1);
+    const parent = makeNode({ id: 'p', wbs: '1', isSummary: true }, 0, [child]);
+    renderRow(parent);
+    const toggle = screen.getByRole('button', { name: /expand p/i });
+    fireEvent.focus(toggle);
+    // describe={false}: the tooltip restates the aria-label, so the panel is
+    // aria-hidden and must be queried directly rather than via getByRole.
+    const panel = document.querySelector('[role="tooltip"]');
+    expect(panel).toHaveTextContent(/expand p/i);
+    expect(panel).toHaveAttribute('aria-hidden', 'true');
+  });
+
   it('renders the milestone diamond SVG for milestone leaves', () => {
     const node = makeNode({ id: 't1', wbs: '1.1', isMilestone: true });
     renderRow(node);
@@ -121,6 +168,32 @@ describe('OutlineRow', () => {
     const node = makeNode({ id: 't1', wbs: '1.1', isCritical: true });
     renderRow(node);
     expect(screen.getByLabelText('Critical path')).toBeInTheDocument();
+  });
+
+  it('surfaces the critical-path explanation via Tooltip on focus, not a bare title (#2454)', () => {
+    const node = makeNode({ id: 't1', wbs: '1.1', isCritical: true });
+    renderRow(node);
+    const badge = screen.getByLabelText('Critical path');
+    expect(badge).not.toHaveAttribute('title');
+    fireEvent.focus(badge);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/critical path/i);
+  });
+
+  it('surfaces the double-click-to-rename hint via Tooltip, not a bare title (#2454)', () => {
+    const node = makeNode({ id: 't1', wbs: '1.1', name: 'Discovery' });
+    renderRow(node);
+    const name = screen.getByText('Discovery');
+    expect(name).not.toHaveAttribute('title');
+    fireEvent.focus(name);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Double-click to rename');
+  });
+
+  it('does not show the double-click-to-rename hint for a summary row', () => {
+    const node = makeNode({ id: 't1', wbs: '1', name: 'Phase', isSummary: true });
+    renderRow(node);
+    const name = screen.getByText('Phase');
+    fireEvent.focus(name);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
   });
 
   it('clicking the row invokes onSelect', () => {

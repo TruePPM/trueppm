@@ -14,6 +14,7 @@ import { useTaskSelectionStore } from '@/stores/taskSelectionStore';
 import { useWbsStore } from '@/stores/wbsStore';
 import { exportTasksToCsv } from '@/utils/exportCsv';
 import type { Task, TaskStatus } from '@/types';
+import { Tooltip } from '@/components/Tooltip';
 import { ModeToggle } from './ModeToggle';
 import { GroupBySelector } from './GroupBySelector';
 import { ChipStrip } from './ChipStrip';
@@ -985,14 +986,21 @@ function Toolbar({
             showSprint={agileFeatures}
           />
           {groupBy === 'resource' && (
-            <span
-              role="img"
-              aria-label="Tasks with multiple assignees appear under each resource"
-              title="Tasks with multiple assignees appear under each resource."
-              className="text-neutral-text-disabled cursor-help select-none text-xs"
+            // `title` was invisible to keyboard focus and unreachable on touch
+            // (#2389, rule 287). `describe={false}` because the tooltip
+            // restates the `aria-label` verbatim.
+            <Tooltip
+              content="Tasks with multiple assignees appear under each resource"
+              describe={false}
             >
-              ⓘ
-            </span>
+              <span
+                role="img"
+                aria-label="Tasks with multiple assignees appear under each resource"
+                className="text-neutral-text-disabled cursor-help select-none text-xs"
+              >
+                ⓘ
+              </span>
+            </Tooltip>
           )}
         </>
       )}
@@ -1122,28 +1130,35 @@ function Toolbar({
 
       {mode === 'outline' && (
         <>
-          <button
-            type="button"
-            onClick={onExpandAll}
-            aria-label="Expand all"
-            className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
-              border border-neutral-border rounded h-7 px-3
-              focus:outline-none focus:ring-2 focus:ring-brand-primary
-              focus:ring-offset-1"
-          >
-            ⤢
-          </button>
-          <button
-            type="button"
-            onClick={onCollapseAll}
-            aria-label="Collapse all"
-            className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
-              border border-neutral-border rounded h-7 px-3
-              focus:outline-none focus:ring-2 focus:ring-brand-primary
-              focus:ring-offset-1"
-          >
-            ⤡
-          </button>
+          {/* Icon-only (⤢/⤡): `Tooltip` surfaces the existing `aria-label` to a
+              sighted hover/focus/touch user (#2454, rule 287); `describe={false}`
+              since the tooltip would otherwise restate the label verbatim. */}
+          <Tooltip content="Expand all" describe={false}>
+            <button
+              type="button"
+              onClick={onExpandAll}
+              aria-label="Expand all"
+              className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
+                border border-neutral-border rounded h-7 px-3
+                focus:outline-none focus:ring-2 focus:ring-brand-primary
+                focus:ring-offset-1"
+            >
+              ⤢
+            </button>
+          </Tooltip>
+          <Tooltip content="Collapse all" describe={false}>
+            <button
+              type="button"
+              onClick={onCollapseAll}
+              aria-label="Collapse all"
+              className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
+                border border-neutral-border rounded h-7 px-3
+                focus:outline-none focus:ring-2 focus:ring-brand-primary
+                focus:ring-offset-1"
+            >
+              ⤡
+            </button>
+          </Tooltip>
         </>
       )}
 

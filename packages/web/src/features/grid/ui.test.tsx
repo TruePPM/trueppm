@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import { StatusPill, OwnerAvatar, fmtDate, initials } from './ui';
 import type { TaskStatus } from '@/types';
@@ -34,6 +34,18 @@ describe('OwnerAvatar', () => {
   it('handles a name with extra whitespace', () => {
     render(<OwnerAvatar name="  Alice   Smith  " />);
     expect(screen.getByText('AS')).toBeInTheDocument();
+  });
+
+  it('surfaces the full name via Tooltip on focus, not a bare title (#2454)', () => {
+    render(<OwnerAvatar name="Alice Smith" />);
+    const avatar = screen.getByLabelText('Alice Smith');
+    expect(avatar).not.toHaveAttribute('title');
+    fireEvent.focus(avatar);
+    // describe={false}: the tooltip restates the aria-label, so the panel is
+    // aria-hidden and must be queried directly rather than via getByRole.
+    const panel = document.querySelector('[role="tooltip"]');
+    expect(panel).toHaveTextContent('Alice Smith');
+    expect(panel).toHaveAttribute('aria-hidden', 'true');
   });
 });
 

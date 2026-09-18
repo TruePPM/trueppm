@@ -58,6 +58,15 @@ describe('TaskRow', () => {
     expect(screen.queryByLabelText('Critical path')).not.toBeInTheDocument();
   });
 
+  it('surfaces the critical-path explanation via Tooltip on keyboard focus, not a bare title (#2454)', () => {
+    const task = makeTask({ id: 't1', wbs: '1.1', isCritical: true });
+    render(<TaskRow {...baseProps} task={task} phase="Discovery" />);
+    const badge = screen.getByLabelText('Critical path');
+    expect(badge).not.toHaveAttribute('title');
+    fireEvent.focus(badge);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/critical path/i);
+  });
+
   it('renders the owner avatar when an assignee is present', () => {
     const task = makeTask({
       id: 't1',
@@ -311,6 +320,10 @@ describe('TaskRow', () => {
       // Standalone focusable row uses focus: (not focus-visible:) so the ring shows
       // on pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7).
       expect(row.className).toMatch(/focus:ring-2/);
+      // No bare `title` (#2454): the aria-label above already carries the
+      // affordance, and wrapping the row in `Tooltip` would clobber the
+      // `onKeyDown` that F2-rename and Enter-to-open rely on.
+      expect(row).not.toHaveAttribute('title');
     });
 
     it('a second click restarts the delay so the detail opens exactly once', () => {

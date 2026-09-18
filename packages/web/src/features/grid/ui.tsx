@@ -1,4 +1,5 @@
 import type { Task, TaskStatus } from '@/types';
+import { Tooltip } from '@/components/Tooltip';
 
 /**
  * Fill color for a task's progress bar: critical tasks read red, completed
@@ -46,16 +47,25 @@ export function initials(name: string): string {
   return ((parts[0]?.[0] ?? '') + (parts[parts.length - 1]?.[0] ?? '')).toUpperCase();
 }
 
+/**
+ * Initials-only avatar chip. The full name is the accessible name (screen
+ * readers already had it); `Tooltip` surfaces the same string to a sighted
+ * mouse/keyboard/touch user who only sees two letters (#2389, rule 287).
+ * `describe={false}` because the tooltip restates the `aria-label` verbatim —
+ * wiring `aria-describedby` too would announce the name twice.
+ */
 export function OwnerAvatar({ name }: { name: string }) {
   return (
-    <span
-      aria-label={name}
-      title={name}
-      className="w-6 h-6 rounded-full bg-brand-primary/20 text-brand-primary
-        flex items-center justify-center text-xs font-semibold"
-    >
-      {initials(name)}
-    </span>
+    <Tooltip content={name} describe={false}>
+      <span
+        role="img"
+        aria-label={name}
+        className="w-6 h-6 rounded-full bg-brand-primary/20 text-brand-primary
+          flex items-center justify-center text-xs font-semibold"
+      >
+        {initials(name)}
+      </span>
+    </Tooltip>
   );
 }
 

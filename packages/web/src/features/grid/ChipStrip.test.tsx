@@ -69,6 +69,18 @@ describe('ChipStrip', () => {
     expect(onRemoveStatus).toHaveBeenCalledWith('COMPLETE');
   });
 
+  it('surfaces the remove-chip aria-label via Tooltip on focus, icon-only control (#2454)', () => {
+    renderStrip({ ownerChips: [{ id: 'r1', name: 'Alice' }] });
+    const removeBtn = screen.getByLabelText('Remove Owner: Alice filter');
+    expect(removeBtn).not.toHaveAttribute('title');
+    fireEvent.focus(removeBtn);
+    // describe={false}: the tooltip restates the aria-label, so the panel is
+    // aria-hidden and must be queried directly rather than via getByRole.
+    expect(document.querySelector('[role="tooltip"]')).toHaveTextContent(
+      'Remove Owner: Alice filter',
+    );
+  });
+
   it('renders chips in toolbar order — search, owner, status, label, overdue', () => {
     renderStrip({
       search: 'slab',

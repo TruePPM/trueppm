@@ -471,6 +471,22 @@ describe('GridView — group-by', () => {
       screen.getByLabelText(/tasks with multiple assignees appear under each resource/i),
     ).toBeInTheDocument();
   });
+
+  it('surfaces the resource-duplication explanation via Tooltip on focus, not a bare title (#2454)', async () => {
+    const user = userEvent.setup();
+    await renderGrid();
+    await user.click(screen.getByRole('button', { name: 'Grouped' }));
+    const select = await screen.findByLabelText(/group by dimension/i);
+    await user.selectOptions(select, 'resource');
+    const info = screen.getByLabelText(/tasks with multiple assignees appear under each resource/i);
+    expect(info).not.toHaveAttribute('title');
+    fireEvent.focus(info);
+    // describe={false}: the tooltip restates the aria-label, so the panel is
+    // aria-hidden and must be queried directly rather than via getByRole.
+    expect(document.querySelector('[role="tooltip"]')).toHaveTextContent(
+      /tasks with multiple assignees appear under each resource/i,
+    );
+  });
 });
 
 describe('GridView — search and filtering', () => {
@@ -730,6 +746,17 @@ describe('GridView — extra coverage', () => {
     await renderGrid();
     expect(screen.queryByRole('button', { name: /^expand all$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^collapse all$/i })).not.toBeInTheDocument();
+  });
+
+  it('surfaces the Expand/Collapse all aria-labels via Tooltip on focus, icon-only controls (#2454)', async () => {
+    projectMethodology = 'HYBRID'; // outline default
+    await renderGrid();
+    const expandBtn = screen.getByRole('button', { name: /^expand all$/i });
+    expect(expandBtn).not.toHaveAttribute('title');
+    fireEvent.focus(expandBtn);
+    // describe={false}: the tooltip restates the aria-label, so the panel is
+    // aria-hidden and must be queried directly rather than via getByRole.
+    expect(document.querySelector('[role="tooltip"]')).toHaveTextContent(/expand all/i);
   });
 
   it('+ Child button appears in outline mode only when a row is selected', async () => {
