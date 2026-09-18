@@ -512,8 +512,14 @@ describe('BaselineManagerModal — delete outcomes', () => {
     const dialog = openDeleteConfirm();
     expect(within(dialog).getByRole('button', { name: /deleting/i })).toBeDisabled();
     expect(within(dialog).getByRole('button', { name: /^cancel$/i })).toBeDisabled();
-    // A scrim press is inert while the request is in flight.
-    fireEvent.pointerDown(dialog);
+    // Note: this file stubs `useFocusTrap` to a bare `{ current: null }` ref
+    // (see the mock above), so the real focus-seat behavior is not exercised
+    // here — see `MethodologyFlipWarningDialog.test.tsx` and
+    // `CascadeDeleteDialog.test.tsx` for the seat/ring/Shift+Tab assertions.
+    // A scrim press is inert while the request is in flight. The trap seat
+    // (role="alertdialog") lives on the panel, not the scrim — the backdrop is
+    // its parent, the plain pointer-dismiss node.
+    fireEvent.pointerDown(dialog.parentElement as HTMLElement);
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
     expect(deleteMut.reset).not.toHaveBeenCalled();
   });
@@ -521,7 +527,7 @@ describe('BaselineManagerModal — delete outcomes', () => {
   it('a scrim press dismisses the delete confirm when idle', () => {
     render(ROLE_OWNER);
     const dialog = openDeleteConfirm();
-    fireEvent.pointerDown(dialog);
+    fireEvent.pointerDown(dialog.parentElement as HTMLElement);
     expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 

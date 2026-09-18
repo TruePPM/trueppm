@@ -94,18 +94,20 @@ export function UnsavedChangesDialog({
 
   return (
     <div
-      ref={trapRef}
-      role="alertdialog"
-      aria-modal="true"
-      aria-labelledby="unsaved-changes-title"
-      aria-describedby="unsaved-changes-body"
-      tabIndex={-1}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay focus:outline-none motion-safe:animate-scrim-fade"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !saving) onKeepEditing();
       }}
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-sm mx-4 p-5 motion-safe:animate-modal-scale-in">
+      <div
+        ref={trapRef}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="unsaved-changes-title"
+        aria-describedby="unsaved-changes-body"
+        tabIndex={-1}
+        className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-sm mx-4 p-5 motion-safe:animate-modal-scale-in focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+      >
         <h2
           id="unsaved-changes-title"
           className="text-sm font-semibold text-neutral-text-primary mb-2"

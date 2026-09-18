@@ -80,20 +80,20 @@ export function CommitPlanConfirmDialog({
   );
   return (
     <div
-      ref={trapRef}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="commit-plan-title"
-      aria-describedby="commit-plan-body"
-      aria-busy={isPending}
-      tabIndex={-1}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay p-4 focus:outline-none motion-safe:animate-scrim-fade"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay p-4 motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !isPending) onCancel();
       }}
     >
       <div
-        className="max-h-[80vh] w-full max-w-md overflow-y-auto rounded-lg border border-neutral-border bg-neutral-surface p-5 shadow-pop motion-safe:animate-modal-scale-in"
+        ref={trapRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="commit-plan-title"
+        aria-describedby="commit-plan-body"
+        aria-busy={isPending}
+        tabIndex={-1}
+        className="max-h-[80vh] w-full max-w-md overflow-y-auto rounded-lg border border-neutral-border bg-neutral-surface p-5 shadow-pop motion-safe:animate-modal-scale-in focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <h2

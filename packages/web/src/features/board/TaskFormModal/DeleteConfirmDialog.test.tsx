@@ -268,7 +268,9 @@ describe('DeleteConfirmDialog', () => {
         onConfirm={vi.fn()}
       />,
     );
-    const backdrop = screen.getByRole('alertdialog');
+    // #3433: the trap seat (role="alertdialog") lives on the panel, not the
+    // scrim — the backdrop is its parent, the plain pointer-dismiss node.
+    const backdrop = screen.getByRole('alertdialog').parentElement as HTMLElement;
     // Pointer-down whose target equals currentTarget = on the backdrop itself.
     fireEvent.pointerDown(backdrop, { target: backdrop });
     expect(onCancel).toHaveBeenCalled();

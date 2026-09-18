@@ -27,16 +27,16 @@ export function CascadeDeleteDialog({
   const dialogRef = useFocusTrap<HTMLDivElement>(true, onCancel, isLoading);
 
   return (
-    <div
-      ref={dialogRef}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="cascade-dialog-title"
-      aria-describedby="cascade-dialog-desc"
-      tabIndex={-1}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-overlay p-4 focus:outline-none"
-    >
-      <div className="w-full max-w-sm bg-neutral-surface rounded-card border border-neutral-border p-5 flex flex-col gap-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-overlay p-4">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cascade-dialog-title"
+        aria-describedby="cascade-dialog-desc"
+        tabIndex={-1}
+        className="w-full max-w-sm bg-neutral-surface rounded-card border border-neutral-border p-5 flex flex-col gap-4 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+      >
         <h2 id="cascade-dialog-title" className="text-base font-semibold text-neutral-text-primary">
           Remove {resourceName}?
         </h2>

@@ -28,7 +28,7 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
   // and restores focus to the "+ Pin link" trigger on close (issue 575 —
   // this `role="dialog" aria-modal="true"` previously let Tab escape into the
   // body). Reuse this hook on any future modal rather than re-deriving it.
-  const trapRef = useFocusTrap<HTMLDivElement>(open, onClose, submitting);
+  const trapRef = useFocusTrap<HTMLFormElement>(open, onClose, submitting);
 
   useEffect(() => {
     if (open) {
@@ -59,18 +59,17 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
   if (!open) return null;
 
   return (
-    <div
-      ref={trapRef}
-      tabIndex={-1}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-overlay focus:outline-none"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="link-modal-title"
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-overlay">
       <form
+        ref={trapRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="link-modal-title"
         onSubmit={handleSubmit}
         className="flex flex-col gap-3 w-full max-w-md p-4 bg-neutral-surface
-          border border-neutral-border rounded-card"
+          border border-neutral-border rounded-card
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <h2 id="link-modal-title" className="text-sm font-semibold text-neutral-text-primary">
           Pin a link

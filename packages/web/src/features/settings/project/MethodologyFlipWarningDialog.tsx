@@ -173,19 +173,19 @@ export function MethodologyFlipWarningDialog({
 
   return (
     <div
-      ref={trapRef}
-      role="alertdialog"
-      aria-modal="true"
-      aria-labelledby="methodology-flip-title"
-      aria-describedby="methodology-flip-body"
-      tabIndex={-1}
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-overlay p-4 focus:outline-none"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-overlay p-4"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !pending) onCancel();
       }}
     >
       <div
-        className="w-full max-w-sm rounded-card border border-neutral-border bg-neutral-surface p-5 shadow-pop motion-safe:animate-modal-scale-in"
+        ref={trapRef}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="methodology-flip-title"
+        aria-describedby="methodology-flip-body"
+        tabIndex={-1}
+        className="w-full max-w-sm rounded-card border border-neutral-border bg-neutral-surface p-5 shadow-pop motion-safe:animate-modal-scale-in focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <h2
