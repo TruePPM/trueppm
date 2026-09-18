@@ -87,7 +87,7 @@ export function AddCalendarPicker({
     dirty: selected.size > 0,
     onClose,
   });
-  const containerRef = useFocusTrap<HTMLDivElement>(!guardOpen);
+  const containerRef = useFocusTrap<HTMLDivElement>(!guardOpen, undefined, submitting);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -248,7 +248,8 @@ export function AddCalendarPicker({
             role="dialog"
             aria-modal="true"
             aria-label="Add calendars to this project"
-            className="relative flex max-h-[88%] flex-col overflow-hidden rounded-t-[20px] bg-neutral-surface shadow-pop"
+            tabIndex={-1}
+            className="relative flex max-h-[88%] flex-col overflow-hidden rounded-t-[20px] bg-neutral-surface shadow-pop focus:outline-none"
           >
             <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-neutral-border" aria-hidden="true" />
             <div className="flex items-center gap-2 px-4 pb-2 pt-1.5">
@@ -280,7 +281,8 @@ export function AddCalendarPicker({
         ref={containerRef}
         role="dialog"
         aria-label="Add calendars to this project"
-        className="mt-2.5 w-full max-w-[380px] overflow-hidden rounded-card border border-neutral-border bg-neutral-surface shadow-pop"
+        tabIndex={-1}
+        className="mt-2.5 w-full max-w-[380px] overflow-hidden rounded-card border border-neutral-border bg-neutral-surface shadow-pop focus:outline-none"
       >
         <div className="border-b border-neutral-border px-3.5 pb-2.5 pt-3">
           <div className="mb-2.5 text-[13px] font-semibold text-neutral-text-primary">

@@ -1,0 +1,1 @@
+- **`devalue` dependency (docs site)**: bumped the transitive `devalue` dependency pulled in by Astro from 5.8.2 to 5.9.2, fixing a denial-of-service issue where `devalue.parse` failed to reject out-of-bounds indices (GHSA-9rgm-9g3h-6x36).
