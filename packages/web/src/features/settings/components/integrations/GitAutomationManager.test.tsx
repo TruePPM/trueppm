@@ -328,7 +328,9 @@ describe('GitAutomationManager — rotate/generate modal', () => {
     const dialog = openModal();
     fireEvent.pointerDown(within(dialog).getByRole('heading'));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
-    fireEvent.pointerDown(dialog);
+    // #3433: the trap seat (role="dialog") lives on the panel, not the scrim —
+    // the backdrop is its parent, the plain pointer-dismiss node.
+    fireEvent.pointerDown(dialog.parentElement as HTMLElement);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
@@ -337,7 +339,10 @@ describe('GitAutomationManager — rotate/generate modal', () => {
     const dialog = openModal();
     expect(within(dialog).getByRole('button', { name: 'Working…' })).toBeDisabled();
     expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeDisabled();
-    fireEvent.pointerDown(dialog);
+    // #3433: the seated fallback is the panel itself — a visible, ring-able
+    // element — rather than the scrim.
+    expect(dialog).toHaveFocus();
+    fireEvent.pointerDown(dialog.parentElement as HTMLElement);
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });

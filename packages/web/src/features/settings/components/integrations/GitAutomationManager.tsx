@@ -497,17 +497,19 @@ function RotateSecretModal({
 
   return (
     <div
-      ref={trapRef}
-      role="dialog"
-      aria-modal="true"
-      aria-label={revealed ? 'Secret generated' : 'Generate webhook secret'}
-      tabIndex={-1}
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-overlay p-4 focus:outline-none"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-overlay p-4"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !rotate.isPending) onClose();
       }}
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-md p-5">
+      <div
+        ref={trapRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={revealed ? 'Secret generated' : 'Generate webhook secret'}
+        tabIndex={-1}
+        className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-md p-5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2"
+      >
         {revealed ? (
           <>
             <h2 className="text-sm font-semibold text-neutral-text-primary mb-2">

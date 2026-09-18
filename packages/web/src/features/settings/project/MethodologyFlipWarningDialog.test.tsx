@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi } from 'vitest';
 import type { ComponentProps } from 'react';
@@ -193,6 +193,23 @@ describe('MethodologyFlipWarningDialog', () => {
       expect(dialog).toHaveAttribute('aria-modal', 'true');
       expect(dialog).toHaveAttribute('aria-labelledby', 'methodology-flip-title');
       expect(dialog).toHaveAttribute('aria-describedby', 'methodology-flip-body');
+      // #3433: the fallback seat is the PANEL, not the full-viewport scrim — the
+      // panel is a bounded, ring-able element, so the seat is visible (WCAG 2.4.7).
+      expect(dialog).toHaveFocus();
+      expect(dialog.className).toMatch(/focus:ring-2/);
+    });
+
+    // #3433 acceptance criterion: Shift+Tab from the container-fallback seat must
+    // not walk out of the dialog. With both buttons disabled, `getFocusable()`
+    // is empty, so the trap's Tab handler takes the "nothing focusable — keep
+    // focus on the container" branch (`useFocusTrap.ts`) rather than the
+    // first/last wrap branches — this asserts that branch actually holds focus.
+    it('holds focus on the seated panel on Shift+Tab while pending (no focusables)', () => {
+      renderDialog({ pending: true });
+      const dialog = screen.getByRole('alertdialog');
+      expect(dialog).toHaveFocus();
+      fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+      expect(dialog).toHaveFocus();
     });
 
     // Re-seating focus re-announces the dialog's NAME and DESCRIPTION, and both
@@ -225,14 +242,18 @@ describe('MethodologyFlipWarningDialog', () => {
     it('does not cancel on a backdrop press while pending', async () => {
       const user = userEvent.setup();
       const { onCancel } = renderDialog({ pending: true });
-      await user.click(screen.getByRole('alertdialog'));
+      // #3433: the trap seat (role="alertdialog") now lives on the panel, not
+      // the scrim — the backdrop is its parent, the plain pointer-dismiss node.
+      const backdrop = screen.getByRole('alertdialog').parentElement as HTMLElement;
+      await user.click(backdrop);
       expect(onCancel).not.toHaveBeenCalled();
     });
 
     it('cancels on a backdrop press when idle', async () => {
       const user = userEvent.setup();
       const { onCancel } = renderDialog();
-      await user.click(screen.getByRole('alertdialog'));
+      const backdrop = screen.getByRole('alertdialog').parentElement as HTMLElement;
+      await user.click(backdrop);
       expect(onCancel).toHaveBeenCalledTimes(1);
     });
   });

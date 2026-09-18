@@ -358,19 +358,19 @@ function BaselineDeleteConfirm({
   const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel, isPending);
   return (
     <div
-      ref={trapRef}
-      role="alertdialog"
-      aria-modal="true"
-      aria-labelledby="baseline-delete-title"
-      aria-describedby="baseline-delete-body"
-      tabIndex={-1}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay p-4 focus:outline-none motion-safe:animate-scrim-fade"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay p-4 motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !isPending) onCancel();
       }}
     >
       <div
-        className="w-full max-w-sm rounded-lg border border-neutral-border bg-neutral-surface p-5 shadow-pop motion-safe:animate-modal-scale-in"
+        ref={trapRef}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="baseline-delete-title"
+        aria-describedby="baseline-delete-body"
+        tabIndex={-1}
+        className="w-full max-w-sm rounded-lg border border-neutral-border bg-neutral-surface p-5 shadow-pop motion-safe:animate-modal-scale-in focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <h2
