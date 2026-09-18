@@ -1,7 +1,11 @@
 """Tests for the resources/heatmap and resources/summary endpoints (ADR-0042).
 
 Covers:
-  - Permission gate: VIEWER/MEMBER denied, SCHEDULER+ allowed
+  - Permission gate (#3844): VIEWER/MEMBER denied, SCHEDULER+ allowed, on BOTH
+    the heatmap and summary actions (`IsProjectScheduler`, `views.py`
+    `_rbac_permissions`) — the same floor already enforced for the
+    `resource-allocation` action the Allocation tab reads. See also #2854
+    (a related but distinct per-sprint hours exposure — NOT fixed here).
   - 409 when no CPM dates exist
   - Correct weekly util values at 50%, 100%, 130%
   - Over-allocated detection in summary
@@ -98,6 +102,14 @@ class TestHeatmapPermissions:
 
     def test_summary_viewer_denied(self, project: Project) -> None:
         assert _auth_client(Role.VIEWER, project).get(_summary_url(project)).status_code == 403
+
+    def test_summary_member_denied(self, project: Project) -> None:
+        assert _auth_client(Role.MEMBER, project).get(_summary_url(project)).status_code == 403
+
+    def test_summary_scheduler_allowed(self, project: Project) -> None:
+        resp = _auth_client(Role.SCHEDULER, project).get(_summary_url(project))
+        # No CPM dates → 409; auth succeeded.
+        assert resp.status_code in (200, 409)
 
 
 # ---------------------------------------------------------------------------
