@@ -5,8 +5,10 @@ import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/
 import { CSS } from '@dnd-kit/utilities';
 import type { WbsNode } from './buildWbsTree';
 import type { Task } from '@/types';
-import { fmtDate, initials, progressBarColor } from './ui';
+import { fmtDate, OwnerAvatar, progressBarColor } from './ui';
 import { MilestoneIcon, SquareIcon } from '@/components/Icons';
+import { Tooltip } from '@/components/Tooltip';
+import { ABBREVIATIONS } from '@/lib/abbreviations';
 
 /**
  * Full container className for an outline row. Extracted so the row component
@@ -77,6 +79,16 @@ function OutlineRowControls({
         {...attributes}
         {...listeners}
         aria-label={`Reorder ${task.name}`}
+        // Not given the rule-287 `Tooltip` treatment (#2454): dnd-kit's
+        // `listeners` carries this handle's own `onPointerDown`/`onKeyDown`
+        // (pointer-drag activation and `KeyboardSensor` drag), and `Tooltip`
+        // clones its trigger with its own versions of those same handlers
+        // rather than composing with the child's — wrapping this element would
+        // silently disable drag-to-reorder by keyboard and mouse alike. The
+        // `aria-label` is the only affordance today; giving this a sighted
+        // hover/focus hint needs `Tooltip` to compose handlers instead of
+        // replacing them, which is a change to the shared primitive, not to
+        // this call site.
         className={`
               relative w-4 h-4 flex items-center justify-center flex-shrink-0
               cursor-grab active:cursor-grabbing text-neutral-text-secondary
@@ -93,24 +105,29 @@ function OutlineRowControls({
       {hasChildren ? (
         // Expand/collapse toggle: focus: (not focus-visible:) so the ring shows on
         // pointer-initiated focus in Firefox/Safari (rule 214, WCAG 2.4.7).
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggle();
-          }}
-          aria-expanded={isExpanded}
-          aria-controls={`grid-subtree-${task.id}`}
-          aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
-          className="
-                w-4 h-4 flex items-center justify-center flex-shrink-0
-                text-xs font-bold text-neutral-text-secondary
-                hover:text-neutral-text-primary rounded
-                focus:ring-1 focus:ring-brand-primary focus:outline-none
-              "
-        >
-          {isExpanded ? '−' : '+'}
-        </button>
+        // Icon-only (+/−), so `Tooltip` surfaces the same `aria-label` string to
+        // a sighted hover/focus/touch user (#2454, rule 287); `describe={false}`
+        // since the tooltip would otherwise restate the label verbatim.
+        <Tooltip content={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`} describe={false}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle();
+            }}
+            aria-expanded={isExpanded}
+            aria-controls={`grid-subtree-${task.id}`}
+            aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
+            className="
+                  w-4 h-4 flex items-center justify-center flex-shrink-0
+                  text-xs font-bold text-neutral-text-secondary
+                  hover:text-neutral-text-primary rounded
+                  focus:ring-1 focus:ring-brand-primary focus:outline-none
+                "
+          >
+            {isExpanded ? '−' : '+'}
+          </button>
+        </Tooltip>
       ) : (
         <span
           aria-hidden="true"
@@ -164,15 +181,22 @@ function OutlineRowName({
   return (
     <span role="gridcell" className="flex-1 min-w-0 pr-2 flex items-center gap-1.5">
       {task.isCritical && (
-        <span
-          aria-label="Critical path"
-          title="This task is on the critical path — a delay here delays the project end date"
-          className="flex-shrink-0 tppm-mono text-xs font-bold
-              text-semantic-critical border border-semantic-critical/50
-              rounded px-0.5 leading-4"
-        >
-          CP
-        </span>
+        // `title` was invisible to keyboard focus and unreachable on touch
+        // (#2389, rule 287). `ABBREVIATIONS.CRITICAL` is the same shared
+        // definition `TaskRow`'s identical badge and `TaskScheduleStrip`'s CP
+        // suffix already use, so the grid and the drawer never drift into two
+        // readings of "CP".
+        <Tooltip content={ABBREVIATIONS.CRITICAL}>
+          <span
+            aria-label="Critical path"
+            className="flex-shrink-0 tppm-mono text-xs font-bold
+                text-semantic-critical border border-semantic-critical/50
+                rounded px-0.5 leading-4
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          >
+            CP
+          </span>
+        </Tooltip>
       )}
       {isRenaming ? (
         <input
@@ -187,13 +211,22 @@ function OutlineRowName({
               text-sm text-neutral-text-primary outline-none caret-neutral-text-primary px-0
             "
         />
-      ) : (
-        <span
-          className={`text-sm truncate block ${nameWeight} text-neutral-text-primary`}
-          title={task.isSummary ? undefined : 'Double-click to rename'}
-        >
+      ) : task.isSummary ? (
+        <span className={`text-sm truncate block ${nameWeight} text-neutral-text-primary`}>
           {task.name}
         </span>
+      ) : (
+        // `title` was invisible to keyboard focus and unreachable on touch
+        // (#2389, rule 287); this is the only sighted hint that the row
+        // supports double-click (or F2) to rename.
+        <Tooltip content="Double-click to rename">
+          <span
+            className={`text-sm truncate block ${nameWeight} text-neutral-text-primary
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1`}
+          >
+            {task.name}
+          </span>
+        </Tooltip>
       )}
     </span>
   );
@@ -328,18 +361,7 @@ export function OutlineRow({
         />
 
         <span role="gridcell" className="flex-shrink-0 flex items-center justify-center md:w-12">
-          {firstAssignee ? (
-            <span
-              aria-label={firstAssignee.name}
-              title={firstAssignee.name}
-              className="
-                w-6 h-6 rounded-full bg-brand-primary/20 text-brand-primary
-                flex items-center justify-center text-xs font-semibold
-              "
-            >
-              {initials(firstAssignee.name)}
-            </span>
-          ) : null}
+          {firstAssignee ? <OwnerAvatar name={firstAssignee.name} /> : null}
         </span>
       </div>
 
@@ -389,14 +411,31 @@ export function OutlineRow({
       </div>
 
       {/* Predecessors are Outline-specific and low-value on a phone; hidden on
-          mobile to keep the card to two lines. Available in the task drawer. */}
-      <span
-        role="gridcell"
-        className="hidden md:block w-36 flex-shrink-0 tppm-mono text-xs text-neutral-text-disabled truncate pl-2"
-        title={predecessorText || undefined}
-      >
-        {predecessorText}
-      </span>
+          mobile to keep the card to two lines. Available in the task drawer.
+          `title` was invisible to keyboard focus and unreachable on touch
+          (#2389, rule 287); `Tooltip` surfaces the untruncated text the same
+          way, and only renders when there is a value — an empty cell had no
+          `title` either and needs no explanation. `describe={false}`: the
+          CSS `truncate` is visual only — the cell has no `aria-label`, so its
+          accessible name is already the full, untruncated text content, and
+          wiring `aria-describedby` to the identical string would announce it
+          twice. The tooltip's only job here is the sighted channel. */}
+      {predecessorText ? (
+        <Tooltip content={predecessorText} describe={false}>
+          <span
+            role="gridcell"
+            className="hidden md:block w-36 flex-shrink-0 tppm-mono text-xs text-neutral-text-disabled truncate pl-2
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          >
+            {predecessorText}
+          </span>
+        </Tooltip>
+      ) : (
+        <span
+          role="gridcell"
+          className="hidden md:block w-36 flex-shrink-0 tppm-mono text-xs text-neutral-text-disabled truncate pl-2"
+        />
+      )}
     </div>
   );
 }

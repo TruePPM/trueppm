@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import type { RefObject } from 'react';
 import { XMarkIcon } from '@/components/Icons';
 import { LabelChip } from '@/components/filters/LabelChip';
+import { Tooltip } from '@/components/Tooltip';
 
 /** One active label chip: the catalog entry plus its match count in this view. */
 export interface ActiveLabelChip {
@@ -216,19 +217,24 @@ function PlainChip({ index, label, removeRefs, onRemove }: PlainChipProps) {
     >
       {label}
       {/* focus: (not focus-visible:) so the ring shows on pointer-initiated
-          focus in Firefox/Safari (rule 214, WCAG 2.4.7). */}
-      <button
-        ref={(el) => {
-          removeRefs.current[index] = el;
-        }}
-        type="button"
-        onClick={() => onRemove(index)}
-        aria-label={`Remove ${label} filter`}
-        className="ml-0.5 hover:text-brand-primary-dark
-          focus:outline-none focus:ring-1 focus:ring-brand-primary rounded-full"
-      >
-        <XMarkIcon aria-hidden="true" className="h-3 w-3" />
-      </button>
+          focus in Firefox/Safari (rule 214, WCAG 2.4.7). Icon-only (✕):
+          `Tooltip` surfaces the existing `aria-label` to a sighted
+          hover/focus/touch user (#2454, rule 287); `describe={false}` since
+          the tooltip would otherwise restate the label verbatim. */}
+      <Tooltip content={`Remove ${label} filter`} describe={false}>
+        <button
+          ref={(el) => {
+            removeRefs.current[index] = el;
+          }}
+          type="button"
+          onClick={() => onRemove(index)}
+          aria-label={`Remove ${label} filter`}
+          className="ml-0.5 hover:text-brand-primary-dark
+            focus:outline-none focus:ring-1 focus:ring-brand-primary rounded-full"
+        >
+          <XMarkIcon aria-hidden="true" className="h-3 w-3" />
+        </button>
+      </Tooltip>
     </span>
   );
 }
