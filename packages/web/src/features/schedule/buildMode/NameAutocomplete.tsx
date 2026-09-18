@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type RefObject } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
 interface Props {
@@ -43,12 +43,15 @@ export function NameAutocomplete({
 }: Props) {
   const [activeIdx, setActiveIdx] = useState(-1);
 
-  const matches =
-    query.trim().length === 0
-      ? []
-      : suggestions
-          .filter((s) => s.toLowerCase().includes(query.toLowerCase()))
-          .slice(0, MAX_SUGGESTIONS);
+  const matches = useMemo(
+    () =>
+      query.trim().length === 0
+        ? []
+        : suggestions
+            .filter((s) => s.toLowerCase().includes(query.toLowerCase()))
+            .slice(0, MAX_SUGGESTIONS),
+    [query, suggestions],
+  );
 
   // Reset active index when matches change
   useEffect(() => {
