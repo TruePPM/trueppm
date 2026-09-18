@@ -31,6 +31,11 @@ export type {
  * widget like the column resize separator. So we only pull focus when the move
  * is plausibly a keyboard hop — focus is ambient (body) or already sitting on
  * another board card — and never when focus is already inside *this* card.
+ *
+ * What receives the focus is the card's title button, not the card root: since
+ * #2618 the root is a roleless container with no tab stop of its own, so
+ * `root.focus()` would be a silent no-op. Scrolling still targets the root, so
+ * the whole card is brought into view rather than just its title.
  */
 function useKeyboardFocusFollow(
   cardElRef: RefObject<HTMLDivElement | null>,
@@ -53,7 +58,7 @@ function useKeyboardFocusFollow(
     const fromAnotherCard =
       active instanceof Element && active.closest('[data-board-card]') != null;
     if (!fromAmbient && !fromAnotherCard) return;
-    el.focus({ preventScroll: true });
+    el.querySelector<HTMLElement>('[data-card-title]')?.focus({ preventScroll: true });
     // Optional-chained: jsdom has no layout and does not implement scrollIntoView.
     el.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }, [cardElRef, pointerFocusRef, isKeyboardFocused, isFilteredOut]);
@@ -114,21 +119,34 @@ function BoardCardImpl(props: BoardCardProps) {
   // `data-board-card` marks the card root so the keyboard-focus effect can tell
   // "focus is on another board card" (a legit j/k/l/h hop, follow it) from
   // "focus is on an unrelated control" (a resize separator, an in-card button —
-  // don't steal it). See useKeyboardFocusFollow (#2194).
+  // don't steal it). See useKeyboardFocusFollow (#2194). It is also the only
+  // stable card-root handle for tests, now that the root carries no role.
   //
-  // dnd-kit's `attributes` also carry `aria-describedby` pointing at its
-  // live-region instruction ("To pick up a draggable item, press space or
-  // enter…"). That pickup path is dead on this board: `CardShell` overrides
-  // `onKeyDown` with the open-detail handler, so the KeyboardSensor activator
-  // never fires (#2194). Announcing a keyboard-drag that cannot happen is a
-  // false SR instruction, so we drop only that association —
-  // `aria-roledescription="draggable"` is kept: the card genuinely is
-  // pointer/touch-draggable, and it is the card-root selector.
+  // Every ARIA/tab-order attribute dnd-kit puts on its draggable node is
+  // stripped here, and each for its own reason (#2618):
+  //   • `role="button"` + `tabIndex` — the card root holds real controls (health
+  //     badge, dep/risk chips, accept ✓, ··· menu), and a `button` around
+  //     focusable descendants is `nested-interactive`. The card's tab stop and
+  //     accessible name live on `CardTitleButton` instead.
+  //   • `aria-disabled` and `aria-roledescription` — a roleless element is
+  //     `generic`, which permits neither (axe `aria-prohibited-attr`). The
+  //     "draggable" roledescription moves onto the title button with the name.
+  //   • `aria-describedby` — it points at dnd-kit's live-region instruction
+  //     ("To pick up a draggable item, press space or enter…"), and that pickup
+  //     path is dead on this board: Enter/Space on the title button open the
+  //     card detail, so the KeyboardSensor activator never fires (#2194).
+  //     Announcing a keyboard-drag that cannot happen is a false SR instruction.
+  // Pointer/touch drag is unaffected: the listeners stay on the root, and a
+  // pointerdown anywhere in the card — the title button included — bubbles to it.
   const dragProps = readOnly
-    ? { role: 'button' as const, tabIndex: 0, 'data-board-card': '', ...pointerTracking }
+    ? { 'data-board-card': '', ...pointerTracking }
     : {
         ...listeners,
         ...attributes,
+        role: undefined,
+        tabIndex: undefined,
+        'aria-disabled': undefined,
+        'aria-roledescription': undefined,
         'aria-describedby': undefined,
         'data-board-card': '',
         ...pointerTracking,
@@ -204,10 +222,7 @@ function BoardCardImpl(props: BoardCardProps) {
       dragProps={dragProps}
       containerClass={view.containerClass}
       showCriticalState={view.showCriticalState}
-      effectiveProgress={view.effectiveProgress}
-      columnLabel={view.columnLabel}
       isFilteredOut={isFilteredOut}
-      stopKeyPropagation={view.isCompact}
       onCardClick={onCardClick}
     >
       {view.isCompact ? (

@@ -59,10 +59,19 @@ if [ "${1:-}" = "--self-test" ]; then
   trap "rm -rf '$st_tmp'" EXIT
   st_rc=0
 
+  # The fixture marker is assembled at RUNTIME from `st_tag` rather than written
+  # out as one literal. The docstring above already says why this file keeps its
+  # examples digit-free — but the self-test needs real digits for the regex to
+  # have anything to match, so the literal is split instead. Written whole, these
+  # two lines are a live marker in a file the gate scans, and the gate would flag
+  # its own test fixture on the day that issue closed. That is not hypothetical:
+  # the previous fixture cited #2618, and closing it would have reddened main
+  # from here and from CONTRIBUTING.md (#2618). Keep them assembled.
+  st_tag="SUPPRESSED-UNTIL"
   mkdir -p "$st_tmp/marked"
-  printf '// SUPPRESSED-UNTIL(#2618) verified still failing\n' > "$st_tmp/marked/a.ts"
+  printf '// %s(#4242424) verified still failing\n' "$st_tag" > "$st_tmp/marked/a.ts"
   case "$(bash "$0" --list "$st_tmp/marked" 2>/dev/null || true)" in
-    *'SUPPRESSED-UNTIL(#2618)'*)
+    *"$st_tag(#4242424)"*)
       echo "SELF-TEST OK: a marker in the tree is discovered." ;;
     *)
       echo "SELF-TEST FAILED: discovery found nothing in a tree that carries a marker." >&2
