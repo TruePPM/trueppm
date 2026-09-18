@@ -1,5 +1,6 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { renderWithProviders } from '@/test/utils';
 import { ROLE_SCHEDULER, ROLE_MEMBER } from '@/lib/roles';
 import { ResourceView } from './ResourceView';
 import type {
@@ -163,7 +164,7 @@ afterEach(() => vi.clearAllMocks());
 describe('ResourceView loading/error states (#2177)', () => {
   it('renders a busy role=status skeleton while loading (not a bare "Loading" line)', () => {
     allocationMock.mockReturnValue({ data: undefined, status: 'loading', error: null });
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     const status = screen.getByRole('status', { name: 'Loading resource data' });
     expect(status).toHaveAttribute('aria-busy', 'true');
     expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
@@ -171,7 +172,7 @@ describe('ResourceView loading/error states (#2177)', () => {
 
   it('renders a retry-able QueryErrorState on fetch failure (not a dead-end line)', () => {
     allocationMock.mockReturnValue({ data: undefined, status: 'error', error: new Error('x') });
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load resource data.");
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
     expect(screen.queryByText('Failed to load resource data.')).not.toBeInTheDocument();
@@ -179,14 +180,14 @@ describe('ResourceView loading/error states (#2177)', () => {
 
   it('renders the idle placeholder when the query has not been enabled yet', () => {
     allocationMock.mockReturnValue({ data: undefined, status: 'idle', error: null });
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     expect(screen.getByText('No project selected.')).toBeInTheDocument();
     expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
   });
 
   it('offers a Run Scheduler CTA when the schedule has not been computed', () => {
     allocationMock.mockReturnValue({ data: undefined, status: 'schedule-not-run', error: null });
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     expect(screen.getByText('Schedule not yet computed')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Run Scheduler' }));
     expect(triggerSchedulerMock).toHaveBeenCalledTimes(1);
@@ -197,7 +198,7 @@ describe('ResourceView permission gate (rule 94)', () => {
   it('shows the permission notice for a role below Scheduler', () => {
     roleMock.mockReturnValue({ role: ROLE_MEMBER, roleLabel: 'Member', isLoading: false });
     allocationSuccess(allocation([allocResource()]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     expect(
       screen.getByText('Resource utilization is only visible to Schedulers, Admins, and Owners.'),
     ).toBeInTheDocument();
@@ -206,7 +207,7 @@ describe('ResourceView permission gate (rule 94)', () => {
 
   it('shows the permission notice when the role resolves to null', () => {
     roleMock.mockReturnValue({ role: null, roleLabel: null, isLoading: false });
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     expect(
       screen.getByText('Resource utilization is only visible to Schedulers, Admins, and Owners.'),
     ).toBeInTheDocument();
@@ -215,7 +216,7 @@ describe('ResourceView permission gate (rule 94)', () => {
   it('defers the decision (does not deny) while the role is still loading', () => {
     roleMock.mockReturnValue({ role: null, roleLabel: null, isLoading: true });
     allocationSuccess(allocation([allocResource()]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     expect(
       screen.queryByText('Resource utilization is only visible to Schedulers, Admins, and Owners.'),
     ).not.toBeInTheDocument();
@@ -227,7 +228,7 @@ describe('ResourceView permission gate (rule 94)', () => {
   // Scheduler goes and asks a colleague for a role they already hold.
   it('does not claim a permission denial when the role read failed', () => {
     roleMock.mockReturnValue({ role: null, roleLabel: null, isLoading: false, isError: true });
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     expect(
       screen.queryByText('Resource utilization is only visible to Schedulers, Admins, and Owners.'),
     ).not.toBeInTheDocument();
@@ -244,7 +245,7 @@ describe('ResourceView permission gate (rule 94)', () => {
       isError: true,
       refetch,
     });
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
 
     expect(screen.getByRole('alert')).toHaveTextContent(
       /Couldn’t check your role on this project/,
@@ -263,7 +264,7 @@ describe('ResourceView permission gate (rule 94)', () => {
       isError: false,
     });
     allocationSuccess(allocation([allocResource()]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     expect(
       screen.getByText('Resource utilization is only visible to Schedulers, Admins, and Owners.'),
     ).toBeInTheDocument();
@@ -272,7 +273,7 @@ describe('ResourceView permission gate (rule 94)', () => {
   it('prefers the loading state over the failed-read state', () => {
     roleMock.mockReturnValue({ role: null, roleLabel: null, isLoading: true, isError: true });
     allocationSuccess(allocation([allocResource()]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
@@ -281,14 +282,14 @@ describe('ResourceView project resolution', () => {
   it('falls back to the route project id when no projectId prop is supplied', () => {
     routeProject.id = 'proj-from-url';
     allocationSuccess(allocation([allocResource()]));
-    render(<ResourceView />);
+    renderWithProviders(<ResourceView />);
     expect(screen.getByRole('toolbar', { name: 'Resource toolbar' })).toBeInTheDocument();
     expect(allocationMock).toHaveBeenCalledWith('proj-from-url', expect.anything());
   });
 
   it('renders the no-project placeholder when neither the prop nor the route has an id', () => {
     routeProject.id = undefined;
-    render(<ResourceView />);
+    renderWithProviders(<ResourceView />);
     expect(screen.getByText('No project selected.')).toBeInTheDocument();
     expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
   });
@@ -298,7 +299,7 @@ describe('ResourceView persisted view mode', () => {
   it('starts in utilization mode when that is the persisted preference', () => {
     localStorage.setItem(MODE_STORAGE_KEY, 'utilization');
     utilizationSuccess(utilization([utilResource()]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     expect(screen.getByRole('tab', { name: 'Utilization' })).toHaveAttribute(
       'aria-selected',
       'true',
@@ -310,7 +311,7 @@ describe('ResourceView persisted view mode', () => {
       throw new Error('storage blocked');
     });
     allocationSuccess(allocation([allocResource()]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     expect(screen.getByRole('tab', { name: 'Timeline' })).toHaveAttribute('aria-selected', 'true');
     spy.mockRestore();
   });
@@ -318,7 +319,7 @@ describe('ResourceView persisted view mode', () => {
   it('persists the mode when the user switches to utilization', () => {
     allocationSuccess(allocation([allocResource()]));
     utilizationSuccess(utilization([utilResource()]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     expect(localStorage.getItem(MODE_STORAGE_KEY)).toBe('timeline');
     switchToUtilization();
     expect(localStorage.getItem(MODE_STORAGE_KEY)).toBe('utilization');
@@ -329,7 +330,7 @@ describe('ResourceView persisted view mode', () => {
       throw new Error('quota exceeded');
     });
     allocationSuccess(allocation([allocResource()]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     expect(screen.getByRole('toolbar', { name: 'Resource toolbar' })).toBeInTheDocument();
     spy.mockRestore();
   });
@@ -338,7 +339,7 @@ describe('ResourceView persisted view mode', () => {
 describe('ResourceView timeline mode', () => {
   it('summarises a single resource with singular nouns', () => {
     allocationSuccess(allocation([allocResource()]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     const summary = screen.getByLabelText('Resource timeline summary');
     expect(summary).toHaveTextContent('1 resource');
     expect(summary).toHaveTextContent('1 assignment');
@@ -359,7 +360,7 @@ describe('ResourceView timeline mode', () => {
         }),
       ]),
     );
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     const summary = screen.getByLabelText('Resource timeline summary');
     expect(summary).toHaveTextContent('2 resources');
     expect(summary).toHaveTextContent('3 assignments');
@@ -367,7 +368,7 @@ describe('ResourceView timeline mode', () => {
 
   it('counts over-allocated resources in the status bar and the toolbar badge', () => {
     allocationSuccess(allocation([overallocatedResource()]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     expect(screen.getByLabelText('Resource timeline summary')).toHaveTextContent(
       '1 over-allocated',
     );
@@ -376,14 +377,14 @@ describe('ResourceView timeline mode', () => {
 
   it('shows the empty-window message and hides the status bar when nobody is booked', () => {
     allocationSuccess(allocation([]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     expect(screen.getByText('No assignments in this window.')).toBeInTheDocument();
     expect(screen.queryByLabelText('Resource timeline summary')).not.toBeInTheDocument();
   });
 
   it('renders the toolbar but no timeline panel when the payload is still absent', () => {
     allocationSuccess(undefined);
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     expect(screen.getByRole('toolbar', { name: 'Resource toolbar' })).toBeInTheDocument();
     expect(screen.queryByText('No assignments in this window.')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Resource timeline summary')).not.toBeInTheDocument();
@@ -397,7 +398,7 @@ describe('ResourceView timeline mode', () => {
         }),
       ]),
     );
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     fireEvent.click(screen.getByRole('button', { name: 'Run scheduler' }));
     expect(triggerSchedulerMock).toHaveBeenCalledTimes(1);
   });
@@ -415,7 +416,7 @@ describe('ResourceView resource search', () => {
         }),
       ]),
     );
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
   }
 
   it('narrows the rows to the matching resource (case-insensitive)', () => {
@@ -451,7 +452,7 @@ describe('ResourceView utilization mode', () => {
   it('queries utilization for the project and renders the load grid', () => {
     allocationSuccess(allocation([allocResource()]));
     utilizationSuccess(utilization([utilResource()]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     switchToUtilization();
 
     expect(utilizationMock).toHaveBeenLastCalledWith(
@@ -466,14 +467,14 @@ describe('ResourceView utilization mode', () => {
 
   it('shows the utilization empty-window message when nobody is assigned', () => {
     utilizationSuccess(utilization([]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     switchToUtilization();
     expect(screen.getByText('No resources assigned in this window.')).toBeInTheDocument();
   });
 
   it('surfaces the unassigned-task count in the toolbar', () => {
     utilizationSuccess(utilization([utilResource()], 3));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     switchToUtilization();
     expect(screen.getByText('3 tasks without assignment')).toBeInTheDocument();
   });
@@ -481,7 +482,7 @@ describe('ResourceView utilization mode', () => {
   it('drops the over-allocation badge when leaving timeline mode', () => {
     allocationSuccess(allocation([overallocatedResource()]));
     utilizationSuccess(utilization([utilResource()]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     expect(screen.getByLabelText('1 over-allocated resource')).toBeInTheDocument();
     switchToUtilization();
     expect(screen.queryByLabelText('1 over-allocated resource')).not.toBeInTheDocument();
@@ -491,7 +492,7 @@ describe('ResourceView utilization mode', () => {
     utilizationMock.mockReturnValue({ data: undefined, status: 'success', error: null });
     allocationMock.mockReturnValue({ data: undefined, status: 'error', error: new Error('x') });
     localStorage.setItem(MODE_STORAGE_KEY, 'utilization');
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     // The failed allocation query must not leak into utilization mode.
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByRole('toolbar', { name: 'Resource toolbar' })).toBeInTheDocument();
@@ -506,7 +507,7 @@ describe('ResourceView window navigation', () => {
 
   it('steps the window forward, back, and home again', () => {
     allocationSuccess(allocation([allocResource()]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     const initial = windowLabel();
 
     fireEvent.click(screen.getByRole('button', { name: 'Next period' }));
@@ -523,7 +524,7 @@ describe('ResourceView window navigation', () => {
 
   it('cancels "fit to project" as soon as the user navigates away', () => {
     allocationSuccess(allocation([allocResource()]));
-    render(<ResourceView projectId="proj-1" projectStartDate="2026-01-05" />);
+    renderWithProviders(<ResourceView projectId="proj-1" projectStartDate="2026-01-05" />);
     fireEvent.click(fitButton());
     expect(fitButton()).toHaveTextContent('Reset to today');
 
@@ -535,7 +536,7 @@ describe('ResourceView window navigation', () => {
 describe('ResourceView fit to project', () => {
   it('fits the window to the allocation span and resets on a second press', () => {
     allocationSuccess(allocation([allocResource()]));
-    render(<ResourceView projectId="proj-1" projectStartDate="2026-01-05" />);
+    renderWithProviders(<ResourceView projectId="proj-1" projectStartDate="2026-01-05" />);
     const before = screen.getByRole('toolbar', { name: 'Resource toolbar' }).textContent;
 
     fireEvent.click(fitButton());
@@ -549,21 +550,21 @@ describe('ResourceView fit to project', () => {
 
   it('does nothing when the project has no start date to fit to', () => {
     allocationSuccess(allocation([allocResource()]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     fireEvent.click(fitButton());
     expect(fitButton()).toHaveTextContent('Fit to project');
   });
 
   it('does nothing in timeline mode while the allocation payload is missing', () => {
     allocationSuccess(undefined);
-    render(<ResourceView projectId="proj-1" projectStartDate="2026-01-05" />);
+    renderWithProviders(<ResourceView projectId="proj-1" projectStartDate="2026-01-05" />);
     fireEvent.click(fitButton());
     expect(fitButton()).toHaveTextContent('Fit to project');
   });
 
   it('fits the window to the utilization span in utilization mode', () => {
     utilizationSuccess(utilization([utilResource()]));
-    render(<ResourceView projectId="proj-1" projectStartDate="2026-01-05" />);
+    renderWithProviders(<ResourceView projectId="proj-1" projectStartDate="2026-01-05" />);
     switchToUtilization();
     fireEvent.click(fitButton());
     expect(fitButton()).toHaveTextContent('Reset to today');
@@ -571,7 +572,7 @@ describe('ResourceView fit to project', () => {
 
   it('does nothing in utilization mode while the utilization payload is missing', () => {
     utilizationMock.mockReturnValue({ data: undefined, status: 'success', error: null });
-    render(<ResourceView projectId="proj-1" projectStartDate="2026-01-05" />);
+    renderWithProviders(<ResourceView projectId="proj-1" projectStartDate="2026-01-05" />);
     switchToUtilization();
     fireEvent.click(fitButton());
     expect(fitButton()).toHaveTextContent('Fit to project');
@@ -581,7 +582,7 @@ describe('ResourceView fit to project', () => {
 describe('ResourceView "My allocation" shortcut', () => {
   it('scopes the allocation query to the current user when toggled on', () => {
     allocationSuccess(allocation([allocResource()]));
-    render(<ResourceView projectId="proj-1" currentUserResourceId="res-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" currentUserResourceId="res-1" />);
     const toggle = screen.getByRole('button', { name: 'My allocation' });
     expect(toggle).toHaveAttribute('aria-pressed', 'false');
 
@@ -598,7 +599,7 @@ describe('ResourceView "My allocation" shortcut', () => {
 
   it('leaves the query unscoped when the user has no resource record', () => {
     allocationSuccess(allocation([allocResource()]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     expect(screen.queryByRole('button', { name: 'My allocation' })).not.toBeInTheDocument();
     expect(allocationMock).toHaveBeenLastCalledWith(
       'proj-1',
@@ -610,7 +611,7 @@ describe('ResourceView "My allocation" shortcut', () => {
 describe('ResourceView status filters', () => {
   it('drops a status from the query when its pill is unchecked', () => {
     allocationSuccess(allocation([allocResource()]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     fireEvent.click(screen.getByLabelText('Not started'));
     expect(allocationMock).toHaveBeenLastCalledWith(
       'proj-1',
@@ -620,7 +621,7 @@ describe('ResourceView status filters', () => {
 
   it('sends no status filter at all once every pill is unchecked', () => {
     allocationSuccess(allocation([allocResource()]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
     fireEvent.click(screen.getByLabelText('Not started'));
     fireEvent.click(screen.getByLabelText('In progress'));
     expect(allocationMock).toHaveBeenLastCalledWith(
@@ -638,7 +639,7 @@ describe('ResourceView overallocation live region', () => {
 
   it('leaves the live region empty when nothing has been announced', () => {
     allocationSuccess(allocation([allocResource()]));
-    const { container } = render(<ResourceView projectId="proj-1" />);
+    const { container } = renderWithProviders(<ResourceView projectId="proj-1" />);
     const live = container.querySelector(LIVE_REGION);
     expect(live).not.toBeNull();
     expect(live?.textContent).toBe('');
@@ -647,7 +648,7 @@ describe('ResourceView overallocation live region', () => {
   it('mirrors the drawer announcement into the live region', () => {
     resolveState.ariaMessage = 'Overallocation: Ada Lovelace is at 150% on 2026-01-06.';
     allocationSuccess(allocation([allocResource()]));
-    const { container } = render(<ResourceView projectId="proj-1" />);
+    const { container } = renderWithProviders(<ResourceView projectId="proj-1" />);
     const live = container.querySelector(LIVE_REGION);
     expect(live?.textContent).toBe('Overallocation: Ada Lovelace is at 150% on 2026-01-06.');
   });
@@ -663,7 +664,7 @@ describe('ResourceView truncation notice (#3576 / ADR-1118)', () => {
       resource_count: 62,
       truncated: true,
     });
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
 
     expect(screen.getByText(/Showing 2 of 62 resources/)).toBeInTheDocument();
     expect(screen.getByText(/60 resources are not listed/)).toBeInTheDocument();
@@ -673,7 +674,7 @@ describe('ResourceView truncation notice (#3576 / ADR-1118)', () => {
     // Negative control: the notice must key on `truncated`, not on the mere
     // presence of the field.
     allocationSuccess(allocation([allocResource()]));
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
 
     expect(screen.queryByText(/Showing \d+ of \d+ resources/)).not.toBeInTheDocument();
   });
@@ -688,7 +689,7 @@ describe('ResourceView truncation notice (#3576 / ADR-1118)', () => {
       resource_count: 60,
       truncated: true,
     });
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
 
     expect(screen.getByText(/Showing 0 of 60 resources/)).toBeInTheDocument();
     expect(screen.queryByText('No assignments in this window.')).not.toBeInTheDocument();
@@ -703,7 +704,7 @@ describe('ResourceView truncation notice (#3576 / ADR-1118)', () => {
       resource_count: 62,
       truncated: true,
     });
-    render(<ResourceView projectId="proj-1" />);
+    renderWithProviders(<ResourceView projectId="proj-1" />);
 
     fireEvent.change(screen.getByRole('searchbox', { name: 'Filter resources by name' }), {
       target: { value: 'zzzz-matches-nothing' },

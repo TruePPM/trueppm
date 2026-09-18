@@ -559,6 +559,7 @@ export function ResourceView({
       />
 
       <ResourceOverallocationDrawer
+        projectId={projectId}
         target={target}
         isOpen={isOpen}
         onClose={closeDrawer}

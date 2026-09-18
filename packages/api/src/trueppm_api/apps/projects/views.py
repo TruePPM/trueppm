@@ -5017,6 +5017,40 @@ def _filter_tasks_by_labels(qs: QuerySet[Task], params: Any) -> QuerySet[Task]:
     return qs.filter(labels__id__in=label_ids).distinct()
 
 
+def _filter_tasks_by_ids(qs: QuerySet[Task], params: Any) -> QuerySet[Task]:
+    """``?id__in=<id>[,<id>…]`` — resolve a known set of task ids to their rows.
+
+    Batch name-resolution for an ID-only payload (#3843): a client that already
+    holds a list of task UUIDs (e.g. ``UtilizationDayEntry.tasks``) fetches their
+    names/status/dates in one request instead of one GET per id. Mirrors
+    ``?labels=`` (#2331) exactly — same comma-separated convention, same per-id
+    UUID validation raising a clean 400 rather than letting a malformed id reach
+    the ``__in`` lookup and surface as an unmapped 500 (#2213 class).
+
+    No extra scoping needed: this composes on top of ``super().get_queryset()``
+    (``ProjectScopedViewSet``), which already restricts the queryset to projects
+    the requester is a member of. An id for a task outside the caller's projects
+    (or a nonexistent id) simply matches nothing here — it does not error and it
+    cannot be used to probe for task existence elsewhere.
+    """
+    ids_param = params.get("id__in")
+    if not ids_param:
+        return qs
+
+    task_ids: list[uuid.UUID] = []
+    for chunk in ids_param.split(","):
+        raw = chunk.strip()
+        if not raw:
+            continue
+        try:
+            task_ids.append(uuid.UUID(raw))
+        except ValueError:
+            raise DRFValidationError({"id__in": "Each id must be a valid UUID."}) from None
+    if not task_ids:
+        return qs
+    return qs.filter(id__in=task_ids)
+
+
 def _filter_tasks_by_date_range(qs: QuerySet[Task], params: Any) -> QuerySet[Task]:
     """Date-range filter for the calendar / resource views.
 
@@ -5841,6 +5875,20 @@ class TaskListPagination(ScheduleFetchPagination):
                 ),
             ),
             OpenApiParameter(
+                name="id__in",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated task UUIDs. Batch-resolves a known set of task "
+                    "ids (e.g. from an ID-only payload elsewhere in the API) to their "
+                    "rows in one request. Composes on top of the membership-scoped "
+                    "queryset, so an id outside a project you belong to (or a "
+                    "nonexistent id) is silently omitted from the results rather than "
+                    "erroring. A malformed UUID returns 400."
+                ),
+            ),
+            OpenApiParameter(
                 name="start__gte",
                 type=OpenApiTypes.DATE,
                 location=OpenApiParameter.QUERY,
@@ -6024,6 +6072,7 @@ class TaskViewSet(
         qs = _filter_tasks_by_sprint(qs, params)
         qs = _filter_tasks_by_parent(qs, params)
         qs = _filter_tasks_by_labels(qs, params)
+        qs = _filter_tasks_by_ids(qs, params)
         qs = _filter_tasks_by_date_range(qs, params)
         # #2815: stashed pre-annotation so `list()` can build a cheap COUNT off of
         # it instead of the fully annotated queryset `annotate_tasks_queryset`

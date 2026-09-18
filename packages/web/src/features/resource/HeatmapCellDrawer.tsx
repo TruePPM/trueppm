@@ -35,7 +35,9 @@ interface Props {
   onClose: () => void;
 }
 
-function statusLabel(s: string): string {
+// Exported for ResourceOverallocationDrawer's "Contributing tasks" section
+// (#3843), which formats the same TaskViewSet `status` enum the same way.
+export function statusLabel(s: string): string {
   return s
     .replaceAll('_', ' ')
     .toLowerCase()
