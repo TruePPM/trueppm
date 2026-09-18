@@ -1763,6 +1763,43 @@ def _velocity_worst_case_days(task: Task, project: Project) -> int:
     return int(max_sprints) * project.sprint_length_days
 
 
+def _validate_project_shape(project: Project) -> None:
+    """Type-guard the project's top-level containers for the direct-object API (#3846).
+
+    The ``from_dict``/``from_json`` path already produces well-typed containers — a
+    ``list`` of :class:`Task`, a ``list`` of :class:`Dependency`, a :class:`Calendar`,
+    and a ``dict`` of :class:`Calendar` (or ``None``) for ``calendars`` — but a direct-
+    object caller (#1209) can pass any Python value for these fields (a bare string or
+    int for ``tasks``/``dependencies``, ``None`` for ``calendar``, a string for
+    ``calendars``). Every one of those otherwise leaks a bare AttributeError/TypeError
+    from deep inside a later pass — iterating a string's characters and reading
+    ``.id``/``.lag`` off a single character, ``len(None)``, ``"x".items()`` — past the
+    documented contract. Reject the wrong shape here, before any field on an element is
+    read, so the rest of ``_validate_project`` can assume every container holds what its
+    type says it holds.
+    """
+    if not isinstance(project.calendar, Calendar):
+        raise InvalidScheduleInput(
+            f"Project calendar must be a Calendar instance, got {type(project.calendar).__name__}."
+        )
+    if not isinstance(project.tasks, list) or any(not isinstance(t, Task) for t in project.tasks):
+        raise InvalidScheduleInput(f"Project tasks must be a list of Task, got {project.tasks!r}.")
+    if not isinstance(project.dependencies, list) or any(
+        not isinstance(d, Dependency) for d in project.dependencies
+    ):
+        raise InvalidScheduleInput(
+            f"Project dependencies must be a list of Dependency, got {project.dependencies!r}."
+        )
+    if project.calendars is not None and (
+        not isinstance(project.calendars, dict)
+        or any(not isinstance(c, Calendar) for c in project.calendars.values())
+    ):
+        raise InvalidScheduleInput(
+            f"Project calendars must be a dict of calendar id to Calendar, got "
+            f"{project.calendars!r}."
+        )
+
+
 def _validate_unique_task_ids(project: Project) -> None:
     # Unique task IDs: the engine keys task_map, the graph, and every per-task
     # result on Task.id, so a duplicate id silently shadows one task — the loser
@@ -1817,6 +1854,14 @@ def _validate_project_calendar(project: Project) -> None:
             f"Project start_date must be a date, not {type(project.start_date).__name__}."
         )
 
+    # status_date (ADR-0132) feeds the same date arithmetic in _validate_span_bounds
+    # (``project.status_date - project.start_date``); a non-date direct-object value
+    # (#3846, the same #1209 gap start_date/planned_start/actual_* already guard)
+    # would otherwise leak a bare TypeError from that subtraction past the documented
+    # contract. Reuses _require_plain_date — the same object-path guard already
+    # applied to every other date field on Task.
+    _require_plain_date(project.status_date, "Project status_date")
+
     # Reachability probe: a working day must exist within MAX_CALENDAR_SCAN_DAYS
     # of the project start. Catches a valid weekday mask whose `exceptions`
     # blanket the schedule — the common degenerate case — eagerly and with the
@@ -1862,6 +1907,13 @@ def _validate_agile_inputs(project: Project) -> None:
     # ``> 0`` filter and poisons the bootstrap mean), so reject them eagerly
     # with the documented exception type (#1070).
     if project.velocity_samples is not None:
+        # A direct-object caller (#3846/#1209) can pass a bare scalar (e.g. ``-1``)
+        # instead of a list — ``for s in project.velocity_samples`` then leaks a bare
+        # TypeError ("'int' object is not iterable") past the documented contract.
+        if not isinstance(project.velocity_samples, (list, tuple)):
+            raise InvalidScheduleInput(
+                f"velocity_samples must be a list of numbers, got {project.velocity_samples!r}."
+            )
         for s in project.velocity_samples:
             if s is None:
                 continue
@@ -1991,6 +2043,15 @@ def _validate_task_durations(t: Task) -> None:
         ("pessimistic_duration", t.pessimistic_duration),
     ):
         if value is not None:
+            # Type guard for the direct-object API (#3846/#1209): a caller building a
+            # Task by hand can pass a non-timedelta PERT field (from_dict already
+            # coerces these via _coerce_pert_durations), which otherwise leaks a bare
+            # AttributeError from _check_duration's ``.seconds``/``.days`` access past
+            # the documented contract.
+            if not isinstance(value, timedelta):
+                raise InvalidScheduleInput(
+                    f"Task {t.id!r} {field_name} must be a timedelta (got {value!r})."
+                )
             _check_duration(value, f"Task {t.id!r} {field_name}")
 
     if (
@@ -2077,6 +2138,26 @@ def _validate_dependencies(project: Project) -> None:
             raise InvalidScheduleInput(
                 f"Dependency {dep.predecessor_id!r} → {dep.successor_id!r} lag must be a "
                 f"timedelta (got {dep.lag!r})."
+            )
+        # Type guards for the direct-object API (#3846/#1209): predecessor_id/
+        # successor_id key ``seen_edges`` (a set) below and, for dep_type, the Monte
+        # Carlo lag-delta cache (``_build_lag_delta_table``) — an unhashable value
+        # (e.g. a list) would otherwise leak a bare "TypeError: unhashable type"
+        # from whichever of those a run happens to reach first, rather than the
+        # documented contract at validation time.
+        if not isinstance(dep.predecessor_id, str) or not isinstance(dep.successor_id, str):
+            raise InvalidScheduleInput(
+                f"Dependency predecessor_id/successor_id must be strings (got "
+                f"{dep.predecessor_id!r} → {dep.successor_id!r})."
+            )
+        if not isinstance(dep.dep_type, DependencyType):
+            # Same first-run-legibility treatment as the from_dict path (#947): name
+            # the field and list the allowed values instead of a bare TypeError from
+            # the lag-delta cache key, or a silently no-op comparison against every
+            # DependencyType member.
+            allowed = ", ".join(dt.value for dt in DependencyType)
+            raise InvalidScheduleInput(
+                f"Invalid dependency type {dep.dep_type!r}; must be one of: {allowed}."
             )
         # Duplicate (predecessor, successor) edges diverge between engines (#1817):
         # ``_build_graph`` uses ``nx.DiGraph``, which *overwrites* the edge attribute
@@ -2210,10 +2291,13 @@ def _validate_project(project: Project) -> None:
     request path in the TruePPM API).
     """
     # Each helper below owns one cohesive family of guards and preserves the exact
-    # order they fired in when this was a single linear body: id uniqueness first,
-    # then the project calendar, per-task calendars, agile inputs, per-task fields,
-    # the dependency edges, and finally the cumulative span / date-range bounds
-    # (which read fields the earlier guards have already type-checked).
+    # order they fired in when this was a single linear body: container shape
+    # first (#3846 — every later guard assumes ``tasks``/``dependencies`` are the
+    # lists of dataclass instances their type hints promise), then id uniqueness,
+    # the project calendar, per-task calendars, agile inputs, per-task fields, the
+    # dependency edges, and finally the cumulative span / date-range bounds (which
+    # read fields the earlier guards have already type-checked).
+    _validate_project_shape(project)
     _validate_unique_task_ids(project)
     _validate_project_calendar(project)
     _validate_task_calendars(project)

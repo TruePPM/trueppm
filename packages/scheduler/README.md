@@ -238,18 +238,42 @@ The same framing, with the underlying math, is in
 
 ## Errors and input limits
 
-Every exception the engine raises subclasses `ValueError`, so one
-`except ValueError` catches them all — but each is individually catchable:
+Every exception the engine *documents* raising subclasses `ValueError` (via the
+common `SchedulerError` base), so one `except ValueError` catches them all — but
+each is individually catchable:
 
 | Exception | Raised when |
 |-----------|-------------|
 | `CyclicDependencyError` | The dependency graph contains a cycle. `.cycle` lists the task IDs forming it. |
 | `SimulationCapExceeded` | `monte_carlo(runs=…)` exceeds `max_runs`, or the project has more tasks than `max_tasks`. |
-| `InvalidScheduleInput` | The input is structurally valid but out of range (see limits below). |
+| `InvalidScheduleInput` | The input is structurally valid but out of range, or the wrong type (see below). |
 | `UnknownTaskError` | `derive_value(project, task_id, …)` is called with a `task_id` that names no task in the project. |
 
-The engine walks the working calendar one day at a time, so it validates input
-up front rather than spinning on a degenerate project:
+**What this guarantee actually covers.** `Project.from_dict()` / `Project.from_json()`
+— the untrusted-input path — type-check and coerce every field, so a malformed
+document of *any* shape raises `InvalidScheduleInput` and never a bare
+AttributeError/TypeError. Constructing `Project`/`Task`/`Dependency` directly in
+Python (the **direct-object API**, as in every example above) is held to the same
+contract for every field `_validate_project()` type-guards: `Project.calendar`,
+`.tasks`, `.dependencies`, `.calendars`, `.status_date`, `.velocity_samples`;
+`Task.duration` and the three PERT fields (`optimistic_duration`,
+`most_likely_duration`, `pessimistic_duration`); and `Dependency.predecessor_id`,
+`.successor_id`, `.dep_type`, `.lag`. A wrong-typed value on any of those (`None`,
+a string, a bare int where a list/dict is expected, an unhashable value, …) raises
+`InvalidScheduleInput`, not a bare Python exception.
+
+**One direct-object field is not yet covered: `Task.id`.** Setting it to `None` or
+a list surfaces a bare `TypeError` from the underlying graph library rather than
+`InvalidScheduleInput` — tracked separately as
+[#2463](https://gitlab.com/trueppm/trueppm/-/issues/2463). Every other field on
+the three input dataclasses is covered; `tests/test_exception_contract.py` pins
+this per-field guarantee as a permanent regression test, generated from a single-
+field-mutation sweep over every init field × 12 adversarial values × both
+`schedule()`/`monte_carlo()` entry points, so a future field addition that reopens
+a gap fails a test rather than becoming a silent leak.
+
+The engine walks the working calendar one day at a time, so it also validates
+input up front rather than spinning on a degenerate project:
 
 - **Calendar** — `working_days` must set at least one weekday bit (Mon–Sun); a
   calendar whose `exceptions` blanket the entire search window is rejected too.
