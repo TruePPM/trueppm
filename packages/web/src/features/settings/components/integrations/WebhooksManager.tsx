@@ -363,9 +363,15 @@ export function ConfirmDialog({
   // is in-flight to mirror the backdrop-dismiss guard. Cancel is first in DOM so
   // the trap seats initial focus there — a destructive confirm must never
   // autofocus the destructive button.
-  const trapRef = useFocusTrap<HTMLDivElement>(true, () => {
-    if (!pending) onCancel();
-  });
+  // `pending` is the focusKey (web-rule 362): it disables both buttons, which
+  // empties the trap's focusable set and drops focus to <body>.
+  const trapRef = useFocusTrap<HTMLDivElement>(
+    true,
+    () => {
+      if (!pending) onCancel();
+    },
+    pending,
+  );
 
   return (
     <div

@@ -125,7 +125,7 @@ export function ClassificationPopover({
   const visibleError = specEditedSinceError ? null : error;
   const markSpecEdited = () => setSpecEditedSinceError(true);
 
-  const containerRef = useFocusTrap<HTMLDivElement>(true, onClose);
+  const containerRef = useFocusTrap<HTMLDivElement>(true, onClose, isPending);
   const [position, setPosition] = useState({ top: anchor.y, left: anchor.x });
 
   const descendantCount = useMemo(

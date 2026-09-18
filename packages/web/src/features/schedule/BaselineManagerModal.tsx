@@ -69,9 +69,13 @@ export function BaselineManagerModal({
   const [showCaptureConfirm, setShowCaptureConfirm] = useState(false);
 
   // Yield the trap while a nested confirm (capture or delete) is open (web-rule 245/206).
+  // `activateBaseline.isPending` is the focusKey (web-rule 362): it disables the
+  // "Set active" button the user just pressed, so the browser blurs it to <body>
+  // and the trap has to re-seat.
   const trapRef = useFocusTrap<HTMLDivElement>(
     deleteTarget === null && !showCaptureConfirm,
     onClose,
+    activateBaseline.isPending,
   );
 
   const activeBaselineName = baselines.find((b) => b.is_active)?.name;
@@ -351,7 +355,7 @@ function BaselineDeleteConfirm({
 }: BaselineDeleteConfirmProps) {
   // Owns its own trap; Cancel is first in DOM so the trap seats focus on it,
   // never on the destructive button (web-rule 206).
-  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel);
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel, isPending);
   return (
     <div
       ref={trapRef}

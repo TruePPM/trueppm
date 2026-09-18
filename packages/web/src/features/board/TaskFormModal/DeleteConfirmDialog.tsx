@@ -103,7 +103,7 @@ export function DeleteConfirmDialog({
   onCancel,
   onConfirm,
 }: DeleteConfirmDialogProps) {
-  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel);
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel, isPending);
 
   const cascade = describeBlastRadius([
     { count: subtaskCount, singular: 'subtask', plural: 'subtasks' },

@@ -142,7 +142,7 @@ export function StoryDetailDrawer({
 
   // Suspend the drawer's own trap while the discard prompt is up so its trap
   // (active on mobile) doesn't fight the dialog's trap for the same Tab cycle.
-  const trapRef = useFocusTrap<HTMLDivElement>(isMobile && !guardOpen);
+  const trapRef = useFocusTrap<HTMLDivElement>(isMobile && !guardOpen, undefined, setDor.isPending);
 
   // Focus the close button when the drawer mounts/swaps stories.
   useEffect(() => {

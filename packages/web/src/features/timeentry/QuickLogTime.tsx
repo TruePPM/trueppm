@@ -116,12 +116,18 @@ export function QuickLogTime() {
   // The shared form element — the roving-focus lookup scopes to this, not the
   // shell, so it resolves under both the desktop popover and the mobile sheet.
   const formRef = useRef<HTMLFormElement>(null);
-  // Desktop popover owns its focus trap; on mobile the BottomSheet owns it, so
-  // the popover trap is engaged only when the popover is the surface in play.
-  const popoverRef = useFocusTrap<HTMLDivElement>(open && !isMobile, () => setOpen(false));
-
   const { data } = useMyWork();
   const createEntry = useCreateTimeEntry();
+
+  // Desktop popover owns its focus trap; on mobile the BottomSheet owns it, so
+  // the popover trap is engaged only when the popover is the surface in play.
+  // `createEntry.isPending` is the focusKey (web-rule 362): `canLog` folds it in
+  // and disables the Log button, so the pressed control is blurred to <body>.
+  const popoverRef = useFocusTrap<HTMLDivElement>(
+    open && !isMobile,
+    () => setOpen(false),
+    createEntry.isPending,
+  );
 
   const [query, setQuery] = useState('');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
