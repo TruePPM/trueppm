@@ -100,7 +100,13 @@ function OutlineRowControls({
             onToggle();
           }}
           aria-expanded={isExpanded}
-          aria-controls={`grid-subtree-${task.id}`}
+          // No `aria-controls` here (#3482): the flattened, virtualised row list
+          // has no discrete subtree container element for it to reference — a
+          // child task is just another sibling row in the same list, not a DOM
+          // descendant of this one — so `grid-subtree-${task.id}` never existed
+          // anywhere in the tree and axe's `aria-valid-attr-value` flagged the
+          // dangling reference on every toggle, expanded or not. `aria-expanded`
+          // alone is sufficient for a disclosure toggle with no mapped region.
           aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
           className="
                 w-4 h-4 flex items-center justify-center flex-shrink-0

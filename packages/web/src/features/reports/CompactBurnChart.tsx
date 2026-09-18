@@ -89,9 +89,16 @@ export function CompactBurnChart({
           </div>
         ) : points && points.length > 0 ? (
           // The caption below is the accessible read; the SVG is decorative (issue 2175).
+          // `accessibilityLayer={false}` (#3482): Recharts' own focusable
+          // keyboard overlay would otherwise sit inside this `aria-hidden`
+          // wrapper — see BurnChartCanvas's docstring for the full rationale.
           <div aria-hidden="true" className="h-full w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={points} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
+              <AreaChart
+                data={points}
+                margin={{ top: 4, right: 4, left: 4, bottom: 0 }}
+                accessibilityLayer={false}
+              >
                 <Area
                   type="monotone"
                   dataKey="remaining"

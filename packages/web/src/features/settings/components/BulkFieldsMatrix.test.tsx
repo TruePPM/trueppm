@@ -173,7 +173,7 @@ describe('BulkFieldsMatrix', () => {
   it('shows "— inherited" for a row whose resettable field is not overridden', () => {
     renderMatrix();
     // Orbital has iterationLabel=null → inherited.
-    expect(screen.getByLabelText(/Iteration label: inherited/)).toBeInTheDocument();
+    expect(screen.getByText(/Iteration label: inherited/)).toBeInTheDocument();
   });
 
   it('caps selection at maxRows and notes it', () => {
@@ -294,7 +294,7 @@ describe('BulkFieldsMatrix — integer field control', () => {
   it('renders the effective integer value with a day suffix in the cell', () => {
     renderMatrix({ fields: intFields });
     // formatValue int branch: `${value}d`; one cell per row (2 rows).
-    const cells = screen.getAllByLabelText('Sprint length: 14d, set on this row');
+    const cells = screen.getAllByText('Sprint length: 14d, set on this row');
     expect(cells).toHaveLength(2);
     expect(cells[0]).toHaveTextContent('14d');
   });
@@ -508,14 +508,17 @@ describe('BulkFieldsMatrix — value formatting', () => {
 
   it('reads an inherited field with no value as a bare "— inherited" (no parenthetical)', () => {
     renderMatrix({ rows: rowsWithNulls });
-    const cell = screen.getByLabelText('Iteration label: inherited, —');
+    // The sr-only text's parent is the visible outer span (aria-hidden visible
+    // text + sr-only text siblings) — its combined textContent is what a DOM
+    // assertion on "the cell" should read.
+    const cell = screen.getByText('Iteration label: inherited, —').parentElement!;
     expect(cell).toHaveTextContent('— inherited');
     expect(cell.textContent).not.toContain('(');
   });
 
   it('falls back to the raw enum value when it is not in the option list', () => {
     renderMatrix({ rows: rowsWithNulls });
-    expect(screen.getByLabelText('Methodology: FUTURE_MODE')).toHaveTextContent('FUTURE_MODE');
+    expect(screen.getByText('Methodology: FUTURE_MODE')).toBeInTheDocument();
   });
 
   it('renders an em-dash for an overridden numeric field with no value', () => {
@@ -531,7 +534,7 @@ describe('BulkFieldsMatrix — value formatting', () => {
       },
     ];
     renderMatrix({ rows: rowsWithNulls, fields: intField });
-    expect(screen.getByLabelText('Sprint length: —, set on this row')).toHaveTextContent('—');
+    expect(screen.getByText('Sprint length: —, set on this row')).toBeInTheDocument();
   });
 
   it('renders an em-dash for an empty-string value on a string field', () => {
@@ -546,7 +549,7 @@ describe('BulkFieldsMatrix — value formatting', () => {
       },
     ];
     renderMatrix({ rows: rowsWithNulls, fields: stringField });
-    expect(screen.getByLabelText('Iteration label: —, set on this row')).toHaveTextContent('—');
+    expect(screen.getByText('Iteration label: —, set on this row')).toBeInTheDocument();
   });
 });
 
@@ -643,12 +646,13 @@ describe('BulkFieldsMatrix — deviation markers (#3295)', () => {
     const marker = screen.getAllByTestId('deviation-marker-methodology')[0];
     // Both rows deviate from HYBRID in the shared fixture.
     expect(marker).toHaveTextContent('Agile ≠ program (Hybrid)');
-    // Non-color-only: the whole statement is words + a glyph, and the accessible
-    // name spells the comparison out rather than leaning on the glyph.
-    expect(marker).toHaveAttribute(
-      'aria-label',
-      'Methodology: Agile, differs from program default Hybrid',
-    );
+    // Non-color-only: the whole statement is words + a glyph. The full sentence
+    // lives in a visually-hidden sibling span, not an `aria-label` on this
+    // roleless span (aria-label there is prohibited by the ARIA spec and axe
+    // `aria-prohibited-attr`, #3482) — a real DOM node, not an attribute, so it
+    // reads out even though `aria-label` here would not.
+    expect(marker).toHaveTextContent('Methodology: Agile, differs from program default Hybrid');
+    expect(marker).not.toHaveAttribute('aria-label');
     expect(marker.className).not.toMatch(/bg-|rounded-full/);
   });
 
@@ -701,7 +705,7 @@ describe('BulkFieldsMatrix — deviation markers (#3295)', () => {
     expect(screen.queryByTestId('deviation-count')).toBeNull();
     expect(screen.queryByTestId('deviation-marker-methodology')).toBeNull();
     // Degrades to exactly the pre-#3295 render: the plain effective value.
-    expect(screen.getByLabelText('Methodology: Agile')).toBeInTheDocument();
+    expect(screen.getByText('Methodology: Agile')).toBeInTheDocument();
   });
 
   it('tallies over the unnarrowed set when the mount passes one (one denominator)', () => {

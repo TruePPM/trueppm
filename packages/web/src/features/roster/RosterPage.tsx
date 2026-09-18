@@ -139,7 +139,7 @@ export function RosterPage() {
             />
           </div>
         ) : (
-          <div className="hidden md:flex flex-1 items-center justify-center text-sm text-neutral-text-disabled">
+          <div className="hidden md:flex flex-1 items-center justify-center text-sm text-neutral-text-secondary">
             Select a team member to see details
           </div>
         )}

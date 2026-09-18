@@ -357,6 +357,15 @@ function SuppressedWall() {
   );
 }
 
+/**
+ * Wraps a chart's SVG in `aria-hidden` with an sr-only text summary as the real
+ * accessible read (issue 2175). Any Recharts root rendered inside `children`
+ * MUST pass `accessibilityLayer={false}` — Recharts 3.x's accessibility layer
+ * (default on) injects its own focusable keyboard-nav overlay into the SVG,
+ * which becomes an invisible focus trap under `aria-hidden` (axe
+ * `aria-hidden-focus`, #3482; see BurnChartCanvas's docstring for the full
+ * rationale).
+ */
 function ChartFrame({
   title,
   summary,
@@ -404,7 +413,11 @@ function CumulativeFlowChart({ cfd }: { cfd: FlowMetrics['cfd'] }) {
   return (
     <ChartFrame title="Cumulative flow" summary={summary} footer={<CfdLegend />}>
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={points} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+        <AreaChart
+          data={points}
+          margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
+          accessibilityLayer={false}
+        >
           <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgb(var(--neutral-border))" />
           <XAxis dataKey="date" tick={AXIS_TICK} tickFormatter={formatShortDate} minTickGap={28} tickLine={false} axisLine={false} />
           <YAxis tick={AXIS_TICK} width={28} tickLine={false} axisLine={false} allowDecimals={false} />
@@ -435,7 +448,11 @@ function ThroughputChart({ throughput }: { throughput: FlowMetrics['throughput']
   return (
     <ChartFrame title="Throughput / week" summary={summary}>
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={throughput} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+        <BarChart
+          data={throughput}
+          margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
+          accessibilityLayer={false}
+        >
           <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgb(var(--neutral-border))" />
           <XAxis dataKey="week_start" tick={AXIS_TICK} tickFormatter={formatShortDate} minTickGap={20} tickLine={false} axisLine={false} />
           <YAxis tick={AXIS_TICK} width={28} tickLine={false} axisLine={false} allowDecimals={false} />

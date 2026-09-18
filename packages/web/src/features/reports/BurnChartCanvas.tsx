@@ -97,10 +97,17 @@ export function BurnChartCanvas({
   });
 
   return (
+    // Recharts 3.x's `accessibilityLayer` (default true) injects its own
+    // focusable keyboard-navigation overlay into the SVG. This chart is
+    // deliberately `aria-hidden` (the sr-only summary is the real accessible
+    // surface, per the module doc), so that overlay became a focusable trap
+    // AT users could tab into but never perceive — axe `aria-hidden-focus`
+    // (#3482). `accessibilityLayer={false}` on every chart root below removes
+    // the overlay entirely rather than trying to neutralize it after the fact.
     <div aria-hidden="true">
       <ResponsiveContainer width="100%" height={320}>
         {variant === 'burndown' ? (
-          <AreaChart data={points} margin={chartMargin}>
+          <AreaChart data={points} margin={chartMargin} accessibilityLayer={false}>
             {sharedGrid}
             {sharedXAxis}
             {sharedYAxis}
@@ -129,7 +136,7 @@ export function BurnChartCanvas({
             {scopeDots}
           </AreaChart>
         ) : variant === 'burnup' ? (
-          <AreaChart data={points} margin={chartMargin}>
+          <AreaChart data={points} margin={chartMargin} accessibilityLayer={false}>
             {sharedGrid}
             {sharedXAxis}
             {sharedYAxis}
@@ -159,7 +166,7 @@ export function BurnChartCanvas({
           </AreaChart>
         ) : (
           // Combined
-          <ComposedChart data={points} margin={chartMargin}>
+          <ComposedChart data={points} margin={chartMargin} accessibilityLayer={false}>
             {sharedGrid}
             {sharedXAxis}
             {sharedYAxis}

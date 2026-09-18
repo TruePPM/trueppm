@@ -162,6 +162,7 @@ export function WorkspaceLogoField({ logoUrl, name }: Props) {
           ref={inputRef}
           type="file"
           accept={LOGO_ACCEPT_ATTR}
+          aria-label="Workspace logo"
           className="sr-only"
           aria-describedby={warning ? errorId : undefined}
           onChange={(e) => {

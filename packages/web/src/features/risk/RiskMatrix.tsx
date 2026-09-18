@@ -54,50 +54,64 @@ export function RiskMatrix({ risks, selectedCell, onCellSelect }: RiskMatrixProp
           </span>
         </div>
 
-        <div
-          role="grid"
-          aria-label="Risk matrix"
-          tabIndex={-1}
-          className="flex flex-col gap-px"
-          onKeyDown={(e) => {
-            if (e.key === 'Escape' && selectedCell) {
-              // Stop propagation so the drawer Escape handler doesn't also fire
-              e.stopPropagation();
-              onCellSelect?.(null);
-            }
-          }}
-        >
-          {/* Rows: probability 5 → 1 (top to bottom) */}
-          {[5, 4, 3, 2, 1].map((prob) => (
-            <div key={prob} className="flex items-center gap-1">
-              {/* Row label */}
-              <span className="text-xs text-neutral-text-secondary w-5 text-right shrink-0 tppm-mono">
-                {prob}
-              </span>
+        <div>
+          {/* `role="grid"` may directly contain only `row`/`rowgroup` (axe
+              `aria-required-children`) — the axis labels, legend and status
+              callout below used to live inside this div and got flagged as
+              disallowed children (#3482). They are now siblings of the grid,
+              not descendants. */}
+          <div
+            role="grid"
+            aria-label="Risk matrix"
+            tabIndex={-1}
+            className="flex flex-col gap-px"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && selectedCell) {
+                // Stop propagation so the drawer Escape handler doesn't also fire
+                e.stopPropagation();
+                onCellSelect?.(null);
+              }
+            }}
+          >
+            {/* Rows: probability 5 → 1 (top to bottom). A `role="row"` may
+                directly contain only `gridcell`/`rowheader`/`columnheader` —
+                the row-number label carries `rowheader` and each cell is
+                wrapped in its own `gridcell` div (a cell containing one
+                interactive widget is the standard ARIA grid composite-widget
+                pattern, not `nested-interactive`: `gridcell` is a structural
+                role, not an interactive one). */}
+            {[5, 4, 3, 2, 1].map((prob) => (
+              <div key={prob} role="row" className="flex items-center gap-px">
+                <span
+                  role="rowheader"
+                  className="text-xs text-neutral-text-secondary w-5 mr-1 text-right shrink-0 tppm-mono"
+                >
+                  {prob}
+                </span>
 
-              {/* 5 impact cells */}
-              <div className="flex gap-px">
                 {[1, 2, 3, 4, 5].map((imp) => {
                   const risksInCell = risks.filter(
                     (r) => r.probability === prob && r.impact === imp,
                   );
-                  const isSelected = selectedCell?.probability === prob && selectedCell?.impact === imp;
+                  const isSelected =
+                    selectedCell?.probability === prob && selectedCell?.impact === imp;
 
                   return (
-                    <RiskMatrixCell
-                      key={imp}
-                      probability={prob}
-                      impact={imp}
-                      risksInCell={risksInCell}
-                      isSelected={isSelected}
-                      isInteractive={!!onCellSelect}
-                      onSelect={handleCellClick}
-                    />
+                    <div key={imp} role="gridcell">
+                      <RiskMatrixCell
+                        probability={prob}
+                        impact={imp}
+                        risksInCell={risksInCell}
+                        isSelected={isSelected}
+                        isInteractive={!!onCellSelect}
+                        onSelect={handleCellClick}
+                      />
+                    </div>
                   );
                 })}
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
 
           {/* Impact column numbers */}
           <div className="flex items-center gap-1 mt-1">

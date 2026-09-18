@@ -352,10 +352,12 @@ test.describe('Overdue mitigation badge', () => {
   });
 
   test('overdue badge appears on MITIGATING risk with past due date', async ({ page }) => {
-    // The "Vendor delivery delay" row has status MITIGATING + mitigation_due_date in the past
-    const riskRow = page.getByRole('button', {
-      name: /Open risk: Vendor delivery delay \(overdue mitigation\)/,
-    });
+    // The "Vendor delivery delay" row has status MITIGATING + mitigation_due_date
+    // in the past. The row itself (`<tr>`) is a plain, roleless element (#3482 —
+    // the open-risk name and tab stop live on the title `<button>` inside it,
+    // not on the row), so it is located by its native `row` role instead of
+    // `button`; the accessible name of a `row` derives from its cells' text.
+    const riskRow = page.getByRole('row', { name: /Vendor delivery delay/ });
     await expect(riskRow).toBeVisible();
 
     const badge = riskRow.getByText('Overdue');
@@ -363,16 +365,12 @@ test.describe('Overdue mitigation badge', () => {
   });
 
   test('overdue badge does not appear on non-mitigating risk', async ({ page }) => {
-    const criticalRow = page.getByRole('button', {
-      name: /Open risk: Critical infrastructure failure/,
-    });
+    const criticalRow = page.getByRole('row', { name: /Critical infrastructure failure/ });
     await expect(criticalRow.getByText('Overdue')).not.toBeVisible();
   });
 
   test('overdue row has amber background tint', async ({ page }) => {
-    const riskRow = page.getByRole('button', {
-      name: /Open risk: Vendor delivery delay \(overdue mitigation\)/,
-    });
+    const riskRow = page.getByRole('row', { name: /Vendor delivery delay/ });
     // bg-semantic-at-risk/5 is applied to the tr — verify the class exists on the element
     await expect(riskRow).toHaveClass(/bg-semantic-at-risk/);
   });

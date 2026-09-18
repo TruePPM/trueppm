@@ -124,10 +124,14 @@ export function MyWorkSideColumn({
                 key={t.id}
                 className="flex items-center gap-2 border-b border-neutral-border/40 px-4 py-2.5 last:border-b-0"
               >
+                {/* `role="img"` (#3482) — see MyWorkTaskRow's identical icon
+                    for the rationale: a plain `<span>` has no role that
+                    permits `aria-label`. */}
                 <span
                   className="shrink-0 text-sm leading-none text-semantic-critical"
                   title="On the critical path — a delay here delays the project end date"
                   aria-label="On the critical path"
+                  role="img"
                 >
                   <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
                 </span>

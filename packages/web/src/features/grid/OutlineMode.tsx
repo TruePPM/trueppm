@@ -394,21 +394,28 @@ export function OutlineMode({
         reorganize the selected task: Alt plus Right indents it, Alt plus Left outdents it,
         Alt plus Up or Down moves it among its siblings.
       </p>
-      {/* eslint-disable-next-line jsx-a11y/interactive-supports-focus -- roving tabindex on rows */}
-      <div
-        role="treegrid"
-        aria-label="Outline task tree"
-        aria-describedby="outline-tree-keys"
-        className="flex-1 overflow-y-auto"
-        onKeyDown={handleTreeKeyDown}
+      {/* `DndContext` renders its own `role="status"` live region as a literal DOM
+          child alongside whatever it wraps (dnd-kit's `Accessibility` component,
+          not a portal) — with the treegrid div as `DndContext`'s child, that live
+          region landed INSIDE `role="treegrid"`, which `aria-required-children`
+          rejects (a treegrid may only contain rows/rowgroups). `DndContext` now
+          wraps the treegrid div instead of the reverse, so the live region is a
+          SIBLING of it — same fix shape as the Schedule listbox (#2618). */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        accessibility={{ announcements: dndAnnouncements }}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setReparentTargetId(null)}
       >
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          accessibility={{ announcements: dndAnnouncements }}
-          onDragOver={handleDragOver}
-          onDragEnd={handleDragEnd}
-          onDragCancel={() => setReparentTargetId(null)}
+        {/* eslint-disable-next-line jsx-a11y/interactive-supports-focus -- roving tabindex on rows */}
+        <div
+          role="treegrid"
+          aria-label="Outline task tree"
+          aria-describedby="outline-tree-keys"
+          className="flex-1 overflow-y-auto"
+          onKeyDown={handleTreeKeyDown}
         >
           <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
             {visible.map((node, index) => (
@@ -430,8 +437,8 @@ export function OutlineMode({
               />
             ))}
           </SortableContext>
-        </DndContext>
-      </div>
+        </div>
+      </DndContext>
 
       {/* Render the message as text content, not an aria-label: aria-label
           mutations on an empty live node are not reliably spoken (#2203).
