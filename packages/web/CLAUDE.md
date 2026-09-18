@@ -71,6 +71,8 @@ These rules are enforced at review time. Violations block merge.
 399. **A `::before`/`::after` overhang — a touch target, a hit-area cushion, a decorative bleed — is INVISIBLE to the eye and to `boundingBox()`, but it is real content for an ancestor's `scrollWidth`. "The control is inside the viewport" is therefore not the same assertion as "the container does not overflow", and a surface that asserts only the first is not guarded.** → [rule](../../docs/design/invariants/399-a-before-after-overhang-a-touch-target-a-hit-area-cushion-a.md)
 417. **`opacity-0` + a hover-reveal variant (`hover:opacity-100`, `group-hover:opacity-100`) needs a focus-reveal counterpart in the same class string — without one, a keyboard user can Tab onto the control and never see it. Machine-checked: `scripts/check-hover-reveal-focus.sh`.** → [rule](../../docs/design/invariants/417-opacity-0-a-hover-reveal-variant-needs-a-focus-reveal.md)
 420. **A container that holds real controls may not take a widget role; demoting it means moving the name and the tab stop onto an inner `<button>` — and stripping `aria-label`/`aria-roledescription` with the role, including the ones a library spreads on.** → [rule](../../docs/design/invariants/420-a-container-that-holds-real-controls-may-not-take-a-widget.md)
+422. **A role that only permits specific children (`<dl>`, `role="grid"`/`"treegrid"`, `role="row"`) must not gain a disallowed one from surrounding markup or a wrapped library's own injected DOM — move the offender to a sibling, or nest the wrapper the other way round.** → [rule](../../docs/design/invariants/422-a-role-that-only-permits-specific-children-must-not-gain.md)
+423. **A Recharts root inside an `aria-hidden` wrapper must set `accessibilityLayer={false}` — the library's own focusable keyboard overlay is still reachable by Tab even though `aria-hidden` removes it from the accessibility tree.** → [rule](../../docs/design/invariants/423-a-recharts-root-inside-an-aria-hidden-wrapper-must-set.md)
 
 ## Color and tokens
 
@@ -116,6 +118,7 @@ These rules are enforced at review time. Violations block merge.
 410. **A value read from an async query that SEEDS a mount-frozen draft must be gated on that query RESOLVING — every other consumer of the same value self-corrects on re-render, and that is exactly what hides the one that cannot.** → [rule](../../docs/design/invariants/410-a-value-read-from-an-async-query-that-seeds-a-mount-frozen.md)
 413. **A chart label that collides with its neighbor moves to a new ROW — the marker it names never moves, and the packing is a generic N-label layout problem, not a special case for one named pair.** → [rule](../../docs/design/invariants/413-a-chart-label-that-collides-with-its-neighbor-moves-to-a.md)
 416. **A real, nonzero-denominator computed zero is a value, not a health signal — it must never wear the on-track/success color.** → [rule](../../docs/design/invariants/416-a-real-nonzero-denominator-computed-zero-is-a-value-not.md)
+421. **`aria-label` on a roleless element is prohibited outright — hiding descendants (rule 171) stops the double-read but does not make the attribute legal; delete it and add a real `sr-only` sibling span instead.** → [rule](../../docs/design/invariants/421-aria-label-on-a-roleless-element-is-prohibited-outright.md)
 
 ## Redundancy
 
