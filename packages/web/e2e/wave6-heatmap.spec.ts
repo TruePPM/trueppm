@@ -62,9 +62,10 @@ const FIXTURE_SUMMARY = {
   contractor_count: 0,
 };
 
-// SCHEDULER = 2, MEMBER = 1
+// SCHEDULER = 200, MEMBER = 100, VIEWER = 1 (ADR-0072 ordinals)
 const MEMBER_SCHEDULER = [{ id: 'mem-sched', role: 200 }];
 const MEMBER_MEMBER = [{ id: 'mem-member', role: 100 }];
+const MEMBER_VIEWER = [{ id: 'mem-viewer', role: 1 }];
 
 // ---------------------------------------------------------------------------
 // Setup helpers
@@ -295,6 +296,56 @@ test.describe('Team tab RBAC', () => {
     await expect(
       page.getByRole('navigation', { name: 'View' }).getByRole('link', { name: 'Team' }),
     ).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Heatmap page — permission gate (#3844)
+//
+// A Viewer navigating directly to the Heatmap sub-tab (bypassing the pill/tab
+// hiding above — the actual reported hole was that this page itself had no
+// gate of its own) must see PermissionDeniedNotice, never the grid, and the
+// page must not have issued the heatmap/summary request in the first place.
+// ---------------------------------------------------------------------------
+
+test.describe('Heatmap page RBAC', () => {
+  test('Viewer sees PermissionDeniedNotice, not the grid, and never requests the data', async ({
+    page,
+  }) => {
+    await setup(page, MEMBER_VIEWER);
+
+    let heatmapRequested = false;
+    let summaryRequested = false;
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/resources/heatmap/**`, (r) => {
+      heatmapRequested = true;
+      return r.fulfill({ status: 403, contentType: 'application/json', body: '{}' });
+    });
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/resources/summary/**`, (r) => {
+      summaryRequested = true;
+      return r.fulfill({ status: 403, contentType: 'application/json', body: '{}' });
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/resources/heatmap`);
+
+    await expect(
+      page.getByText('Resource utilization is only visible to Schedulers, Admins, and Owners.'),
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('grid')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Team' })).toHaveCount(0);
+    expect(heatmapRequested).toBe(false);
+    expect(summaryRequested).toBe(false);
+  });
+
+  test('Scheduler still gets the grid (positive control on the same gate)', async ({ page }) => {
+    await setup(page, MEMBER_SCHEDULER);
+    await page.goto(`/projects/${PROJECT_ID}/resources/heatmap`);
+
+    await expect(
+      page.getByRole('grid', { name: 'Resource utilization heatmap' }),
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByText('Resource utilization is only visible to Schedulers, Admins, and Owners.'),
+    ).toHaveCount(0);
   });
 });
 
