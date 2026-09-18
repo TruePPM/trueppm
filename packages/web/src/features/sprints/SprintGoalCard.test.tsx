@@ -43,7 +43,7 @@ describe('SprintGoalCard — banner (read) state', () => {
 
   it('renders points-committed pill', () => {
     renderCard({ sprint: makeSprint({ committed_points: 47 }) });
-    expect(screen.getByLabelText(/47 story points committed/i)).toBeInTheDocument();
+    expect(screen.getByText(/47 story points committed/i)).toBeInTheDocument();
   });
 
   it('hides day-N-of-M for non-active sprints', () => {

@@ -143,7 +143,7 @@ export function AdvancingToMilestoneCard({ sprint, projectId, predecessorsInSpri
         </>
       ) : (
         <div className="flex flex-col items-start gap-2">
-          <p className="text-sm italic text-neutral-text-disabled">
+          <p className="text-sm italic text-neutral-text-secondary">
             No milestone linked to this {itl.lower}.
           </p>
           {canPromote && (

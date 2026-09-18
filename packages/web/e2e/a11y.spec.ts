@@ -249,6 +249,11 @@ async function setupShell(page: import('@playwright/test').Page): Promise<void> 
         calendar: null,
         calendar_override_policy: 'suggest',
         logo_url: null,
+        // ADR-0758 (#2670) — a NOT-NULL boolean on the wire. Omitting it here
+        // left `Toggle`'s `on` prop `undefined`, which React renders as no
+        // `aria-checked` attribute at all — axe `aria-required-attr` (#3482),
+        // not a production bug (the real endpoint never omits this field).
+        sprint_picker_ready_only_default: true,
       }),
     }),
   );
@@ -739,6 +744,459 @@ test.describe('accessibility @a11y — routes', () => {
     await expect(list.getByText('Project Manager', { exact: true })).toHaveCount(0);
 
     // No rule exclusions — this route is clean at the moderate floor.
+    await expectNoA11yViolations(page, testInfo, { gateModerate: true });
+  });
+});
+
+/**
+ * Expanded route coverage (#3482). The 2026-09-06 axe sweep (as workspace admin,
+ * desktop + phone) found five new critical/serious rule violations this file's
+ * routes never reached: `aria-prohibited-attr` (Workspace Settings, Board,
+ * Sprints), `aria-required-children` (Schedule listbox / grid `role="status"`),
+ * `nested-interactive` (Board cards, Risk rows, My Work), `aria-valid-attr-value`
+ * (Grid collapse buttons), and `aria-hidden-focus` (chart containers on
+ * Overview/Board/Sprints/Reports) — plus the moderate `page-has-heading-one`
+ * gap on several routes. These scans widen the gate to the routes that surface
+ * them; see `docs/adr` — no ADR, this is a remediation sweep, not a design change.
+ */
+
+const PROGRAM_PROJECT_ID = 'e2e-a11y-00000000-0000-0000-0000-000000003482';
+
+/** One project row on the program's Projects tab (`ProgramProjectRowSerializer`,
+ *  #3439) — enough fields for `useProgramProjects` to map a full `Project`. */
+const PROGRAM_PROJECT = {
+  id: PROGRAM_PROJECT_ID,
+  name: 'Constellation Rollout',
+  start_date: '2026-01-01',
+  methodology: 'HYBRID',
+  program: PROGRAM_ID,
+  effective_methodology: 'HYBRID',
+  inherited_methodology: 'HYBRID',
+  iteration_label: null,
+  effective_iteration_label: 'Sprint',
+  overdue_count: 1,
+  at_risk_count: 0,
+  sprint_count: 2,
+  backlog_story_count: 3,
+  baseline_count: 1,
+  dependency_count: 0,
+  is_pinned: false,
+  my_role: 300,
+};
+
+/** A handful of workspace programs so `WorkspaceProgramsPage`'s BulkFieldsMatrix
+ *  actually renders rows (issue #3482: `aria-label` on the matrix's plain `<span>`
+ *  value cells, 4 per row — the "48/page" finding). Shape mirrors `Program`. */
+const WORKSPACE_PROGRAMS = ['Apollo', 'Artemis', 'Constellation', 'Orion'].map((name, i) => ({
+  id: `wp-${i}`,
+  server_version: 1,
+  name,
+  description: '',
+  code: name.slice(0, 4).toUpperCase(),
+  methodology: 'HYBRID',
+  effective_methodology: 'HYBRID',
+  inherited_methodology: 'HYBRID',
+  iteration_label: i % 2 === 0 ? null : 'Sprint',
+  inherited_iteration_label: 'Iteration',
+  effective_iteration_label: i % 2 === 0 ? 'Iteration' : 'Sprint',
+  risk_slip_propagation: 'warn',
+  risk_escalation_days: 5,
+  health: 'AUTO',
+  visibility: 'WORKSPACE',
+  lead: null,
+  lead_detail: null,
+  created_by: 'e2e-user',
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+  my_role: 400,
+  my_role_label: 'Program Admin',
+  project_count: 1,
+  member_count: 1,
+  is_sample: false,
+  is_closed: false,
+  closed_at: null,
+  closed_by: null,
+}));
+
+/** One active sprint with a bridge-forecast milestone so the burn/velocity
+ *  chart (BurnChart → BurnChartCanvas, `aria-hidden` recharts) actually mounts
+ *  rather than showing the chartless empty state. Shape mirrors `Sprint`. */
+const ACTIVE_SPRINT = {
+  id: 'sp-a11y-active',
+  server_version: 1,
+  short_id: 'A11Y1',
+  short_id_display: 'SP-A11Y1',
+  name: 'Sprint A11Y',
+  goal: 'Ship the widened axe gate.',
+  start_date: '2026-09-01',
+  finish_date: '2026-09-14',
+  state: 'ACTIVE',
+  target_milestone: null,
+  target_milestone_detail: null,
+  capacity_points: 20,
+  committed_points: 13,
+  committed_task_count: 2,
+  completed_points: 5,
+  completed_task_count: 1,
+  activated_at: '2026-09-01T00:00:00Z',
+  closed_at: null,
+  created_at: '2026-08-25T00:00:00Z',
+  updated_at: '2026-09-05T00:00:00Z',
+};
+
+/** Two risks — one with an owner, one unassigned — so the register renders more
+ *  than one row: the "Unassigned" cell is where the `text-neutral-text-disabled`
+ *  contrast + `aria-label`-on-`<span>` violations live (RiskTableRow). */
+const RISKS = [
+  {
+    id: 'risk-a11y-1',
+    short_id_display: 'R-1',
+    title: 'Vendor API rate limits under sprint load',
+    status: 'MITIGATING',
+    probability: 3,
+    impact: 4,
+    severity: 12,
+    owner: 'e2e-user',
+    owner_initials: 'EU',
+    owner_name: 'E2E User',
+    mitigation_due_date: '2026-10-01',
+  },
+  {
+    id: 'risk-a11y-2',
+    short_id_display: 'R-2',
+    title: 'Unclear data-retention requirement from legal',
+    status: 'OPEN',
+    probability: 2,
+    impact: 3,
+    severity: 6,
+    owner: null,
+    owner_initials: null,
+    owner_name: null,
+    mitigation_due_date: null,
+  },
+];
+
+/** One project-scoped resource pool entry so the Roster list renders a row
+ *  (`useProjectResourcePool` → `GET /project-resources/`). Shape mirrors
+ *  `ProjectResourceSerializer` / `ResourceSerializer` (docs/api/openapi.json) —
+ *  NOT the fields a plausible-looking guess would reach for (schema-guarded). */
+const ROSTER_RESOURCE = {
+  id: 'pr-a11y-1',
+  server_version: 1,
+  project: PROJECT_ID,
+  resource: 'res-a11y-1',
+  resource_detail: {
+    id: 'res-a11y-1',
+    server_version: 1,
+    name: 'Priya Chandra',
+    email: 'priya@example.com',
+    job_role: 'Engineer',
+    calendar: null,
+    max_units: '1.00',
+    skills: [],
+    is_me: false,
+  },
+  role_title: 'Engineer',
+  units_override: null,
+  effective_max_units: '1.00',
+  notes: '',
+};
+
+const MYWORK_SPRINT_ID = 'sprint-a11y-mywork';
+const MYWORK_TASK_ID = 'task-a11y-mywork';
+
+/** A populated My Work feed — the shell scan's default is the empty feed, which
+ *  renders no task cards and so cannot see the row-level `nested-interactive`
+ *  the audit found (a `role="button"` row wrapping a real status-chip button). */
+const MYWORK_ACTIVE_SPRINT = {
+  id: MYWORK_SPRINT_ID,
+  name: 'Sprint A11Y',
+  project_id: PROJECT_ID,
+  project_name: PROJECT.name,
+  finish_date: '2026-09-14',
+  days_remaining: 4,
+  task_count: 1,
+};
+
+const MYWORK_TASK = {
+  id: MYWORK_TASK_ID,
+  short_id: 'A11Y-01',
+  name: 'Fix the axe gate route list',
+  project_id: PROJECT_ID,
+  project_name: PROJECT.name,
+  program_id: null,
+  program_name: null,
+  program_color: null,
+  sprint_id: MYWORK_SPRINT_ID,
+  sprint_name: 'Sprint A11Y',
+  status: 'IN_PROGRESS',
+  story_points: 3,
+  remaining_points: 2,
+  due: '2026-09-12',
+  due_source: 'planned',
+  is_critical: true,
+  group: 'this_sprint',
+  is_blocked: false,
+  blocked_reason: '',
+  blocker_type: '',
+  blocked_age_seconds: null,
+  server_version: 1,
+  url: `/projects/${PROJECT_ID}/schedule?task=${MYWORK_TASK_ID}`,
+};
+
+test.describe('accessibility @a11y — expanded route coverage (#3482)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupShell(page);
+  });
+
+  test('Workspace Settings has no critical/serious WCAG violations', async ({
+    page,
+  }, testInfo) => {
+    // RequireWorkspaceAdmin gates on `/auth/me`'s `workspace_role`
+    // (useWorkspaceAdminStatus) — the shell's DEFAULT_USER fixture carries no
+    // numeric role, which resolves to the 'unknown' verdict and renders
+    // QueryErrorState instead of the page. Override AFTER setupShell so this
+    // route wins (Playwright matches last-registered first).
+    await page.route('**/api/v1/auth/me/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'e2e-user',
+          username: 'e2euser',
+          display_name: 'E2E User',
+          initials: 'EU',
+          email: 'e2e@example.com',
+          default_landing: 'my_work',
+          landing: { intent: 'my_work', path: '/me/work', resolved_by: 'preference' },
+          hidden_views: [],
+          role_context: 'unified',
+          can_access_admin_settings: true,
+          workspace_role: 300,
+        }),
+      }),
+    );
+    // `/programs/samples/` is a bare array (WorkspaceSettingsPage's onboarding
+    // banner), NOT the paginated list envelope setupShell's broader
+    // `**/api/v1/programs/**` catch-all serves every prefixed path — register
+    // the more specific route so it wins.
+    await page.route('**/api/v1/programs/samples/', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+    );
+    // Real programs so the Programs section's BulkFieldsMatrix renders rows
+    // instead of the empty state (registered after setupShell's empty default).
+    await page.route('**/api/v1/programs/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: WORKSPACE_PROGRAMS.length,
+          next: null,
+          previous: null,
+          results: WORKSPACE_PROGRAMS,
+        }),
+      }),
+    );
+    // `/workspace/members/` is a cursor-paginated envelope (#1317). Left
+    // unmocked, the Members section's title never mounts and its
+    // `aria-labelledby` dangles — axe `aria-prohibited-attr` on the now-
+    // unnamed `<section>` (same class of bug #2969 fixed for Methodology,
+    // recurring here because this route never mocked it, #3482).
+    await page.route('**/api/v1/workspace/members/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ results: [], next: null }),
+      }),
+    );
+    // `useWorkspaceMembers` combines members + pending invites into one
+    // `isLoading` — mocking only `/members/` still left the section's title
+    // (and its `settings-heading-members` id) skeleton-gated on this one too.
+    await page.route('**/api/v1/workspace/invites/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ results: [], next: null }),
+      }),
+    );
+    // Retention & purge renders inline on the consolidated page. Left
+    // unmocked, its loading skeleton (`aria-label` on a plain `role`-less
+    // `<div>`) never clears — axe `aria-prohibited-attr` (#3482). Shape
+    // mirrors `retention-purge.spec.ts`'s fixture.
+    await page.route('**/api/v1/health/retention/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          policies: [
+            {
+              key: 'HISTORY_RETENTION_DAYS',
+              label: 'Event history',
+              note: 'Event history note',
+              unit: 'days',
+              value: 90,
+              enabled: true,
+              row_count: 100,
+              bytes: 1_000_000,
+            },
+          ],
+          schedule: {
+            frequency: 'daily',
+            time_of_day_utc: '02:00:00',
+            day_of_week: null,
+            on_failure: 'continue',
+          },
+          runs: [],
+        }),
+      }),
+    );
+    await page.route('**/api/v1/health/retention/impact/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ eligible_rows: 0, eligible_bytes: 0 }),
+      }),
+    );
+
+    await page.goto('/settings');
+    // The General section is the first on the consolidated scroll page and
+    // always renders once `/workspace/` resolves — a stable gate independent
+    // of the Programs section further down.
+    await expect(page.getByRole('heading', { name: 'General' })).toBeVisible({ timeout: 10_000 });
+    // Confirm the Programs section actually mounted its matrix rows — the
+    // scan is worthless against the empty state.
+    await expect(page.getByText('Apollo', { exact: true })).toBeVisible();
+
+    await expectNoA11yViolations(page, testInfo, { gateModerate: true });
+  });
+
+  test('project Sprints (active) has no critical/serious WCAG violations', async ({
+    page,
+  }, testInfo) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/**`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 1, next: null, previous: null, results: [ACTIVE_SPRINT] }),
+      }),
+    );
+
+    await page.goto(`/projects/${PROJECT_ID}/sprints`);
+    await expect(page.getByText('Sprint A11Y').first()).toBeVisible({ timeout: 10_000 });
+
+    await expectNoA11yViolations(page, testInfo, { gateModerate: true });
+  });
+
+  test('project Grid has no critical/serious WCAG violations', async ({ page }, testInfo) => {
+    await page.goto(`/projects/${PROJECT_ID}/grid`);
+    // The fixture's summary task ("Discovery Phase", is_summary: true) renders
+    // an expand/collapse toggle — the surface the aria-controls finding is on.
+    await expect(page.getByText('Discovery Phase')).toBeVisible({ timeout: 10_000 });
+
+    await expectNoA11yViolations(page, testInfo, { gateModerate: true });
+  });
+
+  test('project Risk Register has no critical/serious WCAG violations', async ({
+    page,
+  }, testInfo) => {
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/risks/**`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: RISKS.length, next: null, previous: null, results: RISKS }),
+      }),
+    );
+
+    await page.goto(`/projects/${PROJECT_ID}/risk`);
+    await expect(page.getByText(RISKS[0].title)).toBeVisible({ timeout: 10_000 });
+
+    await expectNoA11yViolations(page, testInfo, { gateModerate: true });
+  });
+
+  test('project Resources (Roster) has no critical/serious WCAG violations', async ({
+    page,
+  }, testInfo) => {
+    await page.route('**/api/v1/project-resources/**', (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [ROSTER_RESOURCE],
+        }),
+      });
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/resources`);
+    await expect(page.getByText('Priya Chandra')).toBeVisible({ timeout: 10_000 });
+
+    await expectNoA11yViolations(page, testInfo, { gateModerate: true });
+  });
+
+  test('project Reports has no critical/serious WCAG violations', async ({ page }, testInfo) => {
+    await page.goto(`/projects/${PROJECT_ID}/reports`);
+    await expect(page.getByRole('heading', { level: 1, name: 'Reports' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await expectNoA11yViolations(page, testInfo, { gateModerate: true });
+  });
+
+  test('program Backlog has no critical/serious WCAG violations', async ({ page }, testInfo) => {
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/backlog-items/**`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+    );
+
+    await page.goto(`/programs/${PROGRAM_ID}/backlog`);
+    await expect(page.getByRole('heading', { level: 1, name: 'Backlog' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await expectNoA11yViolations(page, testInfo, { gateModerate: true });
+  });
+
+  test('program Projects has no critical/serious WCAG violations', async ({ page }, testInfo) => {
+    await setupProgramMembers(page);
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/**`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([PROGRAM_PROJECT]),
+      }),
+    );
+
+    await page.goto(`/programs/${PROGRAM_ID}/projects`);
+    await expect(page.getByText(PROGRAM_PROJECT.name)).toBeVisible({ timeout: 10_000 });
+
+    await expectNoA11yViolations(page, testInfo, { gateModerate: true });
+  });
+
+  test('My Work (populated) has no critical/serious WCAG violations', async ({
+    page,
+  }, testInfo) => {
+    await page.route('**/api/v1/me/work/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          results: [MYWORK_TASK],
+          next: null,
+          previous: null,
+          active_sprints: [MYWORK_ACTIVE_SPRINT],
+          due_today_count: 0,
+          server_version_high_water: 1,
+        }),
+      }),
+    );
+
+    await page.goto('/me/work');
+    // The task title renders twice (the main row link + a compact duplicate in
+    // a secondary summary) — `.first()` avoids a strict-mode collision.
+    await expect(page.getByText(MYWORK_TASK.name).first()).toBeVisible({ timeout: 10_000 });
+
     await expectNoA11yViolations(page, testInfo, { gateModerate: true });
   });
 });

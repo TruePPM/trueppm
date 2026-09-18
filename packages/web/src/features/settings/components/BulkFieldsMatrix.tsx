@@ -670,14 +670,18 @@ function ValueCell<Row>({ field, row }: { field: FieldDescriptor<Row>; row: Row 
     return (
       <span
         className="tppm-mono break-words text-[12px] text-neutral-text-primary"
-        aria-label={`${field.label}: ${ownLabel}, differs from ${deviation.scope} default ${inheritedLabel}`}
         data-testid={`deviation-marker-${field.key}`}
       >
-        {/* An `aria-label` on a non-widget container does not suppress its
-            descendants in NVDA/JAWS — without this the reader hears the label and
-            then the raw text again. */}
+        {/* `aria-label` is prohibited on a plain (roleless) `<span>` — axe
+            `aria-prohibited-attr` (#3482) — and per web-rule 171 it would not
+            even suppress the descendant text in NVDA/JAWS if it were allowed.
+            Visually-hidden text carries the fuller string instead; the visible
+            copy is `aria-hidden` so the two are not both read. */}
         <span aria-hidden="true">
           {ownLabel} ≠ {deviation.scope} ({inheritedLabel})
+        </span>
+        <span className="sr-only">
+          {`${field.label}: ${ownLabel}, differs from ${deviation.scope} default ${inheritedLabel}`}
         </span>
       </span>
     );
@@ -686,19 +690,20 @@ function ValueCell<Row>({ field, row }: { field: FieldDescriptor<Row>; row: Row 
   // A resettable (null-sentinel) field that is inherited reads muted "— inherited".
   if (field.resettable && !overridden) {
     return (
-      <span className="text-neutral-text-secondary" aria-label={`${field.label}: inherited, ${label}`}>
+      <span className="text-neutral-text-secondary">
         <span aria-hidden="true">
           — inherited{effective != null && effective !== '' ? ` (${label})` : ''}
         </span>
+        <span className="sr-only">{`${field.label}: inherited, ${label}`}</span>
       </span>
     );
   }
   return (
-    <span
-      className="tppm-mono text-[12px] text-neutral-text-primary"
-      aria-label={`${field.label}: ${label}${field.resettable ? ', set on this row' : ''}`}
-    >
+    <span className="tppm-mono text-[12px] text-neutral-text-primary">
       <span aria-hidden="true">{label}</span>
+      <span className="sr-only">
+        {`${field.label}: ${label}${field.resettable ? ', set on this row' : ''}`}
+      </span>
     </span>
   );
 }

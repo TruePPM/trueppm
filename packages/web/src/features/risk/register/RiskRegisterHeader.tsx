@@ -46,8 +46,12 @@ function SeverityCountChips({
     <>
       {criticalCount > 0 && (
         <span
+          // Same tint-on-light combo as RiskChip's Critical level, not a solid
+          // fill with white text: `bg-semantic-critical` is calibrated as TEXT
+          // contrast on a dark surface (rule 41), not as a background under
+          // white (#3482, same class of bug #2197 fixed on the High chip below).
           className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium
-                bg-semantic-critical text-white"
+                text-semantic-critical bg-semantic-critical-bg"
           aria-label={`${criticalCount} critical risk${criticalCount !== 1 ? 's' : ''}`}
         >
           {criticalCount} critical
@@ -55,8 +59,12 @@ function SeverityCountChips({
       )}
       {highCount > 0 && (
         <span
+          // `text-brand-accent-text` (#92400E, ≥6:1 on the accent-light tint) —
+          // NOT `text-white` on `bg-brand-accent-dark`, which reintroduces the
+          // fill/border-weight-as-text-background bug RiskChip already fixed for
+          // the High level (#2197). Matches RiskChip's High classes exactly.
           className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium
-                bg-brand-accent-dark text-white"
+                text-brand-accent-text dark:text-brand-accent bg-brand-accent-light dark:bg-brand-accent/20"
           aria-label={`${highCount} high risk${highCount !== 1 ? 's' : ''}`}
         >
           {highCount} high

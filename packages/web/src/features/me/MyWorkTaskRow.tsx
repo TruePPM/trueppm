@@ -44,7 +44,12 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
 const STATUS_CHIP_CLASSES: Record<TaskStatus, string> = {
   BACKLOG: 'bg-neutral-surface-sunken text-neutral-text-secondary border-neutral-border',
   NOT_STARTED: 'bg-neutral-surface-sunken text-neutral-text-secondary border-neutral-border',
-  IN_PROGRESS: 'bg-brand-primary/10 text-brand-primary border-brand-primary/40',
+  // `/10` composited over this row's `bg-app-canvas` background measured
+  // 4.48:1 for `text-brand-primary` — 0.02 short of AA (#3482). `/5` keeps the
+  // same tint direction at 4.79:1; `text-brand-primary` itself is unchanged
+  // (calibrated to 5.93:1 on white/neutral-surface, not against this warmer,
+  // tinted chip background).
+  IN_PROGRESS: 'bg-brand-primary/5 text-brand-primary border-brand-primary/40',
   REVIEW: 'bg-brand-accent-light text-brand-accent-dark border-brand-accent/40',
   ON_HOLD: 'bg-neutral-surface-sunken text-neutral-text-secondary border-neutral-border',
   COMPLETE: 'bg-semantic-on-track-bg text-semantic-on-track border-semantic-on-track/40',
@@ -231,10 +236,16 @@ export function MyWorkTaskRow({ task }: Props) {
           </span>
         </button>
         {task.is_critical && (
+          // `role="img"` (#3482): a plain `<span>` has no role that permits
+          // `aria-label` (axe `aria-prohibited-attr`) — this is an icon-only
+          // indicator with no other accessible name source, so `role="img"`
+          // is the correct fix rather than sr-only text (there is no sighted
+          // text to keep in sync with).
           <span
             className="text-semantic-critical text-sm leading-none"
             title="On the critical path — a delay here delays the project end date"
             aria-label="On the critical path"
+            role="img"
           >
             <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
           </span>

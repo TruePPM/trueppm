@@ -215,47 +215,64 @@ export function SprintGoalCard({ sprint, projectId, canEdit = false, heading }: 
         <>
           <p className="text-sm text-neutral-text-primary leading-relaxed">
             {sprint.goal || (
-              <span className="italic text-neutral-text-disabled">
+              <span className="italic text-neutral-text-secondary">
                 No goal set for this {itl.lower}.
               </span>
             )}
           </p>
 
-          <dl className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-neutral-text-secondary">
-            <div className="flex items-center gap-1.5">
-              <dt className="font-medium uppercase tracking-wide text-neutral-text-disabled">
-                Window
-              </dt>
-              <dd className="tppm-mono text-neutral-text-primary">
-                {formatDateRange(sprint.start_date, sprint.finish_date)}
-              </dd>
-            </div>
-
-            {showDayOf && (
+          {/* `<dl>` only permits dt/dd groups (each optionally wrapped in a
+              `<div>`), `<script>` or `<template>` as direct children (WCAG
+              1.3.1, axe `definition-list`) — even a `<div>` wrapper's OWN
+              children must be a dt/dd group, so the points-committed chip
+              (neither) cannot live inside the `<dl>` at all, wrapped or not
+              (#3482). The flex/gap layout moves up to this wrapping `<div>`,
+              and `contents` on the `<dl>` makes its dt/dd-group `<div>`s
+              participate in that flex layout directly — visually identical,
+              with the chip now a sibling of the `<dl>` instead of a child. */}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-neutral-text-secondary">
+            <dl className="contents">
               <div className="flex items-center gap-1.5">
-                <dt className="font-medium uppercase tracking-wide text-neutral-text-disabled">
-                  Day
+                <dt className="font-medium uppercase tracking-wide text-neutral-text-secondary">
+                  Window
                 </dt>
                 <dd className="tppm-mono text-neutral-text-primary">
-                  {day} of {total}
+                  {formatDateRange(sprint.start_date, sprint.finish_date)}
                 </dd>
               </div>
-            )}
 
-            <div className="flex items-center gap-1.5">
-              <dt className="font-medium uppercase tracking-wide text-neutral-text-disabled">
-                Tasks
-              </dt>
-              <dd className="tppm-mono text-neutral-text-primary">{taskCount}</dd>
+              {showDayOf && (
+                <div className="flex items-center gap-1.5">
+                  <dt className="font-medium uppercase tracking-wide text-neutral-text-secondary">
+                    Day
+                  </dt>
+                  <dd className="tppm-mono text-neutral-text-primary">
+                    {day} of {total}
+                  </dd>
+                </div>
+              )}
+
+              <div className="flex items-center gap-1.5">
+                <dt className="font-medium uppercase tracking-wide text-neutral-text-secondary">
+                  Tasks
+                </dt>
+                <dd className="tppm-mono text-neutral-text-primary">{taskCount}</dd>
+              </div>
+            </dl>
+
+            {/* The `<span>` inside has no role, so `aria-label` on it would not
+                even suppress its own text to NVDA/JAWS (web-rule 171) —
+                visually-hidden text carries the expansion instead. */}
+            <div>
+              <span
+                className="tppm-mono text-xs px-2 py-0.5 rounded border border-neutral-border text-neutral-text-primary"
+                aria-hidden="true"
+              >
+                {points} pts committed
+              </span>
+              <span className="sr-only">{points} story points committed</span>
             </div>
-
-            <span
-              className="tppm-mono text-xs px-2 py-0.5 rounded border border-neutral-border text-neutral-text-primary"
-              aria-label={`${points} story points committed`}
-            >
-              {points} pts committed
-            </span>
-          </dl>
+          </div>
         </>
       )}
     </section>

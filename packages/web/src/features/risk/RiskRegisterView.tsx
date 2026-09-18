@@ -53,6 +53,12 @@ function RiskTableRow({
   const unmitigated = isUnmitigated(risk);
 
   return (
+    // Mouse-only convenience: a plain `<tr>` with no role/tabIndex confers no
+    // interactive semantics to AT, so this onClick is not exposed as a second
+    // (nested) control — the row-title button below is the one real keyboard/AT
+    // entry point (#3482, same shape as the Board card fix in #2618/web-rule
+    // 420: a container that holds real controls may not itself take a widget
+    // role — demoting it moves the name and the tab stop onto an inner button).
     <tr
       onClick={() => onOpen(risk)}
       className={[
@@ -61,21 +67,7 @@ function RiskTableRow({
         isOverdue
           ? 'bg-semantic-at-risk-bg hover:bg-semantic-at-risk/10'
           : 'hover:bg-neutral-surface-raised',
-        // Row acts as a button: focus: (not focus-visible:) so the
-        // ring shows on pointer-initiated focus in Firefox/Safari
-        // (rule 214, WCAG 2.4.7). ring-inset — row lives in a scroll area.
-        'focus:outline-none focus:ring-2 focus:ring-brand-primary',
-        'focus:ring-inset',
       ].join(' ')}
-      tabIndex={0}
-      role="button"
-      aria-label={`Open risk: ${risk.title}${isOverdue ? ' (overdue mitigation)' : ''}`}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onOpen(risk);
-        }
-      }}
     >
       {/* ID — server-formatted (#929); the client no longer
         derives it from the raw short_id. */}
@@ -83,12 +75,23 @@ function RiskTableRow({
         {risk.short_id_display}
       </td>
 
-      {/* Risk — title + status sub-label + overdue badge */}
+      {/* Risk — title (the real button: keyboard/AT entry point) + status
+          sub-label + overdue badge */}
       <td className="px-4">
         <div className="flex flex-col gap-0.5 min-w-0">
-          <span className="text-sm font-medium text-neutral-text-primary leading-snug truncate">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen(risk);
+            }}
+            aria-label={`Open risk: ${risk.title}${isOverdue ? ' (overdue mitigation)' : ''}`}
+            className="text-left text-sm font-medium text-neutral-text-primary leading-snug truncate
+                            hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary
+                            focus:ring-offset-1 rounded-sm"
+          >
             {risk.title}
-          </span>
+          </button>
           <span className="flex items-center gap-1.5 text-xs text-neutral-text-secondary leading-none">
             {STATUS_LABELS[risk.status]}
             {isOverdue && (
@@ -135,8 +138,14 @@ function RiskTableRow({
             </span>
           </span>
         ) : (
-          <span className="text-xs text-neutral-text-disabled" aria-label="Unassigned">
-            —
+          // No `aria-label` on this plain `<span>` (aria-prohibited-attr,
+          // #3482) — the visible em-dash is decorative and hidden, with the
+          // real string as sr-only text (web-rule 171). `text-neutral-text-
+          // secondary`, not `-disabled`: this is readable copy on an active
+          // row, not an inert control.
+          <span className="text-xs text-neutral-text-secondary">
+            <span aria-hidden="true">—</span>
+            <span className="sr-only">Unassigned</span>
           </span>
         )}
       </td>

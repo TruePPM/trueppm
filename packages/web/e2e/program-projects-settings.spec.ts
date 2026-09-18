@@ -309,7 +309,13 @@ test.describe('Program Settings → Projects — deviation from the default', ()
     // treatment. Two of three rows deviate from the program's HYBRID.
     const markers = page.getByTestId('deviation-marker-methodology');
     await expect(markers).toHaveCount(2);
-    await expect(markers.first()).toHaveText('Waterfall ≠ program (Hybrid)');
+    // The marker carries a visible `aria-hidden` glyph span plus an `.sr-only`
+    // span with the fuller string (#3482 — `aria-label` is prohibited on a
+    // plain `<span>`); scope to the visible span rather than the marker's
+    // combined textContent.
+    await expect(markers.first().locator('[aria-hidden="true"]')).toHaveText(
+      'Waterfall ≠ program (Hybrid)',
+    );
     // Per-column count, as label text rather than a control.
     await expect(page.getByTestId('deviation-count')).toHaveText('· 2 differ');
 
@@ -405,9 +411,9 @@ test.describe('Program Settings → Projects — deviation from the default', ()
     await page.goto(`/programs/${PROGRAM_ID}/settings/projects`);
     await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
 
-    await expect(page.getByTestId('deviation-marker-methodology')).toHaveText(
-      'Waterfall ≠ workspace (Hybrid)',
-    );
+    await expect(
+      page.getByTestId('deviation-marker-methodology').locator('[aria-hidden="true"]'),
+    ).toHaveText('Waterfall ≠ workspace (Hybrid)');
     // Constraint before count.
     await expect(page.getByTestId('bulk-fields-header')).toContainText(
       'Methodology · read-only · 1 differ',
