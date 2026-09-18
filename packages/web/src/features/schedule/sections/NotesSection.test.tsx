@@ -107,8 +107,9 @@ describe('NotesSection — note rendering', () => {
       error: null,
     });
     render(<NotesSection taskId="t1" projectId="p1" canEdit />);
-    // The pin icon advertises its title and the row aria-label includes ", pinned".
-    expect(screen.getByTitle('Pinned')).toBeTruthy();
+    // The pin icon is decorative (aria-hidden) with no `title` (#2454, rule
+    // 287) — the row's own aria-label is the one accessible carrier of
+    // "pinned", and this is the assertion that pins it.
     expect(
       screen.getByRole('listitem', { name: /Note by Alice, .*, pinned/ }),
     ).toBeTruthy();
@@ -374,8 +375,8 @@ describe('NotesSection — row metadata', () => {
     });
     render(<NotesSection taskId="t1" projectId="p1" />);
     expect(screen.queryByText('· edited')).toBeNull();
-    expect(screen.queryByTitle('Pinned')).toBeNull();
-    expect(screen.queryByTitle('Decision')).toBeNull();
+    expect(screen.queryByTestId('note-pinned-icon')).toBeNull();
+    expect(screen.queryByText('Decision')).toBeNull();
   });
 
   it('hides the search box entirely when there are no notes', () => {
@@ -635,7 +636,7 @@ describe('NotesSection — decision chip (ADR-0167, #748)', () => {
       error: null,
     });
     render(<NotesSection taskId="t1" projectId="p1" canEdit={false} userRole={ROLE_VIEWER} />);
-    expect(screen.getByTitle('Decision')).toBeTruthy();
+    expect(screen.getByTestId('note-decision-badge')).toBeTruthy();
     expect(screen.queryByLabelText('Unmark as decision')).toBeNull();
     expect(screen.queryByLabelText('Mark as decision')).toBeNull();
   });
@@ -647,7 +648,7 @@ describe('NotesSection — decision chip (ADR-0167, #748)', () => {
       error: null,
     });
     render(<NotesSection taskId="t1" projectId="p1" canEdit userRole={ROLE_MEMBER} />);
-    for (const el of [screen.getByTitle('Decision'), screen.getByLabelText('Unmark as decision')]) {
+    for (const el of [screen.getByTestId('note-decision-badge'), screen.getByLabelText('Unmark as decision')]) {
       expect(el.querySelector('svg')).toBeTruthy();
       expect(el.textContent).not.toContain('⚖');
     }

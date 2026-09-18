@@ -159,7 +159,11 @@ describe('ScheduleForecastBar', () => {
     expect(screen.getByTestId('mc-recomputing')).toHaveTextContent(
       /Stale — rerun for updated forecast/,
     );
-    expect(screen.getByRole('button', { name: /Rerun Monte Carlo forecast/i })).toBeInTheDocument();
+    const rerunBtn = screen.getByRole('button', { name: /Rerun Monte Carlo forecast/i });
+    expect(rerunBtn).toBeInTheDocument();
+    // No `title` (#2454, rule 287) — it restated the aria-label verbatim, and
+    // the visible "Rerun" label already reads unambiguously in this section.
+    expect(rerunBtn).not.toHaveAttribute('title');
     expect(screen.getByTestId('mc-details-btn')).toBeInTheDocument();
   });
 

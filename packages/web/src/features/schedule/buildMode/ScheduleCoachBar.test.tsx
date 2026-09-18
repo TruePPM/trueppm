@@ -1,4 +1,4 @@
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { formatChord } from '@/lib/platform';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, afterEach } from 'vitest';
@@ -38,6 +38,18 @@ describe('ScheduleCoachBar', () => {
     expect(
       screen.getByRole('button', { name: /bring it back from Display options/i }),
     ).toBeInTheDocument();
+  });
+
+  it('surfaces its label via Tooltip, not a bare title (#2454)', () => {
+    render(<ScheduleCoachBar onDismiss={() => {}} onShowCheatsheet={() => {}} />);
+    const dismiss = screen.getByRole('button', { name: /bring it back from Display options/i });
+    expect(dismiss).not.toHaveAttribute('title');
+    fireEvent.focus(dismiss);
+    // describe={false}: the tooltip restates the aria-label, so the panel is
+    // aria-hidden and must be queried directly rather than via getByRole.
+    expect(document.querySelector('[role="tooltip"]')).toHaveTextContent(
+      'Hide the how-to bar',
+    );
   });
 
   it('dismisses', async () => {

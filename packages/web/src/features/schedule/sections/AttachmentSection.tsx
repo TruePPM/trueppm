@@ -191,11 +191,10 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
         <div className="flex flex-col min-w-0 flex-1">
           <span className="text-sm font-medium text-neutral-text-primary truncate">
             {attachment.is_pinned && (
-              <span
-                aria-label="Pinned"
-                title="Pinned"
-                className="mr-1 inline-flex align-[-0.125em]"
-              >
+              // No `title` (#2454, rule 287) — it restated the aria-label
+              // verbatim, which already covers this decorative, non-interactive
+              // glyph for assistive tech.
+              <span aria-label="Pinned" className="mr-1 inline-flex align-[-0.125em]">
                 <PinIcon className="h-3 w-3" aria-hidden="true" />
               </span>
             )}

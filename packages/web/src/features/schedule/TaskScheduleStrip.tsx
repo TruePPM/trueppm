@@ -425,20 +425,26 @@ function DurationCell({
  * a 4-across grid cell cannot hold the date and the chip on one line.
  */
 function ComputedStartValue({ iso }: { iso: string }) {
+  // Tooltip (#2454, rule 287) replaces the old `title` — unreachable on touch
+  // and invisible to keyboard focus, same gap the chip itself was added to
+  // close. `describe={false}` since the sr-only span already gives AT the
+  // full reading; the tooltip only adds the sighted channel.
   return (
-    <span
-      className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5"
-      title="Auto-calculated by the scheduler (CPM) — not a committed start."
-    >
-      <span className="border-b border-dotted border-neutral-text-disabled">{formatDate(iso)}</span>
+    <Tooltip content="Auto-calculated by the scheduler (CPM) — not a committed start." describe={false}>
       <span
-        aria-hidden="true"
-        className="rounded-chip px-1 py-px text-xs leading-tight tracking-wider uppercase bg-semantic-at-risk-bg text-semantic-at-risk"
+        data-testid="computed-start-value"
+        className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
-        computed
+        <span className="border-b border-dotted border-neutral-text-disabled">{formatDate(iso)}</span>
+        <span
+          aria-hidden="true"
+          className="rounded-chip px-1 py-px text-xs leading-tight tracking-wider uppercase bg-semantic-at-risk-bg text-semantic-at-risk"
+        >
+          computed
+        </span>
+        <span className="sr-only"> (computed, not committed)</span>
       </span>
-      <span className="sr-only"> (computed, not committed)</span>
-    </span>
+    </Tooltip>
   );
 }
 
@@ -605,13 +611,19 @@ function StripFrame({
                   it). `flex-wrap` + `gap-y-0.5` lets it drop to a second line at
                   the narrow layout instead of overflowing into a neighbour. */}
               {showFreeFloat && (
-                <span
-                  className="rounded-chip px-1 py-px text-xs leading-tight bg-neutral-surface-sunken text-neutral-text-secondary font-normal"
-                  aria-hidden="true"
-                  title={ABBREVIATIONS.FREE_FLOAT}
-                >
-                  free {freeFloat}d
-                </span>
+                // Was `aria-hidden` + `title` — a tooltip trigger must not sit
+                // inside a decorative aria-hidden container (#2454, rule 287,
+                // "Watch for" in the issue), so the chip carries its own
+                // `aria-label` now instead of leaning on the sr-only span
+                // below, which drops the free-float phrase it used to double up.
+                <Tooltip content={ABBREVIATIONS.FREE_FLOAT} describe={false}>
+                  <span
+                    className="rounded-chip px-1 py-px text-xs leading-tight bg-neutral-surface-sunken text-neutral-text-secondary font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                    aria-label={`free float ${freeFloat} working ${freeFloat === 1 ? 'day' : 'days'}`}
+                  >
+                    free {freeFloat}d
+                  </span>
+                </Tooltip>
               )}
               <span
                 className="rounded-chip px-1 py-px text-xs uppercase bg-neutral-surface-sunken text-neutral-text-secondary font-normal"
@@ -619,11 +631,7 @@ function StripFrame({
               >
                 computed
               </span>
-              <span className="sr-only">
-                {showFreeFloat
-                  ? ` (free float ${freeFloat} working ${freeFloat === 1 ? 'day' : 'days'}, computed)`
-                  : ' (computed)'}
-              </span>
+              <span className="sr-only"> (computed)</span>
             </span>
           )}
         </Cell>

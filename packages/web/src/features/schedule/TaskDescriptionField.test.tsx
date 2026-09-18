@@ -37,6 +37,11 @@ describe('TaskDescriptionField', () => {
       expect(readBlock).toHaveTextContent('Add a description…');
     });
 
+    it('has no title (#2454) — a Tooltip trigger would silently override the focus-to-edit handler', () => {
+      renderField({ value: 'some text' });
+      expect(screen.getByRole('button', { name: 'Description' })).not.toHaveAttribute('title');
+    });
+
     it('renders read-only content without a click-to-edit affordance', () => {
       renderField({ value: '**locked**', readOnly: true });
       expect(screen.queryByRole('button', { name: 'Description' })).toBeNull();

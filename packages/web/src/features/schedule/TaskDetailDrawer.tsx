@@ -33,7 +33,9 @@ import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { canEditTask } from '@/lib/roles';
 import { describeWriteRefusal, type WriteRefusal } from '@/lib/writeRefusal';
 import { formatChord } from '@/lib/platform';
+import { ABBREVIATIONS } from '@/lib/abbreviations';
 import { Button } from '@/components/Button';
+import { Tooltip } from '@/components/Tooltip';
 import { HeaderEstimateChip } from './HeaderEstimateChip';
 import { CollapsibleSection } from './sections/CollapsibleSection';
 import { SectionErrorBoundary } from './sections/SectionErrorBoundary';
@@ -1130,12 +1132,14 @@ function DrawerContent({
           )}
           <HeaderEstimateChip task={task} projectId={projectId} />
           {task.isCritical && (
-            <span
-              className="text-xs font-semibold text-white bg-semantic-critical px-1.5 py-0.5 rounded-chip"
-              title="This task is on the critical path — a delay here delays the project end date"
-            >
-              CP
-            </span>
+            // `ABBREVIATIONS.CRITICAL` (#2454, rule 287) — the same shared
+            // definition the grid's TaskRow/OutlineRow CP badge uses, rather
+            // than a second inline wording of the same token.
+            <Tooltip content={ABBREVIATIONS.CRITICAL}>
+              <span className="text-xs font-semibold text-white bg-semantic-critical px-1.5 py-0.5 rounded-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1">
+                CP
+              </span>
+            </Tooltip>
           )}
           {/* "View only" indicator (ADR-0133, 1143). A muted, neutral read-state
               chip — not a warning — present whenever the drawer is non-editable,
@@ -1189,25 +1193,28 @@ function DrawerContent({
             </span>
           )}
           <div className="flex-1" />
-          <button
-            type="button"
-            onClick={onExpand}
-            aria-label="Expand to full page"
-            title="Expand to full page"
-            className="w-11 h-11 flex items-center justify-center rounded-control text-neutral-text-secondary
-              hover:text-neutral-text-primary hover:bg-neutral-surface-raised
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-          >
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path
-                d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
+          {/* Icon-only: Tooltip surfaces the aria-label (#2454, rule 287);
+              describe={false} since it would otherwise restate the label. */}
+          <Tooltip content="Expand to full page" describe={false}>
+            <button
+              type="button"
+              onClick={onExpand}
+              aria-label="Expand to full page"
+              className="w-11 h-11 flex items-center justify-center rounded-control text-neutral-text-secondary
+                hover:text-neutral-text-primary hover:bg-neutral-surface-raised
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path
+                  d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          </Tooltip>
           <button
             ref={closeButtonRef}
             type="button"
@@ -1245,11 +1252,13 @@ function DrawerContent({
             ].join(' ')}
           />
           {/* Unsaved marker — decorative; the sr-only status region carries the
-              accessible "unsaved changes in Name" announcement. */}
+              accessible "unsaved changes in Name" announcement, so no `title`
+              (#2454, rule 287): a Tooltip trigger cannot sit inside this
+              aria-hidden dot, and the meaning it would add is already spoken
+              by that status region. */}
           {changedName && (
             <span
               aria-hidden="true"
-              title="Unsaved"
               className="shrink-0 text-lg leading-none text-brand-primary"
             >
               •

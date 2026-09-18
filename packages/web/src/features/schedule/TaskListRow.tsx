@@ -2133,37 +2133,41 @@ function RowPropertiesButton({
   tabIndex: number;
   setSelectedTaskId: (id: string | null) => void;
 }) {
+  // Icon-only (…): Tooltip surfaces the existing aria-label to a sighted
+  // hover/focus/touch user (#2454, rule 287); describe={false} since the
+  // tooltip would otherwise restate the label verbatim.
   return (
-    <button
-      type="button"
-      aria-label={`Open properties for ${task.name}`}
-      title="Task properties"
-      tabIndex={tabIndex}
-      onClick={(e) => {
-        e.stopPropagation();
-        setSelectedTaskId(task.id);
-      }}
-      className={[
-        'absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-control',
-        'text-neutral-text-secondary hover:text-neutral-text-primary',
-        'transition-opacity duration-100',
-        // Faintly persistent at rest (not opacity-0) so this is a discoverable
-        // way to open the task's full detail drawer without hovering first —
-        // in build mode (the desktop default since #2682) a plain row click
-        // only focuses the row for keyboard editing, so this button is the
-        // only path to the drawer. Same rationale as the Duration-cell pencil
-        // icon (#2106): full-strength on hover/focus/selected, faint otherwise.
-        isSelected ? 'opacity-100' : 'opacity-40 group-hover:opacity-100 focus-visible:opacity-100',
-        'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary',
-      ].join(' ')}
-    >
-      {/* Horizontal ellipsis */}
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-        <circle cx="2" cy="6" r="1.2" />
-        <circle cx="6" cy="6" r="1.2" />
-        <circle cx="10" cy="6" r="1.2" />
-      </svg>
-    </button>
+    <Tooltip content={`Open properties for ${task.name}`} describe={false}>
+      <button
+        type="button"
+        aria-label={`Open properties for ${task.name}`}
+        tabIndex={tabIndex}
+        onClick={(e) => {
+          e.stopPropagation();
+          setSelectedTaskId(task.id);
+        }}
+        className={[
+          'absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-control',
+          'text-neutral-text-secondary hover:text-neutral-text-primary',
+          'transition-opacity duration-100',
+          // Faintly persistent at rest (not opacity-0) so this is a discoverable
+          // way to open the task's full detail drawer without hovering first —
+          // in build mode (the desktop default since #2682) a plain row click
+          // only focuses the row for keyboard editing, so this button is the
+          // only path to the drawer. Same rationale as the Duration-cell pencil
+          // icon (#2106): full-strength on hover/focus/selected, faint otherwise.
+          isSelected ? 'opacity-100' : 'opacity-40 group-hover:opacity-100 focus-visible:opacity-100',
+          'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary',
+        ].join(' ')}
+      >
+        {/* Horizontal ellipsis */}
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+          <circle cx="2" cy="6" r="1.2" />
+          <circle cx="6" cy="6" r="1.2" />
+          <circle cx="10" cy="6" r="1.2" />
+        </svg>
+      </button>
+    </Tooltip>
   );
 }
 

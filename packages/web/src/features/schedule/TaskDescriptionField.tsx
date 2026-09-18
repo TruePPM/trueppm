@@ -181,7 +181,12 @@ export function TaskDescriptionField({
         role="button"
         tabIndex={0}
         aria-label="Description"
-        title="Click to edit"
+        // No `title` (#2454, rule 287): a Tooltip trigger would clone its own
+        // onFocus over this element's `enterEdit`, silently disabling the
+        // focus-swaps-to-edit behavior below — the same composition conflict
+        // as OutlineRow's drag handle. `role="button"` already announces the
+        // interaction to AT, and focus enters edit mode immediately, before
+        // any hover tooltip could show.
         onClick={enterEdit}
         onFocus={enterEdit}
         onKeyDown={(e) => {

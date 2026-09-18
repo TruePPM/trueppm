@@ -1,4 +1,5 @@
 import { CloseIcon } from '@/components/Icons';
+import { Tooltip } from '@/components/Tooltip';
 import { formatChord } from '@/lib/platform';
 
 interface CoachLine {
@@ -129,18 +130,21 @@ export function ScheduleCoachBar({ onDismiss, onShowCheatsheet }: Props) {
       ))}
 
       <span className="flex-1" />
-      <button
-        type="button"
-        onClick={onDismiss}
-        // Says where it went, because a control that vanishes with no route back
-        // is the defect this bar is replacing.
-        aria-label="Hide the how-to bar — bring it back from Display options"
-        title="Hide — bring it back from Display options"
-        className="shrink-0 text-neutral-text-secondary hover:text-neutral-text-primary
-          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded-control"
-      >
-        <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
-      </button>
+      {/* Icon-only: Tooltip surfaces the aria-label (#2454, rule 287);
+          describe={false} since it would otherwise restate the label. */}
+      <Tooltip content="Hide the how-to bar — bring it back from Display options" describe={false}>
+        <button
+          type="button"
+          onClick={onDismiss}
+          // Says where it went, because a control that vanishes with no route back
+          // is the defect this bar is replacing.
+          aria-label="Hide the how-to bar — bring it back from Display options"
+          className="shrink-0 text-neutral-text-secondary hover:text-neutral-text-primary
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded-control"
+        >
+          <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      </Tooltip>
     </div>
   );
 }

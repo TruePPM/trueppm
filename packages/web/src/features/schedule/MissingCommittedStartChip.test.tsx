@@ -38,6 +38,9 @@ describe('MissingCommittedStartChip', () => {
     expect(screen.getByText('no committed start')).toBeInTheDocument();
     // Closed by default — no dialog rendered.
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    // No `title` (#2454, rule 287) — the click-opened dialog already gives the
+    // full explanation, so a hover tooltip would just be a slower duplicate.
+    expect(chip).not.toHaveAttribute('title');
   });
 
   it('opens a warning dialog with both remediations for an editor', async () => {

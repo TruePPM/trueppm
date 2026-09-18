@@ -888,6 +888,22 @@ describe('TaskListRow — the row has an Open affordance (#2979)', () => {
   });
 });
 
+describe('TaskListRow — properties button surfaces its label via Tooltip (#2454)', () => {
+  it('has no title and shows the aria-label text via Tooltip on focus', () => {
+    renderWithRouter(
+      <TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
+    );
+    const properties = screen.getByLabelText(`Open properties for ${base.name}`);
+    expect(properties).not.toHaveAttribute('title');
+    fireEvent.focus(properties);
+    // describe={false}: the tooltip restates the aria-label, so the panel is
+    // aria-hidden and must be queried directly rather than via getByRole.
+    expect(document.querySelector('[role="tooltip"]')).toHaveTextContent(
+      `Open properties for ${base.name}`,
+    );
+  });
+});
+
 describe('TaskListRow — "N planned" badge (#1798)', () => {
   const summary: Task = { ...base, id: 'phase1', isSummary: true, name: 'Design Phase' };
 

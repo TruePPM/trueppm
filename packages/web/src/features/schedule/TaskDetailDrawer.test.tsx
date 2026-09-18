@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { useState } from 'react';
@@ -600,9 +600,21 @@ describe('TaskDetailDrawer header chips and permission gate', () => {
 
     expect(screen.getAllByRole('dialog')[0]).toHaveAttribute('aria-label', '1.2 — Foundation');
     expect(desktop().getByText('1.2')).toBeInTheDocument();
-    expect(desktop().getByText('CP')).toBeInTheDocument();
+    const cpBadge = desktop().getByText('CP');
+    expect(cpBadge).toBeInTheDocument();
     // No "View only" chip for an editable task.
     expect(desktop().queryByText('View only')).not.toBeInTheDocument();
+  });
+
+  it('surfaces the critical-path explanation via Tooltip, not a bare title (#2454)', () => {
+    const task = makeTask({ wbs: '1.2', isCritical: true });
+    TASKS = [task];
+    renderDrawer(task);
+
+    const cpBadge = desktop().getByText('CP');
+    expect(cpBadge).not.toHaveAttribute('title');
+    fireEvent.focus(cpBadge);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('critical path');
   });
 
   it('shows the View-only chip and a read-only name for a non-editable task', () => {
@@ -936,6 +948,19 @@ describe('TaskDetailDrawer close guard', () => {
 });
 
 describe('TaskDetailDrawer expand', () => {
+  it('surfaces its label via Tooltip, not a bare title (#2454)', () => {
+    const task = makeTask({ id: 't1' });
+    TASKS = [task];
+    renderDrawerHarness(task);
+
+    const expandBtn = screen.getAllByRole('button', { name: 'Expand to full page' })[0];
+    expect(expandBtn).not.toHaveAttribute('title');
+    fireEvent.focus(expandBtn);
+    // describe={false}: the tooltip restates the aria-label, so the panel is
+    // aria-hidden and must be queried directly rather than via getByRole.
+    expect(document.querySelector('[role="tooltip"]')).toHaveTextContent('Expand to full page');
+  });
+
   it('navigates to the full-page task view and closes when clean', async () => {
     const user = userEvent.setup({ delay: null });
     const task = makeTask({ id: 't1' });
