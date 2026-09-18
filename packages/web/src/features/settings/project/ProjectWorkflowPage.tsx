@@ -1437,7 +1437,7 @@ function CustomFieldModal({
   // Trap focus and route Escape to Cancel; the hook restores focus to the trigger
   // on close. Initial focus stays on the name input (its autoFocus resolves first
   // and the trap skips re-seating while focus is already inside the container).
-  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel);
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel, submitting);
 
   const canSubmit = name.trim().length > 0 && (!isSelectType(fieldType) || options.length > 0);
 

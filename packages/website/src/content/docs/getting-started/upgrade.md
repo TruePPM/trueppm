@@ -82,25 +82,115 @@ truth.
 
 ## Upgrading to 0.4
 
-0.4 has not tagged yet — this section will be filled in from the full set of 0.4
-changelog fragments at release time, per the template above. One known operational
-item is already worth flagging ahead of that, because it is orthogonal to feature
-scope and depends on your replica count:
+**Migration behavior:** includes destructive ops (see below). Downtime: none beyond
+the migrate run, plus the transient-500 rollout windows described per-migration below
+on multi-replica installs.
 
-**Known transient-500 window on multi-replica installs.** 0.4 will ship
-`profiles.0008_remove_userprofile_schedule_in_deliver`, a single-release migration
-that drops the retired `schedule_in_deliver` column outright (ADR-0942 §3, #3137) —
-there is no intervening `null=True`-then-remove deprecation release. If you run the
-API at `replicaCount` >= 2 (the posture [`values-prod.yaml`](/administration/helm-values/)
-sets by default, and the posture 0.4's basic-HA carve-out encourages), Kubernetes'
-default RollingUpdate keeps an old pod serving while the new pod's migration applies.
-For the duration of that rollout, any request that lands on the old pod's
-`get_profile_prefs()` read (used by `/auth/me/`, the web shell's bootstrap call) will
-get a transient `500` — the old pod's code still names the now-dropped column
-explicitly. This is a known, bounded, and accepted trade-off, not a regression to
-report: no crash-loop, no data loss beyond the retired boolean preference itself, and
-the window closes as soon as the rollout finishes. Single-replica installs never see
-it. See #3782 for the full analysis.
+0.4 (tagged `v0.4.0-beta.1` on 2026-09-15) carries **five** migrations with a
+`RemoveField`, `DeleteModel`, or raw `DROP TABLE` — four of them are destructive
+in a way an operator needs to plan around, not just a schema-hygiene detail. If
+you are upgrading from 0.3, read all four before you run `migrate`, in
+particular the workshop-data warning:
+
+:::danger[Upgrading from 0.3 destroys workshop data]
+`projects.0149_drop_workshops_tables` drops `workshops_participant` and
+`workshops_session` outright, with `reverse_sql=noop` — this is **irreversible**.
+If you have Board Workshop Mode sessions you want to keep, export them (or check
+out [`v0.3.0-alpha.3`](https://gitlab.com/trueppm/trueppm/-/tree/v0.3.0-alpha.3)
+and read the tables directly) **before** you upgrade. There is no dump/export
+tooling for this data — the feature was removed in 0.4 (#3301; see [API
+stability §current deprecations](/api/stability/#deprecation-window--notice)
+for the full removal analysis), and the migration's own docstring says a
+database that needs the tables back should "restore from a backup." Once you
+have run this migration, the data is gone; there is no post-hoc remediation.
+:::
+
+**Known transient-500 windows on multi-replica installs.** Three of the five
+migrations drop a column or table outright, with no intervening
+`null=True`-then-remove deprecation release, so an old pod's code still names
+what the new schema no longer has. If you run the API at `replicaCount` >= 2
+(the posture [`values-prod.yaml`](/administration/helm-values/) sets by
+default, and the posture 0.4's basic-HA carve-out encourages), Kubernetes'
+default RollingUpdate keeps an old pod serving while the new pod's migration
+applies — for the duration of that rollout, each of the following reads or
+writes will get a transient `500` from any request landing on an old pod:
+
+- `profiles.0008_remove_userprofile_schedule_in_deliver` — drops the retired
+  `schedule_in_deliver` column outright (ADR-0942 §3, #3137). Affects the old
+  pod's `get_profile_prefs()` read, used by `/auth/me/` (the web shell's
+  bootstrap call). See #3782 for the full analysis.
+- `webhooks.0009_encrypt_webhook_secret_and_failure_counters` — encrypts
+  `Webhook.secret` into a new `secret_ciphertext` column and drops the
+  plaintext `secret` column in the same migration (#2885). On the old pod,
+  `webhooks/models.py` still declares `secret` as a concrete, non-deferred
+  `CharField`, so Django selects it on every `Webhook` query — every webhook
+  read **and every outbound delivery attempt** from an old pod fails with
+  `ProgrammingError: column webhooks_webhook.secret does not exist` for the
+  duration of the window. This silently stops the entire outbound-webhook
+  subsystem with no operator-facing warning; if you depend on webhook
+  deliveries during the rollout, scale to a single replica for the upgrade
+  (see the mitigation below).
+- `projects.0123_remove_historicalproject_agile_features_and_more` — drops
+  `Project.agile_features` / `HistoricalProject.agile_features` outright
+  (#2025), with no deprecation window and no migration docstring. `Project`
+  and `HistoricalProject` reads happen on nearly every authenticated request
+  path, so this has the broadest blast radius of the three — but no data-loss
+  concern: the field is re-exposed as a derived, read-only
+  `SerializerMethodField` (`ProjectSerializer.get_agile_features`), so this is
+  dead-column removal, not a feature regression. What is missing is purely the
+  HA-safety disclosure this entry now provides.
+
+This is a known, bounded, and accepted trade-off for each of the three, not a
+regression to report: no crash-loop, no data loss beyond what each entry
+states, and every window closes as soon as the rollout finishes.
+**Single-replica installs never see any of this.** If you are on
+`replicaCount` >= 2 and want to avoid the windows entirely, scale to one
+replica (`kubectl scale deployment/trueppm-api -n trueppm --replicas=1`)
+before the upgrade and scale back up once the rollout completes.
+
+**Already running `v0.4.0-beta.1` or later?** These migrations already ran —
+there is nothing to re-run and no remediation for the schema changes
+themselves. The one exception is workshop data: if you upgraded from 0.3
+without exporting it first, it is already gone (see the danger box above) —
+this section exists so the next self-hoster upgrading from 0.3 does not lose
+theirs the same way.
+
+**New migrations operators will see:**
+- `profiles.0008_remove_userprofile_schedule_in_deliver` — drops the retired
+  `schedule_in_deliver` boolean preference. See above.
+- `webhooks.0009_encrypt_webhook_secret_and_failure_counters` — encrypts
+  webhook signing secrets and adds failure-tracking columns. See above.
+- `projects.0149_drop_workshops_tables` — drops the two tables backing the
+  removed Board Workshop Mode. **Destructive, irreversible.** See above.
+- `projects.0123_remove_historicalproject_agile_features_and_more` — drops the
+  dead `agile_features` column (now derived). See above.
+- `sso.0002_remove_oidcprovider_workspace_ssoproviderpolicy_and_more` — migrates
+  any `OIDCProvider`/`OIDCIdentity` rows to `allauth`'s `SocialApp` /
+  `SocialAccount` (ADR-0517), then drops the bespoke `OIDCProvider` and
+  `OIDCIdentity` models. Benign: SSO never shipped in a tagged 0.3 release, so
+  no installation has rows to migrate or lose — no disclosure needed beyond
+  this line.
+
+**Breaking API changes:** 0.4 also removes several `/api/v1/` paths that
+appeared in the published `v0.3.0-alpha.3` schema. These are documented as
+deliberate deprecation-window exceptions in [API Stability & Deprecation
+Policy](/api/stability/#deprecation-window--notice) — check there for the full
+reasoning and migration guidance for each. If you have an integration calling
+`/api/v1/projects/{id}/workshop/*`, `/api/v1/tasks/{id}/scope/`,
+`/api/v1/teams/{id}/`, or `/api/v1/projects/{id}/history/summary/`, read that
+section before upgrading.
+
+**Pre-upgrade action:** back up PostgreSQL (always — see [Before you
+upgrade](#before-you-upgrade)); if you have workshop data, export or preserve
+it before running `migrate` (see the danger box above); if you cannot tolerate
+a transient-500 window on webhook deliveries or `/auth/me/`/project reads
+during rollout, scale to one replica first.
+**Post-upgrade verification:** see the [checklist below](#post-upgrade-verification).
+**Rollback notes:** all five migrations are destructive or table-dropping —
+per [migration reversibility](#migration-reversibility--read-this-first), a
+clean rollback means restoring the pre-upgrade backup, not a `migrate` reverse.
+`projects.0149` in particular cannot be reversed by any means other than
+restore — its `reverse_sql` is a no-op by design.
 
 ---
 

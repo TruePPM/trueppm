@@ -56,14 +56,16 @@ export function BoardSettingsPanel({
   showCustomFieldsOnCards,
   onToggleCustomFieldsOnCards,
 }: Props) {
+  const [isSaving, setIsSaving] = useState(false);
   // Seats initial focus on the close button, traps Tab within the drawer, and
-  // closes on Escape (restoring focus to the trigger on close).
-  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose);
+  // closes on Escape (restoring focus to the trigger on close). `isSaving` is
+  // the focusKey (web-rule 362): it disables Save, so the browser blurs the
+  // just-pressed button to <body> and the trap has to re-seat.
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose, isSaving);
   const [draft, setDraft] = useState<BoardColumnDef[]>(() => columns.map((c) => ({ ...c })));
   const [errors, setErrors] = useState<Record<TaskStatus, RowError>>(
     () => ({}) as Record<TaskStatus, RowError>,
   );
-  const [isSaving, setIsSaving] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const isDirty = useMemo(() => {

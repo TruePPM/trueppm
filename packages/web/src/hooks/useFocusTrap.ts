@@ -75,6 +75,9 @@ export function useFocusTrap<T extends HTMLElement>(
   // Keep the latest onEscape without re-running the effect (and re-stealing focus).
   const onEscapeRef = useRef(onEscape);
   onEscapeRef.current = onEscape;
+  // Distinguishes the activation seat from a `focusKey` re-seat. Only the
+  // re-seat stands down for a modal stacked above — see the seat effect.
+  const seatedOnce = useRef(false);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -127,9 +130,28 @@ export function useFocusTrap<T extends HTMLElement>(
   // Declared after the trap effect so the activation-time capture above reads
   // the trigger, not a focusable this seat has already moved focus to.
   useEffect(() => {
-    if (!active) return;
+    if (!active) {
+      seatedOnce.current = false;
+      return;
+    }
+    const activating = !seatedOnce.current;
+    seatedOnce.current = true;
     const container = ref.current;
     const current = document.activeElement;
+    // A `focusKey` re-seat stands down while a DIFFERENT `aria-modal` surface
+    // owns focus — the global session-expired gate opening on top of a write
+    // dialog whose pending flag is the focusKey. Dragging focus back into the
+    // dialog underneath is the same WCAG 2.4.3 leak in reverse, and the write
+    // dialog's own key settles one commit after the gate seats itself (#3352).
+    //
+    // The ACTIVATION seat is deliberately exempt: it is the newly-opened
+    // surface asking for focus, and it is the one that should win. Guarding it
+    // too is what made the gate itself never seat — it saw the dialog below
+    // holding focus and stood down, leaving the leak this fixed.
+    if (!activating) {
+      const modalOwner = current instanceof Element ? current.closest('[aria-modal="true"]') : null;
+      if (modalOwner && modalOwner !== container && !container?.contains(modalOwner)) return;
+    }
     if (!container?.contains(current) || current === container) {
       const first = container ? getFocusable(container)[0] : undefined;
       (first ?? container)?.focus();

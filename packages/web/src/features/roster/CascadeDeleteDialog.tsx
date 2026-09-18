@@ -24,7 +24,7 @@ export function CascadeDeleteDialog({
   // focusable — the safe default), route Escape to Cancel, and restore focus to
   // the trigger on close (WCAG 2.4.3 / 2.1.2). Replaces the hand-rolled focus and
   // document Escape effects.
-  const dialogRef = useFocusTrap<HTMLDivElement>(true, onCancel);
+  const dialogRef = useFocusTrap<HTMLDivElement>(true, onCancel, isLoading);
 
   return (
     <div

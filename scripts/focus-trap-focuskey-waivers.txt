@@ -1,0 +1,26 @@
+# scripts/focus-trap-focuskey-waivers.txt — read by scripts/check-focus-trap-focuskey.sh.
+#
+# Each line waives ONE focus trap the detector flags but that does not violate
+# web rule 362, and says why. Format, tab-separated:
+#
+#     <path>::<refName><TAB><reason>
+#
+# A waiver is a claim that the pending-flag `disabled=` the detector saw is
+# OUTSIDE this trap container, is validation-only, or belongs to a phase swap
+# that unmounts rather than disables. It is not a claim that the dialog is
+# unimportant, and it is not a place to park work.
+#
+# THIS LIST ONLY SHRINKS. Two ratchets enforce that, and both are in the gate:
+#   * an entry that no longer matches anything fails as STALE — fixing a trap
+#     forces its line out of this file rather than leaving a fossil behind;
+#   * the entry count may not exceed WAIVER_BASELINE in the script.
+# Adding a line means lowering nothing and raising the baseline, which the gate
+# refuses. If a genuinely new false positive appears, tighten the detector.
+#
+# Be honest about what a waiver buys: like `--update-baseline` on the docs gate,
+# it cannot stop a wrong answer. What it removes is the silence.
+#
+# Seeded at #3352 with the two false positives the 72-call-site sweep found.
+
+packages/web/src/features/settings/workspace/systemHealth/RetentionPurgePage.tsx::trapRef	PurgeConfirm's own Cancel / Run purge buttons are never disabled; the `runPurge.isPending` disables the detector sees are on the page-level Dry run and Run purge now triggers, which sit outside this trap container and behind the scrim.
+packages/web/src/features/sprints/ScopePendingReviewPanel.tsx::confirmRef	The nested bulk-confirm dialog's own Cancel / Accept all / Reject all buttons carry no `disabled` at all; `controlsDisabled` gates the panel behind it, which this trap does not contain. The panel trap (panelRef) does take `busy` as its focusKey.
