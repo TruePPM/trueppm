@@ -129,7 +129,7 @@ export function DeleteConfirmDialog({
         aria-labelledby="delete-task-confirm-title"
         aria-describedby="delete-task-confirm-body"
         tabIndex={-1}
-        className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-sm mx-4 p-5 motion-safe:animate-modal-scale-in focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2"
+        className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-sm mx-4 p-5 motion-safe:animate-modal-scale-in focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <h2
           id="delete-task-confirm-title"

@@ -48,7 +48,7 @@ export function RemoveFromProgramConfirmDialog({
         aria-labelledby="remove-from-program-title"
         aria-describedby="remove-from-program-body"
         tabIndex={-1}
-        className="w-full max-w-md rounded-lg border border-neutral-border bg-neutral-surface p-5 shadow-pop motion-safe:animate-modal-scale-in focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2"
+        className="w-full max-w-md rounded-lg border border-neutral-border bg-neutral-surface p-5 shadow-pop motion-safe:animate-modal-scale-in focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <h2

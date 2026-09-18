@@ -93,7 +93,7 @@ export function CommitPlanConfirmDialog({
         aria-describedby="commit-plan-body"
         aria-busy={isPending}
         tabIndex={-1}
-        className="max-h-[80vh] w-full max-w-md overflow-y-auto rounded-lg border border-neutral-border bg-neutral-surface p-5 shadow-pop motion-safe:animate-modal-scale-in focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2"
+        className="max-h-[80vh] w-full max-w-md overflow-y-auto rounded-lg border border-neutral-border bg-neutral-surface p-5 shadow-pop motion-safe:animate-modal-scale-in focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <h2

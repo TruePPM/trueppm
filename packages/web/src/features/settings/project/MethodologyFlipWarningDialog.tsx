@@ -185,7 +185,7 @@ export function MethodologyFlipWarningDialog({
         aria-labelledby="methodology-flip-title"
         aria-describedby="methodology-flip-body"
         tabIndex={-1}
-        className="w-full max-w-sm rounded-card border border-neutral-border bg-neutral-surface p-5 shadow-pop motion-safe:animate-modal-scale-in focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2"
+        className="w-full max-w-sm rounded-card border border-neutral-border bg-neutral-surface p-5 shadow-pop motion-safe:animate-modal-scale-in focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <h2

@@ -69,7 +69,7 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
         onSubmit={handleSubmit}
         className="flex flex-col gap-3 w-full max-w-md p-4 bg-neutral-surface
           border border-neutral-border rounded-card
-          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2"
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <h2 id="link-modal-title" className="text-sm font-semibold text-neutral-text-primary">
           Pin a link

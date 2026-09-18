@@ -508,7 +508,7 @@ function RotateSecretModal({
         aria-modal="true"
         aria-label={revealed ? 'Secret generated' : 'Generate webhook secret'}
         tabIndex={-1}
-        className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-md p-5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2"
+        className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-md p-5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         {revealed ? (
           <>

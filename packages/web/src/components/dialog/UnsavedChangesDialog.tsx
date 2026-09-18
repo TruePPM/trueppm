@@ -106,7 +106,7 @@ export function UnsavedChangesDialog({
         aria-labelledby="unsaved-changes-title"
         aria-describedby="unsaved-changes-body"
         tabIndex={-1}
-        className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-sm mx-4 p-5 motion-safe:animate-modal-scale-in focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2"
+        className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-sm mx-4 p-5 motion-safe:animate-modal-scale-in focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <h2
           id="unsaved-changes-title"

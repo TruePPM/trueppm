@@ -35,7 +35,7 @@ export function CascadeDeleteDialog({
         aria-labelledby="cascade-dialog-title"
         aria-describedby="cascade-dialog-desc"
         tabIndex={-1}
-        className="w-full max-w-sm bg-neutral-surface rounded-card border border-neutral-border p-5 flex flex-col gap-4 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2"
+        className="w-full max-w-sm bg-neutral-surface rounded-card border border-neutral-border p-5 flex flex-col gap-4 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <h2 id="cascade-dialog-title" className="text-base font-semibold text-neutral-text-primary">
           Remove {resourceName}?

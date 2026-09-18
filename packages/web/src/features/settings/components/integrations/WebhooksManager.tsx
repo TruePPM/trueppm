@@ -386,7 +386,7 @@ export function ConfirmDialog({
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-sm p-5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-2"
+        className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-sm p-5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <h2 className="text-sm font-semibold text-neutral-text-primary mb-2">{title}</h2>
         <p className="text-xs text-neutral-text-secondary mb-4">{body}</p>
