@@ -114,9 +114,17 @@ function ReviewPanel({
 }) {
   const { items, isLoading, error, refetch } = usePendingIncomingDeps(projectId);
   const resolve = useResolvePendingDependency(projectId);
+  // Which row (and direction) is mid-flight, so only that row shows progress —
+  // accepting one link must not grey out every other row.
+  const [resolving, setResolving] = useState<{ id: string; action: 'accept' | 'reject' } | null>(
+    null,
+  );
   // Trap Tab within the slide-over, focus the first control on open, and restore
   // focus to the trigger on close (WCAG 2.4.3, web-rule 136). Esc → onClose.
-  const dialogRef = useFocusTrap<HTMLDivElement>(true, onClose);
+  // `resolving` is the focusKey (web-rule 362): the row's own Accept/Decline
+  // buttons are disabled while it resolves, so the pressed button is blurred to
+  // <body> and nothing re-seats focus on the error path that keeps the panel open.
+  const dialogRef = useFocusTrap<HTMLDivElement>(true, onClose, resolving);
 
   // Track connectivity live so the controls re-gate the moment the network drops
   // or returns while the panel is open (web-rule 29), not only on the next render.
@@ -132,12 +140,6 @@ function ReviewPanel({
       window.removeEventListener('offline', update);
     };
   }, []);
-
-  // Which row (and direction) is mid-flight, so only that row shows progress —
-  // accepting one link must not grey out every other row.
-  const [resolving, setResolving] = useState<{ id: string; action: 'accept' | 'reject' } | null>(
-    null,
-  );
 
   // Close once the last pending item clears (all reviewed). Only a *resolved*
   // empty list means that: a refetch that failed with nothing cached would

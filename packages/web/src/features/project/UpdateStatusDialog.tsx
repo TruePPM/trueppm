@@ -66,9 +66,11 @@ export function UpdateStatusDialog({
   // Trap Tab focus inside the dialog and restore focus to the trigger on close
   // (WCAG 2.4.3 / 2.1.2). The hook owns Escape — its document-level handler
   // stopPropagation's it, replacing the hand-rolled document Escape listener.
-  const dialogRef = useFocusTrap<HTMLDivElement>(true, onClose);
-
+  // `busy` is the focusKey (web-rule 362): it disables the textarea and the
+  // radio group inside the trap, so focus drops to <body> mid-request.
   const busy = updateProject.isPending;
+  const dialogRef = useFocusTrap<HTMLDivElement>(true, onClose, busy);
+
   const canSave = canEdit && selected !== currentHealth && !busy;
 
   async function handleSave() {

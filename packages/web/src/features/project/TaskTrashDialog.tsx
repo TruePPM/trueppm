@@ -30,7 +30,7 @@ interface TaskTrashDialogProps {
 export function TaskTrashDialog({ projectId, onClose }: TaskTrashDialogProps) {
   const { data, isLoading, isError, refetch } = useTrashedTasks(projectId);
   const restore = useRestoreTask(projectId);
-  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose);
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose, restore.isPending);
 
   const rows = data?.results ?? [];
 

@@ -240,6 +240,53 @@ test.describe('Baseline capture & management', () => {
     await expect(page.getByText('Deleted Baseline 1')).toBeVisible();
   });
 
+  test('a failed delete leaves the confirm open WITH focus still trapped inside it', async ({
+    page,
+  }) => {
+    // Web rule 362 / #3352, and the only path on this surface where the leak is
+    // reachable: a 500 keeps the confirm mounted. While the DELETE is in flight
+    // BOTH buttons go `disabled`, so `useFocusTrap`'s FOCUSABLE_SELECTOR
+    // (`button:not([disabled])`) matches nothing, the browser blurs the pressed
+    // button to <body>, and nothing re-seats it unless the pending flag is the
+    // trap's `focusKey`. Once focus is outside, `document.activeElement` is
+    // neither the first nor the last focusable, the Tab handler stops
+    // intercepting, and Tab walks into the schedule behind the scrim — an
+    // `aria-modal="true"` surface the keyboard can leave (WCAG 2.4.3 / 2.1.2).
+    //
+    // This assertion CANNOT be written in jsdom: jsdom does not blur a focused
+    // element when it is disabled, so the whole sequence is invisible there and
+    // a vitest version passes with the fix reverted. It has to run in a browser.
+    await gotoSchedule(page, { role: 400, baselines: [baseline()] });
+    await page.route('**/api/v1/projects/*/baselines/*/', async (route) => {
+      if (route.request().method() === 'DELETE') {
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'boom' }),
+        });
+        return;
+      }
+      await route.fallback();
+    });
+
+    await openManager(page);
+    await page.getByRole('dialog', { name: 'Baselines' }).getByRole('button', { name: 'Delete' }).click();
+    const confirm = page.getByRole('alertdialog', { name: 'Delete this baseline?' });
+    await expect(confirm).toBeVisible();
+    await confirm.getByRole('button', { name: 'Delete baseline' }).click();
+
+    await expect(confirm.getByText("Couldn't delete — try again.")).toBeVisible();
+    await expect(confirm).toBeVisible();
+
+    // Focus survived the disabled phase — the trap re-seated it on the safe
+    // action — and Tab keeps it inside.
+    await expect(confirm.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(confirm.getByRole('button', { name: 'Delete baseline' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(confirm.getByRole('button', { name: 'Cancel' })).toBeFocused();
+  });
+
   test('empty state offers the capture CTA to an admin', async ({ page }) => {
     await gotoSchedule(page, { role: 300, baselines: [] });
     await openManager(page);
