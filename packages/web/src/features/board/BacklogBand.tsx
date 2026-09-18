@@ -1046,9 +1046,18 @@ export function BacklogBand({
         aria-label="Backlog cards"
       >
         {sortedTasks.length === 0 ? (
-          <EmptyBacklogHint canQuickCapture={canQuickCapture} />
+          // `role="list"` may only own `listitem`/`group` children (#2618); the
+          // hint's own `role="status"` still announces it, one level deeper.
+          // `flex-1 flex` on the wrapper carries forward the stretch-to-fill
+          // sizing the hint's own `flex-1` depended on when it was the direct
+          // (and only) flex child of the list.
+          <div role="listitem" className="flex-1 flex">
+            <EmptyBacklogHint canQuickCapture={canQuickCapture} />
+          </div>
         ) : visibleTasks.length === 0 ? (
-          <NoBacklogMatchesHint query={query.trim()} onClearSearch={() => setQuery('')} />
+          <div role="listitem" className="flex-1 flex">
+            <NoBacklogMatchesHint query={query.trim()} onClearSearch={() => setQuery('')} />
+          </div>
         ) : (
           visibleTasks.map((task) => {
             const phaseColor = phaseColorFor(task.parentId);

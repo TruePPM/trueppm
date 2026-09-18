@@ -136,7 +136,7 @@ describe('ProjectArchivePage lifecycle (#967)', () => {
     const confirm = screen.getByRole('button', { name: /Confirm transfer/i });
     expect(confirm).toBeDisabled();
 
-    await user.click(screen.getByRole('button', { name: 'Assign' }));
+    await user.click(screen.getByRole('button', { name: 'Assign new Project Admin' }));
     await user.click(await screen.findByRole('option', { name: 'bob.martin' }));
 
     await waitFor(() => expect(confirm).toBeEnabled());

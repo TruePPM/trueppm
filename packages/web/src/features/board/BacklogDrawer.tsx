@@ -190,11 +190,17 @@ export function BacklogDrawer({
         }}
       >
         {sortedTasks.length === 0 ? (
-          <div
-            className="col-span-full flex items-center justify-center rounded-card border border-dashed border-neutral-border text-xs italic text-neutral-text-secondary py-3"
-            role="status"
-          >
-            No backlog yet — drag a card here to defer it.
+          // `role="list"` may only own `listitem`/`group` children (#2618); the
+          // hint's own `role="status"` still announces it, one level deeper.
+          // `col-span-full` moves to the wrapper — it is the direct grid child
+          // now, so grid placement must apply there, not on its descendant.
+          <div role="listitem" className="col-span-full">
+            <div
+              className="flex items-center justify-center rounded-card border border-dashed border-neutral-border text-xs italic text-neutral-text-secondary py-3"
+              role="status"
+            >
+              No backlog yet — drag a card here to defer it.
+            </div>
           </div>
         ) : (
           sortedTasks.map((task) => {

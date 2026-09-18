@@ -1355,6 +1355,43 @@ describe('Sidebar rail — pinned-band navigation and pin writes', () => {
   });
 });
 
+// #1601: the program/project name buttons are full-width `focus:outline-none`
+// triggers whose row wrapper (`rowClass()`) puts its `focus:ring-*` on a
+// non-focusable `<div>` in these three cases — the ring has to live on the
+// button itself. `:focus-visible` is unconditionally false in jsdom (see
+// focus-ring-pointer.spec.ts for the real-browser pointer-focus behavior this
+// static className check cannot exercise), so this only asserts the ring
+// utility classes are present — the same pattern the rest of this file uses
+// for style assertions (see the `focus:ring-offset-*` checks above).
+describe('Sidebar rail — full-width name buttons carry a visible inset focus ring (#1601)', () => {
+  it('gives the pinned program name button an inset ring, not just outline-none', () => {
+    mockPinned = [{ kind: 'program', id: 'prog1', name: 'Artemis', code: 'ART' }];
+    renderRail();
+    const nameButton = screen.getByRole('button', { name: 'Artemis' });
+    expect(nameButton.className).toContain('focus:outline-none');
+    expect(nameButton.className).toContain('focus:ring-2');
+    expect(nameButton.className).toContain('focus:ring-brand-primary');
+    expect(nameButton.className).toContain('focus:ring-inset');
+  });
+
+  it('gives the Programs-tree program name button an inset ring', () => {
+    renderRail();
+    fireEvent.click(screen.getByRole('button', { name: 'Browse projects and programs' }));
+    fireEvent.click(screen.getByRole('button', { name: /Expand Artemis/ }));
+    const nameButton = screen.getByRole('button', { name: 'Artemis' });
+    expect(nameButton.className).toContain('focus:ring-inset');
+  });
+
+  it('gives a project-name button (ProjectRow) an inset ring', () => {
+    mockPinned = [{ kind: 'project', id: 'p1', name: 'Alpha Platform', code: null }];
+    renderRail();
+    const nameButton = screen.getByRole('button', {
+      name: /Alpha Platform, at risk, 7 open tasks/,
+    });
+    expect(nameButton.className).toContain('focus:ring-inset');
+  });
+});
+
 // ── Branch coverage (#2459): switcher outside-click dismissal, the zero-project
 //    first-run CTA and its demo loader, drawer close-on-navigate, active-row
 //    states, and the not-yet-loaded fallbacks for every data source. ──────────

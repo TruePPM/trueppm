@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
-import { useFocusTrap } from './useFocusTrap';
+import { getFocusable, useFocusTrap } from './useFocusTrap';
 
 afterEach(cleanup);
 
@@ -248,5 +248,93 @@ describe('useFocusTrap stacked modals (#3352)', () => {
 
     rerender(<StackedModals pending gate={false} />);
     expect(document.activeElement).toBe(screen.getByTestId('dialog'));
+  });
+});
+
+/**
+ * A roving-tabindex group inside the trap (#3208).
+ *
+ * `roving-before` and `roving-after` are native `<button>`s carrying
+ * `tabIndex={-1}` — the shape every non-selected option in a roving group has
+ * (web rule 167). The browser's tab order cannot reach either of them, so the
+ * trap's real `first` is `real-first` and its real `last` is `real-last`.
+ *
+ * They deliberately bracket the real stops on both sides, because the two
+ * shipped instances of this bug sat on opposite ends: CommandPalette's option
+ * rows trailed the dialog (breaking forward-Tab) and the dependency picker's
+ * ScopeTabs led it (breaking Shift+Tab).
+ */
+function RovingTrap() {
+  const ref = useFocusTrap<HTMLDivElement>(true);
+  return (
+    <div ref={ref} tabIndex={-1} data-testid="trap">
+      <button type="button" role="tab" tabIndex={-1}>
+        roving-before
+      </button>
+      <button type="button">real-first</button>
+      <button type="button">real-last</button>
+      <button type="button" role="option" aria-selected={false} tabIndex={-1}>
+        roving-after
+      </button>
+    </div>
+  );
+}
+
+describe('useFocusTrap roving-tabindex members are not tab stops (#3208)', () => {
+  const btn = (name: string) => screen.getByRole('button', { name });
+
+  it('excludes native focusables carrying tabIndex={-1} from getFocusable', () => {
+    render(<RovingTrap />);
+    expect(getFocusable(screen.getByTestId('trap')).map((el) => el.textContent)).toEqual([
+      'real-first',
+      'real-last',
+    ]);
+  });
+
+  it('seats initial focus on the first real tab stop, not the roving member before it', () => {
+    render(<RovingTrap />);
+    expect(document.activeElement).toBe(btn('real-first'));
+  });
+
+  // The load-bearing assertion. A forward-Tab-only check passes on the broken
+  // selector whenever the roving members trail the dialog, which is why the
+  // CommandPalette regression shipped — tab BACKWARDS from the first real stop.
+  it('wraps Shift+Tab from the first real tab stop even with a roving member before it', () => {
+    render(<RovingTrap />);
+    btn('real-first').focus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(btn('real-last'));
+  });
+
+  it('wraps Tab from the last real tab stop even with a roving member after it', () => {
+    render(<RovingTrap />);
+    btn('real-last').focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(document.activeElement).toBe(btn('real-first'));
+  });
+});
+
+/** Disabled fields are not tab stops either — two copies had dropped this. */
+function DisabledTrap() {
+  const ref = useFocusTrap<HTMLDivElement>(true);
+  return (
+    <div ref={ref} tabIndex={-1} data-testid="trap">
+      <button type="button">go</button>
+      <input disabled aria-label="disabled-input" />
+      <textarea disabled aria-label="disabled-textarea" />
+      <select disabled aria-label="disabled-select" />
+    </div>
+  );
+}
+
+describe('useFocusTrap excludes disabled fields (#3208)', () => {
+  // `MonteCarloDetailPanel` and `AgentActionDrawer` had drifted to bare
+  // `textarea, input, select`; `ScheduleExportDialog` had dropped both entirely.
+  // Both directions of that drift are gone now that the selector has one home.
+  it('omits disabled input, textarea and select', () => {
+    render(<DisabledTrap />);
+    expect(getFocusable(screen.getByTestId('trap'))).toEqual([
+      screen.getByRole('button', { name: 'go' }),
+    ]);
   });
 });

@@ -69,6 +69,7 @@ These rules are enforced at review time. Violations block merge.
 371. **A card that names where it will take you and the function that chooses the destination are two sources for one fact — derive them from the same input, in the same module, or they will disagree and nothing will notice.** → [rule](../../docs/design/invariants/371-a-card-that-names-where-it-will-take-you-and-the-function.md)
 389. **A pane with a RENDER clamp has two widths, and every consumer must be told which one it is reading — the width the pane ASKED for positions nothing.** → [rule](../../docs/design/invariants/389-a-pane-with-a-render-clamp-has-two-widths-and-every.md)
 399. **A `::before`/`::after` overhang — a touch target, a hit-area cushion, a decorative bleed — is INVISIBLE to the eye and to `boundingBox()`, but it is real content for an ancestor's `scrollWidth`. "The control is inside the viewport" is therefore not the same assertion as "the container does not overflow", and a surface that asserts only the first is not guarded.** → [rule](../../docs/design/invariants/399-a-before-after-overhang-a-touch-target-a-hit-area-cushion-a.md)
+417. **`opacity-0` + a hover-reveal variant (`hover:opacity-100`, `group-hover:opacity-100`) needs a focus-reveal counterpart in the same class string — without one, a keyboard user can Tab onto the control and never see it. Machine-checked: `scripts/check-hover-reveal-focus.sh`.** → [rule](../../docs/design/invariants/417-opacity-0-a-hover-reveal-variant-needs-a-focus-reveal.md)
 
 ## Color and tokens
 

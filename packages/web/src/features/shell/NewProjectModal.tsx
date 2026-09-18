@@ -21,6 +21,7 @@ import { SELECT_CHEVRON } from './selectChevron';
 import { DRAFT_EXCLUSION_SENTENCE } from '@/features/project/draftExclusion';
 import { UnsavedChangesDialog, useUnsavedChangesGuard } from '@/components/dialog';
 import type { Methodology } from '@/types';
+import { getFocusable } from '@/hooks/useFocusTrap';
 
 /** Where the user asked to land after the project exists (#2710). */
 export interface CreatedProjectIntent {
@@ -96,33 +97,6 @@ interface Props {
    * transient fallback, not a second source of truth.
    */
   programName?: string;
-}
-
-/**
- * Tab stops inside the dialog, in DOM order.
- *
- * `:not([tabindex="-1"])` is applied to every branch, not just the generic
- * `[tabindex]` one: the way cards are native `<button>`s under a roving tabindex
- * (`useRovingTabIndex`, web rule 167), so only the selected one is actually
- * tabbable while the other two carry `tabindex="-1"`. Matching them on
- * `button:not([disabled])` alone made the *first DOM* card the trap's `first`,
- * which was harmless while the cards sat mid-sheet but escapes the dialog now
- * that the way in leads the body — Shift+Tab from the real first tab stop would
- * not match `first`, so the trap would not wrap and focus would leave the modal.
- */
-function getFocusable(container: HTMLElement): HTMLElement[] {
-  return Array.from(
-    container.querySelectorAll<HTMLElement>(
-      [
-        'a[href]:not([tabindex="-1"])',
-        'button:not([disabled]):not([tabindex="-1"])',
-        'input:not([disabled]):not([tabindex="-1"])',
-        'textarea:not([disabled]):not([tabindex="-1"])',
-        'select:not([disabled]):not([tabindex="-1"])',
-        '[tabindex]:not([tabindex="-1"])',
-      ].join(', '),
-    ),
-  );
 }
 
 /** Ties the footer's commit note to the submit button via `aria-describedby`. */
@@ -390,6 +364,13 @@ export function NewProjectModal({
   // that prompt is a nested `alertdialog` running its own `useFocusTrap`, and a
   // parent trap that keeps cycling underneath it fights the child for focus and
   // double-handles Escape (rule 245(b)).
+  //
+  // This stays a hand-rolled trap rather than `useFocusTrap` (#3208), for two
+  // reasons the hook cannot express: the listener is registered in the **capture
+  // phase** (see the Escape comment below — `useFocusTrap` binds on bubble, which
+  // is exactly the ordering that made Escape look inert here), and it must yield
+  // wholesale on `guardOpen` rather than on the dialog's own open state. Only the
+  // *selector* is shared, which is the duplication #3208 was about.
   useEffect(() => {
     if (guardOpen) return undefined;
     const handler = (e: KeyboardEvent) => {
