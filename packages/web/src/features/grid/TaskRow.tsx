@@ -2,6 +2,8 @@ import { ROW_VOCABULARY } from '../schedule/rowVocabulary';
 import { useEffect, useRef, type FocusEvent, type KeyboardEvent, type MouseEvent } from 'react';
 import type { Task } from '@/types';
 import { StatusPill, OwnerAvatar, fmtDate, progressBarColor, GridFloatCell } from './ui';
+import { Tooltip } from '@/components/Tooltip';
+import { ABBREVIATIONS } from '@/lib/abbreviations';
 
 /**
  * Left-border + background class for a flat/grouped row: critical tasks read
@@ -73,14 +75,20 @@ function TaskRowName({
       ) : (
         <span className="flex items-baseline gap-1.5 min-w-0">
           {task.isCritical && (
-            <span
-              aria-label="Critical path"
-              title="This task is on the critical path — a delay here delays the project end date"
-              className="flex-shrink-0 tppm-mono text-xs font-bold
-                    text-semantic-critical border border-semantic-critical/50 rounded px-0.5 leading-4"
-            >
-              CP
-            </span>
+            // `title` was invisible to keyboard focus and unreachable on touch
+            // (#2389, rule 287). `ABBREVIATIONS.CRITICAL` is the same shared
+            // definition `TaskScheduleStrip`'s CP suffix already uses, so the
+            // grid and the drawer never drift into two readings of "CP".
+            <Tooltip content={ABBREVIATIONS.CRITICAL}>
+              <span
+                aria-label="Critical path"
+                className="flex-shrink-0 tppm-mono text-xs font-bold
+                      text-semantic-critical border border-semantic-critical/50 rounded px-0.5 leading-4
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              >
+                CP
+              </span>
+            </Tooltip>
           )}
           <span
             className={`text-sm truncate ${task.isSummary ? 'font-semibold' : ''} text-neutral-text-primary`}
@@ -204,7 +212,12 @@ export function TaskRow({
       // focus in Firefox/Safari (rule 214, WCAG 2.4.7); the rename input keeps
       // focus-visible: as a text field.
       aria-label={onOpenDetail ? `Open details for ${task.name}` : undefined}
-      title={onOpenDetail ? 'Open task details' : undefined}
+      // No `title` here (#2454): the row already owns `onKeyDown`/`onClick`/
+      // `onDoubleClick` for F2-rename and Enter-to-open, and `Tooltip` clones
+      // its trigger's `onKeyDown`/`onFocus`/`onBlur` rather than composing with
+      // them — wrapping this element would silently drop those handlers. The
+      // `aria-label` above already carries the affordance to AT users, and the
+      // cursor/hover/focus-ring styling below carries it to sighted ones.
       tabIndex={0}
       onKeyDown={handleRowKeyDown}
       onClick={onOpenDetail ? handleRowClick : undefined}
