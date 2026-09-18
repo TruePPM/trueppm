@@ -105,7 +105,7 @@ export function DeadLetterActionDialog({
   // Escape is busy-guarded to match the backdrop-click guard: dismissing the
   // dialog mid-mutation would hide the in-flight action (and, on error, the
   // inline alert). Passing no onEscape while busy makes Escape inert.
-  const trapRef = useFocusTrap<HTMLDivElement>(true, busy ? undefined : onCancel);
+  const trapRef = useFocusTrap<HTMLDivElement>(true, busy ? undefined : onCancel, busy);
   const [backoffSeconds, setBackoffSeconds] = useState<number>(0);
   const [note, setNote] = useState<string>('');
   const fieldId = useId();
@@ -126,7 +126,8 @@ export function DeadLetterActionDialog({
     >
       <div
         ref={trapRef}
-        className="mx-4 w-full max-w-sm rounded-card border border-neutral-border bg-neutral-surface p-5 motion-safe:animate-modal-scale-in"
+        tabIndex={-1}
+        className="mx-4 w-full max-w-sm rounded-card border border-neutral-border bg-neutral-surface p-5 focus:outline-none motion-safe:animate-modal-scale-in"
       >
         <h2 id={`${fieldId}-title`} className="mb-2 text-sm font-semibold text-neutral-text-primary">
           {title}

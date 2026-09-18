@@ -35,7 +35,7 @@ export function EpicDeleteConfirmDialog({
   onCancel,
   onConfirm,
 }: EpicDeleteConfirmDialogProps) {
-  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel);
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel, isPending);
 
   const outcome =
     storyCount === 0
@@ -57,7 +57,8 @@ export function EpicDeleteConfirmDialog({
     >
       <div
         ref={trapRef}
-        className="mx-4 w-full max-w-sm rounded-card border border-neutral-border bg-neutral-surface p-5 motion-safe:animate-modal-scale-in"
+        tabIndex={-1}
+        className="mx-4 w-full max-w-sm rounded-card border border-neutral-border bg-neutral-surface p-5 focus:outline-none motion-safe:animate-modal-scale-in"
       >
         <h2
           id="delete-epic-confirm-title"

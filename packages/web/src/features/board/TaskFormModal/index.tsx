@@ -517,15 +517,6 @@ export function TaskFormModal({
   // #838: dirty-discard confirmation now uses the ARIA-managed ConfirmDiscardDialog
   // instead of window.confirm (which is unmanaged by the focus trap / screen reader).
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
-  // #838: trap focus inside the desktop modal (the mobile BottomSheet already
-  // traps). Yields while a sub-dialog owns focus — safe only because BOTH
-  // sub-dialogs run their own trap (ConfirmDiscardDialog, and per #1776
-  // DeleteConfirmDialog too; an untrapped child here lets Tab escape into the
-  // background form). Escape is handled by the document keydown handler above,
-  // so no onEscape is passed.
-  const desktopTrapRef = useFocusTrap<HTMLDivElement>(
-    !isMobile && !showDeleteConfirm && !showDiscardConfirm,
-  );
   // Selected parent in create mode. Seeded from prop (the inferred phase from
   // the highlighted Schedule row) but user-overridable via the picker below
   // so they can move the new task into a different phase before save.
@@ -738,6 +729,22 @@ export function TaskFormModal({
     form.name.trim().length > 0 && (isEdit || isMilestoneCreate || form.duration >= 1);
 
   const isPending = createTask.isPending || updateTask.isPending;
+
+  // #838: trap focus inside the desktop modal (the mobile BottomSheet already
+  // traps). Yields while a sub-dialog owns focus — safe only because BOTH
+  // sub-dialogs run their own trap (ConfirmDiscardDialog, and per #1776
+  // DeleteConfirmDialog too; an untrapped child here lets Tab escape into the
+  // background form). Escape is handled by the document keydown handler above,
+  // so no onEscape is passed.
+  // `isPending` is the focusKey (web-rule 362): a save disables the whole footer
+  // (Delete, Cancel, Save), emptying the trap's focusable set — the browser
+  // blurs the pressed button to <body> and nothing re-seats it on an error path
+  // that leaves the modal open.
+  const desktopTrapRef = useFocusTrap<HTMLDivElement>(
+    !isMobile && !showDeleteConfirm && !showDiscardConfirm,
+    undefined,
+    isPending,
+  );
 
   // ⌘+S submit + Esc dirty-check.
   useEffect(() => {

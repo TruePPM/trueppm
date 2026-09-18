@@ -28,7 +28,7 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
   // and restores focus to the "+ Pin link" trigger on close (issue 575 —
   // this `role="dialog" aria-modal="true"` previously let Tab escape into the
   // body). Reuse this hook on any future modal rather than re-deriving it.
-  const trapRef = useFocusTrap<HTMLDivElement>(open, onClose);
+  const trapRef = useFocusTrap<HTMLDivElement>(open, onClose, submitting);
 
   useEffect(() => {
     if (open) {

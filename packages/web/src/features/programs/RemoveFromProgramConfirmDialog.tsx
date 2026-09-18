@@ -33,7 +33,7 @@ export function RemoveFromProgramConfirmDialog({
   onCancel,
   onConfirm,
 }: RemoveFromProgramConfirmDialogProps) {
-  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel);
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel, isPending);
   return (
     <div
       ref={trapRef}

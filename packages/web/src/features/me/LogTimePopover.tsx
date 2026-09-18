@@ -51,8 +51,10 @@ interface Props {
 const BACKDATE_DAYS = 60;
 
 export function LogTimePopover({ task, onClose }: Props) {
-  const containerRef = useFocusTrap<HTMLDivElement>(true, onClose);
   const create = useCreateTimeEntry();
+  // `create.isPending` is the focusKey (web-rule 362): it disables the only
+  // submit control, emptying the trap's focusable set.
+  const containerRef = useFocusTrap<HTMLDivElement>(true, onClose, create.isPending);
   const del = useDeleteTimeEntry();
 
   const customRef = useRef<HTMLInputElement | null>(null);
@@ -138,6 +140,9 @@ export function LogTimePopover({ task, onClose }: Props) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="log-time-title"
+      // web-rule 362: the trap needs a seat for the phase where `create.isPending`
+      // has disabled the only submit control and nothing inside is focusable.
+      tabIndex={-1}
       className="absolute right-0 z-30 mt-1 w-72 rounded-card border border-neutral-border
         bg-neutral-surface shadow-pop focus-within:ring-2 focus-within:ring-brand-primary"
     >

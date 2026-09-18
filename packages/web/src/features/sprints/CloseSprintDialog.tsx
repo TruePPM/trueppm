@@ -56,7 +56,7 @@ export function CloseSprintDialog({
     useState<PendingDisposition>('carry');
   // Trap Tab inside the modal and restore focus to the trigger on close
   // (issue 1357). Escape is handled separately so the !isClosing guard holds.
-  const trapRef = useFocusTrap<HTMLDivElement>(true);
+  const trapRef = useFocusTrap<HTMLDivElement>(true, undefined, isClosing);
 
   // Esc to cancel.
   useEffect(() => {

@@ -34,7 +34,7 @@ export function CaptureBaselineConfirmDialog({
   onCancel,
   onConfirm,
 }: CaptureBaselineConfirmDialogProps) {
-  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel);
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel, isPending);
   return (
     <div
       ref={trapRef}
