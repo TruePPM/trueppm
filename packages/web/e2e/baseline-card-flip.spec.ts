@@ -197,8 +197,12 @@ test.describe('Baseline card flip (#2215)', () => {
     await page.goto(`${BASE_URL}/board?task=login`);
     await expect(page.getByText('Delivery Phase')).toBeVisible({ timeout: 10_000 });
 
-    // Card starts at `estimated`.
-    const card = page.getByRole('button', { name: /^Design Login,/ });
+    // Card starts at `estimated`. The card's accessible name lives on its title
+    // button (#2618), which contains nothing but the title — the readiness chip
+    // is a sibling inside `[data-board-card]`, so scope from the root.
+    const card = page.locator('[data-board-card]', {
+      has: page.getByRole('button', { name: /^Design Login,/ }),
+    });
     await expect(card.getByText('estimated')).toBeVisible({ timeout: 10_000 });
 
     // Drawer → Activity tab → expand the (collapsed) Baseline section → capture CTA.
@@ -230,7 +234,9 @@ test.describe('Baseline card flip (#2215)', () => {
     // Close the drawer and assert the card flipped estimated→baselined.
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toHaveCount(0);
-    const flipped = page.getByRole('button', { name: /^Design Login,/ });
+    const flipped = page.locator('[data-board-card]', {
+      has: page.getByRole('button', { name: /^Design Login,/ }),
+    });
     await expect(flipped.getByText('baselined')).toBeVisible({ timeout: 10_000 });
     await expect(flipped.getByText('estimated')).toHaveCount(0);
   });

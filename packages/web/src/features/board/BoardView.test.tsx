@@ -1205,11 +1205,13 @@ describe('BoardView', () => {
 
   describe('card information popover (issue #304)', () => {
     function getDraggableCardRoot(name: RegExp): HTMLElement {
-      // The card root carries `aria-roledescription="draggable"`; child buttons
-      // (chain icon, ··· menu) match by role but not by this attribute.
+      // Since #2618 the card's accessible name lives on its title button, not
+      // on the root — so match the named button, then climb to the roleless
+      // `[data-board-card]` root the assertions are about.
       return screen
         .getAllByRole('button', { name })
-        .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
+        .map((el) => el.closest<HTMLElement>('[data-board-card]'))
+      .find((el) => el !== null)!;
     }
 
     it('clicking a card opens the popover dialog and shows task metadata', () => {
@@ -2488,11 +2490,12 @@ describe('keyboard card navigation (#195)', () => {
 
   const FOCUS_RING = 'ring-offset-neutral-surface-sunken';
   // A card's child controls (chain icon, ··· menu) also match by accessible
-  // name; the draggable root is the one carrying aria-roledescription.
+  // name; the title button is the one that climbs to a card root (#2618).
   const card = (name: RegExp): HTMLElement =>
     screen
       .getAllByRole('button', { name })
-      .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
+      .map((el) => el.closest<HTMLElement>('[data-board-card]'))
+      .find((el) => el !== null)!;
 
   it('j/k move focus down and up within a column across phases', () => {
     renderBoard();
@@ -2530,6 +2533,11 @@ describe('keyboard card navigation (#195)', () => {
 
   // #2194 — navigation must move *real* DOM focus, not paint a ring only, so
   // screen readers announce the card and Enter/E reach it.
+  // The card's tab stop is its title button, not the root (#2618) — a roleless
+  // container cannot hold focus, so a focus assertion has to name the button.
+  const cardTitleOf = (name: RegExp): HTMLElement =>
+    card(name).querySelector<HTMLElement>('[data-card-title]')!;
+
   it('j/k moves real DOM focus onto the target card (not just a visual ring)', () => {
     renderBoard();
     // A pointer press on a card focuses it *natively* in the browser; jsdom does
@@ -2537,14 +2545,13 @@ describe('keyboard card navigation (#195)', () => {
     // that (the card's own keyboard-focus effect deliberately does NOT re-focus
     // during a pointer press — #2194). This seeds focus + focusedCardId; the real
     // assertion is that keyboard nav then moves *DOM* focus, not just the ring.
-    const backend = card(/Backend Implementation/);
-    fireEvent.pointerDown(backend);
-    backend.focus();
-    expect(backend).toHaveFocus();
+    fireEvent.pointerDown(card(/Backend Implementation/));
+    cardTitleOf(/Backend Implementation/).focus();
+    expect(cardTitleOf(/Backend Implementation/)).toHaveFocus();
 
     fireEvent.keyDown(window, { key: 'j' });
-    expect(card(/Frontend Build/)).toHaveFocus();
-    expect(card(/Backend Implementation/)).not.toHaveFocus();
+    expect(cardTitleOf(/Frontend Build/)).toHaveFocus();
+    expect(cardTitleOf(/Backend Implementation/)).not.toHaveFocus();
   });
 
   // #2194 — the cheatsheet advertised "E — Edit card" but the handler was never
@@ -2569,11 +2576,12 @@ describe('lens filter chips in the phase grid', () => {
     resetMocks();
   });
 
-  // A card's child controls share its accessible name; count only draggable roots.
+  // A card's child controls share its accessible name; count only title buttons,
+  // of which there is exactly one per card (#2618).
   const cardRootCount = (name: RegExp) =>
     screen
       .queryAllByRole('button', { name })
-      .filter((el) => el.getAttribute('aria-roledescription') === 'draggable').length;
+      .filter((el) => el.hasAttribute('data-card-title')).length;
 
   it('Tech-debt lens hides non-debt cards, shows a chip, and "Show all →" restores', async () => {
     const user = userEvent.setup();
@@ -3056,7 +3064,8 @@ describe('dependency-chain hover dimming (#2459)', () => {
   const cardRoot = (name: RegExp): HTMLElement =>
     screen
       .getAllByRole('button', { name })
-      .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
+      .map((el) => el.closest<HTMLElement>('[data-board-card]'))
+      .find((el) => el !== null)!;
 
   it('dims every card outside the hovered task’s dependency chain', () => {
     seedChainFixture();
@@ -3096,7 +3105,8 @@ describe('facet filters — link and storage seeding (#2459)', () => {
   const inView = (name: RegExp): HTMLElement | null =>
     screen
       .queryAllByRole('button', { name })
-      .find((el) => el.getAttribute('aria-roledescription') === 'draggable') ?? null;
+      .map((el) => el.closest<HTMLElement>('[data-board-card]'))
+      .find((el) => el !== null) ?? null;
 
   it('honors facets carried on a shared board link', () => {
     // Only Alice's cards (t2, t3) match; the rest are dimmed out of the view.
@@ -3154,7 +3164,8 @@ describe('board card search dimming (#2459)', () => {
     fireEvent.change(searchBox(), { target: { value: 'backend' } });
     const doc = screen
       .getAllByRole('button', { name: /Documentation/ })
-      .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
+      .map((el) => el.closest<HTMLElement>('[data-board-card]'))
+      .find((el) => el !== null)!;
     expect(doc.className).toContain('opacity-40');
   });
 
@@ -3168,7 +3179,8 @@ describe('board card search dimming (#2459)', () => {
     fireEvent.change(searchBox(), { target: { value: '' } });
     const doc = screen
       .getAllByRole('button', { name: /Documentation/ })
-      .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
+      .map((el) => el.closest<HTMLElement>('[data-board-card]'))
+      .find((el) => el !== null)!;
     expect(doc.className).not.toContain('opacity-40');
   });
 });
@@ -3216,7 +3228,8 @@ describe('lane keyboard shortcuts and column stubs (#2459)', () => {
     renderBoard();
     const backend = screen
       .getAllByRole('button', { name: /Backend Implementation/ })
-      .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
+      .map((el) => el.closest<HTMLElement>('[data-board-card]'))
+      .find((el) => el !== null)!;
     fireEvent.pointerDown(backend);
     for (const label of ['TO DO', 'IN PROGRESS', 'REVIEW', 'DONE']) {
       await user.click(screen.getByRole('button', { name: `Collapse ${label} column` }));
@@ -3327,7 +3340,8 @@ describe('dependency popover jump-to-card (#2459)', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     const jumped = screen
       .getAllByRole('button', { name: /Discovery & Design/ })
-      .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
+      .map((el) => el.closest<HTMLElement>('[data-board-card]'))
+      .find((el) => el !== null)!;
     expect(jumped.className).toContain('ring-offset-neutral-surface-sunken');
   });
 });

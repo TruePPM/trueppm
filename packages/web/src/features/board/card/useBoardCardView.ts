@@ -183,7 +183,12 @@ function cardContainerClass(opts: {
   return [
     'bg-neutral-surface border rounded-card relative group',
     opts.readOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing',
-    'focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
+    // `focus-within`, not `focus`: the card root is no longer focusable (#2618 —
+    // it was `role="button"` around real controls, which is `nested-interactive`).
+    // The card's own tab stop is the title button inside it, so the ring has to
+    // follow focus into the subtree or the keyboard user loses the card outline
+    // entirely.
+    'focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1',
     // v2 fluidity (ADR-0126): subtle hover-lift, no shadow (rule 1) — the card's
     // own border supplies the edge. Single multi-prop transition so opacity
     // (dim states) and the lift share one declaration; lift is motion-safe (rule 70).
@@ -234,6 +239,22 @@ export interface BoardCardView extends ColumnContext, DwellFacts, EvmFacts, Sign
   cardSignal: CardSignal | null;
   /** Stable id so the health badge's aria-controls points at its disclosure peek. */
   peekId: string;
+  /**
+   * The card's accessible name — "<name>, <n>% complete[, critical path], in
+   * <column>". Carried by the title button (`CardTitleButton`), which is the
+   * card's single tab stop and its open-detail control. It lived on the card
+   * root until #2618; the string itself is unchanged, so every
+   * `getByRole('button', { name: /…% complete/ })` locator still resolves — just
+   * to the title button rather than to the root div.
+   */
+  cardLabel: string;
+  /**
+   * False on a read-only board (closed sprint, Viewer role) — the card is still
+   * click-to-open, just not draggable, so the title button drops
+   * `aria-roledescription="draggable"` rather than promising a gesture that
+   * does nothing (#2146).
+   */
+  isDraggable: boolean;
   containerClass: string;
 }
 
@@ -325,6 +346,10 @@ export function useBoardCardView(props: BoardCardProps): BoardCardView {
       cpi: evm.evmShowsCpi ? evm.cpi : null,
     }),
     peekId: `card-peek-${task.id}`,
+    cardLabel:
+      `${task.name}, ${dwell.effectiveProgress}% complete` +
+      `${showCriticalState ? ', critical path' : ''}, in ${columnContext.columnLabel}`,
+    isDraggable: !readOnly,
     containerClass: cardContainerClass({
       readOnly,
       showCriticalState,

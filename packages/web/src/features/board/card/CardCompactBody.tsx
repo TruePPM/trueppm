@@ -11,7 +11,7 @@ import { CardPeekButton } from '../CardPeekButton';
 import { CustomFieldCompactPeek } from '../CustomFieldMarks';
 import { cardSignalToneClass } from '../cardSignal';
 import { CardSignalChips } from './CardSignalChips';
-import { cardTitleToneClass, cpTooltip } from './cardFormat';
+import { CardTitleButton } from './CardTitleButton';
 import type { BoardCardView } from './useBoardCardView';
 import { useLaneCrumb } from '../LaneCrumbContext';
 
@@ -101,7 +101,7 @@ export function CardCompactBody({
   // compact card's hover-only health badge and truncated title have no reachable
   // channel, so each promotes to a tap-to-peek `CardPeekButton`.
   const coarsePointer = useIsCoarsePointer();
-  const { el: titleEl, setEl: setTitleEl } = useElementRef<HTMLSpanElement>();
+  const { el: titleEl, setEl: setTitleEl } = useElementRef<HTMLButtonElement>();
   const titleOverflowing = useIsOverflowing(titleEl);
 
   // The nested phase this card sits in (#2947). It renders here as well as on
@@ -122,16 +122,14 @@ export function CardCompactBody({
             {laneCrumb} <span aria-hidden="true">&#9656;</span>
           </span>
         )}
-        <span
-          ref={setTitleEl}
-          className={[
-            'text-xs font-medium truncate flex-1 min-w-0',
-            cardTitleToneClass(view.showCriticalState, view.isIdea),
-          ].join(' ')}
-          title={view.showCriticalState ? cpTooltip(task) : task.name}
-        >
-          {task.name}
-        </span>
+        {/* The title is the card's single tab stop and its open-detail control
+            (#2618) — see CardTitleButton. */}
+        <CardTitleButton
+          task={task}
+          view={view}
+          titleRef={setTitleEl}
+          className="text-xs font-medium truncate flex-1 min-w-0"
+        />
         {/* Title disclosure (#1947, web-rule 256). The truncated title silently
             drops its tail on touch, where `title=` never surfaces. On a coarse
             pointer AND when the title actually overflows, render a dedicated

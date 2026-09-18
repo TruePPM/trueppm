@@ -39,26 +39,31 @@ import {
  * These cited #2204 until #2603. #2204 closed without fixing them: re-running
  * the four affected scans with every exclusion deleted still failed all four, so
  * the debt was live and was simply pointing at a dead issue — the gate stayed
- * green by hiding failures nothing tracked. They then cited #2618. `#2618` fixed
- * `aria-required-children` everywhere it appeared (the Schedule chart's live
- * region, the Item-list treegrid's row-edge insert button, and the Board
- * backlog rail's empty-state hint) and `aria-required-attr` was already fixed
- * by #2635 — every scan above now runs with no exclusion except the Board scan,
- * which still carries one: `nested-interactive` on the card root
- * (`CardShell.tsx`) is real, verified-still-failing debt whose fix needs either
- * a card-root ARIA role change (~100+ e2e assertions locate cards via
- * `getByRole('button', { name: /…% complete/ })`, out of scope for a targeted
- * bugfix) or an edit to `CardOverflowMenu.tsx`, which #3619 has in flight
- * concurrently — so it stays open, tracked, and carries its own
- * `SUPPRESSED-UNTIL(#2618)` marker that scripts/check-suppression-issues.sh
- * fails on the moment #2618 closes with the exclusion still here. #2618
- * therefore stays open for this one remaining rule; do not close it until this
- * entry is gone too. The `color-contrast` (HealthCluster/health chip, ⌘K kbd
- * chips + group labels, Schedule/Board toolbar labels, Add-milestone button,
- * Settings chips, drawer body text) and `aria-prohibited-attr` (mobile logo
- * `.select-none`) debt tracked by #2265 has been FIXED and its exclusions
- * dropped — every scan below now enforces `color-contrast`, so contrast
- * regressions anywhere fail the build.
+ * green by hiding failures nothing tracked. They then cited #2618, and #2618 is
+ * now fully closed out. All three of its rules are FIXED and every one of its
+ * exclusions is gone:
+ *   • `aria-required-children` — the Schedule chart's live region moved to a
+ *     sibling of the `role="listbox"` (ScheduleAriaOverlay.tsx), the Item-list
+ *     treegrid's row-edge insert button is wrapped in its own `role="gridcell"`
+ *     (TaskListRow.tsx), and the Board backlog rail's empty-state hint sits in
+ *     its own `role="listitem"` (BacklogBand.tsx).
+ *   • `aria-required-attr` — fixed by #2635; both board resize handles declare
+ *     `aria-valuenow`/`aria-valuemax`/`aria-valuetext`.
+ *   • `nested-interactive` on the Board — the card root was `role="button"`
+ *     wrapping the card's real controls (health badge, dependency/risk chips,
+ *     accept ✓, ··· overflow trigger). The root is now a plain roleless
+ *     container and the card's accessible name, tab stop, and Enter/Space
+ *     activation live on a real `<button>` around the title (`CardTitleButton`),
+ *     which contains nothing focusable. The name string is byte-identical, so
+ *     `getByRole('button', { name: /…% complete/ })` still resolves — to the
+ *     title button rather than the root.
+ * The `color-contrast` (HealthCluster/health chip, ⌘K kbd chips + group labels,
+ * Schedule/Board toolbar labels, Add-milestone button, Settings chips, drawer
+ * body text) and `aria-prohibited-attr` (mobile logo `.select-none`) debt
+ * tracked by #2265 has been FIXED and its exclusions dropped — every scan below
+ * now enforces `color-contrast`, so contrast regressions anywhere fail the
+ * build. The one exclusion left anywhere in this file is `color-contrast` on the
+ * Calendar scan, which is debt that scan FOUND and which #3879 tracks.
  */
 
 /**
@@ -607,25 +612,15 @@ test.describe('accessibility @a11y — routes', () => {
       timeout: 10_000,
     });
 
-    // `aria-required-attr` was fixed by #2635 (both resize handles now declare
-    // `aria-valuenow`/`aria-valuemax`/`aria-valuetext`), and `aria-required-children`
-    // is fixed by #2618 (the backlog rail's empty-state hint is now wrapped in its
-    // own `role="listitem"`, `BacklogBand.tsx`). Both exclusions are gone.
-    //
-    // `nested-interactive` remains, NOT because it is stale debt but because its
-    // fix is blocked: the card root (`CardShell.tsx`, `role="button"`) contains
-    // real focusable controls — the critical-path badge, the dependency count,
-    // and the `···` overflow-menu trigger (`CardOverflowMenu.tsx`) — and untangling
-    // that nesting means either restructuring the card root's ARIA role (which
-    // ~100+ e2e assertions across `e2e/board*.spec.ts` locate cards through,
-    // `getByRole('button', { name: /…% complete/ })`) or editing
-    // `CardOverflowMenu.tsx`, which #3619 has in flight concurrently. Filed as
-    // the residual scope of #2618 rather than closed with it — see that issue for
-    // the current state. SUPPRESSED-UNTIL(#2618)
-    await expectNoA11yViolations(page, testInfo, {
-      gateModerate: true,
-      disableRules: ['nested-interactive'],
-    });
+    // No exclusions. `aria-required-attr` was fixed by #2635 (both resize
+    // handles now declare `aria-valuenow`/`aria-valuemax`/`aria-valuetext`),
+    // `aria-required-children` by #2618 (the backlog rail's empty-state hint is
+    // wrapped in its own `role="listitem"`, `BacklogBand.tsx`), and
+    // `nested-interactive` by #2618 as well: the card root is no longer
+    // `role="button"` around the card's real controls — see `CardShell.tsx` and
+    // `CardTitleButton.tsx`. This scan is the regression guard for that shape;
+    // putting a role back on the card root fails it here.
+    await expectNoA11yViolations(page, testInfo, { gateModerate: true });
   });
 
   test('project Calendar has no critical/serious WCAG violations', async ({ page }, testInfo) => {
