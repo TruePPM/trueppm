@@ -168,4 +168,26 @@ describe('CapacityPreflight', () => {
       expect(screen.getByText(/hours committed/)).toBeInTheDocument();
     });
   });
+
+  describe('zero-committed hours against a real denominator (rule 416, #3845)', () => {
+    it('does not color "On track" as on-track green when committed_hours is a real zero', () => {
+      render(
+        <CapacityPreflight
+          capacity={makeCapacity({
+            totals: {
+              committed_hours: 0,
+              available_hours: 160,
+              ratio: 0,
+              buffer_hours: 160,
+              label: 'on_track',
+              pto_days: 0,
+            },
+          })}
+        />,
+      );
+      const label = screen.getByText('On track');
+      expect(label.className.split(' ')).not.toContain('text-semantic-on-track');
+      expect(label.className.split(' ')).toContain('text-neutral-text-secondary');
+    });
+  });
 });
