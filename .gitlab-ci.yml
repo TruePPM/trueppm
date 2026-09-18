@@ -993,6 +993,36 @@ lint:dropdown-scroll:
     - bash scripts/check-dropdown-scroll.sh --self-test
     - bash scripts/check-dropdown-scroll.sh
 
+lint:focus-trap-focuskey:
+  extends: .fast-job
+  # Focus-trap focusKey gate (web-rule 362, #3352). `useFocusTrap`'s
+  # FOCUSABLE_SELECTOR is `button:not([disabled])`, so a dialog that disables its
+  # own controls while a request is in flight empties the trap: the browser blurs
+  # the just-pressed control to <body>, the Tab handler stops intercepting, and
+  # Tab walks into the page behind the scrim — an aria-modal surface the keyboard
+  # can leave (WCAG 2.4.3 / 2.1.2).
+  #
+  # Rule 362 was written from #3129, stated in prose, and enforced by nothing;
+  # #3298 reintroduced the class seventeen issues later and the #3352 sweep found
+  # 26 live dialogs. This is the guard that did not exist. False positives — the
+  # disabled control is outside the trap, the disable is validation-only — are
+  # paid for by scripts/focus-trap-focuskey-waivers.txt, a ratcheted list that
+  # can only shrink, not by `|| true`. ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash grep sed
+  script:
+    # Self-test FIRST (#3194/#3195): this gate's own failure mode is a green
+    # pipeline on a tree full of unkeyed traps, so a green run has to be backed
+    # by proof it still detects a planted one — in THIS job, on THIS image,
+    # because BusyBox vs GNU is exactly what blinded boundary:imports.
+    - bash scripts/check-focus-trap-focuskey.sh --self-test
+    - bash scripts/check-focus-trap-focuskey.sh
+
 lint:hover-reveal-focus:
   extends: .fast-job
   # Hover-only reveal keyboard-reachability gate (web-rule 417, #3619). A

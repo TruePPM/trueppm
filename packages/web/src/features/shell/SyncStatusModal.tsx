@@ -40,8 +40,10 @@ export function SyncStatusModal({
   onRetry,
   onClose,
 }: Props) {
-  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose);
   const [retrying, setRetrying] = useState(false);
+  // `retrying` is the focusKey (web-rule 362): it disables "Retry now", the only
+  // control the user can press here, so the browser drops focus to <body>.
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose, retrying);
   const { label } = syncStatusPresentation(status);
 
   const outstanding = pendingWrites.length;

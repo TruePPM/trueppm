@@ -46,9 +46,12 @@ export function CapacityPreflight({ capacity, points }: Props) {
   const { totals, members } = capacity;
   // Rule 119: `available_hours === 0` means no one has capacity configured
   // for this {itl} at all — the ratio is 0/0, undefined, not "0% on track"
-  // (#3477). A real capacity with zero committed hours is left to the
-  // server's own `totals.label`, which already distinguishes that case.
+  // (#3477). A real capacity (nonzero available_hours) with zero committed
+  // hours is a real, well-defined zero (rule 416) — the server's `totals.label`
+  // still computes `on_track` for it, so the client downgrades that case to
+  // the neutral treatment below, mirroring the points chip's `pointsAllZero` guard.
   const hoursNotComputable = isNotComputable(totals.available_hours);
+  const hoursCommittedAllZero = isZeroValue(totals.committed_hours);
   const pointsChip = points ? capacityPointsChip(points.committed, points.capacity) : null;
   const pointsAllZero = pointsChip ? isZeroValue(pointsChip.total) : false;
   const ratioCapped = Math.min(totals.ratio, 1.5);
@@ -145,7 +148,13 @@ export function CapacityPreflight({ capacity, points }: Props) {
               {' / '}
               <span className="tppm-mono">{totals.available_hours}</span> hours committed
             </p>
-            <p className={`text-xs ${LABEL_COLOR[totals.label]}`}>
+            <p
+              className={`text-xs ${
+                totals.label === 'on_track' && hoursCommittedAllZero
+                  ? 'text-neutral-text-secondary'
+                  : LABEL_COLOR[totals.label]
+              }`}
+            >
               {LABEL_COPY[totals.label]}
               {totals.buffer_hours !== 0 && (
                 <span className="text-neutral-text-secondary">
