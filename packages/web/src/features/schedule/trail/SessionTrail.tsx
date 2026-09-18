@@ -95,7 +95,7 @@ export function SessionTrail({
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [open]);
+  }, [open, triggerRef]);
 
   if (entries.length === 0) return null;
 
