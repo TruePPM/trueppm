@@ -607,6 +607,24 @@ bump_manifest packages/wasm-scheduler/Cargo.lock \
   "/^name = \"trueppm-wasm-scheduler\"$/,/^version = / s/^version = \"${CURRENT_ESCAPED}\"/version = \"${NEW_VERSION}\"/" \
   "version = \"${NEW_VERSION}\""
 
+# The Helm chart moves with the release, in BOTH fields (#3907). `appVersion` is
+# not decoration: trueppm.imageTag defaults to `v<appVersion>`, and the release
+# pipeline publishes images only under the tag it was cut from, so a chart whose
+# appVersion lags the tag points a stock `helm install` at an image that does not
+# exist (ImagePullBackOff on the migrate initContainer). `version` is the OCI tag
+# helm:publish pushes under — left fixed it made every beta overwrite the last and
+# the stable 0.4.0 overwrite them all, so a beta chart could not be pinned. Both
+# take the semver form: helm accepts pre-release SemVer, and `-beta.N` is a valid
+# OCI tag. The sed anchors on column 0 so the subcharts' indented `version:` lines
+# under `dependencies:` can never be matched.
+bump_manifest packages/helm/Chart.yaml \
+  "s/^version: ${CURRENT_ESCAPED}\$/version: ${NEW_VERSION}/" \
+  "version: ${NEW_VERSION}"
+
+bump_manifest packages/helm/Chart.yaml \
+  "s/^appVersion: \"${CURRENT_ESCAPED}\"\$/appVersion: \"${NEW_VERSION}\"/" \
+  "appVersion: \"${NEW_VERSION}\""
+
 echo "  Bumped manifests to $NEW_VERSION (scheduler PyPI: $NEW_PEP440)"
 
 # Re-lock after bumping the Python manifests. Each uv.lock records the project's
@@ -828,6 +846,7 @@ git add \
   packages/web/package.json \
   packages/wasm-scheduler/Cargo.toml \
   packages/wasm-scheduler/Cargo.lock \
+  packages/helm/Chart.yaml \
   packages/api/src/trueppm_api/settings/base.py \
   docs/api/openapi.json \
   packages/website/src/content/docs \
