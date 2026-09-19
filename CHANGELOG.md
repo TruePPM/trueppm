@@ -15,6 +15,230 @@ followed by the detailed entries.
 
 _Nothing yet._
 
+## [0.4.0-beta.2] — 2026-09-19
+
+TruePPM 0.4.0-beta.2 — the first hardening pass on the beta.
+
+It closes the release-publishing gaps the beta.1 cut surfaced: the Helm chart's
+version now stays in lockstep with the release tag, its Cosign signing step
+authenticates correctly, and the chart, scheduler, and MCP server all ship a
+CycloneDX SBOM as a citable, versioned release asset. It also tightens token and
+agent-token security (session/token containment fixes, agent posture surfaced on
+`/auth/me/`, fail-closed behavior on boot) and fixes the drift a bundled demo
+accrues over time — a one-click re-anchor moves a sample project's dates,
+sprints, baselines, and history forward together so a demo stays presentable
+weeks after it's loaded. Rounding out the cycle: task-list pagination and
+annotation-query performance fixes, and a maintainability/reliability cleanup
+pass across the codebase.
+
+### Added
+- **"Shift dates to today" keeps a bundled demo demo-ready.** A sample anchors its
+  dates on the day you load it and then ages: four weeks on, the board calls a
+  finished sprint "Active", the burndown ends before today, and every project shows
+  overdue work the sample never intended — while the banner still promises "60 days
+  of history … render out of the box." The sample banner now reports the drift, stops
+  making that promise once it is false, and offers the program owner a one-click
+  re-anchor (`POST /api/v1/programs/{id}/shift-sample-dates/`, or
+  `python manage.py shift_sample_dates` for a scheduled demo instance). It moves the
+  plan, its sprints, the baselines, the backdated activity history and the forecast
+  trend forward together, then recalculates the schedules — so baseline-versus-actual
+  variance is preserved exactly rather than turning into a fabricated slip, and any
+  changes you made to the demo move with it rather than being discarded. The offset
+  rounds to whole weeks so every date keeps the weekday it was authored for, and the
+  action is idempotent: pressing it twice does nothing the second time. Per-project
+  views show the same drift as a cue. A demo loaded before this release carries no
+  recorded anchor and says so instead, pointing at remove-and-reload. (#3481, ADR-1175)
+- The published Helm chart now ships a CycloneDX SBOM of its Helm-level dependency graph (the bundled postgresql/valkey subcharts and their versions), Cosign-attested on the same digest as the chart signature — matching the SBOM/attestation pattern already in place for the `api`/`web` images.
+- **SBOMs for `trueppm-scheduler` and `trueppm-mcp` are now first-class release
+  assets**: each package tag publishes its CycloneDX SBOM to the GitLab Generic
+  Package Registry at a stable, versioned URL and creates a GitLab Release that
+  links it. Previously the SBOM existed only as a CI job artifact reachable by
+  browsing the release tag's pipeline, so it had no citable location; the two
+  packages had no GitLab Release entry at all.
+Added `api.workers` to the Helm chart, so a self-hoster can raise the API's uvicorn worker count per pod without a post-render patch or a derived image. Defaults to `1`, preserving today's single-process behavior; the production values overlay (`values-prod.yaml`) now sets `4`, matching the configuration measured to cut eight concurrent Schedule opens from 22.5 s to 7.3 s. Raising it costs memory (each worker is its own process, ~160 MiB resident) and PostgreSQL connections (`replicaCount x api.workers` against `max_connections`, since each worker holds its own persistent connection) — see the "Raising the uvicorn worker count" section of the deployment sizing guide.
+
+### Changed
+`POST /api/v1/admin/failed-tasks/{id}/retry/` and `.../dismiss/` — present in the published `v0.3.0-alpha.3` schema — were renamed to `.../requeue/` and `.../drop/` in 0.4 (#695), with no deprecation-window disclosure at the time. [API Stability & Deprecation Policy](https://docs.trueppm.com/api/stability/#deprecation-window--notice) now records this as a policy exception, alongside the other nine breaking changes taken during the 0.4 cycle: `retry` and `dismiss` are gone from the router entirely and answer a plain `404`. A caller still using either should call `requeue` or `drop` instead — an empty request body behaves the same as before, with an optional `backoff_seconds` (requeue) or `note` (drop) now available.
+Cleared SonarCloud maintainability findings (duplicated string literals and over-complex functions) with behavior-preserving extractions; no user-visible change. The recorded capacity-benchmark output under `packages/api/perf/capacity/results/` is now excluded from Sonar analysis.
+
+### Fixed
+- **Sidebar focus ring on name buttons**: the program-name button in the
+  Programs tree and pinned list, and the project-name button in every project
+  row, were `focus:outline-none` with no accompanying focus ring — their row
+  wrapper's ring lives on a non-focusable `<div>`, so tabbing to the name
+  itself showed no visible indicator (WCAG 2.4.7). Each button now carries its
+  own inset ring (`focus:ring-2 focus:ring-brand-primary focus:ring-inset`),
+  matching the sibling menu-item pattern.
+- **Grid: critical-path badges, the assignee avatar, the outline rename hint,
+  the predecessors cell, and several icon-only controls now use `Tooltip`
+  instead of a bare `title`**: `title` is invisible to keyboard focus,
+  unreachable on touch, and ~1s delayed. The Flat/Grouped and Outline `CP`
+  badges, the owner-initials avatar, the outline row's "double-click to
+  rename" hint, and the outline predecessors cell now surface the same text
+  through the shared `Tooltip` component (hover, focus, and touch). The
+  outline expand/collapse toggle, the "Expand all" / "Collapse all" toolbar
+  buttons, and the active-filter chip's remove button — all icon-only —
+  now surface their existing `aria-label` the same way, so a sighted mouse
+  or keyboard user gets the explanation a screen reader already had
+  (#2389, #2454). The outline drag handle is deliberately left unconverted
+  (see its code comment): `Tooltip` clones a trigger's own
+  pointer/keyboard handlers rather than composing with them, and this
+  handle's handlers are what dnd-kit uses to activate a drag.
+- **Schedule: several `title="…"` explanations now use `Tooltip` instead**:
+  `title` is invisible to keyboard focus, unreachable on touch, and ~1s
+  delayed. The task drawer's critical-path `CP` badge, expand button, and
+  over-allocated-assignee note; the task list row's properties button; the
+  task strip's computed-start value and free-float chip; the Float/Free
+  float column headers; the "invalid link" and "not active yet" notices;
+  and the how-to bar's dismiss button now surface their explanation through
+  the shared `Tooltip` component (hover, focus, and touch). Several other
+  `title`s that only restated an already-visible label or accessible name
+  (a pinned/decision marker, a deleted-attachment placeholder, a disabled
+  mention option, the Monte Carlo "Rerun" button) were removed outright as
+  pure duplication (#2389, #2454).
+- **Tooltips now close when you press their control with a mouse or pen**: a
+  hover tooltip left open after a click swallowed the first Escape meant for
+  whatever the click had opened — for example, pressing Escape right after
+  opening a task's properties drawer only dismissed the tooltip, and a second
+  Escape was needed to close the drawer. Touch behavior (tap toggles) is
+  unchanged (#2454).
+- **Schedule and Board grids no longer break ARIA required-children rules**: the Schedule chart's live-status region is now a sibling of its `role="listbox"` instead of a disallowed child, the Item-list treegrid's row-edge "insert item" button is now wrapped in its own `role="gridcell"` instead of sitting directly under `role="row"`, and the Board backlog rail's empty-state hint is now wrapped in `role="listitem"` instead of sitting directly under `role="list"`. Screen reader users navigating the Schedule and Board grids no longer hit an inconsistent accessibility tree at these three spots (WCAG 2.1 A, 1.3.1 Info and Relationships).
+- **Board cards no longer nest their own controls inside a button**: the card root was `role="button"` wrapping the card's health badge, dependency and risk chips, accept ✓ and `···` overflow menu, so ARIA treated those controls as presentational and screen reader users could not reliably reach them (WCAG 2.1 A, 4.1.2 Name Role Value). The card root is now a plain container, and the card's accessible name, keyboard tab stop, and Enter/Space "open detail" all sit on a real button around the task title. Clicking anywhere on the card still opens it, the card still drags, and the announced name is unchanged. This was the last open piece of #2618; the Board accessibility scan now enforces `nested-interactive` with no exclusion.
+- **`GET /api/v1/tasks/` no longer sorts an aggregate GROUP BY**: `predecessor_count`, `linked_risks_count`, `linked_risks_max_severity`, `latest_note_at`, `external_link_count`, and `external_link_worst_rank` are now correlated `Subquery()` annotations instead of `Count()`/`Max()`/`Min()` aggregates, so the task list no longer forces a `GROUP BY` on every request. This restores the model's declared WBS ordering as the endpoint's default (`TaskViewSet.ordering = ["id"]`, added as a #2807 workaround, is removed) and turns a deep-page fetch that previously scaled with every task ahead of it into one that scales with the page alone. A new `(project, wbs_path, name)` index backs that default ordering. `POST /api/v1/projects/{pk}/tasks/bulk/`, which re-fetches through the same annotation helper, gets the same fix.
+- **`GET /api/v1/tasks/` pagination `count` no longer re-runs every annotation over every row**: the paginator now counts the filtered-but-unannotated queryset instead of the fully annotated one `TaskViewSet.get_queryset()` hands it, so Postgres no longer evaluates `is_summary`/`is_phase`/`percent_complete_rollup` and the rest of `annotate_tasks_queryset`'s RawSQL/Exists/Subquery annotations purely to arrive at a page count. Measured at ~80% of the request's DB time on a 4,000-task project (#2807). `?search=` and `?ordering=` still narrow the count the same way as `results` (both run through the same `filter_queryset`), and filters that join a to-many relation (`?labels=`, `?mine=true`) still collapse to one count per task, not one per matching join row.
+A program with agent reads denied (`mcp_enabled=False`) but zero member projects was served in full to an `mcp:read` agent token — present in the program list and readable at its detail endpoint — instead of being withheld. The row-filtering fast path only checked whether any *project* had opted out, which a program with no projects can never trigger. The program's own denial is now enforced independently of whether it has any member projects. No task, sprint, or member data was exposed by this bug, since an empty program has none; only the program's own name, code, and dates leaked.
+- Keyboard focus no longer escapes a dialog that contains a segmented control or a list of
+  selectable rows. The shared focus trap counted every native button, input and select as a
+  tab stop even when it carried `tabindex="-1"`, so in a roving group — where only the
+  selected option is really tabbable — the trap's first and last stops pointed at elements
+  the tab order can never reach and the wrap never fired. Tab walked out of the Command
+  Palette behind the scrim; the same latent hole sat in the dependency picker, Quick Log
+  Time, Promote Milestone, the task detail drawer and the project workflow page.
+- The focus-trap selector now has one home instead of twelve hand-copied ones. Two copies had
+  already drifted in opposite directions: the Monte Carlo detail panel counted *disabled*
+  fields as tab stops, and the schedule export dialog skipped textareas and dropdowns
+  entirely.
+- **The Calendar's date grid is now a grid a keyboard and a screen reader can use**: the month/week day cells were bare `<div>`s with no grid semantics, no accessible name and no key handling at all, so a keyboard user could only Tab through task chips — in the order the API returned them rather than the order they appear on screen — and a screen-reader user hearing "Foundation Pour, due" had no way to learn which day it sat on. The grid now implements the ARIA grid pattern (`grid` / `row` / `gridcell`), every day cell is named with its full date ("Wednesday, March 11, 2026", and "…, today" on today), ← → ↑ ↓ plus Home/End and Ctrl+Home/Ctrl+End move between cells on a single roving tab stop that clamps at the window's edges, chips tab in visual order because they now live in the day cell they start in, and the legend's `aria-label` sits on an element with a role that can carry it.
+Dialogs that disable their own controls while a request is in flight no longer drop keyboard focus out of the modal. 25 focus traps across 24 dialogs — baseline capture and delete, task delete, epic delete, unsaved changes, dead-letter actions, webhooks, sprint close, cross-project dependency review and others — now re-seat focus when the in-flight phase empties the trap, so Tab can no longer walk into the page behind the scrim (WCAG 2.4.3 / 2.1.2). A modal opening on top of an in-flight dialog now keeps focus as well. The rule is enforced by a new `lint:focus-trap-focuskey` gate instead of prose alone.
+- **Dialog focus ring during in-flight confirms**: when a confirm dialog's phase disabled every one of its buttons (a "Switching…" or "Deleting…" state), keyboard focus fell back to the invisible full-viewport scrim instead of the visible dialog panel, leaving keyboard users with no visible indication of where focus was. Fixed across every affected confirm dialog by seating the focus trap on the panel instead of the scrim.
+- **Empty resourcing no longer reads as good news**: the sprint capacity preflight, product backlog capacity footer, project overview team utilization card, and Resources › Heatmap KPI row all painted a zero-assignment ratio ("0 / 0 hours committed · On track", "0% of capacity" in success green) as a healthy state. A zero denominator now renders a shared muted "No assignments yet" reading instead of a fabricated ratio, and a real, computed zero (real capacity, nothing committed against it) no longer wears the on-track success color. The Resources › Team page's Heatmap tab also now derives its headcount and empty state from the same resource list, so the KPI row and the "No team members yet" prompt can no longer disagree, and the rail, breadcrumb, page heading, and document title on every `/resources/*` tab now agree on "Team" (#3478).
+- **Accessibility**: fixed a cluster of WCAG 2.1 AA violations surfaced by the
+  2026-09-06 axe sweep — `aria-label` on non-widget elements (Workspace
+  Settings' bulk-fields matrix, Risk register, My Work critical-path badges),
+  a Risk register row that nested a real button inside a `role="button"`
+  table row, the Grid outline's collapse toggle pointing `aria-controls` at
+  an element that never exists, the Grid treegrid and Risk severity matrix
+  exposing disallowed children to their ARIA roles, a focusable Recharts
+  overlay trapped inside `aria-hidden` burn/flow charts (Overview, Board,
+  Sprints, Reports), several `<dt>`/status-chip/badge color-contrast
+  failures using `text-neutral-text-disabled` or `brand-primary/10` on
+  readable copy, a missing accessible name on the workspace logo file input,
+  and a missing `aria-checked` on a switch whose backing field the test
+  fixture omitted. Widened `e2e/a11y.spec.ts` from 12 to 21 scanned
+  states (Workspace Settings, Sprints, Grid, Risk Register, Resources,
+  Reports, Program Backlog, Program Projects, My Work) to catch regressions
+  in this surface going forward.
+- **What-if Monte Carlo delta on agile tasks**: a what-if on a sprint-delivered
+  task with story points moved the deterministic CPM finish but left the P50/P80/P95
+  bands exactly where they were, so the response reported a schedule slip and a zero
+  risk delta at the same time. The perturbation now goes through a single scheduler
+  entry point that reaches whichever input the simulation actually samples — velocity,
+  the three-point estimate, or the plain duration — so the finish date and the
+  confidence bands always agree that the change happened.
+- **Assign/Change picker trigger has no accessible name**: `EntitySelectCombobox`'s
+  disclosure trigger (used for project/program lead, workspace group members and
+  project access, ownership/sponsorship transfer, and the timesheet task picker)
+  announced only the generic verb "Assign" or "Change" to screen readers, with no
+  programmatic link to the entity it acted on. The trigger's accessible name now
+  composes the verb with what it assigns (e.g. "Assign project lead", "Change
+  program lead", "Add member"), fixing WCAG 1.3.1 and 2.4.6, and resolving the
+  ambiguity where two same-named triggers sat in one dialog (Program Admin +
+  program lead transfer).
+- **Failed page/section loads now show an error with Retry, not a stuck skeleton or a misleading empty state**: the app's own sign-in redirect (`/`), the project-entry redirect, and eight Workspace/Project settings pages (Attachments, Working calendar, Feedback, Groups & teams, Labels, Sharing, Board cadence, and the default-member-role setting) destructured a query's `isLoading` without ever reading `error`/`isError`. On a failed `GET` the loading flag settles to `false` but the guard term it was paired with (`!data`, an empty-array default, or similar) never clears — so the surface either pulsed a loading placeholder forever or rendered "nothing here yet" indistinguishably from a genuine empty state, with no indication anything had gone wrong and no way to retry. All ten sites now surface a retry-capable error card instead. The design-system-v2 gate's `query-error-unhandled` ratchet (check 4e) drops from 54 to 44 — the remaining sites are inline widgets/modals on pages whose siblings still work on a failed fetch, or read their query's data defensively rather than gating a skeleton on it.
+- **Hover-only reveal controls are now keyboard-reachable**: added a repo-wide lint gate (`scripts/check-hover-reveal-focus.sh`, web-rule 417) that fails the build when a control uses `opacity-0` plus a hover-reveal variant (`hover:opacity-100`/`group-hover:opacity-100`) with no `focus:`/`focus-within:`/`focus-visible:`/`group-focus-within:` counterpart — a keyboard user could Tab onto such a control and never see it. A tree-wide sweep found every current instance already correctly paired (the Board view dropdown's saved-view delete button and the card overflow menu trigger, both originally flagged by #3619, already carry `focus:opacity-100`); this closes the gap so the pattern cannot regress a fourth time (previously point-fixed in #1029 and #1802).
+- Fixed the `helm:publish` release job failing to Cosign-sign the published Helm chart (it authenticated Helm's own registry client for the push, but never gave Cosign its own GHCR login, so the sign step 401'd after a successful push). Also made the missing-GHCR-credential error message on `api:publish`/`web:publish`/`helm:publish` name Protected Tags as a likely cause, not just missing CI/CD variables.
+- Fixed the GitLab Release page publishing a stale "changes are still accumulating" placeholder for pre-release tags even when `CHANGELOG.md` already has a real, dated section — `release:create` now always looks for the actual section instead of assuming alpha/beta/rc tags never have one.
+Opening a large project in the Schedule no longer stalls for tens of seconds. PostgreSQL's JIT compiler was compiling every page of the task list: on 0.4.0-beta.1 a 2,000-task project took about 41 seconds to load, while each page query ran in about 50 ms. TruePPM now turns JIT off on every database connection it opens, and the same project loads in about a second. If you run PgBouncer in transaction-pooling mode, also set `jit = off` for the TruePPM database role. The deployment sizing guide was also corrected: its two published measurements came from different machines, and its 2,000-task figure had been taken before PostgreSQL refreshed its planner statistics.
+- **Monte Carlo never-earlier-than-CPM guarantee corrected to its actual scope**: the
+  `monte_carlo()` docstring, the Monte Carlo feature docs, and the known-issues page
+  stated the "no percentile forecasts before the deterministic CPM finish" guarantee
+  unconditionally. It holds only for networks carrying only Finish-to-Start and
+  Start-to-Start dependencies. On a network with a Finish-to-Finish or
+  Start-to-Finish edge, CPM itself is non-monotone in duration, so
+  a percentile can legitimately land before the CPM finish while faithfully
+  reproducing `schedule()`. No scheduling behavior changed — this is a documentation
+  correction (#3836); the underlying semantics question is tracked separately in #3806.
+The "Upgrading to 0.4" section of the [upgrade guide](https://docs.trueppm.com/getting-started/upgrade/) was still a placeholder ("0.4 has not tagged yet") even though 0.4.0-beta.1 shipped on 2026-09-15, and it disclosed only one of the five migrations in 0.4 that drop a column or table outright. It now covers all five: the previously-undisclosed encrypted-webhook-secret migration and its transient-500 rollout window on multi-replica installs, the irreversible drop of Board Workshop Mode's tables (with an explicit warning and a pre-removal ref to check out if you need the data), the `Project.agile_features` column drop and its own rollout window, and the benign unshipped-SSO table cleanup. It also links to the API stability page's record of the breaking `/api/v1/` path removals that shipped alongside these migrations.
+- **Resource overallocation drawer now shows real task names**: the day-cell
+  overallocation drawer on the Allocation tab's utilization grid used to list
+  each contributing task as a raw UUID with "Task names will appear once the
+  tasks API is connected." It now batch-resolves the ids via a new
+  `GET /api/v1/tasks/?id__in=<uuid>[,<uuid>…]` filter (mirroring the existing
+  `?labels=` comma-separated convention) and renders the task's name and
+  status. A task id that fails to resolve (deleted since, or a lookup error)
+  degrades to its raw id with an inline explanation instead of leaving the
+  section blank.
+- **Sprint capacity preflight no longer paints zero committed hours as "on track"**: a rostered sprint with real available hours but nothing committed yet against it showed "0 / N hours committed · On track" in the success-green color, contradicting the panel's own points-chip treatment of the same situation two lines below. The hours label now downgrades to the neutral/secondary treatment whenever committed hours are a real zero against a nonzero available-hours denominator, matching rule 416 and the existing points-chip guard (#3845).
+- **`trueppm-scheduler`'s direct-object API now honors the documented exception contract**: constructing `Project`/`Task`/`Dependency` by hand and passing a wrong-typed value for `Project.calendar`, `.tasks`, `.dependencies`, `.calendars`, `.status_date`, `.velocity_samples`; `Task.optimistic_duration`/`.most_likely_duration`/`.pessimistic_duration`; or `Dependency.predecessor_id`/`.successor_id`/`.dep_type` used to leak a bare `AttributeError`/`TypeError` from deep inside `schedule()`/`monte_carlo()` instead of the documented `InvalidScheduleInput` — the README's "every exception subclasses `ValueError`" claim did not hold for this path. `_validate_project()` now type-guards all twelve fields, reusing the `from_dict` path's existing error wording; a permanent single-field-mutation regression test (`tests/test_exception_contract.py`) pins the fix. Backward compatible: this only widens what `except ValueError` catches, so no existing caller breaks. `Task.id` is excluded and remains tracked separately under #2463.
+- **Renovate vulnerability alerts**: `vulnerabilityAlerts` relied on GitLab's native
+  vulnerability-alert feed, a GitLab Ultimate feature not available on the `trueppm`
+  group's Free plan, so the alert block was a silent no-op. Renovate now sets
+  `osvVulnerabilityAlerts: true` to query OSV.dev directly instead.
+- Fixed the published Helm chart never moving with the release. `scripts/release.sh` bumped every manifest except `packages/helm/Chart.yaml`, so the `0.4.0-beta.1` chart shipped as `0.4.0` with `appVersion: 0.4.0` — its default image tag, `v0.4.0`, was never published, so a stock `helm install` hit ImagePullBackOff on the `migrate` init container, and every beta overwrote the previous chart's OCI tag. `release.sh` now bumps and stages both `version` and `appVersion`, `helm-structure-check.sh` fails any MR where Chart.yaml is out of lockstep with the release version, and `helm:publish` refuses to push a chart whose version does not match its tag.
+Sort the overallocation drawer's task-id cache key with an explicit `localeCompare` comparator instead of the default code-unit sort (SonarCloud S2871).
+
+### Security
+- **MCP agent-token posture is now visible and enforced at boot**: `GET /api/v1/auth/me/`
+  now echoes the caller's own token scopes and whether it counts as an agent
+  credential (`token: {scopes, is_agent} | null`). `trueppm-mcp` reads this at
+  startup and refuses to boot on a `legacy:full` personal access token — a
+  credential the operator's MCP kill switch and a team's agent read opt-out do
+  not govern — instead of running unprotected. Mint an `mcp:read` token for
+  `trueppm-mcp` instead.
+- **Closed three token/session containment gaps flagged by the #2877/#2878 follow-up
+  audit**: a leaked personal access token can no longer rotate a project's
+  git-automation webhook secret or mint a public share link (`IsNotTokenAuthenticated`
+  now covers both), and off-boarding plus the `revoke_api_tokens --all`
+  full-compromise sweep now also revoke a departing member's share links and clear
+  any git-automation secret they configured — the two durable, non-token grants that
+  previously outlived every revocation lever. The mobile sync pull (`GET
+  /api/v1/projects/{id}/sync/`) is now bounded by the default per-account throttle
+  instead of resolving to no throttle at all. `ProgramViewSet`'s catch-all
+  permission fallback is membership-bound rather than any-authenticated-user, so a
+  future unsafe action added without an explicit role gate fails closed instead of
+  silently opening.
+- **`devalue` dependency (docs site)**: bumped the transitive `devalue` dependency pulled in by Astro from 5.8.2 to 5.9.2, fixing a denial-of-service issue where `devalue.parse` failed to reject out-of-bounds indices (GHSA-9rgm-9g3h-6x36).
+- **Closed a missing client-side gate on the Resource Heatmap tab**: `HeatmapPage.tsx`
+  (the "Heatmap" tab on Team, one click from the already-gated "Allocation" tab)
+  rendered for any project member with no role check of its own, in every branch
+  (loading, success, error, schedule-not-run) — unlike `ResourceView.tsx`, which has
+  gated the Allocation tab at Scheduler+ since ADR-0042. `GET
+  /projects/{id}/resources/heatmap/` and `GET /projects/{id}/resources/summary/` were
+  already server-side gated at `IsProjectScheduler` (ADR-0042 §1, unchanged here), so a
+  Viewer could not actually fetch the underlying named per-person utilization data —
+  but the page itself had drifted from ADR-0042 §4's stated design ("the view itself
+  shows `<PermissionDeniedNotice/>`"). `HeatmapPage.tsx` now checks the caller's role
+  before firing either query and renders `PermissionDeniedNotice`/`RoleReadFailedNotice`
+  the same way `ResourceView.tsx` does. Related: #2854 (a distinct per-sprint hours
+  exposure, not addressed by this change).
+- **Perf diagnostic scripts**: the `diag.py` and `diag_scale.py` capacity-testing
+  scripts under `packages/api/perf/capacity/` now validate their harness-directory
+  argument before using it to build `docker`/`psql` subprocess command lines,
+  closing a command-argument-injection finding (SonarCloud `pythonsecurity:S8705`).
+  These are developer-run-only tooling scripts, not reachable from the API.
+- **devalue DoS (GHSA-9rgm-9g3h-6x36)**: bumped the `devalue` transitive dependency
+  (via `astro`) in `packages/website` from 5.8.2 to 5.9.2, fixing a quadratic-time
+  parsing flaw in `devalue.parse` that let a crafted payload trigger computational
+  exhaustion.
+Bump `anyio` to 4.14.2 in the API and MCP lockfiles, fixing GHSA-82r6-8w77-94w6 (TLS certificate spoofing via IDNA 2003 host name encoding), GHSA-3w57-8xmc-8v26 (`extra_groups` ignored by `run_process`), and GHSA-5p39-cfhj-2xmp (process-pool worker stderr hang).
+- **SonarCloud command-argument-injection findings on perf diagnostic scripts**: the
+  `pythonsecurity:S8705` findings on `diag.py`/`diag_scale.py` under
+  `packages/api/perf/capacity/results/` stayed open after #3872's code-level fix
+  because `sonar-project.properties`'s existing suppression for this class of
+  developer-run-only tooling script only matched a top-level `scripts/**`, not the
+  nested per-run `packages/api/perf/capacity/results/<run>/scripts/**`. Widened the
+  glob so it covers every dated perf run directory.
+
 ## [0.4.0-beta.1] — 2026-09-15
 
 TruePPM 0.4.0-beta.1 — the self-hosting PM's beta, and TruePPM's first beta release.

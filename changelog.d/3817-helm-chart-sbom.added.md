@@ -1,1 +1,0 @@
-- The published Helm chart now ships a CycloneDX SBOM of its Helm-level dependency graph (the bundled postgresql/valkey subcharts and their versions), Cosign-attested on the same digest as the chart signature — matching the SBOM/attestation pattern already in place for the `api`/`web` images.

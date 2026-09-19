@@ -17,7 +17,7 @@ from trueppm_mcp.client import (
 from trueppm_mcp.config import ConfigError, Settings
 from trueppm_mcp.server import build_server
 
-__version__ = "0.4.0b1"
+__version__ = "0.4.0b2"
 
 __all__ = [
     "ApiError",

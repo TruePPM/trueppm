@@ -1,1 +1,0 @@
-- Fixed the GitLab Release page publishing a stale "changes are still accumulating" placeholder for pre-release tags even when `CHANGELOG.md` already has a real, dated section — `release:create` now always looks for the actual section instead of assuming alpha/beta/rc tags never have one.

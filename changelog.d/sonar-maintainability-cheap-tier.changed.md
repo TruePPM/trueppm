@@ -1,1 +1,0 @@
-Cleared SonarCloud maintainability findings (duplicated string literals and over-complex functions) with behavior-preserving extractions; no user-visible change. The recorded capacity-benchmark output under `packages/api/perf/capacity/results/` is now excluded from Sonar analysis.
