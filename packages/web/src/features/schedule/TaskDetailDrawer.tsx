@@ -1024,6 +1024,38 @@ interface DrawerContentProps {
 }
 
 /**
+ * Names the bar's scope for AT: which staged fields changed. The three estimate
+ * fields collapse to one "Estimates" token (the per-field • carries the precise
+ * locality, #1985).
+ */
+function unsavedChangesStatusText(
+  changedName: boolean,
+  changedNotes: boolean,
+  changedEstimates: boolean,
+): string {
+  const changedLabels = [
+    changedName ? 'Name' : null,
+    changedNotes ? 'Description' : null,
+    changedEstimates ? 'Estimates' : null,
+  ].filter(Boolean) as string[];
+  return changedLabels.length ? `Unsaved changes: ${changedLabels.join(', ')}` : 'Unsaved changes';
+}
+
+/** Tooltip and accessible name for the "View only" chip; RBAC wins over Read mode. */
+function viewOnlyLabels(canEdit: boolean): { title: string; ariaLabel: string } {
+  if (!canEdit) {
+    return {
+      title: 'Viewer access — ask an admin for edit access',
+      ariaLabel: 'View only — Viewer access, ask an admin for edit access',
+    };
+  }
+  return {
+    title: `Read mode — press ${formatChord('alt+a')} to switch to Author mode`,
+    ariaLabel: `View only — Read mode, press ${formatChord('alt+a')} to switch to Author mode`,
+  };
+}
+
+/**
  * Header + tab strip + active-tab body + save bar, rendered inside both the
  * desktop slide-in and the mobile bottom-sheet shells.
  */
@@ -1076,14 +1108,7 @@ function DrawerContent({
   // per-field • markers) and for AT (the sr-only live region below). The three
   // estimate fields collapse to one "Estimates" token (the per-field • carries
   // the precise locality, #1985).
-  const changedLabels = [
-    changedName ? 'Name' : null,
-    changedNotes ? 'Description' : null,
-    changedEstimates ? 'Estimates' : null,
-  ].filter(Boolean) as string[];
-  const statusText = changedLabels.length
-    ? `Unsaved changes: ${changedLabels.join(', ')}`
-    : 'Unsaved changes';
+  const statusText = unsavedChangesStatusText(changedName, changedNotes, changedEstimates);
   // WAI-ARIA tab pattern (#1022): ArrowLeft/Right move selection+focus across
   // the tablist so a keyboard user reaches a sibling tab without Tab-cycling
   // through the active panel's content. Focus follows selection (automatic
@@ -1154,16 +1179,8 @@ function DrawerContent({
           {(!canEdit || readOnly) && (
             <span
               className="inline-flex items-center gap-1 text-xs font-medium text-neutral-text-secondary bg-neutral-surface-sunken px-1.5 py-0.5 rounded-chip"
-              title={
-                !canEdit
-                  ? 'Viewer access — ask an admin for edit access'
-                  : `Read mode — press ${formatChord('alt+a')} to switch to Author mode`
-              }
-              aria-label={
-                !canEdit
-                  ? 'View only — Viewer access, ask an admin for edit access'
-                  : `View only — Read mode, press ${formatChord('alt+a')} to switch to Author mode`
-              }
+              title={viewOnlyLabels(canEdit).title}
+              aria-label={viewOnlyLabels(canEdit).ariaLabel}
             >
               <svg
                 width="11"
@@ -1257,10 +1274,7 @@ function DrawerContent({
               aria-hidden dot, and the meaning it would add is already spoken
               by that status region. */}
           {changedName && (
-            <span
-              aria-hidden="true"
-              className="shrink-0 text-lg leading-none text-brand-primary"
-            >
+            <span aria-hidden="true" className="shrink-0 text-lg leading-none text-brand-primary">
               •
             </span>
           )}

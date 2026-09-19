@@ -431,6 +431,10 @@ function classifySubmitError(
   return { message: err instanceof Error ? err.message : `Couldn’t save the task. Try again.` };
 }
 
+function floorToWorkingDay(duration: number): number {
+  return Number.isFinite(duration) && duration >= 1 ? duration : 1;
+}
+
 /**
  * Unified task create/edit modal (issue #305, ADR-0052).
  *
@@ -874,8 +878,7 @@ export function TaskFormModal({
     // the field still holds a transient sub-1/empty entry that never blurred, so
     // floor it here too — the committed value must always be a valid working-day
     // count (#1974). Milestones are always zero-duration.
-    const committedDuration =
-      Number.isFinite(form.duration) && form.duration >= 1 ? form.duration : 1;
+    const committedDuration = floorToWorkingDay(form.duration);
     const ctx = {
       committedDuration,
       agileFeatures: Boolean(projectDetail?.agile_features),

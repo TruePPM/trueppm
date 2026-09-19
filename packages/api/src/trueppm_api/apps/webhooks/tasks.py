@@ -242,6 +242,56 @@ def _fail_delivery(
     )
 
 
+def _resolve_signing_secret(webhook: Webhook) -> tuple[str, str, str]:
+    """Return ``(secret, viewer_error, operator_error)``; a non-empty error is terminal.
+
+    ``viewer_error`` is curated for ``Webhook.last_failure_reason`` (Viewer-readable);
+    ``operator_error`` carries the deployment-level detail for the dead-letter record.
+    """
+    try:
+        secret = webhook.secret
+    except CredentialEncryptionError:
+        logger.exception("deliver_webhook: webhook %s signing secret is undecryptable", webhook.pk)
+        secret = ""
+        # Curated, deliberately vague. `last_failure_reason` is readable at Viewer
+        # level, and "your INTEGRATION_ENCRYPTION_KEY changed" is a deployment-level
+        # diagnostic — the same reasoning that put the delivery log behind Admin
+        # (#903). The operator detail is in the logger.exception above and in the
+        # dead-letter record; the Viewer-visible field says only that it is broken.
+        secret_error = "Signing secret is unusable — contact an administrator"
+        secret_operator_error = (
+            "Signing secret could not be decrypted — INTEGRATION_ENCRYPTION_KEY has "
+            "changed since this webhook was registered"
+        )
+    else:
+        secret_error = "" if secret else "No signing secret is stored for this webhook"
+        secret_operator_error = ""
+    return secret, secret_error, secret_operator_error
+
+
+def _retry_or_dead_letter(
+    task: object,
+    delivery: WebhookDelivery,
+    webhook: Webhook,
+    *,
+    reason: str,
+    fields: tuple[str, ...],
+) -> None:
+    """Dead-letter the delivery when attempts are exhausted, else save it and retry.
+
+    ``fields`` is both the ``update_fields`` for the pre-retry save and the
+    ``extra_fields`` for the terminal failure write. Raises ``Retry`` (via
+    ``task.retry``) when attempts remain; returns only after the terminal failure.
+    """
+    if delivery.attempt_count >= _MAX_RETRIES:
+        _fail_delivery(task, delivery, webhook, reason=reason, extra_fields=fields)
+        return
+    delivery.save(update_fields=list(fields))
+    raise task.retry(  # type: ignore[attr-defined]
+        countdown=_BACKOFF_BASE * (2 ** (delivery.attempt_count - 1)),
+    ) from None
+
+
 @shared_task(  # type: ignore[untyped-decorator]
     bind=True,
     max_retries=_MAX_RETRIES,
@@ -299,24 +349,7 @@ def deliver_webhook(self: object, delivery_id: str) -> None:
     # reclaims terminal rows, the failure guard never counts it, and the API keeps
     # reporting the subscription healthy. Signing with an empty key is no better: a
     # receiver would either skip verification or trust ``b""``.
-    try:
-        secret = webhook.secret
-    except CredentialEncryptionError:
-        logger.exception("deliver_webhook: webhook %s signing secret is undecryptable", webhook.pk)
-        secret = ""
-        # Curated, deliberately vague. `last_failure_reason` is readable at Viewer
-        # level, and "your INTEGRATION_ENCRYPTION_KEY changed" is a deployment-level
-        # diagnostic — the same reasoning that put the delivery log behind Admin
-        # (#903). The operator detail is in the logger.exception above and in the
-        # dead-letter record; the Viewer-visible field says only that it is broken.
-        secret_error = "Signing secret is unusable — contact an administrator"
-        secret_operator_error = (
-            "Signing secret could not be decrypted — INTEGRATION_ENCRYPTION_KEY has "
-            "changed since this webhook was registered"
-        )
-    else:
-        secret_error = "" if secret else "No signing secret is stored for this webhook"
-        secret_operator_error = ""
+    secret, secret_error, secret_operator_error = _resolve_signing_secret(webhook)
 
     if secret_error:
         delivery.attempt_count += 1
@@ -382,19 +415,14 @@ def deliver_webhook(self: object, delivery_id: str) -> None:
             delivery.attempt_count,
             _MAX_RETRIES,
         )
-        if delivery.attempt_count >= _MAX_RETRIES:
-            _fail_delivery(
-                self,
-                delivery,
-                webhook,
-                reason=f"Host did not resolve after {_MAX_RETRIES} attempts",
-                extra_fields=("attempt_count",),
-            )
-            return
-        delivery.save(update_fields=["attempt_count"])
-        raise self.retry(  # type: ignore[attr-defined]
-            countdown=_BACKOFF_BASE * (2 ** (delivery.attempt_count - 1)),
-        ) from None
+        _retry_or_dead_letter(
+            self,
+            delivery,
+            webhook,
+            reason=f"Host did not resolve after {_MAX_RETRIES} attempts",
+            fields=("attempt_count",),
+        )
+        return
 
     req = urllib.request.Request(
         webhook.url,
@@ -448,19 +476,14 @@ def deliver_webhook(self: object, delivery_id: str) -> None:
             delivery.attempt_count,
             _MAX_RETRIES,
         )
-        if delivery.attempt_count >= _MAX_RETRIES:
-            _fail_delivery(
-                self,
-                delivery,
-                webhook,
-                reason=f"Network error after {_MAX_RETRIES} attempts: {type(exc).__name__}",
-                extra_fields=("attempt_count",),
-            )
-            return
-        delivery.save(update_fields=["attempt_count"])
-        raise self.retry(  # type: ignore[attr-defined]
-            countdown=_BACKOFF_BASE * (2 ** (delivery.attempt_count - 1)),
-        ) from None
+        _retry_or_dead_letter(
+            self,
+            delivery,
+            webhook,
+            reason=f"Network error after {_MAX_RETRIES} attempts: {type(exc).__name__}",
+            fields=("attempt_count",),
+        )
+        return
 
     delivery.response_status = status_code
 
@@ -504,19 +527,12 @@ def deliver_webhook(self: object, delivery_id: str) -> None:
         _MAX_RETRIES,
     )
 
-    if delivery.attempt_count >= _MAX_RETRIES:
-        _fail_delivery(
-            self,
-            delivery,
-            webhook,
-            reason=f"HTTP {status_code} after {_MAX_RETRIES} attempts",
-            extra_fields=("response_status", "attempt_count"),
-        )
-        return
-
-    delivery.save(update_fields=["response_status", "attempt_count"])
-    raise self.retry(  # type: ignore[attr-defined]
-        countdown=_BACKOFF_BASE * (2 ** (delivery.attempt_count - 1)),
+    _retry_or_dead_letter(
+        self,
+        delivery,
+        webhook,
+        reason=f"HTTP {status_code} after {_MAX_RETRIES} attempts",
+        fields=("response_status", "attempt_count"),
     )
 
 

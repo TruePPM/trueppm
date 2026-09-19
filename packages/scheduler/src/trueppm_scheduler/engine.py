@@ -886,30 +886,7 @@ def _forward_pass(
             task.scheduled_start = _compute_scheduled_start(task, cal)
             continue
 
-        if _is_complete(task):
-            # Complete but with no actuals recorded: a full-duration CPM planning
-            # position, anchored at the un-floored project start rather than the
-            # data date (completed work is historical and is never floored at it).
-            duration_days = task.duration.days
-            es_constraints: list[date] = [start_base]
-        else:
-            # In-progress work contributes only what is left, laid forward from the
-            # data date; not-started work uses its full estimate.
-            duration_days = _effective_duration_days(task)
-            es_constraints = [start]
-            if task.actual_start is not None:
-                # ADR-0132 §2 / #2621: work already underway is floored at where
-                # it actually started, not just at the data date or predecessor
-                # constraints — actuals are truth and are never smoothed back
-                # to an earlier network slot. Unsnapped, unlike planned_start:
-                # a recorded actual can legitimately land on a non-working day
-                # (e.g. logged over a weekend) and is not renegotiated.
-                es_constraints.append(task.actual_start)
-
-        # planned_start (SNET) is an additional ES lower-bound: the task may
-        # not start before this date regardless of network logic.
-        if task.planned_start is not None:
-            es_constraints.append(_next_working_day(task.planned_start, cal))
+        duration_days, es_constraints = _early_start_floors(task, cal, start_base, start)
 
         pred_es, ef_constraints = _forward_edge_constraints(node_id, task_map, g, cal)
         es_constraints.extend(pred_es)
@@ -934,6 +911,42 @@ def _forward_pass(
                 )
 
         task.scheduled_start = _compute_scheduled_start(task, cal)
+
+
+def _early_start_floors(
+    task: Task, cal: Calendar, start_base: date, start: date
+) -> tuple[int, list[date]]:
+    """Return ``(duration_days, es_constraints)``: the duration to schedule and the ES lower bounds.
+
+    The bounds cover the project-start / data-date floor, an in-progress task's
+    ``actual_start``, and ``planned_start`` (SNET). Predecessor-driven bounds are
+    added by the caller.
+    """
+    if _is_complete(task):
+        # Complete but with no actuals recorded: a full-duration CPM planning
+        # position, anchored at the un-floored project start rather than the
+        # data date (completed work is historical and is never floored at it).
+        duration_days = task.duration.days
+        es_constraints: list[date] = [start_base]
+    else:
+        # In-progress work contributes only what is left, laid forward from the
+        # data date; not-started work uses its full estimate.
+        duration_days = _effective_duration_days(task)
+        es_constraints = [start]
+        if task.actual_start is not None:
+            # ADR-0132 §2 / #2621: work already underway is floored at where
+            # it actually started, not just at the data date or predecessor
+            # constraints — actuals are truth and are never smoothed back
+            # to an earlier network slot. Unsnapped, unlike planned_start:
+            # a recorded actual can legitimately land on a non-working day
+            # (e.g. logged over a weekend) and is not renegotiated.
+            es_constraints.append(task.actual_start)
+
+    # planned_start (SNET) is an additional ES lower-bound: the task may
+    # not start before this date regardless of network logic.
+    if task.planned_start is not None:
+        es_constraints.append(_next_working_day(task.planned_start, cal))
+    return duration_days, es_constraints
 
 
 def _calendar_floors(

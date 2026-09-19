@@ -1557,6 +1557,19 @@ function drawLinkStatusDot(
   ctx.restore();
 }
 
+function shouldDrawTaskBarChip(task: Task, barWidth: number): boolean {
+  // % chip inside bar — omit when the Chart menu hides progress pills (#2097),
+  // for very narrow bars, and for 0% NOT_STARTED tasks (no useful signal) —
+  // unless a non-waterfall delivery mode (#2727 pt.7) still has a letter to
+  // show, since gutter/texture degrade below 32px but the chip doesn't exist
+  // at all below it, so a not-yet-started sprint/kanban task would otherwise
+  // lose every wide-bar signal at once.
+  if (!_chartOptions.showProgressPills || barWidth < 32) return false;
+  const hasChipModeLetter = deliveryModeChipLetter(task.deliveryMode) !== '';
+  const isUnstartedZero = task.progress === 0 && task.status === 'NOT_STARTED';
+  return !isUnstartedZero || hasChipModeLetter;
+}
+
 export function drawTaskBar(
   ctx: CanvasRenderingContext2D,
   task: Task,
@@ -1635,18 +1648,7 @@ export function drawTaskBar(
     ctx.stroke();
   }
 
-  // % chip inside bar — omit when the Chart menu hides progress pills (#2097),
-  // for very narrow bars, and for 0% NOT_STARTED tasks (no useful signal) —
-  // unless a non-waterfall delivery mode (#2727 pt.7) still has a letter to
-  // show, since gutter/texture degrade below 32px but the chip doesn't exist
-  // at all below it, so a not-yet-started sprint/kanban task would otherwise
-  // lose every wide-bar signal at once.
-  const hasChipModeLetter = deliveryModeChipLetter(task.deliveryMode) !== '';
-  if (
-    _chartOptions.showProgressPills &&
-    barWidth >= 32 &&
-    (!(task.progress === 0 && task.status === 'NOT_STARTED') || hasChipModeLetter)
-  ) {
+  if (shouldDrawTaskBarChip(task, barWidth)) {
     drawTaskBarChip(ctx, task, barLeft, barTop, barWidth);
   }
 

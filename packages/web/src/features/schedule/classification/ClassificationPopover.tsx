@@ -89,6 +89,37 @@ export interface ClassificationPopoverProps {
   onClose: () => void;
 }
 
+function pluralSuffix(count: number): string {
+  return count === 1 ? '' : 's';
+}
+
+function scopeSuffix(cascade: boolean, descendantCount: number): string {
+  if (!cascade || descendantCount <= 0) return ' only.';
+  return ` and its ${descendantCount} descendant${pluralSuffix(descendantCount)}.`;
+}
+
+function applyLabel(retryable: boolean | undefined, cascade: boolean): string {
+  if (retryable) return 'Retry';
+  return cascade ? 'Apply to subtree' : 'Apply to task';
+}
+
+function clampToViewport(
+  anchorX: number,
+  anchorY: number,
+  rect: { width: number; height: number },
+  vw: number,
+  vh: number,
+): { top: number; left: number } {
+  let left = anchorX;
+  let top = anchorY;
+  if (left + rect.width > vw - VIEWPORT_PAD) left = vw - VIEWPORT_PAD - rect.width;
+  if (left < VIEWPORT_PAD) left = VIEWPORT_PAD;
+  if (top + rect.height > vh - VIEWPORT_PAD)
+    top = Math.max(VIEWPORT_PAD, vh - VIEWPORT_PAD - rect.height);
+  if (top < VIEWPORT_PAD) top = VIEWPORT_PAD;
+  return { top, left };
+}
+
 export function ClassificationPopover({
   anchor,
   target,
@@ -182,13 +213,7 @@ export function ClassificationPopover({
     const rect = el.getBoundingClientRect();
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    let left = anchor.x;
-    let top = anchor.y;
-    if (left + rect.width > vw - VIEWPORT_PAD) left = vw - VIEWPORT_PAD - rect.width;
-    if (left < VIEWPORT_PAD) left = VIEWPORT_PAD;
-    if (top + rect.height > vh - VIEWPORT_PAD) top = Math.max(VIEWPORT_PAD, vh - VIEWPORT_PAD - rect.height);
-    if (top < VIEWPORT_PAD) top = VIEWPORT_PAD;
-    setPosition({ top, left });
+    setPosition(clampToViewport(anchor.x, anchor.y, rect, vw, vh));
     // `discloseUndoFloor` and `visibleError` are dependencies because the clamp pins
     // `top` to `vh - pad - height` from ONE measurement, and this is `position: fixed`
     // — there is no page scroll to recover content pushed below the viewport floor.
@@ -272,10 +297,8 @@ export function ClassificationPopover({
         <h2 className="text-sm font-semibold">Classification</h2>
         <p className="mt-1 text-neutral-text-secondary leading-snug">
           Applies to <span className="font-medium text-neutral-text-primary">{target.name}</span>
-          {cascade && descendantCount > 0
-            ? ` and its ${descendantCount} descendant${descendantCount === 1 ? '' : 's'}.`
-            : ' only.'}{' '}
-          Two fields, because the model has two — collapsing them mis-tags every Kanban team.
+          {scopeSuffix(cascade, descendantCount)} Two fields, because the model has two — collapsing
+          them mis-tags every Kanban team.
         </p>
       </div>
 
@@ -421,13 +444,13 @@ export function ClassificationPopover({
             {canApply ? (
               <>
                 <div className="text-neutral-text-primary font-medium">
-                  {preview.tasksChanged} task{preview.tasksChanged === 1 ? '' : 's'} change
+                  {preview.tasksChanged} task{pluralSuffix(preview.tasksChanged)} change
                 </div>
                 {preview.milestonesSkipped > 0 && (
                   <div>
                     <span className="text-neutral-text-primary font-medium">
                       {preview.milestonesSkipped} milestone
-                      {preview.milestonesSkipped === 1 ? '' : 's'} unchanged
+                      {pluralSuffix(preview.milestonesSkipped)} unchanged
                     </span>{' '}
                     — a gate is not a delivery mode
                   </div>
@@ -460,7 +483,7 @@ export function ClassificationPopover({
               {/* A refused 4xx keeps the Apply label: the way forward is to change
                   the scope or the axis and submit again, not to resend a request
                   the server has already decided on (#3302). */}
-              {visibleError?.retryable ? 'Retry' : cascade ? 'Apply to subtree' : 'Apply to task'}
+              {applyLabel(visibleError?.retryable, cascade)}
             </Button>
           </div>
         </div>

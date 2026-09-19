@@ -57,6 +57,34 @@ export interface WebhookEditorModalProps {
   onSaved: () => void;
 }
 
+function validateWebhookForm({
+  url,
+  eventCount,
+  secret,
+  isEdit,
+  generateSecret,
+}: {
+  url: string;
+  eventCount: number;
+  secret: string;
+  isEdit: boolean;
+  generateSecret: boolean;
+}): string | null {
+  if (!/^https:\/\//i.test(url.trim())) return 'Endpoint URL must start with https://';
+  if (eventCount === 0) return 'Select at least one event to subscribe to.';
+  const typed = secret.trim();
+  if (!isEdit && !generateSecret && typed.length === 0) return 'A signing secret is required.';
+  if (typed.length > 0 && typed.length < MIN_SECRET_LENGTH) {
+    return `A signing secret must be at least ${MIN_SECRET_LENGTH} characters. Leave it blank and use "Generate a secret for me" to get a strong one.`;
+  }
+  return null;
+}
+
+function modalTitle(created: boolean, isEdit: boolean): string {
+  if (created) return 'Webhook created';
+  return isEdit ? 'Edit webhook' : 'New webhook';
+}
+
 export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: WebhookEditorModalProps) {
   const isEdit = !!webhook;
   const [url, setUrl] = useState(webhook?.url ?? '');
@@ -111,19 +139,14 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
     });
   }
 
-  function validate(): string | null {
-    if (!/^https:\/\//i.test(url.trim())) return 'Endpoint URL must start with https://';
-    if (events.size === 0) return 'Select at least one event to subscribe to.';
-    const typed = secret.trim();
-    if (!isEdit && !generateSecret && typed.length === 0) return 'A signing secret is required.';
-    if (typed.length > 0 && typed.length < MIN_SECRET_LENGTH) {
-      return `A signing secret must be at least ${MIN_SECRET_LENGTH} characters. Leave it blank and use "Generate a secret for me" to get a strong one.`;
-    }
-    return null;
-  }
-
   function handleSubmit() {
-    const err = validate();
+    const err = validateWebhookForm({
+      eventCount: events.size,
+      generateSecret,
+      isEdit,
+      secret,
+      url,
+    });
     if (err) {
       setFormError(err);
       return;
@@ -180,7 +203,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
               id="webhook-editor-title"
               className="text-[15px] font-semibold text-neutral-text-primary outline-none"
             >
-              {createdSecret !== null ? 'Webhook created' : isEdit ? 'Edit webhook' : 'New webhook'}
+              {modalTitle(createdSecret !== null, isEdit)}
             </h2>
             <p className="text-[12px] text-neutral-text-secondary mt-0.5">
               {createdSecret !== null

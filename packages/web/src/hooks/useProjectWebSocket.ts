@@ -401,6 +401,28 @@ function registerPresenceAndCpmHandlers(on: OnFn, deps: WsHandlerDeps): void {
   });
 }
 
+/**
+ * Record the newest version observed for a task and report whether this event
+ * is a duplicate/replay (a version at or below one already seen). Only a
+ * fresh version advances the seen map.
+ */
+function recordTaskVersion(
+  seen: Map<string, number>,
+  taskId: string | null,
+  version: number | null,
+): boolean {
+  if (taskId === null || version === null) return false;
+  const last = seen.get(taskId);
+  if (last !== undefined && version <= last) return true;
+  seen.set(taskId, version);
+  return false;
+}
+
+/** Task-history cache key: scoped to one task when the event names it, else the whole project. */
+function taskHistoryKey(projectId: string | null | undefined, taskId: string | null) {
+  return taskId !== null ? ['task-history', projectId, taskId] : ['task-history', projectId];
+}
+
 // --- Task mutation + dependency + baseline events ---
 function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
   const { queryClient, projectIdRef, seenTaskVersionsRef, scheduleInvalidate } = deps;
@@ -421,15 +443,7 @@ function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
     const currentUserId = queryClient.getQueryData<{ id: string }>(['current-user'])?.id ?? null;
 
     const isSelfEcho = actorId !== null && actorId === currentUserId;
-    let isDuplicate = false;
-    if (taskId !== null && version !== null) {
-      const seen = seenTaskVersionsRef.current.get(taskId);
-      if (seen !== undefined && version <= seen) {
-        isDuplicate = true;
-      } else {
-        seenTaskVersionsRef.current.set(taskId, version);
-      }
-    }
+    const isDuplicate = recordTaskVersion(seenTaskVersionsRef.current, taskId, version);
 
     if (!isSelfEcho && !isDuplicate) {
       scheduleInvalidate('tasks');
@@ -456,10 +470,7 @@ function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
       // The task drawer's Activity tab merges the per-task history feed
       // (useTaskHistory), so a remote edit must refresh it too (#1867).
       void queryClient.invalidateQueries({
-        queryKey:
-          taskId !== null
-            ? ['task-history', projectIdRef.current, taskId]
-            : ['task-history', projectIdRef.current],
+        queryKey: taskHistoryKey(projectIdRef.current, taskId),
       });
     }
   });
@@ -469,10 +480,7 @@ function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
     // create/delete/restore all append a history record for the affected task.
     const historyTaskId = typeof payload.id === 'string' ? payload.id : null;
     void queryClient.invalidateQueries({
-      queryKey:
-        historyTaskId !== null
-          ? ['task-history', projectIdRef.current, historyTaskId]
-          : ['task-history', projectIdRef.current],
+      queryKey: taskHistoryKey(projectIdRef.current, historyTaskId),
     });
   });
   on(

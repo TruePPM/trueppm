@@ -189,6 +189,51 @@ type Staged = BulkFieldValue | typeof UNSET;
  */
 export const BULK_FIELDS_MAX_ROWS = 200;
 
+/**
+ * Per-column deviation tally. `null` means "no row in this column could be
+ * compared" — the column then says nothing at all, which is a different state
+ * from "checked, and none differ" and must not collapse into it.
+ */
+function tallyDeviations<Row>(
+  fields: readonly FieldDescriptor<Row>[],
+  counted: readonly Row[],
+): Map<string, number | null> {
+  const out = new Map<string, number | null>();
+  for (const f of fields) {
+    let comparable = 0;
+    let differing = 0;
+    for (const row of counted) {
+      const d = f.read(row).deviation;
+      if (!d) continue;
+      comparable += 1;
+      if (d.differs) differing += 1;
+    }
+    out.set(f.key, comparable === 0 ? null : differing);
+  }
+  return out;
+}
+
+function buildGridTemplate<Row>(
+  fields: readonly FieldDescriptor<Row>[],
+  showCheckbox: boolean,
+): string {
+  return [
+    showCheckbox ? GRID_CHECKBOX : null,
+    GRID_NAME,
+    ...fields.map((f) => `minmax(${f.minWidth ?? DEFAULT_VALUE_MIN}, 1fr)`),
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function hasStagedSelection(selectedCount: number, staged: Staged): boolean {
+  return selectedCount > 0 && staged !== UNSET;
+}
+
+function selectionsDiffer(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  return a.size !== b.size || [...a].some((id) => !b.has(id));
+}
+
 const GRID_CHECKBOX = '36px';
 const GRID_NAME = 'minmax(180px, 1fr)';
 const DEFAULT_VALUE_MIN = '140px';
@@ -256,10 +301,11 @@ export function BulkFieldsMatrix<Row>({
   useEffect(() => {
     if (!previewing || !previewSnapshot.current) return;
     const snap = previewSnapshot.current;
-    const selectionChanged =
-      selected.size !== snap.selection.size ||
-      [...selected].some((id) => !snap.selection.has(id));
-    if (fieldKey !== snap.fieldKey || staged !== snap.staged || selectionChanged) {
+    if (
+      fieldKey !== snap.fieldKey ||
+      staged !== snap.staged ||
+      selectionsDiffer(selected, snap.selection)
+    ) {
       setPreviewing(false);
       previewSnapshot.current = null;
     }
@@ -306,27 +352,10 @@ export function BulkFieldsMatrix<Row>({
     announce(arrivalNote);
   }, [arrivalNote, announce]);
 
-  /**
-   * Per-column deviation tally. `null` means "no row in this column could be
-   * compared" — the column then says nothing at all, which is a different state
-   * from "checked, and none differ" and must not collapse into it.
-   */
-  const deviationCounts = useMemo(() => {
-    const out = new Map<string, number | null>();
-    const counted = tallyRows ?? rows;
-    for (const f of fields) {
-      let comparable = 0;
-      let differing = 0;
-      for (const row of counted) {
-        const d = f.read(row).deviation;
-        if (!d) continue;
-        comparable += 1;
-        if (d.differs) differing += 1;
-      }
-      out.set(f.key, comparable === 0 ? null : differing);
-    }
-    return out;
-  }, [fields, rows, tallyRows]);
+  const deviationCounts = useMemo(
+    () => tallyDeviations(fields, tallyRows ?? rows),
+    [fields, rows, tallyRows],
+  );
 
   // A cohort change invalidates the selection: the rows the user checked are no
   // longer the rows under the checkboxes. Clearing silently would let an Apply
@@ -381,19 +410,13 @@ export function BulkFieldsMatrix<Row>({
     [field, selected, selectedCount, isApplying, apply, entityNoun, announce],
   );
 
-  const canApply = canEdit && selectedCount > 0 && staged !== UNSET && !isApplying;
+  const canApply = canEdit && hasStagedSelection(selectedCount, staged) && !isApplying;
 
   if (rows.length === 0) return null; // page owns the empty/loading/error states
 
   const showWriteAffordances = canEdit && !isNarrow;
   const showActionBar = showWriteAffordances && editableFields.length > 0;
-  const gridTemplate = [
-    showWriteAffordances ? GRID_CHECKBOX : null,
-    GRID_NAME,
-    ...fields.map((f) => `minmax(${f.minWidth ?? DEFAULT_VALUE_MIN}, 1fr)`),
-  ]
-    .filter(Boolean)
-    .join(' ');
+  const gridTemplate = buildGridTemplate(fields, showWriteAffordances);
 
   return (
     <div>

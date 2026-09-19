@@ -1034,6 +1034,44 @@ def _apply_driving_flags(deps: list[Any], driving_edges: Iterable[Any]) -> None:
         ) in driving_edge_keys
 
 
+def _clear_output_of_fully_groomed_project(project_id: str) -> None:
+    """Clear stale CPM output for a project whose committed set is empty.
+
+    Deliberately separate from the run's ``_settle_empty()``: its other callers are
+    the project-not-found path (nothing to clear) and the two escalate-to-program
+    paths, where the program run is the sole writer and clears the whole program's
+    project set itself.
+    """
+    from trueppm_api.apps.projects.models import Task
+
+    cleared = clear_uncommitted_cpm_output(Task, project_ids=[project_id])
+    if cleared:
+        logger.info(
+            "recalculate_schedule: project %s cleared CPM output on %d unscheduled row(s)",
+            project_id,
+            cleared,
+        )
+
+
+def _persist_driving_flags_and_shift_events(
+    db_deps: list[Any], schedule_shift_events: list[Any]
+) -> None:
+    """Persist driving-link flags and schedule-shift events inside the caller's atomic block.
+
+    bulk_update bypasses VersionedModel.save so it never bumps server_version —
+    is_driving is a derived CPM output, not a user edit, and must not trigger a
+    mobile-sync pull (same rationale as Task).
+    """
+    from trueppm_api.apps.projects.models import Dependency, TaskActivityEvent
+
+    if db_deps:
+        Dependency.objects.bulk_update(db_deps, ["is_driving"], batch_size=_WRITEBACK_BATCH_SIZE)
+    if schedule_shift_events:
+        TaskActivityEvent.objects.bulk_create(
+            schedule_shift_events, batch_size=_WRITEBACK_BATCH_SIZE
+        )
+
+
 def _run_schedule(
     project_id: str,
     tracker: object = None,
@@ -1059,7 +1097,6 @@ def _run_schedule(
         EstimationMode,
         Project,
         Task,
-        TaskActivityEvent,
         TaskStatus,
         TaskType,
     )
@@ -1168,13 +1205,7 @@ def _run_schedule(
         # project-not-found path (nothing to clear) and the two escalate-to-program
         # paths, where the program run is the sole writer and clears the whole
         # program's project set itself.
-        cleared = clear_uncommitted_cpm_output(Task, project_ids=[project_id])
-        if cleared:
-            logger.info(
-                "recalculate_schedule: project %s cleared CPM output on %d unscheduled row(s)",
-                project_id,
-                cleared,
-            )
+        _clear_output_of_fully_groomed_project(project_id)
         _settle_empty()
         return
 
@@ -1390,15 +1421,7 @@ def _run_schedule(
         # Persist driving-link flags (#2095). bulk_update bypasses VersionedModel.save
         # so it never bumps server_version — is_driving is a derived CPM output, not a
         # user edit, and must not trigger a mobile-sync pull (same rationale as Task).
-        if db_deps:
-            Dependency.objects.bulk_update(
-                db_deps, ["is_driving"], batch_size=_WRITEBACK_BATCH_SIZE
-            )
-
-        if schedule_shift_events:
-            TaskActivityEvent.objects.bulk_create(
-                schedule_shift_events, batch_size=_WRITEBACK_BATCH_SIZE
-            )
+        _persist_driving_flags_and_shift_events(db_deps, schedule_shift_events)
 
         # Mark the outbox row done so the drain task knows this project is clean.
         # Filter on status=dispatched to avoid racing with the drain during orphan

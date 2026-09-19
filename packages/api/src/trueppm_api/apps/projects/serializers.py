@@ -144,6 +144,8 @@ _ROLLUP_UNSET: Any = object()
 # Field-level validation message for endpoints/type fields that are immutable
 # after the row is created (e.g. task-relation source/target/relation_type).
 _IMMUTABLE_AFTER_CREATE = "cannot be changed after creation."
+_UNKNOWN_TIMEZONE_MSG = "Unknown IANA timezone."
+_CREATE_ONLY_FIELD_MSG = "This field is only accepted when creating a project."
 
 
 class CommitProjectResultSerializer(serializers.Serializer[dict[str, Any]]):
@@ -298,7 +300,7 @@ class CalendarSerializer(serializers.ModelSerializer[Calendar]):
         try:
             ZoneInfo(stripped)
         except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
-            raise serializers.ValidationError("Unknown IANA timezone.") from exc
+            raise serializers.ValidationError(_UNKNOWN_TIMEZONE_MSG) from exc
         return stripped
 
 
@@ -1299,7 +1301,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         try:
             ZoneInfo(stripped)
         except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
-            raise serializers.ValidationError("Unknown IANA timezone.") from exc
+            raise serializers.ValidationError(_UNKNOWN_TIMEZONE_MSG) from exc
         return stripped
 
     def validate_code(self, value: str) -> str:
@@ -1831,16 +1833,12 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         # Reject it on update rather than let ModelSerializer.update() set a bogus
         # non-field attribute, and so it never trips the below-Admin field gate.
         if instance is not None and "copy_settings_from" in attrs:
-            raise serializers.ValidationError(
-                {"copy_settings_from": "This field is only accepted when creating a project."}
-            )
+            raise serializers.ValidationError({"copy_settings_from": _CREATE_ONLY_FIELD_MSG})
         # inherit_program_defaults is likewise a create-only source (#1909). Pop it on
         # update so it never reaches ModelSerializer.update() as a bogus non-field
         # attribute or trips the below-Admin field gate; reject only if truthy.
         if instance is not None and attrs.pop("inherit_program_defaults", False):
-            raise serializers.ValidationError(
-                {"inherit_program_defaults": "This field is only accepted when creating a project."}
-            )
+            raise serializers.ValidationError({"inherit_program_defaults": _CREATE_ONLY_FIELD_MSG})
         # start_as_draft is create-only too (#3233). Same pop-then-reject shape and for
         # the same two reasons: popped so it never reaches ModelSerializer.update() as a
         # bogus non-field attribute or trips the below-Admin field gate below, and
@@ -1849,9 +1847,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         # is not currently reachable by design — `commit_project()` is the only lifecycle
         # transition with an endpoint, and it runs one way (#3127).
         if instance is not None and attrs.pop("start_as_draft", False):
-            raise serializers.ValidationError(
-                {"start_as_draft": "This field is only accepted when creating a project."}
-            )
+            raise serializers.ValidationError({"start_as_draft": _CREATE_ONLY_FIELD_MSG})
         if instance is None:
             _reject_conflicting_settings_sources(attrs)
             return attrs
@@ -7240,7 +7236,7 @@ class TaskRecurrenceRuleSerializer(serializers.ModelSerializer[TaskRecurrenceRul
         try:
             ZoneInfo(value)
         except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
-            raise serializers.ValidationError("Unknown IANA timezone.") from exc
+            raise serializers.ValidationError(_UNKNOWN_TIMEZONE_MSG) from exc
         return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:

@@ -137,6 +137,20 @@ function handleTextEditKey(
   }
 }
 
+function emptyListMessage(q: string, alreadyAdded: boolean, hasSuggestions: boolean): string {
+  if (alreadyAdded) return `"${q}" is already added`;
+  if (q) return `No tags match "${q}"`;
+  // Empty query: `filtered` is empty for one of two very
+  // different reasons (#2668). If the program has tags at
+  // all, every one of them is already a chip on this item —
+  // saying "No tags yet" there is false (four tags can be
+  // visibly attached while this renders). Only a genuinely
+  // tag-less program gets the create-invitation copy.
+  return hasSuggestions
+    ? 'All existing tags are already added — type to create a new one.'
+    : 'No tags yet — type to create one.';
+}
+
 export function TagInput({
   tags,
   onChange,
@@ -287,19 +301,7 @@ export function TagInput({
             >
               {rows.length === 0 ? (
                 <div role="status" className="px-2 py-1.5 text-xs text-neutral-text-secondary">
-                  {alreadyAdded
-                    ? `"${q}" is already added`
-                    : q
-                      ? `No tags match "${q}"`
-                      : // Empty query: `filtered` is empty for one of two very
-                        // different reasons (#2668). If the program has tags at
-                        // all, every one of them is already a chip on this item —
-                        // saying "No tags yet" there is false (four tags can be
-                        // visibly attached while this renders). Only a genuinely
-                        // tag-less program gets the create-invitation copy.
-                        suggestions.length > 0
-                        ? 'All existing tags are already added — type to create a new one.'
-                        : 'No tags yet — type to create one.'}
+                  {emptyListMessage(q, alreadyAdded, suggestions.length > 0)}
                 </div>
               ) : (
                 rows.map((row, index) => {

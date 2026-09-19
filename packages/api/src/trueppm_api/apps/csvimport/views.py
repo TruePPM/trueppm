@@ -145,6 +145,16 @@ def _read_validated_upload(request: Request) -> tuple[str, bytes] | Response:
     return filename, uploaded_file.read()
 
 
+def _form_body(request: Request) -> dict[str, Any]:
+    """Return ``request.data`` narrowed to a mapping.
+
+    Every caller sets ``parser_classes = [MultiPartParser]``, so the body is always
+    a QueryDict — a JSON list is rejected as 415 before this runs. Narrowed
+    rather than guarded: a branch that cannot be reached cannot be tested.
+    """
+    return cast("dict[str, Any]", request.data)
+
+
 def _parse_column_map(request: Request) -> dict[str, str]:
     """Read the optional ``column_map`` multipart field as ``{header: field}``.
 
@@ -157,7 +167,7 @@ def _parse_column_map(request: Request) -> dict[str, str]:
     # Both callers set `parser_classes = [MultiPartParser]`, so the body is always
     # a QueryDict — a JSON list is rejected as 415 before this runs. Narrowed
     # rather than guarded: a branch that cannot be reached cannot be tested.
-    raw = cast("dict[str, Any]", request.data).get("column_map")
+    raw = _form_body(request).get("column_map")
     if not raw:
         return {}
     if isinstance(raw, dict):
@@ -192,7 +202,7 @@ def _parse_date_order(request: Request) -> str:
     # Both callers set `parser_classes = [MultiPartParser]`, so the body is always
     # a QueryDict — a JSON list is rejected as 415 before this runs. Narrowed
     # rather than guarded: a branch that cannot be reached cannot be tested.
-    raw = cast("dict[str, Any]", request.data).get("date_order")
+    raw = _form_body(request).get("date_order")
     if raw is None or raw == "":
         return "auto"
     if not isinstance(raw, str) or raw not in DATE_ORDERS:
@@ -607,9 +617,7 @@ class CsvImportView(IdempotencyMixin, APIView):
         # letting auto decide. Kept for support archaeology only — nothing
         # branches on it (#2926).
         # `parser_classes = [MultiPartParser]` — see `_parse_column_map`.
-        date_order_confirmed = str(
-            cast("dict[str, Any]", request.data).get("date_order_confirmed", "")
-        ).lower() in {
+        date_order_confirmed = str(_form_body(request).get("date_order_confirmed", "")).lower() in {
             "true",
             "1",
         }

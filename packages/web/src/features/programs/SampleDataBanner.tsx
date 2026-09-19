@@ -37,6 +37,45 @@ const SHIFT_THRESHOLD_DAYS = 7;
  */
 const STALE_THRESHOLD_DAYS = 28;
 
+/** The promise sentence, replaced by a drift warning once the demo is stale. */
+function SampleIntro({ isStale, days }: { isStale: boolean; days: number }) {
+  if (isStale) {
+    return (
+      <>
+        Its dates were set <span className="font-semibold">{days} days ago</span>, so the active
+        sprint, burndown, and overdue counts have drifted from today. Shift them forward to demo
+        from a live-looking program.
+      </>
+    );
+  }
+  return (
+    <>
+      It includes 60 days of history — forecast trend, sprint velocity, and baseline variance render
+      out of the box. Explore freely — remove it when you&rsquo;re ready to start your own work.
+    </>
+  );
+}
+
+function ShiftResultNote({ result }: { result: ShiftSampleDatesResult }) {
+  return (
+    <p className="w-full text-xs text-neutral-text-secondary">
+      {result.shifted ? (
+        <>
+          <span className="font-semibold text-neutral-text-primary">Dates updated.</span> Moved the
+          demo forward {result.days} days — {result.rows_shifted.toLocaleString()} records across{' '}
+          {result.projects} {result.projects === 1 ? 'project' : 'projects'}. Schedules are
+          recalculating.
+        </>
+      ) : (
+        <>
+          <span className="font-semibold text-neutral-text-primary">Already current.</span> The
+          demo&rsquo;s dates did not need moving.
+        </>
+      )}
+    </p>
+  );
+}
+
 /**
  * "This is sample data" banner shown on a sample program (#375, #3481).
  *
@@ -114,19 +153,7 @@ export function SampleDataBanner({
     >
       <p className="text-sm text-neutral-text-primary">
         <span className="font-semibold">This is sample data.</span>{' '}
-        {isStale ? (
-          <>
-            Its dates were set <span className="font-semibold">{days} days ago</span>, so the active
-            sprint, burndown, and overdue counts have drifted from today. Shift them forward to demo
-            from a live-looking program.
-          </>
-        ) : (
-          <>
-            It includes 60 days of history — forecast trend, sprint velocity, and baseline variance
-            render out of the box. Explore freely — remove it when you&rsquo;re ready to start your
-            own work.
-          </>
-        )}
+        <SampleIntro isStale={isStale} days={days} />
       </p>
 
       {confirming === 'shift' ? (
@@ -212,23 +239,7 @@ export function SampleDataBanner({
         </div>
       )}
 
-      {shiftResult !== null && (
-        <p className="w-full text-xs text-neutral-text-secondary">
-          {shiftResult.shifted ? (
-            <>
-              <span className="font-semibold text-neutral-text-primary">Dates updated.</span> Moved
-              the demo forward {shiftResult.days} days — {shiftResult.rows_shifted.toLocaleString()}{' '}
-              records across {shiftResult.projects}{' '}
-              {shiftResult.projects === 1 ? 'project' : 'projects'}. Schedules are recalculating.
-            </>
-          ) : (
-            <>
-              <span className="font-semibold text-neutral-text-primary">Already current.</span> The
-              demo&rsquo;s dates did not need moving.
-            </>
-          )}
-        </p>
-      )}
+      {shiftResult !== null && <ShiftResultNote result={shiftResult} />}
 
       {anchorUnknown && canRemove && (
         <p className="w-full text-xs text-neutral-text-secondary">

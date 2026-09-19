@@ -1163,18 +1163,17 @@ export class GanttEngineImpl implements GanttEngine {
   // Private — Paint: background
   // ---------------------------------------------------------------------------
 
-  private _paintBg(): void {
-    setRendererColorMode(this._isDark, this._forcedColors);
-    const ctx = this._bgCtx;
-    const w = this._viewportWidth;
-    const h = this._viewportHeight;
-
-    // Redraw the header band only when its content could have moved or changed
-    // (issue 1523). On a pure vertical scroll scrollLeft is unchanged and no
-    // header-affecting state is dirty, so the prior header band is retained and
-    // the expensive drawTimelineHeader date-walk is skipped entirely.
-    const drawHeader = this._headerContentDirty || this._scrollLeft !== this._lastHeaderScrollLeft;
-
+  /**
+   * Clear and fill the background layer. When the header band is retained
+   * (`drawHeader` false) only the task area below it is cleared, inside a clip
+   * that the caller pops with `ctx.restore()`.
+   */
+  private _clearBgForPaint(
+    ctx: CanvasRenderingContext2D,
+    w: number,
+    h: number,
+    drawHeader: boolean,
+  ): void {
     if (drawHeader) {
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = this._isDark ? COLOR_DARK.surface : COLOR.surface;
@@ -1193,6 +1192,21 @@ export class GanttEngineImpl implements GanttEngine {
       ctx.fillStyle = this._isDark ? COLOR_DARK.surface : COLOR.surface;
       ctx.fillRect(0, CHART_HEADER_HEIGHT, w, h - CHART_HEADER_HEIGHT);
     }
+  }
+
+  private _paintBg(): void {
+    setRendererColorMode(this._isDark, this._forcedColors);
+    const ctx = this._bgCtx;
+    const w = this._viewportWidth;
+    const h = this._viewportHeight;
+
+    // Redraw the header band only when its content could have moved or changed
+    // (issue 1523). On a pure vertical scroll scrollLeft is unchanged and no
+    // header-affecting state is dirty, so the prior header band is retained and
+    // the expensive drawTimelineHeader date-walk is skipped entirely.
+    const drawHeader = this._headerContentDirty || this._scrollLeft !== this._lastHeaderScrollLeft;
+
+    this._clearBgForPaint(ctx, w, h, drawHeader);
 
     if (!this._scales) {
       if (!drawHeader) ctx.restore();

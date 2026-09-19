@@ -2186,6 +2186,15 @@ class _SeedImporter:
                     expires_at=timezone.now() + timedelta(days=days) if days else None,
                 )
 
+    def _agent_action_refs(self, data: dict[str, Any]) -> tuple[Task | None, Project | None]:
+        """Resolve the task and project an authored agent action points at."""
+        obj = data.get("object")
+        task = self._resolve_task_ref(obj, "") if obj else None
+        project = self.projects.get(data["project"]) if data.get("project") else None
+        if project is None and task is not None:
+            project = task.project
+        return task, project
+
     def _record_sample_agent_actions(self) -> None:
         """Write the sample's agent trail through the real audit chain (#3603). Sample only.
 
@@ -2205,11 +2214,7 @@ class _SeedImporter:
         )
         for i in ordered:
             data = authored[i]
-            obj = data.get("object")
-            task = self._resolve_task_ref(obj, "") if obj else None
-            project = self.projects.get(data["project"]) if data.get("project") else None
-            if project is None and task is not None:
-                project = task.project
+            task, project = self._agent_action_refs(data)
             record_agent_action(
                 actor_token=None,
                 principal=self.users.get(data["principal"]) if data.get("principal") else None,

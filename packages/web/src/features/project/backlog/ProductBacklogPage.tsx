@@ -601,6 +601,12 @@ export function ProductBacklogPage() {
   );
 }
 
+function waterfallMismatchMessage(totalCount: number): string {
+  const noun = totalCount === 1 ? 'story' : 'stories';
+  const verb = totalCount === 1 ? 'is' : 'are';
+  return `This project is configured as Waterfall, but ${totalCount} ${noun} already ${verb} groomed here — they stay reachable even though they sit outside its workflow.`;
+}
+
 function DesktopGroomingView({ seed }: { seed: BacklogSeedState }) {
   const projectId = useProjectId();
   const navigate = useNavigate();
@@ -1121,11 +1127,7 @@ function DesktopGroomingView({ seed }: { seed: BacklogSeedState }) {
           <MethodologyMismatchBanner
             projectId={projectId}
             className="mx-6 mt-2"
-            message={`This project is configured as Waterfall, but ${totalCount} ${
-              totalCount === 1 ? 'story' : 'stories'
-            } already ${
-              totalCount === 1 ? 'is' : 'are'
-            } groomed here — they stay reachable even though they sit outside its workflow.`}
+            message={waterfallMismatchMessage(totalCount)}
           />
         )}
 

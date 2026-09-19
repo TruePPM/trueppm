@@ -112,6 +112,34 @@ def hash_request_payload(request: Request) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
+def _attribution(
+    actor_token: ProjectApiToken | None, summary: str, *, sample: bool
+) -> tuple[str, str]:
+    """Return the hashed ``(actor_token_prefix, summary)`` pair for a new chain row.
+
+    A sample row replaces both with the demo markers, because the marker has to live
+    in hashed fields (see :func:`record_agent_action`).
+    """
+    if sample:
+        return SAMPLE_TOKEN_PREFIX, f"{SAMPLE_SUMMARY_PREFIX}{summary or ''}"
+    return (actor_token.token_prefix if actor_token is not None else ""), summary
+
+
+def _record_refusal_detail(
+    entry: AgentAction,
+    verdict: str,
+    refusal_constraint: str,
+    projected_impact: dict[str, Any] | None,
+) -> None:
+    """Create the non-hashed refusal side-car for a refusal that names a constraint."""
+    if verdict == AgentActionVerdict.REFUSED and refusal_constraint:
+        AgentActionRefusalDetail.objects.create(
+            action=entry,
+            constraint=refusal_constraint,
+            projected_impact=projected_impact or {},
+        )
+
+
 def record_agent_action(
     *,
     actor_kind: str = AgentActorKind.MCP_TOKEN,
@@ -168,10 +196,7 @@ def record_agent_action(
         refusal_constraint = ""
 
     occurred = occurred_at or timezone.now()
-    token_prefix = actor_token.token_prefix if actor_token is not None else ""
-    if sample:
-        token_prefix = SAMPLE_TOKEN_PREFIX
-        summary = f"{SAMPLE_SUMMARY_PREFIX}{summary or ''}"
+    token_prefix, summary = _attribution(actor_token, summary, sample=sample)
     resolved_engine = engine_version_str or engine_version()
     # Sanitize the client IP: a spoofed/malformed X-Forwarded-For must not raise on the
     # GenericIPAddressField save and 500 an otherwise-valid (fail-closed) read.
@@ -216,12 +241,7 @@ def record_agent_action(
         # Non-hashed telemetry side-car (ADR-0421): same atomic block as the chain
         # append so the detail and its row commit or roll back together. Only for a
         # refusal that names a constraint — an allowed read never carries one.
-        if verdict == AgentActionVerdict.REFUSED and refusal_constraint:
-            AgentActionRefusalDetail.objects.create(
-                action=entry,
-                constraint=refusal_constraint,
-                projected_impact=projected_impact or {},
-            )
+        _record_refusal_detail(entry, verdict, refusal_constraint, projected_impact)
 
     if not sample:
         transaction.on_commit(

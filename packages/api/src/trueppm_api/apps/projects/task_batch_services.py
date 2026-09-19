@@ -222,6 +222,33 @@ def record_cascade_classification_operation(
     )
 
 
+def _revert_classification_rows(
+    untouched: list[uuid.UUID], snapshots: dict[str, Any]
+) -> list[uuid.UUID]:
+    """Write each untouched row's snapshot "before" classification back; return the ids reverted."""
+    from trueppm_api.apps.projects.models import Task
+
+    reverted_ids: list[uuid.UUID] = []
+    rows = {row.pk: row for row in Task.objects.filter(pk__in=untouched, is_deleted=False)}
+    for task_id in untouched:
+        row = rows.get(task_id)
+        if row is None:
+            continue
+        before = snapshots[str(task_id)]["before"]
+        for field in _CLASSIFICATION_FIELDS:
+            if field in before:
+                setattr(row, field, before[field])
+        # known_exists=True: freshly SELECTed above under the operation row's lock —
+        # same guaranteed-True probe the forward cascade skips for the same reason
+        # (task_classification.py).
+        row.save(
+            update_fields=[f for f in _CLASSIFICATION_FIELDS if f in before],
+            known_exists=True,
+        )
+        reverted_ids.append(task_id)
+    return reverted_ids
+
+
 def undo_cascade_classification_operation(
     operation: CascadeClassificationOperation,
 ) -> dict[str, int]:
@@ -239,7 +266,6 @@ def undo_cascade_classification_operation(
     from trueppm_api.apps.projects.models import (
         CascadeClassificationOperation,
         SyncBatchOperationStatus,
-        Task,
     )
 
     # Same lifecycle floor as `undo_paste_many_operation` — see its comment (#3354).
@@ -256,23 +282,7 @@ def undo_cascade_classification_operation(
 
         reverted_ids: list[uuid.UUID] = []
         if untouched:
-            rows = {row.pk: row for row in Task.objects.filter(pk__in=untouched, is_deleted=False)}
-            for task_id in untouched:
-                row = rows.get(task_id)
-                if row is None:
-                    continue
-                before = snapshots[str(task_id)]["before"]
-                for field in _CLASSIFICATION_FIELDS:
-                    if field in before:
-                        setattr(row, field, before[field])
-                # known_exists=True: freshly SELECTed two lines above under the
-                # operation row's lock — same guaranteed-True probe the forward
-                # cascade skips for the same reason (task_classification.py).
-                row.save(
-                    update_fields=[f for f in _CLASSIFICATION_FIELDS if f in before],
-                    known_exists=True,
-                )
-                reverted_ids.append(task_id)
+            reverted_ids = _revert_classification_rows(untouched, snapshots)
             _broadcast_and_recalc(operation.project_id, reverted_ids)
 
         result = {"reverted": len(reverted_ids), "kept": len(touched)}

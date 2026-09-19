@@ -247,8 +247,9 @@ class TestPolicyRefusalOnTheWire:
 
         from trueppm_api.apps.access.permissions import McpReadableViewMixin
 
-        source = inspect.getsource(McpReadableViewMixin._record_mcp_agent_action)
-        assert "refusal_marks" in source, (
+        hook = inspect.getsource(McpReadableViewMixin._record_mcp_agent_action)
+        classifier = inspect.getsource(McpReadableViewMixin._mcp_refusal_classification)
+        assert "_mcp_refusal_classification" in hook and "refusal_marks" in classifier, (
             "the MCP audit hook no longer reads the refusal marks, so the row it "
             "writes can disagree with what the caller was told (#2689)"
         )

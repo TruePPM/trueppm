@@ -534,6 +534,11 @@ class _Exporter:
         for res in self._all_resources():
             if res.user_id is not None:
                 users[res.user_id] = res.user
+        self._add_project_member_users(users)
+        return roles, users
+
+    def _add_project_member_users(self, users: dict[Any, Any]) -> None:
+        """Add every live project member not already present, walking the projects in order."""
         # Live *project* members, last (#3457). Project and program membership are
         # independent grants (ADR-0070 §RBAC), so a user revoked from the program
         # can still hold a live ProjectMembership. Now that the roster no longer
@@ -564,7 +569,6 @@ class _Exporter:
         for proj in self.projects:
             for pm in members_by_project.get(proj.pk, ()):
                 users.setdefault(pm.user_id, pm.user)
-        return roles, users
 
     def _program_roster(self, users: dict[Any, Any]) -> dict[Any, int]:
         """Seed ``users`` with the program lead + members; return their roles.

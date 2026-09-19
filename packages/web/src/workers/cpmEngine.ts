@@ -514,26 +514,14 @@ function relaxForward(
     const preds = predecessors.get(taskId) ?? [];
     if (preds.length === 0) continue; // No predecessors — keep original dates.
 
-    let maxEarlyStart = latestConstraint(preds, stateMap, task);
+    const derivedEarlyStart = latestConstraint(preds, stateMap, task);
     // A task whose every predecessor edge left the subgraph is not derived by
     // this pass — leave it where the last server CPM put it. Previously the
     // `>` guard below made this unreachable-by-accident; now that the write is
     // unconditional, -Infinity has to be rejected explicitly.
-    if (!Number.isFinite(maxEarlyStart)) continue;
+    if (!Number.isFinite(derivedEarlyStart)) continue;
 
-    // ADR-0132 §2: work already underway is floored at where it actually
-    // started and is never smoothed back to an earlier network slot. This was
-    // documented as "redundant while this pass only pushes tasks forward" —
-    // it is now the floor that stops a pull-in from rewriting recorded history.
-    if (task.actualStartMs !== null && task.actualStartMs > maxEarlyStart) {
-      maxEarlyStart = task.actualStartMs;
-    }
-    // `planned_start` (SNET), the other constraint the old invariant made
-    // redundant: the PM pinned a date this task may not start before, and a
-    // pull-in is exactly the move that would slide straight through it.
-    if (task.plannedStartMs !== null && task.plannedStartMs > maxEarlyStart) {
-      maxEarlyStart = task.plannedStartMs;
-    }
+    const maxEarlyStart = applyStartFloors(task, derivedEarlyStart);
 
     // The span floor is the task's own `planned_start`, NOT the span it arrived
     // with. The incoming span already bakes in `max(planned_start,
@@ -542,6 +530,25 @@ function relaxForward(
     // position while the finish moved back, painting an incoherent bar.
     setEarlyWindow(task, maxEarlyStart, task.plannedStartMs ?? -Infinity);
   }
+}
+
+/** Floor a network-derived early start at the task's recorded and planned starts. */
+function applyStartFloors(task: TaskState, earlyStartMs: number): number {
+  let floored = earlyStartMs;
+  // ADR-0132 §2: work already underway is floored at where it actually
+  // started and is never smoothed back to an earlier network slot. This was
+  // documented as "redundant while this pass only pushes tasks forward" —
+  // it is now the floor that stops a pull-in from rewriting recorded history.
+  if (task.actualStartMs !== null && task.actualStartMs > floored) {
+    floored = task.actualStartMs;
+  }
+  // `planned_start` (SNET), the other constraint the old invariant made
+  // redundant: the PM pinned a date this task may not start before, and a
+  // pull-in is exactly the move that would slide straight through it.
+  if (task.plannedStartMs !== null && task.plannedStartMs > floored) {
+    floored = task.plannedStartMs;
+  }
+  return floored;
 }
 
 /** The binding predecessor constraint, or -Infinity when none applies. */

@@ -179,6 +179,7 @@ _HTTP_METHODS = ("get", "post", "put", "patch", "delete", "head", "options", "tr
 # of drf-spectacular's automatic pagination-envelope wrapping (see
 # :func:`suppress_list_pagination` and :meth:`TruePPMAutoSchema._get_paginator`).
 _SUPPRESS_PAGINATION_ATTR = "spectacular_suppress_pagination"
+_JSON_MEDIA_TYPE = "application/json"
 
 
 def suppress_list_pagination(view_func: Any) -> Any:
@@ -468,7 +469,7 @@ _TOKEN_REFUSED_RESPONSE = {
         "with no ``refusal`` envelope."
     ),
     "content": {
-        "application/json": {
+        _JSON_MEDIA_TYPE: {
             "schema": {
                 "type": "object",
                 "properties": {
@@ -597,7 +598,7 @@ _VALIDATION_RESPONSE = {
         "reference for the code vocabulary."
     ),
     "content": {
-        "application/json": {
+        _JSON_MEDIA_TYPE: {
             "schema": {
                 "type": "object",
                 "properties": {
@@ -750,7 +751,7 @@ _THROTTLE_RESPONSE = {
         "``Retry-After`` response header."
     ),
     "content": {
-        "application/json": {
+        _JSON_MEDIA_TYPE: {
             "schema": {
                 "type": "object",
                 "properties": {

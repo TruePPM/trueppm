@@ -58,47 +58,51 @@ class Command(BaseCommand):
         today = timezone.localdate()
         for program in programs:
             label = f"{program.name!r} ({program.pk})"
-
             if options["dry_run"]:
-                # Reported from the same helper the shift uses, so the dry run
-                # cannot disagree with the real thing about how far it would move.
-                if program.sample_anchor_date is None:
-                    self.stdout.write(
-                        self.style.WARNING(f"  {label}: no anchor recorded — reload it instead.")
-                    )
-                    continue
-                days = whole_week_delta(program.sample_anchor_date, today)
-                if days == 0:
-                    self.stdout.write(f"  {label}: already current.")
-                else:
-                    self.stdout.write(f"  {label}: would move forward {days} days.")
-                continue
-
-            try:
-                report = shift_sample_dates(program)
-            except NotASampleProgram as exc:
-                # Only reachable via --program: the default query already filters
-                # to programs holding a sample project.
-                raise CommandError(f"{label}: {exc}") from exc
-            except NoAnchorRecorded:
-                self.stdout.write(
-                    self.style.WARNING(
-                        f"  {label}: loaded before date shifting existed, so its original "
-                        f"dates are not recorded. Remove and reload it to get current dates."
-                    )
-                )
-                continue
-
-            if report.shifted:
-                self.stdout.write(
-                    self.style.SUCCESS(
-                        f"  {label}: moved forward {report.days} days — "
-                        f"{report.rows_shifted} records across {report.projects} project(s). "
-                        f"Schedules re-queued."
-                    )
-                )
+                self._report_dry_run(program, label, today)
             else:
-                self.stdout.write(f"  {label}: already current.")
+                self._shift(program, label)
+
+    def _report_dry_run(self, program: Program, label: str, today: Any) -> None:
+        # Reported from the same helper the shift uses, so the dry run
+        # cannot disagree with the real thing about how far it would move.
+        if program.sample_anchor_date is None:
+            self.stdout.write(
+                self.style.WARNING(f"  {label}: no anchor recorded — reload it instead.")
+            )
+            return
+        days = whole_week_delta(program.sample_anchor_date, today)
+        if days == 0:
+            self.stdout.write(f"  {label}: already current.")
+        else:
+            self.stdout.write(f"  {label}: would move forward {days} days.")
+
+    def _shift(self, program: Program, label: str) -> None:
+        try:
+            report = shift_sample_dates(program)
+        except NotASampleProgram as exc:
+            # Only reachable via --program: the default query already filters
+            # to programs holding a sample project.
+            raise CommandError(f"{label}: {exc}") from exc
+        except NoAnchorRecorded:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"  {label}: loaded before date shifting existed, so its original "
+                    f"dates are not recorded. Remove and reload it to get current dates."
+                )
+            )
+            return
+
+        if report.shifted:
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"  {label}: moved forward {report.days} days — "
+                    f"{report.rows_shifted} records across {report.projects} project(s). "
+                    f"Schedules re-queued."
+                )
+            )
+        else:
+            self.stdout.write(f"  {label}: already current.")
 
     def _resolve_programs(self, program_id: str | None) -> list[Program]:
         if program_id:

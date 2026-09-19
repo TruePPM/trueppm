@@ -204,6 +204,12 @@ export interface UpdateTaskPayload {
  * payload so untouched fields are never clobbered.
  */
 function optimisticTaskPatch(vars: UpdateTaskPayload): Partial<Task> {
+  // Order matters: the milestone branch in the second half overrides the
+  // `duration` the first half may have applied.
+  return { ...optimisticCorePatch(vars), ...optimisticClassificationPatch(vars) };
+}
+
+function optimisticCorePatch(vars: UpdateTaskPayload): Partial<Task> {
   const patch: Partial<Task> = {};
   if (vars.name !== undefined) patch.name = vars.name;
   if (vars.notes !== undefined) patch.notes = vars.notes;
@@ -214,6 +220,11 @@ function optimisticTaskPatch(vars: UpdateTaskPayload): Partial<Task> {
   if (vars.story_points !== undefined) patch.storyPoints = vars.story_points;
   if (vars.remaining_points !== undefined) patch.remainingPoints = vars.remaining_points;
   if (vars.sprint !== undefined) patch.sprintId = vars.sprint;
+  return patch;
+}
+
+function optimisticClassificationPatch(vars: UpdateTaskPayload): Partial<Task> {
+  const patch: Partial<Task> = {};
   if (vars.type !== undefined) patch.taskType = vars.type;
   if (vars.governance_class !== undefined) patch.governanceClass = vars.governance_class;
   if (vars.delivery_mode !== undefined) patch.deliveryMode = vars.delivery_mode;
@@ -222,7 +233,7 @@ function optimisticTaskPatch(vars: UpdateTaskPayload): Partial<Task> {
     // The server zeroes duration as part of becoming a milestone, so mirror that
     // here or the optimistic row renders a diamond still claiming N days until the
     // refetch lands. On the way back the caller supplies the restored duration
-    // itself, and the `vars.duration` branch above has already applied it.
+    // itself, and the `vars.duration` branch in the core patch has already applied it.
     if (vars.is_milestone) patch.duration = 0;
   }
   // Human blocker flag (ADR-0124). blocked_since / blocked_by / age are

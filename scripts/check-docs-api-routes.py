@@ -71,6 +71,7 @@ REMOVED_REL = "scripts/schema-removal-allowlist.txt"
 BASELINE_REL = "scripts/docs-api-reference-unlisted.txt"
 METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 PARAM = "{}"
+_POST_DEPENDENCIES = "POST /api/v1/dependencies/"
 
 _M = "|".join(METHODS)
 MENTION = re.compile(
@@ -243,6 +244,45 @@ def read_baseline(path: Path) -> set[str]:
     }
 
 
+def _mention_violations(
+    mentions: list[Mention],
+    ops: dict[tuple[str, ...], set[str]],
+    removed: list[tuple[str, ...]],
+) -> list[str]:
+    """Return a violation line for each documented route absent from the schema."""
+    violations: list[str] = []
+    for m in mentions:
+        for method in m.methods:
+            hit = any(
+                _seg_match(v, segs, m.prefix) and method in methods
+                for v in m.variants
+                for segs, methods in ops.items()
+            )
+            gone = any(
+                _seg_match(v, segs, m.prefix) for v in m.variants for segs in removed
+            )
+            if not hit and not gone:
+                violations.append(
+                    f"{m.file}:{m.line} documents `{method} {m.raw}` — no such operation in {SCHEMA_REL}"
+                )
+    return violations
+
+
+def _baseline_violations(baseline: set[str], current: set[str]) -> list[str]:
+    """Return violations where the unlisted-operations ratchet and reality disagree."""
+    violations: list[str] = []
+    for label in sorted(current - baseline):
+        violations.append(
+            f"{label} is in the schema and not in the API reference — document it, or (on the record)"
+            f" add it to {BASELINE_REL} with --update-baseline"
+        )
+    for label in sorted(baseline - current):
+        violations.append(
+            f"{BASELINE_REL} still lists `{label}`, which is now documented or no longer in the schema — delete the line"
+        )
+    return violations
+
+
 def run_check(root: Path) -> int:
     docs, schema_file = root / DOCS_REL, root / SCHEMA_REL
     if not docs.is_dir() or not schema_file.is_file():
@@ -260,34 +300,9 @@ def run_check(root: Path) -> int:
         )
         return 2
 
-    violations: list[str] = []
-    for m in mentions:
-        for method in m.methods:
-            hit = any(
-                _seg_match(v, segs, m.prefix) and method in methods
-                for v in m.variants
-                for segs, methods in ops.items()
-            )
-            gone = any(
-                _seg_match(v, segs, m.prefix) for v in m.variants for segs in removed
-            )
-            if not hit and not gone:
-                violations.append(
-                    f"{m.file}:{m.line} documents `{method} {m.raw}` — no such operation in {SCHEMA_REL}"
-                )
-
-    baseline_path = root / BASELINE_REL
-    baseline = read_baseline(baseline_path)
+    violations = _mention_violations(mentions, ops, removed)
     current = set(unlisted_operations(root))
-    for label in sorted(current - baseline):
-        violations.append(
-            f"{label} is in the schema and not in the API reference — document it, or (on the record)"
-            f" add it to {BASELINE_REL} with --update-baseline"
-        )
-    for label in sorted(baseline - current):
-        violations.append(
-            f"{BASELINE_REL} still lists `{label}`, which is now documented or no longer in the schema — delete the line"
-        )
+    violations.extend(_baseline_violations(read_baseline(root / BASELINE_REL), current))
 
     for v in violations:
         print(f"VIOLATION: {v}")
@@ -402,13 +417,13 @@ def self_test() -> int:
             "an operation missing from the reference and the ratchet",
             good_page,
             1,
-            ["POST /api/v1/dependencies/", "__drop__"],
+            [_POST_DEPENDENCIES, "__drop__"],
         ),
         (
             "a ratchet line whose operation is now documented",
             good_page,
             1,
-            ["POST /api/v1/dependencies/", "GET /api/v1/share/schedule/{token}/"],
+            [_POST_DEPENDENCIES, "GET /api/v1/share/schedule/{token}/"],
         ),
     ]
     ok = True
@@ -416,13 +431,13 @@ def self_test() -> int:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             reference = full_reference
-            listed = ["POST /api/v1/dependencies/"]
+            listed = [_POST_DEPENDENCIES]
             if baseline is not None:
                 if "__drop__" in baseline:
                     reference = full_reference.replace(
                         "GET /api/v1/share/schedule/{token}/\n", ""
                     )
-                    listed = ["POST /api/v1/dependencies/"]
+                    listed = [_POST_DEPENDENCIES]
                 else:
                     listed = baseline
             _fixture(root, page, reference, listed)
