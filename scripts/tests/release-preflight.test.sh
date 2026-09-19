@@ -109,6 +109,18 @@ if grep -qE 'docker build --platform linux/amd64 .*-f packages/api/Dockerfile' "
   r=0; else r=1; fi
 check "api image build pins --platform linux/amd64" "$r"
 
+# --- 8: the Helm chart is bumped and staged with the release (#3907) --------
+# Chart.yaml is not a manifest the other bumps touch, and it sat at 0.4.0 through
+# the whole beta line: the chart's default image tag is v<appVersion>, so the
+# published beta chart pulled an image no pipeline ever pushed. Both fields must be
+# bumped through bump_manifest (which fails loudly on drift) and staged into the
+# release commit, or the bump is computed and then left dangling in the tree.
+echo "8: release.sh bumps Chart.yaml version + appVersion and stages it"
+if grep -qE '^bump_manifest packages/helm/Chart\.yaml' "$RELEASE_SH" \
+   && [[ "$(grep -cE '^bump_manifest packages/helm/Chart\.yaml' "$RELEASE_SH")" -eq 2 ]] \
+   && grep -qE '^  packages/helm/Chart\.yaml \\$' "$RELEASE_SH"; then r=0; else r=1; fi
+check "Chart.yaml version and appVersion each go through bump_manifest and are git-added" "$r"
+
 echo ""
 echo "release-preflight: $pass passed, $fail failed"
 [[ "$fail" -eq 0 ]]

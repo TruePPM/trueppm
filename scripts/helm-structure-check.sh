@@ -590,6 +590,23 @@ case "$APP_VERSION" in
 esac
 EXPECTED_TAG="v${APP_VERSION}"
 
+# ...and the chart must be the SAME version as the release it ships with (#3907).
+# The default-tag assertions below are self-referential — they prove the chart
+# asks for v<its own appVersion>, which is a tag that exists only if appVersion
+# equals the version the images were built from. release.sh never bumped
+# Chart.yaml, so it sat at 0.4.0 while api/web moved to 0.4.0-beta.1: this file
+# stayed green while a stock install of the published beta chart pointed at
+# `v0.4.0`, an image no pipeline ever pushed. Comparing against the API manifest
+# (the canonical version source release.sh reads) is what makes that drift visible
+# on every MR instead of at the next tag. `version` is held to the same value
+# because it is the OCI tag helm:publish pushes under.
+API_MANIFEST_VERSION="$(grep -m1 '^version = ' "$(cd "$(dirname "$0")/.." && pwd)/packages/api/pyproject.toml" | sed 's/version = "\(.*\)"/\1/')"
+[ -n "$API_MANIFEST_VERSION" ] || fail "could not read the release version from packages/api/pyproject.toml"
+CHART_PKG_VERSION="$(yq '.version' "$CHART/Chart.yaml")"
+if [ "$CHART_PKG_VERSION" != "$API_MANIFEST_VERSION" ] || [ "$APP_VERSION" != "$API_MANIFEST_VERSION" ]; then
+  fail "Chart.yaml (version: $CHART_PKG_VERSION, appVersion: $APP_VERSION) is out of lockstep with the release version $API_MANIFEST_VERSION — scripts/release.sh bumps both; a default install would otherwise pull v$APP_VERSION, which the release pipeline never publishes (#3907)"
+fi
+
 # The two first-party repositories. Only these are checked: the bundled
 # postgresql / valkey subcharts and the backup / helm-test images are upstream
 # third-party images on their own independent tag schemes.
@@ -1446,6 +1463,7 @@ echo "  - all $np_checked datastore-client bindings are covered by the NetworkPo
 echo "  - production nginx /admin/ fails closed (deny all + limit_req; allow precedes deny)"
 echo "  - celery worker pins --concurrency=$wc_n and honors concurrency/extraArgs overrides"
 echo "  - all $tag_checked first-party images default to '$EXPECTED_TAG' (a tag the release pipeline publishes); explicit image.tag still wins"
+echo "  - Chart.yaml version and appVersion equal the release version $API_MANIFEST_VERSION (release.sh bumps them with the other manifests)"
 
 echo "  - connection URLs: no plaintext credential in any workload; $url_env_checked env bindings are secretKeyRef-only and unduplicated"
 echo "  - the external-Secret (secretKeyRef map) form passes through to op-db/op-cache and is not copied into the chart Secret"

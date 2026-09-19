@@ -131,7 +131,7 @@ Non-interactive invocation (an agent running this, not a human at a TTY): export
 The script will automatically:
 1. Validate the working tree is clean and the branch is `main`
 2. Compute the new version from the canonical source (`packages/scheduler/pyproject.toml`)
-3. Bump versions in `packages/scheduler/pyproject.toml`, `packages/api/pyproject.toml`, `packages/web/package.json`, `packages/wasm-scheduler/Cargo.toml`, and `packages/mcp/` (`pyproject.toml`, `src/trueppm_mcp/__init__.py`, and both version fields in `server.json`) to lockstep, then re-lock each `uv.lock`
+3. Bump versions in `packages/scheduler/pyproject.toml`, `packages/api/pyproject.toml`, `packages/web/package.json`, `packages/wasm-scheduler/Cargo.toml`, `packages/helm/Chart.yaml` (both `version` and `appVersion` — the chart's default image tag is `v<appVersion>`, so a stale one ships a chart that pulls images which do not exist), and `packages/mcp/` (`pyproject.toml`, `src/trueppm_mcp/__init__.py`, and both version fields in `server.json`) to lockstep, then re-lock each `uv.lock`
 4. For **stable** releases only: assemble `changelog.d/*.md` fragments via `scripts/assemble-changelog.sh`, rotate `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`, prepend a fresh `[Unreleased]` block, and delete the consumed fragments
 5. For **pre-releases** (alpha/beta/rc): leave `[Unreleased]` and fragments alone — notes accumulate until the final stable release
 6. Commit (`chore(release): bump version to X.Y.Z`) and create **three** annotated tags: `vX.Y.Z` (Docker + Helm publish), `scheduler-v<PEP440>` (`trueppm-scheduler` PyPI publish), and `mcp-v<PEP440>` (`trueppm-mcp` PyPI publish). The PyPI tags carry the PEP 440 form of the same version — `mcp-v0.4.0b1`, not `mcp-v0.4.0-beta.1`
