@@ -8,8 +8,9 @@
  * result count settle without it firing on every keystroke.
  */
 
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { type RefObject } from 'react';
 import { CloseIcon, SearchIcon } from '@/components/Icons';
+import { useDebouncedSearchValue } from '@/hooks/useDebouncedSearchValue';
 import { FOCUS_RING } from './styles';
 
 interface SearchInputProps {
@@ -32,29 +33,7 @@ export function SearchInput({
   debounceMs = 200,
   fullWidth = false,
 }: SearchInputProps) {
-  const [local, setLocal] = useState(value);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  // Re-sync when the URL value changes from outside (e.g. Clear search / reset).
-  useEffect(() => {
-    setLocal(value);
-  }, [value]);
-
-  useEffect(() => () => clearTimeout(timer.current), []);
-
-  function emit(next: string) {
-    setLocal(next);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => onChange(next), debounceMs);
-  }
-
-  function clear() {
-    clearTimeout(timer.current);
-    setLocal('');
-    onChange('');
-  }
-
-  const hasQuery = local.trim().length > 0;
+  const { local, hasQuery, emit, clear } = useDebouncedSearchValue(value, onChange, debounceMs);
 
   return (
     <div
