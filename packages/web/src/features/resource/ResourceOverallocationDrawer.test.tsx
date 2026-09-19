@@ -1,4 +1,5 @@
-import { screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
@@ -133,6 +134,38 @@ describe('ResourceOverallocationDrawer contributing tasks (#3843)', () => {
     expect(getMock).toHaveBeenCalledWith('/tasks/', {
       params: { project: 'p1', id__in: `${idA},${idB}` },
     });
+  });
+
+  it('reuses the cached fetch when the same ids re-open in a different order', async () => {
+    const idA = '11111111-1111-1111-1111-111111111111';
+    const idB = '22222222-2222-2222-2222-222222222222';
+    resolveWith([
+      { id: idA, name: 'Task A', status: 'NOT_STARTED' },
+      { id: idB, name: 'Task B', status: 'NOT_STARTED' },
+    ]);
+    // A shared client that outlives the unmount — renderWithProviders builds a
+    // fresh one per render, which would hide a cache miss.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    const open = (ids: string[]) => (
+      <QueryClientProvider client={client}>
+        <ResourceOverallocationDrawer
+          projectId="p1"
+          target={targetWithTasks(ids)}
+          isOpen
+          onClose={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+
+    const first = render(open([idA, idB]));
+    await screen.findByText('Task A');
+    first.unmount();
+    render(open([idB, idA]));
+    await screen.findByText('Task A');
+
+    expect(getMock).toHaveBeenCalledTimes(1);
   });
 
   it('shows loading placeholders, not the raw ids, while the fetch is in flight', () => {
