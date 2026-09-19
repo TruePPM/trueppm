@@ -311,7 +311,7 @@ This package is **`Development Status :: 4 - Beta`** as of 0.4.0b1: the public
 API may still change before 1.0. **Pin an exact version** rather than a range:
 
 ```
-trueppm-scheduler==0.4.0b2
+trueppm-scheduler==0.4.0b3
 ```
 
 Beta releases are pre-releases — `pip install trueppm-scheduler` skips them

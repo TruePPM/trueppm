@@ -15,6 +15,19 @@ followed by the detailed entries.
 
 _Nothing yet._
 
+## [0.4.0-beta.3] — 2026-09-19
+
+TruePPM 0.4.0-beta.3 — supersedes 0.4.0-beta.2, which shipped from a commit
+whose own main-branch pipeline had failed.
+
+beta.2's actual defect was narrow (a stale version-pin example in the
+`trueppm-scheduler` package's bundled README) but its root cause was not: tag-
+triggered publish pipelines run independently of the branch pipeline for the
+same commit, so a red `main` never blocked a tag from publishing to GHCR and
+PyPI. This release fixes the immediate defect and closes the general gap
+(#3909): every tag-triggered publish/release job now blocks on proof that its
+own commit's `main` pipeline passed before it will run.
+
 ## [0.4.0-beta.2] — 2026-09-19
 
 TruePPM 0.4.0-beta.2 — the first hardening pass on the beta.
