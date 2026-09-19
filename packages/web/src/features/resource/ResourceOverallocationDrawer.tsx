@@ -90,7 +90,7 @@ function DrawerBody({
     isError: tasksError,
     refetch: refetchTasks,
   } = useQuery({
-    queryKey: ['overallocation-drawer-tasks', projectId, [...taskIds].sort()],
+    queryKey: ['overallocation-drawer-tasks', projectId, [...taskIds].sort((a, b) => a.localeCompare(b))],
     queryFn: async () => {
       const res = await apiClient.get<{ results: ResolvedTask[] }>('/tasks/', {
         params: { project: projectId, id__in: taskIds.join(',') },
