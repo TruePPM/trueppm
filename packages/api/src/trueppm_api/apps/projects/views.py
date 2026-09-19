@@ -1349,6 +1349,33 @@ class DirectoryPagination(pagination.PageNumberPagination):
     max_page_size = 500
 
 
+#: Query params for the project- and sprint-scoped "blocked" impediment
+#: roll-ups (ADR-0124, #1134) — identical filters over a different queryset,
+#: shared here so the two ``@extend_schema`` decorations can't drift (#3903).
+_BLOCKED_ROLLUP_QUERY_PARAMS = [
+    OpenApiParameter(
+        name="blocker_type",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Filter to one BlockerType (dependency / resource / vendor / "
+            "decision / other). Unknown value → 400."
+        ),
+    ),
+    OpenApiParameter(
+        name="min_age_days",
+        type=OpenApiTypes.INT,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Keep only tasks blocked at least N days. Non-negative integer; "
+            "negative or non-integer → 400."
+        ),
+    ),
+]
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -3884,30 +3911,7 @@ class ProjectViewSet(
         summary="Blocked tasks on this project (ADR-0124, #1134)",
         responses={200: ProjectBlockedRollupSerializer},
     )
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="blocker_type",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Filter to one BlockerType (dependency / resource / vendor / "
-                    "decision / other). Unknown value → 400."
-                ),
-            ),
-            OpenApiParameter(
-                name="min_age_days",
-                type=OpenApiTypes.INT,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Keep only tasks blocked at least N days. Non-negative integer; "
-                    "negative or non-integer → 400."
-                ),
-            ),
-        ],
-    )
+    @extend_schema(parameters=_BLOCKED_ROLLUP_QUERY_PARAMS)
     @action(detail=True, methods=["get"], url_path="blocked")
     def blocked(self, request: Request, pk: str | None = None) -> Response:
         """List flagged-blocked tasks on this project — the PM's impediment roll-up.
@@ -15810,30 +15814,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         summary="Blocked tasks in this sprint (ADR-0124, #1134)",
         responses={200: SprintBlockedRollupSerializer},
     )
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="blocker_type",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Filter to one BlockerType (dependency / resource / vendor / "
-                    "decision / other). Unknown value → 400."
-                ),
-            ),
-            OpenApiParameter(
-                name="min_age_days",
-                type=OpenApiTypes.INT,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Keep only tasks blocked at least N days. Non-negative integer; "
-                    "negative or non-integer → 400."
-                ),
-            ),
-        ],
-    )
+    @extend_schema(parameters=_BLOCKED_ROLLUP_QUERY_PARAMS)
     @action(detail=True, methods=["get"], url_path="blocked")
     def blocked(self, request: Request, pk: str | None = None) -> Response:
         """List flagged-blocked tasks in this sprint — the SM's impediment roll-up.
