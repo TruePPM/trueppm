@@ -5671,10 +5671,16 @@ renovate:
   #   2. Create a Pipeline Schedule (Settings -> CI/CD -> Pipeline schedules):
   #      daily cron, with a variable RENOVATE = "true". renovate.json restricts
   #      actual PR creation to Monday mornings, so a daily run is cheap.
-  #   3. RECOMMENDED isolation: point the schedule at a dedicated `renovate-bot`
-  #      branch (created off main). Because every other job is gated on
-  #      `branch == main`, only this job runs there — the schedule won't spin up
-  #      a full main pipeline. (A schedule on main also works but runs everything.)
+  #   3. Point the schedule at `main` — the project's default branch. A
+  #      dedicated non-default branch (e.g. a `renovate-bot` branch, to dodge
+  #      every other job's `branch == main` gate and avoid a full main
+  #      pipeline) looks like a natural isolation strategy but DOES NOT WORK:
+  #      confirmed empirically (#3906) that scheduled pipelines produce 0 jobs
+  #      on any non-default branch on this platform/tier, regardless of branch
+  #      protection — push- and api-sourced pipelines on the same non-default
+  #      ref work fine, only schedule-sourced pipeline creation is affected.
+  #      Pointing the schedule at main runs the full main pipeline on every
+  #      trigger; that cost is unavoidable given this platform limitation.
   stage: security
   image: renovate/renovate:43@sha256:498de63b02c02b49c34dfe0119b59da8e5232e701c813960bcbee80760b148dd
   needs: []
