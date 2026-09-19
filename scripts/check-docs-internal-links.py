@@ -68,20 +68,39 @@ REPO_SOURCE = re.compile(
 )
 
 FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
-HEADING = re.compile(r"^\s{0,3}(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$")
+# Trailing optional-hashes stripped separately (TRAILING_HASHES below) rather
+# than via `(.+?)(?:[ \t]+#+)?[ \t]*$` (SonarCloud python:S8786) — the lazy
+# `.+?` overlaps `[ \t]` with the following `[ \t]+#+` / `[ \t]*$`, so the
+# backtracker retries every split point on a line with no closing marker.
+HEADING = re.compile(r"^\s{0,3}(#{1,6})[ \t]+(.+)$")
+TRAILING_HASHES = re.compile(r"[ \t]+#+[ \t]*$")
 MD_LINK = re.compile(
     r"!?\[(?:[^\[\]]|\[[^\]]*\])*\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)"
 )
-REF_DEF = re.compile(r"^\s{0,3}\[(?!\^)[^\]]+\]:\s*<?(\S+?)>?(?:\s+.*)?$")
+# Alternation instead of `<?(\S+?)>?(?:\s+.*)?$` (SonarCloud python:S8786) — `>`
+# is itself a `\S` character, so the lazy `\S+?` and the optional `>?` overlap
+# on where the URL ends. The two shapes (angle-bracketed vs. bare) don't
+# overlap with each other, so matching them as distinct alternatives removes
+# the ambiguity; callers read `ref.group(1) or ref.group(2)`.
+REF_DEF = re.compile(r"^\s{0,3}\[(?!\^)[^\]]+\]:\s*(?:<([^<>]*)>|(\S+))(?:\s+.*)?$")
 HREF = re.compile(r"""\bhref=["']([^"'{}]+)["']""")
 ID_ATTR = re.compile(r"""\bid=["']([^"'{}]+)["']""")
 FOOTNOTE = re.compile(r"^\s{0,3}\[\^([^\]]+)\]:")
-INLINE_CODE = re.compile(r"(`+)(?:(?!\1).)+?\1")
+# `(`+)` was unbounded (SonarCloud python:S8786): the backreference check inside
+# the content loop costs O(delimiter length) per position, so an adversarial
+# line of O(n) backticks made a single match attempt O(n^2). Real fences are
+# never more than a few backticks (anything longer is a ``` block fence,
+# handled separately above and never reaches this line-level regex).
+INLINE_CODE = re.compile(r"(`{1,4})(?:(?!\1).)+?\1")
 ASSET_EXT = re.compile(
     r"\.(png|jpe?g|gif|svg|webp|avif|ico|pdf|json|ya?ml|txt|csv|zip|mp4|webm)$", re.I
 )
 SCHEME = re.compile(r"^[a-z][a-z0-9+.-]*:", re.I)
-REDIRECTS_BLOCK = re.compile(r"redirects:\s*\{(.*?)\n\s*\}", re.S)
+# `[^}]*` instead of `(.*?)\n\s*\}` with re.S (SonarCloud python:S8786) — DOTALL
+# `.` and `\s` both match newlines, so the lazy `.*?` and the trailing `\n\s*`
+# overlap. The redirects block never nests braces (values are quoted strings),
+# so "everything up to the next `}`" is equivalent and unambiguous.
+REDIRECTS_BLOCK = re.compile(r"redirects:\s*\{([^}]*)\}")
 REDIRECT_ENTRY = re.compile(r"""["'](/[^"']*)["']\s*:\s*["'](/[^"']*)["']""")
 
 
@@ -154,7 +173,8 @@ def parse_page(docs: Path, file: Path) -> Page:
             continue
         heading = HEADING.match(line)
         if heading:
-            base = slugify(heading_text(heading.group(2)))
+            raw_text = TRAILING_HASHES.sub("", heading.group(2))
+            base = slugify(heading_text(raw_text))
             slug = base
             while slug in seen:
                 seen[base] += 1
@@ -173,7 +193,7 @@ def parse_page(docs: Path, file: Path) -> Page:
             page.links.extend((lineno, target) for target in rx.findall(text))
         ref = REF_DEF.match(text)
         if ref:
-            page.links.append((lineno, ref.group(1)))
+            page.links.append((lineno, ref.group(1) or ref.group(2)))
     return page
 
 

@@ -603,7 +603,9 @@ test.describe('Workspace Settings → admin-settings gate (#3350)', () => {
     { path: '/settings/observability', heading: 'Observability' },
   ] as const;
   // Non-zero denominator: a loop over an emptied array passes silently.
-  expect(GUARDED_ROUTES).toHaveLength(2);
+  test('GUARDED_ROUTES lists both admin-settings routes', () => {
+    expect(GUARDED_ROUTES).toHaveLength(2);
+  });
 
   for (const { path, heading } of GUARDED_ROUTES) {
     test(`redirects a non-admin off ${path}`, async ({ page }) => {

@@ -114,7 +114,15 @@ def _segments(path: str) -> tuple[str, ...]:
 
 
 def _expand(path: str) -> list[str]:
-    alt = re.search(r"\{([^{}]*,[^{}]*)\}", path)
+    # A single `[^{}]*` group (SonarCloud python:S8786): two adjacent `*`
+    # quantifiers straddling a literal `,` let the backtracker try every split
+    # point when the tail fails to match, which is super-linear on pathological
+    # input. Finding the brace span first and checking for a comma in plain
+    # Python keeps the same "first brace block containing a comma" semantics
+    # without the ambiguous split.
+    alt = next(
+        (m for m in re.finditer(r"\{([^{}]*)\}", path) if "," in m.group(1)), None
+    )
     if not alt:
         return [path]
     out: list[str] = []
