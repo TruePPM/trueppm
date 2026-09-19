@@ -36,6 +36,24 @@ const LABEL_COLOR: Record<SprintCapacity['totals']['label'], string> = {
   over_capacity: 'text-semantic-critical',
 };
 
+const RING_STROKE: Record<SprintCapacity['totals']['label'], string> = {
+  on_track: 'stroke-semantic-on-track',
+  at_risk: 'stroke-semantic-at-risk',
+  over_capacity: 'stroke-semantic-critical',
+};
+
+function pointsFooterClass(over: number, pointsAllZero: boolean): string {
+  if (over > 0) return 'bg-semantic-at-risk-bg text-semantic-at-risk';
+  // Zero points committed is real information (rule 416, #3477) —
+  // a genuine capacity ceiling with nothing planned against it
+  // yet — but it is not "good news" and must not wear the
+  // on-track success color; only a real, nonzero commitment
+  // earns that (#2428's "a real zero is a value, not an
+  // unavailable card" logic).
+  if (pointsAllZero) return 'bg-neutral-surface-sunken text-neutral-text-secondary';
+  return 'bg-semantic-on-track-bg text-semantic-on-track';
+}
+
 /**
  * Capacity preflight — donut showing aggregate committed/capacity ratio plus a
  * scrollable list of per-person commitments. Aggregate label colour responds
@@ -56,12 +74,11 @@ export function CapacityPreflight({ capacity, points }: Props) {
   const pointsAllZero = pointsChip ? isZeroValue(pointsChip.total) : false;
   const ratioCapped = Math.min(totals.ratio, 1.5);
   const filled = CIRCUMFERENCE * Math.min(ratioCapped, 1);
-  const ringStroke =
-    totals.label === 'over_capacity'
-      ? 'stroke-semantic-critical'
-      : totals.label === 'at_risk'
-        ? 'stroke-semantic-at-risk'
-        : 'stroke-semantic-on-track';
+  const ringStroke = RING_STROKE[totals.label];
+  const labelClass =
+    totals.label === 'on_track' && hoursCommittedAllZero
+      ? 'text-neutral-text-secondary'
+      : LABEL_COLOR[totals.label];
 
   return (
     <section
@@ -148,13 +165,7 @@ export function CapacityPreflight({ capacity, points }: Props) {
               {' / '}
               <span className="tppm-mono">{totals.available_hours}</span> hours committed
             </p>
-            <p
-              className={`text-xs ${
-                totals.label === 'on_track' && hoursCommittedAllZero
-                  ? 'text-neutral-text-secondary'
-                  : LABEL_COLOR[totals.label]
-              }`}
-            >
+            <p className={`text-xs ${labelClass}`}>
               {LABEL_COPY[totals.label]}
               {totals.buffer_hours !== 0 && (
                 <span className="text-neutral-text-secondary">
@@ -210,19 +221,7 @@ export function CapacityPreflight({ capacity, points }: Props) {
 
       {pointsChip && (
         <p
-          className={`text-xs rounded px-2.5 py-1.5 ${
-            pointsChip.over > 0
-              ? 'bg-semantic-at-risk-bg text-semantic-at-risk'
-              : // Zero points committed is real information (rule 416, #3477) —
-                // a genuine capacity ceiling with nothing planned against it
-                // yet — but it is not "good news" and must not wear the
-                // on-track success color; only a real, nonzero commitment
-                // earns that (#2428's "a real zero is a value, not an
-                // unavailable card" logic).
-                pointsAllZero
-                ? 'bg-neutral-surface-sunken text-neutral-text-secondary'
-                : 'bg-semantic-on-track-bg text-semantic-on-track'
-          }`}
+          className={`text-xs rounded px-2.5 py-1.5 ${pointsFooterClass(pointsChip.over, pointsAllZero)}`}
         >
           {pointsChip.over > 0
             ? `Team is at ${pointsChip.pct}% of capacity (${pointsChip.over} pts over).`

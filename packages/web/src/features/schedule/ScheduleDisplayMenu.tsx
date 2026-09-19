@@ -189,6 +189,58 @@ export interface ScheduleDisplayMenuProps {
   triggerRef?: RefObject<HTMLButtonElement | null>;
 }
 
+function buildChartSection(chart: ChartMenuConfig): RenderSection {
+  // The placement options and the sub-group label are both scoped to the
+  // active view (#2107): Grid omits the Timeline-only `left` option, and the
+  // label names the view so the value visibly differing across views reads as
+  // intentional ("Task names (Grid)") rather than a bug.
+  const taskNameOptions = TASK_NAME_OPTIONS;
+  const radioIds = taskNameOptions.map((o) => `task-name-${o.value}`);
+  const taskNamesLabel = `Task names (${chart.viewMode === 'grid' ? 'Grid' : 'Timeline'})`;
+  return {
+    id: 'chart',
+    label: 'Chart',
+    items: [
+      {
+        kind: 'checkbox',
+        id: 'dependency-lines',
+        label: 'Dependency lines',
+        checked: chart.dependencyLinesVisible,
+        activate: () => chart.setDependencyLinesVisible(!chart.dependencyLinesVisible),
+      },
+      ...taskNameOptions.map((o) => ({
+        kind: 'radio' as const,
+        id: `task-name-${o.value}`,
+        label: o.label,
+        checked: chart.taskNamePlacement === o.value,
+        activate: () => chart.setTaskNamePlacement(o.value),
+      })),
+      {
+        kind: 'checkbox',
+        id: 'progress-pills',
+        label: 'Progress %',
+        checked: chart.progressPillsVisible,
+        activate: () => chart.setProgressPillsVisible(!chart.progressPillsVisible),
+      },
+      // Sprint windows (#2738) sit in Chart, beside the other things the canvas
+      // paints — NOT in "View filters". A filter changes which work you are
+      // looking at; this changes only whether the window behind it is drawn.
+      ...(chart.setSprintBandsVisible
+        ? [
+            {
+              kind: 'checkbox' as const,
+              id: 'sprint-bands',
+              label: 'Sprint windows',
+              checked: chart.sprintBandsVisible !== false,
+              activate: () => chart.setSprintBandsVisible?.(!(chart.sprintBandsVisible !== false)),
+            },
+          ]
+        : []),
+    ],
+    radioGroup: { afterItemId: 'dependency-lines', label: taskNamesLabel, itemIds: radioIds },
+  };
+}
+
 export function ScheduleDisplayMenu({
   showCpOnly,
   setShowCpOnly,
@@ -328,58 +380,7 @@ export function ScheduleDisplayMenu({
     });
   }
 
-  if (chart) {
-    // The placement options and the sub-group label are both scoped to the
-    // active view (#2107): Grid omits the Timeline-only `left` option, and the
-    // label names the view so the value visibly differing across views reads as
-    // intentional ("Task names (Grid)") rather than a bug.
-    const taskNameOptions = TASK_NAME_OPTIONS;
-    const radioIds = taskNameOptions.map((o) => `task-name-${o.value}`);
-    const taskNamesLabel = `Task names (${chart.viewMode === 'grid' ? 'Grid' : 'Timeline'})`;
-    sections.push({
-      id: 'chart',
-      label: 'Chart',
-      items: [
-        {
-          kind: 'checkbox',
-          id: 'dependency-lines',
-          label: 'Dependency lines',
-          checked: chart.dependencyLinesVisible,
-          activate: () => chart.setDependencyLinesVisible(!chart.dependencyLinesVisible),
-        },
-        ...taskNameOptions.map((o) => ({
-          kind: 'radio' as const,
-          id: `task-name-${o.value}`,
-          label: o.label,
-          checked: chart.taskNamePlacement === o.value,
-          activate: () => chart.setTaskNamePlacement(o.value),
-        })),
-        {
-          kind: 'checkbox',
-          id: 'progress-pills',
-          label: 'Progress %',
-          checked: chart.progressPillsVisible,
-          activate: () => chart.setProgressPillsVisible(!chart.progressPillsVisible),
-        },
-        // Sprint windows (#2738) sit in Chart, beside the other things the canvas
-        // paints — NOT in "View filters". A filter changes which work you are
-        // looking at; this changes only whether the window behind it is drawn.
-        ...(chart.setSprintBandsVisible
-          ? [
-              {
-                kind: 'checkbox' as const,
-                id: 'sprint-bands',
-                label: 'Sprint windows',
-                checked: chart.sprintBandsVisible !== false,
-                activate: () =>
-                  chart.setSprintBandsVisible?.(!(chart.sprintBandsVisible !== false)),
-              },
-            ]
-          : []),
-      ],
-      radioGroup: { afterItemId: 'dependency-lines', label: taskNamesLabel, itemIds: radioIds },
-    });
-  }
+  if (chart) sections.push(buildChartSection(chart));
 
   // Flatten to a single roving list — section headings are not focusable.
   const items = sections.flatMap((s) => s.items);

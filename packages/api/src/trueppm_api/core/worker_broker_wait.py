@@ -113,12 +113,11 @@ def wait_for_broker(
         except (redis.RedisError, OSError) as exc:
             failures += 1
             if monotonic() >= deadline:
-                logger.error(
-                    "worker_broker_wait: broker still unreachable after %.0fs (%d attempts): %s — "
+                logger.exception(
+                    "worker_broker_wait: broker still unreachable after %.0fs (%d attempts) — "
                     "exiting so the container restarts cleanly (#3722)",
                     budget_seconds,
                     failures,
-                    exc,
                 )
                 raise SystemExit(1) from exc
             logger.warning(

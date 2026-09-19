@@ -279,6 +279,75 @@ function useBrowseSwitcherDismiss(
   }, [switchOpen, setSwitchOpen, switchTriggerRef, switchPanelRef]);
 }
 
+function indexById<T extends { id: string }>(items: readonly T[] | undefined): Map<string, T> {
+  const m = new Map<string, T>();
+  for (const item of items ?? []) m.set(item.id, item);
+  return m;
+}
+
+/**
+ * Identity comes from the pins endpoint; health and the open-task count are
+ * enrichments from the already-loaded project list. A pinned project beyond
+ * the page ceiling still renders — it just shows a hollow 'unknown' dot and no
+ * count, which is the honest rendering of "we have the name but not the
+ * annotations" and matches how any un-annotated project row already behaves.
+ */
+function buildPinnedProjects(
+  pinnedItems: readonly PinnedItem[] | undefined,
+  projectById: ReadonlyMap<string, ProjectListItem>,
+): PinnedProjectRow[] {
+  return (pinnedItems ?? [])
+    .filter((i) => i.kind === 'project')
+    .map((i) => {
+      const loaded = projectById.get(i.id);
+      return {
+        id: i.id,
+        name: i.name,
+        healthState: (loaded?.healthState as HealthState | undefined) ?? 'unknown',
+        openTaskCount: loaded?.openTaskCount ?? null,
+        // Same enrichment caveat as health and the count above: a pinned project
+        // beyond the list page ceiling is not loaded, so it reads as not-draft.
+        // That is the honest rendering of "we have the name but not the
+        // annotations" — and it errs toward under-claiming rather than labelling a
+        // committed project a draft.
+        isDraft: loaded?.lifecycle === 'draft',
+      };
+    });
+}
+
+function settingsDestination(isWorkspaceAdmin: boolean): { to: string; label: string } {
+  return isWorkspaceAdmin
+    ? { to: '/settings', label: 'Workspace settings' }
+    : { to: '/me/settings/general', label: 'Personal settings' };
+}
+
+/** Drawer vs. desktop class/style variants for the rail's aside, body and Tier-2 wrapper. */
+function railLayout(isDrawer: boolean, sidebarWidth: number) {
+  return {
+    asideStyle: isDrawer
+      ? undefined
+      : { width: sidebarWidth, transition: 'width 200ms ease-out' },
+    asideClass: [
+      'flex flex-col h-full bg-chrome-surface overflow-hidden flex-shrink-0',
+      'border-r border-chrome-border/8',
+      isDrawer ? 'w-[248px]' : '',
+    ].join(' '),
+    bodyClass: [
+      'flex flex-1 flex-col min-h-0',
+      isDrawer ? 'overflow-y-auto overflow-x-hidden' : '',
+    ].join(' '),
+    tierWrapperClass: isDrawer ? 'contents' : 'relative flex min-h-0 flex-1 flex-col',
+    tierNavClass: [
+      'px-2 pb-2',
+      // Desktop: this tier is the scroll region and grows to fill. In the
+      // drawer the wrapper scrolls as one, so Tier 2 is plain in-flow content.
+      // `overscroll-contain` stops a wheel that reaches the end of this list
+      // from chaining into the page behind the rail.
+      isDrawer ? '' : 'flex-1 overflow-y-auto overflow-x-hidden overscroll-contain',
+    ].join(' '),
+  };
+}
+
 /**
  * The v2 left rail (ADR-0126) restructured into three role-scoped tiers (issue 1642):
  *
@@ -344,8 +413,8 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   // rather than flashing an admin route a member can't use. The tooltip names the
   // destination so the icon is never ambiguous about where it goes.
   const isWorkspaceAdmin = useIsWorkspaceAdmin() === true;
-  const settingsTo = isWorkspaceAdmin ? '/settings' : '/me/settings/general';
-  const settingsLabel = isWorkspaceAdmin ? 'Workspace settings' : 'Personal settings';
+  const { to: settingsTo, label: settingsLabel } = settingsDestination(isWorkspaceAdmin);
+  const rail = railLayout(isDrawer, sidebarWidth);
 
   const [showNewProject, setShowNewProject] = useState(false);
   // Which of NewProjectModal's two create actions is primary (#2710). Set by
@@ -394,17 +463,9 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   // region (#1688) so nothing competes for height there.
   const foldPersonalTier = !isDrawer && !collapsed && (projectId != null || programId != null);
 
-  const projectById = useMemo(() => {
-    const m = new Map<string, NonNullable<typeof projects>[number]>();
-    for (const p of projects ?? []) m.set(p.id, p);
-    return m;
-  }, [projects]);
+  const projectById = useMemo(() => indexById(projects), [projects]);
 
-  const programById = useMemo(() => {
-    const m = new Map<string, NonNullable<typeof programs>[number]>();
-    for (const prog of programs ?? []) m.set(prog.id, prog);
-    return m;
-  }, [programs]);
+  const programById = useMemo(() => indexById(programs), [programs]);
 
   // Pins come from the server as their own list (#2390, ADR-0627) rather than
   // being resolved by looking ids up in the loaded project/program lists. That
@@ -417,30 +478,8 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
     () => (pinnedItems ?? []).filter((i) => i.kind === 'program'),
     [pinnedItems],
   );
-  // Identity comes from the pins endpoint; health and the open-task count are
-  // enrichments from the already-loaded project list. A pinned project beyond
-  // the page ceiling still renders — it just shows a hollow 'unknown' dot and no
-  // count, which is the honest rendering of "we have the name but not the
-  // annotations" and matches how any un-annotated project row already behaves.
   const pinnedProjects = useMemo(
-    () =>
-      (pinnedItems ?? [])
-        .filter((i) => i.kind === 'project')
-        .map((i) => {
-          const loaded = projectById.get(i.id);
-          return {
-            id: i.id,
-            name: i.name,
-            healthState: (loaded?.healthState as HealthState | undefined) ?? 'unknown',
-            openTaskCount: loaded?.openTaskCount ?? null,
-            // Same enrichment caveat as health and the count above: a pinned project
-            // beyond the list page ceiling is not loaded, so it reads as not-draft.
-            // That is the honest rendering of "we have the name but not the
-            // annotations" — and it errs toward under-claiming rather than labelling a
-            // committed project a draft.
-            isDraft: loaded?.lifecycle === 'draft',
-          };
-        }),
+    () => buildPinnedProjects(pinnedItems, projectById),
     [pinnedItems, projectById],
   );
   const hasPins = pinnedProgramList.length > 0 || pinnedProjects.length > 0;
@@ -542,12 +581,8 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
         // improvement: the tab order now grows by the rail's item count in a
         // state where it previously grew by zero.
         data-collapsed={collapsed || undefined}
-        style={isDrawer ? undefined : { width: sidebarWidth, transition: 'width 200ms ease-out' }}
-        className={[
-          'flex flex-col h-full bg-chrome-surface overflow-hidden flex-shrink-0',
-          'border-r border-chrome-border/8',
-          isDrawer ? 'w-[248px]' : '',
-        ].join(' ')}
+        style={rail.asideStyle}
+        className={rail.asideClass}
       >
         <SidebarBrand isDrawer={isDrawer} collapsed={collapsed} onToggle={toggleSidebar} />
 
@@ -558,12 +593,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             aside with no way to reach the lower items (#1688) — is reachable. On
             desktop it is a transparent flex passthrough: Tier 2 owns its own scroll
             and Tier 3 is the fixed bottom bar with its Browse popover. */}
-        <div
-          className={[
-            'flex flex-1 flex-col min-h-0',
-            isDrawer ? 'overflow-y-auto overflow-x-hidden' : '',
-          ].join(' ')}
-        >
+        <div className={rail.bodyClass}>
           {/* Tier 1 — You: identity + the personal destinations. Renders collapsed
               too (ADR-0979 §2): "is anything waiting for me" is one of the three
               questions the icon rail exists to answer, and the counts that answer
@@ -588,18 +618,11 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             wrapper role to play — the whole tier column is one scroll region there
             (#1688) — so it takes `display: contents` and the DOM shape stays the
             same in both branches for every spec that walks the rail. */}
-          <div className={isDrawer ? 'contents' : 'relative flex min-h-0 flex-1 flex-col'}>
+          <div className={rail.tierWrapperClass}>
           <nav
             aria-label="Workspace navigation"
             ref={isDrawer ? undefined : setTierScroller}
-            className={[
-              'px-2 pb-2',
-              // Desktop: this tier is the scroll region and grows to fill. In the
-              // drawer the wrapper scrolls as one, so Tier 2 is plain in-flow content.
-              // `overscroll-contain` stops a wheel that reaches the end of this list
-              // from chaining into the page behind the rail.
-              isDrawer ? '' : 'flex-1 overflow-y-auto overflow-x-hidden overscroll-contain',
-            ].join(' ')}
+            className={rail.tierNavClass}
           >
             {(projectId && !projectUnavailable ? (
               <ProjectViewsTier

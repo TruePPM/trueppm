@@ -182,17 +182,7 @@ function toDays(count: number, unit: string | undefined, hoursPerDay: number): n
   return count;
 }
 
-/**
- * Lift every token out of a raw draft. Pure lexing — no roster, no task list, so
- * the result is decidable from the input alone.
- *
- * Tokens come back sorted by position, which is what lets `stripTokens` remove them
- * without re-scanning and lets the renderer segment the string in one pass.
- */
-export function parseAuthoringTokens(
-  raw: string,
-  hoursPerDay: number = DEFAULT_HOURS_PER_DAY,
-): AnyAuthoringToken[] {
+function lexDurationTokens(raw: string, hoursPerDay: number): AnyAuthoringToken[] {
   const tokens: AnyAuthoringToken[] = [];
 
   // A fresh RegExp per call: a module-level /g regex carries `lastIndex` across
@@ -215,23 +205,11 @@ export function parseAuthoringTokens(
         : { kind: 'duration', raw: m[1], start, query: m[2], days };
     tokens.push(durationToken);
   }
+  return tokens;
+}
 
-  for (const m of raw.matchAll(new RegExp(PREDECESSOR_RE.source, 'gi'))) {
-    const query = (m[2] ?? m[3] ?? '').trim();
-    if (!query) continue;
-    const lagCount = m[5] ? Number.parseInt(m[5], 10) : 0;
-    const predecessorToken: PredecessorToken = {
-      kind: 'predecessor',
-      raw: m[1],
-      start: m.index + m[0].indexOf(m[1]),
-      query,
-      lag: toDays(lagCount, m[6], hoursPerDay),
-      // Omitted means FS — the default, and by far the common case.
-      depType: (m[4]?.toUpperCase() as DependencyType | undefined) ?? 'FS',
-    };
-    tokens.push(predecessorToken);
-  }
-
+function lexDeliveryModeTokens(raw: string): AnyAuthoringToken[] {
+  const tokens: AnyAuthoringToken[] = [];
   for (const m of raw.matchAll(new RegExp(DELIVERY_MODE_RE.source, 'g'))) {
     const word = m[2].toLowerCase();
     const mode = DELIVERY_MODE_ALIASES[word];
@@ -257,6 +235,41 @@ export function parseAuthoringTokens(
     };
     tokens.push(modeToken);
   }
+  return tokens;
+}
+
+/**
+ * Lift every token out of a raw draft. Pure lexing — no roster, no task list, so
+ * the result is decidable from the input alone.
+ *
+ * Tokens come back sorted by position, which is what lets `stripTokens` remove them
+ * without re-scanning and lets the renderer segment the string in one pass.
+ */
+export function parseAuthoringTokens(
+  raw: string,
+  hoursPerDay: number = DEFAULT_HOURS_PER_DAY,
+): AnyAuthoringToken[] {
+  const tokens: AnyAuthoringToken[] = [];
+
+  tokens.push(...lexDurationTokens(raw, hoursPerDay));
+
+  for (const m of raw.matchAll(new RegExp(PREDECESSOR_RE.source, 'gi'))) {
+    const query = (m[2] ?? m[3] ?? '').trim();
+    if (!query) continue;
+    const lagCount = m[5] ? Number.parseInt(m[5], 10) : 0;
+    const predecessorToken: PredecessorToken = {
+      kind: 'predecessor',
+      raw: m[1],
+      start: m.index + m[0].indexOf(m[1]),
+      query,
+      lag: toDays(lagCount, m[6], hoursPerDay),
+      // Omitted means FS — the default, and by far the common case.
+      depType: (m[4]?.toUpperCase() as DependencyType | undefined) ?? 'FS',
+    };
+    tokens.push(predecessorToken);
+  }
+
+  tokens.push(...lexDeliveryModeTokens(raw));
 
   for (const m of raw.matchAll(new RegExp(PARENT_RE.source, 'g'))) {
     const query = m[2].trim();

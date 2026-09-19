@@ -1521,6 +1521,49 @@ function ActiveSprintBacklog({
   );
 }
 
+function PlannedCapacitySlot({
+  capacity,
+  committed,
+  capacityPoints,
+}: {
+  capacity: CapacityQuery;
+  committed: number;
+  capacityPoints: ApiSprint['capacity_points'];
+}) {
+  if (capacity.data) {
+    return (
+      <CapacityPreflight
+        capacity={capacity.data}
+        points={{ committed, capacity: capacityPoints }}
+      />
+    );
+  }
+  if (capacity.isError) {
+    return (
+      <QueryErrorState
+        variant="inline"
+        message="Couldn't load capacity."
+        onRetry={() => void capacity.refetch()}
+      />
+    );
+  }
+  return <ChartSkeleton label="Capacity Preflight" />;
+}
+
+function VelocitySlot({ velocity }: { velocity: VelocityQuery }) {
+  if (velocity.data) return <VelocityPanel velocity={velocity.data} />;
+  if (velocity.isError) {
+    return (
+      <QueryErrorState
+        variant="inline"
+        message="Couldn't load velocity."
+        onRetry={() => void velocity.refetch()}
+      />
+    );
+  }
+  return <ChartSkeleton label="Velocity" />;
+}
+
 /** PLANNED unified surface (#495, ADR-0094 §1): priority-ordered backlog on the
  *  left; capacity gauge (#864 points chip + footer), incoming carryover preview
  *  (#865), and a collapsed velocity panel on the right. */
@@ -1575,23 +1618,11 @@ function PlannedSprintSurface({
         />
       </div>
       <div className="lg:col-span-2 flex flex-col gap-4">
-        {plannedCapacity.data ? (
-          <CapacityPreflight
-            capacity={plannedCapacity.data}
-            points={{
-              committed: plannedDraftPoints,
-              capacity: plannedSprint.capacity_points,
-            }}
-          />
-        ) : plannedCapacity.isError ? (
-          <QueryErrorState
-            variant="inline"
-            message="Couldn't load capacity."
-            onRetry={() => void plannedCapacity.refetch()}
-          />
-        ) : (
-          <ChartSkeleton label="Capacity Preflight" />
-        )}
+        <PlannedCapacitySlot
+          capacity={plannedCapacity}
+          committed={plannedDraftPoints}
+          capacityPoints={plannedSprint.capacity_points}
+        />
         <IncomingCarryoverCard
           sprintId={plannedSprint.id}
           currentSprintShortId={plannedSprint.short_id_display}
@@ -1616,17 +1647,7 @@ function PlannedSprintSurface({
             Velocity
           </summary>
           <div className="px-4 pb-4">
-            {velocity.data ? (
-              <VelocityPanel velocity={velocity.data} />
-            ) : velocity.isError ? (
-              <QueryErrorState
-                variant="inline"
-                message="Couldn't load velocity."
-                onRetry={() => void velocity.refetch()}
-              />
-            ) : (
-              <ChartSkeleton label="Velocity" />
-            )}
+            <VelocitySlot velocity={velocity} />
           </div>
         </details>
       </div>

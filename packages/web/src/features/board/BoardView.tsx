@@ -42,6 +42,7 @@ import {
   useCallback,
   useMemo,
   type CSSProperties,
+  type RefObject,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
@@ -1556,6 +1557,84 @@ function useBoardDensity() {
 // Mobile snap-scroll board (v3 case 8)
 // ---------------------------------------------------------------------------
 
+function composeDestinationLabelFor(
+  isQueueLayout: boolean,
+  mobileActiveStatus: TaskStatus,
+  columns: ReadonlyArray<{ status: TaskStatus; label: string }>,
+): string {
+  if (isQueueLayout) return 'Backlog';
+  return columns.find((c) => c.status === mobileActiveStatus)?.label ?? 'Board';
+}
+
+interface MobileComposeControlsProps {
+  projectId: string | null | undefined;
+  readOnly: boolean;
+  composeOpen: boolean;
+  fabRef: RefObject<HTMLButtonElement | null>;
+  onOpen: () => void;
+  destinationLabel: string;
+  onCommit: (name: string, opts?: { onError?: () => void }) => void;
+  isPending: boolean;
+  onClose: () => void;
+}
+
+/**
+ * Mobile FAB (issue 605, retargeted #2952) — opens the touch compose bar
+ * targeting the group in view: BACKLOG under the Queue layout, else the
+ * snapped-to status column. `md:hidden` keeps it phone-only; the desktop
+ * lane "+" affordances cover create above the breakpoint.
+ *
+ * `!readOnly` is new and is a fix, not a tightening: the FAB was gated on
+ * `projectId` alone while every other write affordance on this board
+ * (lane "+", rail capture, drag, Move-to) already honored `readOnly`, so
+ * a Viewer on a phone — and anyone on a closed sprint — got a live "+"
+ * that opened a create form the server would refuse. Web rule 302: no
+ * rights means the apparatus is ABSENT, not disabled.
+ *
+ * The bar replaces the FAB while it is open rather than sitting under it
+ * — two "add a task" controls on a phone screen is the multiplicity this
+ * package exists to remove.
+ */
+function MobileComposeControls({
+  projectId,
+  readOnly,
+  composeOpen,
+  fabRef,
+  onOpen,
+  destinationLabel,
+  onCommit,
+  isPending,
+  onClose,
+}: MobileComposeControlsProps) {
+  if (!projectId || readOnly) return null;
+  if (composeOpen) {
+    return (
+      <MobileComposeBar
+        destinationLabel={destinationLabel}
+        onCommit={onCommit}
+        isPending={isPending}
+        onClose={onClose}
+      />
+    );
+  }
+  return (
+    <button
+      ref={fabRef}
+      type="button"
+      onClick={onOpen}
+      title="Add task"
+      className="fixed bottom-16 right-4 w-14 h-14 rounded-full bg-brand-primary
+            border border-brand-primary-dark text-neutral-text-inverse flex items-center justify-center
+            text-2xl font-light md:hidden z-10
+            focus:ring-2 focus:ring-white focus:ring-offset-2
+            focus:ring-offset-brand-primary"
+      aria-label="Add task"
+    >
+      +
+    </button>
+  );
+}
+
 export function BoardView() {
   // document.title for this route is set at the router level (router.tsx
   // `handle.title`) — see RouteTitle (issue 1915, completes #1327 A4).
@@ -2854,10 +2933,11 @@ export function BoardView() {
   // it (see `MobileComposeBar`).
   const composeStatus: TaskStatus =
     effectiveLayout === 'queue' ? 'BACKLOG' : mobileActiveStatus;
-  const composeDestinationLabel =
-    effectiveLayout === 'queue'
-      ? 'Backlog'
-      : (COLUMNS.find((c) => c.status === mobileActiveStatus)?.label ?? 'Board');
+  const composeDestinationLabel = composeDestinationLabelFor(
+    effectiveLayout === 'queue',
+    mobileActiveStatus,
+    COLUMNS,
+  );
 
   const handleMobileFabAdd = useCallback(() => {
     setComposeOpen(true);
@@ -3401,49 +3481,21 @@ export function BoardView() {
         </DragOverlay>
       </DndContext>
 
-      {/* Mobile FAB (issue 605, retargeted #2952) — opens the touch compose bar
-          targeting the group in view: BACKLOG under the Queue layout, else the
-          snapped-to status column. `md:hidden` keeps it phone-only; the desktop
-          lane "+" affordances cover create above the breakpoint.
-
-          `!readOnly` is new and is a fix, not a tightening: the FAB was gated on
-          `projectId` alone while every other write affordance on this board
-          (lane "+", rail capture, drag, Move-to) already honored `readOnly`, so
-          a Viewer on a phone — and anyone on a closed sprint — got a live "+"
-          that opened a create form the server would refuse. Web rule 302: no
-          rights means the apparatus is ABSENT, not disabled. */}
-      {projectId && !readOnly && !composeOpen && (
-        <button
-          ref={composeFabRef}
-          type="button"
-          onClick={handleMobileFabAdd}
-          title="Add task"
-          className="fixed bottom-16 right-4 w-14 h-14 rounded-full bg-brand-primary
-            border border-brand-primary-dark text-neutral-text-inverse flex items-center justify-center
-            text-2xl font-light md:hidden z-10
-            focus:ring-2 focus:ring-white focus:ring-offset-2
-            focus:ring-offset-brand-primary"
-          aria-label="Add task"
-        >
-          +
-        </button>
-      )}
-
-      {/* The bar replaces the FAB while it is open rather than sitting under it
-          — two "add a task" controls on a phone screen is the multiplicity this
-          package exists to remove. */}
-      {projectId && !readOnly && composeOpen && (
-        <MobileComposeBar
-          destinationLabel={composeDestinationLabel}
-          onCommit={handleMobileCompose}
-          isPending={createTask.isPending}
-          onClose={() => {
-            setComposeOpen(false);
-            // The FAB re-mounts in the same commit; focus it once it exists.
-            requestAnimationFrame(() => composeFabRef.current?.focus());
-          }}
-        />
-      )}
+      <MobileComposeControls
+        projectId={projectId}
+        readOnly={readOnly}
+        composeOpen={composeOpen}
+        fabRef={composeFabRef}
+        onOpen={handleMobileFabAdd}
+        destinationLabel={composeDestinationLabel}
+        onCommit={handleMobileCompose}
+        isPending={createTask.isPending}
+        onClose={() => {
+          setComposeOpen(false);
+          // The FAB re-mounts in the same commit; focus it once it exists.
+          requestAnimationFrame(() => composeFabRef.current?.focus());
+        }}
+      />
 
       <BoardConfirmDialogs
         projectId={projectId}

@@ -42,6 +42,7 @@ import {
   useToggleComplete,
   useDuplicateTask,
   type GuardrailWarning,
+  type UpdateTaskPayload,
 } from '@/hooks/useTaskMutations';
 import { useCreateDependency } from '@/hooks/useDependencyMutations';
 import { formatRelative } from '@/lib/formatRelative';
@@ -103,6 +104,7 @@ import {
   cycleDependencyTypeInDraft,
   resolveAuthoringDraft,
   suggestionsForFragment,
+  type AuthoringDraftParse,
   type ParentCandidate,
   type PredecessorCandidate,
   type RowMenuItem,
@@ -536,6 +538,50 @@ function tryBuildModeFocusMove(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): bo
   return false;
 }
 
+function isUnmodifiedAlphanumericKey(e: React.KeyboardEvent): boolean {
+  return e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey && /[a-zA-Z0-9]/.test(e.key);
+}
+
+function deleteSelectedOrFocusedRows(authoring: BuildMode, focusedTaskId: string): void {
+  const selectedIds = authoring.focus.state.selectedIds;
+  if (selectedIds && selectedIds.size > 1) {
+    selectedIds.forEach((id) => authoring.deleteTask(id));
+  } else {
+    authoring.deleteTask(focusedTaskId);
+  }
+}
+
+/** The optional task fields a resolved Name-cell draft contributes to its PATCH. */
+function authoringDraftPatch(
+  parse: AuthoringDraftParse,
+): Pick<UpdateTaskPayload, 'owners' | 'duration' | 'is_milestone' | 'delivery_mode'> {
+  return {
+    ...(parse.owners.length > 0 ? { owners: ownerTokensToApiPayload(parse.owners) } : {}),
+    ...(parse.duration !== null ? { duration: parse.duration } : {}),
+    ...(parse.isMilestone ? { is_milestone: true } : {}),
+    // delivery_mode is sent only when the row did not resolve to a
+    // milestone: the two are coupled server-side, so sending both would
+    // re-litigate a conflict the parser has already settled.
+    ...(parse.deliveryMode && !parse.isMilestone ? { delivery_mode: parse.deliveryMode } : {}),
+  };
+}
+
+/**
+ * Indent / outdent / milestone-toggle handlers for the row's structure nudges.
+ * Absent, not disabled, without edit rights — web rule 302 (#2949).
+ */
+function structureNudgeHandlers(authoring: BuildMode | null, task: Task) {
+  if (!authoring) {
+    return { onIndent: undefined, onOutdent: undefined, onToggleMilestone: undefined };
+  }
+  return {
+    onIndent: () => authoring.indent(task.id),
+    onOutdent: () => authoring.outdent(task.id),
+    onToggleMilestone: () =>
+      task.isMilestone ? authoring.convertToTask(task.id) : authoring.convertToMilestone(task.id),
+  };
+}
+
 /**
  * Build-mode keyboard reducer for a task row. Handles Option/Alt+↑/↓ sibling
  * reorder (#347), Option/Alt+→/← indent/outdent (#2727), arrow-key row focus
@@ -563,14 +609,7 @@ function handleBuildModeKeyDown(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): v
   // Letter key (single printable, not modified) opens Name cell-edit
   // pre-filled with the typed letter — but we keep it simple in v1 and
   // just enter cell-edit; the user re-types if they want to overwrite.
-  if (
-    authoring &&
-    e.key.length === 1 &&
-    !e.metaKey &&
-    !e.ctrlKey &&
-    !e.altKey &&
-    /[a-zA-Z0-9]/.test(e.key)
-  ) {
+  if (authoring && isUnmodifiedAlphanumericKey(e)) {
     e.preventDefault();
     authoring.focus.enterCellEdit(task.id, 'name');
     return;
@@ -583,12 +622,7 @@ function handleBuildModeKeyDown(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): v
     e.preventDefault();
     // Structural keys apply to every selected row when a multi-row selection
     // is active (#2727, ADR-0776 §1).
-    const selectedIds = authoring.focus.state.selectedIds;
-    if (selectedIds && selectedIds.size > 1) {
-      selectedIds.forEach((id) => authoring.deleteTask(id));
-    } else {
-      authoring.deleteTask(task.id);
-    }
+    deleteSelectedOrFocusedRows(authoring, task.id);
     return;
   }
   // Esc clears focus.
@@ -2962,17 +2996,7 @@ function TaskListRowInner({
           canOutdent={level > 1}
           isMilestone={task.isMilestone}
           isSummary={task.isSummary}
-          // Absent, not disabled, without edit rights — web rule 302 (#2949).
-          onIndent={authoring ? () => authoring.indent(task.id) : undefined}
-          onOutdent={authoring ? () => authoring.outdent(task.id) : undefined}
-          onToggleMilestone={
-            authoring
-              ? () =>
-                  task.isMilestone
-                    ? authoring.convertToTask(task.id)
-                    : authoring.convertToMilestone(task.id)
-              : undefined
-          }
+          {...structureNudgeHandlers(authoring, task)}
         />
       )}
 
@@ -3512,15 +3536,7 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
               id: task.id,
               projectId,
               name: parse.name || parsed,
-              ...(parse.owners.length > 0 ? { owners: ownerTokensToApiPayload(parse.owners) } : {}),
-              ...(parse.duration !== null ? { duration: parse.duration } : {}),
-              ...(parse.isMilestone ? { is_milestone: true } : {}),
-              // delivery_mode is sent only when the row did not resolve to a
-              // milestone: the two are coupled server-side, so sending both would
-              // re-litigate a conflict the parser has already settled.
-              ...(parse.deliveryMode && !parse.isMilestone
-                ? { delivery_mode: parse.deliveryMode }
-                : {}),
+              ...authoringDraftPatch(parse),
             });
             // `parent` and `predecessors` are NOT writable on the task serializer —
             // `parent_id` is explicitly read-only and the only dependency field is a

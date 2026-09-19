@@ -351,6 +351,9 @@ _CPM_OUTPUT_RECOMPUTED: frozenset[str] = frozenset(
 # Tier 3 — deliberately untouched
 # ---------------------------------------------------------------------------
 
+_CPM_OUTPUT_REASON = "CPM output — recomputed (Tier 2)."
+_TOMBSTONE_REASON = "Soft-delete tombstone."
+
 #: Dated columns the loader writes that this shift does **not** move, each with
 #: the reason. Every entry here is a decision, not an oversight — the test suite
 #: asserts that every dated field on every loader-written model appears in
@@ -366,17 +369,17 @@ _DELIBERATELY_UNSHIFTED: dict[str, str] = {
         "Nulled rather than moved — the CPM pass is re-run, not relocated."
     ),
     "projects.Task.deleted_at": "Soft-delete tombstone; see Project.deleted_at.",
-    "projects.Task.early_start": "CPM output — recomputed (Tier 2).",
-    "projects.Task.early_finish": "CPM output — recomputed (Tier 2).",
-    "projects.Task.late_start": "CPM output — recomputed (Tier 2).",
-    "projects.Task.late_finish": "CPM output — recomputed (Tier 2).",
-    "projects.Task.scheduled_start": "CPM output — recomputed (Tier 2).",
-    "projects.Dependency.deleted_at": "Soft-delete tombstone.",
-    "projects.TaskComment.deleted_at": "Soft-delete tombstone.",
-    "projects.TaskNote.deleted_at": "Soft-delete tombstone.",
-    "projects.TaskAttachment.deleted_at": "Soft-delete tombstone.",
-    "projects.TaskRelation.deleted_at": "Soft-delete tombstone.",
-    "timetracking.TimeEntry.deleted_at": "Soft-delete tombstone.",
+    "projects.Task.early_start": _CPM_OUTPUT_REASON,
+    "projects.Task.early_finish": _CPM_OUTPUT_REASON,
+    "projects.Task.late_start": _CPM_OUTPUT_REASON,
+    "projects.Task.late_finish": _CPM_OUTPUT_REASON,
+    "projects.Task.scheduled_start": _CPM_OUTPUT_REASON,
+    "projects.Dependency.deleted_at": _TOMBSTONE_REASON,
+    "projects.TaskComment.deleted_at": _TOMBSTONE_REASON,
+    "projects.TaskNote.deleted_at": _TOMBSTONE_REASON,
+    "projects.TaskAttachment.deleted_at": _TOMBSTONE_REASON,
+    "projects.TaskRelation.deleted_at": _TOMBSTONE_REASON,
+    "timetracking.TimeEntry.deleted_at": _TOMBSTONE_REASON,
     "projects.Program.closed_at": "Lifecycle fact, not plan.",
     "projects.Program.created_at": (
         "When the program row was minted. Moving it would claim the demo was "

@@ -300,8 +300,9 @@ RATE_LIMIT_ENABLED, _rate_limit_switch_message = resolve_rate_limit_enabled(
     requested_enabled=env.bool("TRUEPPM_RATE_LIMIT_ENABLED", default=True),
     ack=env("TRUEPPM_RATE_LIMIT_DISABLE_ACK", default=""),
 )
+_settings_log = logging.getLogger("trueppm.settings")
 if _rate_limit_switch_message:
-    logging.getLogger("trueppm.settings").critical(_rate_limit_switch_message)
+    _settings_log.critical(_rate_limit_switch_message)
 
 # Origins trusted for cross-origin POST / CSRF — required when the web app is
 # served from a different origin than the API (split dev setup or subdomain
@@ -899,9 +900,9 @@ _refresh_cookie_samesite_resolution = resolve_refresh_cookie_samesite(
 )
 AUTH_REFRESH_COOKIE_SAMESITE = _refresh_cookie_samesite_resolution.value
 if _refresh_cookie_samesite_resolution.warning:
-    logging.getLogger("trueppm.settings").warning(_refresh_cookie_samesite_resolution.warning)
+    _settings_log.warning(_refresh_cookie_samesite_resolution.warning)
 if _refresh_cookie_samesite_resolution.critical:
-    logging.getLogger("trueppm.settings").critical(_refresh_cookie_samesite_resolution.critical)
+    _settings_log.critical(_refresh_cookie_samesite_resolution.critical)
 # Default Secure=True; dev settings flip this to False for plain-HTTP localhost.
 AUTH_REFRESH_COOKIE_SECURE = env.bool(
     "TRUEPPM_AUTH_REFRESH_COOKIE_SECURE",

@@ -583,6 +583,22 @@ class _LoginResponseSerializer(serializers.Serializer):  # type: ignore[type-arg
     access = serializers.CharField()
 
 
+def _resolve_login_email_fallback(body: Any) -> str | None:
+    """Resolve a failed username login's identifier as an email, or ``None``.
+
+    When the identifier looks like an email but matches no account, burns an
+    equivalent password hash so the refusal costs the same as a wrong password and
+    does not reveal whether an account carries that email.
+    """
+    identifier = _submitted_identifier(body)
+    if not _looks_like_email(identifier):
+        return None
+    resolved = _resolve_email_identifier(identifier)
+    if resolved is None:
+        _burn_equivalent_password_hash(body)
+    return resolved
+
+
 class CookieTokenObtainPairView(TokenObtainPairView):
     """JWT login: return the access token in the body, refresh in an httpOnly cookie.
 
@@ -638,12 +654,7 @@ class CookieTokenObtainPairView(TokenObtainPairView):
             # on purpose. A backend would widen every ``authenticate()`` caller in the
             # process — the Django admin login among them — and would bypass this
             # view's post-authentication policy seam below.
-            identifier = _submitted_identifier(request.data)
-            resolved = None
-            if _looks_like_email(identifier):
-                resolved = _resolve_email_identifier(identifier)
-                if resolved is None:
-                    _burn_equivalent_password_hash(request.data)
+            resolved = _resolve_login_email_fallback(request.data)
             if resolved is None:
                 _emit_login_failure_event(request)
                 raise

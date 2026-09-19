@@ -528,10 +528,15 @@ def _check_agent_actions(items: list[dict[str, Any]], ctx: _RefContext, errors: 
                     errors.append(f"{base}.{key}: only a refused action carries a refusal")
 
 
+_ACTION_TIME_LOG = "time.log"
+_ACTION_TASK_REACT = "task.react"
+_ACTION_TASK_ACK = "task.ack"
+_ACTION_TASK_COMMENT = "task.comment"
+
 # Actions whose attribution is the whole fact: a time entry, a reaction or an
 # acknowledgement by nobody in particular is not something to fall back to the
 # importing owner for, so each must name its actor.
-_ACTOR_REQUIRED = frozenset({"time.log", "task.react", "task.ack"})
+_ACTOR_REQUIRED = frozenset({_ACTION_TIME_LOG, _ACTION_TASK_REACT, _ACTION_TASK_ACK})
 
 
 def _v21_event_errors(payload: dict[str, Any]) -> list[str]:
@@ -543,7 +548,7 @@ def _v21_event_errors(payload: dict[str, Any]) -> list[str]:
     roots: dict[str, str] = {}
     replies: set[str] = set()
     for i, event in enumerate(events):
-        if event.get("action") != "task.comment" or "slug" not in event:
+        if event.get("action") != _ACTION_TASK_COMMENT or "slug" not in event:
             continue
         slug = event["slug"]
         if slug in roots or slug in replies:
@@ -564,17 +569,17 @@ def _v21_event_errors(payload: dict[str, Any]) -> list[str]:
         base = f"$.events[{i}]"
         action = event.get("action")
         _check_reply_to(event, action, base, roots, replies, errors)
-        if action in ("task.react", "task.ack"):
+        if action in (_ACTION_TASK_REACT, _ACTION_TASK_ACK):
             _, _, slug = str(event.get("target", "")).partition(":")
             if slug and slug not in roots and slug not in replies:
                 errors.append(f"{base}.target: no comment with slug {slug!r}")
         if action in _ACTOR_REQUIRED and not event.get("actor"):
             errors.append(f"{base}.actor: {action} must name the account it is attributed to")
-        if action == "task.react" and "emoji" not in event:
+        if action == _ACTION_TASK_REACT and "emoji" not in event:
             errors.append(f"{base}.emoji: task.react requires an emoji")
         if action == "task.note" and not event.get("body"):
             errors.append(f"{base}.body: task.note requires a body")
-        if action == "time.log":
+        if action == _ACTION_TIME_LOG:
             _check_time_log(event, base, errors)
         if "criterion" in event:
             _check_criterion(event, action, base, criteria_count, errors)
@@ -593,7 +598,7 @@ def _check_reply_to(
     reply_to = event.get("reply_to")
     if reply_to is None:
         return
-    if action != "task.comment":
+    if action != _ACTION_TASK_COMMENT:
         errors.append(f"{base}.reply_to: only task.comment may reply to a comment")
     elif reply_to in replies:
         errors.append(
@@ -647,16 +652,16 @@ def _check_criterion(
 # is treated as target-optional so validation degrades gracefully.
 _EVENT_TARGET_KIND = {
     "task.note": "task",
-    "time.log": "task",
+    _ACTION_TIME_LOG: "task",
     # A reaction/acknowledgement lands on a comment, addressed by the slug a
     # task.comment beat declared. Resolution is checked in _v21_event_errors.
-    "task.react": "comment",
-    "task.ack": "comment",
+    _ACTION_TASK_REACT: "comment",
+    _ACTION_TASK_ACK: "comment",
     "task.status": "task",
     "task.assign": "task",
     "task.estimate": "task",
     "task.points": "task",
-    "task.comment": "task",
+    _ACTION_TASK_COMMENT: "task",
     "task.ac_met": "task",
     "task.block": "task",
     "task.unblock": "task",

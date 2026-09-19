@@ -2622,12 +2622,7 @@ class McpReadableViewMixin(_McpViewBase):
             return
 
         from trueppm_api.apps.agents.deferred import queue_agent_action
-        from trueppm_api.apps.agents.models import (
-            AgentActionRefusalReason,
-            AgentActionVerdict,
-            AgentActorKind,
-            RefusalConstraint,
-        )
+        from trueppm_api.apps.agents.models import AgentActionVerdict, AgentActorKind
         from trueppm_api.apps.agents.services import (
             hash_request_payload,
             record_agent_action,
@@ -2646,25 +2641,7 @@ class McpReadableViewMixin(_McpViewBase):
             # until the enum grows an error member.
             return
         verdict = AgentActionVerdict.ALLOWED if allowed else AgentActionVerdict.REFUSED
-        # An authenticated token rejected by an MCP guard is a *policy* refusal (the
-        # actor is known; a capability/scope check denied it). The finer constraint
-        # (ADR-0421, #1850) is capability_scope — an MCP-scope denial carries no schedule
-        # projected impact, so its side-car impact stays empty.
-        refusal_reason = "" if allowed else AgentActionRefusalReason.POLICY
-        refusal_constraint = "" if allowed else RefusalConstraint.CAPABILITY_SCOPE
-        if not allowed:
-            # Prefer what the guard that actually denied recorded (#2689). The
-            # response body is built from the same marks, so the wire and the
-            # audit row can never disagree about why a call was refused — which
-            # they would if this kept assuming capability_scope while the caller
-            # was told token_identity.
-            from trueppm_api.apps.agents.refusal import refusal_marks
-
-            marks = refusal_marks(request)
-            if marks is not None:
-                marked_reason, marked_constraint = marks
-                refusal_reason = marked_reason or refusal_reason
-                refusal_constraint = marked_constraint or refusal_constraint
+        refusal_reason, refusal_constraint = self._mcp_refusal_classification(request, allowed)
 
         action, object_type, object_id, project_id = self._mcp_audit_target(request)
         summary = f"MCP {request.method} {action}"
@@ -2714,6 +2691,35 @@ class McpReadableViewMixin(_McpViewBase):
         # which is exactly why this log contained only successes (#3017). Queue it for
         # AgentActionAuditMiddleware, which runs after ATOMIC_REQUESTS has closed.
         queue_agent_action(request, **audit_kwargs)
+
+    def _mcp_refusal_classification(self, request: Request, allowed: bool) -> tuple[str, str]:
+        """Return the ``(refusal_reason, refusal_constraint)`` for an MCP audit row.
+
+        Both are empty for an allowed read.
+        """
+        from trueppm_api.apps.agents.models import AgentActionRefusalReason, RefusalConstraint
+
+        if allowed:
+            return "", ""
+        # An authenticated token rejected by an MCP guard is a *policy* refusal (the
+        # actor is known; a capability/scope check denied it). The finer constraint
+        # (ADR-0421, #1850) is capability_scope — an MCP-scope denial carries no schedule
+        # projected impact, so its side-car impact stays empty.
+        refusal_reason: str = AgentActionRefusalReason.POLICY
+        refusal_constraint: str = RefusalConstraint.CAPABILITY_SCOPE
+        # Prefer what the guard that actually denied recorded (#2689). The
+        # response body is built from the same marks, so the wire and the
+        # audit row can never disagree about why a call was refused — which
+        # they would if this kept assuming capability_scope while the caller
+        # was told token_identity.
+        from trueppm_api.apps.agents.refusal import refusal_marks
+
+        marks = refusal_marks(request)
+        if marks is not None:
+            marked_reason, marked_constraint = marks
+            refusal_reason = marked_reason or refusal_reason
+            refusal_constraint = marked_constraint or refusal_constraint
+        return refusal_reason, refusal_constraint
 
     def _mcp_audit_target(self, request: Request) -> tuple[str, str, str, Any | None]:
         """Best-effort ``(action, object_type, object_id, project_id)`` for the audit row.

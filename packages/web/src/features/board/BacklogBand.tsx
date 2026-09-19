@@ -443,6 +443,19 @@ function BacklogCardMenu({
   );
 }
 
+function backlogCardAriaLabel(task: Task): string {
+  const priority = task.priorityRank ? `, priority ${task.priorityRank}` : '';
+  return `${task.name}, backlog idea${priority}`;
+}
+
+function backlogCardHasMenu(
+  onSchedule: BacklogCardProps['onSchedule'],
+  onFileUnder: BacklogCardProps['onFileUnder'],
+  fileUnderTargets: BacklogCardProps['fileUnderTargets'] = [],
+): boolean {
+  return Boolean(onSchedule) || (typeof onFileUnder === 'function' && fileUnderTargets.length > 0);
+}
+
 export function BacklogCard({
   task,
   density,
@@ -461,8 +474,7 @@ export function BacklogCard({
   // actions to offer, and the card's reserved corner padding has to follow the
   // same condition or a menu-less card carries a gap for a button that isn't
   // there (and a menu-bearing one lets its title run under the ···).
-  const hasMenu =
-    Boolean(onSchedule) || (typeof onFileUnder === 'function' && fileUnderTargets.length > 0);
+  const hasMenu = backlogCardHasMenu(onSchedule, onFileUnder, fileUnderTargets);
   const readiness: TaskReadiness = task.readiness ?? 'idea';
   const isIdeaTone = readiness === 'idea';
   const focusRing = isFocused ? 'ring-2 ring-brand-primary' : '';
@@ -495,9 +507,7 @@ export function BacklogCard({
         <button
           ref={setNodeRef}
           type="button"
-          aria-label={`${task.name}, backlog idea${
-            task.priorityRank ? `, priority ${task.priorityRank}` : ''
-          }`}
+          aria-label={backlogCardAriaLabel(task)}
           onFocus={onFocus}
           onClick={(e) => onClick(e.currentTarget)}
           {...dragProps}
@@ -529,9 +539,7 @@ export function BacklogCard({
       <button
         ref={setNodeRef}
         type="button"
-        aria-label={`${task.name}, backlog idea${
-          task.priorityRank ? `, priority ${task.priorityRank}` : ''
-        }`}
+        aria-label={backlogCardAriaLabel(task)}
         onFocus={onFocus}
         onClick={(e) => onClick(e.currentTarget)}
         {...dragProps}
@@ -735,6 +743,18 @@ function NoBacklogMatchesHint({
   );
 }
 
+function canFileUnderTargets(
+  readOnly: boolean,
+  onFileUnder: BacklogBandProps['onFileUnder'],
+  fileUnderTargets: FileUnderTarget[],
+): boolean {
+  return !readOnly && typeof onFileUnder === 'function' && fileUnderTargets.length > 0;
+}
+
+function bandWidthFor(density: BacklogCardDensity): number {
+  return density === 'compact' ? 280 : 320;
+}
+
 export function BacklogBand({
   tasks,
   density = 'comfortable',
@@ -768,6 +788,7 @@ export function BacklogBand({
 
   const isExpanded = !collapsed || forcedExpand;
   const overTint = isOver && isDragActive;
+  const overTintClass = overTint ? 'bg-brand-primary/5' : '';
 
   // Sort by statusEnteredAt descending — most recent ideas land at the top.
   // Tasks without the field sort to the bottom (treated as oldest).
@@ -783,7 +804,7 @@ export function BacklogBand({
   // filter field is suppressed (⌘K still searches globally) and `query` stays ''.
   const canQuickCapture = typeof onQuickCapture === 'function' && !readOnly;
   // One predicate for the control AND for the sentence that describes it.
-  const canFileUnder = !readOnly && typeof onFileUnder === 'function' && fileUnderTargets.length > 0;
+  const canFileUnder = canFileUnderTargets(readOnly, onFileUnder, fileUnderTargets);
 
   // Filing an idea moves it out of BACKLOG, so the card — and the ··· trigger
   // that had focus — unmounts. Without this, focus falls to `document.body` and
@@ -838,7 +859,7 @@ export function BacklogBand({
           'flex flex-col items-center gap-3 py-4 cursor-pointer',
           'border-r border-neutral-border bg-neutral-surface-raised',
           'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset',
-          overTint ? 'bg-brand-primary/5' : '',
+          overTintClass,
         ].join(' ')}
         style={{ width: 44, flexShrink: 0 }}
       >
@@ -862,9 +883,9 @@ export function BacklogBand({
       aria-labelledby="backlog-rail-heading"
       className={[
         'flex flex-col min-h-0 border-r border-neutral-border bg-neutral-surface-raised flex-shrink-0',
-        overTint ? 'bg-brand-primary/5' : '',
+        overTintClass,
       ].join(' ')}
-      style={{ width: density === 'compact' ? 280 : 320 }}
+      style={{ width: bandWidthFor(density) }}
     >
       {/* Header — eyebrow + count + collapse toggle */}
       <div className="flex items-center gap-2 px-4 pt-3.5 pb-2.5">

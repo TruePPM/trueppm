@@ -171,6 +171,9 @@ def _report_collisions(
 # ---------------------------------------------------------------------------
 
 _ST_MIG_REL = "packages/api/src/trueppm_api/apps/projects/migrations"
+_M0001 = "0001_initial.py"
+_M0002 = "0002_add_owner.py"
+_NO_COLLISIONS_MSG = "No migration-numbering collisions"
 
 
 def _st_migration(dep: str, *, replaces: bool = False) -> str:
@@ -255,18 +258,18 @@ def _self_test() -> int:
             "sequential migration",
             True,
             {
-                "0001_initial.py": _st_migration("0001_initial"),
-                "0002_add_owner.py": _st_migration("0001_initial"),
+                _M0001: _st_migration("0001_initial"),
+                _M0002: _st_migration("0001_initial"),
             },
             {"0003_add_baseline.py": _st_migration("0002_add_owner")},
-            "No migration-numbering collisions",
+            _NO_COLLISIONS_MSG,
         ),
         (
             "duplicate migration number",
             False,
             {
-                "0001_initial.py": _st_migration("0001_initial"),
-                "0002_add_owner.py": _st_migration("0001_initial"),
+                _M0001: _st_migration("0001_initial"),
+                _M0002: _st_migration("0001_initial"),
             },
             {"0002_add_baseline.py": _st_migration("0001_initial")},
             "reuses number 0002",
@@ -275,27 +278,27 @@ def _self_test() -> int:
             "squash re-occupying a replaced number",
             True,
             {
-                "0001_initial.py": _st_migration("0001_initial"),
-                "0002_add_owner.py": _st_migration("0001_initial"),
+                _M0001: _st_migration("0001_initial"),
+                _M0002: _st_migration("0001_initial"),
             },
             {
                 "0001_squashed_0002_add_owner.py": _st_migration(
                     "0001_initial", replaces=True
                 )
             },
-            "No migration-numbering collisions",
+            _NO_COLLISIONS_MSG,
         ),
         (
             "duplicate already resolved on the base",
             True,
             {
-                "0001_initial.py": _st_migration("0001_initial"),
+                _M0001: _st_migration("0001_initial"),
                 "0041_a_thing.py": _st_migration("0001_initial"),
                 "0041_b_thing.py": _st_migration("0001_initial"),
                 "0042_merge_0041_a_0041_b.py": _st_migration("0041_a_thing"),
             },
             {},
-            "No migration-numbering collisions",
+            _NO_COLLISIONS_MSG,
         ),
     ]
 

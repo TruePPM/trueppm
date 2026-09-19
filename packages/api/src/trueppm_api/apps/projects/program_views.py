@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from functools import partial
 from typing import Any, cast
@@ -597,6 +598,62 @@ _UNDECLARE_FILTER_PARAMS = [
 ]
 
 
+def _group_contention_assignments(rows: Iterable[Any]) -> list[dict[str, Any]]:
+    """Group assignment rows into per-resource span dicts, each span tagged with its project."""
+    resources_map: dict[str, dict[str, Any]] = {}
+    for assignment in rows:
+        resource = assignment.resource
+        rid = str(resource.id)
+        if rid not in resources_map:
+            # ``email`` is deliberately absent (#3599). This dict bypasses
+            # ``ResourceSerializer.to_representation``, which is where the #891
+            # harvest control lives, so echoing it here re-opened that control
+            # to anyone who can reach a project they created themselves.
+            resources_map[rid] = {
+                "id": rid,
+                "name": resource.name,
+                "max_units": str(resource.max_units),
+                "tasks": [],
+            }
+        task = assignment.task
+        resources_map[rid]["tasks"].append(
+            {
+                "assignment_id": str(assignment.id),
+                "id": str(task.id),
+                "name": task.name,
+                "project_id": str(task.project_id),
+                "project_name": task.project.name,
+                "early_start": task.early_start.isoformat() if task.early_start else None,
+                "early_finish": task.early_finish.isoformat() if task.early_finish else None,
+                # ADR-0752: the task's SPAN start, read-only CPM output.
+                # Null until the next recalculation after upgrade; the
+                # client falls back to early_start (same fallback the
+                # Coalesce above applies server-side for windowing).
+                "scheduled_start": task.scheduled_start.isoformat()
+                if task.scheduled_start
+                else None,
+                "units": str(assignment.units),
+                "status": task.status,
+            }
+        )
+
+    # Restore in Python the ordering the query no longer does in SQL
+    # (ADR-1118): resources by name, then each resource's spans by source
+    # project name and span start. `sorted` is stable and the DB already
+    # ordered within a resource by (project_id, early_start), so ties resolve
+    # deterministically. `early_start` is nullable — unscheduled spans sort
+    # last, matching Postgres' ASC NULLS LAST.
+    for row in resources_map.values():
+        row["tasks"].sort(
+            key=lambda t: (
+                t["project_name"],
+                t["early_start"] is None,
+                t["early_start"] or "",
+            )
+        )
+    return sorted(resources_map.values(), key=lambda r: r["name"])
+
+
 class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewSet[Program]):
     """CRUD for programs.
 
@@ -767,37 +824,42 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             # to agents. No effect on the POST — TokenReadOnlyMethods already refuses
             # a token there — and none on any human.
             return [IsAuthenticated(), IsProgramAdmin(), McpProgramExportConsent()]
-        if self.action in ("export_jobs", "export_job_detail", "export_job_download"):
-            # Async program export bundle list / poll / download (#1958, ADR-0219):
-            # Admin+, matching the POST enqueue. Available on closed programs;
-            # object-level cross-program IDOR (a job_id from another program) is
-            # closed in the action bodies via program-scoped lookups.
-            base = [IsAuthenticated(), IsProgramAdmin()]
-            if self.action == "export_job_download":
-                # Only the download streams child-project data (#3014). `export_jobs`
-                # and `export_job_detail` report job status, size and timestamps —
-                # program-level bookkeeping that names no child project's contents —
-                # so withholding them would cost an agent the ability to poll a job
-                # while protecting nothing.
-                base.append(McpProgramExportConsent())
-            return base
-        if self.action == "import_job_detail":
-            # Poll one seed import job (ADR-0726). Admin+, matching the export
-            # job poll: the summary reports the program's entity counts, and the
-            # error detail can echo validation diagnostics naming projects and
-            # tasks the caller must already be entitled to see. The importing
-            # caller is the program's OWNER by construction, so this never locks
-            # anyone out of a job they started. Object-level cross-program IDOR is
-            # closed in the action body via the program-scoped lookup.
+        if self.action in ("export_jobs", "export_job_detail"):
+            # Async program export bundle list / poll (#1958, ADR-0219): Admin+,
+            # matching the POST enqueue. Available on closed programs; object-level
+            # cross-program IDOR (a job_id from another program) is closed in the
+            # action bodies via program-scoped lookups.
+            #
+            # These two report job status, size and timestamps — program-level
+            # bookkeeping that names no child project's contents (#3014) — so
+            # withholding them behind McpProgramExportConsent would cost an agent
+            # the ability to poll a job while protecting nothing.
             return [IsAuthenticated(), IsProgramAdmin()]
-        if self.action == "mention_reach":
-            # Who @program-stakeholders actually reaches (ADR-0697). Admin+, matching
-            # the external-stakeholder registry's own floor (ADR-0264 §3) — the strip
-            # this backs only ever renders beside a list the caller can already read,
-            # so a lower floor buys nothing, and the internal arm is a partial
-            # disclosure of membership across projects the caller may hold no grant
-            # on (ADR-0070's explicit-grants boundary). No IsProgramNotClosed: it is
-            # a read, and a closed program's alias stays inspectable for forensics.
+        if self.action == "export_job_download":
+            # Same Admin+ floor and closed-program availability as the list / poll
+            # above, but only the download streams child-project data (#3014), so it
+            # additionally carries the agent export-consent gate.
+            return [IsAuthenticated(), IsProgramAdmin(), McpProgramExportConsent()]
+        if self.action in ("import_job_detail", "mention_reach"):
+            # import_job_detail — poll one seed import job (ADR-0726). Admin+,
+            # matching the export job poll: the summary reports the program's entity
+            # counts, and the error detail can echo validation diagnostics naming
+            # projects and tasks the caller must already be entitled to see. The
+            # importing caller is the program's OWNER by construction, so this never
+            # locks anyone out of a job they started. Object-level cross-program IDOR
+            # is closed in the action body via the program-scoped lookup.
+            #
+            # mention_reach — who @program-stakeholders actually reaches (ADR-0697).
+            # Admin+, matching the external-stakeholder registry's own floor
+            # (ADR-0264 §3) — the strip this backs only ever renders beside a list
+            # the caller can already read, so a lower floor buys nothing, and the
+            # internal arm is a partial disclosure of membership across projects the
+            # caller may hold no grant on (ADR-0070's explicit-grants boundary). No
+            # IsProgramNotClosed: it is a read, and a closed program's alias stays
+            # inspectable for forensics.
+            #
+            # Merged into one branch because the two share an identical permission
+            # list; keeps this dispatch's branch count in budget.
             return [IsAuthenticated(), IsProgramAdmin()]
         if self.action == "resource_contention":
             # Resource allocation/contention data is Scheduler+ even on read
@@ -1089,6 +1151,61 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
 
         return None
 
+    def _confirm_locked_replace(
+        self,
+        user: Any,
+        slug: str,
+        candidates: list[Any],
+        *,
+        replace: bool,
+        expected_program_id: Any,
+    ) -> tuple[list[Any], Response | None]:
+        """Narrow locked replace candidates to the named program, or refuse with ``409``.
+
+        Runs inside the import transaction after ``resolve_replace_candidates`` has
+        locked the rows. ``expected_program_id`` narrows the teardown to the one
+        program the caller named; without this the set the caller consented to and
+        the set actually destroyed could differ — see the ambiguity refusal below.
+        The caller discards the stored payload when a refusal is returned.
+        """
+        from trueppm_api.apps.projects.seed.replace import describe_conflict
+
+        if expected_program_id is not None:
+            named = [p for p in candidates if str(p.pk) == str(expected_program_id)]
+            if not named:
+                return candidates, Response(
+                    {
+                        "detail": (
+                            "expected_program_id does not name the program that "
+                            "would be replaced — it may have changed since you "
+                            "checked."
+                        ),
+                        "code": "seed_replace_mismatch",
+                        "conflict": describe_conflict(candidates[0]).as_dict(),
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+            candidates = named
+
+        if not replace or len(candidates) > 1:
+            # A collision that only appeared between the unlocked pre-check and
+            # this locked resolve. Rare (it needs a concurrent create), so the
+            # orphaned payload is cleaned up by the caller rather than
+            # restructured around.
+            refusal = self._seed_replace_refusal(
+                user,
+                slug,
+                replace=replace,
+                expected_program_id=expected_program_id,
+                candidates=candidates,
+            ) or Response(
+                {"detail": "The replace could not be confirmed. Try again."},
+                status=status.HTTP_409_CONFLICT,
+            )
+            return candidates, refusal
+
+        return candidates, None
+
     @extend_schema(
         summary="Queue a JSON seed bundle as a new program",
         request=SeedImportRequestSerializer,
@@ -1175,7 +1292,6 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         from trueppm_api.apps.access.services import create_program
         from trueppm_api.apps.projects.seed import SeedValidationError, validate_seed
         from trueppm_api.apps.projects.seed.replace import (
-            describe_conflict,
             resolve_replace_candidates,
         )
         from trueppm_api.apps.projects.services import (
@@ -1249,44 +1365,16 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             candidates = resolve_replace_candidates(request.user, slug, lock=True)
             replaced_program_id = None
             if candidates:
-                # ``expected_program_id`` narrows the teardown to the one program
-                # the caller named. Without this the set the caller consented to
-                # and the set actually destroyed could differ — see the ambiguity
-                # refusal below.
-                if expected_program_id is not None:
-                    named = [p for p in candidates if str(p.pk) == str(expected_program_id)]
-                    if not named:
-                        _discard_seed_payload(payload_path)
-                        return Response(
-                            {
-                                "detail": (
-                                    "expected_program_id does not name the program that "
-                                    "would be replaced — it may have changed since you "
-                                    "checked."
-                                ),
-                                "code": "seed_replace_mismatch",
-                                "conflict": describe_conflict(candidates[0]).as_dict(),
-                            },
-                            status=status.HTTP_409_CONFLICT,
-                        )
-                    candidates = named
-
-                if not replace or len(candidates) > 1:
-                    # A collision that only appeared between the unlocked
-                    # pre-check and this locked resolve. Rare (it needs a
-                    # concurrent create), so the orphaned payload is cleaned up
-                    # here rather than restructured around.
+                candidates, refusal = self._confirm_locked_replace(
+                    request.user,
+                    slug,
+                    candidates,
+                    replace=replace,
+                    expected_program_id=expected_program_id,
+                )
+                if refusal is not None:
                     _discard_seed_payload(payload_path)
-                    return self._seed_replace_refusal(
-                        request.user,
-                        slug,
-                        replace=replace,
-                        expected_program_id=expected_program_id,
-                        candidates=candidates,
-                    ) or Response(
-                        {"detail": "The replace could not be confirmed. Try again."},
-                        status=status.HTTP_409_CONFLICT,
-                    )
+                    return refusal
 
                 replaced_program_id = candidates[0].pk
                 soft_delete_program_subtree(
@@ -1772,58 +1860,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         rows, truncated, resource_count_for = _cap_assignments_at_resource_boundary(
             qs, _ALLOCATION_ASSIGNMENT_LIMIT
         )
-        resources_map: dict[str, dict[str, Any]] = {}
-        for assignment in rows:
-            resource = assignment.resource
-            rid = str(resource.id)
-            if rid not in resources_map:
-                # ``email`` is deliberately absent (#3599). This dict bypasses
-                # ``ResourceSerializer.to_representation``, which is where the #891
-                # harvest control lives, so echoing it here re-opened that control
-                # to anyone who can reach a project they created themselves.
-                resources_map[rid] = {
-                    "id": rid,
-                    "name": resource.name,
-                    "max_units": str(resource.max_units),
-                    "tasks": [],
-                }
-            task = assignment.task
-            resources_map[rid]["tasks"].append(
-                {
-                    "assignment_id": str(assignment.id),
-                    "id": str(task.id),
-                    "name": task.name,
-                    "project_id": str(task.project_id),
-                    "project_name": task.project.name,
-                    "early_start": task.early_start.isoformat() if task.early_start else None,
-                    "early_finish": task.early_finish.isoformat() if task.early_finish else None,
-                    # ADR-0752: the task's SPAN start, read-only CPM output.
-                    # Null until the next recalculation after upgrade; the
-                    # client falls back to early_start (same fallback the
-                    # Coalesce above applies server-side for windowing).
-                    "scheduled_start": task.scheduled_start.isoformat()
-                    if task.scheduled_start
-                    else None,
-                    "units": str(assignment.units),
-                    "status": task.status,
-                }
-            )
-
-        # Restore in Python the ordering the query no longer does in SQL
-        # (ADR-1118): resources by name, then each resource's spans by source
-        # project name and span start. `sorted` is stable and the DB already
-        # ordered within a resource by (project_id, early_start), so ties resolve
-        # deterministically. `early_start` is nullable — unscheduled spans sort
-        # last, matching Postgres' ASC NULLS LAST.
-        for row in resources_map.values():
-            row["tasks"].sort(
-                key=lambda t: (
-                    t["project_name"],
-                    t["early_start"] is None,
-                    t["early_start"] or "",
-                )
-            )
-        resources_out = sorted(resources_map.values(), key=lambda r: r["name"])
+        resources_out = _group_contention_assignments(rows)
         return Response(
             {
                 "program_id": str(program.id),

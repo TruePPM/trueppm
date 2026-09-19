@@ -68,6 +68,29 @@ function derivePending(tasks: Task[]): PendingItem[] {
   return items;
 }
 
+type BulkDecision = 'accept-all' | 'reject-all';
+
+/** Copy and button styling for the nested bulk-confirm dialog, keyed on the pending decision. */
+function bulkConfirmCopy(decision: BulkDecision, count: number, iterationLower: string) {
+  const noun = `pending item${count === 1 ? '' : 's'}`;
+  if (decision === 'accept-all') {
+    return {
+      title: `Accept all ${count} ${noun}?`,
+      body: `They join the ${iterationLower} commitment and start counting toward burndown.`,
+      buttonLabel: 'Accept all',
+      buttonClass:
+        'bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary-dark focus-visible:ring-brand-primary',
+    };
+  }
+  return {
+    title: `Reject all ${count} ${noun}?`,
+    body: `They are removed from the ${iterationLower}. You can re-add any of them afterward.`,
+    buttonLabel: 'Reject all',
+    buttonClass:
+      'border border-semantic-critical/40 text-semantic-critical hover:bg-semantic-critical-bg focus-visible:ring-semantic-critical',
+  };
+}
+
 export function ScopePendingReviewPanel({
   projectId,
   sprintId,
@@ -93,7 +116,7 @@ export function ScopePendingReviewPanel({
   );
   // #882 rule 150: bulk reject is destructive → confirm step. Bulk accept is
   // additive but still many-at-once, so it also gets a confirm (rule-1 carve-out).
-  const [confirm, setConfirm] = useState<'accept-all' | 'reject-all' | null>(null);
+  const [confirm, setConfirm] = useState<BulkDecision | null>(null);
 
   // Two independent focus traps, one per aria-modal surface (WCAG 2.4.3 / 2.1.2):
   //  - the slide-over panel (always mounted): seats initial focus on its close
@@ -127,6 +150,8 @@ export function ScopePendingReviewPanel({
   const offlineTitle = offline
     ? "You're offline — accept and reject are unavailable until you reconnect."
     : undefined;
+
+  const confirmCopy = confirm ? bulkConfirmCopy(confirm, items.length, itl.lower) : null;
 
   function handleConfirmBulk() {
     if (confirm === 'accept-all') acceptBulk.mutate(undefined);
@@ -272,7 +297,7 @@ export function ScopePendingReviewPanel({
         )}
       </div>
 
-      {confirm && (
+      {confirmCopy && (
         <div
           ref={confirmRef}
           role="dialog"
@@ -286,15 +311,9 @@ export function ScopePendingReviewPanel({
               id="scope-bulk-confirm-title"
               className="text-base font-semibold text-neutral-text-primary"
             >
-              {confirm === 'accept-all'
-                ? `Accept all ${items.length} pending item${items.length === 1 ? '' : 's'}?`
-                : `Reject all ${items.length} pending item${items.length === 1 ? '' : 's'}?`}
+              {confirmCopy.title}
             </h3>
-            <p className="text-xs text-neutral-text-secondary">
-              {confirm === 'accept-all'
-                ? `They join the ${itl.lower} commitment and start counting toward burndown.`
-                : `They are removed from the ${itl.lower}. You can re-add any of them afterward.`}
-            </p>
+            <p className="text-xs text-neutral-text-secondary">{confirmCopy.body}</p>
             <div className="flex items-center justify-end gap-2 pt-1">
               <button
                 type="button"
@@ -310,12 +329,10 @@ export function ScopePendingReviewPanel({
                 onClick={handleConfirmBulk}
                 className={[
                   'h-8 px-3 rounded text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1',
-                  confirm === 'accept-all'
-                    ? 'bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary-dark focus-visible:ring-brand-primary'
-                    : 'border border-semantic-critical/40 text-semantic-critical hover:bg-semantic-critical-bg focus-visible:ring-semantic-critical',
+                  confirmCopy.buttonClass,
                 ].join(' ')}
               >
-                {confirm === 'accept-all' ? 'Accept all' : 'Reject all'}
+                {confirmCopy.buttonLabel}
               </button>
             </div>
           </div>

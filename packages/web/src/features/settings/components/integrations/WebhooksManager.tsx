@@ -163,6 +163,58 @@ export function WebhooksManager({ scope }: WebhooksManagerProps) {
   );
 }
 
+interface TestOutcomeInput {
+  isPending: boolean;
+  isError: boolean;
+  polling: boolean;
+  timedOut: boolean;
+  failed: boolean;
+  settled: boolean;
+  responseStatus: number | null | undefined;
+}
+
+/** Maps the test click's lifecycle onto the button label, live-region text and tooltip. */
+function describeTestOutcome(o: TestOutcomeInput): {
+  label: ReactNode;
+  announcement: string;
+  explanation: string | undefined;
+} {
+  let label: ReactNode = 'Test';
+  let announcement = '';
+  let explanation: string | undefined;
+
+  if (o.isPending) {
+    label = 'Sending…';
+  } else if (o.isError) {
+    label = 'Failed';
+    announcement = 'The test could not be sent.';
+    explanation = "TruePPM couldn't send the test. Check your permissions and try again.";
+  } else if (o.polling) {
+    label = 'Waiting…';
+  } else if (o.timedOut) {
+    label = 'Pending';
+    announcement = 'The test is still pending.';
+    explanation =
+      'The receiver has not answered yet. TruePPM is still retrying — open Edit to see the delivery log.';
+  } else if (o.failed) {
+    const status = o.responseStatus;
+    label = status ? `Failed ${status}` : 'Failed';
+    announcement = status ? `Test failed. The receiver answered HTTP ${status}.` : 'Test failed.';
+    explanation = status
+      ? `Your endpoint rejected the test with HTTP ${status}. ${httpHint(status)}`
+      : 'Your endpoint did not accept the test delivery.';
+  } else if (o.settled) {
+    label = (
+      <>
+        Delivered
+        <CheckIcon className="inline-block h-3 w-3 align-[-0.125em] ml-1" aria-hidden="true" />
+      </>
+    );
+    announcement = 'Test delivered successfully.';
+  }
+  return { label, announcement, explanation };
+}
+
 /**
  * "Test" button that reports the receiver's real answer, not the enqueue ack.
  *
@@ -207,41 +259,15 @@ function TestButton({ scope, webhook }: { scope: IntegrationScope; webhook: ApiW
   const polling = !!deliveryId && !settled && !timedOut;
   const busy = test.isPending || polling;
 
-  let label: ReactNode = 'Test';
-  let announcement = '';
-  let explanation: string | undefined;
-
-  if (test.isPending) {
-    label = 'Sending…';
-  } else if (test.isError) {
-    label = 'Failed';
-    announcement = 'The test could not be sent.';
-    explanation = "TruePPM couldn't send the test. Check your permissions and try again.";
-  } else if (polling) {
-    label = 'Waiting…';
-  } else if (timedOut) {
-    label = 'Pending';
-    announcement = 'The test is still pending.';
-    explanation =
-      'The receiver has not answered yet. TruePPM is still retrying — open Edit to see the delivery log.';
-  } else if (failed) {
-    const status = delivery?.response_status;
-    label = status ? `Failed ${status}` : 'Failed';
-    announcement = status
-      ? `Test failed. The receiver answered HTTP ${status}.`
-      : 'Test failed.';
-    explanation = status
-      ? `Your endpoint rejected the test with HTTP ${status}. ${httpHint(status)}`
-      : 'Your endpoint did not accept the test delivery.';
-  } else if (settled) {
-    label = (
-      <>
-        Delivered
-        <CheckIcon className="inline-block h-3 w-3 align-[-0.125em] ml-1" aria-hidden="true" />
-      </>
-    );
-    announcement = 'Test delivered successfully.';
-  }
+  const { label, announcement, explanation } = describeTestOutcome({
+    isPending: test.isPending,
+    isError: test.isError,
+    polling,
+    timedOut,
+    failed,
+    settled,
+    responseStatus: delivery?.response_status,
+  });
 
   return (
     <>

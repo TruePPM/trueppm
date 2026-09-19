@@ -74,6 +74,8 @@ _PK = str | uuid.UUID
 _PERMISSION_DENIED_DETAIL = "You do not have permission to perform this action."
 _ROLE_NOT_BELOW_OWN_ERROR = "You cannot assign a role equal to or higher than your own."
 _PROGRAM_NOT_FOUND_DETAIL = "Program not found."
+_NOT_PROJECT_MEMBER_DETAIL = "You are not a member of this project."
+_NOT_PROGRAM_MEMBER_DETAIL = "You are not a member of this program."
 
 
 def _revive_revoked_membership(
@@ -456,7 +458,7 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             }
             actor_membership = locked.get(actor_pk)
             if actor_membership is None or actor_membership.is_deleted:
-                raise PermissionDenied("You are not a member of this project.")
+                raise PermissionDenied(_NOT_PROJECT_MEMBER_DETAIL)
             actor_role = actor_membership.role
             if actor_role < Role.OWNER:
                 raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
@@ -557,6 +559,52 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             ProjectMembershipReadSerializer(instance).data, status=status.HTTP_201_CREATED
         )
 
+    def _audit_and_notify_role_change(
+        self,
+        request: Request,
+        project: Project,
+        instance: ProjectMembership,
+        old_role: int,
+        new_role: int,
+    ) -> None:
+        """Audit a real role change and queue the target's notification on commit."""
+        project_id = str(project.pk)
+        from trueppm_api.apps.notifications.models import NotificationEventType
+        from trueppm_api.apps.notifications.services import create_event_notifications
+        from trueppm_api.apps.workspace.models import AuditEventType
+        from trueppm_api.apps.workspace.services import _actor_label, record_audit_event
+
+        record_audit_event(
+            event_type=AuditEventType.MEMBER_ROLE_CHANGED,
+            actor=request.user,
+            target_type="member",
+            target_id=instance.pk,
+            target_label=_actor_label(instance.user),
+            metadata={
+                "project_id": project_id,
+                "old_role": Role(old_role).label,
+                "new_role": Role(new_role).label,
+            },
+        )
+        actor_label = _actor_label(request.user)
+        old_role_label = Role(old_role).label
+        new_role_label = Role(new_role).label
+        target_user_id = instance.user_id
+        subject = f"Your role changed on {project.name}"
+        body = (
+            f"{actor_label} changed your role on {project.name} from "
+            f"{old_role_label} to {new_role_label}."
+        )
+        transaction.on_commit(
+            lambda: create_event_notifications(
+                event_type=NotificationEventType.MEMBERSHIP_ROLE_CHANGED,
+                recipient_ids=[target_user_id],
+                subject=subject,
+                body=body,
+                project_id=project_id,
+            )
+        )
+
     @extend_schema(
         responses={
             200: ProjectMembershipReadSerializer,
@@ -618,7 +666,7 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
                 None,
             )
             if actor_membership is None:
-                raise PermissionDenied("You are not a member of this project.") from None
+                raise PermissionDenied(_NOT_PROJECT_MEMBER_DETAIL) from None
 
             actor_role = actor_membership.role
             if actor_role < Role.OWNER:
@@ -632,13 +680,12 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
                 # Its own select_for_update() only re-locks rows already held above.
                 if instance.role == Role.OWNER and new_role < Role.OWNER:
                     self._check_last_owner_guard(project.pk, exclude_pk=instance.pk)
-                # Stamp role_changed_at only on an actual role change (#590) so a
-                # no-op PATCH that re-sends the same role does not falsely advance
-                # the per-project access-evidence timestamp.
-                if new_role != instance.role:
-                    serializer.save(role_changed_at=timezone.now())
-                else:
-                    serializer.save()
+
+            # Stamp role_changed_at only on an actual role change (#590) so a
+            # no-op PATCH that re-sends the same role does not falsely advance
+            # the per-project access-evidence timestamp.
+            if new_role is not None and new_role != instance.role:
+                serializer.save(role_changed_at=timezone.now())
             else:
                 serializer.save()
 
@@ -651,41 +698,7 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         # PATCH (unchanged role) or a role_title-only PATCH must not fabricate a
         # role-change event. Written synchronously, same rationale as `create`.
         if new_role is not None and new_role != old_role:
-            from trueppm_api.apps.notifications.models import NotificationEventType
-            from trueppm_api.apps.notifications.services import create_event_notifications
-            from trueppm_api.apps.workspace.models import AuditEventType
-            from trueppm_api.apps.workspace.services import _actor_label, record_audit_event
-
-            record_audit_event(
-                event_type=AuditEventType.MEMBER_ROLE_CHANGED,
-                actor=request.user,
-                target_type="member",
-                target_id=instance.pk,
-                target_label=_actor_label(instance.user),
-                metadata={
-                    "project_id": project_id,
-                    "old_role": Role(old_role).label,
-                    "new_role": Role(new_role).label,
-                },
-            )
-            actor_label = _actor_label(request.user)
-            old_role_label = Role(old_role).label
-            new_role_label = Role(new_role).label
-            target_user_id = instance.user_id
-            subject = f"Your role changed on {project.name}"
-            body = (
-                f"{actor_label} changed your role on {project.name} from "
-                f"{old_role_label} to {new_role_label}."
-            )
-            transaction.on_commit(
-                lambda: create_event_notifications(
-                    event_type=NotificationEventType.MEMBERSHIP_ROLE_CHANGED,
-                    recipient_ids=[target_user_id],
-                    subject=subject,
-                    body=body,
-                    project_id=project_id,
-                )
-            )
+            self._audit_and_notify_role_change(request, project, instance, old_role, new_role)
 
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
@@ -723,7 +736,7 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             # Any member may remove themselves; require at least Viewer membership.
             actor_role = _membership_role(request, project.pk)
             if actor_role is None:
-                raise PermissionDenied("You are not a member of this project.")
+                raise PermissionDenied(_NOT_PROJECT_MEMBER_DETAIL)
         else:
             # Removing another member is an ordinary roster write, so it obeys the
             # archived read-only contract (#3414). Checked here rather than by keeping
@@ -1642,7 +1655,7 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
             }
             actor_membership = locked.get(actor_pk)
             if actor_membership is None or actor_membership.is_deleted:
-                raise PermissionDenied("You are not a member of this program.")
+                raise PermissionDenied(_NOT_PROGRAM_MEMBER_DETAIL)
             actor_role = actor_membership.role
             if actor_role < Role.OWNER:
                 raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
@@ -1720,6 +1733,52 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
             ProgramMembershipReadSerializer(instance).data, status=status.HTTP_201_CREATED
         )
 
+    def _audit_and_notify_role_change(
+        self,
+        request: Request,
+        program: Program,
+        instance: ProgramMembership,
+        old_role: int,
+        new_role: int,
+    ) -> None:
+        """Audit a real role change and queue the target's notification on commit."""
+        from trueppm_api.apps.notifications.models import NotificationEventType
+        from trueppm_api.apps.notifications.services import create_event_notifications
+        from trueppm_api.apps.workspace.models import AuditEventType
+        from trueppm_api.apps.workspace.services import _actor_label, record_audit_event
+
+        record_audit_event(
+            event_type=AuditEventType.MEMBER_ROLE_CHANGED,
+            actor=request.user,
+            target_type="member",
+            target_id=instance.pk,
+            target_label=_actor_label(instance.user),
+            metadata={
+                "program_id": str(program.pk),
+                "old_role": Role(old_role).label,
+                "new_role": Role(new_role).label,
+            },
+        )
+        actor_label = _actor_label(request.user)
+        old_role_label = Role(old_role).label
+        new_role_label = Role(new_role).label
+        program_name = program.name
+        target_user_id = instance.user_id
+        subject = f"Your role changed on {program_name}"
+        body = (
+            f"{actor_label} changed your role on {program_name} from "
+            f"{old_role_label} to {new_role_label}."
+        )
+        transaction.on_commit(
+            lambda: create_event_notifications(
+                event_type=NotificationEventType.MEMBERSHIP_ROLE_CHANGED,
+                recipient_ids=[target_user_id],
+                subject=subject,
+                body=body,
+                project_id=None,
+            )
+        )
+
     @extend_schema(
         responses={
             200: ProgramMembershipReadSerializer,
@@ -1780,7 +1839,7 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
                 None,
             )
             if actor_membership is None:
-                raise PermissionDenied("You are not a member of this program.") from None
+                raise PermissionDenied(_NOT_PROGRAM_MEMBER_DETAIL) from None
 
             actor_role = actor_membership.role
             if actor_role < required_role:
@@ -1791,13 +1850,12 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
                     raise drf_serializers.ValidationError({"role": _ROLE_NOT_BELOW_OWN_ERROR})
                 if instance.role == Role.OWNER and new_role < Role.OWNER:
                     self._check_last_owner_guard(program.pk, exclude_pk=instance.pk)
-                # Stamp role_changed_at only on an actual role change (#878) so a
-                # no-op PATCH that re-sends the same role does not falsely advance
-                # the per-program access-evidence timestamp.
-                if new_role != instance.role:
-                    serializer.save(role_changed_at=timezone.now())
-                else:
-                    serializer.save()
+
+            # Stamp role_changed_at only on an actual role change (#878) so a
+            # no-op PATCH that re-sends the same role does not falsely advance
+            # the per-program access-evidence timestamp.
+            if new_role is not None and new_role != instance.role:
+                serializer.save(role_changed_at=timezone.now())
             else:
                 serializer.save()
 
@@ -1805,42 +1863,7 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         # role_title-only PATCH (Admin+ tier) must not fabricate a role-change
         # event. See the project twin's partial_update() for the full rationale.
         if new_role is not None and new_role != old_role:
-            from trueppm_api.apps.notifications.models import NotificationEventType
-            from trueppm_api.apps.notifications.services import create_event_notifications
-            from trueppm_api.apps.workspace.models import AuditEventType
-            from trueppm_api.apps.workspace.services import _actor_label, record_audit_event
-
-            record_audit_event(
-                event_type=AuditEventType.MEMBER_ROLE_CHANGED,
-                actor=request.user,
-                target_type="member",
-                target_id=instance.pk,
-                target_label=_actor_label(instance.user),
-                metadata={
-                    "program_id": str(program.pk),
-                    "old_role": Role(old_role).label,
-                    "new_role": Role(new_role).label,
-                },
-            )
-            actor_label = _actor_label(request.user)
-            old_role_label = Role(old_role).label
-            new_role_label = Role(new_role).label
-            program_name = program.name
-            target_user_id = instance.user_id
-            subject = f"Your role changed on {program_name}"
-            body = (
-                f"{actor_label} changed your role on {program_name} from "
-                f"{old_role_label} to {new_role_label}."
-            )
-            transaction.on_commit(
-                lambda: create_event_notifications(
-                    event_type=NotificationEventType.MEMBERSHIP_ROLE_CHANGED,
-                    recipient_ids=[target_user_id],
-                    subject=subject,
-                    body=body,
-                    project_id=None,
-                )
-            )
+            self._audit_and_notify_role_change(request, program, instance, old_role, new_role)
 
         return Response(ProgramMembershipReadSerializer(instance).data)
 
@@ -1867,7 +1890,7 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         if is_self:
             actor_role = _program_membership_role(request, program.pk)
             if actor_role is None:
-                raise PermissionDenied("You are not a member of this program.")
+                raise PermissionDenied(_NOT_PROGRAM_MEMBER_DETAIL)
         else:
             actor_role = self._require_actor_role(request, program.pk, Role.OWNER)
             if instance.role >= actor_role:

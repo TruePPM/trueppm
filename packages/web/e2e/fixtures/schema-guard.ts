@@ -85,6 +85,16 @@ export interface Violation {
 //      cannot report it. That check is the one that turns a renamed serializer
 //      field into a red spec.
 
+/** Carry the first-declared structural keywords of an `allOf` member onto the merged schema. */
+function inheritFirstSeen(merged: SchemaNode, flat: SchemaNode): void {
+  if (!merged.type && flat.type) merged.type = flat.type;
+  if (flat.additionalProperties !== undefined && merged.additionalProperties === undefined) {
+    merged.additionalProperties = flat.additionalProperties;
+  }
+  if (flat.enum && !merged.enum) merged.enum = flat.enum;
+  if (flat.items && !merged.items) merged.items = flat.items;
+}
+
 /** Flatten `allOf` into one effective schema so unknown-property checks see the union. */
 function effectiveSchema(node: SchemaNode): SchemaNode {
   const resolved = deref(node);
@@ -97,12 +107,7 @@ function effectiveSchema(node: SchemaNode): SchemaNode {
     const flat = effectiveSchema(member);
     Object.assign(properties, flat.properties ?? {});
     for (const key of flat.required ?? []) required.add(key);
-    if (!merged.type && flat.type) merged.type = flat.type;
-    if (flat.additionalProperties !== undefined && merged.additionalProperties === undefined) {
-      merged.additionalProperties = flat.additionalProperties;
-    }
-    if (flat.enum && !merged.enum) merged.enum = flat.enum;
-    if (flat.items && !merged.items) merged.items = flat.items;
+    inheritFirstSeen(merged, flat);
   }
   if (Object.keys(properties).length > 0) merged.properties = properties;
   if (required.size > 0) merged.required = [...required];
