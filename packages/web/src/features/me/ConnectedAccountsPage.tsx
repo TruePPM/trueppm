@@ -409,17 +409,34 @@ function ConnectCredentialDialog({ provider, mode, onDismiss }: ConnectDialogPro
 // Revoke dialog
 // ---------------------------------------------------------------------------
 
-function RevokeCredentialDialog({
-  provider,
+/**
+ * Shared shell for this page's two destructive confirm dialogs (revoke a
+ * credential, disconnect a source) — same scrim/panel/heading/description/
+ * footer chrome, Escape-to-close, and focus-on-mount; only the copy and the
+ * confirm action differ per caller (#3903).
+ */
+function ConfirmAlertDialog({
+  title,
+  description,
   onDismiss,
+  cancelLabel,
+  confirmLabel,
+  confirmPendingLabel,
+  confirmPending,
+  onConfirm,
 }: {
-  provider: IntegrationCredentialSummary;
+  title: string;
+  description: string;
   onDismiss: () => void;
+  cancelLabel: string;
+  confirmLabel: string;
+  confirmPendingLabel: string;
+  confirmPending: boolean;
+  onConfirm: () => void;
 }) {
   const titleId = useId();
   const descId = useId();
   const cancelRef = useRef<HTMLButtonElement>(null);
-  const revoke = useRevokeIntegrationCredential();
 
   useEffect(() => {
     cancelRef.current?.focus();
@@ -449,11 +466,10 @@ function RevokeCredentialDialog({
     >
       <div className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-sm mx-4 p-5 motion-safe:animate-modal-scale-in">
         <h2 id={titleId} className="text-sm font-semibold text-neutral-text-primary mb-2">
-          Revoke {provider.name} credential?
+          {title}
         </h2>
         <p id={descId} className="text-xs text-neutral-text-secondary mb-4">
-          Task link previews that rely on this credential will stop refreshing. You can reconnect at
-          any time.
+          {description}
         </p>
         <div className="flex justify-end gap-2">
           <button
@@ -462,21 +478,43 @@ function RevokeCredentialDialog({
             onClick={onDismiss}
             className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-brand-primary focus:outline-none"
           >
-            Keep credential
+            {cancelLabel}
           </button>
           <button
             type="button"
-            disabled={revoke.isPending}
-            onClick={() => {
-              revoke.mutate({ provider: provider.provider }, { onSuccess: () => onDismiss() });
-            }}
+            disabled={confirmPending}
+            onClick={onConfirm}
             className="h-8 px-3 rounded-control border border-semantic-critical/50 bg-transparent text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 disabled:opacity-50 focus:ring-2 focus:ring-semantic-critical focus:ring-offset-1 focus:outline-none"
           >
-            {revoke.isPending ? 'Revoking…' : 'Revoke'}
+            {confirmPending ? confirmPendingLabel : confirmLabel}
           </button>
         </div>
       </div>
     </div>
+  );
+}
+
+function RevokeCredentialDialog({
+  provider,
+  onDismiss,
+}: {
+  provider: IntegrationCredentialSummary;
+  onDismiss: () => void;
+}) {
+  const revoke = useRevokeIntegrationCredential();
+  return (
+    <ConfirmAlertDialog
+      title={`Revoke ${provider.name} credential?`}
+      description="Task link previews that rely on this credential will stop refreshing. You can reconnect at any time."
+      onDismiss={onDismiss}
+      cancelLabel="Keep credential"
+      confirmLabel="Revoke"
+      confirmPendingLabel="Revoking…"
+      confirmPending={revoke.isPending}
+      onConfirm={() => {
+        revoke.mutate({ provider: provider.provider }, { onSuccess: () => onDismiss() });
+      }}
+    />
   );
 }
 
@@ -1119,67 +1157,20 @@ function DisconnectSourceDialog({
   source: ExternalTaskSourceEntry;
   onDismiss: () => void;
 }) {
-  const titleId = useId();
-  const descId = useId();
-  const cancelRef = useRef<HTMLButtonElement>(null);
   const disconnect = useDisconnectExternalSource(source.provider);
-
-  useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onDismiss();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onDismiss]);
-
   return (
-    <div
-      role="alertdialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
-      aria-describedby={descId}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay motion-safe:animate-scrim-fade"
-      onPointerDown={(e) => {
-        if (e.target === e.currentTarget) onDismiss();
+    <ConfirmAlertDialog
+      title={`Disconnect ${source.name}?`}
+      description={`Your ${source.name} items will be removed from My Work and the stored token deleted. Nothing in ${source.name} is affected — you can reconnect any time.`}
+      onDismiss={onDismiss}
+      cancelLabel="Keep connected"
+      confirmLabel="Disconnect"
+      confirmPendingLabel="Disconnecting…"
+      confirmPending={disconnect.isPending}
+      onConfirm={() => {
+        disconnect.mutate(undefined, { onSuccess: () => onDismiss() });
       }}
-    >
-      <div className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-sm mx-4 p-5 motion-safe:animate-modal-scale-in">
-        <h2 id={titleId} className="text-sm font-semibold text-neutral-text-primary mb-2">
-          Disconnect {source.name}?
-        </h2>
-        <p id={descId} className="text-xs text-neutral-text-secondary mb-4">
-          Your {source.name} items will be removed from My Work and the stored token deleted.
-          Nothing in {source.name} is affected — you can reconnect any time.
-        </p>
-        <div className="flex justify-end gap-2">
-          <button
-            ref={cancelRef}
-            type="button"
-            onClick={onDismiss}
-            className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-brand-primary focus:outline-none"
-          >
-            Keep connected
-          </button>
-          <button
-            type="button"
-            disabled={disconnect.isPending}
-            onClick={() => {
-              disconnect.mutate(undefined, { onSuccess: () => onDismiss() });
-            }}
-            className="h-8 px-3 rounded-control border border-semantic-critical/50 bg-transparent text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 disabled:opacity-50 focus:ring-2 focus:ring-semantic-critical focus:ring-offset-1 focus:outline-none"
-          >
-            {disconnect.isPending ? 'Disconnecting…' : 'Disconnect'}
-          </button>
-        </div>
-      </div>
-    </div>
+    />
   );
 }
 

@@ -178,6 +178,43 @@ def _caller_can_see_user(request: Request, project: Project) -> bool:
 _MAX_HISTORY_ROWS = 5000
 
 
+def _history_page_response(
+    request: Request,
+    view: APIView,
+    project: Project,
+    history_queryset: Any,
+) -> Response:
+    """Shared GET body for the per-task and per-project history list views.
+
+    Fetches cap+1 rows to detect truncation, computes diffs (passing the
+    untrimmed cap+1 batch as the diff seed for the oldest kept record, #1889),
+    hides ``history_user`` for callers below Owner/Admin, and returns the
+    paginated, diff-filtered response with ``count_truncated`` grafted on.
+    """
+    raw: list[Any] = list(
+        history_queryset.order_by("-history_date").select_related("history_user")[
+            : _MAX_HISTORY_ROWS + 1
+        ]
+    )
+    count_truncated = len(raw) > _MAX_HISTORY_ROWS
+    records = raw[:_MAX_HISTORY_ROWS]
+
+    paginator = HistoryPagination()
+    page: list[Any] = paginator.paginate_queryset(records, request, view=view) or records
+
+    diffs = _compute_diffs(page, all_records=raw)
+    hide_user = not _caller_can_see_user(request, project)
+    visible = [r for r in page if diffs.get(r.history_id)]
+    serializer = HistoryRecordSerializer(
+        visible,
+        many=True,
+        context={"diffs": diffs, "hide_user": hide_user},
+    )
+    response = paginator.get_paginated_response(serializer.data)
+    response.data["count_truncated"] = count_truncated
+    return response
+
+
 class TaskHistoryListView(APIView):
     """Paginated change history for a single task.
 
@@ -201,34 +238,7 @@ class TaskHistoryListView(APIView):
         project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
         self.check_object_permissions(request, project)
         task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
-
-        # Fetch cap+1 so we can detect truncation, then trim.
-        raw: list[Any] = list(
-            task.history.order_by("-history_date").select_related("history_user")[
-                : _MAX_HISTORY_ROWS + 1
-            ]
-        )
-        count_truncated = len(raw) > _MAX_HISTORY_ROWS
-        records = raw[:_MAX_HISTORY_ROWS]
-
-        paginator = HistoryPagination()
-        page: list[Any] = paginator.paginate_queryset(records, request, view=self) or records
-
-        # Pass the untrimmed cap+1 batch (#1889): when the cap was hit, the extra row
-        # serves purely as the diff seed for the oldest kept record — otherwise that
-        # record has no predecessor in the batch, gets an empty diff, and is dropped
-        # from `visible` below. The seed row itself is never paginated or rendered.
-        diffs = _compute_diffs(page, all_records=raw)
-        hide_user = not _caller_can_see_user(request, project)
-        visible = [r for r in page if diffs.get(r.history_id)]
-        serializer = HistoryRecordSerializer(
-            visible,
-            many=True,
-            context={"diffs": diffs, "hide_user": hide_user},
-        )
-        response = paginator.get_paginated_response(serializer.data)
-        response.data["count_truncated"] = count_truncated
-        return response
+        return _history_page_response(request, self, project, task.history)
 
 
 class ProjectHistoryListView(APIView):
@@ -268,34 +278,7 @@ class ProjectHistoryListView(APIView):
     def get(self, request: Request, project_pk: str) -> Response:
         project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
         self.check_object_permissions(request, project)
-
-        # Fetch cap+1 so we can detect truncation, then trim.
-        raw: list[Any] = list(
-            project.history.order_by("-history_date").select_related("history_user")[
-                : _MAX_HISTORY_ROWS + 1
-            ]
-        )
-        count_truncated = len(raw) > _MAX_HISTORY_ROWS
-        records = raw[:_MAX_HISTORY_ROWS]
-
-        paginator = HistoryPagination()
-        page: list[Any] = paginator.paginate_queryset(records, request, view=self) or records
-
-        # Pass the untrimmed cap+1 batch (#1889): when the cap was hit, the extra row
-        # serves purely as the diff seed for the oldest kept record — otherwise that
-        # record has no predecessor in the batch, gets an empty diff, and is dropped
-        # from `visible` below. The seed row itself is never paginated or rendered.
-        diffs = _compute_diffs(page, all_records=raw)
-        hide_user = not _caller_can_see_user(request, project)
-        visible = [r for r in page if diffs.get(r.history_id)]
-        serializer = HistoryRecordSerializer(
-            visible,
-            many=True,
-            context={"diffs": diffs, "hide_user": hide_user},
-        )
-        response = paginator.get_paginated_response(serializer.data)
-        response.data["count_truncated"] = count_truncated
-        return response
+        return _history_page_response(request, self, project, project.history)
 
 
 class ProjectChangelogView(APIView):

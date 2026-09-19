@@ -2,7 +2,10 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { UserSearchResult } from '@/api/types';
 import { useUserSearch } from '@/features/settings/hooks/useUserSearch';
 import { RolePicker } from '@/features/settings/members/RolePicker';
-import { extractFieldErrors } from '@/lib/apiError';
+import {
+  deriveMemberMutationErrors,
+  handleSearchOptionKeyDown,
+} from '@/features/settings/members/inviteFormHelpers';
 import { ROLE_MEMBER } from '@/lib/roles';
 import { useAddProgramMember } from '../hooks/useProgramMemberMutations';
 
@@ -32,19 +35,7 @@ export function ProgramInviteForm({ programId }: Props) {
   const { data: results = [], isFetching } = useUserSearch(debouncedQ);
   const { mutate: addMember, isPending, error } = useAddProgramMember(programId);
 
-  // A 400 on this route is a refusal the server can explain — most often a target
-  // this caller is not allowed to add (#3641). The generic branch's "please try
-  // again" is wrong advice for it: the server has already decided, so replaying the
-  // identical request is rejected identically. Surface the server's own `user`
-  // message, which names the remedy, rather than restating the rule here where the
-  // two would drift. Safe to key off one shared mutation: this form submits one
-  // target at a time, so the refusal can only be about the user it names.
-  const refusalMessage = extractFieldErrors(error).user ?? null;
-
-  const conflictError =
-    error &&
-    'response' in error &&
-    (error as { response?: { status?: number } }).response?.status === 409;
+  const { conflictError, refusalMessage } = deriveMemberMutationErrors(error);
 
   function selectUser(u: UserSearchResult) {
     setSelectedUser(u);
@@ -151,17 +142,15 @@ export function ProgramInviteForm({ programId }: Props) {
                   aria-selected={false}
                   tabIndex={0}
                   onClick={() => selectUser(u)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') selectUser(u);
-                    if (e.key === 'ArrowDown')
-                      (e.currentTarget.nextElementSibling as HTMLElement | null)?.focus();
-                    if (e.key === 'ArrowUp')
-                      (e.currentTarget.previousElementSibling as HTMLElement | null)?.focus();
-                    if (e.key === 'Escape') {
-                      setOpen(false);
-                      inputRef.current?.focus();
-                    }
-                  }}
+                  onKeyDown={(e) =>
+                    handleSearchOptionKeyDown(e, u, {
+                      onSelect: selectUser,
+                      onClose: () => {
+                        setOpen(false);
+                        inputRef.current?.focus();
+                      },
+                    })
+                  }
                   className={[
                     'flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors',
                     'hover:bg-neutral-surface-raised',

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useProjects } from '@/hooks/useProjects';
 import { useAssignProjectToProgram } from '@/hooks/useProgramMutations';
+import type { Project } from '@/types';
 import {
   MethodologyFilter,
   METHODOLOGY_LABEL,
@@ -11,6 +12,59 @@ interface Props {
   programId: string;
   programName: string;
   onClose: () => void;
+}
+
+/**
+ * One radio-list group ("Standalone projects", "In another program") on the
+ * assign-to-program modal — the two groups rendered the identical list markup
+ * (#3903), differing only in heading, an optional hint, and the row set.
+ */
+function ProjectRadioList({
+  heading,
+  hint,
+  projects,
+  selectedId,
+  onSelect,
+}: {
+  heading: string;
+  hint?: string;
+  projects: Project[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="mt-4">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-neutral-text-secondary">
+        {heading}
+      </h3>
+      {hint && <p className="mb-2 text-xs text-neutral-text-secondary">{hint}</p>}
+      <ul className="divide-y divide-neutral-border rounded-card border border-neutral-border">
+        {projects.map((p) => (
+          <li key={p.id}>
+            <label className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-neutral-surface-raised">
+              <input
+                type="radio"
+                name="project"
+                value={p.id}
+                checked={selectedId === p.id}
+                onChange={() => onSelect(p.id)}
+                className="h-4 w-4 text-brand-primary
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              />
+              <span className="flex-1 min-w-0 truncate text-sm text-neutral-text-primary">
+                {p.name}
+              </span>
+              {/* Methodology badge (issue 564) — confirm the right "Riverside"
+                  before assigning. tppm-mono matches the Projects-tab row. */}
+              <span className="tppm-mono shrink-0 text-xs text-neutral-text-secondary">
+                {METHODOLOGY_LABEL[p.methodology]}
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 /**
@@ -160,72 +214,22 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
           )}
 
           {!isLoading && standalone.length > 0 && (
-            <div className="mt-4">
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-neutral-text-secondary">
-                Standalone projects ({standalone.length})
-              </h3>
-              <ul className="divide-y divide-neutral-border rounded-card border border-neutral-border">
-                {standalone.map((p) => (
-                  <li key={p.id}>
-                    <label className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-neutral-surface-raised">
-                      <input
-                        type="radio"
-                        name="project"
-                        value={p.id}
-                        checked={selectedId === p.id}
-                        onChange={() => setSelectedId(p.id)}
-                        className="h-4 w-4 text-brand-primary
-                          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                      />
-                      <span className="flex-1 min-w-0 truncate text-sm text-neutral-text-primary">
-                        {p.name}
-                      </span>
-                      {/* Methodology badge (issue 564) — confirm the right "Riverside"
-                          before assigning. tppm-mono matches the Projects-tab row. */}
-                      <span className="tppm-mono shrink-0 text-xs text-neutral-text-secondary">
-                        {METHODOLOGY_LABEL[p.methodology]}
-                      </span>
-                    </label>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <ProjectRadioList
+              heading={`Standalone projects (${standalone.length})`}
+              projects={standalone}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
           )}
 
           {!isLoading && elsewhere.length > 0 && (
-            <div className="mt-4">
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-neutral-text-secondary">
-                In another program ({elsewhere.length})
-              </h3>
-              <p className="mb-2 text-xs text-neutral-text-secondary">
-                Selecting one will move it to this program.
-              </p>
-              <ul className="divide-y divide-neutral-border rounded-card border border-neutral-border">
-                {elsewhere.map((p) => (
-                  <li key={p.id}>
-                    <label className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-neutral-surface-raised">
-                      <input
-                        type="radio"
-                        name="project"
-                        value={p.id}
-                        checked={selectedId === p.id}
-                        onChange={() => setSelectedId(p.id)}
-                        className="h-4 w-4 text-brand-primary
-                          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                      />
-                      <span className="flex-1 min-w-0 truncate text-sm text-neutral-text-primary">
-                        {p.name}
-                      </span>
-                      {/* Methodology badge (issue 564) — confirm the right "Riverside"
-                          before assigning. tppm-mono matches the Projects-tab row. */}
-                      <span className="tppm-mono shrink-0 text-xs text-neutral-text-secondary">
-                        {METHODOLOGY_LABEL[p.methodology]}
-                      </span>
-                    </label>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <ProjectRadioList
+              heading={`In another program (${elsewhere.length})`}
+              hint="Selecting one will move it to this program."
+              projects={elsewhere}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
           )}
         </div>
 

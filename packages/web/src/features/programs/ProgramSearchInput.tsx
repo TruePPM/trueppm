@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
 import { CloseIcon, SearchIcon } from '@/components/Icons';
+import { useDebouncedSearchValue } from '@/hooks/useDebouncedSearchValue';
 
 interface Props {
   /** Committed (debounced) query value. */
@@ -26,29 +26,7 @@ export function ProgramSearchInput({
   totalCount,
   debounceMs = 150,
 }: Props) {
-  const [local, setLocal] = useState(value);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  // Re-sync when the value is reset from outside (e.g. "Clear filters").
-  useEffect(() => {
-    setLocal(value);
-  }, [value]);
-
-  useEffect(() => () => clearTimeout(timer.current), []);
-
-  function emit(next: string) {
-    setLocal(next);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => onChange(next), debounceMs);
-  }
-
-  function clear() {
-    clearTimeout(timer.current);
-    setLocal('');
-    onChange('');
-  }
-
-  const hasQuery = local.trim().length > 0;
+  const { local, hasQuery, emit, clear } = useDebouncedSearchValue(value, onChange, debounceMs);
 
   return (
     <div className="relative flex h-9 min-w-[220px] flex-1 items-center rounded-control border border-neutral-border bg-neutral-surface-sunken sm:max-w-[300px]">

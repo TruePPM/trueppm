@@ -111,6 +111,7 @@ from trueppm_api.apps.projects.views import (
     pin_limit_detail,
 )
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdmin
+from trueppm_api.core.export_downloads import stream_export_job_or_error
 from trueppm_api.core.openapi import suppress_list_pagination
 from trueppm_api.core.request_body import object_body
 
@@ -1565,26 +1566,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         built asynchronously and streamed as opaque bytes, so at download time there
         is nothing left to narrow.
         """
-        from django.core.files.storage import default_storage
-
         program = self.get_object()
         job = get_object_or_404(ProgramExportJob, pk=job_id, program=program)
-        if job.status != ExportJobStatus.SUCCESS or not job.file_path:
-            return Response({"detail": "Export is not ready yet."}, status=status.HTTP_409_CONFLICT)
-        if job.expires_at is not None and job.expires_at < timezone.now():
-            return Response(
-                {"detail": "This export has expired. Request a new one."},
-                status=status.HTTP_410_GONE,
-            )
-        try:
-            handle = default_storage.open(job.file_path, "rb")
-        except (FileNotFoundError, OSError) as exc:
-            raise Http404("Export archive is no longer available.") from exc
-        return FileResponse(
-            handle,
-            as_attachment=True,
+        return stream_export_job_or_error(
+            job,
+            success_status=ExportJobStatus.SUCCESS,
             filename=f"program-{program.code or program.pk}.tar.gz",
-            content_type="application/gzip",
         )
 
     @extend_schema(

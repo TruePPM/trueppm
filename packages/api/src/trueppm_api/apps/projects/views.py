@@ -38,7 +38,7 @@ from django.db.models import (
     When,
 )
 from django.db.models.expressions import RawSQL
-from django.http import FileResponse, Http404, HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.functional import cached_property
@@ -299,6 +299,7 @@ from trueppm_api.apps.webhooks.models import (
     Webhook,
     WebhookDelivery,
 )
+from trueppm_api.core.export_downloads import stream_export_job_or_error
 from trueppm_api.core.openapi import (
     ownership_refusal_403,
     state_refusal_400,
@@ -1346,6 +1347,33 @@ class DirectoryPagination(pagination.PageNumberPagination):
     page_size = 200
     page_size_query_param = "page_size"
     max_page_size = 500
+
+
+#: Query params for the project- and sprint-scoped "blocked" impediment
+#: roll-ups (ADR-0124, #1134) — identical filters over a different queryset,
+#: shared here so the two ``@extend_schema`` decorations can't drift (#3903).
+_BLOCKED_ROLLUP_QUERY_PARAMS = [
+    OpenApiParameter(
+        name="blocker_type",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Filter to one BlockerType (dependency / resource / vendor / "
+            "decision / other). Unknown value → 400."
+        ),
+    ),
+    OpenApiParameter(
+        name="min_age_days",
+        type=OpenApiTypes.INT,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Keep only tasks blocked at least N days. Non-negative integer; "
+            "negative or non-integer → 400."
+        ),
+    ),
+]
 
 
 @extend_schema_view(
@@ -2921,26 +2949,12 @@ class ProjectViewSet(
         if not ready, ``410 Gone`` once the link has expired. The job is project-scoped
         so a ``job_id`` from another project 404s (object-level IDOR guard).
         """
-        from django.core.files.storage import default_storage
-
         project = self.get_object()
         job = get_object_or_404(ProjectExportJob, pk=job_id, project=project)
-        if job.status != ExportJobStatus.SUCCESS or not job.file_path:
-            return Response({"detail": "Export is not ready yet."}, status=status.HTTP_409_CONFLICT)
-        if job.expires_at is not None and job.expires_at < timezone.now():
-            return Response(
-                {"detail": "This export has expired. Request a new one."},
-                status=status.HTTP_410_GONE,
-            )
-        try:
-            handle = default_storage.open(job.file_path, "rb")
-        except (FileNotFoundError, OSError) as exc:
-            raise Http404("Export archive is no longer available.") from exc
-        return FileResponse(
-            handle,
-            as_attachment=True,
+        return stream_export_job_or_error(
+            job,
+            success_status=ExportJobStatus.SUCCESS,
             filename=f"project-{project.code or project.pk}.tar.gz",
-            content_type="application/gzip",
         )
 
     @extend_schema(
@@ -3897,30 +3911,7 @@ class ProjectViewSet(
         summary="Blocked tasks on this project (ADR-0124, #1134)",
         responses={200: ProjectBlockedRollupSerializer},
     )
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="blocker_type",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Filter to one BlockerType (dependency / resource / vendor / "
-                    "decision / other). Unknown value → 400."
-                ),
-            ),
-            OpenApiParameter(
-                name="min_age_days",
-                type=OpenApiTypes.INT,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Keep only tasks blocked at least N days. Non-negative integer; "
-                    "negative or non-integer → 400."
-                ),
-            ),
-        ],
-    )
+    @extend_schema(parameters=_BLOCKED_ROLLUP_QUERY_PARAMS)
     @action(detail=True, methods=["get"], url_path="blocked")
     def blocked(self, request: Request, pk: str | None = None) -> Response:
         """List flagged-blocked tasks on this project — the PM's impediment roll-up.
@@ -15823,30 +15814,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         summary="Blocked tasks in this sprint (ADR-0124, #1134)",
         responses={200: SprintBlockedRollupSerializer},
     )
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="blocker_type",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Filter to one BlockerType (dependency / resource / vendor / "
-                    "decision / other). Unknown value → 400."
-                ),
-            ),
-            OpenApiParameter(
-                name="min_age_days",
-                type=OpenApiTypes.INT,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Keep only tasks blocked at least N days. Non-negative integer; "
-                    "negative or non-integer → 400."
-                ),
-            ),
-        ],
-    )
+    @extend_schema(parameters=_BLOCKED_ROLLUP_QUERY_PARAMS)
     @action(detail=True, methods=["get"], url_path="blocked")
     def blocked(self, request: Request, pk: str | None = None) -> Response:
         """List flagged-blocked tasks in this sprint — the SM's impediment roll-up.

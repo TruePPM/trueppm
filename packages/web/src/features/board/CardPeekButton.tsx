@@ -42,9 +42,8 @@ import { createPortal } from 'react-dom';
  * carry a semantic tone (e.g. the worst-offender health badge), but the peek
  * itself explains only and never signals severity by color.
  *
- * NOTE: `PendingAcceptanceChip` is deliberately NOT refactored onto this
- * component in #1947 to keep its tests untouched; future consolidation of the
- * two is tracked in the MR description.
+ * `PendingAcceptanceChip`'s interactive disclosure is built on this component
+ * (#3903) — its passive read-state branch stays a plain `<span>`.
  */
 interface Props {
   /** Rendered inside the trigger `<button>` (glyph + optional label). */

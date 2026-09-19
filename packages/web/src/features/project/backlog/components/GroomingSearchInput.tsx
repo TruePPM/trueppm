@@ -10,8 +10,8 @@
  * bindings, and the grooming bar is always in view.
  */
 
-import { useEffect, useRef, useState } from 'react';
 import { CloseIcon, SearchIcon } from '@/components/Icons';
+import { useDebouncedSearchValue } from '@/hooks/useDebouncedSearchValue';
 
 const FOCUS_RING =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1';
@@ -35,29 +35,7 @@ export function GroomingSearchInput({
   debounceMs = 200,
   fullWidth = false,
 }: GroomingSearchInputProps) {
-  const [local, setLocal] = useState(value);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  // Re-sync when the query is cleared/reset from outside (Clear filters).
-  useEffect(() => {
-    setLocal(value);
-  }, [value]);
-
-  useEffect(() => () => clearTimeout(timer.current), []);
-
-  function emit(next: string) {
-    setLocal(next);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => onChange(next), debounceMs);
-  }
-
-  function clear() {
-    clearTimeout(timer.current);
-    setLocal('');
-    onChange('');
-  }
-
-  const hasQuery = local.trim().length > 0;
+  const { local, hasQuery, emit, clear } = useDebouncedSearchValue(value, onChange, debounceMs);
 
   return (
     <div

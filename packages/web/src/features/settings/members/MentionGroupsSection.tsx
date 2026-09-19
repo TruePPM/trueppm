@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Button } from '@/components/Button';
+import { extractFieldErrors } from '@/lib/apiError';
 import { ROLE_ADMIN, ROLE_SCHEDULER } from '@/lib/roles';
 import type { ProjectMembership } from '@/api/types';
 import {
@@ -8,6 +8,7 @@ import {
 } from '../hooks/useMentionGroups';
 import type { ProjectMemberOption } from './MentionGroupRow';
 import { MentionGroupList } from './MentionGroupList';
+import { MentionGroupCreateForm } from './MentionGroupCreateForm';
 
 interface MentionGroupsSectionProps {
   projectId: string;
@@ -56,10 +57,7 @@ export function MentionGroupsSection({
     mute.isPending;
 
   // Surface the server's field error (reserved name / duplicate) inline.
-  const createError = create.error as
-    | { response?: { data?: { name?: string[] } } }
-    | null;
-  const nameErrorMessage = createError?.response?.data?.name?.[0];
+  const nameErrorMessage = extractFieldErrors(create.error).name;
 
   function handleCreate(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -115,43 +113,17 @@ export function MentionGroupsSection({
 
       {/* Create form — Admin+ */}
       {canManageGroup && (
-        <form onSubmit={handleCreate} className="mt-4 space-y-2">
-          <div className="flex flex-col sm:flex-row gap-2">
-            <div className="flex-1">
-              <label htmlFor="new-group-name" className="sr-only">
-                Group name
-              </label>
-              <input
-                id="new-group-name"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="subcontractors"
-                aria-invalid={nameErrorMessage ? true : undefined}
-                className="h-8 w-full rounded border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-              />
-            </div>
-            <div className="flex-1">
-              <label htmlFor="new-group-description" className="sr-only">
-                Description (optional)
-              </label>
-              <input
-                id="new-group-description"
-                value={newDescription}
-                onChange={(e) => setNewDescription(e.target.value)}
-                placeholder="Description (optional)"
-                className="h-8 w-full rounded border border-neutral-border bg-neutral-surface px-2 text-sm text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-              />
-            </div>
-            <Button type="submit" disabled={!newName.trim() || create.isPending}>
-              New group
-            </Button>
-          </div>
-          {nameErrorMessage && (
-            <p role="alert" className="text-xs text-semantic-critical">
-              {nameErrorMessage}
-            </p>
-          )}
-        </form>
+        <MentionGroupCreateForm
+          idPrefix="new-group"
+          namePlaceholder="subcontractors"
+          newName={newName}
+          newDescription={newDescription}
+          onNameChange={setNewName}
+          onDescriptionChange={setNewDescription}
+          onSubmit={handleCreate}
+          submitDisabled={!newName.trim() || create.isPending}
+          nameErrorMessage={nameErrorMessage}
+        />
       )}
     </section>
   );

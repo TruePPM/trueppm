@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
 import { QueryErrorState } from '@/components/QueryErrorState';
-import { EnterpriseBadge } from '../components/EnterpriseBadge';
+import { OverridePolicyRadioGroup } from '../components/OverridePolicyRadioGroup';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { useIsWorkspaceAdmin } from '@/hooks/useIsWorkspaceAdmin';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
@@ -404,98 +404,32 @@ export function WorkspaceMethodologyPage() {
               />
             </div>
           ) : (
-            <div className="px-4 py-3 space-y-2">
-              {(
-                [
-                  {
-                    id: 'suggest',
-                    label: 'Suggest (recommended)',
-                    hint: 'New programs and projects pre-fill the default but PMs can change it per scope.',
-                    enterprise: false,
-                  },
-                  {
-                    id: 'inherit',
-                    label: 'Inherit',
-                    hint: 'Every program and project follows the workspace default. Per-scope pickers are read-only.',
-                    enterprise: false,
-                  },
-                  {
-                    id: 'enforce',
-                    label: 'Enforce',
-                    hint: 'The workspace default is mandatory and cannot be overridden. Good for org-wide compliance.',
-                    enterprise: true,
-                  },
-                ] as const
-              ).map((opt) => {
-                const checked = overridePolicy === opt.id;
-                const disabled = opt.enterprise;
-                return (
-                  <label
-                    key={opt.id}
-                    className={[
-                      'flex items-start gap-2.5 rounded-card p-2 group',
-                      disabled
-                        ? 'cursor-not-allowed'
-                        : 'cursor-pointer hover:bg-neutral-surface-sunken',
-                    ].join(' ')}
-                  >
-                    <span
-                      className={[
-                        'mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors',
-                        checked && !disabled
-                          ? 'border-brand-primary bg-brand-primary'
-                          : 'border-neutral-border bg-neutral-surface',
-                      ].join(' ')}
-                      aria-hidden="true"
-                    >
-                      {checked && !disabled && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-white" />
-                      )}
-                    </span>
-                    <input
-                      type="radio"
-                      name="methodology-override-policy"
-                      value={opt.id}
-                      checked={checked}
-                      disabled={disabled}
-                      readOnly={disabled}
-                      // A disabled radio conveys nothing to a screen reader beyond
-                      // "unavailable" — the visual EnterpriseBadge next to the label
-                      // doesn't reach non-visual users, so the reason is spelled out
-                      // via an sr-only span (accessibility gap fixed here, web-rule 265 / #2001).
-                      aria-describedby={
-                        disabled ? 'methodology-enforce-enterprise-hint' : undefined
-                      }
-                      onChange={() => {
-                        if (!disabled) setOverridePolicy(opt.id);
-                      }}
-                      className="sr-only"
-                    />
-                    <span className="flex flex-col">
-                      <span className="inline-flex items-center gap-1.5">
-                        <span
-                          className={[
-                            'text-[13px] font-medium',
-                            disabled ? 'text-neutral-text-disabled' : 'text-neutral-text-primary',
-                          ].join(' ')}
-                        >
-                          {opt.label}
-                        </span>
-                        {/* ENFORCE is an Enterprise hard lock (ADR-0107); disabled on the
-                          OSS surface with the community-only upsell badge. The server
-                          degrades ENFORCE to SUGGEST when no enterprise provider is
-                          registered, so storing it is harmless. */}
-                        {opt.enterprise && <EnterpriseBadge />}
-                      </span>
-                      <span className="text-[12px] text-neutral-text-secondary">{opt.hint}</span>
-                    </span>
-                  </label>
-                );
-              })}
-              <span id="methodology-enforce-enterprise-hint" className="sr-only">
-                Enforce requires TruePPM Enterprise.
-              </span>
-            </div>
+            <OverridePolicyRadioGroup
+              name="methodology-override-policy"
+              enforceHintId="methodology-enforce-enterprise-hint"
+              value={overridePolicy}
+              onChange={setOverridePolicy}
+              options={[
+                {
+                  id: 'suggest',
+                  label: 'Suggest (recommended)',
+                  hint: 'New programs and projects pre-fill the default but PMs can change it per scope.',
+                  enterprise: false,
+                },
+                {
+                  id: 'inherit',
+                  label: 'Inherit',
+                  hint: 'Every program and project follows the workspace default. Per-scope pickers are read-only.',
+                  enterprise: false,
+                },
+                {
+                  id: 'enforce',
+                  label: 'Enforce',
+                  hint: 'The workspace default is mandatory and cannot be overridden. Good for org-wide compliance.',
+                  enterprise: true,
+                },
+              ]}
+            />
           )}
         </section>
       </div>

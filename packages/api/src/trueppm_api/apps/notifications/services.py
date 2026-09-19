@@ -58,7 +58,7 @@ from .models import (
 
 if TYPE_CHECKING:
     import uuid
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from trueppm_api.apps.access.models import ExternalStakeholder
     from trueppm_api.apps.projects.models import TaskComment
@@ -1045,6 +1045,38 @@ def create_mention_notifications(
     return len(notifications)
 
 
+def _build_event_notification_gate(
+    event_type: str, unique_ids: set[int | str]
+) -> tuple[Callable[[int | str, str], bool], set[Any]]:
+    """Per-recipient (event_type, channel) gating shared by every
+    ``create_event_notifications*`` fan-out: one ``NotificationPreference``
+    query plus one DND lookup over the unique recipient set, regardless of how
+    many rows or projects the caller is about to write.
+
+    Returns the ``_allows(user_id, channel)`` predicate (stored preference,
+    falling back to ``DEFAULT_PREFERENCES``) and the set of recipients with
+    account-wide DND enabled (#1707), for the caller to pass to
+    ``_dnd_silences`` per row.
+    """
+    defaults = {(et, ch): enabled for et, ch, enabled in DEFAULT_PREFERENCES}
+    stored: dict[int | str, dict[str, bool]] = {}
+    for pref in NotificationPreference.objects.filter(
+        user_id__in=unique_ids, event_type=event_type
+    ):
+        stored.setdefault(pref.user_id, {})[pref.channel] = pref.enabled
+
+    def _allows(user_id: int | str, channel: str) -> bool:
+        per_user = stored.get(user_id, {})
+        if channel in per_user:
+            return per_user[channel]
+        return defaults.get((event_type, channel), False)
+
+    # Account-wide DND (#1707) silences email for non-bypass events. Loaded once
+    # over the recipient set; the in-app inbox row below is never gated by DND.
+    dnd_user_ids = load_dnd_user_ids(unique_ids)
+    return _allows, dnd_user_ids
+
+
 def create_event_notifications(
     *,
     event_type: str,
@@ -1090,22 +1122,7 @@ def create_event_notifications(
     if not unique_ids:
         return 0
 
-    defaults = {(et, ch): enabled for et, ch, enabled in DEFAULT_PREFERENCES}
-    stored: dict[int | str, dict[str, bool]] = {}
-    for pref in NotificationPreference.objects.filter(
-        user_id__in=unique_ids, event_type=event_type
-    ):
-        stored.setdefault(pref.user_id, {})[pref.channel] = pref.enabled
-
-    def _allows(user_id: int | str, channel: str) -> bool:
-        per_user = stored.get(user_id, {})
-        if channel in per_user:
-            return per_user[channel]
-        return defaults.get((event_type, channel), False)
-
-    # Account-wide DND (#1707) silences email for non-bypass events. Loaded once
-    # over the recipient set; the in-app inbox row below is never gated by DND.
-    dnd_user_ids = load_dnd_user_ids(unique_ids)
+    _allows, dnd_user_ids = _build_event_notification_gate(event_type, unique_ids)
 
     notifications: list[Notification] = []
     for user_id in unique_ids:
@@ -1222,22 +1239,7 @@ def create_event_notifications_multi_project(
     if not unique_ids:
         return 0
 
-    defaults = {(et, ch): enabled for et, ch, enabled in DEFAULT_PREFERENCES}
-    stored: dict[int | str, dict[str, bool]] = {}
-    for pref in NotificationPreference.objects.filter(
-        user_id__in=unique_ids, event_type=event_type
-    ):
-        stored.setdefault(pref.user_id, {})[pref.channel] = pref.enabled
-
-    def _allows(user_id: int | str, channel: str) -> bool:
-        per_user = stored.get(user_id, {})
-        if channel in per_user:
-            return per_user[channel]
-        return defaults.get((event_type, channel), False)
-
-    # Account-wide DND (#1707) silences email for non-bypass events. Loaded once
-    # over the recipient set; the in-app inbox row below is never gated by DND.
-    dnd_user_ids = load_dnd_user_ids(unique_ids)
+    _allows, dnd_user_ids = _build_event_notification_gate(event_type, unique_ids)
 
     notifications: list[Notification] = []
     for recipient_id, project_id, subject, body, task_id in rows:

@@ -10744,7 +10744,28 @@ def _validate_mcp_read_expiry(scopes: list[str], expires_at: Any) -> None:
         )
 
 
-class ProjectApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToken]):
+class _TokenNameAndExpiryValidationMixin:
+    """``validate_name``/``validate_expires_at`` shared by every API-token mint
+    serializer (#3903): trim and require the name, and refuse an
+    ``expires_at`` already in the past — a token that would be dead on
+    arrival.
+    """
+
+    def validate_name(self, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("name is required.")
+        return value
+
+    def validate_expires_at(self, value: Any) -> Any:
+        if value is not None and value <= timezone.now():
+            raise serializers.ValidationError("expires_at must be in the future.")
+        return value
+
+
+class ProjectApiTokenCreateSerializer(
+    _TokenNameAndExpiryValidationMixin, serializers.ModelSerializer[ProjectApiToken]
+):
     """Write serializer for minting a new token.
 
     Accepts ``name``, optional ``status_map``, and optional ``scopes`` — the raw
@@ -10781,20 +10802,8 @@ class ProjectApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToke
         model = ProjectApiToken
         fields = ["name", "status_map", "scopes", "expires_at"]
 
-    def validate_name(self, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise serializers.ValidationError("name is required.")
-        return value
-
     def validate_scopes(self, value: list[str]) -> list[str]:
         return _normalize_token_scopes(value)
-
-    def validate_expires_at(self, value: Any) -> Any:
-        # An expiry already in the past would mint a token that is dead on arrival.
-        if value is not None and value <= timezone.now():
-            raise serializers.ValidationError("expires_at must be in the future.")
-        return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # Blast-radius bound (#1713, #2764): a token that can read via the MCP
@@ -10877,7 +10886,9 @@ class MyApiTokenSerializer(serializers.ModelSerializer[ProjectApiToken]):
         return obj.is_expired
 
 
-class MyApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToken]):
+class MyApiTokenCreateSerializer(
+    _TokenNameAndExpiryValidationMixin, serializers.ModelSerializer[ProjectApiToken]
+):
     """Write serializer for minting a Personal Access Token (ADR-0214).
 
     Accepts ``name`` (required), an optional ``expires_at``, and an optional
@@ -10904,21 +10915,8 @@ class MyApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToken]):
         model = ProjectApiToken
         fields = ["name", "expires_at", "scopes"]
 
-    def validate_name(self, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise serializers.ValidationError("name is required.")
-        return value
-
     def validate_scopes(self, value: list[str]) -> list[str]:
         return _normalize_token_scopes(value)
-
-    def validate_expires_at(self, value: Any) -> Any:
-        # An expiry in the past would mint a token that is dead on arrival — reject
-        # it so the caller gets a clear error instead of a silently-useless token.
-        if value is not None and value <= timezone.now():
-            raise serializers.ValidationError("expires_at must be in the future.")
-        return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # Blast-radius bound (#1713, #2764): an mcp:read personal token must
