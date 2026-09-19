@@ -5966,10 +5966,46 @@ wasm:license-check:
 # then uploads with `twine`. hatchling is the build backend (pyproject.toml).
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# tag:wait-for-main — blocking prerequisite for every tag-triggered publish/
+# release job below (#3909).
+#
+# GitLab runs a SEPARATE pipeline per pushed ref: pushing `main` and a release
+# tag at the same commit starts two independent pipelines, and none of
+# scheduler:test/api:test/web:test/lint/type-check even exist in the tag
+# pipeline (.rules-scheduler et al. only match a branch or MR pipeline). A
+# failing main pipeline has never blocked a tag pipeline from publishing —
+# 0.3.0-alpha.2 and 0.4.0-beta.2 both shipped broken images/packages this way,
+# discovered only after GHCR/PyPI already had them. See
+# scripts/wait-for-main-pipeline.sh for the full incident history; it polls
+# the GitLab API for a main-ref pipeline at $CI_COMMIT_SHA and fails closed
+# unless it finds one with status "success".
+#
+# Static answer once main resolves — no build. Runs the script's own
+# self-test first so a gate that silently stopped being able to fail is
+# itself caught before it can wave a real release through.
+# ---------------------------------------------------------------------------
+
+tag:wait-for-main:
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  timeout: 40m
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+/'
+    - if: '$CI_COMMIT_TAG =~ /^scheduler-v\d+\.\d+\.\d+/'
+    - if: '$CI_COMMIT_TAG =~ /^mcp-v\d+\.\d+\.\d+/'
+  before_script:
+    - apk add --no-cache bash curl python3
+  script:
+    - bash scripts/wait-for-main-pipeline.sh --self-test
+    - bash scripts/wait-for-main-pipeline.sh
+
 scheduler:publish:
   # Publishes trueppm-scheduler to PyPI. Closes issue #37.
   stage: publish
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  needs:
+    - job: tag:wait-for-main
   rules:
     # Only fire on tags matching the scheduler version format.
     # Never fire on branch pushes or MR events.
@@ -6160,6 +6196,8 @@ mcp:publish:
   # 404'd on pypi.org. Those comments are true as of this job.
   stage: publish
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  needs:
+    - job: tag:wait-for-main
   rules:
     # Only fire on tags matching the mcp version format (PEP 440, e.g.
     # mcp-v0.4.0b1). Never fire on branch pushes or MR events.
@@ -6445,6 +6483,8 @@ mcp:publish:
 api:publish:
   extends: .docker-publish-base
   <<: *rules-release-tag
+  needs:
+    - job: tag:wait-for-main
   script:
     - |
       VERSION="${CI_COMMIT_TAG#v}"
@@ -6500,6 +6540,8 @@ api:publish:
 web:publish:
   extends: .docker-publish-base
   <<: *rules-release-tag
+  needs:
+    - job: tag:wait-for-main
   script:
     - |
       VERSION="${CI_COMMIT_TAG#v}"
@@ -6609,6 +6651,8 @@ helm:publish:
     name: alpine/helm:3.14.0@sha256:a90798c9c2b671e3546b10db1ae0b845f9abccc9f9ff79b34744a1ba146b67ed
     entrypoint: [""]
   <<: *rules-release-tag
+  needs:
+    - job: tag:wait-for-main
   # Keyless Cosign signing of the OCI chart (#940) — same Sigstore OIDC
   # audience as the image publish jobs.
   id_tokens:
@@ -6752,6 +6796,8 @@ api:publish:pypi:
   stage: publish
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   <<: *rules-release-tag
+  needs:
+    - job: tag:wait-for-main
   variables:
     TWINE_USERNAME: __token__
     TWINE_PASSWORD: $PYPI_TOKEN
@@ -6796,6 +6842,8 @@ web:publish:npm:
   # node:22 — react-router 8 requires Node >=22.22 (#2362).
   image: node:22-alpine@sha256:ab07539e0988b63558ff621f5fbe1077054c39d9809112974fb79993949d41cd
   <<: *rules-release-tag
+  needs:
+    - job: tag:wait-for-main
   cache:
     <<: *web-cache
     policy: pull
@@ -6830,8 +6878,11 @@ web:publish:npm:
 # RELEASE — GitLab Release entry.
 #
 # Trigger: any v* tag (stable and pre-release).
-# needs: [] — runs independently of the publish stage so a missing GHCR
-# token does not prevent the release entry from being created.
+# needs: [tag:wait-for-main] only (#3909) — deliberately NOT the docker
+# publish jobs, so a missing GHCR token does not prevent the release entry
+# from being created; but it must still prove the tagged commit's own main
+# pipeline passed, or this page is exactly the misleading "it shipped"
+# signal #3909 was filed over.
 # Pre-release tags get a short [Unreleased] pointer; stable tags extract
 # their section from the assembled CHANGELOG.md.
 # ---------------------------------------------------------------------------
@@ -6839,7 +6890,8 @@ web:publish:npm:
 release:create:
   stage: deploy
   image: registry.gitlab.com/gitlab-org/release-cli:v0.24.0@sha256:3f52d526f48e8d10625c722fa6d6423ee82aadeae1b1aa91f07b62551d96dacf
-  needs: []
+  needs:
+    - job: tag:wait-for-main
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v[0-9]+/'
   script:
