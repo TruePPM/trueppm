@@ -38,7 +38,7 @@ from django.db.models import (
     When,
 )
 from django.db.models.expressions import RawSQL
-from django.http import FileResponse, Http404, HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.functional import cached_property
@@ -299,6 +299,7 @@ from trueppm_api.apps.webhooks.models import (
     Webhook,
     WebhookDelivery,
 )
+from trueppm_api.core.export_downloads import stream_export_job_or_error
 from trueppm_api.core.openapi import (
     ownership_refusal_403,
     state_refusal_400,
@@ -2921,26 +2922,12 @@ class ProjectViewSet(
         if not ready, ``410 Gone`` once the link has expired. The job is project-scoped
         so a ``job_id`` from another project 404s (object-level IDOR guard).
         """
-        from django.core.files.storage import default_storage
-
         project = self.get_object()
         job = get_object_or_404(ProjectExportJob, pk=job_id, project=project)
-        if job.status != ExportJobStatus.SUCCESS or not job.file_path:
-            return Response({"detail": "Export is not ready yet."}, status=status.HTTP_409_CONFLICT)
-        if job.expires_at is not None and job.expires_at < timezone.now():
-            return Response(
-                {"detail": "This export has expired. Request a new one."},
-                status=status.HTTP_410_GONE,
-            )
-        try:
-            handle = default_storage.open(job.file_path, "rb")
-        except (FileNotFoundError, OSError) as exc:
-            raise Http404("Export archive is no longer available.") from exc
-        return FileResponse(
-            handle,
-            as_attachment=True,
+        return stream_export_job_or_error(
+            job,
+            success_status=ExportJobStatus.SUCCESS,
             filename=f"project-{project.code or project.pk}.tar.gz",
-            content_type="application/gzip",
         )
 
     @extend_schema(

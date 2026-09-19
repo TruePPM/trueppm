@@ -79,6 +79,7 @@ from trueppm_api.apps.workspace.serializers import (
     display_name_for,
     initials_for,
 )
+from trueppm_api.core.export_downloads import stream_export_job_or_error
 from trueppm_api.core.openapi import state_refusal_400
 
 # Typed-confirmation header for the destructive workspace delete (ADR-0174). Its
@@ -1376,25 +1377,11 @@ class WorkspaceExportDownloadView(APIView):
         },
     )
     def get(self, request: Request, job_id: str) -> Any:
-        from django.core.files.storage import default_storage
-
         job = get_object_or_404(WorkspaceExportJob, pk=job_id)
-        if job.status != ExportJobStatus.SUCCESS or not job.file_path:
-            return Response({"detail": "Export is not ready yet."}, status=status.HTTP_409_CONFLICT)
-        if job.expires_at is not None and job.expires_at < timezone.now():
-            return Response(
-                {"detail": "This export has expired. Request a new one."},
-                status=status.HTTP_410_GONE,
-            )
-        try:
-            handle = default_storage.open(job.file_path, "rb")
-        except (FileNotFoundError, OSError) as exc:
-            raise Http404("Export archive is no longer available.") from exc
-        return FileResponse(
-            handle,
-            as_attachment=True,
+        return stream_export_job_or_error(
+            job,
+            success_status=ExportJobStatus.SUCCESS,
             filename=f"workspace-export-{job.id}.tar.gz",
-            content_type="application/gzip",
         )
 
 
