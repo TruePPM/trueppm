@@ -96,6 +96,9 @@ const NATIVELY_FOCUSABLE = new Set(['button', 'a', 'input', 'select', 'textarea'
  * 5. **Escape peels one layer.** A capture-phase document listener closes the
  *    tooltip and stops the event, so Escape inside a modal dismisses the tooltip
  *    without also closing the modal (the rule-263f pattern).
+ *    That only holds while the tooltip is genuinely a passing hint, so a mouse or
+ *    pen press on the trigger closes it — otherwise a stale hover tooltip
+ *    swallows the Escape meant for whatever the click opened.
  */
 export function Tooltip({ content, describe = true, children }: TooltipProps) {
   const [open, setOpen] = useState(false);
@@ -166,9 +169,17 @@ export function Tooltip({ content, describe = true, children }: TooltipProps) {
     pointerDownAt.current = Date.now();
     // Touch: tap toggles. This is the path `group-hover` can never serve, and
     // it is why the affordance is a component rather than a utility class.
-    if (e.pointerType !== 'touch') return;
-    cancelClose();
-    setOpen((v) => !v);
+    if (e.pointerType === 'touch') {
+      cancelClose();
+      setOpen((v) => !v);
+      return;
+    }
+    // Mouse/pen: pressing the control is the user acting on what the hint
+    // described, so the hint is done — same as a native `title`. Left open, the
+    // pointer is still over the trigger (no pointer-leave fires when a click
+    // opens a drawer beside it), and invariant 5's capture-phase Escape then eats
+    // the FIRST Escape meant for the surface the click just opened.
+    closeNow();
   }
 
   function handleFocus() {
