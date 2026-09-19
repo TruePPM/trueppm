@@ -513,6 +513,30 @@ class UserDefinedMentionGroupReadSerializer(serializers.ModelSerializer[UserDefi
         read_only_fields = fields
 
 
+def _validated_mention_group_name(value: str) -> str:
+    """Normalize and validate a @mention group name, shared by the project- and
+    program-scoped write serializers (#3903) — everything except the per-scope
+    uniqueness check, which needs each serializer's own queryset/context.
+    """
+    # Accept a leading @ from the client for convenience; store without it.
+    name = value.strip().lstrip("@").strip()
+    if not name:
+        raise serializers.ValidationError("Group name cannot be empty.")
+    if len(name) > 32:
+        raise serializers.ValidationError("Group name must be 32 characters or fewer.")
+    if not _GROUP_NAME_RE.match(name):
+        raise serializers.ValidationError(
+            "Group name may only contain letters, digits, and the characters . _ -"
+        )
+    # An auto-group name (@admins, @scrum-team, @program-pms, …) must never
+    # be shadowed — project- and program-scoped keys alike.
+    if name.lower() in ALL_AUTO_GROUP_KEYS:
+        raise serializers.ValidationError(
+            f"'@{name}' is a reserved automatic group and cannot be used."
+        )
+    return name
+
+
 class UserDefinedMentionGroupWriteSerializer(serializers.ModelSerializer[UserDefinedMentionGroup]):
     """Write serializer for create/rename/edit — ``project`` is injected from URL.
 
@@ -525,22 +549,7 @@ class UserDefinedMentionGroupWriteSerializer(serializers.ModelSerializer[UserDef
         fields = ["name", "description", "email_default_on"]
 
     def validate_name(self, value: str) -> str:
-        # Accept a leading @ from the client for convenience; store without it.
-        name = value.strip().lstrip("@").strip()
-        if not name:
-            raise serializers.ValidationError("Group name cannot be empty.")
-        if len(name) > 32:
-            raise serializers.ValidationError("Group name must be 32 characters or fewer.")
-        if not _GROUP_NAME_RE.match(name):
-            raise serializers.ValidationError(
-                "Group name may only contain letters, digits, and the characters . _ -"
-            )
-        # An auto-group name (@admins, @scrum-team, @program-pms, …) must never
-        # be shadowed — project- and program-scoped keys alike.
-        if name.lower() in ALL_AUTO_GROUP_KEYS:
-            raise serializers.ValidationError(
-                f"'@{name}' is a reserved automatic group and cannot be used."
-            )
+        name = _validated_mention_group_name(value)
         # Case-insensitive project-uniqueness (the DB constraint is the backstop;
         # this returns a friendly field error instead of a 500 on the race loser).
         project_id = str(self.context.get("project_id"))
@@ -617,22 +626,7 @@ class ProgramUserDefinedMentionGroupWriteSerializer(
         fields = ["name", "description", "email_default_on"]
 
     def validate_name(self, value: str) -> str:
-        # Accept a leading @ from the client for convenience; store without it.
-        name = value.strip().lstrip("@").strip()
-        if not name:
-            raise serializers.ValidationError("Group name cannot be empty.")
-        if len(name) > 32:
-            raise serializers.ValidationError("Group name must be 32 characters or fewer.")
-        if not _GROUP_NAME_RE.match(name):
-            raise serializers.ValidationError(
-                "Group name may only contain letters, digits, and the characters . _ -"
-            )
-        # An auto-group name (@admins, @scrum-team, @program-pms, …) must never be
-        # shadowed — project- and program-scoped keys alike.
-        if name.lower() in ALL_AUTO_GROUP_KEYS:
-            raise serializers.ValidationError(
-                f"'@{name}' is a reserved automatic group and cannot be used."
-            )
+        name = _validated_mention_group_name(value)
         # Case-insensitive program-uniqueness (the DB constraint is the backstop;
         # this returns a friendly field error instead of a 500 on the race loser).
         program_id = str(self.context.get("program_id"))
@@ -702,6 +696,27 @@ class ExternalStakeholderSerializer(serializers.ModelSerializer[ExternalStakehol
         return email
 
 
+def _user_display_name(obj: Any) -> str:
+    """First + last name, falling back to ``username`` when both name fields
+    are blank — shared by every serializer that surfaces a user's display
+    name (#3903)."""
+    name = f"{obj.first_name} {obj.last_name}".strip()
+    return name if name else obj.username
+
+
+def _user_initials(obj: Any) -> str:
+    """Up to two initials from first/last name, falling back to the first two
+    characters of ``username`` when both name fields are blank (#3903)."""
+    parts: list[str] = []
+    if obj.first_name:
+        parts.append(obj.first_name[0].upper())
+    if obj.last_name:
+        parts.append(obj.last_name[0].upper())
+    if parts:
+        return "".join(parts[:2])
+    return str(obj.username[:2].upper())
+
+
 class UserSearchResultSerializer(serializers.Serializer[Any]):
     """Read-only serializer for GET /api/v1/users/search/ results (ADR-0061).
 
@@ -717,18 +732,10 @@ class UserSearchResultSerializer(serializers.Serializer[Any]):
     initials = serializers.SerializerMethodField()
 
     def get_display_name(self, obj: Any) -> str:
-        name = f"{obj.first_name} {obj.last_name}".strip()
-        return name if name else obj.username
+        return _user_display_name(obj)
 
     def get_initials(self, obj: Any) -> str:
-        parts: list[str] = []
-        if obj.first_name:
-            parts.append(obj.first_name[0].upper())
-        if obj.last_name:
-            parts.append(obj.last_name[0].upper())
-        if parts:
-            return "".join(parts[:2])
-        return str(obj.username[:2].upper())
+        return _user_initials(obj)
 
 
 class TokenPostureSerializer(serializers.Serializer[Any]):
@@ -933,15 +940,7 @@ class MeSerializer(serializers.Serializer[Any]):
         return {"scopes": list(auth.scopes or []), "is_agent": is_agent_token(auth)}
 
     def get_display_name(self, obj: Any) -> str:
-        name = f"{obj.first_name} {obj.last_name}".strip()
-        return name if name else obj.username
+        return _user_display_name(obj)
 
     def get_initials(self, obj: Any) -> str:
-        parts: list[str] = []
-        if obj.first_name:
-            parts.append(obj.first_name[0].upper())
-        if obj.last_name:
-            parts.append(obj.last_name[0].upper())
-        if parts:
-            return "".join(parts[:2])
-        return str(obj.username[:2].upper())
+        return _user_initials(obj)
