@@ -342,9 +342,14 @@ chart are Trivy-scanned, SBOM-attached, and Cosign-signed keyless. Multi-arch
 |----------|---------------------|
 | `trueppm-scheduler` | [PyPI](https://pypi.org/project/trueppm-scheduler/) |
 | `trueppm-mcp` | [PyPI](https://pypi.org/project/trueppm-mcp/) |
+| `trueppm-api` | [PyPI](https://pypi.org/project/trueppm-api/) — the Django backend as an installable library; see [its README](packages/api/README.md) for who this is for |
 | API image | `registry.gitlab.com/trueppm/trueppm/api` and `ghcr.io/trueppm/api` |
 | Web image | `registry.gitlab.com/trueppm/trueppm/web` and `ghcr.io/trueppm/web` |
 | Helm chart | install from source (`packages/helm`) or `oci://ghcr.io/trueppm/charts/trueppm` |
+
+`@trueppm/web` on npm is wired the same way (`web:publish:npm`, same `v*` tag) but
+is not live yet — that job exits 0 without publishing until `NPM_TOKEN` is
+configured, same as `trueppm-api` was dormant until #479 shipped its token.
 
 The web image's baked nginx config is a **fail-closed default, not a deployment**:
 it serves the SPA with the standard security headers and returns `404` for
