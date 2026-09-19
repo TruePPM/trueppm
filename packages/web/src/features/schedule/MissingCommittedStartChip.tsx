@@ -114,9 +114,12 @@ export function MissingCommittedStartChip({
         ref={triggerRef}
         type="button"
         // Keep the #2312 accessible name, testid, and visible text; the element
-        // is now a button (aria-haspopup announces the dialog it opens).
+        // is now a button (aria-haspopup announces the dialog it opens). No
+        // `title` (#2454, rule 287): the click-opened popover already gives the
+        // full explanation plus the two remediations, so a hover tooltip
+        // restating the same sentence would just be a slower duplicate of what
+        // one click already offers.
         aria-label="No committed start date — dates shown are auto-calculated, not committed."
-        title="In progress without a committed start. The dates shown are auto-calculated (CPM), not committed. Set a committed start, or move it back to To Do."
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? popoverId : undefined}

@@ -20,6 +20,7 @@ import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { ROLE_SCHEDULER, canEditTask } from '@/lib/roles';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { RepeatIcon } from '@/components/Icons';
+import { Tooltip } from '@/components/Tooltip';
 import {
   useCreateRecurrenceRule,
   useDeleteRecurrenceRule,
@@ -582,12 +583,13 @@ function Toggle({ label, checked, onChange, deferred }: ToggleProps) {
       />
       <span>{label}</span>
       {deferred && (
-        <span
-          className="rounded-full bg-neutral-surface px-2 py-0.5 text-xs uppercase tracking-wide text-neutral-text-secondary"
-          title="Stored for a future release — has no effect yet."
-        >
-          Not active yet
-        </span>
+        // Tooltip (#2454, rule 287) — real detail beyond the visible "Not
+        // active yet" badge text.
+        <Tooltip content="Stored for a future release — has no effect yet.">
+          <span className="rounded-full bg-neutral-surface px-2 py-0.5 text-xs uppercase tracking-wide text-neutral-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1">
+            Not active yet
+          </span>
+        </Tooltip>
       )}
     </label>
   );

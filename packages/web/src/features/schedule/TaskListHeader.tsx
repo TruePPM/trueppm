@@ -1,6 +1,7 @@
 import { useChartHeaderHeight } from '@/hooks/useChartHeaderHeight';
 import { useRef, type PointerEvent, type KeyboardEvent } from 'react';
 import { MIN_COL_WIDTHS, type ColumnKey, type ColumnWidths } from '@/hooks/useColumnWidths';
+import { Tooltip } from '@/components/Tooltip';
 import { ABBREVIATIONS } from '@/lib/abbreviations';
 import { ROW_VOCABULARY } from './rowVocabulary';
 
@@ -323,35 +324,44 @@ export function TaskListHeader({
           header renders (#3027/#3031). The lock was right and the repair was the
           definition, not the header: the same column heads phases and milestones,
           and the drawer was already explaining a phase's Float cell in terms of a
-          "task". See the note in `lib/abbreviations.ts`. */}
+          "task". See the note in `lib/abbreviations.ts`.
+
+          `title` became `Tooltip` in #2454 (rule 287) — a bare `title` is
+          invisible to keyboard focus and unreachable on touch, which is exactly
+          the audience least likely to already know what "Float" means. The
+          `ResizeHandle` rides inside the same wrapped `<span>`: Tooltip only
+          touches the span's own pointer/focus handlers (which this header never
+          set), so the handle's own drag listeners are untouched. */}
       {visible.totalFloat && (
-        <span
-          className="relative text-right shrink-0 pr-2"
-          style={{ width: widths.totalFloat }}
-          role="columnheader"
-          aria-label="Total float"
-          title={ABBREVIATIONS.FLOAT}
-        >
-          Float
-          <ResizeHandle
-            colKey="totalFloat"
-            setWidth={setWidth}
-            currentWidth={widths.totalFloat}
-          />
-        </span>
+        <Tooltip content={ABBREVIATIONS.FLOAT}>
+          <span
+            className="relative text-right shrink-0 pr-2"
+            style={{ width: widths.totalFloat }}
+            role="columnheader"
+            aria-label="Total float"
+          >
+            Float
+            <ResizeHandle
+              colKey="totalFloat"
+              setWidth={setWidth}
+              currentWidth={widths.totalFloat}
+            />
+          </span>
+        </Tooltip>
       )}
 
       {visible.freeFloat && (
-        <span
-          className="relative text-right shrink-0 pr-2"
-          style={{ width: widths.freeFloat }}
-          role="columnheader"
-          aria-label="Free float"
-          title={ABBREVIATIONS.FREE_FLOAT}
-        >
-          Free
-          <ResizeHandle colKey="freeFloat" setWidth={setWidth} currentWidth={widths.freeFloat} />
-        </span>
+        <Tooltip content={ABBREVIATIONS.FREE_FLOAT}>
+          <span
+            className="relative text-right shrink-0 pr-2"
+            style={{ width: widths.freeFloat }}
+            role="columnheader"
+            aria-label="Free float"
+          >
+            Free
+            <ResizeHandle colKey="freeFloat" setWidth={setWidth} currentWidth={widths.freeFloat} />
+          </span>
+        </Tooltip>
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { TaskSummaryStrip } from './TaskSummaryStrip';
 import type { Task } from '@/types';
 
@@ -72,11 +72,14 @@ describe('TaskSummaryStrip', () => {
     // The server compares against the assignee's capacity ON THIS PROJECT (roster
     // units_override, else the resource's max_units, else 1.0) — it stopped being a
     // flat 1.0. A tooltip that still says "exceeds 1.0" is wrong for anyone with an
-    // override or a non-1.0 resource, and nothing else in the suite reads the title.
+    // override or a non-1.0 resource.
     render(<TaskSummaryStrip task={makeTask({ assigneeIsOverallocated: true })} />);
     const note = screen.getByRole('note', { name: /Jane Smith is over-allocated/ });
-    expect(note).toHaveAttribute('title', expect.stringContaining('capacity on this project'));
-    expect(note.getAttribute('title')).not.toMatch(/1\.0/);
+    expect(note).not.toHaveAttribute('title');
+    fireEvent.focus(note);
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip).toHaveTextContent('capacity on this project');
+    expect(tooltip.textContent).not.toMatch(/1\.0/);
   });
 
   describe('baseline chip', () => {

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { Task } from '@/types';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
+import { Tooltip } from '@/components/Tooltip';
 import { TaskFlagsSection } from './TaskFlagsSection';
 
 /**
@@ -131,15 +132,21 @@ export function TaskSummaryStrip({ task }: { task: Task }) {
                 {owner.name}
               </span>
               {task.assigneeIsOverallocated && (
-                <span
-                  role="note"
-                  className="inline-flex items-center px-1.5 py-px rounded-chip text-xs font-medium shrink-0
-                    border border-semantic-at-risk/40 bg-semantic-at-risk-bg text-semantic-at-risk"
-                  title="Sum of resource units across active tasks exceeds this person's capacity on this project. Open the resource view to investigate."
-                  aria-label={`${owner.name} is over-allocated across active tasks`}
-                >
-                  over-allocated
-                </span>
+                // Tooltip (#2454, rule 287) — the explanation is real detail
+                // beyond the terser aria-label, so `describe` stays the
+                // default `true` (aria-describedby wires the fuller sentence
+                // to AT too, rather than only sighted hover/focus/touch).
+                <Tooltip content="Sum of resource units across active tasks exceeds this person's capacity on this project. Open the resource view to investigate.">
+                  <span
+                    role="note"
+                    className="inline-flex items-center px-1.5 py-px rounded-chip text-xs font-medium shrink-0
+                      border border-semantic-at-risk/40 bg-semantic-at-risk-bg text-semantic-at-risk
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                    aria-label={`${owner.name} is over-allocated across active tasks`}
+                  >
+                    over-allocated
+                  </span>
+                </Tooltip>
               )}
             </span>
           ) : (

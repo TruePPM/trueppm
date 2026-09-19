@@ -221,7 +221,10 @@ describe('CommentSection — comment rendering', () => {
       error: null,
     });
     render(<CommentSection taskId="t1" projectId="p1" />);
-    expect(screen.getByText(/deleted attachment/)).toBeTruthy();
+    const placeholder = screen.getByText(/deleted attachment/);
+    expect(placeholder).toBeTruthy();
+    // No `title` (#2454, rule 287) — the visible text already says it.
+    expect(placeholder).not.toHaveAttribute('title');
   });
 
   it('marks both attachment chips with the paperclip SVG, not the 📎 emoji', () => {

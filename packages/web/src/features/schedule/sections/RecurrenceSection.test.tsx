@@ -355,7 +355,12 @@ describe('RecurrenceForm — time, timezone, monthly day, and toggles', () => {
     expect(subtasks).toBeDisabled();
     expect(subtasks.checked).toBe(false);
     // The deferred badge sits alongside it.
-    expect(screen.getAllByText('Not active yet').length).toBeGreaterThan(0);
+    const badges = screen.getAllByText('Not active yet');
+    expect(badges.length).toBeGreaterThan(0);
+    // Tooltip, not a bare `title` (#2454, rule 287).
+    expect(badges[0]).not.toHaveAttribute('title');
+    fireEvent.focus(badges[0]);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Stored for a future release');
   });
 });
 

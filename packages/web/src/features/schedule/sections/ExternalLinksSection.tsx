@@ -21,6 +21,7 @@ import { previewTypeIcon } from '@/lib/previewType';
 import { safeExternalHref } from '@/lib/safeExternalHref';
 import { formatRelative } from '@/lib/formatRelative';
 import { CloseIcon, ExternalLinkIcon, LinkIcon, PencilIcon } from '@/components/Icons';
+import { Tooltip } from '@/components/Tooltip';
 import {
   isFileProvider,
   LabelPills,
@@ -336,13 +337,14 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
             <span className="sr-only"> (opens in new tab)</span>
           </a>
         ) : (
-          <span
-            className="text-sm font-medium text-neutral-text-secondary truncate"
-            title="This link can't be opened — it isn't a valid web address."
-          >
-            {title}
-            <span className="sr-only"> (invalid link — not opened)</span>
-          </span>
+          // Tooltip (#2454, rule 287) — real detail beyond the sr-only
+          // fragment, so `describe` stays the default `true`.
+          <Tooltip content="This link can't be opened — it isn't a valid web address.">
+            <span className="text-sm font-medium text-neutral-text-secondary truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1">
+              {title}
+              <span className="sr-only"> (invalid link — not opened)</span>
+            </span>
+          </Tooltip>
         )}
         <span className={`ml-auto flex-shrink-0 ${refresh.isPending ? 'opacity-60' : ''}`}>
           <LinkRightSlot link={link} />

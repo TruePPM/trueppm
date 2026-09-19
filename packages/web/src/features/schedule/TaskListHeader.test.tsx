@@ -219,3 +219,20 @@ describe('TaskListHeader — the vocabulary lock (#3027)', () => {
     expect(screen.getByRole('columnheader', { name: 'Work breakdown structure' })).toBeInTheDocument();
   });
 });
+
+describe('TaskListHeader — Float/Free headers surface their definition via Tooltip (#2454)', () => {
+  it('has no title on either header and shows the definition via Tooltip on focus', () => {
+    renderHeader();
+    const totalFloat = screen.getByRole('columnheader', { name: 'Total float' });
+    const freeFloat = screen.getByRole('columnheader', { name: 'Free float' });
+    expect(totalFloat).not.toHaveAttribute('title');
+    expect(freeFloat).not.toHaveAttribute('title');
+
+    fireEvent.focus(totalFloat);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Float (slack)');
+    fireEvent.blur(totalFloat);
+
+    fireEvent.focus(freeFloat);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Free float');
+  });
+});

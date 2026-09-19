@@ -98,6 +98,9 @@ describe('AttachmentSection — list states', () => {
     const items = list.querySelectorAll('li');
     expect(items[0].textContent).toContain('pinned.pdf');
     expect(items[1].textContent).toContain('b.pdf');
+    // No `title` on the pin glyph (#2454, rule 287) — its aria-label already
+    // covers assistive tech, and it restated that label verbatim.
+    expect(screen.getByLabelText('Pinned')).not.toHaveAttribute('title');
   });
 
   it('renders the empty-state drop zone (always visible) when list is empty', () => {

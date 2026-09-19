@@ -140,7 +140,10 @@ describe('MentionAutocomplete — component render', () => {
         onSelect={onSelect}
       />,
     );
-    expect(screen.getByText('Project Manager+ only')).toBeTruthy();
+    const badge = screen.getByText('Project Manager+ only');
+    expect(badge).toBeTruthy();
+    // No `title` (#2454, rule 287) — the visible text already says it.
+    expect(badge).not.toHaveAttribute('title');
     const allOpt = screen.getByText('@all').closest('[role="option"]') as HTMLElement;
     fireEvent.mouseDown(allOpt);
     expect(onSelect).not.toHaveBeenCalled();

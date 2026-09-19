@@ -366,13 +366,15 @@ export function ScheduleForecastBar({ projectId, tasks, cpmFinish }: Props) {
                 keeps the appearing button from stealing width from its
                 siblings. Pinned by a boundingBox assertion in
                 `e2e/schedule-monte-carlo.spec.ts`. */}
+            {/* No `title` (#2454, rule 287): it restated the aria-label
+                verbatim, and the visible "Rerun" label already reads
+                unambiguously in this Monte Carlo section. */}
             {offerRerun && (
               <button
                 type="button"
                 onClick={() => runMc.mutate({})}
                 disabled={runMc.isPending}
                 aria-label="Rerun Monte Carlo forecast"
-                title="Rerun Monte Carlo forecast"
                 className={BTN_CLS}
               >
                 {runMc.isPending ? 'Rerunning…' : 'Rerun'}

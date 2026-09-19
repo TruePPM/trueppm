@@ -215,10 +215,9 @@ export function MentionAutocomplete({
             <span className="font-medium">{s.label}</span>
             {s.hint && <span className="text-neutral-text-secondary">{s.hint}</span>}
             {s.disabled && (
-              <span
-                className="text-neutral-text-secondary ml-auto"
-                title="@all requires Project Manager or above"
-              >
+              // No `title` (#2454, rule 287) — the visible "Project Manager+
+              // only" text already says the same thing.
+              <span className="text-neutral-text-secondary ml-auto">
                 Project Manager+ only
               </span>
             )}

@@ -120,15 +120,18 @@ function NoteRow({
       }${wasEdited ? ', edited' : ''}`}
     >
       <div className="flex items-baseline gap-2 flex-wrap">
+        {/* Neither glyph below takes a `title` (#2454, rule 287) — the parent
+            `<li>`'s aria-label already states ", pinned" / ", decision", and
+            the Decision chip repeats its own meaning in visible text. */}
         {note.pinned && (
-          <span className="text-brand-primary" title="Pinned" aria-hidden="true">
+          <span className="text-brand-primary" aria-hidden="true" data-testid="note-pinned-icon">
             <PinIcon className="inline-block h-3 w-3 align-[-0.125em]" />
           </span>
         )}
         {note.decision && (
           <span
             className="rounded-chip bg-brand-primary/10 px-1.5 py-0.5 text-xs font-medium text-brand-primary"
-            title="Decision"
+            data-testid="note-decision-badge"
           >
             <ScaleIcon
               aria-hidden="true"

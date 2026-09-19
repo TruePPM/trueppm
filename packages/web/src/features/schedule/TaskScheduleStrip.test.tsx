@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Task } from '@/types';
 import { TaskScheduleStrip } from './TaskScheduleStrip';
@@ -96,6 +96,18 @@ describe('TaskScheduleStrip', () => {
     expect(within(startCell).getByText('—')).toBeInTheDocument();
   });
 
+  it('surfaces the computed-start explanation via Tooltip, not a bare title (#2454)', () => {
+    render(<TaskScheduleStrip task={makeTask({ plannedStart: null, status: 'NOT_STARTED' })} />);
+    const computed = screen.getByTestId('computed-start-value');
+    expect(computed).not.toHaveAttribute('title');
+    fireEvent.focus(computed);
+    // describe={false}: the tooltip restates the sr-only reading, so the panel
+    // is aria-hidden and must be queried directly rather than via getByRole.
+    expect(document.querySelector('[role="tooltip"]')).toHaveTextContent(
+      'not a committed start',
+    );
+  });
+
   describe('free float inside the Float cell (#3344)', () => {
     const floatCell = () => within(screen.getByRole('group', { name: 'Float' }));
 
@@ -128,13 +140,24 @@ describe('TaskScheduleStrip', () => {
     });
 
     it('folds free float into the cell\'s spoken text, not only its pixels', () => {
-      // The visible chip is `aria-hidden`, matching the `computed` chip beside
-      // it, so without the sr-only branch a screen-reader user hears the total
-      // and never learns there is a second, smaller number.
+      // The chip carries its own `aria-label` (#2454, rule 287 — it is no
+      // longer `aria-hidden`, since a Tooltip trigger cannot sit inside a
+      // decorative aria-hidden container), so a screen-reader user reaches the
+      // full reading rather than only the total.
       render(<TaskScheduleStrip task={makeTask({ totalFloat: 5, freeFloat: 2 })} />);
       expect(
-        screen.getByRole('group', { name: 'Float' }).textContent,
-      ).toContain('free float 2 working days');
+        screen.getByLabelText('free float 2 working days'),
+      ).toBeInTheDocument();
+    });
+
+    it('surfaces the free-float definition via Tooltip, not a bare title (#2454)', () => {
+      render(<TaskScheduleStrip task={makeTask({ totalFloat: 5, freeFloat: 2 })} />);
+      const chip = screen.getByLabelText('free float 2 working days');
+      expect(chip).not.toHaveAttribute('title');
+      fireEvent.focus(chip);
+      // describe={false}: the tooltip restates the aria-label, so the panel is
+      // aria-hidden and must be queried directly rather than via getByRole.
+      expect(document.querySelector('[role="tooltip"]')).toHaveTextContent('Free float');
     });
 
     it('renders NO free float at all when total float itself is missing', () => {

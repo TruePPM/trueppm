@@ -68,11 +68,9 @@ function renderBody(body: string, attachmentIndex: Map<string, TaskAttachment>):
       const att = attachmentIndex.get(part.value);
       if (!att) {
         return [
-          <span
-            key={`att-${idx}`}
-            className="text-xs text-neutral-text-secondary italic"
-            title="Attachment no longer available"
-          >
+          // No `title` (#2454, rule 287) — the visible "(deleted attachment)"
+          // text already says the same thing.
+          <span key={`att-${idx}`} className="text-xs text-neutral-text-secondary italic">
             <PaperclipIcon
               className="inline-block h-3 w-3 align-[-0.125em] mr-1"
               aria-hidden="true"

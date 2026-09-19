@@ -158,6 +158,31 @@ describe('Tooltip', () => {
     await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
   });
 
+  it('closes on a mouse press so a stale hover tooltip cannot swallow the next Escape', async () => {
+    const user = userEvent.setup();
+    const onDocumentEscape = vi.fn();
+    document.addEventListener('keydown', onDocumentEscape);
+    render(
+      <Tooltip content="Open properties for Design">
+        <button type="button">Open</button>
+      </Tooltip>,
+    );
+
+    const trigger = screen.getByRole('button');
+    await user.hover(trigger);
+    expect(await screen.findByRole('tooltip')).toBeInTheDocument();
+
+    // The pointer is still over the trigger after the click (as when the click
+    // opens a drawer beside it) — the tooltip must not linger.
+    await user.click(trigger);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+
+    // Nothing left to peel, so Escape reaches the surface the click opened.
+    await user.keyboard('{Escape}');
+    expect(onDocumentEscape).toHaveBeenCalled();
+    document.removeEventListener('keydown', onDocumentEscape);
+  });
+
   it('preserves the trigger`s own handlers instead of replacing them', async () => {
     const user = userEvent.setup();
     const onClick = vi.fn();

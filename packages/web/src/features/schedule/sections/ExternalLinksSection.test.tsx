@@ -118,7 +118,12 @@ describe('ExternalLinksSection — unsafe URL rendering (#898)', () => {
     });
     render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
     expect(screen.queryByRole('link', { name: /Broken/ })).toBeNull();
-    expect(screen.getByText('Broken')).toBeInTheDocument();
+    const inertText = screen.getByText('Broken');
+    expect(inertText).toBeInTheDocument();
+    // Tooltip, not a bare `title` (#2454, rule 287).
+    expect(inertText).not.toHaveAttribute('title');
+    fireEvent.focus(inertText);
+    expect(screen.getByRole('tooltip')).toHaveTextContent("can't be opened");
   });
 });
 
