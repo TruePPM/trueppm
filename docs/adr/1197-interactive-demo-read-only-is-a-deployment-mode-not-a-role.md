@@ -312,6 +312,41 @@ committee. Only real users settle these; two simulated panels agreeing would not
 - **API changes**: No new endpoint or serializer. One new *refusal* behavior on existing endpoints, gated by deployment mode — must be reflected in `docs/api/` as a documented 403 `demo_read_only`, per the `api-docs` gate.
 - **OSS or Enterprise**: **OSS.** Self-hosted deployment shape. No `trueppm_enterprise` import; verified via `make enterprise-boundary-check` at implementation time.
 
+**Gate chain this feature takes** (CLAUDE.md fast-path: this **spans rows, so take the
+union**. It is primarily *backend-only feature* — a new middleware, a values key, a chart
+template — but D3 and D4 add UI that does not exist today, which pulls in the
+*frontend-only feature* row as well):
+
+`voice-of-customer` → `architect` (this ADR) → `threat-model` → `ux-design` (D3/D4 only)
+→ implement → batched parallel pre-MR cluster (`regression-check`, `security-review`,
+`rbac-check`; **`perf-check`, `broadcast-check` and `migration-check` are `n/a`**) →
+`ux-review` → `test-scaffold` → `changelog` → `/mr`. Plus `docs-writer` and `api-docs`.
+
+- **`ux-design` is in scope, which corrects #3912's own scoping.** The issue reasoned that
+  the mode "uses the existing login path" and adds no screen. That is true of the *login*,
+  and it is why `ux-design` was correctly skipped for the design pass that produced this
+  ADR. It stops being true at D3 and D4: a mode-wide refusal affordance and a previewed
+  schedule that must **persist** after its commit is refused are both new interaction
+  patterns, not a form bound to an existing serializer. Getting this wrong is how the
+  demo ships a refusal that reads as a bug — the exact failure D3 exists to prevent.
+- **`threat-model` was in scope and ran.** New authentication path on a public surface and
+  a changed authorization boundary; two of its findings (T1, T2) changed the decisions.
+- **`ai-review` is `n/a`** — the mode adds a *refusal*, not a server-computed value or a
+  mutation. Its paired **`enterprise-check` is `n/a`** too: the classification is not
+  unclear (see Implementation Notes above), so the pair is recorded rather than
+  half-measured.
+- **`rbac-check` is in scope even though no permission class changes.** D2's middleware is
+  an authorization control; it must be audited as one, and its allowlist is the whole
+  guarantee.
+- **`migration-check` is `n/a`** — no `models.py` change. **`broadcast-check` is `n/a`** —
+  there is no write path, which is the point of the mode.
+- **`perf-check` is `n/a` by its stated scope** (no viewset or serializer change), but note
+  that D2's middleware sits on *every* request. Worth a deliberate look during
+  `security-review` rather than pretending a gate covers it.
+- **`docs-writer`** for the operator docs (how to run the mode, why it must not share a
+  host with CI, the reset cadence) under `administration/`. **`api-docs`** for the 403
+  `demo_read_only` response shape.
+
 ### Durable Execution
 
 1. **Broker-down behaviour**: N/A. The mode introduces no async dispatch. The middleware is synchronous and the seed Job is install-time work, unchanged from ADR-0658 D1.
