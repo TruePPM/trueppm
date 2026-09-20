@@ -107,7 +107,7 @@ if [ "${1:-}" = "--self-test" ]; then
   st_probe() { # <name> <expect-pass|expect-fail> <dir>
     local st_out st_ec
     st_out="$(bash "$0" "$3" 2>&1)" && st_ec=0 || st_ec=$?
-    if ! printf '%s\n' "$st_out" | grep -q '^design-system-v2: '; then
+    if ! grep -q '^design-system-v2: ' <<<"$st_out"; then
       {
         echo "SELF-TEST FAILED: $1 — the gate exited $st_ec without producing its count line."
         echo "  It crashed instead of running (missing interpreter, syntax error, unset var). Output:"
@@ -788,7 +788,7 @@ pipeline_self_test() {
     "$W"'/features/me/MyWorkFocusCards.tsx:64:  className="text-[10.5px]"' \
     "$W"'/features/board/QueueLayout.tsx:498:  className="text-[9.5px]"' \
     "$W"'/features/settings/X.tsx:9:  className="text-[9.5px]"'; do
-    printf '%s\n' "$s" | g -E "$TINY_TEXT_PAT" | tiny_text_filter | grep -q . \
+    grep -q . <<<"$(printf '%s\n' "$s" | g -E "$TINY_TEXT_PAT" | tiny_text_filter)" \
       || { echo "::error:: tiny-text pipeline MISSED an offender: $s" >&2; rc=1; }
   done
   # -- tiny text: MUST NOT be reported --
@@ -800,7 +800,7 @@ pipeline_self_test() {
     "$W"'/features/foo/Bar.spec.ts:3:  expect(x).toContain("text-[11px]")' \
     "$W"'/features/foo/Bar.tsx:3:  className="text-[12.5px]"' \
     "$W"'/features/foo/Bar.tsx:3:  className="text-[12px]"'; do
-    printf '%s\n' "$s" | g -E "$TINY_TEXT_PAT" | tiny_text_filter | grep -q . \
+    grep -q . <<<"$(printf '%s\n' "$s" | g -E "$TINY_TEXT_PAT" | tiny_text_filter)" \
       && { echo "::error:: tiny-text pipeline COUNTED a sanctioned line: $s" >&2; rc=1; }
   done
   # -- semantic tint: MUST be reported (bare, resting fills) --
@@ -809,7 +809,7 @@ pipeline_self_test() {
     'packages/web/src/a/T.tsx:17:  Yours: "bg-semantic-success/10 text-semantic-success"' \
     'packages/web/src/a/C.tsx:37:  <span className="block h-full bg-semantic-critical/60" />' \
     'packages/web/src/a/R.tsx:35:  className="rounded-full bg-semantic-on-track/15"'; do
-    printf '%s\n' "$s" | g -E "$SEM_TINT_PAT" | sem_tint_filter | grep -q . \
+    grep -q . <<<"$(printf '%s\n' "$s" | g -E "$SEM_TINT_PAT" | sem_tint_filter)" \
       || { echo "::error:: semantic-tint pipeline MISSED an offender: $s" >&2; rc=1; }
   done
   # -- semantic tint: MUST NOT be reported --
@@ -820,14 +820,14 @@ pipeline_self_test() {
     'packages/web/src/a/A.tsx:9:  className="focus-visible:bg-semantic-critical/5"' \
     'packages/web/src/a/B.tsx:9:  className="bg-semantic-at-risk-bg text-semantic-at-risk"' \
     'packages/web/src/a/B.test.tsx:9:  expect(c).toContain("bg-semantic-warning/10")'; do
-    printf '%s\n' "$s" | g -E "$SEM_TINT_PAT" | sem_tint_filter | grep -q . \
+    grep -q . <<<"$(printf '%s\n' "$s" | g -E "$SEM_TINT_PAT" | sem_tint_filter)" \
       && { echo "::error:: semantic-tint pipeline COUNTED a legitimate line: $s" >&2; rc=1; }
   done
   # -- unhandled query error: MUST be reported --
   for s in \
     'packages/web/src/features/roster/RosterPage.tsx:21:  const { data: roster = [], isLoading } = useProjectResourcePool(projectId);' \
     'packages/web/src/a/X.tsx:4:  const { data, isLoading } = useThing(id);'; do
-    printf '%s\n' "$s" | g -E "$QUERY_ERROR_PAT" | query_error_filter | grep -q . \
+    grep -q . <<<"$(printf '%s\n' "$s" | g -E "$QUERY_ERROR_PAT" | query_error_filter)" \
       || { echo "::error:: query-error pipeline MISSED an offender: $s" >&2; rc=1; }
   done
   # -- unhandled query error: MUST NOT be reported --
@@ -837,7 +837,7 @@ pipeline_self_test() {
     'packages/web/src/a/X.tsx:4:  const { open, setOpen } = useDisclosure();' \
     'packages/web/src/a/X.tsx:61:  const { options, isLoading } = useMemo(() => build(), []);' \
     'packages/web/src/a/X.test.tsx:4:  const { data, isLoading } = useThing(id);'; do
-    printf '%s\n' "$s" | g -E "$QUERY_ERROR_PAT" | query_error_filter | grep -q . \
+    grep -q . <<<"$(printf '%s\n' "$s" | g -E "$QUERY_ERROR_PAT" | query_error_filter)" \
       && { echo "::error:: query-error pipeline COUNTED a handled/irrelevant line: $s" >&2; rc=1; }
   done
   return $rc

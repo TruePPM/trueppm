@@ -194,7 +194,7 @@ self_test() {
   git -C "$tmp/repo" add -A
   local out
   out="$(run_check "$tmp/repo" 2>&1 || true)"
-  if ! echo "$out" | grep -q "lined.ts:2 has a NUL byte"; then
+  if ! grep -q "lined.ts:2 has a NUL byte" <<<"$out"; then
     echo "SELF-TEST FAIL: violation report did not name the correct line (2):" >&2
     echo "$out" >&2
     return 1

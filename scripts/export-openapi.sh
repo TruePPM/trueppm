@@ -50,7 +50,7 @@ if [[ "${CHECK}" -eq 1 ]]; then
     if ! diff -q "${TMP}" "${OUT}" > /dev/null 2>&1; then
         echo "ERROR: docs/api/openapi.json is out of date." >&2
         echo "Run scripts/export-openapi.sh and commit the result." >&2
-        diff -u "${OUT}" "${TMP}" | head -80 >&2 || true
+        diff -u "${OUT}" "${TMP}" | sed -n 1,80p >&2 || true
         exit 1
     fi
     echo "docs/api/openapi.json is up to date."

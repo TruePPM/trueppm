@@ -37,8 +37,7 @@ check() {
 # 1. Ensure stack is running
 # ---------------------------------------------------------------------------
 header "Stack"
-if ! docker compose ps --services --filter "status=running" 2>/dev/null \
-    | grep -q "^api$"; then
+if ! grep -q "^api$" <<<"$(docker compose ps --services --filter "status=running" 2>/dev/null)"; then
   echo "  Starting dev stack…"
   docker compose up -d
   echo "  Waiting for API to be healthy…"

@@ -356,7 +356,7 @@ done
 # exits before serving anything. Assert on the message as well as on liveness:
 # a crash-looping container can read as "starting" for a long time, and the
 # guard's own prefix is the unambiguous signal.
-if compose logs api 2>&1 | grep -q "Refusing to start:"; then
+if grep -q "Refusing to start:" <<<"$(compose logs api 2>&1)"; then
   compose logs api 2>&1 | grep "Refusing to start:" | sed 's/^/  /' >&2
   fail "api refused to start on a settings.prod boot guard"
 fi
@@ -372,7 +372,7 @@ until [ "$("${CURL[@]}" -o /dev/null -w '%{http_code}' "${BASE_URL}/api/v1/ready
   sleep 3
 done
 readyz="$("${CURL[@]}" "${BASE_URL}/api/v1/readyz")"
-echo "${readyz}" | grep -q '"status": *"ok"' || fail "readyz 200 but status is not ok: ${readyz}"
+grep -q '"status": *"ok"' <<<"${readyz}" || fail "readyz 200 but status is not ok: ${readyz}"
 
 # ---- 4a. the TLS server blocks (#2829) --------------------------------------
 # Only reachable in TLS mode, and this is the half of nginx/app.conf.template
@@ -420,7 +420,7 @@ if [ "${TLS_MODE}" != "none" ]; then
 nginx is not serving the webroot certbot renews through — the certificate would issue, then fail to renew at ~60 days. See #2829."
 
   log "asserting HSTS is set on the HTTPS response"
-  "${CURL[@]}" -o /dev/null -D - "${BASE_URL}/" 2>/dev/null | grep -qi '^strict-transport-security:' || fail \
+  grep -qi '^strict-transport-security:' <<<"$("${CURL[@]}" -o /dev/null -D - "${BASE_URL}/" 2>/dev/null)" || fail \
     "the HTTPS response carries no Strict-Transport-Security header — nginx/app.conf.template's add_header did not survive."
 fi
 
@@ -435,10 +435,10 @@ fi
 log "asserting the SPA document carries the security response headers"
 spa_headers="$("${CURL[@]}" -o /dev/null -D - "${BASE_URL}/" 2>/dev/null)"
 for hdr in x-frame-options x-content-type-options content-security-policy; do
-  printf '%s\n' "${spa_headers}" | grep -qi "^${hdr}:" || fail \
+  grep -qi "^${hdr}:" <<<"${spa_headers}" || fail \
     "GET / carries no ${hdr} header — the document running the whole SPA is unprotected, and no Django setting can fix it because nginx serves index.html off disk (#2849)."
 done
-printf '%s\n' "${spa_headers}" | grep -qi "^content-security-policy:.*frame-ancestors 'none'" || fail \
+grep -qi "^content-security-policy:.*frame-ancestors 'none'" <<<"${spa_headers}" || fail \
   "the SPA document's Content-Security-Policy has no \`frame-ancestors 'none'\` (#2849)."
 
 # ---- 4b. collected static actually reaches the process that serves it -------
@@ -495,7 +495,7 @@ until [ "$("${CURL[@]}" -o /dev/null -w '%{http_code}' "${BASE_URL}/api/v1/ready
   [ "$(date +%s)" -lt "${deadline}" ] || fail "/api/v1/readyz did not recover within ${READY_TIMEOUT}s after restarting api"
   sleep 3
 done
-if compose logs api 2>&1 | grep -q "Refusing to start:"; then
+if grep -q "Refusing to start:" <<<"$(compose logs api 2>&1)"; then
   fail "api refused to start on a boot guard AFTER restart"
 fi
 

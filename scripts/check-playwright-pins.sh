@@ -70,7 +70,7 @@ run_check() {
   done
 
   # The reference: the image tag CI actually runs. v1.58.2-noble -> 1.58.2
-  base_tag="$(sed -n 's/^[[:space:]]*PLAYWRIGHT_BASE_TAG:[[:space:]]*"\(.*\)".*/\1/p' "$root/$CI_YML" | head -1)"
+  base_tag="$(sed -n 's/^[[:space:]]*PLAYWRIGHT_BASE_TAG:[[:space:]]*"\(.*\)".*/\1/p' "$root/$CI_YML" | sed -n 1p)"
   if [ -z "$base_tag" ]; then
     echo "ERROR: could not read PLAYWRIGHT_BASE_TAG from $CI_YML" >&2
     return 2
@@ -84,7 +84,7 @@ run_check() {
   # `pinDigests: true` for the #904 supply-chain reason — so a digest suffix here
   # is a correct hardening change, not drift. Without this strip the gate would
   # red-light that change, which is how a gate teaches people to disable it.
-  arg_tag="$(sed -n 's|^ARG PLAYWRIGHT_BASE=mcr.microsoft.com/playwright:\(.*\)$|\1|p' "$root/$DOCKERFILE" | head -1)"
+  arg_tag="$(sed -n 's|^ARG PLAYWRIGHT_BASE=mcr.microsoft.com/playwright:\(.*\)$|\1|p' "$root/$DOCKERFILE" | sed -n 1p)"
   arg_tag="${arg_tag%%@*}"
   if [ -z "$arg_tag" ]; then
     _note "$DOCKERFILE: no 'ARG PLAYWRIGHT_BASE=mcr.microsoft.com/playwright:<tag>' line"

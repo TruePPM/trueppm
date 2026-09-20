@@ -77,7 +77,7 @@ if [ "${1:-}" = "--self-test" ]; then
       else echo "SELF-TEST FAILED: $1 was accepted and must not be." >&2; st_rc=1; fi
     elif [ "$2" != "expect-fail" ]; then
       echo "SELF-TEST FAILED: $1 was rejected and must not be." >&2; st_rc=1
-    elif [ -n "${4:-}" ] && ! printf '%s\n' "$out" | grep -qF -- "$4"; then
+    elif [ -n "${4:-}" ] && ! grep -qF -- "$4" <<<"$out"; then
       echo "SELF-TEST FAILED: $1 was rejected, but not for the expected reason." >&2
       echo "                  expected output to contain: $4" >&2
       st_rc=1
@@ -320,11 +320,11 @@ adr_status() {
   local file="$1" value
 
   # "## Status: <value>"
-  value="$(sed -n 's/^## Status:[[:space:]]*//p' "$file" | head -1)"
+  value="$(sed -n 's/^## Status:[[:space:]]*//p' "$file" | sed -n 1p)"
   [ -n "$value" ] && { printf '%s' "$value"; return; }
 
   # "- **Status:** <value>"  /  "**Status:** <value>"  (optional leading bullet)
-  value="$(sed -n 's/^[[:space:]]*[-*][[:space:]]*\*\*Status:\*\*[[:space:]]*//p;s/^\*\*Status:\*\*[[:space:]]*//p' "$file" | head -1)"
+  value="$(sed -n 's/^[[:space:]]*[-*][[:space:]]*\*\*Status:\*\*[[:space:]]*//p;s/^\*\*Status:\*\*[[:space:]]*//p' "$file" | sed -n 1p)"
   [ -n "$value" ] && { printf '%s' "$value"; return; }
 
   # Block form: first non-blank, non-blockquote line after a bare "## Status".
@@ -343,7 +343,7 @@ adr_status() {
 
 is_allowlisted() {
   local adr="$1"
-  printf '%s\n' "$ADR_STATUS_ALLOWLIST" | grep -qE "^[[:space:]]*$adr([[:space:]]|\$)"
+  grep -qE "^[[:space:]]*$adr([[:space:]]|\$)" <<<"$ADR_STATUS_ALLOWLIST"
 }
 
 violations=0
@@ -353,7 +353,7 @@ cited_count=0
 for num in $CITED; do
   cited_count=$((cited_count + 1))
   # shellcheck disable=SC2086,SC2012  # deliberate glob; ADR filenames are ASCII by convention
-  file="$(ls ${ADR_DIR}/${num}-*.md 2>/dev/null | head -1 || true)"
+  file="$(ls ${ADR_DIR}/${num}-*.md 2>/dev/null | sed -n 1p || true)"
 
   if [ -z "$file" ]; then
     # A citation pointing at no ADR is a broken reference, but it is a different defect
@@ -378,7 +378,7 @@ for num in $CITED; do
       fi
       echo "check-adr-status: FAIL  ADR-${num} is cited by shipped source but Status is '${status}'"
       echo "                        ${file}"
-      echo "                        cited in: $(grep -rl "ADR-${num}" packages/*/src 2>/dev/null | head -3 | tr '\n' ' ')"
+      echo "                        cited in: $(grep -rl "ADR-${num}" packages/*/src 2>/dev/null | sed -n 1,3p | tr '\n' ' ')"
       violations=$((violations + 1))
       ;;
   esac
@@ -438,7 +438,7 @@ PY
     # script under `set -euo pipefail` before the branch below could report anything.
     # That is what the old form actually did: a deleted statistic exited 1 with no
     # message at all, skipping the span check and the summary line (#3379).
-    found="$(grep -ohE "$pattern" "$INDEX" | grep -oE '[0-9]+' | head -1 || true)"
+    found="$(grep -ohE "$pattern" "$INDEX" | grep -oE '[0-9]+' | sed -n 1p || true)"
     if [ -z "$found" ]; then
       echo "check-adr-status: FAIL  ${INDEX} no longer states ${label}; the tree has ${expected}"
       stats_violations=$((stats_violations + 1))

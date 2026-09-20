@@ -52,14 +52,14 @@ rm -rf "$TMP/tree"; mkdir -p "$TMP/tree"
 echo "const x = 1" > "$TMP/tree/plain.ts"
 run_list
 check "clean tree exits 0" "$([ "$RC" -eq 0 ] && echo 0 || echo 1)"
-check "clean tree says so" "$(echo "$OUT" | grep -q 'no .* markers found' && echo 0 || echo 1)"
+check "clean tree says so" "$(grep -q 'no .* markers found' <<<"$OUT" && echo 0 || echo 1)"
 
 # --- Finds a marker in a line comment ---------------------------------------
 rm -rf "$TMP/tree"; mkdir -p "$TMP/tree"
 printf '// %s(#4242)\ndisableRules: ["color-contrast"],\n' "$MARK" > "$TMP/tree/spec.ts"
 run_list
-check "finds marker in a // comment" "$(echo "$OUT" | grep -q '4242' && echo 0 || echo 1)"
-check "reports the file it found it in" "$(echo "$OUT" | grep -q 'spec.ts' && echo 0 || echo 1)"
+check "finds marker in a // comment" "$(grep -q '4242' <<<"$OUT" && echo 0 || echo 1)"
+check "reports the file it found it in" "$(grep -q 'spec.ts' <<<"$OUT" && echo 0 || echo 1)"
 
 # --- Finds it across comment syntaxes and languages --------------------------
 rm -rf "$TMP/tree"; mkdir -p "$TMP/tree"
@@ -68,7 +68,7 @@ printf '/* %s(#202) */\n' "$MARK" > "$TMP/tree/styles.css"
 printf '<!-- %s(#303) -->\n' "$MARK" > "$TMP/tree/notes.md"
 run_list
 for n in 101 202 303; do
-  check "finds marker #$n" "$(echo "$OUT" | grep -q "$n" && echo 0 || echo 1)"
+  check "finds marker #$n" "$(grep -q "$n" <<<"$OUT" && echo 0 || echo 1)"
 done
 
 # --- Multiple markers for one issue are all reported -------------------------
@@ -90,7 +90,7 @@ printf '# %s(#998)\n' "$MARK" > "$TMP/tree/.venv/lib/mod.py"
 printf '// %s(#997)\n' "$MARK" > "$TMP/tree/dist/bundle.js"
 run_list
 check "ignores node_modules/.venv/dist" \
-  "$(echo "$OUT" | grep -qE '99[789]' && echo 1 || echo 0)"
+  "$(grep -qE '99[789]' <<<"$OUT" && echo 1 || echo 0)"
 check "and therefore reports a clean tree" "$([ "$RC" -eq 0 ] && echo 0 || echo 1)"
 
 # --- A bare issue reference is NOT a marker ---------------------------------
@@ -101,7 +101,7 @@ rm -rf "$TMP/tree"; mkdir -p "$TMP/tree"
 printf '// contrast debt fixed in #2265, exclusion dropped\ndisableRules: [],\n' > "$TMP/tree/spec.ts"
 run_list
 check "bare issue reference near a suppression is not a marker" \
-  "$([ "$RC" -eq 0 ] && echo "$OUT" | grep -q 'no .* markers found' && echo 0 || echo 1)"
+  "$([ "$RC" -eq 0 ] && grep -q 'no .* markers found' <<<"$OUT" && echo 0 || echo 1)"
 
 # --- The live tree's markers all parse --------------------------------------
 # Guards the premise: #2603 introduced markers in packages/web/e2e/a11y.spec.ts.
@@ -110,7 +110,7 @@ set +e
 LIVE="$(bash "$GATE" "$REPO_ROOT" --list 2>&1)"
 set -e
 check "live tree still carries at least one marker" \
-  "$(echo "$LIVE" | grep -qE '[0-9]{3,4}' && echo 0 || echo 1)"
+  "$(grep -qE '[0-9]{3,4}' <<<"$LIVE" && echo 0 || echo 1)"
 
 echo ""
 if [[ "$fail" -eq 0 ]]; then

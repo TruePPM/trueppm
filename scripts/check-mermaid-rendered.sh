@@ -99,7 +99,7 @@ run_check() {
     fi
     if grep -q '\[ERROR\]' "$log"; then
       echo "  VIOLATION: the website build logged [ERROR] lines despite exiting 0:"
-      grep '\[ERROR\]' "$log" | head -20 | sed 's/^/      /'
+      grep '\[ERROR\]' "$log" | sed -n 1,20p | sed 's/^/      /'
       fail=1
     fi
   fi

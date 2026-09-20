@@ -97,12 +97,12 @@ shipped_versions() {
   sed -n '/^## Shipped[[:space:]]*$/,/^## /p' "$roadmap" \
     | grep -E '^###[[:space:]]+[0-9]+\.[0-9]+' \
     | sed -E 's/^###[[:space:]]+([0-9]+\.[0-9]+).*/\1/' \
-    | head -n 100
+    | sed -n 1,100p
 }
 
 is_shipped() {
   local version="$1" roadmap="$2"
-  shipped_versions "$roadmap" | grep -qxF "$version"
+  grep -qxF "$version" <<<"$(shipped_versions "$roadmap")"
 }
 
 # ── Callout counting ──────────────────────────────────────────────────────

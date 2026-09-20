@@ -559,6 +559,13 @@ nginx-headers-check: ## Fail if the five nginx configs disagree on the hardening
 	@# are skipped (loudly) when helm is not on PATH — CI always has it.
 	@bash scripts/check-nginx-security-headers.sh
 
+sigpipe-readers-check: ## Fail if a shell script pipes into an early-exit reader (grep -q / head) (#3942)
+	@# Under `set -o pipefail` an early-exiting reader SIGPIPEs the writer and a
+	@# present match reads as missing — release.sh's `git tag | grep -qxF "$$TAG"`
+	@# guard was one. Walks every script under scripts/, not a hand-listed few.
+	@bash scripts/check-sigpipe-readers.sh --self-test
+	@bash scripts/check-sigpipe-readers.sh
+
 compose-image-pins-check: ## Fail if a third-party image in a shipped compose file has no version tag (#3228)
 	@# `certbot/certbot` shipped untagged in docker-compose.prod.yml — the only
 	@# unpinned image in the production stack, and the one component that owns TLS
@@ -598,6 +605,7 @@ pre-push-checks: demo-readonly-check
 pre-push-checks: helm-metric-names-check
 pre-push-checks: nginx-headers-check
 pre-push-checks: compose-image-pins-check
+pre-push-checks: sigpipe-readers-check
 pre-push-checks: playwright-pins-check
 pre-push-checks: nul-bytes-check
 pre-push-checks: ci-api-tag-check

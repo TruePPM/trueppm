@@ -88,7 +88,7 @@ check "A did NOT receive B's work" \
 # And B's entry survived A's pop entirely.
 b_list="$( cd "$TRUEPPM_WT_BASE/b" && bash "$WT" stash list 2>/dev/null )"
 check "B's entry still exists after A popped" \
-  "$(printf '%s' "$b_list" | grep -q "B's work"; echo $?)"
+  "$(grep -q "B's work" <<<"$b_list"; echo $?)"
 ( cd "$TRUEPPM_WT_BASE/b" && bash "$WT" stash pop >/dev/null 2>&1 )
 check "B gets B's work back" \
   "$(grep -q 'B-work' "$TRUEPPM_WT_BASE/b/tracked.txt"; echo $?)"
@@ -105,7 +105,7 @@ check "refs/stash is still empty after four wt-stash operations" \
 D2="$TMP/case2"; mk_repo "$D2"
 ( cd "$D2" && printf 'ns\n' >> tracked.txt && bash "$WT" stash push "ns" >/dev/null 2>&1 )
 check "entries live under refs/wt-stash/" \
-  "$(cd "$D2" && git for-each-ref --format='%(refname)' refs/wt-stash | grep -q .; echo $?)"
+  "$(cd "$D2" && grep -q . <<<"$(git for-each-ref --format='%(refname)' refs/wt-stash)"; echo $?)"
 check "and refs/stash stays empty in that repo too" \
   "$(cd "$D2" && [[ "$(git stash list | wc -l | tr -d ' ')" == "0" ]]; echo $?)"
 
@@ -120,7 +120,7 @@ D3="$TMP/case3"; mk_repo "$D3"
 ( cd "$D3" && bash "$WT" stash pop >/dev/null 2>&1 ) || true
 c3_list="$( cd "$D3" && bash "$WT" stash list 2>/dev/null )"
 check "the entry survives a failed apply" \
-  "$(printf '%s' "$c3_list" | grep -q 'c3'; echo $?)"
+  "$(grep -q 'c3' <<<"$c3_list"; echo $?)"
 
 # --- Case 4: stack semantics and the clean-tree case -----------------------
 echo "Case 4: stack semantics"
@@ -128,19 +128,19 @@ D4="$TMP/case4"; mk_repo "$D4"
 ( cd "$D4" && printf 'first\n' >> tracked.txt && bash "$WT" stash push "one" >/dev/null 2>&1 )
 ( cd "$D4" && printf 'second\n' >> tracked.txt && bash "$WT" stash push "two" >/dev/null 2>&1 )
 d4_list="$( cd "$D4" && bash "$WT" stash list 2>/dev/null )"
-check "both entries are listed"  "$(printf '%s' "$d4_list" | grep -q 'one' && printf '%s' "$d4_list" | grep -q 'two'; echo $?)"
+check "both entries are listed"  "$(grep -q 'one' <<<"$d4_list" && grep -q 'two' <<<"$d4_list"; echo $?)"
 ( cd "$D4" && bash "$WT" stash pop >/dev/null 2>&1 )
 check "pop restores the NEWEST entry" \
   "$(grep -q 'second' "$D4/tracked.txt"; echo $?)"
 after="$( cd "$D4" && bash "$WT" stash list 2>/dev/null )"
 check "the older entry remains after the pop" \
-  "$(printf '%s' "$after" | grep -q 'one'; echo $?)"
+  "$(grep -q 'one' <<<"$after"; echo $?)"
 
 # A clean tree is not an error, and must not report a save that did not happen.
 D4b="$TMP/case4b"; mk_repo "$D4b"
 clean_out="$( cd "$D4b" && bash "$WT" stash push 2>&1 )"
 check "a clean worktree says nothing to stash, exit 0" \
-  "$(printf '%s' "$clean_out" | grep -q 'nothing to stash'; echo $?)"
+  "$(grep -q 'nothing to stash' <<<"$clean_out"; echo $?)"
 check "and creates no ref" \
   "$(cd "$D4b" && [[ -z "$(git for-each-ref --format='%(refname)' refs/wt-stash)" ]]; echo $?)"
 

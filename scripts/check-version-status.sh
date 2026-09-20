@@ -119,7 +119,7 @@ file_hash() {
 
 # Does this page declare `documentedFor:` in its front matter?
 page_declares() {
-  sed -n '1,/^---[[:space:]]*$/{ /^documentedFor:/p; }' "$1" 2>/dev/null | grep -q .
+  [ -n "$(sed -n '1,/^---[[:space:]]*$/{ /^documentedFor:/p; }' "$1" 2>/dev/null)" ]
 }
 
 # Every behavior page under DECLARATION_DIRS plus DECLARATION_EXTRA_PAGES,
@@ -156,7 +156,7 @@ shipped_versions() {
   sed -n '/^## Shipped[[:space:]]*$/,/^## /p' "$roadmap" \
     | grep -E '^###[[:space:]]+[0-9]+\.[0-9]+' \
     | sed -E 's/^###[[:space:]]+([0-9]+\.[0-9]+).*/\1/' \
-    | head -n 100
+    | sed -n 1,100p
 }
 
 # Compare two "X.Y" versions. Echoes 1 if $1 > $2, else 0.
@@ -214,7 +214,7 @@ declaration_ratchet() {
 
   while IFS= read -r rel; do
     [ -z "$rel" ] && continue
-    have="$(awk -v p="$rel" '$1==p{print $2}' "$baseline" | head -n 1)"
+    have="$(awk -v p="$rel" '$1==p{print $2}' "$baseline" | sed -n 1p)"
     if page_declares "$docs_root/$rel"; then
       # A declaring page is governed by the pairing check above; a leftover
       # baseline line for it would rot into a permanent allowlist entry.
@@ -393,7 +393,7 @@ badge_check() { # badge_check <sidebar_file> <docs_root> <highest_shipped>
     declared=""
     if [ -n "$page" ]; then
       declared="$(sed -n '1,/^---[[:space:]]*$/{ /^documentedFor:/p; }' "$page" 2>/dev/null \
-        | head -n 1 | sed -E 's/^documentedFor:[[:space:]]*["'"'"']?([0-9]+\.[0-9]+).*/\1/')"
+        | sed -n 1p | sed -E 's/^documentedFor:[[:space:]]*["'"'"']?([0-9]+\.[0-9]+).*/\1/')"
     fi
 
     # Forward: a page in a badged tree that declares an unshipped version must
@@ -506,7 +506,7 @@ run_scan() {
       lineno="${hit%%:*}"
       line="${hit#*:}"
       # Skip future-tense lines.
-      if printf '%s' "$line" | grep -qE "$future_re"; then
+      if grep -qE "$future_re" <<<"$line"; then
         continue
       fi
       # Pull every version token that directly follows an anchor phrase and
@@ -570,7 +570,7 @@ run_scan() {
     [ -z "$f" ] && continue
     # Read the key only from the front-matter block (line 1 to the closing ---).
     declared="$(sed -n '1,/^---[[:space:]]*$/{ /^documentedFor:/p; }' "$f" 2>/dev/null \
-      | head -n 1 | sed -E 's/^documentedFor:[[:space:]]*["'"'"']?([0-9]+\.[0-9]+).*/\1/')"
+      | sed -n 1p | sed -E 's/^documentedFor:[[:space:]]*["'"'"']?([0-9]+\.[0-9]+).*/\1/')"
     # EVERY version named by a pre-release banner on the page, not just the
     # first: a page can legitimately carry banners for two versions, and taking
     # only the first made the pairing check depend on document order.
@@ -583,8 +583,8 @@ run_scan() {
         echo "VIOLATION: $f declares documentedFor: $declared (unshipped) but carries no \"Ships in $declared\" callout" >&2
         echo "    A reader on $highest would take this page as describing their install."
         fm_violations=$((fm_violations + 1))
-      elif ! printf '%s\n' "$callout_vers" | grep -qxF "$declared"; then
-        echo "VIOLATION: $f declares documentedFor: $declared but its callout says \"Ships in $(printf '%s' "$callout_vers" | head -n 1)\"" >&2
+      elif ! grep -qxF "$declared" <<<"$callout_vers"; then
+        echo "VIOLATION: $f declares documentedFor: $declared but its callout says \"Ships in $(printf '%s' "$callout_vers" | sed -n 1p)\"" >&2
         fm_violations=$((fm_violations + 1))
       fi
     fi

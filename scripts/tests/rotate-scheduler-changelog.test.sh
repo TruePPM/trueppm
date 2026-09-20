@@ -167,9 +167,9 @@ if out="$(bash "$ROTATE" 0.9.9a1 0.3.0a3 2026-08-17 "$CL4" 2>&1)"; then
 else
   check "rotation refuses a premature dated heading" 0
 fi
-echo "$out" | grep -q "no scheduler-v0.9.9a1 tag" && r=0 || r=1
+grep -q "no scheduler-v0.9.9a1 tag" <<<"$out" && r=0 || r=1
 check "error names the missing tag" "$r"
-echo "$out" | grep -q "would ship" && r=0 || r=1
+grep -q "would ship" <<<"$out" && r=0 || r=1
 check "error warns the pending entries would ship as unreleased" "$r"
 
 echo ""

@@ -212,7 +212,7 @@ for sig in $signals; do
     checked=$((checked + 1))
     # FAIL-CLOSED marker in the 12 lines above the call?
     start=$((lineno > 12 ? lineno - 12 : 1))
-    if sed -n "${start},${lineno}p" "$file" 2>/dev/null | grep -q 'FAIL-CLOSED'; then
+    if grep -q 'FAIL-CLOSED' <<<"$(sed -n "${start},${lineno}p" "$file" 2>/dev/null)"; then
       continue
     fi
     echo "VIOLATION: $file:$lineno — ${sig}.send() is not robust"

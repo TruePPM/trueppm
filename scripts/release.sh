@@ -421,7 +421,7 @@ fi
 # Canonical version source is the API manifest (semver form). The scheduler
 # manifest is the same release in PEP 440 form (0.2.0a1) and would break the
 # semver parser, so it must NOT be the parse source.
-CURRENT_VERSION="$(grep '^version' packages/api/pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')"
+CURRENT_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' packages/api/pyproject.toml | sed -n 1p)"
 
 if [[ -n "$PRE_ARG" ]]; then
   # e.g. ./scripts/release.sh minor alpha → bump base version then add pre suffix
@@ -501,9 +501,9 @@ SCHEDULER_TAG="scheduler-v$(to_pep440 "$NEW_VERSION")"
 # mcp-v<PEP440> and string-matches the tag against packages/mcp/pyproject.toml.
 MCP_TAG="mcp-v$(to_pep440 "$NEW_VERSION")"
 
-git tag | grep -qxF "$TAG" && die "Tag $TAG already exists."
-git tag | grep -qxF "$SCHEDULER_TAG" && die "Tag $SCHEDULER_TAG already exists."
-git tag | grep -qxF "$MCP_TAG" && die "Tag $MCP_TAG already exists."
+grep -qxF "$TAG" <<<"$(git tag)" && die "Tag $TAG already exists."
+grep -qxF "$SCHEDULER_TAG" <<<"$(git tag)" && die "Tag $SCHEDULER_TAG already exists."
+grep -qxF "$MCP_TAG" <<<"$(git tag)" && die "Tag $MCP_TAG already exists."
 
 # Build + Trivy-scan the api and web images BEFORE bumping manifests or cutting a
 # tag, so a fixable image CVE aborts the release cleanly here rather than failing

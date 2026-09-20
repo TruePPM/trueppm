@@ -153,7 +153,7 @@ target_nums=$(
 )
 while IFS= read -r n; do
   [ -n "$n" ] || continue
-  if echo "$target_nums" | grep -qx "$n"; then
+  if grep -qx "$n" <<<"$target_nums"; then
     echo "✗ ADR-$n is already present on '$TARGET' but this MR adds it again." >&2
     echo "  Rebase on the latest '$TARGET' and renumber your ADR to the next free number." >&2
     fail=1
@@ -207,7 +207,7 @@ if command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 \
       [ -n "$others_nums" ] || continue
       while IFS= read -r n; do
         [ -n "$n" ] || continue
-        if echo "$others_nums" | grep -qx "$n"; then
+        if grep -qx "$n" <<<"$others_nums"; then
           echo "✗ ADR-$n is also added by open MR !$other." >&2
           echo "  Two open MRs claim the same ADR number. Coordinate: the second to" >&2
           echo "  merge must renumber to the next free number before merging." >&2

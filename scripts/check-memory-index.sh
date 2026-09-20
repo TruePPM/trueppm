@@ -65,7 +65,7 @@ resolve_memory_dir() {
   # silently misses it in a worktree — which is this repo's default workflow, so the
   # naive form would skip exactly where it is most often run. `git worktree list`
   # prints the main worktree first; fall back to the script's own parent outside git.
-  root="$(git -C "$(dirname "${BASH_SOURCE[0]}")" worktree list 2>/dev/null | head -n1 | awk '{print $1}')"
+  root="$(git -C "$(dirname "${BASH_SOURCE[0]}")" worktree list 2>/dev/null | sed -n 1p | awk '{print $1}')"
   [[ -n "$root" ]] || root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
   # Claude encodes the project path by replacing every '/' with '-'.
   printf '%s\n' "$HOME/.claude/projects/${root//\//-}/memory"

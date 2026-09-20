@@ -112,7 +112,7 @@ total="$(wc -l < "$OUT" | tr -d ' ')"
 distinct="$(sort -u "$OUT" | wc -l | tr -d ' ')"
 check "all $N reservations succeeded"                "$([[ "$total" == "$N" ]]; echo $?)"
 check "every reserved number is distinct (no race)"  "$([[ "$total" == "$distinct" ]]; echo $?)"
-check "range is contiguous 0217..0228"               "$([[ "$(sort "$OUT" | head -1)" == "0217" && "$(sort "$OUT" | tail -1)" == "0228" ]]; echo $?)"
+check "range is contiguous 0217..0228"               "$([[ "$(sort "$OUT" | sed -n 1p)" == "0217" && "$(sort "$OUT" | tail -1)" == "0228" ]]; echo $?)"
 check "lock dir released after run"                  "$([[ ! -d "$D3/.git/trueppm-wt-reservations.lock" ]]; echo $?)"
 
 # --- Case 4: remove releases a branch's reservations -----------------------

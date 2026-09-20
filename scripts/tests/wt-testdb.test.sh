@@ -412,7 +412,7 @@ PADDED="MATCHME
 $(awk 'BEGIN { for (i = 0; i < 200000; i++) print "x" }')"
 
 piped_rc=0
-( set -o pipefail; printf '%s\n' "$PADDED" | grep -q 'MATCHME' ) >/dev/null 2>&1 || piped_rc=$?
+( set -o pipefail; printf '%s\n' "$PADDED" | grep -q 'MATCHME' ) >/dev/null 2>&1 || piped_rc=$? # sigpipe-ok: deliberate negative control — the pipe IS the thing under test
 check "negative control: the piped shape does fail here" "$([[ "$piped_rc" -ne 0 ]]; echo $?)"
 
 here_rc=0

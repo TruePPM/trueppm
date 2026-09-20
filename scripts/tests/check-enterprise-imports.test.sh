@@ -59,7 +59,7 @@ from trueppm_enterprise.portfolio import RollupService
 PY
 run_gate
 check "python from-import fails" "$([ "$RC" -eq 1 ] && echo 0 || echo 1)"
-check "python from-import names the file" "$(echo "$OUT" | grep -q 'views.py' && echo 0 || echo 1)"
+check "python from-import names the file" "$(grep -q 'views.py' <<<"$OUT" && echo 0 || echo 1)"
 
 stage api/apps/portfolio/services.py <<'PY'
     import trueppm_enterprise.audit as audit
@@ -110,7 +110,7 @@ dependencies = [
 TOML
 run_gate
 check "pyproject dependency entry fails" "$([ "$RC" -eq 1 ] && echo 0 || echo 1)"
-check "pyproject hit names the manifest" "$(echo "$OUT" | grep -q 'pyproject.toml' && echo 0 || echo 1)"
+check "pyproject hit names the manifest" "$(grep -q 'pyproject.toml' <<<"$OUT" && echo 0 || echo 1)"
 
 stage web/package.json <<'JSON'
 {

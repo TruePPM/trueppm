@@ -183,7 +183,7 @@ log "database dump: $(du -h "$WORKDIR/db.dump" | cut -f1)"
 # ---- 2. Media / attachments (only when local-disk) -------------------------
 MEDIA_INCLUDED="no"
 if [ -n "$MEDIA_DIR" ] && [ -d "$MEDIA_DIR" ]; then
-  if find "$MEDIA_DIR" -mindepth 1 -print -quit | grep -q .; then
+  if [ -n "$(find "$MEDIA_DIR" -mindepth 1 -print -quit)" ]; then
     log "archiving media directory: $MEDIA_DIR"
     tar -czf "$WORKDIR/media.tar.gz" -C "$MEDIA_DIR" .
     MEDIA_INCLUDED="yes ($MEDIA_DIR)"
@@ -224,7 +224,7 @@ fi
   echo "TruePPM backup manifest"
   echo "created_utc: $TIMESTAMP"
   echo "run_context: $CONTEXT"
-  echo "pg_dump_version: $(pg_dump --version | head -n1)"
+  echo "pg_dump_version: $(pg_dump --version | sed -n 1p)"
   echo "db_included: yes"
   echo "media_included: $MEDIA_INCLUDED"
   echo "redis_included: $REDIS_INCLUDED"

@@ -54,9 +54,9 @@ check "preflight_image_scan() is defined" "$r"
 # (so a CVE aborts with a clean tree and no tag). Compare line numbers of the
 # call sites (the bare `preflight_image_scan` call, not its definition).
 echo "2: preflight runs after confirm and before the first bump"
-confirm_line="$(grep -nE '^confirm_or_override_version "' "$RELEASE_SH" | head -1 | cut -d: -f1)"
-call_line="$(grep -nE '^preflight_image_scan$' "$RELEASE_SH" | head -1 | cut -d: -f1)"
-bump_line="$(grep -nE '^bump_manifest ' "$RELEASE_SH" | head -1 | cut -d: -f1)"
+confirm_line="$(grep -nE '^confirm_or_override_version "' "$RELEASE_SH" | sed -n 1p | cut -d: -f1)"
+call_line="$(grep -nE '^preflight_image_scan$' "$RELEASE_SH" | sed -n 1p | cut -d: -f1)"
+bump_line="$(grep -nE '^bump_manifest ' "$RELEASE_SH" | sed -n 1p | cut -d: -f1)"
 if [[ -n "$confirm_line" && -n "$call_line" && -n "$bump_line" \
       && "$confirm_line" -lt "$call_line" && "$call_line" -lt "$bump_line" ]]; then
   r=0
@@ -91,7 +91,7 @@ check "builds api (repo-root context); does not build the web image locally" "$r
 # release.sh prefers a host trivy but pins a containerized fallback; that pin and
 # the version CI installs must match so both scan with the same engine/DB schema.
 echo "6: TRIVY_VERSION matches the pin in .gitlab-ci.yml"
-rel_ver="$(grep -E '^TRIVY_VERSION="[0-9.]+"' "$RELEASE_SH" | head -1 | sed -E 's/.*"([0-9.]+)".*/\1/')"
+rel_ver="$(grep -E '^TRIVY_VERSION="[0-9.]+"' "$RELEASE_SH" | sed -n 1p | sed -E 's/.*"([0-9.]+)".*/\1/')"
 if [[ -n "$rel_ver" ]] && grep -qE "TRIVY_VERSION=${rel_ver}([^0-9.]|$)" "$CI_YML"; then
   r=0
 else

@@ -185,9 +185,9 @@ OUT="$(
   s3_put "$TMP/art2.tar.gz" "art2.tar.gz" 2>&1 >/dev/null
 )"
 check "a remote plaintext endpoint warns on stderr" \
-  "$(echo "$OUT" | grep -q 'WARNING.*S3_ENDPOINT' && echo 0 || echo 1)"
+  "$(grep -q 'WARNING.*S3_ENDPOINT' <<<"$OUT" && echo 0 || echo 1)"
 check "the warning names the offending endpoint" \
-  "$(echo "$OUT" | grep -q 'http://backup.example.com:9000' && echo 0 || echo 1)"
+  "$(grep -q 'http://backup.example.com:9000' <<<"$OUT" && echo 0 || echo 1)"
 check "the upload still proceeds (warning does not block)" \
   "$(grep -q 'ARGV: --endpoint-url http://backup.example.com:9000 s3 cp' "$LOG" && echo 0 || echo 1)"
 # The only clear-text URL in the warning must be the endpoint it is reporting
@@ -211,7 +211,7 @@ check "the warning carries no clear-text scheme literal of its own" \
 # reintroduction there is invisible to the gate that caught it here.
 CRONJOB="$REPO_ROOT/packages/helm/templates/cronjob-backup.yaml"
 check "the chart's duplicated warning also carries no clear-text scheme literal" \
-  "$(grep 'WARNING: S3_ENDPOINT' "$CRONJOB" | grep -q 'http://' && echo 1 || echo 0)"
+  "$(grep -q 'http://' <<<"$(grep 'WARNING: S3_ENDPOINT' "$CRONJOB")" && echo 1 || echo 0)"
 
 reset_log
 OUT="$(
@@ -282,9 +282,9 @@ RC=$?
 set -e
 check "bucket set with no aws/mc installed exits non-zero" "$([ "$RC" -ne 0 ] && echo 0 || echo 1)"
 check "the failure names both supported clients" \
-  "$(echo "$OUT" | grep -q 'aws' && echo "$OUT" | grep -q 'mc' && echo 0 || echo 1)"
+  "$(grep -q 'aws' <<<"$OUT" && grep -q 'mc' <<<"$OUT" && echo 0 || echo 1)"
 check "it fails before dumping anything" \
-  "$(echo "$OUT" | grep -q 'dumping database' && echo 1 || echo 0)"
+  "$(grep -q 'dumping database' <<<"$OUT" && echo 1 || echo 0)"
 
 # --- 6. missing credentials fail fast too -----------------------------------
 set +e
@@ -295,7 +295,7 @@ RC=$?
 set -e
 check "bucket set with no credentials exits non-zero" "$([ "$RC" -ne 0 ] && echo 0 || echo 1)"
 check "the credential failure names AWS_ACCESS_KEY_ID" \
-  "$(echo "$OUT" | grep -q 'AWS_ACCESS_KEY_ID' && echo 0 || echo 1)"
+  "$(grep -q 'AWS_ACCESS_KEY_ID' <<<"$OUT" && echo 0 || echo 1)"
 
 # --- 7. restore.sh source selection -----------------------------------------
 set +e
@@ -303,14 +303,14 @@ OUT="$(bash "$RESTORE" --artifact /tmp/a.tar.gz --from-s3 latest --db-url postgr
 RC=$?
 set -e
 check "--artifact and --from-s3 together are rejected" \
-  "$([ "$RC" -ne 0 ] && echo "$OUT" | grep -q 'mutually exclusive' && echo 0 || echo 1)"
+  "$([ "$RC" -ne 0 ] && grep -q 'mutually exclusive' <<<"$OUT" && echo 0 || echo 1)"
 
 set +e
 OUT="$(bash "$RESTORE" --db-url postgres://x/y 2>&1)"
 RC=$?
 set -e
 check "neither source given is rejected" \
-  "$([ "$RC" -ne 0 ] && echo "$OUT" | grep -q 'from-s3' && echo 0 || echo 1)"
+  "$([ "$RC" -ne 0 ] && grep -q 'from-s3' <<<"$OUT" && echo 0 || echo 1)"
 
 set +e
 OUT="$(PATH="$STUB:$ONLYPG:/usr/bin:/bin" AWS_ACCESS_KEY_ID=k AWS_SECRET_ACCESS_KEY=s \
@@ -318,7 +318,7 @@ OUT="$(PATH="$STUB:$ONLYPG:/usr/bin:/bin" AWS_ACCESS_KEY_ID=k AWS_SECRET_ACCESS_
 RC=$?
 set -e
 check "--from-s3 without a bucket is rejected" \
-  "$([ "$RC" -ne 0 ] && echo "$OUT" | grep -q 'bucket' && echo 0 || echo 1)"
+  "$([ "$RC" -ne 0 ] && grep -q 'bucket' <<<"$OUT" && echo 0 || echo 1)"
 
 # --- results ----------------------------------------------------------------
 echo
