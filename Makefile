@@ -513,6 +513,13 @@ e2e-schema-guard-check: ## Run the lint:e2e-schema-guard CI job locally (#3440)
 demo-nginx-allowlist-check: ## Run the demo nginx allowlist CI job locally (#2941)
 	@bash scripts/check-demo-nginx-allowlist.sh
 
+chart-registry-check: ## Prove the chart-registry gate can still fail — self-test only, no network (#3914)
+	@# The live check reads GHCR and the GitLab registry, which no working tree
+	@# controls, so only the self-test can run pre-push. It is the part that proves
+	@# the publish guard and the default-resolution check still detect a chart that
+	@# outranks its own pre-releases; the live read runs nightly in CI.
+	@bash scripts/check-chart-registry.sh --self-test
+
 gate-selftest-parity-check: ## Fail if a CI gate never proves it can fail, in its own job (#3194)
 	@# boundary:imports passed a real Apache-2.0 violation for the whole life of the
 	@# gate (#3172) while carrying a test suite that ran in a DIFFERENT image, so the
@@ -611,6 +618,7 @@ pre-push-checks: docs-internal-links-check
 pre-push-checks: docs-api-routes-check
 pre-push-checks: e2e-catchall-check
 pre-push-checks: demo-nginx-allowlist-check
+pre-push-checks: chart-registry-check
 pre-push-checks: package-licenses-check
 pre-push-checks: mobile-version-check
 pre-push-checks: prepush-parity-check
