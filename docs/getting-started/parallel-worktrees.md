@@ -63,7 +63,7 @@ scripts/wt list
 
 # Move into the worktree
 cd ../trueppm-wt/600-crud-ui-for-project-program-integrations
-source .envrc                          # exports COMPOSE_PROJECT_NAME=trueppm
+source .envrc                          # exports COMPOSE_PROJECT_NAME=trueppm-dev
 # … work, commit, push, open MR …
 
 # Remove when done (refuses if there's uncommitted work; releases the check-out)
@@ -204,9 +204,11 @@ For each `wt new`:
 - **Symlinks** — `packages/api/.venv` and `packages/web/node_modules` point
   back to the main checkout. No duplicated dependencies; no per-worktree
   `npm ci` or venv creation.
-- **`.envrc`** — exports `COMPOSE_PROJECT_NAME=trueppm` so the worktree reuses
+- **`.envrc`** — exports `COMPOSE_PROJECT_NAME=trueppm-dev` so the worktree reuses
   the Docker stack you brought up in the main checkout (`make pre-push`
-  inside a worktree needs to find the running `trueppm-api-1` container), and
+  inside a worktree needs to find the running `trueppm-dev-api-1` container;
+  the value must equal the `name:` pin in `docker-compose.yml`, because the
+  environment variable overrides the pin), and
   `TRUEPPM_TEST_DB=test_trueppm_wt_<slug>` so this worktree's `pytest` uses an
   isolated test database, and `TRUEPPM_E2E_PORT` / `TRUEPPM_E2E_DEV_PORT` so its
   Playwright runs get their own servers (see
@@ -238,7 +240,7 @@ yourself first whether finishing what you started would be cheaper.
 
 - Both symlinks resolve to existing targets
 - `COMPOSE_PROJECT_NAME` is set in the current shell
-- The shared `trueppm-api-1` Docker container is running
+- The shared `trueppm-dev-api-1` Docker container is running
 - No orphaned test databases (see [Test databases](#test-databases))
 
 If anything is amber, the message tells you what to fix.
@@ -441,11 +443,41 @@ One Docker stack, one dev database, multiple worktrees:
   shared `node_modules` directory and break the main checkout.
 - **The docker stack lives in the main checkout.** Run `make up` /
   `make down` there. Worktrees just point at the running containers via
-  `COMPOSE_PROJECT_NAME=trueppm`.
+  `COMPOSE_PROJECT_NAME=trueppm-dev`.
+
+## Upgrading from the `trueppm` project name (#3928)
+
+`docker-compose.yml` now pins `name: trueppm-dev`; before that the dev stack
+took its project name from the checkout directory (`trueppm` on a default
+clone, which is also what `docker-compose.prod.yml` pins). Every dev container
+and volume is therefore renamed (`trueppm-db-1` → `trueppm-dev-db-1`,
+`trueppm_postgres_data` → `trueppm-dev_postgres_data`), and the first `make up`
+after pulling comes up against an **empty database**.
+
+Two things to do once:
+
+1. **Existing worktrees** carry `export COMPOSE_PROJECT_NAME=trueppm` in their
+   `.envrc`. An environment variable overrides the compose `name:` pin, so
+   change it to `trueppm-dev` (or recreate the worktree) and `source .envrc`.
+   `scripts/wt doctor` warns when it still says `trueppm`.
+2. **To keep your dev data**, stop the old stack and copy the volume before the
+   first new `make up`:
+
+```bash
+COMPOSE_PROJECT_NAME=trueppm docker compose -f docker-compose.yml down   # keeps volumes
+docker volume create trueppm-dev_postgres_data
+docker run --rm -v trueppm_postgres_data:/from -v trueppm-dev_postgres_data:/to \
+  alpine:3.20 sh -c 'cp -a /from/. /to/'
+make up
+```
+
+Leave `trueppm_postgres_data` in place until you have checked the data, then
+`docker volume rm trueppm_postgres_data`. Do **not** do that on a host where
+`docker-compose.prod.yml` runs — prod still owns the `trueppm_` volumes.
 
 ## Troubleshooting: `column … already exists` on startup
 
-**Symptom.** The `trueppm-api-1` container loops on boot and never goes
+**Symptom.** The `trueppm-dev-api-1` container loops on boot and never goes
 healthy; the web app shows `ECONNREFUSED`. Its logs show `migrate` failing
 with, e.g.:
 
@@ -468,7 +500,7 @@ record (substitute the app from the traceback):
 
 ```bash
 # what the DB thinks is applied
-docker exec trueppm-db-1 psql -U trueppm -d trueppm -tAc \
+docker exec trueppm-dev-db-1 psql -U trueppm -d trueppm -tAc \
   "SELECT name FROM django_migrations WHERE app='projects' ORDER BY name;"
 # what the merged code actually ships
 ls packages/api/src/trueppm_api/apps/projects/migrations/
@@ -481,10 +513,10 @@ it's a rename.
 then restart:
 
 ```bash
-docker exec trueppm-db-1 psql -U trueppm -d trueppm -c \
+docker exec trueppm-dev-db-1 psql -U trueppm -d trueppm -c \
   "UPDATE django_migrations SET name='<new-name>' \
    WHERE app='<app>' AND name='<old-name>';"
-docker restart trueppm-api-1
+docker restart trueppm-dev-api-1
 ```
 
 Prefer the `UPDATE` over `migrate <app> <migration> --fake`: faking adds a

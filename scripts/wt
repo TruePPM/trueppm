@@ -85,7 +85,8 @@
 # Worktrees live at $TRUEPPM_WT_BASE (default: ../trueppm-wt relative to the
 # main checkout). Each worktree symlinks packages/api/.venv and packages/web/node_modules
 # back to the main checkout so dev deps aren't duplicated. The running Docker stack
-# is shared via COMPOSE_PROJECT_NAME=trueppm, exported via .envrc for direnv users.
+# is shared via COMPOSE_PROJECT_NAME=trueppm-dev (the `name:` pin in docker-compose.yml, #3928),
+# exported via .envrc for direnv users.
 #
 # WIP discipline: warns at 8 active worktrees, errors at 10. Override with
 # TRUEPPM_WT_CAP if you really need more (you probably don't).
@@ -108,7 +109,12 @@ esac
 WT_BASE="${TRUEPPM_WT_BASE:-${REPO_ROOT%/*}/trueppm-wt}"
 WT_CAP="${TRUEPPM_WT_CAP:-10}"
 WT_WARN="${TRUEPPM_WT_WARN:-8}"
-COMPOSE_PROJECT_NAME_DEFAULT="trueppm"
+# Must equal the top-level `name:` in docker-compose.yml. The environment variable
+# OVERRIDES that pin (Compose precedence: -p > COMPOSE_PROJECT_NAME > name:), so a
+# stale `trueppm` here would point every worktree at the PRODUCTION project name.
+# Worktrees created before #3928 carry the old value in their .envrc; `wt doctor`
+# flags them.
+COMPOSE_PROJECT_NAME_DEFAULT="trueppm-dev"
 # Scoped label used as the issue check-out lock. Scoped (key `status::`) so it is
 # mutually exclusive with any other `status::*` label GitLab already carries.
 WT_LOCK_LABEL="${TRUEPPM_WT_LOCK_LABEL:-status::wip}"
@@ -1316,12 +1322,12 @@ cmd_doctor() {
     if [[ "${COMPOSE_PROJECT_NAME:-}" == "$COMPOSE_PROJECT_NAME_DEFAULT" ]]; then
       ok "  COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME_DEFAULT}"
     else
-      warn "  COMPOSE_PROJECT_NAME not set; pre-push won't find the shared docker stack. Run: source .envrc"
+      warn "  COMPOSE_PROJECT_NAME is '${COMPOSE_PROJECT_NAME:-}', expected '${COMPOSE_PROJECT_NAME_DEFAULT}'; pre-push won't find the shared docker stack. Run: source .envrc — and if .envrc still says 'trueppm' (pre-#3928 worktree), edit it to export COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME_DEFAULT}"
     fi
   fi
 
   # Docker stack reachable? Check that the API container is up by name
-  # (compose project = trueppm → container name = trueppm-api-1).
+  # (compose project = trueppm-dev → container name = trueppm-dev-api-1).
   if command -v docker >/dev/null 2>&1; then
     local api_status
     api_status="$(docker ps --filter "name=^${COMPOSE_PROJECT_NAME_DEFAULT}-api-1$" --format '{{.Status}}' 2>/dev/null || true)"

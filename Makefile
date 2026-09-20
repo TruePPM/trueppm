@@ -570,6 +570,14 @@ compose-image-pins-check: ## Fail if a third-party image in a shipped compose fi
 	@# grep + sed over four files; well under a second.
 	@bash scripts/check-compose-image-pins.sh
 
+compose-project-names-check: ## Fail if a standalone compose file has no `name:` pin or shares one (#3928)
+	@# docker-compose.yml and docker-compose.demo.yml pinned no project name, so on
+	@# a default clone (directory `trueppm`) they resolved to prod's `trueppm` pin:
+	@# dev and prod shared `trueppm_postgres_data`, and demo recreated prod's
+	@# db/api/nginx containers in place. Pure grep/sed over four files; well under
+	@# a second, and needs no docker daemon.
+	@bash scripts/check-compose-project-names.sh
+
 # ONE PREREQUISITE PER LINE (#3743). Make accumulates prerequisites across
 # repeated recipe-less rule lines, so this is the same target as one long line.
 # It is split because every new gate used to append to that one line, so any two
@@ -598,6 +606,7 @@ pre-push-checks: demo-readonly-check
 pre-push-checks: helm-metric-names-check
 pre-push-checks: nginx-headers-check
 pre-push-checks: compose-image-pins-check
+pre-push-checks: compose-project-names-check
 pre-push-checks: playwright-pins-check
 pre-push-checks: nul-bytes-check
 pre-push-checks: ci-api-tag-check

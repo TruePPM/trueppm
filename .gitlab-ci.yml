@@ -2252,6 +2252,33 @@ compose:image-pins:
     - bash scripts/check-compose-image-pins.sh --self-test
     - bash scripts/check-compose-image-pins.sh
 
+compose:project-names:
+  extends: .fast-job
+  # Every standalone root compose file pins its own, distinct top-level `name:`
+  # (#3928).
+  #
+  # docker-compose.yml and docker-compose.demo.yml pinned none, so on a default
+  # `git clone` (directory `trueppm`) they resolved to docker-compose.prod.yml's
+  # `name: trueppm` (#3189). Dev and prod then shared `trueppm_postgres_data`
+  # (whichever came second met the other's Postgres password, or `make up`
+  # landed on production data guarded only by the dev SECRET_KEY), and demo —
+  # which shares service names with prod — recreated the prod stack's
+  # db/api/nginx containers in place.
+  #
+  # docker-compose.o11y.yml is an overlay and must NOT declare a `name:`.
+  # Runs in the lint stage: no install, no build, no network. ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    # bash is not in the base image and the script is bash, not sh (#3194).
+    - apk add --no-cache bash grep
+  script:
+    - bash scripts/check-compose-project-names.sh --self-test
+    - bash scripts/check-compose-project-names.sh
+
 helm:metric-names:
   extends: .fast-job
   # The chart's PromQL must only name series the application emits (#2805).

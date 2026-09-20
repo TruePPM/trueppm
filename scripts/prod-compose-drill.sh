@@ -61,7 +61,7 @@ PROD_COMPOSE_FILE="${PROD_COMPOSE_FILE:-docker-compose.prod.yml}"
 # Own compose project, forced — NOT inherited from the environment.
 #
 # The teardown below runs `down -v`, which destroys the project's volumes. A
-# developer running this locally has COMPOSE_PROJECT_NAME=trueppm exported by
+# developer running this locally has COMPOSE_PROJECT_NAME=trueppm-dev exported by
 # their worktree's .envrc (and by the repo's own dev workflow), so an inherited
 # value would point `down -v` straight at the dev stack's postgres_data. In CI
 # the daemon is a throwaway dind, so this costs nothing there and is the only
