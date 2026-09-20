@@ -2,8 +2,9 @@
 
 ## Status
 
-Proposed (2026-09-19). Resolves #3912. Amends ADR-0658 — which continues to govern the
-share-link demo **unchanged** — for one new mode only.
+Proposed (2026-09-19). Amended 2026-09-20 — see **Amendment 2026-09-20** below. Resolves
+#3912. Amends ADR-0658 — which continues to govern the share-link demo **unchanged** — for
+one new mode only.
 
 > **Implementation status (2026-09-19):** **no code ships with this ADR.** Verified
 > 2026-09-19 against `f502f488c` (0.4.0-beta.3, this branch's base): there is no `demo.interactive` values
@@ -80,9 +81,14 @@ the same reasoning D7a gave for not patching the production block, which applies
 more force here: *the difference that matters is which routes exist*, and a patch-style
 diff makes it far too easy to reintroduce a blanket proxy later.
 
+> **Amended 2026-09-20:** a demo that tours the full app reads from essentially every
+> `GET` under `/api/v1/`, so the third block cannot be a narrow route list. It becomes a
+> **method fence over `/api/`** that mirrors D2 at the edge, and D2, not the route list, is
+> the real control. `/admin/` and `/ws/` stay closed. See the Amendment.
+
 `/admin/` stays 404 at the edge (belt-and-braces over #3557's application-level default).
 `/ws/` is **closed** in this mode: in a read-only instance the only broadcasts are the
-nightly re-seed's, so the socket carries nothing a visitor would see. Demonstrating
+scheduled re-seed's, so the socket carries nothing a visitor would see. Demonstrating
 real-time collaboration needs mutually-isolated writable sessions, which is #1672.
 
 The chart must also carry the **#3908** render-time guard, since that defect routes
@@ -164,7 +170,11 @@ populated, even though those personas cannot *act* on them.
 password (`apps/projects/seed/importer.py::_enable_existing_persona_login`). It refuses
 staff and superuser rows, but **not** a persona holding a project or program `OWNER`/
 `ADMIN` role — so a published password would be a published Project Admin credential.
-This mode seeds one viewer account and the chart fails fast if the persona flag is set.
+This mode seeds one **Member** account (amended 2026-09-20; it was written as a viewer
+account) and the chart fails fast if the persona flag is set. The seed scopes project
+access by `ProjectMembership`, and a `ProgramMembership` reaches the program rail and no
+project, so the account needs a program membership **and** a project membership on each
+of the three projects. See the Amendment.
 
 Verified mitigating fact worth recording, because it closes a whole family of abuse: the
 seed importer creates **no `WorkspaceMembership`**, so `workspace_role_for_user` resolves
@@ -228,10 +238,16 @@ architectural one, and this ADR does not settle it. It only insists the trade be
 knowingly and that D8's first paragraph hold either way: **nothing in the security design
 may depend on Access being present.**
 
-### D9 — Nightly reset bounds contamination; it prevents nothing
+### D9 — A scheduled reset bounds contamination; it prevents nothing
 
-It caps how long any successful write or vandalism is visible at 24 hours. It is not a
-control and must not be cited as mitigation for any finding.
+It caps how long any successful write or vandalism is visible at one reset interval. It is
+not a control and must not be cited as mitigation for any finding.
+
+> **Amended 2026-09-20:** the cadence is a values key, not a constant. This ADR was written
+> for a nightly reset; the owner's proposal is every 6 hours. With D2 in place there is
+> almost nothing to clean up, so the reset's real job is re-anchoring the sample dates (the
+> seed anchors them to the import day so the demo reads as a program in flight) as well as
+> containment. See the Amendment.
 
 ### D10 — Host isolation from CI is an acceptance criterion no gate can enforce
 
@@ -241,6 +257,67 @@ fact lives in a private runbook. This ADR names it as a deployment precondition 
 human owner rather than letting a green pipeline imply it was checked. It is the one
 requirement here whose failure mode is a real incident and whose verification is
 entirely out-of-band.
+
+## Amendment 2026-09-20
+
+Owner decisions and review findings after the ADR merged. They change the tracked children
+(#3924 middleware, #3925 chart mode, #3926 web) and are recorded here so this ADR does not
+keep asserting properties the design no longer has. Findings below marked *by code reading*
+were not run in a browser.
+
+1. **The demo account is a Member, not a Viewer.** A Member shows the comment composer,
+   the attach control, the edit forms and Author mode, so the tour feels like the real
+   product. **Security does not depend on the role**: D2 refuses by request method
+   regardless of role, and T1 is unchanged. The cost is UX, because more surfaces end in a
+   refusal. Consequences that follow:
+   - **D2 is the only thing between a Member and a write**, so comments and attachments
+     are named must-refuse cases in the route-table sweep (task comment, risk comment,
+     comment reaction, attachment upload), each with a read counterpart, plus a
+     method-override test (#3924).
+   - **Attachments are off in this mode.** D2 already refuses the upload. The chart also
+     gives the api pod no writable media path and no storage write credentials, so a
+     hypothetical D2 hole has nowhere to save a file (#3925).
+   - **The comment composer and attachment dropzone are disabled up front** with a reason,
+     and any form that is refused keeps the visitor's typed text (#3926).
+   - Alternative B (enforce read-only through the seeded role) stays rejected for the
+     reason already given; choosing Member does not reopen it.
+2. **D1 becomes a method fence.** A full-app demo needs almost every `GET`, so the third
+   server block proxies `/api/` with `limit_except GET HEAD OPTIONS` plus explicit `POST`
+   for the three D2 auth paths, mirroring the middleware at the edge. The ADR-0658 D7a
+   reasoning ("which routes exist") applied to two anonymous projections and does not
+   survive a full-app demo; D2 carries the guarantee.
+3. **D5 seed shape.** The demo account holds a program membership and a project membership
+   on all three projects. `build_atlas_seed.py` declares explicit per-project rosters and a
+   test requires every account to reach a project, so a new account otherwise sees
+   nothing.
+4. **D9 cadence.** Configurable; proposed every 6 hours. It must not log out an active
+   visitor. That is **unverified**: reading the importer suggests the account survives a
+   re-seed (`create_user` only when missing, memberships `update_or_create`), but this was
+   not confirmed. The login page may state the cadence only from the same values key as
+   the schedule, phrased as sample data being refreshed, because "resets every N hours"
+   implies changes persist until then, which contradicts D3.
+5. **The login page needs a runtime mode signal.** The bundle is static and shared with
+   production, so the mode cannot be baked in at build time. Two mechanisms are open and
+   are decided in #3926 before `ux-design`: a public pre-login discovery call (the pattern
+   `LoginPage` already uses for SSO providers; conflicts with "no new endpoint" above) or
+   `window.__TRUEPPM_CONFIG__` injected by the chart (a search on 2026-09-20 found a
+   reader in `lib/telemetry.ts` and no writer). The signal carries the credential hint
+   from a single explicit `demo.loginHint` key, **never derived from the real password
+   env var**, and the hint is emitted only when read-only is actually on, so a mis-set
+   flag on a real install cannot publish a live credential.
+6. **D3 and D4 refined by code reading.** The drag preview does run for a read-only
+   reader with no server write, so D4's premise holds for the preview. But the pointer
+   drop opens the ADR-0067 confirmation popover and only Confirm sends the PATCH, so a
+   visitor confirms before meeting the refusal, and Cancel reverts the bar. D4's "the
+   previewed schedule stays on screen" is therefore not current behavior and is work in
+   #3926, as are the keyboard-reschedule and resize paths, which reach the refusal by
+   different routes. Two candidates go to `ux-design`: relabel the popover and let the
+   server refuse, or short-circuit the drop in demo mode.
+7. **Deploy-time verification and a render guard (#3925).** The login page cannot detect a
+   wrong chart, since a normal chart renders an ordinary login. A post-install hook signs
+   in with the hinted login and expects a 200, then attempts `POST /projects/` and expects
+   403 `demo_read_only`. The chart refuses to render when `demo.loginHint` is set and
+   read-only is off, because that publishes a working login to a writable instance.
 
 ## Alternatives Considered
 
@@ -296,7 +373,7 @@ Blockers handed to this architect pass, each with its falsification line:
 5. **Unverified demo-corpus content** — the panel flagged this as a defect in its own run rather than a structural blind spot. → **Checked and resolved favorably in D4**; the seed populates resource/units rows, sprints, epics, velocity and burndown.
 6. **Shared-account state collision reads as a product defect** — "the demo showed changes I didn't make." *Confirmed by any such report in the first month.* → **Largely dissolved by D2**: with no server writes at all there is no cross-visitor contamination through the server, and filter/sort/expand state is client-side per browser. This is a real argument for D2 over the "writable with nightly reset" shape the issue implies.
 7. **Losing the nginx allowlist for RBAC-only is a defense-in-depth regression, independent of whether the audit passes** (Omar). *Refuted by a documented compensating control — a WAF or ingress-level write-method block layered over RBAC — in the amending ADR; confirmed if RBAC ends up the sole gate.* → **This is D1 + D2, arrived at independently.** The panel reached from product reasoning the same conclusion the threat model reached from reading `permissions.py`, which is the one place in this document where two independent methods agree.
-8. **No API/MCP path for the viewer account excludes the AI-native evaluator** (Theo). *Confirmed if a request for a token or MCP endpoint against the demo appears within a month.* → Not decided here, but worth recording that it is **cheap under this design**: `trueppm-mcp` is already read-only and Apache 2.0, and D2 refuses only unsafe methods, so an MCP surface over the demo would be permitted by construction rather than needing an exception. A candidate follow-up, not 0.4 scope.
+8. **No API/MCP path for the demo account excludes the AI-native evaluator** (Theo). *Confirmed if a request for a token or MCP endpoint against the demo appears within a month.* → Not decided here, but worth recording that it is **cheap under this design**: `trueppm-mcp` is already read-only and Apache 2.0, and D2 refuses only unsafe methods, so an MCP surface over the demo would be permitted by construction rather than needing an exception. A candidate follow-up, not 0.4 scope.
 
 **What the panel could not see:** whether a real security reviewer reads "email OTP in
 front of a published shared login" as normal vendor practice or as a phishing pattern
@@ -309,7 +386,7 @@ committee. Only real users settle these; two simulated panels agreeing would not
 - **P3M layer**: Programs and Projects.
 - **Affected packages**: `helm` (values key, third server block, egress policy, seed job), `api` (one middleware, one settings flag), `web` (D3 refusal affordance, D4 preview-retention), `website` (operator docs).
 - **Migration required**: **No.** No model changes.
-- **API changes**: No new endpoint or serializer. One new *refusal* behavior on existing endpoints, gated by deployment mode — must be reflected in `docs/api/` as a documented 403 `demo_read_only`, per the `api-docs` gate.
+- **API changes**: No new endpoint or serializer **as decided on 2026-09-19; the login page needs a runtime mode signal, and if a public discovery endpoint is chosen (#3926) this line changes and this ADR is amended again**. One new *refusal* behavior on existing endpoints, gated by deployment mode — must be reflected in `docs/api/` as a documented 403 `demo_read_only`, per the `api-docs` gate.
 - **OSS or Enterprise**: **OSS.** Self-hosted deployment shape. No `trueppm_enterprise` import; verified via `make enterprise-boundary-check` at implementation time.
 
 **Gate chain this feature takes** (CLAUDE.md fast-path: this **spans rows, so take the
@@ -355,8 +432,8 @@ template — but D3 and D4 add UI that does not exist today, which pulls in the
 4. **Service layer**: N/A. No new dispatch path. The middleware is request-layer policy, not a service.
 5. **API response on best-effort dispatch**: N/A — no async endpoint added. The one new response shape is the synchronous 403 `demo_read_only` (D3).
 6. **Outbox cleanup**: N/A — no outbox rows.
-7. **Idempotency**: The nightly re-seed reuses ADR-0658 D1/D5's destructively-idempotent path (`seed_demo_project` deletes and re-seeds inside `@transaction.atomic`; pinned tokens keyed on `token_hash`). Re-running converges to the same state. The middleware is stateless.
-8. **Dead-letter / failure handling**: Unchanged from ADR-0658 D3/D8 — Job `backoffLimit: 2`, failure fails the release loudly, the completed Job is retained for `kubectl logs`. If the nightly reset fails the demo serves stale-but-read-only data, which is degraded, not unsafe — D2 holds independently of seed state.
+7. **Idempotency**: The scheduled re-seed reuses ADR-0658 D1/D5's destructively-idempotent path (`seed_demo_project` deletes and re-seeds inside `@transaction.atomic`; pinned tokens keyed on `token_hash`). Re-running converges to the same state. The middleware is stateless.
+8. **Dead-letter / failure handling**: Unchanged from ADR-0658 D3/D8 — Job `backoffLimit: 2`, failure fails the release loudly, the completed Job is retained for `kubectl logs`. If the scheduled reset fails the demo serves stale-but-read-only data, which is degraded, not unsafe — D2 holds independently of seed state.
 
 ### On Acceptance
 
