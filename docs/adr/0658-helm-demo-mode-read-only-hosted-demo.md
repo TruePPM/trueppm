@@ -151,6 +151,17 @@ assertions into the shared allowlist script is worthwhile later; the inline form
 deliberate for now because it also covers the leak direction, which the script does
 not model.
 
+**Bare origin (#3911).** The block also answers an exact `/` with a `302` to
+`<demo.baseUrl>/share/schedule/<schedule token>`. The demo has no accounts, so the SPA's
+login form at `/` can never succeed, and a visitor who types the domain would otherwise
+land on a dead end. It is a static response rather than a proxied route, so the allowlist
+above is unchanged, and it discloses only a URL the demo already publishes. It is a `302`
+so that rotating the pinned token is never fought by a cached redirect. Because
+`demo.baseUrl` and the schedule token are now interpolated into this file — which *is*
+the demo's security boundary — the chart validates them at render time (a bare
+`http(s)` origin; tokens limited to letters, digits, `-` and `_`) instead of trusting
+values into nginx syntax.
+
 ### D7 — `noindex` is owned by the web ConfigMap, not ingress annotations
 
 `templates/ingress.yaml:28-31` passes `ingress.annotations` through verbatim with no
@@ -209,6 +220,16 @@ would make the app chart opinionated about how traffic arrives and couple every 
 to one CDN vendor. Precedent: ADR-0186 deferred in-cluster deployment for the MCP server
 on the same boundary reasoning.
 
+**Enforced, not assumed (#3908).** Leaving exposure to the operator is only safe if the
+chart cannot be rendered into a shape that skips the D7a allowlist, and for a while it
+could: `demo.enabled` plus an Ingress whose default `ingress.hosts` route `/api` and
+`/ws` to the API Service published the full authenticated API, and a non-`ClusterIP`
+API Service did the same with no Ingress at all. "Demo mode ships no Ingress" had only
+ever been the `ingress.enabled=false` default. The chart now fails the render for both,
+allowing an Ingress only when every path targets the web Service (with `web.enabled`).
+What it cannot see remains the operator's to keep clean: an Ingress created outside the
+chart, and `ingress.annotations` that reroute behind the chart's back.
+
 ### D10 — Chart documentation is public; the instance runbook is not
 
 The deployment *mechanics* are ordinary OSS documentation and carry no disclosure risk:
@@ -249,6 +270,19 @@ The pinned share tokens are different and *do* live in values: they are public U
 components by construction (the server persists only `sha256_hex(token)`), not
 credentials. D5 ships no default for them — the chart fails fast — so no live token
 ever enters the repository either.
+
+**Local attachment storage needs a writable `MEDIA_ROOT` (#3910).** The Secret this
+decision has operators create opts in to local attachment storage
+(`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true`), and since #3184 `settings.prod` refuses
+to boot unless `MEDIA_ROOT` is writable — in every container that imports settings,
+including the seed Job's own `migrate` initContainer (D2). Every chart pod has a
+read-only root filesystem, so `values-demo.yaml` sets `env.TRUEPPM_MEDIA_ROOT: /tmp`,
+each pod's scratch `emptyDir`; a demo has no write path, so nothing is ever stored.
+`persistence.media` was rejected: the seed Job (D1) does not mount that claim, so a PVC
+would fix the api pod and leave the seed hook — and with it `helm install` — failing.
+The `helm:template` job asserts every Django-running workload in the demo render carries
+a `TRUEPPM_MEDIA_ROOT`. That checks the wiring, not writability: nothing in CI boots
+`settings.prod` against a rendered values file.
 
 ## Alternatives Considered
 
