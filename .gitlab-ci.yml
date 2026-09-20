@@ -2762,6 +2762,7 @@ ci:build-deploy-images:
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes: &deploy-drill-paths
         - packages/helm/**/*
+        - packages/api/src/trueppm_api/settings/**
         - scripts/helm-install-drill.sh
         - scripts/prod-compose-drill.sh
         - scripts/helm-netpol-drill.sh
