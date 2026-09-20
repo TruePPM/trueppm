@@ -28,11 +28,11 @@ This page walks through moving an existing TruePPM instance to a newer version, 
 
 :::note[Where images come from]
 Release images publish to the **GitLab Container Registry**
-(`registry.gitlab.com/trueppm/trueppm/{api,web}`) today. GHCR mirrors
-(`ghcr.io/trueppm/…`) and public OCI chart publication are planned with the 0.4
-beta supply-chain work (#939); until GHCR is live, the `oci://ghcr.io/trueppm/…`
-paths below apply once you have configured GHCR, otherwise upgrade from the chart
-source (see [Deployment](/administration/deployment/#kubernetes-with-helm)).
+(`registry.gitlab.com/trueppm/trueppm/{api,web}`, tagged `v<version>`) and, since
+the 0.4 beta, to **GHCR** (`ghcr.io/trueppm/{api,web}`, tagged with the bare
+`<version>`). The Helm chart is published at `oci://ghcr.io/trueppm/charts/trueppm`;
+you can also upgrade from the chart source (see
+[Deployment](/administration/deployment/#kubernetes-with-helm)).
 :::
 
 ---
@@ -271,10 +271,25 @@ docker compose -f docker-compose.prod.yml logs -f api-init
 
 ```bash
 helm upgrade trueppm oci://ghcr.io/trueppm/charts/trueppm \
-  --version 0.2.0 \
+  --version <version> \
   --namespace trueppm \
   -f my-values.yaml
 ```
+
+`<version>` is the release version without a leading `v`, for example
+`0.4.0-beta.3`. Always pass it: Helm skips pre-release chart versions unless you
+name one, so while 0.4 is in beta a bare `helm upgrade` fails with `could not locate
+a version matching provided version string`. `--devel` selects the newest beta.
+
+:::caution[Installed from chart `0.4.0`? Move to a later beta]
+The first beta cut published a chart as `0.4.0`. It defaults to an image tag
+(`v0.4.0`) that was never published, so a release installed from it cannot pull its
+images, and it was unsigned. That chart has been removed from the registry, but a
+release installed from it keeps running it (`helm list` shows `trueppm-0.4.0`). Run
+the command above with `--version
+0.4.0-beta.2` or later, keeping your existing `-f` values. If you set `image.tag`
+explicitly you were not affected by the tag problem, but the chart is still unsigned.
+:::
 
 Migrations run in a `migrate` init container of the api Deployment before the new pods start serving. Check its logs:
 

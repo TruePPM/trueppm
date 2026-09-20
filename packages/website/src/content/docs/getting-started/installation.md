@@ -7,7 +7,7 @@ documentedFor: "0.4"
 This page gets you from nothing installed to a running TruePPM instance you can open in a browser, using Docker Compose. If you have never run Docker before, see [Set up a container host](/getting-started/container-host/) first — it explains what a container is and gets one running on your machine.
 
 :::caution[0.4 shipped (beta) · pre-GA]
-TruePPM 0.4 has shipped — the engine, API, real-time backend, web UI, and the first beta's feature set (read-only MCP server, basic single sign-on, time capture, in-app baselines) are functional. The latest release is the `v0.4.0-beta.1` pre-release; 0.4 is the first beta — the release line leaves alpha here and hardens under further `beta.N` tags before an eventual `0.4.0` stable ([how the 0.4 line is numbered](/overview/roadmap/#how-the-04-line-is-numbered)). The product is pre-GA: expect API contract changes across 0.x point releases; a stable contract arrives at 1.0. Install for evaluation and early-adopter deployments.
+TruePPM 0.4 has shipped — the engine, API, real-time backend, web UI, and the first beta's feature set (read-only MCP server, basic single sign-on, time capture, in-app baselines) are functional. 0.4 is published as the `v0.4.0-beta.N` pre-release line — the newest tag is on the [Releases page](https://gitlab.com/trueppm/trueppm/-/releases); 0.4 is the first beta — the release line leaves alpha here and hardens under further `beta.N` tags before an eventual `0.4.0` stable ([how the 0.4 line is numbered](/overview/roadmap/#how-the-04-line-is-numbered)). The product is pre-GA: expect API contract changes across 0.x point releases; a stable contract arrives at 1.0. Install for evaluation and early-adopter deployments.
 :::
 
 :::tip[Already have a login?]
@@ -17,7 +17,7 @@ from your project admin and go straight to
 [For Team Members: already have a login?](/guides/team-members/#already-have-a-login).
 :::
 
-TruePPM ships as pre-built Docker images and a Python package on PyPI. Through 0.3 (alpha) the images live on the internal GitLab Container Registry; starting with the 0.4 beta they will also publish to the **GitHub Container Registry (GHCR)** as a public pull path — `ghcr.io/trueppm/{api,web}` for the images and `oci://ghcr.io/trueppm/charts` for the chart — with every published artifact Trivy-scanned, CycloneDX SBOM-attested, and Cosign-signed (keyless). See [Deployment](/administration/deployment/#verifying-image-and-chart-signatures) for how to verify a signed artifact once 0.4 ships.
+TruePPM ships as pre-built Docker images and a Python package on PyPI. Release images publish to the GitLab Container Registry and, since the 0.4 beta, also to the **GitHub Container Registry (GHCR)** as a public pull path — `ghcr.io/trueppm/{api,web}` for the images and `oci://ghcr.io/trueppm/charts` for the chart — with every published artifact Trivy-scanned, CycloneDX SBOM-attested, and Cosign-signed (keyless). See [Deployment](/administration/deployment/#verifying-image-and-chart-signatures) for how to verify a signed artifact.
 
 :::note[The development Compose stack builds from source — it does not pull those images]
 The `docker compose up -d` path below is the *development* stack. It builds the
@@ -26,12 +26,13 @@ container, so the **first** start is a multi-minute build, not a pull. That is o
 purpose: it is the path contributors and evaluators use against `main`.
 
 `docker-compose.prod.yml` is the one that pulls pre-built
-`ghcr.io/trueppm/{api,web}` images. Those references are forward-correct for 0.4
-and **404 today**, because no tag has been published to GHCR yet. Until one is,
-the published images live only on the GitLab Container Registry
-(`registry.gitlab.com/trueppm/trueppm/{api,web}`, which the Helm chart already
-defaults to) — override `APP_VERSION` and the image references, or build locally
-with the development stack below.
+`ghcr.io/trueppm/{api,web}` images, at the tag named by `APP_VERSION`. GHCR tags
+are the **bare version** — `0.4.0-beta.3`, no `v` — so set `APP_VERSION` to that
+form and pin it for anything you intend to keep. The GitLab Container Registry
+(`registry.gitlab.com/trueppm/trueppm/{api,web}`, which the Helm chart defaults
+to) uses the **`v`-prefixed** form, `v0.4.0-beta.3`; the two are not
+interchangeable. To avoid pulling at all, build locally with the development
+stack below.
 
 **Both paths need outbound network access** to Docker Hub (`python:3.11-slim`,
 `node:22-alpine`, `nginxinc/nginx-unprivileged`, `postgres:16-alpine`,

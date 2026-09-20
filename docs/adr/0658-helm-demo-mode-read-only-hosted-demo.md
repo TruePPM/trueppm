@@ -220,6 +220,16 @@ would make the app chart opinionated about how traffic arrives and couple every 
 to one CDN vendor. Precedent: ADR-0186 deferred in-cluster deployment for the MCP server
 on the same boundary reasoning.
 
+**Enforced, not assumed (#3908).** Leaving exposure to the operator is only safe if the
+chart cannot be rendered into a shape that skips the D7a allowlist, and for a while it
+could: `demo.enabled` plus an Ingress whose default `ingress.hosts` route `/api` and
+`/ws` to the API Service published the full authenticated API, and a non-`ClusterIP`
+API Service did the same with no Ingress at all. "Demo mode ships no Ingress" had only
+ever been the `ingress.enabled=false` default. The chart now fails the render for both,
+allowing an Ingress only when every path targets the web Service (with `web.enabled`).
+What it cannot see remains the operator's to keep clean: an Ingress created outside the
+chart, and `ingress.annotations` that reroute behind the chart's back.
+
 ### D10 — Chart documentation is public; the instance runbook is not
 
 The deployment *mechanics* are ordinary OSS documentation and carry no disclosure risk:

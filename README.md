@@ -203,7 +203,7 @@ add a values file (`-f my-values.yaml`) as described in the installation guide.
 
 The same install also works with
 `helm install trueppm oci://ghcr.io/trueppm/charts/trueppm --version <version>`.
-The chart version is the release version (for example `0.4.0-beta.2`), and its default image tag is that same version prefixed with `v`. Helm skips pre-release chart versions unless you name one with `--version` (or pass `--devel`), so a beta needs the explicit `--version`.
+The chart version is the release version (for example `0.4.0-beta.2`), and its default image tag is that same version prefixed with `v`. Always pass `--version`: Helm skips pre-release chart versions unless you name one, so while 0.4 is in beta a bare `helm install` fails with `could not locate a version matching provided version string` (`--devel` selects the newest beta). The first beta cut published a broken, unsigned chart as `0.4.0` (its default image tag `v0.4.0` was never published); it has been removed, but if `helm list` shows `trueppm-0.4.0`, upgrade to `0.4.0-beta.2` or later.
 
 See the [full installation guide](https://docs.trueppm.com/getting-started/installation/) for prerequisites and values configuration.
 
@@ -342,9 +342,14 @@ chart are Trivy-scanned, SBOM-attached, and Cosign-signed keyless. Multi-arch
 |----------|---------------------|
 | `trueppm-scheduler` | [PyPI](https://pypi.org/project/trueppm-scheduler/) |
 | `trueppm-mcp` | [PyPI](https://pypi.org/project/trueppm-mcp/) |
+| `trueppm-api` | [PyPI](https://pypi.org/project/trueppm-api/) — the Django backend as an installable library; see [its README](packages/api/README.md) for who this is for |
 | API image | `registry.gitlab.com/trueppm/trueppm/api` and `ghcr.io/trueppm/api` |
 | Web image | `registry.gitlab.com/trueppm/trueppm/web` and `ghcr.io/trueppm/web` |
 | Helm chart | install from source (`packages/helm`) or `oci://ghcr.io/trueppm/charts/trueppm` |
+
+`@trueppm/web` on npm is wired the same way (`web:publish:npm`, same `v*` tag) but
+is not live yet — that job exits 0 without publishing until `NPM_TOKEN` is
+configured, same as `trueppm-api` was dormant until #479 shipped its token.
 
 The web image's baked nginx config is a **fail-closed default, not a deployment**:
 it serves the SPA with the standard security headers and returns `404` for

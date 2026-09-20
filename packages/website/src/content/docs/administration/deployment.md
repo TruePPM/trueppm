@@ -5,7 +5,7 @@ documentedFor: "0.4"
 ---
 
 :::caution[Pre-GA]
-TruePPM 0.4 has shipped (as the `v0.4.0-beta.1` pre-release) and is suitable for evaluation and early-adopter deployments; 0.4 is the first beta — the release line leaves alpha here and hardens under further `beta.N` tags before an eventual `0.4.0` stable ([how the 0.4 line is numbered](/overview/roadmap/#how-the-04-line-is-numbered)). Expect API contract changes across 0.x point releases; a stable contract arrives at 1.0.
+TruePPM 0.4 has shipped (as the `v0.4.0-beta.N` pre-release line; `v0.4.0-beta.1` was the first tag, and the newest is on the [Releases page](https://gitlab.com/trueppm/trueppm/-/releases)) and is suitable for evaluation and early-adopter deployments; 0.4 is the first beta — the release line leaves alpha here and hardens under further `beta.N` tags before an eventual `0.4.0` stable ([how the 0.4 line is numbered](/overview/roadmap/#how-the-04-line-is-numbered)). Expect API contract changes across 0.x point releases; a stable contract arrives at 1.0.
 :::
 
 :::tip[Before a production install, read Networking]
@@ -128,7 +128,33 @@ else on this page applies unchanged.
 Prerequisites: Helm 3.14+, `kubectl` compatible with your cluster, and a
 running Kubernetes cluster 1.27+.
 
-**Get the chart.** For now, install from the chart source in the repository:
+**Get the chart.** Since the 0.4 beta the chart is published to a public OCI
+registry, so no clone is needed:
+
+```bash
+helm install trueppm oci://ghcr.io/trueppm/charts/trueppm --version <version>
+```
+
+`<version>` is the release version without a leading `v`, for example
+`0.4.0-beta.3`. The chart version *is* the release version, and its default image
+tag is that same version prefixed with `v`, pulled from the GitLab Container
+Registry (see [Image tags differ by registry](/administration/helm-values/#image-tags-differ-by-registry)).
+Always pass `--version`. Helm skips pre-release chart versions unless you name one,
+so until the stable 0.4.0 ships a bare `helm install` fails with `could not locate
+a version matching provided version string`. `--devel` selects the newest beta, but
+pin a version for anything you intend to keep.
+
+:::caution[Installed from chart `0.4.0`? Upgrade to a later beta]
+The first beta cut published a chart as `0.4.0`, before the release tooling bumped
+`Chart.yaml`. Its default image tag is `v0.4.0`, which was never published, so a
+release installed from it stays in `ImagePullBackOff` on the `migrate` init
+container; it was also unsigned. That chart has been removed from the registry, but a
+release installed from it keeps running the chart it was installed with — `helm list`
+shows it as `trueppm-0.4.0`. If you have one, upgrade to `0.4.0-beta.2` or later; see
+[Image pull failure](/administration/troubleshooting/#image-pull-failure).
+:::
+
+To install from the chart source instead, clone the repository:
 
 ```bash
 git clone https://gitlab.com/trueppm/trueppm.git
@@ -136,13 +162,7 @@ cd trueppm
 helm dependency update packages/helm
 ```
 
-The 0.4 beta adds publishing the chart to a public OCI registry
-(`oci://ghcr.io/trueppm/charts`) as an additional path — not live yet, no tag has
-been published there (see [Installation](/getting-started/installation/) for the
-same caveat on the image references); the clone-based install above keeps
-working either way. Once it lands, the same install will work straight from
-GHCR, no clone needed:
-`helm install trueppm oci://ghcr.io/trueppm/charts/trueppm --version <version>`.
+The rest of this walkthrough works with either source.
 
 **Prepare your values file.** Download the production values template and
 fill in your settings:
@@ -308,11 +328,13 @@ kubectl get pods -n trueppm
 
 ### Verifying image and chart signatures
 
-Starting with the 0.4 beta, every published image and chart will be signed
-with [Cosign](https://docs.sigstore.dev/) keyless (Sigstore) in CI, Trivy-scanned,
-and CycloneDX SBOM-attested — so once GHCR publishing lands you will be able to
-confirm an artifact was built by the TruePPM release pipeline before you run
-it. Verify against the GitLab CI OIDC issuer and the release-tag identity:
+Since the 0.4 beta, every image and chart published to GHCR is signed with
+[Cosign](https://docs.sigstore.dev/) keyless (Sigstore) in CI, Trivy-scanned, and
+CycloneDX SBOM-attested — so you can confirm an artifact was built by the TruePPM
+release pipeline before you run it. The one exception was chart `0.4.0` from the
+first beta cut, which was unsigned and has been removed; every chart published since
+verifies. On GHCR `<version>` is
+the bare version, for example `0.4.0-beta.3`. Verify against the GitLab CI OIDC issuer and the release-tag identity:
 
 ```bash
 # API and web images (repeat for web)
