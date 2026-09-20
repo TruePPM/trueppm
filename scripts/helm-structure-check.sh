@@ -1591,13 +1591,15 @@ fsg_bad="$(yq 'select(.kind=="Deployment" or .kind=="CronJob" or .kind=="Job") |
 fsg_checked="$(yq 'select(.kind=="Deployment" or .kind=="CronJob" or .kind=="Job") | .metadata.name' <<<"$fsg_render" | grep -c .)"
 [ "$fsg_checked" -ge 7 ] \
   || fail "fsGroup check saw only $fsg_checked workloads (expected api, web, worker, beat, backup, demo-seed, demo-reset); the render lost a workload"
-helm template trueppm "$CHART" --set image.tag=latest --show-only templates/tests/api-connection.yaml \
-  | yq '.spec.securityContext.fsGroup' | grep -qx 1000 \
+fsg_test_pod="$(helm template trueppm "$CHART" --set image.tag=latest --show-only templates/tests/api-connection.yaml \
+  | yq '.spec.securityContext.fsGroup')"
+grep -qx 1000 <<<"$fsg_test_pod" \
   || fail "the helm test pod lacks podSecurityContext.fsGroup=1000"
 # fsGroup: null must still delete the key — that is the OpenShift restricted-v2 escape
 # hatch (a fixed fsGroup outside the namespace range fails admission).
-if helm template trueppm "$CHART" --set image.tag=latest --set podSecurityContext.fsGroup=null \
-     --show-only templates/api/deployment.yaml | yq '.spec.template.spec.securityContext' | grep -q fsGroup; then
+fsg_null_check="$(helm template trueppm "$CHART" --set image.tag=latest --set podSecurityContext.fsGroup=null \
+     --show-only templates/api/deployment.yaml | yq '.spec.template.spec.securityContext')"
+if grep -q fsGroup <<<"$fsg_null_check"; then
   fail "podSecurityContext.fsGroup=null did not remove fsGroup — the OpenShift restricted-v2 override is broken"
 fi
 
