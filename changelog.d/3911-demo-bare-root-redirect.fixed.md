@@ -1,0 +1,1 @@
+Helm demo mode now redirects the bare domain to the schedule share link instead of serving the app's login form. The demo has no accounts, so that form could never succeed and left a visitor typing the domain at a dead end (#3911). `demo.baseUrl` and the share tokens are now validated at render time because they are written into the demo nginx config.
