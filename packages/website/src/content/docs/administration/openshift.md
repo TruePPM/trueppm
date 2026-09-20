@@ -35,14 +35,19 @@ real cluster coverage.
 RuntimeDefault`, `runAsNonRoot: true`. The one line that does not is
 `podSecurityContext.runAsUser: 1000` — a **fixed** UID, where `restricted-v2` uses
 `MustRunAsRange` and requires the runtime to assign an arbitrary UID from the
-namespace's allocated range. Set it to `null` in your values to drop the field
-entirely, letting OpenShift assign the UID:
+namespace's allocated range. `podSecurityContext.fsGroup: 1000` is the same kind
+of problem: the chart sets it so a `persistence.media` or `backup.persistence`
+volume is writable on plain Kubernetes, but `restricted-v2` uses `MustRunAs` with
+the namespace's range for `fsGroup` and rejects a fixed `1000` at admission. Set
+both to `null` in your values to drop the fields entirely, letting OpenShift
+assign the UID and the volume group:
 
 ```yaml
 # openshift-values.yaml
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: null # let restricted-v2 assign a UID from the namespace's range
+  fsGroup: null # let restricted-v2 assign the volume group from the same range
 ```
 
 This was verified with `helm template packages/helm -f openshift-values.yaml`: a
@@ -71,7 +76,9 @@ only to the mounted volumes — `/tmp`, `/app/staticfiles`, `/run/trueppm`, and
 `persistence.media` when it is enabled — every one of which is an `emptyDir` or a
 `PersistentVolumeClaim`, not a path baked into the image. `emptyDir` volumes are
 created world-writable by the kubelet regardless of which UID the container
-runs as, so no `fsGroup` is required for those. Nothing in either Dockerfile
+runs as, so no `fsGroup` is required for those. A `persistence.media` claim gets
+its group from the `fsGroup` OpenShift assigns from the namespace range, which is
+why the chart's own `fsGroup: 1000` is nulled above. Nothing in either Dockerfile
 `mkdir`s or `chown`s a path the arbitrary UID would need and not get.
 
 ### No privileged ports
@@ -185,7 +192,8 @@ the cluster works, exactly as on plain Kubernetes.
 # openshift-values.yaml — layer on top of values-prod.yaml
 podSecurityContext:
   runAsNonRoot: true
-  runAsUser: null # let restricted-v2 assign the UID; do not set fsGroup either
+  runAsUser: null # let restricted-v2 assign the UID
+  fsGroup: null # the chart defaults this to 1000; restricted-v2 rejects a fixed value
 
 ingress:
   enabled: true
@@ -247,9 +255,11 @@ oc get routes -n trueppm
 ```
 
 A pod stuck in `CreateContainerConfigError` or rejected at admission with a
-message naming `runAsUser` means a values file upstream of `openshift-values.yaml`
-re-introduced a fixed UID — check for a values file loaded **after** this one
-that also sets `podSecurityContext`, since a later `-f` file's keys win.
+message naming `runAsUser` or `fsGroup` means either a values file upstream of
+`openshift-values.yaml` re-introduced a fixed UID or group, or `fsGroup: null` is
+missing so the chart default of `1000` applies — check for a values file loaded
+**after** this one that also sets `podSecurityContext`, since a later `-f` file's
+keys win.
 
 ## What does not work today
 

@@ -41,6 +41,32 @@ egress-filtered host, mirror those into an internal registry first and point the
 compose files or `image.repository` / `image.webRepository` at it.
 :::
 
+:::caution[The published `api` and `web` images are `linux/amd64` only]
+Every published `api` and `web` image — on GHCR and on the GitLab Container
+Registry, every tag — is built for **`linux/amd64` only**. There is no
+`linux/arm64` variant yet; multi-arch images are planned for 0.5 (#3407). This
+affects any host or node that pulls them: Apple Silicon Macs, AWS Graviton and
+other ARM cloud instances, and Raspberry Pi.
+
+On an ARM machine the failure is easy to misread. Docker prints a platform
+mismatch warning, or the container exits at start with `exec format error`; on
+Kubernetes the pod goes into `CrashLoopBackOff` and the pod events do not name
+the architecture.
+
+- **Development Compose stack (`docker compose up -d`):** not affected. It builds
+  the images from your checkout for your machine's own architecture.
+- **`docker-compose.prod.yml` on Apple Silicon:** run the amd64 images under
+  emulation. Set `platform: linux/amd64` on the services that use a
+  TruePPM image (`api-init`, `api`, `celery`, `celery-beat`, and `web-build`), or
+  pass `--platform linux/amd64` to `docker run` / `docker pull`. Docker Desktop emulates amd64 with QEMU, or with Rosetta if you
+  enable **Settings → General → Use Rosetta for x86_64/amd64 emulation on Apple
+  Silicon**. Emulation is noticeably slower than native — fine for an evaluation,
+  not for a production or load-testing host.
+- **Kubernetes:** emulation is not a practical option. Schedule the TruePPM pods
+  onto `amd64` nodes with the chart's `nodeSelector` (`kubernetes.io/arch: amd64`),
+  or wait for the multi-arch images.
+:::
+
 Docker Compose is the fastest path to a running instance — every service starts from one command, and it is the right path for evaluation, development, and contributors. Pick a different path if you're deploying for production:
 
 | Path | Best for |
@@ -67,6 +93,7 @@ The fastest way to run TruePPM locally. All six services start from a single com
 | CPU available to Docker | 4 cores |
 | Memory available to Docker | 8 GB |
 | Free disk | ~10 GB for images, layers, and the build cache |
+| CPU architecture | `amd64` for the published images; the development stack builds natively on any architecture (see the note above) |
 
 New to containers, or don't have Docker installed yet? See
 [Set up a container host](/getting-started/container-host/) first — it explains
