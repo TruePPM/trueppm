@@ -122,6 +122,56 @@ spec:
           annotations:
             summary: "TruePPM email queue is not draining"
             description: "Notification emails have been queued for more than an hour for over {{ .Values.alerts.thresholds.emailQueueAgingFor | default "15m" }} — the drain is not completing rows. Check the Celery worker and beat, and the mail transport configuration."
+{{- if and .Values.demo.enabled .Values.demo.reset.enabled }}
+    - name: trueppm.demo
+      rules:
+        - alert: TruePPMDemoResetFailed
+          # The most recent scheduled run has not succeeded. Severity is warning, not
+          # critical: a failed reset leaves the demo serving stale-but-read-only data,
+          # which ADR-1197 D9 rules degraded, not unsafe.
+          #
+          # Deliberately NOT kube_job_failed. Failed Jobs are retained
+          # (failedJobsHistoryLimit) and a later success does not prune them, so that
+          # expression would keep firing after the demo had recovered, until enough
+          # newer failures pushed the old one out. Comparing the last schedule time with
+          # the last success clears on the next successful run and needs no Job history.
+          # A run in progress also satisfies it briefly, which is what `for:` absorbs:
+          # keep jobFailedFor above demo.reset.activeDeadlineSeconds.
+          expr: >-
+            max(kube_cronjob_status_last_schedule_time{cronjob=~"{{ include "trueppm.fullname" . }}-demo-reset"})
+            - max(kube_cronjob_status_last_successful_time{cronjob=~"{{ include "trueppm.fullname" . }}-demo-reset"})
+            > 0
+          for: {{ .Values.alerts.thresholds.demoReset.jobFailedFor | default "20m" | quote }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "TruePPM demo reset is not succeeding"
+            description: "The most recent scheduled demo reset has not succeeded for more than {{ .Values.alerts.thresholds.demoReset.jobFailedFor | default "20m" }}. The demo keeps serving its previous data. List the runs with: kubectl get jobs -l app.kubernetes.io/component=demo-seed, and read the newest failed one's logs."
+        - alert: TruePPMDemoResetStale
+          # The complement of the rule above: a CronJob that is suspended or never
+          # triggers produces no failed Job, so alert on the absence of a recent
+          # success, not only on the presence of a failure.
+          expr: >-
+            time() - max(kube_cronjob_status_last_successful_time{cronjob=~"{{ include "trueppm.fullname" . }}-demo-reset"})
+            > {{ .Values.alerts.thresholds.demoReset.staleAfterSeconds | default 43200 }}
+          for: {{ .Values.alerts.thresholds.demoReset.staleFor | default "30m" | quote }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "TruePPM demo has not been reset recently"
+            description: "No successful demo reset has completed within {{ .Values.alerts.thresholds.demoReset.staleAfterSeconds | default 43200 }}s, so the sample dates are aging. Check that the CronJob is not suspended and that its Jobs are being scheduled."
+        - alert: TruePPMDemoResetNeverSucceeded
+          # Deliberately separate from the staleness rule: kube-state-metrics publishes
+          # last_successful_time only after a first success, so an `or absent(...)` on
+          # the staleness rule would alert on every fresh install.
+          expr: absent(kube_cronjob_status_last_successful_time{cronjob=~"{{ include "trueppm.fullname" . }}-demo-reset"})
+          for: {{ .Values.alerts.thresholds.demoReset.neverSucceededFor | default "7h" | quote }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "TruePPM demo has never completed a scheduled reset"
+            description: "demo.reset.enabled is true but no successful reset Job has been recorded in {{ .Values.alerts.thresholds.demoReset.neverSucceededFor | default "7h" }}. Either the CronJob is not running (suspended, or its Jobs are not being scheduled) or kube-state-metrics is not being scraped."
+{{- end }}
 {{- if .Values.backup.enabled }}
     - name: trueppm.backup
       rules:

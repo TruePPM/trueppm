@@ -55,6 +55,12 @@
 demo:
   enabled: true
 
+  # Re-seed on a timer so the sample's dates do not age (ADR-1197 D9). The share URLs
+  # are pinned, so they survive a run, but they are absent for a few seconds while the
+  # seed runs. Read the demo.reset block in values.yaml before changing this.
+  reset:
+    enabled: true
+
   # REQUIRED — no default is shipped, and the chart render fails without them.
   #
   # baseUrl: the public origin, no trailing slash (e.g. https://demo.example.com).

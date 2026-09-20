@@ -1280,6 +1280,21 @@ alerts:
       # slack, or a fresh install alerts before its first scheduled run can
       # happen. 26h suits the default daily schedule; raise it with the schedule.
       neverSucceededFor: "26h"
+    # Demo reset alerting (#3925). Same kube-state-metrics dependency as backup. The
+    # rules render only when demo.enabled and demo.reset.enabled.
+    demoReset:
+      # How long the most recent scheduled run must stay unsuccessful before
+      # TruePPMDemoResetFailed fires. A run in progress counts as unsuccessful until it
+      # finishes, so keep this above demo.reset.activeDeadlineSeconds (900s = 15m).
+      jobFailedFor: "20m"
+      # No successful reset within this many seconds fires TruePPMDemoResetStale.
+      # 43200 = 12h = 2x the default 6-hour schedule, so one missed run is tolerated
+      # and two are not. RAISE THIS if you lengthen demo.reset.schedule.
+      staleAfterSeconds: 43200
+      staleFor: "30m"
+      # Must exceed one full schedule period plus slack, or a fresh install alerts
+      # before its first scheduled run can happen. 7h suits the 6-hour default.
+      neverSucceededFor: "7h"
     # Free space below this percentage on ANY claim in the namespace (database,
     # Valkey, backups, media) fires TruePPMVolumeFillingUp. A full PostgreSQL
     # PVC is silent until it is an outage.
@@ -1537,3 +1552,40 @@ demo:
       cpu: "1"
       memory: 1Gi
       ephemeral-storage: 512Mi
+  # Scheduled reset (ADR-1197 D9, #3925). OFF by default: an in-place upgrade that
+  # silently began re-seeding on a timer would be a surprise, and this mode is
+  # destructive by design. values-demo.yaml turns it on.
+  #
+  # Re-runs the same `load_sample_project` + `create_demo_share_link` the install hook
+  # runs, as a CronJob, so the demo does not age. What a reset is FOR: the seed anchors
+  # every date to the import day so the sample reads as a program in flight, and
+  # without a refresh it drifts. It also bounds how long anything unexpected stays
+  # visible. It is NOT a security control and must never be cited as one.
+  #
+  # Three consequences to know before enabling it:
+  #   1. The share links do not exist between the two commands (the delete cascades
+  #      them away; the second recreates them at the SAME pinned URLs), so each run
+  #      has a window of seconds in which the share URLs return 404.
+  #   2. Assume project and program ids change on every run (a search of the seed
+  #      found no deterministic-id mechanism; not verified against a live cluster).
+  #      Share URLs survive because their tokens are pinned; a bookmark or open tab
+  #      on /projects/<id> does not.
+  #   3. A failed run does not fail the release. The failed Job is kept
+  #      (failedJobsHistoryLimit) for `kubectl logs`, and alerts.enabled adds the
+  #      TruePPMDemoReset* rules.
+  reset:
+    enabled: false
+    # Five-field cron, evaluated by the CronJob controller in ITS time zone (UTC on
+    # managed clusters), or an @hourly/@daily/@weekly/@monthly/@yearly macro. Every 6
+    # hours by default. If you lengthen it, raise
+    # alerts.thresholds.demoReset.staleAfterSeconds and neverSucceededFor with it.
+    schedule: "0 */6 * * *"
+    # A run that cannot start within this many seconds of its slot is skipped rather
+    # than queued, so a controller outage does not fire a burst of resets afterward.
+    startingDeadlineSeconds: 600
+    # Kills a hung seed. The seed transaction is sized for seconds to a few minutes.
+    activeDeadlineSeconds: 900
+    # Keep the last successful run (its logs carry the share URLs) and the last few
+    # failures (their logs carry the traceback).
+    successfulJobsHistoryLimit: 1
+    failedJobsHistoryLimit: 3

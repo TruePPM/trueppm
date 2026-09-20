@@ -541,6 +541,10 @@ alone, at boot.
 | `alerts.thresholds.backup.staleAfterSeconds` | `172800` | Age (seconds) of the last **successful** backup that fires `TruePPMBackupStale`. 48h = 2x the default daily schedule, so one missed run is tolerated and two are not. **Raise this if you lengthen `backup.schedule`** — a weekly schedule under a 48h window alerts every week by construction. |
 | `alerts.thresholds.backup.staleFor` | `30m` | How long `staleAfterSeconds` must stay breached before the alert fires. |
 | `alerts.thresholds.backup.neverSucceededFor` | `26h` | How long the "no successful backup has ever been recorded" condition must hold before `TruePPMBackupNeverSucceeded` fires. Must exceed one full schedule period plus slack, or a fresh install alerts before its first scheduled run. |
+| `alerts.thresholds.demoReset.jobFailedFor` | `20m` | How long the most recent scheduled reset must stay unsuccessful before `TruePPMDemoResetFailed` fires. A run in progress counts until it finishes, so keep this above `demo.reset.activeDeadlineSeconds`. It clears when the next run succeeds. Rendered only when `demo.enabled` and `demo.reset.enabled`. |
+| `alerts.thresholds.demoReset.staleAfterSeconds` | `43200` | Age (seconds) of the last **successful** reset that fires `TruePPMDemoResetStale`. 12h = 2x the default 6-hour schedule. **Raise it if you lengthen `demo.reset.schedule`.** |
+| `alerts.thresholds.demoReset.staleFor` | `30m` | How long `staleAfterSeconds` must stay breached before the alert fires. |
+| `alerts.thresholds.demoReset.neverSucceededFor` | `7h` | How long the "no successful reset has ever been recorded" condition must hold before `TruePPMDemoResetNeverSucceeded` fires. Must exceed one full schedule period plus slack. |
 | `alerts.thresholds.volumeAvailablePercent` | `15` | Free-space percentage below which `TruePPMVolumeFillingUp` starts its clock, for **every** claim in the namespace — database, Valkey, backups, media. |
 | `alerts.thresholds.volumeAvailableFor` | `15m` | How long a volume must stay below `volumeAvailablePercent` before the alert fires. |
 | `otelCollector.enabled` | `false` | Documentation-only reminder — the chart bundles no Collector; deploy one as a sibling release. |
@@ -674,7 +678,12 @@ link, because the demo has no accounts and the app's login form could never succ
 | `demo.shareToken.schedule` | `""` | Pinned token for the schedule link, and the target of the `/` redirect. **Required** when enabled. Letters, digits, `-` and `_` only — anything else is rejected at render time because the token is written into the nginx config. The generator command below always satisfies this. |
 | `demo.shareToken.board` | `""` | Pinned token for the board link. **Required** when enabled, must differ from the schedule token, and follows the same character rule. |
 | `demo.backoffLimit` | `2` | Seed Job retries. Exhaustion fails the release deliberately — a demo without data is broken. |
-| `demo.resources` | see `values.yaml` | Requests/limits for the short-lived seed Job. |
+| `demo.resources` | see `values.yaml` | Requests/limits for the short-lived seed Job (and the reset CronJob's pod). |
+| `demo.reset.enabled` | `false` (`true` in `values-demo.yaml`) | Adds a CronJob that re-runs the install hook's seed on a schedule so the sample's dates do not age. Off by default because it is destructive on a timer. Inert while `demo.enabled` is false. |
+| `demo.reset.schedule` | `0 */6 * * *` | Five-field cron, or an `@hourly`, `@daily`, `@weekly`, `@monthly` or `@yearly` macro, in the CronJob controller's time zone (UTC on managed clusters). Anything else is rejected at render time. Raise the reset alert thresholds below if you lengthen it. |
+| `demo.reset.startingDeadlineSeconds` | `600` | A run that cannot start within this many seconds of its slot is skipped, not queued, so a controller outage does not fire a burst of resets afterward. |
+| `demo.reset.activeDeadlineSeconds` | `900` | Kills a hung seed. Overlapping runs are forbidden, so a hung run would otherwise block every later one. |
+| `demo.reset.successfulJobsHistoryLimit` / `failedJobsHistoryLimit` | `1` / `3` | Finished Jobs kept for `kubectl logs`: the last success (its log carries the share URLs) and the last failures (the traceback). |
 
 ```bash
 helm install trueppm ./packages/helm \
@@ -692,6 +701,26 @@ real project that shares the demo name, nor a resource assigned to real work —
 demo deployment also publishes unauthenticated read-only share links and is configured
 for evaluation, not production. Keep it on its own instance.
 :::
+
+### Scheduled reset
+
+With `demo.reset.enabled` the chart adds a CronJob that repeats the install hook's seed
+every six hours, so the sample keeps reading as a program in flight (the seed anchors its
+dates to the day it runs, so without a refresh it ages). `values-demo.yaml` turns it on.
+It is **not a security control**: it changes how long stale data can stay visible, nothing
+more.
+
+Three consequences to plan for:
+
+- **The share URLs return 404 for a few seconds each run.** The seed's delete cascades the
+  links away and the second command recreates them at the same pinned URLs.
+- **Assume project and program ids change every run.** The share URLs survive because
+  their tokens are pinned; a bookmark or open tab on `/projects/<id>` does not.
+- **A failed run does not fail the release.** The failed Job is kept for
+  `kubectl logs job/<release>-trueppm-demo-reset-<timestamp>`, and with `alerts.enabled`
+  the `TruePPMDemoResetFailed`, `TruePPMDemoResetStale` and `TruePPMDemoResetNeverSucceeded`
+  alerts fire. A failed reset leaves the demo serving its previous data, which is degraded,
+  not unsafe.
 
 Three things that are easy to get wrong:
 

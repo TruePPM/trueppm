@@ -388,6 +388,7 @@ NP_ALL="$(helm template trueppm "$CHART" \
   --set backup.enabled=true \
   --set backup.persistence.enabled=true \
   --set demo.enabled=true \
+  --set demo.reset.enabled=true \
   --set demo.baseUrl=https://demo.example.com \
   --set demo.shareToken.schedule=structurecheckschedule \
   --set demo.shareToken.board=structurecheckboard)"
@@ -623,6 +624,7 @@ default_images() {
 
 FIRST_PARTY_IMAGES="$(default_images \
   --set demo.enabled=true \
+  --set demo.reset.enabled=true \
   --set demo.baseUrl=https://demo.example.com \
   --set demo.shareToken.schedule=structurecheckschedule \
   --set demo.shareToken.board=structurecheckboard \
@@ -1453,6 +1455,121 @@ if api_cmd --set api.workers=0 >/dev/null 2>&1; then
   fail "api.workers=0 rendered successfully — it must fail the render, uvicorn requires at least one worker (#3833)"
 fi
 
+# N+7. The demo's scheduled reset (ADR-1197 D9, #3925). The CronJob is a SECOND COPY of
+#      the install hook's pod, so every assertion here is a drift guard: the two
+#      must keep the same command and the same env, and the reset must not exist
+#      unless both switches are on. Off by default is load-bearing — an upgrade
+#      that began re-seeding on a timer unprompted would be a destructive surprise.
+demo_args=(--set image.tag=latest --set demo.enabled=true
+  --set demo.baseUrl=https://demo.example.com
+  --set demo.shareToken.schedule=struct-schedule --set demo.shareToken.board=struct-board)
+reset_names() {
+  helm template trueppm "$CHART" "$@" \
+    | yq 'select(.kind=="CronJob" and (.metadata.name | test("-demo-reset$"))) | .metadata.name' \
+    | grep -vE '^(---)?$' || true
+}
+reset_doc() {
+  helm template trueppm "$CHART" "${demo_args[@]}" --set demo.reset.enabled=true "$@" \
+    --show-only templates/demo-reset-cronjob.yaml
+}
+
+# N+7.a — absent unless BOTH demo.enabled and demo.reset.enabled.
+[ -z "$(reset_names --set image.tag=latest)" ] \
+  || fail "a DEFAULT render produced a demo-reset CronJob — the scheduled reset must be off by default"
+[ -z "$(reset_names "${demo_args[@]}")" ] \
+  || fail "demo.enabled alone rendered a demo-reset CronJob — demo.reset.enabled must be an explicit opt-in"
+[ -z "$(reset_names --set image.tag=latest --set demo.reset.enabled=true)" ] \
+  || fail "demo.reset.enabled without demo.enabled rendered a CronJob — the block must be inert while demo.enabled is false"
+[ "$(reset_names "${demo_args[@]}" --set demo.reset.enabled=true | wc -l | tr -d ' ')" = "1" ] \
+  || fail "demo.enabled + demo.reset.enabled did not render exactly one demo-reset CronJob"
+
+# N+7.b — the shape that makes it safe to run on a timer.
+rc="$(reset_doc)"
+[ "$(yq '.spec.concurrencyPolicy' <<<"$rc")" = "Forbid" ] \
+  || fail "demo-reset concurrencyPolicy is not Forbid — the seed is destructive, so overlapping runs would delete each other's rows"
+[ "$(yq '.spec.schedule' <<<"$rc")" = "0 */6 * * *" ] \
+  || fail "demo-reset default schedule is not '0 */6 * * *' (every 6 hours)"
+[ "$(yq '.spec.jobTemplate.spec.activeDeadlineSeconds > 0' <<<"$rc")" = "true" ] \
+  || fail "demo-reset has no activeDeadlineSeconds — a hung seed would hold the Forbid slot forever and block every later run"
+[ "$(yq '.spec.startingDeadlineSeconds > 0' <<<"$rc")" = "true" ] \
+  || fail "demo-reset has no startingDeadlineSeconds — after a controller outage it would fire a burst of queued resets"
+[ "$(yq '.spec.jobTemplate.spec.template.spec.automountServiceAccountToken' <<<"$rc")" = "false" ] \
+  || fail "demo-reset pod automounts a ServiceAccount token — the seed makes no Kubernetes API calls"
+[ "$(yq '.spec.jobTemplate.spec.template.metadata.labels."app.kubernetes.io/component"' <<<"$rc")" = "demo-seed" ] \
+  || fail "demo-reset pod is not labeled component=demo-seed — the NetworkPolicy selects datastore clients by that label, so the pod could not reach PostgreSQL or Valkey"
+
+# N+7.c — it must be the SAME seed as the install hook: same command, same env.
+job="$(helm template trueppm "$CHART" "${demo_args[@]}" --show-only templates/demo-seed-job.yaml)"
+cmd_of() { yq '.spec.template.spec.containers[0].command | join(" ")' <<<"$1"; }
+rc_cmd="$(yq '.spec.jobTemplate.spec.template.spec.containers[0].command | join(" ")' <<<"$rc")"
+# Exact equality on the RENDERED command, not a grep of the source: an added flag, an
+# abbreviation of --with-personas, or a suffix anywhere in the command list fails here
+# regardless of how the template spelled it.
+want_cmd="sh -c python manage.py load_sample_project && python manage.py create_demo_share_link"
+[ "$rc_cmd" = "$want_cmd" ] \
+  || fail "demo-reset command is not exactly the shared seed. got: '$rc_cmd'"
+[ "$(cmd_of "$job")" = "$want_cmd" ] \
+  || fail "demo-seed install hook command is not exactly the shared seed. got: '$(cmd_of "$job")'"
+[ "$rc_cmd" = "$(cmd_of "$job")" ] \
+  || fail "demo-reset runs a different command from the install hook. reset: '$rc_cmd' / hook: '$(cmd_of "$job")'"
+env_of() { yq "$2 | [.[].name] | sort | join(\",\")" <<<"$1"; }
+[ "$(env_of "$rc" '.spec.jobTemplate.spec.template.spec.containers[0].env')" = "$(env_of "$job" '.spec.template.spec.containers[0].env')" ] \
+  || fail "demo-reset and the install hook seed container have different env names — the reset would seed with different tokens or connection settings"
+[ "$(env_of "$rc" '.spec.jobTemplate.spec.template.spec.initContainers[0].env')" = "$(env_of "$job" '.spec.template.spec.initContainers[0].env')" ] \
+  || fail "demo-reset and the install hook migrate initContainer have different env names"
+# The operator's secret (SECRET_KEY et al.) must reach BOTH containers of BOTH seed pods.
+# settings.prod's import-time boot guards abort a container that lacks it, so a reset pod
+# that dropped envFrom would crash on its first run, hours after a green install. Section 2
+# only inspects the api Deployment, so nothing else covered the seed pods (the hook
+# included), and the env-NAME comparison above cannot see envFrom.
+rc_es="$(reset_doc --set 'envFrom[0].secretRef.name=struct-secret')"
+job_es="$(helm template trueppm "$CHART" "${demo_args[@]}" --set 'envFrom[0].secretRef.name=struct-secret' --show-only templates/demo-seed-job.yaml)"
+for which in initContainers containers; do
+  [ "$(yq "[.spec.jobTemplate.spec.template.spec.${which}[0].envFrom[].secretRef.name] | contains([\"struct-secret\"])" <<<"$rc_es")" = "true" ] \
+    || fail "demo-reset ${which}[0] does not envFrom the operator secret — it would abort at the settings.prod boot guard on its first scheduled run"
+  [ "$(yq "[.spec.template.spec.${which}[0].envFrom[].secretRef.name] | contains([\"struct-secret\"])" <<<"$job_es")" = "true" ] \
+    || fail "demo-seed hook ${which}[0] does not envFrom the operator secret"
+done
+if sed 's/#.*//' <<<"$rc" | grep -qE -- '--with-personas|create_admin'; then
+  fail "demo-reset carries --with-personas or create_admin in command position — that gives the public demo a login-capable account (#2773, #3187)"
+fi
+
+# N+7.d — the schedule is interpolated into the spec, so it is validated, not trusted.
+for bad in 'x; rm -rf /' '*/5 * * *' 'every 6 hours' '0 */6 * * * *'; do
+  if helm template trueppm "$CHART" "${demo_args[@]}" --set demo.reset.enabled=true \
+       --set-string "demo.reset.schedule=$bad" >/dev/null 2>&1; then
+    fail "demo.reset.schedule '$bad' rendered — it must be a five-field cron expression or an @-macro"
+  fi
+done
+for good in '@daily' '30 3 * * MON' '*/15 * * * *'; do
+  helm template trueppm "$CHART" "${demo_args[@]}" --set demo.reset.enabled=true \
+    --set-string "demo.reset.schedule=$good" >/dev/null 2>&1 \
+    || fail "demo.reset.schedule '$good' was rejected — it is a valid cron expression"
+done
+
+# N+7.e — a failed or never-running reset is observable (alerts opt-in, like backup).
+#         TruePPMDemoResetFailed must NOT be built on kube_job_failed: failed Jobs are
+#         retained (failedJobsHistoryLimit) and a later success does not prune them, so
+#         that expression keeps firing after the demo has recovered.
+rules() { helm template trueppm "$CHART" "${demo_args[@]}" --set alerts.enabled=true "$@" --show-only templates/prometheusrule.yaml; }
+failed_rule="$(rules --set demo.reset.enabled=true | yq 'select(.kind=="PrometheusRule") | .spec.groups[] | select(.name=="trueppm.demo") | .rules[] | select(.alert=="TruePPMDemoResetFailed") | .expr')"
+grep -q 'kube_cronjob_status_last_schedule_time' <<<"$failed_rule" \
+  || fail "TruePPMDemoResetFailed does not compare last_schedule_time with last_successful_time: '$failed_rule'"
+if grep -q 'kube_job_failed' <<<"$failed_rule"; then
+  fail "TruePPMDemoResetFailed is built on kube_job_failed, which never clears after a transient failure while the failed Job is retained"
+fi
+# Rendered once into variables and matched with here-strings: `grep -q` exits on its
+# first hit, so behind a pipe it can SIGPIPE the renderer under pipefail.
+rules_on="$(rules --set demo.reset.enabled=true)"
+rules_off="$(rules)"
+for a in TruePPMDemoResetFailed TruePPMDemoResetStale TruePPMDemoResetNeverSucceeded; do
+  grep -q "alert: $a" <<<"$rules_on" \
+    || fail "alerts.enabled with demo.reset.enabled did not render $a — a broken reset would be silent"
+  if grep -q "alert: $a" <<<"$rules_off"; then
+    fail "$a rendered while demo.reset.enabled is false — the reset alerts must follow the reset switch"
+  fi
+done
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches all $env_checked containers that import settings.prod"
@@ -1477,3 +1594,4 @@ echo "  - backup: no-destination render refused; all $backup_dest_checked docume
 echo "  - placement: $place_checked previously-rejected keys accepted; $place_workloads workloads carry a self-scoped spread constraint; HPA owns replicas alone; web follows replicaCount and has a PDB"
 echo "  - celery probes: worker liveness ${cp_live_i}/${cp_live_p}x${cp_live_f} (detection ${cp_detect}s >= ${cp_grace}s grace, still 'inspect ping') and readiness ${cp_ready_i}/${cp_ready_p} (heartbeat-file freshness, #3346) are tuned apart; startup is the heartbeat-file existence check; kubelet timeout scales with the ping budget on liveness; flat keys still drive all three probes; beat is liveness-only"
 echo "  - api.workers=1 by default (image CMD behavior preserved), api.workers=4 renders --workers 4 without disturbing --host/--port, and 0 is refused (#3833)"
+echo "  - demo reset: CronJob absent unless demo.enabled AND demo.reset.enabled; Forbid + deadlines + demo-seed label; same command and env as the install hook; schedule validated; three alerts follow the switch"
