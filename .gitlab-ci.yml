@@ -2496,6 +2496,22 @@ helm:template:
         --set demo.shareToken.schedule=ci-schedule-token \
         --set demo.shareToken.board=ci-board-token > /tmp/rendered-demo.yaml
     - kubeconform -strict -summary -ignore-missing-schemas /tmp/rendered-demo.yaml
+    # Every container that imports settings.prod must get a MEDIA_ROOT (#3910). The
+    # boot guard refuses to start when the local-attachment opt-in has no writable
+    # MEDIA_ROOT, and every pod runs a read-only root filesystem. kubeconform proves
+    # the manifests are well-formed and nothing here boots Django, so a demo that
+    # crash-looped on first install (api/seed Init:Error, worker CrashLoopBackOff)
+    # rendered green. Scoped to the api, worker, beat and seed workloads — the only
+    # ones that run Django; the web tier is nginx. The `---` filter is for yq: it
+    # emits document separators for skipped documents, and by a different amount
+    # across versions (#3147), so compare content, not output length.
+    - |
+      offenders="$(yq 'select((.kind=="Deployment" or .kind=="Job") and (.metadata.name | test("-(api|celery-worker|celery-beat|demo-seed)$"))) | .metadata.name as $w | .spec.template.spec | ([.initContainers[]?] + [.containers[]?])[] | select(([.env[]?.name] | contains(["TRUEPPM_MEDIA_ROOT"])) | not) | $w + "/" + .name' /tmp/rendered-demo.yaml | grep -vE '^(---)?$' || true)"
+      if [ -n "$offenders" ]; then
+        echo "DEMO REGRESSION: these containers import settings.prod with no TRUEPPM_MEDIA_ROOT, so the local-attachment boot guard aborts them on a read-only root filesystem (#3910):"
+        echo "$offenders"
+        exit 1
+      fi
     # The demo's security model IS the nginx allowlist: /admin/, /ws/ and every
     # /api/ route other than the share projections and the liveness probe must be
     # closed. A regression here silently publishes the authenticated API — the
