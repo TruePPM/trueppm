@@ -35,6 +35,15 @@ Three details that are load-bearing and must not be "simplified" away:
 {{- if not .Values.demo.shareToken.board }}
 {{- fail "demo.enabled is true but demo.shareToken.board is empty. The board link needs its own token — ShareLink.token_hash is globally unique, so one token cannot back both the schedule and the board link. Generate a second one with: openssl rand -base64 32 | tr -d '=+/'" }}
 {{- end }}
+{{- /* baseUrl and the schedule token are interpolated into the demo nginx server block (the `location = /` redirect, #3911), so a `;`, `}` or `$` in either would inject config into the one file that IS the demo's security boundary. Constrain them to what a legitimate origin and a `tr -d '=+/'` token can contain. */ -}}
+{{- if not (regexMatch "^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?$" .Values.demo.baseUrl) }}
+{{- fail "demo.baseUrl must be a bare origin such as https://demo.example.com (scheme, host, optional port — no path, query or other characters). It is written into the demo nginx config." }}
+{{- end }}
+{{- range $name, $token := .Values.demo.shareToken }}
+{{- if not (regexMatch "^[A-Za-z0-9_-]+$" (toString $token)) }}
+{{- fail (printf "demo.shareToken.%s may contain only letters, digits, '-' and '_'. Generate one with: openssl rand -base64 32 | tr -d '=+/'" $name) }}
+{{- end }}
+{{- end }}
 {{- if eq .Values.demo.shareToken.schedule .Values.demo.shareToken.board }}
 {{- fail "demo.shareToken.schedule and demo.shareToken.board must differ — ShareLink.token_hash is globally unique, so identical tokens would collide and the second link would fail to mint." }}
 {{- end }}

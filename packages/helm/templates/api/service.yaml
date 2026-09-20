@@ -1,3 +1,12 @@
+{{- /*
+  Demo-mode guard (#3908). The demo allowlist is the web tier's nginx, so the API
+  Service must stay cluster-internal: a LoadBalancer or NodePort here publishes
+  the whole authenticated API and skips the allowlist without any Ingress at all.
+  Exposing the WEB Service (web.service.type) is the safe way to publish a demo.
+*/ -}}
+{{- if and .Values.demo.enabled (ne (.Values.service.type | default "ClusterIP") "ClusterIP") }}
+{{- fail (printf "demo.enabled is true but service.type is %s. The API Service must stay ClusterIP in demo mode: the read-only allowlist lives only in the web tier's nginx, so a LoadBalancer/NodePort API Service bypasses it. Expose the web Service instead (web.service.type, or a tunnel such as Cloudflare Tunnel — ADR-0658 D9)." .Values.service.type) }}
+{{- end }}
 apiVersion: v1
 kind: Service
 metadata:
