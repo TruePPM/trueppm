@@ -131,7 +131,7 @@ cluster-specific, so a default-on ingress would render a broken object.
 | `ingress.enabled` | `false` | Render a chart-managed Ingress + edge TLS. |
 | `ingress.className` | `""` | IngressClass to bind (`nginx`, `traefik`, …). Empty uses the cluster default. |
 | `ingress.annotations` | `nginx.ingress.kubernetes.io/proxy-body-size: "110m"` | Controller / cert-manager annotations. The shipped default raises the upload ceiling — see [Upload size limits](#upload-size-limits). Helm deep-merges this map, so your own keys are added alongside it. |
-| `ingress.hosts` | one example host | Virtual hosts; each path routes to `web` or `api`. List `/api` and `/ws` **before** `/` so they win longest-prefix matching. |
+| `ingress.hosts` | one example host | Virtual hosts; each path routes to `web` or `api`. List `/api` and `/ws` **before** `/` so they win longest-prefix matching. With [`demo.enabled`](#public-read-only-demo-mode) the chart refuses to render unless **every** path uses `service: web`. |
 | `ingress.tls` | `[]` | TLS Secrets per host. Empty renders **HTTP-only** — dev/demo only, never production. |
 
 ### Upload size limits
@@ -682,6 +682,24 @@ Two things that are easy to get wrong:
 - **Pinning is mandatory, not cosmetic.** Because the seed is destructive and share
   links cascade with their project, an unpinned link would change its public URL on
   every `helm upgrade`.
+
+**Expose the web Service, never the API.** The read-only allowlist is the web tier's
+nginx, so only traffic that enters through the web Service is constrained. Pointing a
+tunnel such as Cloudflare Tunnel at `svc/<release>-trueppm-web` is the intended path;
+the chart does not bundle one. Two combinations would publish the whole authenticated
+API and `/ws/` around the allowlist, so the chart refuses to render them:
+
+- `demo.enabled` with `ingress.enabled`, unless every Ingress path sets `service: web`
+  and `web.enabled` is true. The default `ingress.hosts` route `/api` and `/ws` straight
+  to the API Service, so an Ingress left at its defaults is rejected.
+- `demo.enabled` with an API Service (`service.type`) other than `ClusterIP`. A
+  `LoadBalancer` or `NodePort` there is reachable with no Ingress at all. To publish a
+  demo through a load balancer, set `web.service.type` instead.
+
+The guard sees only what the chart renders. It cannot see an Ingress you create
+yourself, or controller annotations under `ingress.annotations` that reroute traffic
+behind the chart's back — for example ingress-nginx's default backend pointing at the
+API Service — so keep both out of a demo.
 
 A bootstrap superuser still exists on a demo release — the API creates one on every
 deploy — but it has no public login surface, because the allowlist closes `/admin/`.
