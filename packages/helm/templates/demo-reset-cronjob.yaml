@@ -1,0 +1,125 @@
+{{- if and .Values.demo.enabled .Values.demo.reset.enabled }}
+{{/*
+Demo-mode scheduled reset (ADR-1197 D9, #3925).
+
+Re-runs the SAME seed as templates/demo-seed-job.yaml on a schedule so a demo does
+not age: the seed anchors every date to the import day, so without a refresh the
+sample stops reading as a program in flight. It also bounds how long anything
+unexpected stays visible. It is NOT a security control and must not be cited as one.
+
+Four details that are load-bearing and must not be "simplified" away:
+
+  1. The pod carries `app.kubernetes.io/component: demo-seed` on purpose, not a new
+     `demo-reset` label. The NetworkPolicy allow-lists select datastore clients BY
+     component label, so a pod with a new label has no route to PostgreSQL or Valkey
+     and fails at connect time. scripts/helm-structure-check.sh asserts the label,
+     and that this pod's command and env stay identical to the install hook's.
+
+  2. concurrencyPolicy is Forbid. The seed is destructive, so two overlapping runs
+     would delete each other's rows mid-insert. A slot that arrives while the
+     previous run is still active is skipped, not queued.
+
+  3. Between `load_sample_project` and `create_demo_share_link` the share links do
+     not exist: the delete cascades them away and the second command recreates them
+     at the same pinned URLs. Expect a window of seconds per run in which the share
+     URLs return 404. Project and program ids should also be assumed to change, so
+     a bookmark on /projects/<id> does not survive a run (the share URLs do,
+     because their tokens are pinned).
+
+  4. This file is guarded by scripts/check-demo-readonly.sh exactly like the
+     install hook: no persona logins and no bootstrap superuser, in command
+     position. Naming either flag in a `#` comment is fine; putting one in the
+     command is what the gate exists to stop.
+
+A failed run does not fail the release. The failed Job is kept for `kubectl logs`
+and, with alerts.enabled, TruePPMDemoReset* rules fire.
+*/}}
+{{- /* The schedule is interpolated into the CronJob spec, so constrain it to what a cron expression can contain rather than trusting the value: five whitespace-separated fields, or one of the @-macros. */ -}}
+{{- if not (regexMatch "^(@(hourly|daily|weekly|monthly|yearly|annually)|[0-9*/,?A-Za-z-]+( +[0-9*/,?A-Za-z-]+){4})$" (toString .Values.demo.reset.schedule)) }}
+{{- fail "demo.reset.schedule must be a five-field cron expression such as \"0 */6 * * *\" (or an @hourly/@daily/@weekly/@monthly/@yearly macro). It is evaluated in the CronJob controller's time zone, which is UTC on managed clusters." }}
+{{- end }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "trueppm.fullname" . }}-demo-reset
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: demo-seed
+spec:
+  schedule: {{ .Values.demo.reset.schedule | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: {{ .Values.demo.reset.startingDeadlineSeconds }}
+  successfulJobsHistoryLimit: {{ .Values.demo.reset.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.demo.reset.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.demo.backoffLimit | default 2 }}
+      activeDeadlineSeconds: {{ .Values.demo.reset.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "trueppm.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: demo-seed
+        spec:
+          restartPolicy: Never
+          # Makes no in-cluster Kubernetes API calls — same posture as the app pods.
+          automountServiceAccountToken: false
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          volumes:
+            # readOnlyRootFilesystem is on; the seeder needs scratch space.
+            - name: tmp
+              emptyDir: {}
+          initContainers:
+            # Idempotent and cheap. Kept for parity with the install hook: a run that
+            # lands mid-upgrade must not race the api Deployment's own migrate.
+            - name: migrate
+              image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["python", "manage.py", "migrate", "--noinput"]
+              securityContext:
+                {{- toYaml .Values.containerSecurityContext | nindent 16 }}
+              {{- with .Values.envFrom }}
+              envFrom:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              env:
+                {{- include "trueppm.envVars" . | nindent 16 }}
+                {{- include "trueppm.connectionEnv" . | nindent 16 }}
+                {{- include "trueppm.datastoreSecurityEnv" . | nindent 16 }}
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          containers:
+            - name: demo-reset
+              image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              # Runs WITHOUT --with-personas, exactly like the install hook: no persona
+              # logins, no password path. See the header note 4 and
+              # scripts/check-demo-readonly.sh.
+              command:
+                - sh
+                - -c
+                - python manage.py load_sample_project && python manage.py create_demo_share_link
+              securityContext:
+                {{- toYaml .Values.containerSecurityContext | nindent 16 }}
+              {{- with .Values.envFrom }}
+              envFrom:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              env:
+                {{- include "trueppm.envVars" . | nindent 16 }}
+                {{- include "trueppm.connectionEnv" . | nindent 16 }}
+                {{- include "trueppm.datastoreSecurityEnv" . | nindent 16 }}
+                - name: TRUEPPM_DEMO_BASE_URL
+                  value: {{ .Values.demo.baseUrl | quote }}
+                - name: TRUEPPM_DEMO_SHARE_TOKEN
+                  value: {{ .Values.demo.shareToken.schedule | quote }}
+                - name: TRUEPPM_DEMO_SHARE_TOKEN_BOARD
+                  value: {{ .Values.demo.shareToken.board | quote }}
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                {{- toYaml .Values.demo.resources | nindent 16 }}
+{{- end }}

@@ -38,6 +38,18 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GUARDED_FILES=(
   "docker-compose.demo.yml"
   "packages/helm/templates/demo-seed-job.yaml"
+  "packages/helm/templates/demo-reset-cronjob.yaml"
+)
+
+# The install hook and the scheduled reset must run the SAME seed. They are two
+# copies of one command in two files, and the persona/superuser guard above is only
+# as good as its coverage of both, so a copy that quietly diverged (say, gained a
+# flag in a rewrite of one file) would be the exact "changed the thing, missed the
+# shadow copy" failure. Each helm template must carry this as an exact list item.
+SEED_COMMAND="python manage.py load_sample_project && python manage.py create_demo_share_link"
+SEED_COMMAND_FILES=(
+  "packages/helm/templates/demo-seed-job.yaml"
+  "packages/helm/templates/demo-reset-cronjob.yaml"
 )
 
 # Two patterns, one posture. `--with-personas` creates login-capable persona
@@ -46,8 +58,17 @@ GUARDED_FILES=(
 # the guard has to cover both — it previously covered only the first, while
 # docker-compose.demo.yml ran create_admin and three of its own comments claimed
 # it did not.
+# `--with-personas` is matched as an ERE that ALSO accepts every prefix argparse
+# would resolve to it: Django's CommandParser leaves allow_abbrev on, so `--with-pers`
+# or `--with` (when unambiguous) enables persona logins exactly as the full flag
+# does, and a literal-string ban would wave it through. The boundary after the last
+# letter stops `--wait` and `--workers` from matching.
 BANNED_PATTERNS=(
-  "--with-personas"
+  '--w(i(t(h(-(p(e(r(s(o(n(a(s)?)?)?)?)?)?)?)?)?)?)?)?([^a-zA-Z-]|$)'
+  'create_admin'
+)
+BANNED_LABELS=(
+  "--with-personas (or an argparse abbreviation of it)"
   "create_admin"
 )
 
@@ -57,13 +78,17 @@ BANNED_PATTERNS=(
 # pattern to explain why it is absent are load-bearing documentation and must
 # keep passing — the check matches command position only.
 scan_file() {
-  local file="$1" pattern hits rc=0
+  local file="$1" pattern hits rc=0 i
   local stripped
-  stripped="$(sed 's/#.*//' "$file")"
-  for pattern in "${BANNED_PATTERNS[@]}"; do
-    hits="$(printf '%s\n' "$stripped" | grep -n -- "$pattern" || true)"
+  # A YAML comment starts at a `#` that begins the line or follows whitespace. A `#`
+  # inside a token (`sh -c "x '#' --with-personas"`) is NOT a comment, so stripping
+  # from any `#` would let a flag hide behind one.
+  stripped="$(sed -E 's/(^|[[:space:]])#.*//' "$file")"
+  for i in "${!BANNED_PATTERNS[@]}"; do
+    pattern="${BANNED_PATTERNS[$i]}"
+    hits="$(printf '%s\n' "$stripped" | grep -nE -- "$pattern" || true)"
     if [ -n "$hits" ]; then
-      echo "VIOLATION: $file carries $pattern outside a comment:"
+      echo "VIOLATION: $file carries ${BANNED_LABELS[$i]} outside a comment:"
       echo "$hits" | sed 's/^/    /'
       rc=1
     fi
@@ -81,6 +106,17 @@ run_check() {
       return 2
     fi
     scan_file "$root/$file" || violations=$((violations + 1))
+  done
+
+  local drift=0 seed_file
+  for seed_file in "${SEED_COMMAND_FILES[@]}"; do
+    # The command must be an exact YAML list item on its own line: a commented-out
+    # copy, or the command with something appended, is drift, not parity.
+    if ! sed -E 's/^[[:space:]]*-[[:space:]]+//' "$root/$seed_file" | grep -qxF -- "$SEED_COMMAND"; then
+      echo "DRIFT: $seed_file no longer carries the shared seed command:" >&2
+      echo "    $SEED_COMMAND" >&2
+      drift=$((drift + 1))
+    fi
   done
 
   if [ "$violations" -gt 0 ]; then
@@ -109,76 +145,118 @@ MSG
     return 1
   fi
 
-  echo "OK: no demo manifest enables persona logins or bootstraps a superuser (${#GUARDED_FILES[@]} file(s) x ${#BANNED_PATTERNS[@]} pattern(s))."
+  if [ "$drift" -gt 0 ]; then
+    cat >&2 <<'MSG'
+
+ERROR: the demo's install hook and its scheduled reset no longer run the same seed.
+
+Both helm templates must carry the seed command verbatim (SEED_COMMAND in this
+script). If you changed the seed on purpose, change it in BOTH files and here in
+the same commit; the reset is a second copy of the hook, and a reset that seeds
+differently from the install turns the demo into something nobody deployed.
+MSG
+    return 1
+  fi
+
+  echo "OK: no demo manifest enables persona logins or bootstraps a superuser (${#GUARDED_FILES[@]} file(s) x ${#BANNED_PATTERNS[@]} pattern(s)); the install hook and the reset run the same seed."
   return 0
 }
 
 # Prove the grep can actually fail — a guard that has never been seen to fire is
 # indistinguishable from a guard with a typo in its pattern.
 self_test() {
-  local tmp status
+  local tmp compose job reset
   tmp="$(mktemp -d)"
   # shellcheck disable=SC2064  # expand $tmp now, not at trap time
   trap "rm -rf '$tmp'" EXIT
 
   mkdir -p "$tmp/packages/helm/templates"
+  compose="$tmp/docker-compose.demo.yml"
+  job="$tmp/packages/helm/templates/demo-seed-job.yaml"
+  reset="$tmp/packages/helm/templates/demo-reset-cronjob.yaml"
+
+  # A helm fixture that is compliant: the seed command as an exact list item, and a
+  # comment that NAMES the flag to explain its absence.
+  ok_helm() { printf '# load_sample_project runs WITHOUT --with-personas\ncommand:\n  - %s\n' "$SEED_COMMAND" > "$1"; }
+
+  # expect <exit code> <what the case proves> [text the output must contain]. The
+  # text check is what stops two different failures (a banned flag vs seed drift)
+  # from being indistinguishable: both exit 1, so the exit code alone would let a
+  # drift case pass for the wrong reason.
+  expect() {
+    local want="$1" msg="$2" needle="${3:-}" status=0 out
+    out="$(run_check "$tmp" 2>&1)" || status=$?
+    if [ "$status" -ne "$want" ]; then
+      echo "SELF-TEST FAIL: $msg (exit $status, expected $want)" >&2
+      return 1
+    fi
+    if [ -n "$needle" ] && ! grep -q -- "$needle" <<<"$out"; then
+      echo "SELF-TEST FAIL: $msg (exit $status as expected, but the output did not say '$needle')" >&2
+      return 1
+    fi
+  }
 
   # Case 1: the real posture — flag named only in a comment. Must pass.
-  printf 'command: >\n  sh -c "python manage.py load_sample_project"\n# NOTE: runs WITHOUT --with-personas\n' \
-    > "$tmp/docker-compose.demo.yml"
-  printf '# load_sample_project runs WITHOUT --with-personas\ncommand:\n  - python manage.py load_sample_project\n' \
-    > "$tmp/packages/helm/templates/demo-seed-job.yaml"
-  status=0
-  run_check "$tmp" >/dev/null 2>&1 || status=$?
-  if [ "$status" -ne 0 ]; then
-    echo "SELF-TEST FAIL: a comment mentioning $FLAG was treated as a violation" >&2
-    return 1
-  fi
+  printf 'command: >\n  sh -c "python manage.py load_sample_project"\n# NOTE: runs WITHOUT --with-personas\n' > "$compose"
+  ok_helm "$job"; ok_helm "$reset"
+  expect 0 "a comment mentioning the persona flag was treated as a violation" || return 1
+
+  # Case 1b: options that merely START with --w are not the banned flag.
+  printf 'command: >\n  sh -c "python manage.py migrate --wait --workers 2"\n' > "$compose"
+  expect 0 "--wait / --workers were treated as the persona flag" || return 1
 
   # Case 2: the drift — flag in command position. Must fail.
-  printf 'command: >\n  sh -c "python manage.py load_sample_project --with-personas"\n' \
-    > "$tmp/docker-compose.demo.yml"
-  status=0
-  run_check "$tmp" >/dev/null 2>&1 || status=$?
-  if [ "$status" -ne 1 ]; then
-    echo "SELF-TEST FAIL: $FLAG in command position was not caught (exit $status)" >&2
-    return 1
-  fi
+  printf 'command: >\n  sh -c "python manage.py load_sample_project --with-personas"\n' > "$compose"
+  expect 1 "--with-personas in command position was not caught" VIOLATION || return 1
+
+  # Case 2a: an argparse abbreviation enables the same behavior. Must fail.
+  printf 'command: >\n  sh -c "python manage.py load_sample_project --with-pers"\n' > "$compose"
+  expect 1 "an abbreviated --with-pers was not caught" VIOLATION || return 1
+
+  # Case 2a2: a `#` inside a token is not a comment and must not hide the flag.
+  printf 'command: >\n  sh -c "echo x#y --with-personas"\n' > "$compose"
+  expect 1 "a flag after a mid-token # was hidden by comment stripping" VIOLATION || return 1
 
   # Case 2b: the #3187 drift — create_admin in command position. Must fail.
-  printf 'command: >\n  sh -c "python manage.py migrate && python manage.py create_admin"\n' \
-    > "$tmp/docker-compose.demo.yml"
-  status=0
-  run_check "$tmp" >/dev/null 2>&1 || status=$?
-  if [ "$status" -ne 1 ]; then
-    echo "SELF-TEST FAIL: create_admin in command position was not caught (exit $status)" >&2
-    return 1
-  fi
+  printf 'command: >\n  sh -c "python manage.py migrate && python manage.py create_admin"\n' > "$compose"
+  expect 1 "create_admin in command position was not caught" VIOLATION || return 1
 
   # Case 2c: create_admin named only in a comment must still pass — the demo
   # manifests explain at length why they do NOT run it, and that prose has to
   # survive the guard.
-  printf 'command: >\n  sh -c "python manage.py migrate"\n# deliberately no create_admin here\n' \
-    > "$tmp/docker-compose.demo.yml"
-  printf '# and no create_admin here either\ncommand:\n  - python manage.py load_sample_project\n' \
-    > "$tmp/packages/helm/templates/demo-seed-job.yaml"
-  status=0
-  run_check "$tmp" >/dev/null 2>&1 || status=$?
-  if [ "$status" -ne 0 ]; then
-    echo "SELF-TEST FAIL: a comment mentioning create_admin was treated as a violation" >&2
-    return 1
-  fi
+  printf 'command: >\n  sh -c "python manage.py migrate"\n# deliberately no create_admin here\n' > "$compose"
+  printf '# and no create_admin here either\ncommand:\n  - %s\n' "$SEED_COMMAND" > "$job"
+  printf '# and no create_admin here either\ncommand:\n  - %s\n' "$SEED_COMMAND" > "$reset"
+  expect 0 "a comment mentioning create_admin was treated as a violation" || return 1
+
+  # Case 2d: the scheduled reset is guarded like the install hook. The flag is in its
+  # OWN list item so the seed line stays intact and only the ban can fire.
+  printf 'command:\n  - %s\n  - --with-personas\n' "$SEED_COMMAND" > "$reset"
+  expect 1 "--with-personas in the reset template was not caught" VIOLATION || return 1
+  printf 'command:\n  - %s\n  - --with-pers\n' "$SEED_COMMAND" > "$reset"
+  expect 1 "an abbreviated flag in the reset template was not caught" VIOLATION || return 1
+  ok_helm "$reset"
+
+  # Case 2e: the two seed copies must not diverge. Each variant leaves the banned
+  # patterns alone, so only the parity check can fire.
+  printf 'command:\n  - python manage.py load_sample_project\n' > "$reset"
+  expect 1 "a reset template that dropped the shared seed command was not caught" DRIFT || return 1
+  printf '# - %s\ncommand:\n  - python manage.py load_sample_project\n' "$SEED_COMMAND" > "$reset"
+  expect 1 "a commented-out seed command satisfied the parity check" DRIFT || return 1
+  printf 'command:\n  - %s && echo done\n' "$SEED_COMMAND" > "$reset"
+  expect 1 "a seed command with something appended satisfied the parity check" DRIFT || return 1
+  ok_helm "$reset"
 
   # Case 3: a guarded file that has moved must error, not silently pass.
-  rm "$tmp/docker-compose.demo.yml"
-  status=0
-  run_check "$tmp" >/dev/null 2>&1 || status=$?
-  if [ "$status" -ne 2 ]; then
-    echo "SELF-TEST FAIL: a missing manifest exited $status, expected 2" >&2
-    return 1
-  fi
+  rm "$compose"
+  expect 2 "a missing compose manifest did not error" || return 1
+  printf 'command: >\n  sh -c "python manage.py load_sample_project"\n' > "$compose"
 
-  echo "SELF-TEST OK: comments ignored, both command-position patterns caught, missing file errors."
+  # Case 3b: the same for the new template — deleting it must error, not pass.
+  rm "$reset"
+  expect 2 "a missing reset template did not error" || return 1
+
+  echo "SELF-TEST OK: comments ignored, both command-position patterns (incl. abbreviations) caught in all three files, seed drift caught three ways, missing file errors."
   return 0
 }
 

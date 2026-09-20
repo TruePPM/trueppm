@@ -1040,6 +1040,24 @@
                 }
               }
             },
+            "demoReset": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "jobFailedFor": {
+                  "type": "string"
+                },
+                "staleAfterSeconds": {
+                  "type": "integer"
+                },
+                "staleFor": {
+                  "type": "string"
+                },
+                "neverSucceededFor": {
+                  "type": "string"
+                }
+              }
+            },
             "volumeAvailablePercent": {
               "type": "number"
             },
@@ -1231,6 +1249,35 @@
         },
         "resources": {
           "type": "object"
+        },
+        "reset": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "schedule": {
+              "type": "string",
+              "minLength": 1
+            },
+            "startingDeadlineSeconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "activeDeadlineSeconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "successfulJobsHistoryLimit": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "failedJobsHistoryLimit": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
         }
       }
     }

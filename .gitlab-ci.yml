@@ -2501,12 +2501,12 @@ helm:template:
     # MEDIA_ROOT, and every pod runs a read-only root filesystem. kubeconform proves
     # the manifests are well-formed and nothing here boots Django, so a demo that
     # crash-looped on first install (api/seed Init:Error, worker CrashLoopBackOff)
-    # rendered green. Scoped to the api, worker, beat and seed workloads — the only
-    # ones that run Django; the web tier is nginx. The `---` filter is for yq: it
+    # rendered green. Scoped to the api, worker, beat, seed and reset workloads (the reset is a
+    # CronJob, so its pod spec sits one level deeper) — the only ones that run Django; the web tier is nginx. The `---` filter is for yq: it
     # emits document separators for skipped documents, and by a different amount
     # across versions (#3147), so compare content, not output length.
     - |
-      offenders="$(yq 'select((.kind=="Deployment" or .kind=="Job") and (.metadata.name | test("-(api|celery-worker|celery-beat|demo-seed)$"))) | .metadata.name as $w | .spec.template.spec | ([.initContainers[]?] + [.containers[]?])[] | select(([.env[]?.name] | contains(["TRUEPPM_MEDIA_ROOT"])) | not) | $w + "/" + .name' /tmp/rendered-demo.yaml | grep -vE '^(---)?$' || true)"
+      offenders="$(yq 'select((.kind=="Deployment" or .kind=="Job" or .kind=="CronJob") and (.metadata.name | test("-(api|celery-worker|celery-beat|demo-seed|demo-reset)$"))) | .metadata.name as $w | (.spec.template.spec // .spec.jobTemplate.spec.template.spec) | ([.initContainers[]?] + [.containers[]?])[] | select(([.env[]?.name] | contains(["TRUEPPM_MEDIA_ROOT"])) | not) | $w + "/" + .name' /tmp/rendered-demo.yaml | grep -vE '^(---)?$' || true)"
       if [ -n "$offenders" ]; then
         echo "DEMO REGRESSION: these containers import settings.prod with no TRUEPPM_MEDIA_ROOT, so the local-attachment boot guard aborts them on a read-only root filesystem (#3910):"
         echo "$offenders"
