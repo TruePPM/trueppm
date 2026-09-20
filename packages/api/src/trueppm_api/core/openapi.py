@@ -42,6 +42,8 @@ from typing import Any
 from drf_spectacular.openapi import AutoSchema
 from rest_framework.permissions import SAFE_METHODS
 
+from trueppm_api.core.demo_read_only import DEMO_READ_ONLY_CODE
+
 # ---------------------------------------------------------------------------
 # Tag definitions
 # ---------------------------------------------------------------------------
@@ -367,6 +369,7 @@ def postprocess_openapi(
             _annotate_operation(operation, path, method, collection_paths, is_public)
 
     _register_validation_error_detail(result)
+    _register_demo_read_only_error(result)
     _rewrite_time_format(result)
 
     # Document-level default so a client knows the baseline auth scheme.
@@ -418,6 +421,51 @@ def _register_validation_error_detail(result: dict[str, Any]) -> None:
     """
     schemas = result.setdefault("components", {}).setdefault("schemas", {})
     schemas[VALIDATION_ERROR_DETAIL] = deepcopy(_VALIDATION_ERROR_DETAIL_SCHEMA)
+    result["components"]["schemas"] = dict(sorted(schemas.items()))
+
+
+DEMO_READ_ONLY_ERROR = "DemoReadOnlyError"
+
+
+def _register_demo_read_only_error(result: dict[str, Any]) -> None:
+    """Register the ``403`` body demo read-only mode returns for every refused write.
+
+    The demo read-only middleware answers before routing, so no operation has a view to
+    attach this response to, and stamping a ``403`` onto every write operation would
+    describe a response the vast majority of deployments can never return. A single
+    named component, which ``api/errors.md`` and the API description point at, is the
+    honest shape: any unsafe request may return it, but only when the deployment sets
+    ``TRUEPPM_DEMO_READ_ONLY``.
+
+    Re-sorted for the same reason as :func:`_register_validation_error_detail`: the
+    committed ``docs/api/openapi.json`` must not diff against a fresh regenerate on
+    ordering alone.
+    """
+    schemas = result.setdefault("components", {}).setdefault("schemas", {})
+    schemas[DEMO_READ_ONLY_ERROR] = {
+        "type": "object",
+        "description": (
+            "Returned with HTTP 403 for every `POST`, `PUT`, `PATCH` or `DELETE` under "
+            "`/api/` when the deployment runs in demo read-only mode "
+            "(`TRUEPPM_DEMO_READ_ONLY=true`), except sign-in, token refresh and sign-out. "
+            "Independent of role, permission class and authentication: an Owner and an "
+            "anonymous caller are refused identically, and retrying with more permission "
+            "never helps. A normal installation never returns it."
+        ),
+        "properties": {
+            "detail": {
+                "type": "string",
+                "description": "Human-readable explanation. May be reworded; do not match on it.",
+            },
+            "code": {
+                "type": "string",
+                "enum": [DEMO_READ_ONLY_CODE],
+                "description": "Stable machine-readable refusal code. Branch on this.",
+            },
+        },
+        "required": ["detail", "code"],
+        "additionalProperties": False,
+    }
     result["components"]["schemas"] = dict(sorted(schemas.items()))
 
 

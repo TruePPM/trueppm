@@ -9,6 +9,7 @@ from pathlib import Path
 
 import environ
 
+from trueppm_api.core.demo_read_only import parse_demo_read_only
 from trueppm_api.core.ratelimit import apply_rate_limit_disable, resolve_rate_limit_enabled
 from trueppm_api.core.refresh_cookie_policy import resolve_refresh_cookie_samesite
 from trueppm_api.core.storage_config import S3_STORAGE_BACKENDS, build_s3_storage_options
@@ -147,6 +148,14 @@ MIDDLEWARE = [
     # the 400 still carries the correlation id and CSP header, but before Session
     # so a garbage request skips session/auth work.
     "trueppm_api.core.middleware.RejectNullBytesMiddleware",
+    # Demo read-only mode (interactive-demo design #3912, #3924): refuse every unsafe /api/ request
+    # unless it is one of the three auth writes. Sits BEFORE Session/Auth so anonymous
+    # POSTs (password-reset request, SSO, inbound integrations) are refused too, and
+    # before the view's ATOMIC_REQUESTS transaction so a refusal costs no DB work. It
+    # must not move below AuthenticationMiddleware: a role-aware position is exactly
+    # the "authority derived from the account" design this mode exists to avoid. A
+    # no-op unless DEMO_READ_ONLY is set.
+    "trueppm_api.core.demo_read_only.DemoReadOnlyMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -285,6 +294,15 @@ ALLOW_WILDCARD_ALLOWED_HOSTS = env.bool("TRUEPPM_ALLOW_WILDCARD_HOSTS", default=
 # "login"/"login_account" throttle buckets as the API login, the same
 # auth.login_failed / auth.login_succeeded lines, and the same policy seam.
 DJANGO_ADMIN_ENABLED = env.bool("TRUEPPM_DJANGO_ADMIN_ENABLED", default=False)
+
+# Interactive-demo read-only mode (#3912, #3924). When true,
+# DemoReadOnlyMiddleware refuses every unsafe HTTP method under /api/ except login,
+# token refresh and logout, regardless of role or permission class. Off by default; a
+# normal install is unaffected. Parsed strictly rather than with env.bool(): env.bool
+# reads any unrecognized string (a typo like "ture") as False, which would silently
+# disable the one control the demo's safety rests on. An unrecognized value here
+# refuses to boot instead.
+DEMO_READ_ONLY: bool = parse_demo_read_only(os.environ.get("TRUEPPM_DEMO_READ_ONLY"))
 
 # Global rate-limiting kill switch (ADR-0604, extends ADR-0208). Operator-only
 # escape hatch to disable ALL DRF throttling — used by the k6 perf:load job to
