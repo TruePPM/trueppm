@@ -12,6 +12,10 @@ it and the release it is planned for, or says plainly that it is not planned. Wh
 gap closes, the row moves to the [roadmap](/overview/roadmap/) as shipped and comes
 off this page.
 
+This page states the constraints. For the corollary — who these constraints mean
+TruePPM fits today, and who it does not — see
+[Who this fits today](/overview/#who-this-fits-today) in the Platform Overview.
+
 This page covers capability that was never built. For things that *are* built but are
 wrong, incomplete, or slower than they should be, see
 [Known Issues](/overview/known-issues/).
