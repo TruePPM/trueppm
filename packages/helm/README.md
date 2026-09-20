@@ -248,10 +248,15 @@ them later:
 kubectl logs job/<release>-trueppm-demo-seed
 ```
 
-Four things worth knowing before you run it:
+Things worth knowing before you run it:
 
 - **Both tokens are required and must differ.** `ShareLink.token_hash` is globally
   unique, so one token cannot back both links. The chart refuses to render otherwise.
+- **The bare domain redirects to the schedule link.** The demo has no accounts, so the
+  app's login form at `/` could never succeed; a visitor who types the origin is sent
+  (302) to `<baseUrl>/share/schedule/<token>` instead. `demo.baseUrl` must be a bare
+  origin and both tokens may contain only letters, digits, `-` and `_` — they are
+  written into the demo nginx config, so the chart refuses to render anything else.
 - **Pinning is mandatory, not cosmetic.** Because the seed is destructive and share
   links cascade with their project, an unpinned link would silently change its public
   URL on every `helm upgrade`. Pinned tokens restore the same URLs every time.
@@ -259,6 +264,12 @@ Four things worth knowing before you run it:
   deployment matches production topology, and the seeder never creates persona
   logins. The share endpoints remain gated by the instance-wide
   `TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED` switch, which `values-demo.yaml` asserts.
+- **Attachments use scratch space.** The `trueppm-env` Secret opts in to local attachment
+  storage, which requires a writable `MEDIA_ROOT` on every pod that boots Django, and every
+  pod has a read-only root filesystem. `values-demo.yaml` therefore sets
+  `env.TRUEPPM_MEDIA_ROOT: /tmp` (each pod's emptyDir). A demo has no write path, so nothing
+  is ever stored; do not replace this with `persistence.media` — the seed Job does not mount
+  that claim, so the install would still fail.
 - **The chart does not terminate TLS.** Front it at your ingress or load balancer, as
   with any other deployment (see below).
 

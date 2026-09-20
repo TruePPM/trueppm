@@ -96,6 +96,21 @@ data:
             return 200 "User-agent: *\nDisallow: /\n";
         }
 
+        # The bare origin has nothing to show: the demo has no accounts, so the SPA's
+        # login form at `/` can never succeed, and the only usable entry points are
+        # the share URLs (#3911). Send a visitor who types the domain to the schedule
+        # link. 302, not 301, so rotating the pinned token is never fought by a
+        # browser's cached redirect. The target is the operator's own demo.baseUrl
+        # (absolute, so the scheme stays https behind a TLS-terminating tunnel that
+        # hands nginx plain http) plus a token that is already public — nothing new
+        # is disclosed.
+        #
+        # No add_header in here, for the reason robots.txt spells out above: it
+        # would discard the server-level security headers for this response.
+        location = / {
+            return 302 {{ trimSuffix "/" .Values.demo.baseUrl }}/share/schedule/{{ .Values.demo.shareToken.schedule }};
+        }
+
         location / {
             try_files $uri $uri/ /index.html;
         }

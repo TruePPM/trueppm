@@ -147,7 +147,7 @@ cluster-specific, so a default-on ingress would render a broken object.
 | `ingress.enabled` | `false` | Render a chart-managed Ingress + edge TLS. |
 | `ingress.className` | `""` | IngressClass to bind (`nginx`, `traefik`, …). Empty uses the cluster default. |
 | `ingress.annotations` | `nginx.ingress.kubernetes.io/proxy-body-size: "110m"` | Controller / cert-manager annotations. The shipped default raises the upload ceiling — see [Upload size limits](#upload-size-limits). Helm deep-merges this map, so your own keys are added alongside it. |
-| `ingress.hosts` | one example host | Virtual hosts; each path routes to `web` or `api`. List `/api` and `/ws` **before** `/` so they win longest-prefix matching. |
+| `ingress.hosts` | one example host | Virtual hosts; each path routes to `web` or `api`. List `/api` and `/ws` **before** `/` so they win longest-prefix matching. With [`demo.enabled`](#public-read-only-demo-mode) the chart refuses to render unless **every** path uses `service: web`. |
 | `ingress.tls` | `[]` | TLS Secrets per host. Empty renders **HTTP-only** — dev/demo only, never production. |
 
 ### Upload size limits
@@ -664,13 +664,15 @@ schedule, one board — which become the only publicly reachable way in. Demo mo
 swaps the web tier's nginx config for an allowlist: `/admin/`, `/ws/` and every
 `/api/` route other than the share projections and the liveness probe return 404, and
 every response carries `X-Robots-Tag: noindex` alongside a `Disallow: /` robots.txt.
+A request for the bare origin (`/`) is answered with a `302` to the schedule share
+link, because the demo has no accounts and the app's login form could never succeed.
 
 | Value | Default | Effect |
 |-------|---------|--------|
 | `demo.enabled` | `false` | Master switch. Everything else in the block is inert while false. |
-| `demo.baseUrl` | `""` | Public origin, no trailing slash. **Required** when enabled — it cannot be inferred from inside the cluster. |
-| `demo.shareToken.schedule` | `""` | Pinned token for the schedule link. **Required** when enabled. |
-| `demo.shareToken.board` | `""` | Pinned token for the board link. **Required** when enabled, and must differ from the schedule token. |
+| `demo.baseUrl` | `""` | Public origin — scheme, host and optional port, such as `https://demo.example.com`. **Required** when enabled; it cannot be inferred from inside the cluster. A single trailing slash is trimmed. A path, a query, or any other character is rejected at render time, because the value is written into the demo nginx config for the `/` redirect. |
+| `demo.shareToken.schedule` | `""` | Pinned token for the schedule link, and the target of the `/` redirect. **Required** when enabled. Letters, digits, `-` and `_` only — anything else is rejected at render time because the token is written into the nginx config. The generator command below always satisfies this. |
+| `demo.shareToken.board` | `""` | Pinned token for the board link. **Required** when enabled, must differ from the schedule token, and follows the same character rule. |
 | `demo.backoffLimit` | `2` | Seed Job retries. Exhaustion fails the release deliberately — a demo without data is broken. |
 | `demo.resources` | see `values.yaml` | Requests/limits for the short-lived seed Job. |
 
@@ -691,13 +693,48 @@ demo deployment also publishes unauthenticated read-only share links and is conf
 for evaluation, not production. Keep it on its own instance.
 :::
 
-Two things that are easy to get wrong:
+Three things that are easy to get wrong:
 
 - **Both tokens are required and must differ.** Share-link hashes are globally unique,
   so one token cannot back both links. The chart refuses to render otherwise.
+- **The bare domain redirects to the schedule link.** A visitor who types the origin
+  is sent (`302`) to `<baseUrl>/share/schedule/<token>`. It is a `302`, not a `301`,
+  so rotating the pinned token is never fought by a browser's cached redirect. Only
+  the exact path `/` redirects; the share URLs and every other path behave as before,
+  and the redirect discloses nothing beyond the link the demo already publishes.
 - **Pinning is mandatory, not cosmetic.** Because the seed is destructive and share
   links cascade with their project, an unpinned link would change its public URL on
   every `helm upgrade`.
+
+**Expose the web Service, never the API.** The read-only allowlist is the web tier's
+nginx, so only traffic that enters through the web Service is constrained. Pointing a
+tunnel such as Cloudflare Tunnel at `svc/<release>-trueppm-web` is the intended path;
+the chart does not bundle one. Two combinations would publish the whole authenticated
+API and `/ws/` around the allowlist, so the chart refuses to render them:
+
+- `demo.enabled` with `ingress.enabled`, unless every Ingress path sets `service: web`
+  and `web.enabled` is true. The default `ingress.hosts` route `/api` and `/ws` straight
+  to the API Service, so an Ingress left at its defaults is rejected.
+- `demo.enabled` with an API Service (`service.type`) other than `ClusterIP`. A
+  `LoadBalancer` or `NodePort` there is reachable with no Ingress at all. To publish a
+  demo through a load balancer, set `web.service.type` instead.
+
+The guard sees only what the chart renders. It cannot see an Ingress you create
+yourself, or controller annotations under `ingress.annotations` that reroute traffic
+behind the chart's back — for example ingress-nginx's default backend pointing at the
+API Service — so keep both out of a demo.
+
+**Attachments use scratch space, not a volume.** Demo mode opts in to local
+attachment storage (the `trueppm-env` Secret sets
+`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true`), and that opt-in makes every pod that
+boots Django prove `MEDIA_ROOT` is writable. Pods run with a read-only root
+filesystem, so `values-demo.yaml` sets `env.TRUEPPM_MEDIA_ROOT: /tmp` — each pod's
+scratch `emptyDir`. A demo has no accounts and no write path, so nothing is ever
+stored there, and anything that were would vanish with the pod. Do not swap this for
+[`persistence.media`](#attachment-storage-persistencemedia): the seed Job does not
+mount that claim, so the install would still fail on the seed hook. If you write your
+own values file rather than layering on `values-demo.yaml`, carry the key over —
+without it every Django pod refuses to start (see [Troubleshooting](/administration/troubleshooting/#a-pod-never-becomes-ready-or-migrations-are-pending)).
 
 A bootstrap superuser still exists on a demo release — the API creates one on every
 deploy — but it has no public login surface, because the allowlist closes `/admin/`.

@@ -127,8 +127,8 @@ workflow:
     # Scheduled pipelines are permitted only for the Renovate runner
     # (RENOVATE == "true"), the nightly SonarCloud scan (SONAR_SCHEDULED ==
     # "true"), the nightly Keycloak SSO smoke (SSO_NIGHTLY == "true", #2274),
-    # and the nightly release-image existence check (REGISTRY_NIGHTLY == "true",
-    # #2803). Block any other scheduled trigger so a stray schedule can't spin up
+    # and the nightly release-image existence and chart-resolution checks
+    # (REGISTRY_NIGHTLY == "true", #2803, #3914). Block any other scheduled trigger so a stray schedule can't spin up
     # a full pipeline. Each permitted schedule runs on `main` and falls through
     # to the branch rule below; the SSO schedule only matches sso:integration +
     # ci:build-keycloak-image and the registry schedule only matches
@@ -2496,6 +2496,22 @@ helm:template:
         --set demo.shareToken.schedule=ci-schedule-token \
         --set demo.shareToken.board=ci-board-token > /tmp/rendered-demo.yaml
     - kubeconform -strict -summary -ignore-missing-schemas /tmp/rendered-demo.yaml
+    # Every container that imports settings.prod must get a MEDIA_ROOT (#3910). The
+    # boot guard refuses to start when the local-attachment opt-in has no writable
+    # MEDIA_ROOT, and every pod runs a read-only root filesystem. kubeconform proves
+    # the manifests are well-formed and nothing here boots Django, so a demo that
+    # crash-looped on first install (api/seed Init:Error, worker CrashLoopBackOff)
+    # rendered green. Scoped to the api, worker, beat and seed workloads — the only
+    # ones that run Django; the web tier is nginx. The `---` filter is for yq: it
+    # emits document separators for skipped documents, and by a different amount
+    # across versions (#3147), so compare content, not output length.
+    - |
+      offenders="$(yq 'select((.kind=="Deployment" or .kind=="Job") and (.metadata.name | test("-(api|celery-worker|celery-beat|demo-seed)$"))) | .metadata.name as $w | .spec.template.spec | ([.initContainers[]?] + [.containers[]?])[] | select(([.env[]?.name] | contains(["TRUEPPM_MEDIA_ROOT"])) | not) | $w + "/" + .name' /tmp/rendered-demo.yaml | grep -vE '^(---)?$' || true)"
+      if [ -n "$offenders" ]; then
+        echo "DEMO REGRESSION: these containers import settings.prod with no TRUEPPM_MEDIA_ROOT, so the local-attachment boot guard aborts them on a read-only root filesystem (#3910):"
+        echo "$offenders"
+        exit 1
+      fi
     # The demo's security model IS the nginx allowlist: /admin/, /ws/ and every
     # /api/ route other than the share projections and the liveness probe must be
     # closed. A regression here silently publishes the authenticated API — the
@@ -2506,6 +2522,22 @@ helm:template:
         grep -A1 -F "$closed" /tmp/rendered-demo.yaml | grep -q 'return 404' \
           || { echo "DEMO ALLOWLIST REGRESSION: '$closed' no longer returns 404"; exit 1; }
       done
+    # The bare origin must land on the schedule share link, not the SPA's login form
+    # (#3911): the demo has no accounts, so that form is a dead end. Absolute URL from
+    # demo.baseUrl — a relative one would inherit the http scheme nginx sees behind a
+    # TLS-terminating tunnel.
+    - |
+      grep -q 'return 302 https://demo.example.com/share/schedule/ci-schedule-token;' /tmp/rendered-demo.yaml \
+        || { echo "DEMO REGRESSION: bare / no longer redirects to the schedule share link (#3911)"; exit 1; }
+    # The redirect interpolates operator values into the security-boundary nginx
+    # file, so a hostile value must fail the render rather than reach it.
+    - |
+      if helm template trueppm packages/helm -f packages/helm/values-demo.yaml \
+           --set demo.baseUrl='https://demo.example.com' \
+           --set 'demo.shareToken.schedule=x;return 200 pwn' \
+           --set demo.shareToken.board=ci-board-token >/dev/null 2>&1; then
+        echo "DEMO REGRESSION: a share token containing nginx metacharacters rendered (#3911)"; exit 1
+      fi
     # Block scalars, not plain ones: an unquoted YAML scalar cannot contain ": ",
     # so the message text would be parsed as a mapping and reject the whole file.
     - |
@@ -2557,6 +2589,51 @@ helm:template:
     - |
       grep -q 'client_max_body_size 1M;' /tmp/rendered-demo.yaml \
         || { echo "DEMO REGRESSION: demo no longer pins its 1M upload ceiling (#2604)"; exit 1; }
+    # The demo allowlist lives only in the web tier's nginx, so an Ingress that routes
+    # a path to the API Service bypasses it entirely (#3908). "ships no Ingress" was
+    # only ever the ingress.enabled=false default; assert the guard, both ways.
+    #
+    # The negative case matches the guard's own message, not just a non-zero exit:
+    # a render that fails for any other reason (a values typo) would otherwise pass
+    # this check without exercising the guard at all.
+    - |
+      if out=$(helm template trueppm packages/helm -f packages/helm/values-demo.yaml \
+            --set image.tag=latest --set demo.baseUrl=https://demo.example.com \
+            --set demo.shareToken.schedule=ci-schedule-token \
+            --set demo.shareToken.board=ci-board-token \
+            --set ingress.enabled=true 2>&1); then
+        echo "DEMO REGRESSION: demo.enabled + the default Ingress (which routes /api and /ws to the API Service) rendered (#3908)"; exit 1
+      fi
+      echo "$out" | grep -q 'reaches the API Service directly' \
+        || { echo "DEMO TEST INVALID: render failed but not from the #3908 guard:"; echo "$out"; exit 1; }
+    # The api Service must stay ClusterIP in demo mode: a LoadBalancer/NodePort there
+    # skips the allowlist with no Ingress involved (#3908).
+    - |
+      if out=$(helm template trueppm packages/helm -f packages/helm/values-demo.yaml \
+            --set image.tag=latest --set demo.baseUrl=https://demo.example.com \
+            --set demo.shareToken.schedule=ci-schedule-token \
+            --set demo.shareToken.board=ci-board-token \
+            --set service.type=LoadBalancer 2>&1); then
+        echo "DEMO REGRESSION: demo.enabled with a LoadBalancer API Service rendered (#3908)"; exit 1
+      fi
+      echo "$out" | grep -q 'API Service must stay ClusterIP' \
+        || { echo "DEMO TEST INVALID: render failed but not from the #3908 Service guard:"; echo "$out"; exit 1; }
+    # Positive case: an Ingress whose every path targets the web tier must still
+    # render, and must not back onto the API Service. Without this the guard could
+    # be widened to "fail whenever both are on" and the CI above would stay green.
+    - |
+      helm template trueppm packages/helm -f packages/helm/values-demo.yaml \
+        --set image.tag=latest --set demo.baseUrl=https://demo.example.com \
+        --set demo.shareToken.schedule=ci-schedule-token \
+        --set demo.shareToken.board=ci-board-token \
+        --set ingress.enabled=true \
+        --set 'ingress.hosts[0].host=demo.example.com' \
+        --set 'ingress.hosts[0].paths[0].path=/' \
+        --set 'ingress.hosts[0].paths[0].service=web' > /tmp/rendered-demo-ingress.yaml
+      backends=$(yq ea 'select(.kind == "Ingress") | .spec.rules[].http.paths[].backend.service.name' /tmp/rendered-demo-ingress.yaml | grep -v '^---$' | grep -v '^$' || true)
+      [ -n "$backends" ] || { echo "DEMO REGRESSION: an all-web demo Ingress no longer renders (#3908)"; exit 1; }
+      echo "$backends" | grep -qv -- '-web$' \
+        && { echo "DEMO REGRESSION: a demo Ingress backend is not the web Service: $backends (#3908)"; exit 1; } || true
     # And the inverse: none of this may leak into a normal deploy. Scoped to the
     # Job kind, not a bare grep: the datastore NetworkPolicy allow-lists name
     # `demo-seed` as a client selector unconditionally (#2560), and a selector
@@ -6641,6 +6718,40 @@ registry:release-images:
   script:
     - bash scripts/check-release-images.sh
 
+registry:chart-resolution:
+  # Nightly proof that the command we tell operators to run installs a chart that
+  # can pull its images (#3914). The v0.4.0-beta.1 cut published a chart as plain
+  # `0.4.0`, which semver ranks above every 0.4.0-beta.N — so a bare `helm install`
+  # (and even `--devel`) resolved to a broken, unsigned chart, forever, on green
+  # pipelines. Nothing reads the registry after a tag ships; a chart going wrong
+  # there is not a diff event, so the only way to find out is to look on a schedule.
+  #
+  # NOT allow_failure: a self-hoster who follows the install docs and lands on a
+  # chart that cannot pull has no install. Fail closed on an unreadable registry
+  # too (exit 2) — a gate that goes quiet when it cannot see is what this ends.
+  #
+  # On MRs it runs ONLY --self-test. The live check reads external registry state
+  # that no diff controls, so it would red an unrelated MR the moment the registry
+  # is wrong; the self-test is what proves the gate can still fail (#3194).
+  stage: publish
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $REGISTRY_NIGHTLY == "true"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - scripts/check-chart-registry.sh
+        - .gitlab-ci.yml
+  before_script:
+    - apk add --no-cache bash curl
+  script:
+    - bash scripts/check-chart-registry.sh --self-test
+    - |
+      if [ "$CI_PIPELINE_SOURCE" = "schedule" ]; then
+        bash scripts/check-chart-registry.sh
+      else
+        echo "Merge request: self-test only; the live registry check runs nightly."
+      fi
+
 helm:publish:
   # Helm chart → GHCR OCI registry. GitLab Container Registry does not support
   # Helm OCI push in this runner setup, so GHCR is the only target — and it is
@@ -6659,7 +6770,7 @@ helm:publish:
     SIGSTORE_ID_TOKEN:
       aud: sigstore
   before_script:
-    - apk add --no-cache curl python3
+    - apk add --no-cache bash curl python3
     # Pinned, checksum-verified Cosign (matches .docker-publish-base).
     - |
       COSIGN_VERSION=2.4.3
@@ -6705,6 +6816,14 @@ helm:publish:
         echo "scripts/release.sh bumps Chart.yaml with the other manifests; bump both fields before tagging."
         exit 1
       fi
+      # Never publish a pre-release whose stable base is already in the registry
+      # (#3914): semver ranks the stable above it, so `helm install` without
+      # --version — and even with --devel — would keep resolving to the stable and
+      # never reach this chart. Like the version check above, it runs BEFORE the
+      # push so a refusal cannot leave anything behind in GHCR. Self-test first:
+      # a guard observed only on a healthy registry proves nothing.
+      bash scripts/check-chart-registry.sh --self-test
+      bash scripts/check-chart-registry.sh --candidate "$CHART_VERSION"
       # Chart-level CycloneDX SBOM (#3817 follow-up). A Helm chart isn't a
       # package-manager closure the way the api/web images are, so a
       # Syft-style filesystem scan doesn't apply — there is no installed
