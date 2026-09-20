@@ -24,7 +24,7 @@ TruePPM 0.4 shipped September 15, 2026 (as the `v0.4.0-beta.1` pre-release) — 
 
 **Real-time collaboration.** Every mutation is broadcast to connected clients over WebSocket, deferred to transaction commit so you never see phantom events from rolled-back writes.
 
-**Offline-first sync.** A WatermelonDB-compatible delta protocol with soft-delete tombstones, designed for mobile and unreliable networks.
+**Offline sync protocol.** A WatermelonDB-compatible delta protocol with soft-delete tombstones, designed for mobile and unreliable networks — the installable PWA that consumes it ships in 0.5.
 
 **5-role RBAC.** Owner, Admin, Scheduler, Member, Viewer — enforced per endpoint and per WebSocket connection.
 
