@@ -149,7 +149,8 @@ app_version_of() {
     || die "could not read the manifest for chart $1"
   cfg="$(printf '%s' "$manifest" | sed -n 's/.*"config":{[^}]*"digest":"\(sha256:[a-f0-9]*\)".*/\1/p')"
   [ -n "$cfg" ] || die "chart $1 manifest has no config digest"
-  curl -fsSL --max-time 30 --retry 3 -H "Authorization: Bearer ${token}" \
+  curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL --max-time 30 --retry 3 \
+    -H "Authorization: Bearer ${token}" \
     "https://${GHCR_HOST}/v2/${CHART_REPO}/blobs/${cfg}" | tr -d '\n ' \
     | sed -n 's/.*"appVersion":"\([^"]*\)".*/\1/p'
 }

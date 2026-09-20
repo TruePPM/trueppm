@@ -143,7 +143,7 @@ We would rather you find these here than forty minutes into an evaluation. This 
 | **REST API** | ✅ Stable | Full create/read/update/delete for projects, tasks, dependencies, resources, calendars, members, sprints. Background auto-scheduling. OpenAPI 3.0 schema. Published rate-limiting and API-stability contract. |
 | **Permissions (RBAC)** | ✅ Stable | 5-role, per-project access control on every endpoint, real-time channel, and UI surface. Member-management UI. |
 | **Real-time** | ✅ Stable | Live updates (WebSocket) for every change, deferred until the database transaction commits. |
-| **Offline sync** | ✅ Stable | Delta-based protocol that reconciles edits made while offline — including deletions — when you reconnect (WatermelonDB-compatible). |
+| **Offline sync protocol** | ✅ Stable | Delta-based reconciliation protocol (WatermelonDB-compatible) that merges edits — including deletions — made against a stale local copy on reconnect. No offline-capable client ships yet; the installable PWA that uses it lands in 0.5. |
 | **Schedule (timeline / Gantt)** | ✅ Working | Split-pane view, 6 bar types, 4 dependency types, zoom levels, keyboard-first task entry, in-app baseline capture. |
 | **Board (Kanban)** | ✅ Working | Phase-grid plus rail/drawer/queue layouts, calm toolbar, drag-to-promote, WIP limits. |
 | **Sprints** | ✅ Working | Plan/activate/close workflow, burndown, velocity, capacity preflight, multi-team lens, retrospective. |
@@ -285,7 +285,7 @@ Only **0.4 and 0.5** carry target dates. Everything from 0.6 on is a sequence we
 
 TruePPM follows an *open-core* model: a free, Apache 2.0 core that is complete on its own, with proprietary add-ons for organizations that need them.
 
-**Community edition** (this repo) is Apache 2.0 — the scheduling engine (critical-path + Monte Carlo forecasting, standalone on PyPI), the Schedule (timeline / Gantt), the Board (Kanban), Sprints (full lifecycle plus velocity, burndown, and retrospective), Programs, MS Project import/export, offline sync, real-time collaboration, 5-role access control, the REST and real-time API, and the Helm chart. Everything one project manager or program team needs to run their work. Basic single sign-on — logging in through your own identity provider using the OIDC/OAuth standards — is part of the open core too, shipped at 0.4.
+**Community edition** (this repo) is Apache 2.0 — the scheduling engine (critical-path + Monte Carlo forecasting, standalone on PyPI), the Schedule (timeline / Gantt), the Board (Kanban), Sprints (full lifecycle plus velocity, burndown, and retrospective), Programs, MS Project import/export, an offline sync protocol, real-time collaboration, 5-role access control, the REST and real-time API, and the Helm chart. Everything one project manager or program team needs to run their work. Basic single sign-on — logging in through your own identity provider using the OIDC/OAuth standards — is part of the open core too, shipped at 0.4.
 
 **Enterprise edition** (separate repo, proprietary) adds what an *organization* needs to govern a portfolio across many programs: portfolio analytics, organization-wide identity governance (directory sync and enforced company-wide sign-on via the SAML, SCIM, and LDAP standards), an immutable audit trail, cross-program resource leveling, AI-assisted scheduling, and Jira/GitLab/ServiceNow connectors.
 
