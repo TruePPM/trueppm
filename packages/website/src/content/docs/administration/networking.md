@@ -733,7 +733,9 @@ network one — you still need the firewall rules below.
 | Source | Destination | Port / protocol | Required? | Why |
 |---|---|---|---|---|
 | API, worker, beat | DNS resolver | 53/udp, 53/tcp | **Yes** | Resolving every destination below. |
-| Nodes / Docker host | container registry (`ghcr.io`) | 443/tcp | **Yes**, at pull time | Pulling the API and web images. Mirror it internally for an air-gapped install. |
+| Kubernetes nodes | GitLab Container Registry (`registry.gitlab.com`) | 443/tcp | **Yes**, at pull time (Helm default) | Pulling the API and web images from the chart's default `image.repository` / `image.webRepository`. Opening only `ghcr.io` leaves a stock `helm install` in `ImagePullBackOff`. Mirror the images internally for an air-gapped install and point those values at the mirror. |
+| Docker host (Compose) | GHCR (`ghcr.io`) | 443/tcp | **Yes**, at pull time (Compose) | `docker-compose.prod.yml` pulls the API and web images from `ghcr.io/trueppm/{api,web}`. Kubernetes nodes need this only if you override the chart's image repositories to GHCR. |
+| Whoever runs `helm install` / `helm upgrade` | GHCR (`ghcr.io`) | 443/tcp | If you install the chart from its OCI artifact | Pulling `oci://ghcr.io/trueppm/charts/trueppm`. This is the workstation or CI runner running Helm, not the cluster nodes. Not needed when you install from a local or mirrored chart. |
 | API, worker | SMTP relay | `EMAIL_PORT`, default 587/tcp (465 implicit TLS, 25 plain) | If email notifications are enabled | Notification and invitation email. `EMAIL_USE_TLS` defaults to `true`. |
 | API | OIDC / OAuth2 identity provider | 443/tcp | If SSO is configured | Discovery document, authorization, token exchange, JWKS. An in-cluster IdP needs `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`. |
 | Browsers | OIDC identity provider | 443/tcp | If SSO is configured | The login redirect happens in the user's browser, not server-side — the *client* network needs this too. |
