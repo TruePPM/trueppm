@@ -5745,9 +5745,27 @@ renovate:
   # ONE-TIME SETUP (a maintainer must do this — the runner stays dormant until):
   #   1. Create a GitLab access token (project or group) with `api` +
   #      `write_repository` scope. Add it as a MASKED CI/CD variable RENOVATE_TOKEN.
+  #      `api` is not optional and is not implied by `write_repository`: Renovate's
+  #      GitLab init calls GET /user before it does anything else, and a token that
+  #      cannot reach it aborts the run with a bare "Authentication failure" (#3915).
+  #      Do NOT restate RENOVATE_TOKEN in this job's `variables:` block — the CI/CD
+  #      variable reaches the job on its own, and a `RENOVATE_TOKEN: "${RENOVATE_TOKEN}"`
+  #      self-reference only reads as if it were the wiring when it is not (#3915).
   #   2. Create a Pipeline Schedule (Settings -> CI/CD -> Pipeline schedules):
   #      daily cron, with a variable RENOVATE = "true". renovate.json restricts
   #      actual PR creation to Monday mornings, so a daily run is cheap.
+  #
+  #      RENOVATE MUST BE A SCHEDULE-LEVEL VARIABLE, NEVER A PROJECT-LEVEL ONE.
+  #      This job's rule can only see `$CI_PIPELINE_SOURCE == "schedule"` — GitLab
+  #      exposes nothing that identifies *which* schedule fired, so the RENOVATE flag
+  #      is the only thing separating this schedule from the others. Set it project-
+  #      wide and the condition is true on every scheduled pipeline: Renovate then
+  #      runs inside the nightly SonarCloud schedule, where an unrelated failure of
+  #      it reds a pipeline nobody is watching for it. That is exactly what happened
+  #      in #3915 — a project-level RENOVATE left behind by the #3906 investigation
+  #      meant the only Renovate job that ever ran was fired by the Sonar schedule.
+  #      The same applies symmetrically to SONAR_SCHEDULED, SSO_NIGHTLY and
+  #      REGISTRY_NIGHTLY in the workflow rules above.
   #   3. Point the schedule at `main` — the project's default branch. A
   #      dedicated non-default branch (e.g. a `renovate-bot` branch, to dodge
   #      every other job's `branch == main` gate and avoid a full main
@@ -5758,6 +5776,14 @@ renovate:
   #      ref work fine, only schedule-sourced pipeline creation is affected.
   #      Pointing the schedule at main runs the full main pipeline on every
   #      trigger; that cost is unavoidable given this platform limitation.
+  #      Check the live ref before trusting this comment: #3906 corrected the text
+  #      here but never retargeted the schedule, so the runner stayed dead for
+  #      another day with the documentation claiming otherwise (#3915).
+  #
+  # Deliberately NOT allow_failure. Once the RENOVATE flag is schedule-scoped per
+  # step 2, this job is the entire point of the pipeline that runs it, so a failure
+  # should red that pipeline. Marking it allow_failure would restore the silence
+  # this job spent two issues escaping.
   stage: security
   image: renovate/renovate:43@sha256:498de63b02c02b49c34dfe0119b59da8e5232e701c813960bcbee80760b148dd
   needs: []
@@ -5766,10 +5792,72 @@ renovate:
   variables:
     RENOVATE_PLATFORM: gitlab
     RENOVATE_ENDPOINT: "${CI_API_V4_URL}"
-    RENOVATE_TOKEN: "${RENOVATE_TOKEN}"
     RENOVATE_AUTODISCOVER: "false"
     RENOVATE_REPOSITORIES: "${CI_PROJECT_PATH}"
     LOG_LEVEL: "info"
+  before_script:
+    # Credential pre-flight. Renovate reports every credential problem as the same
+    # five-word line — `FATAL: Initialization error "Authentication failure"` — with
+    # no indication of whether the token was absent, expired, revoked or merely
+    # under-scoped. Reaching "the token is the problem" from that cost a full
+    # investigation in #3915, so probe the credential here and name what is wrong.
+    # Diagnostic only: it cannot make a broken token work, it just stops the next
+    # failure from being anonymous.
+    - |
+      if [ -z "${RENOVATE_TOKEN:-}" ]; then
+        echo "FATAL: RENOVATE_TOKEN is empty or unset."
+        echo "  Expected a MASKED project CI/CD variable holding a GitLab token with"
+        echo "  'api' + 'write_repository' scope. See the ONE-TIME SETUP notes on this"
+        echo "  job in .gitlab-ci.yml. Note that a PROTECTED variable is invisible to"
+        echo "  pipelines on unprotected refs — check that too if the variable exists."
+        exit 1
+      fi
+      if ! command -v curl >/dev/null 2>&1; then
+        echo "NOTE: curl unavailable in this image; skipping the credential pre-flight."
+      else
+        status=$(curl -sS -o /tmp/renovate-preflight.json -w '%{http_code}' \
+          --header "PRIVATE-TOKEN: ${RENOVATE_TOKEN}" \
+          "${CI_API_V4_URL}/user" 2>/dev/null) || status="000"
+        case "${status}" in
+          200)
+            echo "pre-flight: RENOVATE_TOKEN authenticates as" \
+              "$(sed -n 's/.*"username":"\([^"]*\)".*/\1/p' /tmp/renovate-preflight.json)"
+            # Scope and expiry, when the token is a PAT that can report on itself.
+            # Non-fatal: project/group access tokens do not serve this endpoint.
+            if [ "$(curl -sS -o /tmp/renovate-token.json -w '%{http_code}' \
+                 --header "PRIVATE-TOKEN: ${RENOVATE_TOKEN}" \
+                 "${CI_API_V4_URL}/personal_access_tokens/self" 2>/dev/null)" = "200" ]; then
+              # Deliberately two plain BRE substitutions, no `\|` alternation:
+              # that is a GNU-sed extension, so it cannot be tested anywhere but
+              # inside this image. An unset expiry yields an empty capture here.
+              expires=$(sed -n 's/.*"expires_at":"\([^"]*\)".*/\1/p' /tmp/renovate-token.json)
+              echo "pre-flight: token scopes  =" \
+                "$(sed -n 's/.*"scopes":\[\([^]]*\)\].*/\1/p' /tmp/renovate-token.json)"
+              echo "pre-flight: token expires = ${expires:-never}"
+            fi
+            ;;
+          401)
+            echo "FATAL: RENOVATE_TOKEN was rejected (HTTP 401) by ${CI_API_V4_URL}/user."
+            echo "  The token is expired, revoked, or malformed. Rotate it and update the"
+            echo "  RENOVATE_TOKEN CI/CD variable; nothing in this repository can fix it."
+            exit 1
+            ;;
+          403)
+            echo "FATAL: RENOVATE_TOKEN was refused (HTTP 403) by ${CI_API_V4_URL}/user."
+            echo "  The token authenticates but lacks the required scope. Renovate needs"
+            echo "  'api' + 'write_repository'; a read_api-only token fails exactly here."
+            exit 1
+            ;;
+          000)
+            echo "FATAL: could not reach ${CI_API_V4_URL}/user at all (network or DNS)."
+            exit 1
+            ;;
+          *)
+            echo "FATAL: unexpected HTTP ${status} from ${CI_API_V4_URL}/user."
+            exit 1
+            ;;
+        esac
+      fi
   script:
     - renovate
 

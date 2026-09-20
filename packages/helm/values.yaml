@@ -29,7 +29,9 @@ image:
   # Empty by default so the chart pins itself to its own appVersion
   # (reproducible rollbacks). Empty resolves to `v<appVersion>` — the v-prefixed
   # form is the only tag the release pipeline pushes to this registry, so a bare
-  # version would never pull (#2811). Override per-deploy with a concrete tag.
+  # version would never pull (#2811). GHCR is the opposite: it carries only the
+  # bare version (`0.4.0-beta.3`), so set this when you repoint the repositories
+  # above at ghcr.io. Override per-deploy with a concrete tag.
   tag: ""
   pullPolicy: IfNotPresent
 
