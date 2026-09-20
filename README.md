@@ -203,7 +203,7 @@ add a values file (`-f my-values.yaml`) as described in the installation guide.
 
 The same install also works with
 `helm install trueppm oci://ghcr.io/trueppm/charts/trueppm --version <version>`.
-The chart version is the release version (for example `0.4.0-beta.2`), and its default image tag is that same version prefixed with `v`. Helm skips pre-release chart versions unless you name one with `--version` (or pass `--devel`), so a beta needs the explicit `--version`.
+The chart version is the release version (for example `0.4.0-beta.2`), and its default image tag is that same version prefixed with `v`. Always pass `--version`: Helm skips pre-release chart versions unless you name one, and until the stable 0.4.0 ships the newest non-pre-release chart on GHCR is the broken `0.4.0` from the first beta cut (its default image tag `v0.4.0` was never published, and it is unsigned) — so omitting `--version`, or passing `--devel`, installs it. Use `0.4.0-beta.2` or later.
 
 See the [full installation guide](https://docs.trueppm.com/getting-started/installation/) for prerequisites and values configuration.
 
