@@ -244,6 +244,7 @@ DRF renders a validation detail through `ErrorDetail`, a `str` subclass.
 | `reaction_delete_forbidden` | The reaction belongs to another user |
 | `note_edit_not_author` | Only the note's author may edit it (the edit *window* closing is a separate `400`) |
 | `note_delete_forbidden` | The caller is neither the note's author nor a Project Manager or above |
+| `demo_read_only` | The deployment is a read-only demo; every write is refused (see [below](#the-demo-read-only-403)) |
 
 The six task-collaboration codes answered `400` before 0.4 and carried no `code`
 key at all — see [API stability](/api/stability/#deprecation-window--notice) for
@@ -288,6 +289,39 @@ project gets `404` whether the task id is real or made up — the two are
 deliberately indistinguishable. A project member who lacks write authority on the
 task (a Viewer, or a Member acting on someone else's task) still gets `403`,
 because that refusal is a fact about their role, not about the task's existence.
+
+#### The demo read-only `403`
+
+A deployment run as a **read-only demo** (the operator sets
+`TRUEPPM_DEMO_READ_ONLY=true`) refuses every write under `/api/` before the request
+is routed, and answers `403` with a stable `code`:
+
+```json
+{
+  "detail": "This is a read-only demo. Your change was not saved. Nothing in this deployment can be modified.",
+  "code": "demo_read_only"
+}
+```
+
+The body is exactly those two keys, and `code` is the contract; `detail` may be
+reworded. The response schema is published as `DemoReadOnlyError` in
+`docs/api/openapi.json`. It is not attached to individual operations, because the
+refusal is a property of the deployment, not of any one route.
+
+- **It is not a role problem.** An Owner, a Viewer and an anonymous caller are
+  refused identically, so retrying with more permission never helps. Unlike the
+  archived-project refusal there is nothing to unarchive: the deployment itself
+  is read-only.
+- **It covers every unsafe method** — `POST`, `PUT`, `PATCH` and `DELETE` — on
+  every route, including routes that do not exist yet and routes that would
+  otherwise answer `401` or `404`. It keys on the real HTTP method; an
+  `X-HTTP-Method-Override` header or a `_method` field changes nothing.
+- **Three writes are allowed**, because a visitor could not use the demo without
+  them: `POST /api/v1/auth/token/` (sign in), `POST /api/v1/auth/token/refresh/`
+  and `POST /api/v1/auth/logout/`. Everything else, including
+  `POST /api/v1/auth/password/reset/`, is refused.
+- **Reads are unaffected.** `GET`, `HEAD` and `OPTIONS` behave as on any other
+  deployment, and a normal installation never returns this code.
 
 ### 404 / 409 — conflicts and protected references
 
