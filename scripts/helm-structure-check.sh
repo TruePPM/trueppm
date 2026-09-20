@@ -1570,6 +1570,37 @@ for a in TruePPMDemoResetFailed TruePPMDemoResetStale TruePPMDemoResetNeverSucce
   fi
 done
 
+# N+8. Every workload carries the pod-level fsGroup that makes a PVC writable (#3935).
+#      persistence.media and backup.persistence are real CSI volumes, and most
+#      dynamic provisioners hand back root:root 0755 — uid 1000 with no fsGroup gets
+#      EACCES at first write, a crash-loop that names no permission. emptyDir-only
+#      pods never notice, so nothing else fails when the key is dropped. Assert it on
+#      every workload kind that renders .Values.podSecurityContext, with both PVCs on
+#      so the pods that actually mount them are in the render.
+fsg_render="$(helm template trueppm "$CHART" "${demo_args[@]}" \
+  --set persistence.media.enabled=true --set persistence.media.accessMode=ReadWriteMany \
+  --set backup.enabled=true --set backup.persistence.enabled=true \
+  --set demo.reset.enabled=true \
+  --set 'envFrom[0].secretRef.name=trueppm-env-probe' --set web.enabled=true)"
+fsg_bad="$(yq 'select(.kind=="Deployment" or .kind=="CronJob" or .kind=="Job") |
+  {"name": .metadata.name,
+   "fs": (.spec.template.spec.securityContext.fsGroup // .spec.jobTemplate.spec.template.spec.securityContext.fsGroup)}
+  | select(.fs != 1000) | .name' <<<"$fsg_render")"
+[ -z "$fsg_bad" ] \
+  || fail "workload(s) without podSecurityContext.fsGroup=1000, so a PVC provisioned root:root is unwritable (#3935): $fsg_bad"
+fsg_checked="$(yq 'select(.kind=="Deployment" or .kind=="CronJob" or .kind=="Job") | .metadata.name' <<<"$fsg_render" | grep -c .)"
+[ "$fsg_checked" -ge 7 ] \
+  || fail "fsGroup check saw only $fsg_checked workloads (expected api, web, worker, beat, backup, demo-seed, demo-reset); the render lost a workload"
+helm template trueppm "$CHART" --set image.tag=latest --show-only templates/tests/api-connection.yaml \
+  | yq '.spec.securityContext.fsGroup' | grep -qx 1000 \
+  || fail "the helm test pod lacks podSecurityContext.fsGroup=1000"
+# fsGroup: null must still delete the key — that is the OpenShift restricted-v2 escape
+# hatch (a fixed fsGroup outside the namespace range fails admission).
+if helm template trueppm "$CHART" --set image.tag=latest --set podSecurityContext.fsGroup=null \
+     --show-only templates/api/deployment.yaml | yq '.spec.template.spec.securityContext' | grep -q fsGroup; then
+  fail "podSecurityContext.fsGroup=null did not remove fsGroup — the OpenShift restricted-v2 override is broken"
+fi
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches all $env_checked containers that import settings.prod"
@@ -1595,3 +1626,4 @@ echo "  - placement: $place_checked previously-rejected keys accepted; $place_wo
 echo "  - celery probes: worker liveness ${cp_live_i}/${cp_live_p}x${cp_live_f} (detection ${cp_detect}s >= ${cp_grace}s grace, still 'inspect ping') and readiness ${cp_ready_i}/${cp_ready_p} (heartbeat-file freshness, #3346) are tuned apart; startup is the heartbeat-file existence check; kubelet timeout scales with the ping budget on liveness; flat keys still drive all three probes; beat is liveness-only"
 echo "  - api.workers=1 by default (image CMD behavior preserved), api.workers=4 renders --workers 4 without disturbing --host/--port, and 0 is refused (#3833)"
 echo "  - demo reset: CronJob absent unless demo.enabled AND demo.reset.enabled; Forbid + deadlines + demo-seed label; same command and env as the install hook; schedule validated; three alerts follow the switch"
+echo "  - podSecurityContext.fsGroup=1000 on all $fsg_checked workloads plus the helm test pod (PVC writable under a root:root CSI volume); fsGroup: null still removes it for OpenShift"
