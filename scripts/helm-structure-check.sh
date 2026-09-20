@@ -1558,10 +1558,14 @@ grep -q 'kube_cronjob_status_last_schedule_time' <<<"$failed_rule" \
 if grep -q 'kube_job_failed' <<<"$failed_rule"; then
   fail "TruePPMDemoResetFailed is built on kube_job_failed, which never clears after a transient failure while the failed Job is retained"
 fi
+# Rendered once into variables and matched with here-strings: `grep -q` exits on its
+# first hit, so behind a pipe it can SIGPIPE the renderer under pipefail.
+rules_on="$(rules --set demo.reset.enabled=true)"
+rules_off="$(rules)"
 for a in TruePPMDemoResetFailed TruePPMDemoResetStale TruePPMDemoResetNeverSucceeded; do
-  rules --set demo.reset.enabled=true | grep -q "alert: $a" \
+  grep -q "alert: $a" <<<"$rules_on" \
     || fail "alerts.enabled with demo.reset.enabled did not render $a — a broken reset would be silent"
-  if rules | grep -q "alert: $a"; then
+  if grep -q "alert: $a" <<<"$rules_off"; then
     fail "$a rendered while demo.reset.enabled is false — the reset alerts must follow the reset switch"
   fi
 done
