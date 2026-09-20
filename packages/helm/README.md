@@ -252,6 +252,11 @@ Things worth knowing before you run it:
 
 - **Both tokens are required and must differ.** `ShareLink.token_hash` is globally
   unique, so one token cannot back both links. The chart refuses to render otherwise.
+- **The bare domain redirects to the schedule link.** The demo has no accounts, so the
+  app's login form at `/` could never succeed; a visitor who types the origin is sent
+  (302) to `<baseUrl>/share/schedule/<token>` instead. `demo.baseUrl` must be a bare
+  origin and both tokens may contain only letters, digits, `-` and `_` — they are
+  written into the demo nginx config, so the chart refuses to render anything else.
 - **Pinning is mandatory, not cosmetic.** Because the seed is destructive and share
   links cascade with their project, an unpinned link would silently change its public
   URL on every `helm upgrade`. Pinned tokens restore the same URLs every time.

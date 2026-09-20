@@ -2522,6 +2522,22 @@ helm:template:
         grep -A1 -F "$closed" /tmp/rendered-demo.yaml | grep -q 'return 404' \
           || { echo "DEMO ALLOWLIST REGRESSION: '$closed' no longer returns 404"; exit 1; }
       done
+    # The bare origin must land on the schedule share link, not the SPA's login form
+    # (#3911): the demo has no accounts, so that form is a dead end. Absolute URL from
+    # demo.baseUrl — a relative one would inherit the http scheme nginx sees behind a
+    # TLS-terminating tunnel.
+    - |
+      grep -q 'return 302 https://demo.example.com/share/schedule/ci-schedule-token;' /tmp/rendered-demo.yaml \
+        || { echo "DEMO REGRESSION: bare / no longer redirects to the schedule share link (#3911)"; exit 1; }
+    # The redirect interpolates operator values into the security-boundary nginx
+    # file, so a hostile value must fail the render rather than reach it.
+    - |
+      if helm template trueppm packages/helm -f packages/helm/values-demo.yaml \
+           --set demo.baseUrl='https://demo.example.com' \
+           --set 'demo.shareToken.schedule=x;return 200 pwn' \
+           --set demo.shareToken.board=ci-board-token >/dev/null 2>&1; then
+        echo "DEMO REGRESSION: a share token containing nginx metacharacters rendered (#3911)"; exit 1
+      fi
     # Block scalars, not plain ones: an unquoted YAML scalar cannot contain ": ",
     # so the message text would be parsed as a mapping and reject the whole file.
     - |

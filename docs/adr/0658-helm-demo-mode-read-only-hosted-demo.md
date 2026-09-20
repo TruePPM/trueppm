@@ -151,6 +151,17 @@ assertions into the shared allowlist script is worthwhile later; the inline form
 deliberate for now because it also covers the leak direction, which the script does
 not model.
 
+**Bare origin (#3911).** The block also answers an exact `/` with a `302` to
+`<demo.baseUrl>/share/schedule/<schedule token>`. The demo has no accounts, so the SPA's
+login form at `/` can never succeed, and a visitor who types the domain would otherwise
+land on a dead end. It is a static response rather than a proxied route, so the allowlist
+above is unchanged, and it discloses only a URL the demo already publishes. It is a `302`
+so that rotating the pinned token is never fought by a cached redirect. Because
+`demo.baseUrl` and the schedule token are now interpolated into this file — which *is*
+the demo's security boundary — the chart validates them at render time (a bare
+`http(s)` origin; tokens limited to letters, digits, `-` and `_`) instead of trusting
+values into nginx syntax.
+
 ### D7 — `noindex` is owned by the web ConfigMap, not ingress annotations
 
 `templates/ingress.yaml:28-31` passes `ingress.annotations` through verbatim with no
