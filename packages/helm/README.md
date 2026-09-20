@@ -113,7 +113,7 @@ kubectl get secret <release>-trueppm-connection \
 | `ingress.className` | `""` | IngressClass to bind (e.g. `nginx`). Empty uses the cluster default. |
 | `ingress.tls` | `[]` | TLS Secret + host list for edge termination. Empty renders HTTP-only (dev/demo). |
 | `networkPolicy.enabled` | `true` | Default-on; requires a NetworkPolicy-enforcing CNI. |
-| `podSecurityContext` | `runAsNonRoot`, uid 1000 | Pod-level security context for API/worker. |
+| `podSecurityContext` | `runAsNonRoot`, uid 1000, `fsGroup` 1000 | Pod-level security context for every workload. `fsGroup` keeps `persistence.media` / `backup.persistence` PVCs writable. Set `runAsUser: null` and `fsGroup: null` on OpenShift. |
 | `containerSecurityContext` | restricted profile | Container-level hardening for API/worker. |
 | `resources.api` / `resources.worker` / `resources.beat` / `resources.web` | see values.yaml | Per-container resources. |
 | `web.enabled` | `true` | Render the nginx-served React SPA tier + `Service`. |

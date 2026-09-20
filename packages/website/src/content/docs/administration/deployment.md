@@ -16,6 +16,26 @@ for WebSockets, which health-check path an external load balancer should use, an
 the full ports/firewall matrix.
 :::
 
+:::caution[Published images are `linux/amd64` only]
+Every published `api` and `web` image (GHCR and the GitLab Container Registry,
+every tag) is built for **`linux/amd64` only**; `linux/arm64` images are planned
+for 0.5 (#3407). This applies to every path on this page that pulls them — the
+Helm chart, `docker-compose.prod.yml`, and the single-server systemd install —
+on any ARM host such as Apple Silicon, AWS Graviton, or Raspberry Pi. On Kubernetes
+the symptom is a `CrashLoopBackOff` whose pod events do not name the cause; on
+Docker it is a platform-mismatch warning or `exec format error`.
+
+- **Kubernetes:** run TruePPM on `amd64` nodes. In a mixed-architecture cluster,
+  pin the pods with `nodeSelector: {kubernetes.io/arch: amd64}` in your values.
+- **Docker on Apple Silicon (evaluation only):** set `platform: linux/amd64` on
+  the services in `docker-compose.prod.yml` that use a TruePPM image (`api-init`,
+  `api`, `celery`, `celery-beat`, `web-build`), or pass `--platform linux/amd64`, and
+  Docker Desktop runs the images under emulation (QEMU, or Rosetta if enabled under
+  **Settings → General**). Expect noticeably slower performance than native.
+- The development Compose stack (`docker compose up -d`) builds from your
+  checkout for your own architecture and is not affected.
+:::
+
 ## Docker Compose (recommended for evaluation)
 
 The fastest way to get TruePPM running. A single command starts all six services.

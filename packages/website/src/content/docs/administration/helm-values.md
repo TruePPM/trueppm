@@ -226,7 +226,7 @@ Availability](/administration/valkey-ha/).
 | Key | Default | What it does |
 |---|---|---|
 | `networkPolicy.enabled` | `true` | Restrict datastore ingress to the API/worker pods and default-deny datastore egress. **Requires a policy-enforcing CNI** (Calico, Cilium, Antrea, …) — silently unenforced without one. |
-| `podSecurityContext` | `runAsNonRoot: true`, `runAsUser: 1000` | Pod-level restricted defaults. |
+| `podSecurityContext` | `runAsNonRoot: true`, `runAsUser: 1000`, `fsGroup: 1000` | Pod-level restricted defaults, applied to every workload. `fsGroup` makes the kubelet give a mounted PersistentVolume (`persistence.media`, `backup.persistence`) group `1000` with group-write, so the non-root process can write a volume a CSI driver provisioned `root:root`. It changes volume ownership only, not process identity. On OpenShift set `fsGroup: null` (see [OpenShift Deployment](/administration/openshift/)). |
 | `containerSecurityContext` | no-priv-escalation, read-only rootfs, drop `ALL` caps, `RuntimeDefault` seccomp | Container-level restricted defaults. |
 
 ## Resources
@@ -359,7 +359,7 @@ specs, so the valid keys are Kubernetes', not this chart's.
 
 | Key | Default | What it does |
 |---|---|---|
-| `imagePullSecrets` | `[]` | Pull secrets for a private or mirrored registry. **This is the air-gapped path**: mirror the images, point `image.repository` and `web.image.repository` at your registry, and name the secret here. |
+| `imagePullSecrets` | `[]` | Pull secrets for a private or mirrored registry. **This is the air-gapped path**: mirror the images, point `image.repository` and `image.webRepository` at your registry, and name the secret here. |
 | `priorityClassName` | `""` | A PriorityClass you have created. The chart creates none — a chart that mints a cluster-scoped PriorityClass steps on the cluster's own priority budget. |
 | `nodeSelector` | `{}` | Node label constraints. |
 | `tolerations` | `[]` | Taint tolerations, e.g. for a dedicated node pool. |
