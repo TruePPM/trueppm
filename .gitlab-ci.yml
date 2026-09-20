@@ -127,8 +127,8 @@ workflow:
     # Scheduled pipelines are permitted only for the Renovate runner
     # (RENOVATE == "true"), the nightly SonarCloud scan (SONAR_SCHEDULED ==
     # "true"), the nightly Keycloak SSO smoke (SSO_NIGHTLY == "true", #2274),
-    # and the nightly release-image existence check (REGISTRY_NIGHTLY == "true",
-    # #2803). Block any other scheduled trigger so a stray schedule can't spin up
+    # and the nightly release-image existence and chart-resolution checks
+    # (REGISTRY_NIGHTLY == "true", #2803, #3914). Block any other scheduled trigger so a stray schedule can't spin up
     # a full pipeline. Each permitted schedule runs on `main` and falls through
     # to the branch rule below; the SSO schedule only matches sso:integration +
     # ci:build-keycloak-image and the registry schedule only matches
@@ -6641,6 +6641,40 @@ registry:release-images:
   script:
     - bash scripts/check-release-images.sh
 
+registry:chart-resolution:
+  # Nightly proof that the command we tell operators to run installs a chart that
+  # can pull its images (#3914). The v0.4.0-beta.1 cut published a chart as plain
+  # `0.4.0`, which semver ranks above every 0.4.0-beta.N — so a bare `helm install`
+  # (and even `--devel`) resolved to a broken, unsigned chart, forever, on green
+  # pipelines. Nothing reads the registry after a tag ships; a chart going wrong
+  # there is not a diff event, so the only way to find out is to look on a schedule.
+  #
+  # NOT allow_failure: a self-hoster who follows the install docs and lands on a
+  # chart that cannot pull has no install. Fail closed on an unreadable registry
+  # too (exit 2) — a gate that goes quiet when it cannot see is what this ends.
+  #
+  # On MRs it runs ONLY --self-test. The live check reads external registry state
+  # that no diff controls, so it would red an unrelated MR the moment the registry
+  # is wrong; the self-test is what proves the gate can still fail (#3194).
+  stage: publish
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $REGISTRY_NIGHTLY == "true"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - scripts/check-chart-registry.sh
+        - .gitlab-ci.yml
+  before_script:
+    - apk add --no-cache bash curl
+  script:
+    - bash scripts/check-chart-registry.sh --self-test
+    - |
+      if [ "$CI_PIPELINE_SOURCE" = "schedule" ]; then
+        bash scripts/check-chart-registry.sh
+      else
+        echo "Merge request: self-test only; the live registry check runs nightly."
+      fi
+
 helm:publish:
   # Helm chart → GHCR OCI registry. GitLab Container Registry does not support
   # Helm OCI push in this runner setup, so GHCR is the only target — and it is
@@ -6659,7 +6693,7 @@ helm:publish:
     SIGSTORE_ID_TOKEN:
       aud: sigstore
   before_script:
-    - apk add --no-cache curl python3
+    - apk add --no-cache bash curl python3
     # Pinned, checksum-verified Cosign (matches .docker-publish-base).
     - |
       COSIGN_VERSION=2.4.3
@@ -6705,6 +6739,14 @@ helm:publish:
         echo "scripts/release.sh bumps Chart.yaml with the other manifests; bump both fields before tagging."
         exit 1
       fi
+      # Never publish a pre-release whose stable base is already in the registry
+      # (#3914): semver ranks the stable above it, so `helm install` without
+      # --version — and even with --devel — would keep resolving to the stable and
+      # never reach this chart. Like the version check above, it runs BEFORE the
+      # push so a refusal cannot leave anything behind in GHCR. Self-test first:
+      # a guard observed only on a healthy registry proves nothing.
+      bash scripts/check-chart-registry.sh --self-test
+      bash scripts/check-chart-registry.sh --candidate "$CHART_VERSION"
       # Chart-level CycloneDX SBOM (#3817 follow-up). A Helm chart isn't a
       # package-manager closure the way the api/web images are, so a
       # Syft-style filesystem scan doesn't apply — there is no installed
