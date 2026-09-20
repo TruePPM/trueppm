@@ -5,10 +5,10 @@
     ":dependencyDashboard",
     ":semanticCommits",
     ":prHourlyLimit2",
-    ":prConcurrentLimit5",
     "group:monorepos",
     "group:recommended"
   ],
+  "prConcurrentLimit": 5,
   "timezone": "America/Los_Angeles",
   "schedule": [
     "before 10am on monday"
