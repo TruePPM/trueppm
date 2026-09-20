@@ -405,16 +405,30 @@ docker compose exec api python manage.py showmigrations | grep -v '\[X\]'
 
 **Likely causes, in order.**
 
-1. **The tag does not exist.** The chart pins itself to `v<appVersion>` when
-   `image.tag` is empty, and the release pipeline only ever pushes the
-   **v-prefixed** tag — a bare `0.4.0` will never pull. The Compose production file
-   references `ghcr.io/trueppm/{api,web}`, which is the forward-looking public path;
-   through 0.3 the images live on the GitLab Container Registry, so a GHCR pull
-   404s until the first tag lands there.
-2. **No pull credentials** for a private registry. The chart sets no
+1. **The tag does not exist on that registry.** The two registries carry different
+   tag forms: the GitLab Container Registry (the chart's default
+   `image.repository`) has only the **`v`-prefixed** `v0.4.0-beta.3`, and GHCR
+   (`ghcr.io/trueppm/{api,web}`, what `docker-compose.prod.yml` pulls) has only the
+   **bare** `0.4.0-beta.3`. The chart pins itself to `v<appVersion>` when
+   `image.tag` is empty, so pointing `image.repository` at GHCR without setting
+   `image.tag` to the bare version fails with `manifest unknown` — and the reverse
+   applies to a `v`-prefixed `APP_VERSION` in Compose. See
+   [Image tags differ by registry](/administration/helm-values/#image-tags-differ-by-registry).
+2. **You installed chart `0.4.0`.** The chart published as `0.4.0` came from the
+   first beta cut and defaults to image tag `v0.4.0`, which was never published.
+   It has since been removed from the registry, but a release installed from it
+   keeps running that chart — `helm list` shows it as `trueppm-0.4.0`. Upgrade to a
+   later beta, keeping your values:
+
+   ```bash
+   helm upgrade <release> oci://ghcr.io/trueppm/charts/trueppm \
+     --version 0.4.0-beta.3 -n <ns> -f <your-values>.yaml
+   ```
+
+3. **No pull credentials** for a private registry. The chart sets no
    `imagePullSecrets`, so a private registry needs one attached to the namespace's
    default ServiceAccount, or supplied through your own patch.
-3. **No outbound network.** The nodes cannot reach the registry at all — an
+4. **No outbound network.** The nodes cannot reach the registry at all — an
    air-gapped or egress-filtered cluster. Mirror the images into an internal
    registry and set `image.repository` / `image.webRepository` to point at it.
 
@@ -428,7 +442,8 @@ kubectl describe pod -n <ns> <pod> | sed -n '/Events/,$p'
 helm get values -n <ns> <release> --all | grep -A 4 '^image:'
 
 # Can you pull it by hand from a machine on the same network?
-docker pull registry.gitlab.com/trueppm/trueppm/api:v0.3.0-alpha.3
+docker pull registry.gitlab.com/trueppm/trueppm/api:v0.4.0-beta.3   # GitLab: v-prefixed
+docker pull ghcr.io/trueppm/api:0.4.0-beta.3                        # GHCR: bare version
 ```
 
 **Confirm the fix.** `kubectl get pods` leaves `ImagePullBackOff` and the pod
