@@ -2,6 +2,18 @@
 # Run: make up
 # Admin password (written on first startup): make admin
 
+# Pin the project name, distinct from docker-compose.prod.yml's `trueppm` (#3928).
+# Unpinned, Compose derives it from the CHECKOUT DIRECTORY — `trueppm` on a
+# default clone, identical to prod — so this stack and the prod stack shared
+# `trueppm_postgres_data`: whichever came second met the other's Postgres
+# password, or `make up` landed on production data guarded only by the
+# hardcoded dev SECRET_KEY below.
+#
+# NOTE: a COMPOSE_PROJECT_NAME in your environment overrides this pin (Compose
+# precedence: -p > COMPOSE_PROJECT_NAME > name: > directory). scripts/wt exports
+# `trueppm-dev` so worktrees resolve to this same project.
+name: trueppm-dev
+
 services:
   db:
     image: postgres:16-alpine

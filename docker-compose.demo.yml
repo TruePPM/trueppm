@@ -82,6 +82,14 @@ x-logging: &logging
       max-size: 10m
       max-file: "5"
 
+# Pin the project name (#3928). Unpinned it is the checkout directory — `trueppm`
+# on a default clone, identical to docker-compose.prod.yml's pin — and this file
+# shares service names (db, valkey, api, nginx) with prod, so `up` here would
+# RECREATE the running prod containers in place with the demo's definitions, and
+# `down` would tear them down. Its volumes are already `demo_`-prefixed; the
+# containers were not.
+name: trueppm-demo
+
 services:
   db:
     <<: *logging

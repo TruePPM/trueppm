@@ -442,9 +442,25 @@ affinity: {}
 # values-prod.yaml sets exactly that, alongside replicaCount: 2.
 topologySpreadConstraints: []
 
+# Applied to every workload (api, web, celery-worker, celery-beat, demo-seed,
+# demo-reset, backup, and the helm test pod).
+#
+# fsGroup makes the kubelet chgrp a mounted PersistentVolume to gid 1000 and set
+# the group-write bit, so uid 1000 can write persistence.media and
+# backup.persistence. Without it a CSI-provisioned volume that comes back
+# root:root 0755 is an EACCES crash-loop at first write, with no permissions
+# wording in the error (#3935). It changes volume ownership only, not process
+# identity, so it is a no-op for the emptyDir-only pods (kubelet already creates
+# those world-writable). runAsGroup is deliberately NOT set: it would change the
+# process's primary gid, which nothing here needs.
+#
+# OpenShift restricted-v2 assigns fsGroup from the namespace's allocated range
+# and rejects a fixed one, so set `fsGroup: null` there alongside
+# `runAsUser: null` (see administration/openshift).
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 1000
+  fsGroup: 1000
 containerSecurityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true

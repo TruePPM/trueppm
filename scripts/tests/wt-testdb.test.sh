@@ -76,7 +76,7 @@ fi
 
 if [[ "$1" == "ps" ]]; then
   # db_available: print the container name only when the stack is "up".
-  [[ "${DB_STUB_UP:-1}" == "1" ]] && echo "${DB_STUB_CONTAINER:-trueppm-db-1}"
+  [[ "${DB_STUB_UP:-1}" == "1" ]] && echo "${DB_STUB_CONTAINER:-trueppm-dev-db-1}"
   exit 0
 fi
 
@@ -112,7 +112,7 @@ chmod +x "$STUB_BIN/docker"
 export DB_STUB_LOG="$TMP/docker.log"
 export DB_STUB_CATALOG="$TMP/catalog"
 export DB_STUB_CONNS="$TMP/conns"
-export TRUEPPM_WT_DB_CONTAINER="trueppm-db-1"
+export TRUEPPM_WT_DB_CONTAINER="trueppm-dev-db-1"
 
 # mk_repo <dir> — throwaway git repo with one commit (wt derives REPO_ROOT and
 # the git common dir from whatever repo it runs in, so each case is isolated).
@@ -135,7 +135,7 @@ mk_wt() {
   local repo="$1" base="$2" branch="$3" dir="$4" db="$5"
   ( cd "$repo" && git branch "$branch" && git worktree add -q "$base/$dir" "$branch" )
   cat > "$base/$dir/.envrc" <<EOF
-export COMPOSE_PROJECT_NAME=trueppm
+export COMPOSE_PROJECT_NAME=trueppm-dev
 export TRUEPPM_TEST_DB=$db
 EOF
 }
