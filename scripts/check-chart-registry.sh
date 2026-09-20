@@ -84,14 +84,23 @@ list_versions() {
 remediation() {
   cat <<EOF
 
-Remove the offending version from the registry (needs a token with read:packages and
-delete:packages; a pipeline cannot do it). The package is an org container package, and its name is
-the repository path with '/' as %2F:
+Remove the offending version from the registry. A pipeline cannot do it: it needs
+someone with admin rights on the package, or a token with read:packages and
+delete:packages. ghcr.io is GitHub's registry, so this is a GitHub-side action even
+though the repository and CI are on GitLab.
 
-  gh auth refresh -h github.com -s read:packages,delete:packages
-  gh api "/orgs/TruePPM/packages/container/charts%2Ftrueppm/versions" \\
-    --jq '.[] | select(.metadata.container.tags | index("$1")) | .id'
-  gh api -X DELETE "/orgs/TruePPM/packages/container/charts%2Ftrueppm/versions/<id>"
+  Web UI (no CLI):
+    https://github.com/orgs/TruePPM/packages  ->  charts/trueppm  ->  Package settings
+    ->  Manage versions  ->  delete "$1" (and any leftover sha256-... version)
+
+  API (curl; \$GH_TOKEN needs read:packages + delete:packages):
+    curl -sH "Authorization: Bearer \$GH_TOKEN" \\
+      "https://api.github.com/orgs/TruePPM/packages/container/charts%2Ftrueppm/versions"
+    # pick the "id" whose metadata.container.tags contains "$1", then:
+    curl -X DELETE -H "Authorization: Bearer \$GH_TOKEN" \\
+      "https://api.github.com/orgs/TruePPM/packages/container/charts%2Ftrueppm/versions/<id>"
+
+  (The GitHub CLI works too: gh api -X DELETE on the same paths.)
 
 Then confirm with:  helm show chart oci://${GHCR_HOST}/${CHART_REPO} --devel
 EOF
