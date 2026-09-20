@@ -28,6 +28,18 @@ schedule, this page is the confidence band around it. Jump straight to
 difference and just want the guidance.
 :::
 
+:::caution[Scoring a risk does not move this forecast]
+The [risk register](/features/risk-register/) and this simulation are separate
+systems — scoring a risk, changing its severity, or resolving it does not
+change the forecast. This forecast is driven entirely by task three-point
+estimates and, for sprint-delivered work, team velocity; a risk's probability ×
+impact score never reaches the engine. See [Known
+constraints](#the-risk-register-does-not-feed-this-forecast) below for what
+that means in practice, and [Known
+Issues](/overview/known-issues/#the-risk-register-does-not-affect-the-forecast--planned-for-05)
+for the open defect ([#3660](https://gitlab.com/trueppm/trueppm/-/issues/3660)).
+:::
+
 ## How to use it
 
 ### Step 1 — Add three-point estimates to tasks
@@ -461,6 +473,31 @@ P80/P95 divergence from P50 grows slowly with critical path length and is driven
 primarily by how genuinely pessimistic your P estimates are.
 
 ## Known constraints
+
+### The risk register does not feed this forecast
+
+The [risk register](/features/risk-register/) and this simulation are separate
+systems that do not exchange information. A risk's severity is the product of
+two 1–5 ordinals (probability × impact); this forecast is computed from task
+three-point estimates and, for sprint-delivered work, team velocity (see [The
+math](#the-math) above). Scoring a risk, changing its severity, linking it to a
+task, or resolving it touches neither input, so the P50/P80/P95 band never
+reflects the register — a high-severity risk sitting on a task with weeks of
+total float moves the finish date not at all, and completing mitigation work on
+the critical path does not pull the forecast in either.
+
+**Mitigation:** widen the pessimistic value of the three-point estimate on the
+task(s) a risk affects. This is a genuine workaround with genuine costs: the
+padding is unattributed (nothing records which risk it was for, so it is never
+removed when the risk closes) and uncorrelated (one risk touching five tasks
+becomes five independent spreads instead of one shared draw, which understates
+the tail rather than overstating it).
+
+This is a tracked, open gap, not an oversight — see [Known
+Issues](/overview/known-issues/#the-risk-register-does-not-affect-the-forecast--planned-for-05)
+and [#3660](https://gitlab.com/trueppm/trueppm/-/issues/3660). Making risks a
+first-class simulation input is sequenced for 0.5, per
+[ADR-0711](/architecture/decisions/).
 
 ### Statistical precision at low run counts
 

@@ -83,7 +83,15 @@ Risks can be tagged with a standard source category:
 
 ## Linking risks to tasks
 
-A risk can be linked to up to **10 tasks** in the same project to indicate which tasks are exposed to it, or which work mitigates it. The link is advisory — it does not affect CPM scheduling — and it is managed from both ends.
+A risk can be linked to up to **10 tasks** in the same project to indicate which tasks are exposed to it, or which work mitigates it. The link is advisory: it does not affect the deterministic [CPM](/features/scheduler/) dates, and — separately — it does not currently affect the [Monte Carlo](/features/monte-carlo/) forecast either, so scoring, escalating, or resolving a risk never moves the P50/P80/P95 band. It is managed from both ends.
+
+:::caution[Does not feed the Monte Carlo forecast]
+Linking a risk to a task records the relationship for people to read. It does
+not reach the simulation — a risk's probability × impact score never enters the
+forecast. See [Known
+Issues](/overview/known-issues/#the-risk-register-does-not-affect-the-forecast--planned-for-05)
+and [#3660](https://gitlab.com/trueppm/trueppm/-/issues/3660).
+:::
 
 ### From the risk
 
