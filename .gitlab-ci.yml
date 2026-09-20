@@ -2557,6 +2557,51 @@ helm:template:
     - |
       grep -q 'client_max_body_size 1M;' /tmp/rendered-demo.yaml \
         || { echo "DEMO REGRESSION: demo no longer pins its 1M upload ceiling (#2604)"; exit 1; }
+    # The demo allowlist lives only in the web tier's nginx, so an Ingress that routes
+    # a path to the API Service bypasses it entirely (#3908). "ships no Ingress" was
+    # only ever the ingress.enabled=false default; assert the guard, both ways.
+    #
+    # The negative case matches the guard's own message, not just a non-zero exit:
+    # a render that fails for any other reason (a values typo) would otherwise pass
+    # this check without exercising the guard at all.
+    - |
+      if out=$(helm template trueppm packages/helm -f packages/helm/values-demo.yaml \
+            --set image.tag=latest --set demo.baseUrl=https://demo.example.com \
+            --set demo.shareToken.schedule=ci-schedule-token \
+            --set demo.shareToken.board=ci-board-token \
+            --set ingress.enabled=true 2>&1); then
+        echo "DEMO REGRESSION: demo.enabled + the default Ingress (which routes /api and /ws to the API Service) rendered (#3908)"; exit 1
+      fi
+      echo "$out" | grep -q 'reaches the API Service directly' \
+        || { echo "DEMO TEST INVALID: render failed but not from the #3908 guard:"; echo "$out"; exit 1; }
+    # The api Service must stay ClusterIP in demo mode: a LoadBalancer/NodePort there
+    # skips the allowlist with no Ingress involved (#3908).
+    - |
+      if out=$(helm template trueppm packages/helm -f packages/helm/values-demo.yaml \
+            --set image.tag=latest --set demo.baseUrl=https://demo.example.com \
+            --set demo.shareToken.schedule=ci-schedule-token \
+            --set demo.shareToken.board=ci-board-token \
+            --set service.type=LoadBalancer 2>&1); then
+        echo "DEMO REGRESSION: demo.enabled with a LoadBalancer API Service rendered (#3908)"; exit 1
+      fi
+      echo "$out" | grep -q 'API Service must stay ClusterIP' \
+        || { echo "DEMO TEST INVALID: render failed but not from the #3908 Service guard:"; echo "$out"; exit 1; }
+    # Positive case: an Ingress whose every path targets the web tier must still
+    # render, and must not back onto the API Service. Without this the guard could
+    # be widened to "fail whenever both are on" and the CI above would stay green.
+    - |
+      helm template trueppm packages/helm -f packages/helm/values-demo.yaml \
+        --set image.tag=latest --set demo.baseUrl=https://demo.example.com \
+        --set demo.shareToken.schedule=ci-schedule-token \
+        --set demo.shareToken.board=ci-board-token \
+        --set ingress.enabled=true \
+        --set 'ingress.hosts[0].host=demo.example.com' \
+        --set 'ingress.hosts[0].paths[0].path=/' \
+        --set 'ingress.hosts[0].paths[0].service=web' > /tmp/rendered-demo-ingress.yaml
+      backends=$(yq ea 'select(.kind == "Ingress") | .spec.rules[].http.paths[].backend.service.name' /tmp/rendered-demo-ingress.yaml | grep -v '^---$' | grep -v '^$' || true)
+      [ -n "$backends" ] || { echo "DEMO REGRESSION: an all-web demo Ingress no longer renders (#3908)"; exit 1; }
+      echo "$backends" | grep -qv -- '-web$' \
+        && { echo "DEMO REGRESSION: a demo Ingress backend is not the web Service: $backends (#3908)"; exit 1; } || true
     # And the inverse: none of this may leak into a normal deploy. Scoped to the
     # Job kind, not a bare grep: the datastore NetworkPolicy allow-lists name
     # `demo-seed` as a client selector unconditionally (#2560), and a selector

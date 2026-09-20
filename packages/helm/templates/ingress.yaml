@@ -1,4 +1,24 @@
 {{- if .Values.ingress.enabled }}
+{{- /*
+  Demo-mode guard (#3908, ADR-0658 D6). The demo's read-only allowlist lives ONLY
+  in the web tier's nginx ConfigMap, so anything that routes to the API Service
+  directly bypasses it. The default ingress.hosts does exactly that for /api and
+  /ws, which with demo.enabled would publish the whole authenticated API and the
+  websocket to the internet. Refuse to render unless every path targets the web
+  tier — and the web tier is actually on, because a `service: web` path silently
+  falls back to the API Service when web.enabled is false (see the path loop
+  below). Comparing `| default "api"` mirrors that loop exactly so the guard and
+  the router cannot disagree about what a path with no `service:` means.
+*/ -}}
+{{- if .Values.demo.enabled }}
+{{- range $h := .Values.ingress.hosts }}
+{{- range $p := $h.paths }}
+{{- if or (ne ($p.service | default "api") "web") (not $.Values.web.enabled) }}
+{{- fail (printf "demo.enabled and ingress.enabled are both true, but ingress path %q on host %q reaches the API Service directly (service: %s, web.enabled: %v). Demo mode's read-only allowlist lives only in the web tier's nginx, so an Ingress that bypasses it exposes the full authenticated API and /ws/. Either set ingress.hosts so EVERY path uses `service: web` (with web.enabled=true), or leave ingress.enabled=false and expose the web Service through a tunnel such as Cloudflare Tunnel (ADR-0658 D9)." $p.path ($h.host | default "") ($p.service | default "api") $.Values.web.enabled) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{/*
 Chart-managed Ingress and the TLS termination point for the release (#1714).
 

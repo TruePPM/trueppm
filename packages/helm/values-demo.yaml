@@ -29,6 +29,19 @@
 # longer does (#3187), so do not re-derive "the compose demo does it too" from
 # this comment.
 #
+# EXPOSURE
+#
+# Expose the WEB Service (svc/<release>-trueppm-web), never the api Service: the
+# read-only allowlist is the web tier's nginx, and only traffic through it is
+# constrained. Cloudflare Tunnel pointed at the web Service is the intended path
+# (ADR-0658 D9). If you use an Ingress instead, every path must be
+# `service: web` — the chart refuses to render demo.enabled with an Ingress that
+# routes anything to the API Service (#3908), and refuses a non-ClusterIP api
+# Service. What the chart cannot see: your own Ingress object, and controller
+# annotations under ingress.annotations that reroute traffic behind the chart's
+# back (e.g. ingress-nginx's default-backend pointing at the api Service) — keep
+# those out of a demo.
+#
 # WHAT THIS IS NOT
 #
 # A production deployment, and not a base to build one from. `demo.enabled` runs a
@@ -92,7 +105,7 @@ env:
 #     --from-literal=ALLOWED_HOSTS="demo.example.com,trueppm-api" \
 #
 #   ALLOWED_HOSTS must carry `trueppm-api` as well as the public name (#3237).
-#   Demo mode ships no Ingress, so the kubelet probes and the `helm test` Job
+#   Demo mode renders no Ingress by default, so the kubelet probes and the `helm test` Job
 #   both reach the api by its Service DNS name rather than by demo.example.com.
 #   Omit it and /readyz answers 400 DisallowedHost, the pod never turns Ready,
 #   and nothing in the failure names ALLOWED_HOSTS. Replace `trueppm-api` with
