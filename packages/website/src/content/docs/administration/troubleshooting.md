@@ -391,9 +391,9 @@ docker compose exec api python manage.py showmigrations | grep -v '\[X\]'
    [Image tags differ by registry](/administration/helm-values/#image-tags-differ-by-registry).
 2. **You installed chart `0.4.0`.** The chart published as `0.4.0` came from the
    first beta cut and defaults to image tag `v0.4.0`, which was never published.
-   It is also what Helm selects when `--version` is omitted, or when `--devel` is
-   used. `helm list` shows the chart as `trueppm-0.4.0`. Upgrade to a later beta,
-   keeping your values:
+   It has since been removed from the registry, but a release installed from it
+   keeps running that chart — `helm list` shows it as `trueppm-0.4.0`. Upgrade to a
+   later beta, keeping your values:
 
    ```bash
    helm upgrade <release> oci://ghcr.io/trueppm/charts/trueppm \
