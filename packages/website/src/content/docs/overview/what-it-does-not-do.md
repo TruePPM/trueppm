@@ -17,8 +17,8 @@ wrong, incomplete, or slower than they should be, see
 [Known Issues](/overview/known-issues/).
 
 :::caution[Read the version status first]
-TruePPM is pre-GA. The current shipped release is an alpha, and the first beta is
-0.4. Anything below marked for 0.5 or later is planned, not built. The
+TruePPM is pre-GA. The current shipped release is the first beta, 0.4 (currently
+`v0.4.0-beta.3`). Anything below marked for 0.5 or later is planned, not built. The
 [roadmap](/overview/roadmap/) is the authoritative Shipped / Underway / Planned
 record.
 :::
@@ -372,9 +372,10 @@ rather than leaving you to discover it at a pricing page.
 
 ## Maturity — the honest framing
 
-TruePPM's first OSS release was May 2026, and it is built part-time. The current line
-is an alpha; 0.4 is the first beta. OpenProject has roughly fifteen years, a company
-behind it, full-time staff, and a support contract you can buy. Redmine has twenty.
+TruePPM's first OSS release was May 2026, and it is built part-time. 0.4 is the
+current line and the first beta — the release line left alpha behind at 0.4.
+OpenProject has roughly fifteen years, a company behind it, full-time staff, and a
+support contract you can buy. Redmine has twenty.
 
 What we offer against that: a public
 [commit history](https://gitlab.com/trueppm/trueppm/-/commits/main), a
@@ -383,8 +384,9 @@ a cadence we believe we can hold, a tested scale envelope, and this page. Those 
 the evidence available to a young project. Whether they are enough is a reasonable
 thing to decide against us.
 
-**Do not put a program you cannot afford to lose on TruePPM before the 0.4 beta.**
-That is our own recommendation, and it is in the README too.
+**If you're running real teams, wait for the release line to reach `rc` or stable** —
+we're still learning what needs to change from early feedback. That is our own
+recommendation, and it is in the README too.
 
 ## Found something missing from this page?
 
