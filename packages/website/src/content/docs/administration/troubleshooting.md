@@ -330,7 +330,10 @@ work](/administration/durability/#why-losing-the-broker-does-not-lose-the-work).
 
 **What you see.** `READY 0/1` indefinitely, or `Init:0/2`, or an init container
 in `CrashLoopBackOff`. On Compose, the API logs loop on `DB not ready yet` or exit
-during `migrate`.
+during `migrate`. On a Helm install with demo mode, `helm install` itself can fail
+with `failed post-install: job <release>-trueppm-demo-seed failed:
+BackoffLimitExceeded` — the seed Job runs the same boot guards, so a guard failure
+surfaces there.
 
 **Likely causes, in order.**
 
@@ -352,7 +355,29 @@ during `migrate`.
 4. **A boot guard.** `settings.prod` refuses to import without `SECRET_KEY`,
    `ALLOWED_HOSTS`, `INTEGRATION_ENCRYPTION_KEY`, and a storage choice — and the
    guard fires in the **init containers too**, so the pod dies before the `api`
-   container ever starts.
+   container ever starts. The log line starts `Refusing to start:` and names the
+   variable.
+5. **Local attachment storage with nowhere to write.** Setting
+   `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` makes the boot guard prove that
+   `MEDIA_ROOT` is writable, and every chart pod has a **read-only root
+   filesystem**. With no volume behind the path, the `migrate` init container
+   logs:
+
+   ```text
+   Refusing to start: TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE is set, but local
+   attachment storage cannot be used: MEDIA_ROOT '/var/lib/trueppm/media' is not
+   writable: Read-only file system.
+   ```
+
+   The api pod sits in `Init:Error`, the Celery worker in `CrashLoopBackOff`, and
+   the demo seed Job exhausts its retries. Fix it one of two ways. For a real
+   install, set `persistence.media.enabled=true` so the chart mounts a claim at
+   the media path ([Attachment storage](/administration/helm-values/#attachment-storage-persistencemedia)),
+   or drop the opt-in and point `TRUEPPM_DEFAULT_FILE_STORAGE` at object storage.
+   For the [demo overlay](/administration/helm-values/#public-read-only-demo-mode),
+   `values-demo.yaml` already sets `env.TRUEPPM_MEDIA_ROOT: /tmp`; if you replaced
+   the `env:` block in your own values file, put that key back. Do not enable
+   `persistence.media` for a demo — the seed Job does not mount the claim.
 
 **Commands.**
 

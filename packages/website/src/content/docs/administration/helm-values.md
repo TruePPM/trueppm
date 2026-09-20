@@ -690,6 +690,18 @@ Three things that are easy to get wrong:
   links cascade with their project, an unpinned link would change its public URL on
   every `helm upgrade`.
 
+**Attachments use scratch space, not a volume.** Demo mode opts in to local
+attachment storage (the `trueppm-env` Secret sets
+`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true`), and that opt-in makes every pod that
+boots Django prove `MEDIA_ROOT` is writable. Pods run with a read-only root
+filesystem, so `values-demo.yaml` sets `env.TRUEPPM_MEDIA_ROOT: /tmp` — each pod's
+scratch `emptyDir`. A demo has no accounts and no write path, so nothing is ever
+stored there, and anything that were would vanish with the pod. Do not swap this for
+[`persistence.media`](#attachment-storage-persistencemedia): the seed Job does not
+mount that claim, so the install would still fail on the seed hook. If you write your
+own values file rather than layering on `values-demo.yaml`, carry the key over —
+without it every Django pod refuses to start (see [Troubleshooting](/administration/troubleshooting/#a-pod-never-becomes-ready-or-migrations-are-pending)).
+
 A bootstrap superuser still exists on a demo release — the API creates one on every
 deploy — but it has no public login surface, because the allowlist closes `/admin/`.
 Reach it with `kubectl port-forward svc/<release>-trueppm-api 8000:8000`.

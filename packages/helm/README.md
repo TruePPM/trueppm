@@ -264,6 +264,12 @@ Things worth knowing before you run it:
   deployment matches production topology, and the seeder never creates persona
   logins. The share endpoints remain gated by the instance-wide
   `TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED` switch, which `values-demo.yaml` asserts.
+- **Attachments use scratch space.** The `trueppm-env` Secret opts in to local attachment
+  storage, which requires a writable `MEDIA_ROOT` on every pod that boots Django, and every
+  pod has a read-only root filesystem. `values-demo.yaml` therefore sets
+  `env.TRUEPPM_MEDIA_ROOT: /tmp` (each pod's emptyDir). A demo has no write path, so nothing
+  is ever stored; do not replace this with `persistence.media` — the seed Job does not mount
+  that claim, so the install would still fail.
 - **The chart does not terminate TLS.** Front it at your ingress or load balancer, as
   with any other deployment (see below).
 

@@ -261,6 +261,19 @@ components by construction (the server persists only `sha256_hex(token)`), not
 credentials. D5 ships no default for them — the chart fails fast — so no live token
 ever enters the repository either.
 
+**Local attachment storage needs a writable `MEDIA_ROOT` (#3910).** The Secret this
+decision has operators create opts in to local attachment storage
+(`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true`), and since #3184 `settings.prod` refuses
+to boot unless `MEDIA_ROOT` is writable — in every container that imports settings,
+including the seed Job's own `migrate` initContainer (D2). Every chart pod has a
+read-only root filesystem, so `values-demo.yaml` sets `env.TRUEPPM_MEDIA_ROOT: /tmp`,
+each pod's scratch `emptyDir`; a demo has no write path, so nothing is ever stored.
+`persistence.media` was rejected: the seed Job (D1) does not mount that claim, so a PVC
+would fix the api pod and leave the seed hook — and with it `helm install` — failing.
+The `helm:template` job asserts every Django-running workload in the demo render carries
+a `TRUEPPM_MEDIA_ROOT`. That checks the wiring, not writability: nothing in CI boots
+`settings.prod` against a rendered values file.
+
 ## Alternatives Considered
 
 | Option | Pros | Cons |
