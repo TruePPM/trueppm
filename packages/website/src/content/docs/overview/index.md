@@ -12,6 +12,14 @@ Most P3M tools force a choice: Jira speaks Agile and translates poorly to a sche
 TruePPM 0.4 shipped September 15, 2026 (as the `v0.4.0-beta.1` pre-release) — the engine, API, real-time layer, web UI (Schedule, Board, Sprints, Risk, My Work, Programs), settings/administration platform, program foundations, the agile-team feature set, a read-only MCP server, basic single sign-on, and in-app time capture and baselines are all functional. 0.4 is TruePPM's first beta: the release line leaves alpha here and hardens under further `beta.N` tags before an eventual `0.4.0` stable. The product is pre-GA: expect API contract changes across 0.x point releases and a stable contract from 1.0 onward. Suitable for evaluation and early-adopter deployments.
 :::
 
+## Who this fits today
+
+TruePPM fits a **50–2,000 task software or IT program, run by one PM plus an agile team, self-hosted, that wants a computed forecast** instead of a spreadsheet or a Gantt chart nobody trusts. That upper bound is not a guess — it is where the Schedule view stops opening comfortably in the [tested envelope](/administration/sizing/#tested-envelope), and it moves as the scale work on [#3383](https://gitlab.com/trueppm/trueppm/-/issues/3383) lands in 0.5.
+
+It does not yet fit a construction, EPC, defense, or other contractually-scheduled program. TruePPM honors one schedule constraint type, has no resource leveling, and its tested scale sits two orders of magnitude below what those programs run day to day — see [what TruePPM doesn't do yet](/overview/what-it-does-not-do/) for the full, maintained list those limits are drawn from. If your plan carries a DCMA 14-point or NEC clause 31/32 obligation, or routinely runs tens of thousands of activities, TruePPM will not get you through a pilot yet.
+
+This is a statement about fit, not about worth — the constraint is what gives the statement force, and we would rather say it here than have a pilot discover it.
+
 ## Core capabilities
 
 **Critical Path Method scheduling.** Every time you create or change a task or dependency, TruePPM runs a full CPM pass — forward, backward, float calculation, and critical-path identification. All four dependency types (FS, SS, FF, SF), each with an optional lead/lag. You always know which tasks drive your deadline and where you have slack.

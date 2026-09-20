@@ -48,6 +48,8 @@ And because every date is *computed* rather than stored, it is answerable. That'
 > ### Status: 0.4-beta — pre-GA, not yet production-ready
 > The engine and API are solid; the UI works but is still maturing. The latest tagged release is the `0.4.0-beta.3` pre-release — **0.4 is the first beta**, tagged Sep 19, 2026. Expect breaking API changes before 1.0. **If you're running real teams, wait for the release line to reach `rc` or stable** — we're still learning what needs to change from early feedback, and we'd rather not lock you in before we do. Kicking the tires, self-hosting a trial, or using the scheduler library? Dive in now.
 
+**Who this fits today:** a 50–2,000 task software or IT program, run by one PM plus an agile team, self-hosted, that wants a computed forecast. It does not yet fit a construction, EPC, defense, or other contractually-scheduled program — one constraint type, no resource leveling, and a tested scale ceiling two orders of magnitude below what those programs run. See [Who this fits today](https://docs.trueppm.com/overview/#who-this-fits-today) for the full statement and what it's built from.
+
 ## Run the whole platform — five minutes
 
 The engine above is the sixty-second check. This is the five-minute one: the full stack, populated with the bundled Atlas sample program and its persona logins.
