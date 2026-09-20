@@ -248,7 +248,7 @@ them later:
 kubectl logs job/<release>-trueppm-demo-seed
 ```
 
-Five things worth knowing before you run it:
+Things worth knowing before you run it:
 
 - **Both tokens are required and must differ.** `ShareLink.token_hash` is globally
   unique, so one token cannot back both links. The chart refuses to render otherwise.
