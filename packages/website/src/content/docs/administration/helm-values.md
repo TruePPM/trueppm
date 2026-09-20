@@ -359,7 +359,7 @@ specs, so the valid keys are Kubernetes', not this chart's.
 
 | Key | Default | What it does |
 |---|---|---|
-| `imagePullSecrets` | `[]` | Pull secrets for a private or mirrored registry. **This is the air-gapped path**: mirror the images, point `image.repository` and `web.image.repository` at your registry, and name the secret here. |
+| `imagePullSecrets` | `[]` | Pull secrets for a private or mirrored registry. **This is the air-gapped path**: mirror the images, point `image.repository` and `image.webRepository` at your registry, and name the secret here. |
 | `priorityClassName` | `""` | A PriorityClass you have created. The chart creates none — a chart that mints a cluster-scoped PriorityClass steps on the cluster's own priority budget. |
 | `nodeSelector` | `{}` | Node label constraints. |
 | `tolerations` | `[]` | Taint tolerations, e.g. for a dedicated node pool. |
