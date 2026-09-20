@@ -151,6 +151,17 @@ assertions into the shared allowlist script is worthwhile later; the inline form
 deliberate for now because it also covers the leak direction, which the script does
 not model.
 
+**Bare origin (#3911).** The block also answers an exact `/` with a `302` to
+`<demo.baseUrl>/share/schedule/<schedule token>`. The demo has no accounts, so the SPA's
+login form at `/` can never succeed, and a visitor who types the domain would otherwise
+land on a dead end. It is a static response rather than a proxied route, so the allowlist
+above is unchanged, and it discloses only a URL the demo already publishes. It is a `302`
+so that rotating the pinned token is never fought by a cached redirect. Because
+`demo.baseUrl` and the schedule token are now interpolated into this file — which *is*
+the demo's security boundary — the chart validates them at render time (a bare
+`http(s)` origin; tokens limited to letters, digits, `-` and `_`) instead of trusting
+values into nginx syntax.
+
 ### D7 — `noindex` is owned by the web ConfigMap, not ingress annotations
 
 `templates/ingress.yaml:28-31` passes `ingress.annotations` through verbatim with no
@@ -259,6 +270,19 @@ The pinned share tokens are different and *do* live in values: they are public U
 components by construction (the server persists only `sha256_hex(token)`), not
 credentials. D5 ships no default for them — the chart fails fast — so no live token
 ever enters the repository either.
+
+**Local attachment storage needs a writable `MEDIA_ROOT` (#3910).** The Secret this
+decision has operators create opts in to local attachment storage
+(`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true`), and since #3184 `settings.prod` refuses
+to boot unless `MEDIA_ROOT` is writable — in every container that imports settings,
+including the seed Job's own `migrate` initContainer (D2). Every chart pod has a
+read-only root filesystem, so `values-demo.yaml` sets `env.TRUEPPM_MEDIA_ROOT: /tmp`,
+each pod's scratch `emptyDir`; a demo has no write path, so nothing is ever stored.
+`persistence.media` was rejected: the seed Job (D1) does not mount that claim, so a PVC
+would fix the api pod and leave the seed hook — and with it `helm install` — failing.
+The `helm:template` job asserts every Django-running workload in the demo render carries
+a `TRUEPPM_MEDIA_ROOT`. That checks the wiring, not writability: nothing in CI boots
+`settings.prod` against a rendered values file.
 
 ## Alternatives Considered
 

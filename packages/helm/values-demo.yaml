@@ -86,6 +86,21 @@ env:
   # at a 1-CPU limit with autoscaling and the PDB disabled, so there is no headroom
   # to absorb an unthrottled crawler.
   TRUEPPM_RATE_LIMIT_ENABLED: "true"
+  # The Secret below opts in to local attachment storage, and settings.prod then
+  # refuses to boot unless MEDIA_ROOT is writable — on every pod that imports
+  # settings, including the demo-seed Job's migrate init container. Every pod has
+  # readOnlyRootFilesystem, so the default /var/lib/trueppm/media is not writable
+  # and the whole install fails: api and seed Init:Error, worker CrashLoopBackOff,
+  # `helm install` reporting BackoffLimitExceeded on the seed hook.
+  #
+  # /tmp is the per-pod emptyDir every one of those pods already mounts, and it
+  # is the right home for a demo: no visitor has an account or a write path, so
+  # nothing ever stores an attachment. This deliberately does NOT enable
+  # persistence.media — the seed Job's template does not mount that claim, so a
+  # PVC would fix the api pod and leave the seed hook failing.
+  #
+  # Not a base for a real install: files here vanish with the pod.
+  TRUEPPM_MEDIA_ROOT: /tmp
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SECRETS
@@ -116,7 +131,8 @@ env:
 # Secret missing any one of them crash-loops the migrate init container (#2812).
 # Local attachment storage is the right call for demo mode — the data is seeded
 # and disposable — but it is ephemeral, so never carry this key into an install
-# holding real uploads.
+# holding real uploads. The `env.TRUEPPM_MEDIA_ROOT` above is what makes the opt-in
+# bootable on a read-only root filesystem; do not remove it.
 #
 # then leave the envFrom reference below in place.
 # ─────────────────────────────────────────────────────────────────────────────
