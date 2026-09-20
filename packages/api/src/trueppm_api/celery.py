@@ -26,6 +26,15 @@ app.autodiscover_tasks()
 # worker_heartbeat — the worker_ready/heartbeat_sent/worker_shutting_down
 # handlers that back the Helm chart's worker startup/readiness probes (#3346).
 #
-# Both are harmless to import in the `beat` process: beat runs no worker
+# worker_selfheal — a worker_ready/worker_shutting_down watchdog that
+# self-exits a wedged worker so Docker Compose's `restart: unless-stopped` has
+# a process exit to act on (#3936); opt-in via TRUEPPM_CELERY_WORKER_SELF_HEAL,
+# set only by docker-compose.yml / docker-compose.prod.yml.
+#
+# All three are harmless to import in the `beat` process: beat runs no worker
 # consumer, so none of these signals fire there.
-from trueppm_api.core import worker_broker_wait, worker_heartbeat  # noqa: E402,F401
+from trueppm_api.core import (  # noqa: E402,F401
+    worker_broker_wait,
+    worker_heartbeat,
+    worker_selfheal,
+)

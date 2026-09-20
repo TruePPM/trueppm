@@ -326,6 +326,62 @@ work](/administration/durability/#why-losing-the-broker-does-not-lose-the-work).
 
 ---
 
+## A Celery worker wedges and never recovers (Docker Compose)
+
+**What you see.** `docker compose ps` shows `celery (unhealthy)` and it never
+clears — no `RESTARTS`-equivalent count climbs, and `docker compose logs
+celery` goes quiet, with no new task log lines. This is Compose-specific: on
+Kubernetes the same underlying condition (a worker whose event loop has
+wedged after connecting) is recovered automatically by the chart's
+`celery inspect ping` livenessProbe, which kubelet acts on directly.
+
+**Why.** Plain Docker Compose has no mechanism that restarts a container on a
+failed healthcheck — `restart: unless-stopped` fires only on a process
+**exit**. A healthcheck transitioning to `unhealthy` changes only what
+`docker compose ps` reports; nothing reads that status and acts on it. A
+worker that wedges after connecting — the same root cause as `#3722`, fixed
+there only for the Helm chart's cold-start race — has no path back once it is
+already running.
+
+Since 0.4 (`#3936`), the worker closes this gap itself:
+`trueppm_api.core.worker_selfheal` runs a background watchdog thread that
+reads the same heartbeat file the readiness healthcheck does
+(`trueppm_api.core.worker_heartbeat`) and self-exits the process once it has
+been stale for 90 seconds — 3x the healthcheck's own 30-second staleness
+window, so a transient broker blip or scheduling pause cannot turn into a
+crash loop. That exit is what `restart: unless-stopped` needed all along.
+This is enabled by `TRUEPPM_CELERY_WORKER_SELF_HEAL=1`, set by both
+`docker-compose.yml` and `docker-compose.prod.yml`.
+
+**On an older deployment, or one that has disabled the env var**, recover
+manually:
+
+```bash
+docker compose restart celery
+```
+
+**Commands.**
+
+```bash
+# Confirmed wedge (not a crash loop): "unhealthy" with no restart count climbing
+docker compose ps celery
+
+# Did the self-heal watchdog already act? It logs before exiting.
+docker compose logs celery | grep "worker_selfheal: heartbeat stale"
+```
+
+**Confirm the fix.** `docker compose ps celery` returns to `(healthy)` within
+a few heartbeat cycles of the restart (whether triggered by the watchdog or
+run manually).
+
+See [Startup, Readiness, and Liveness Probes → Docker Compose
+equivalents](/administration/probes/#docker-compose-equivalents) for how this
+fits alongside the readiness healthcheck, and [Celery is not processing
+anything](#celery-is-not-processing-anything) above if the worker is
+`(healthy)` but idle instead.
+
+---
+
 ## A pod never becomes ready, or migrations are pending
 
 **What you see.** `READY 0/1` indefinitely, or `Init:0/2`, or an init container
