@@ -594,22 +594,9 @@ CONF
   probe good_large.conf 0 "correct config larger than a pipe buffer accepted (SIGPIPE false red, #3758)"
   probe bad_large.conf  1 "config larger than a pipe buffer missing nosniff rejected (SIGPIPE false green, #3758)"
 
-  # The SIGPIPE class itself (#3758): an early-exiting reader (`grep -q`, `head`)
-  # on the far side of a pipe reports a present line as missing under pipefail.
-  # Scanned in every script that shares this failure path, so the pattern cannot
-  # creep back into a gate whose false red reads as a chart regression.
-  local offenders
-  offenders="$(grep -nE '^[^#]*\|[[:space:]]*(grep[[:space:]]+-[A-Za-z]*q|head([[:space:]]|$))' \
-    "$REPO_ROOT/scripts/check-nginx-security-headers.sh" \
-    "$REPO_ROOT/scripts/helm-structure-check.sh" \
-    "$REPO_ROOT/scripts/lib/helm-render-provenance.sh" || true)"
-  if [ -z "$offenders" ]; then
-    echo "SELF-TEST OK: no early-exit reader (grep -q, head) on the far side of a pipe"
-  else
-    echo "SELF-TEST FAILED: early-exit reader behind a pipe — use \`grep -q … <<<\"\$x\"\` instead:" >&2
-    printf '%s\n' "$offenders" | sed 's/^/  /' >&2
-    rc=1
-  fi
+  # The SIGPIPE class itself (#3758) is no longer scanned here. A three-file list
+  # is how release.sh stayed outside the guard (#3942); scripts/check-sigpipe-readers.sh
+  # now walks every shell script under scripts/, this one included.
 
   # The provenance verdict. It only ever runs on a failure path, so it is
   # precisely the code a typo can hide in indefinitely — the same reason every

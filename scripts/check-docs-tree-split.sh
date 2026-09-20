@@ -116,8 +116,8 @@ check_shared_basenames() { # <docs_root> <website_root>
     [ -z "$f" ] && continue
     is_ignored "$f" && continue
     base="${f##*/}"
-    if printf '%s\n' "$website_names" | grep -qxF "$base"; then
-      match="$(find "$website_root" -name "$base" -print 2>/dev/null | head -n 1)"
+    if grep -qxF "$base" <<<"$website_names"; then
+      match="$(find "$website_root" -name "$base" -print 2>/dev/null | sed -n 1p)"
       echo "VIOLATION: $f duplicates a published page basename" >&2
       echo "    The published, gated copy is: $match"
       echo "    docs/ is for ADRs, specs and design records -- not a second copy"

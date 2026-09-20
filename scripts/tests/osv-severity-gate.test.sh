@@ -61,7 +61,7 @@ JSON
 one_group "2.1" "LOW" "dompurify" > "$TMP/low.json"
 run_gate "$TMP/low.json"
 check "LOW advisory warns non-blocking (exit 2)" "$([ "$RC" -eq 2 ] && echo 0 || echo 1)"
-check "LOW advisory is bucketed WARN" "$(echo "$OUT" | grep -q "WARN" && echo 0 || echo 1)"
+check "LOW advisory is bucketed WARN" "$(grep -q "WARN" <<<"$OUT" && echo 0 || echo 1)"
 
 # --- MEDIUM: CVSS 5.3 → WARN, exit 2 --------------------------------------
 one_group "5.3" "MODERATE" "some-pkg" > "$TMP/med.json"
@@ -72,7 +72,7 @@ check "MEDIUM advisory warns non-blocking (exit 2)" "$([ "$RC" -eq 2 ] && echo 0
 one_group "7.5" "HIGH" "bad-pkg" > "$TMP/high.json"
 run_gate "$TMP/high.json"
 check "HIGH advisory blocks (exit 1)" "$([ "$RC" -eq 1 ] && echo 0 || echo 1)"
-check "HIGH advisory is bucketed FAIL" "$(echo "$OUT" | grep -q "FAIL" && echo 0 || echo 1)"
+check "HIGH advisory is bucketed FAIL" "$(grep -q "FAIL" <<<"$OUT" && echo 0 || echo 1)"
 
 # --- CRITICAL: CVSS 9.8 → FAIL, exit 1 ------------------------------------
 one_group "9.8" "CRITICAL" "worse-pkg" > "$TMP/crit.json"
@@ -123,8 +123,8 @@ cat > "$TMP/mixed.json" <<'JSON'
 JSON
 run_gate "$TMP/mixed.json"
 check "mixed HIGH+LOW blocks (exit 1)" "$([ "$RC" -eq 1 ] && echo 0 || echo 1)"
-check "mixed run reports the LOW package too" "$(echo "$OUT" | grep -q "lowpkg" && echo 0 || echo 1)"
-check "mixed run reports the HIGH package" "$(echo "$OUT" | grep -q "highpkg" && echo 0 || echo 1)"
+check "mixed run reports the LOW package too" "$(grep -q "lowpkg" <<<"$OUT" && echo 0 || echo 1)"
+check "mixed run reports the HIGH package" "$(grep -q "highpkg" <<<"$OUT" && echo 0 || echo 1)"
 
 # --- Clean: empty results → exit 0 (distinct from the exit-2 WARN band) ----
 # A clean scan must stay green (0), NOT the yellow warning (2) that MEDIUM/LOW

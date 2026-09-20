@@ -118,7 +118,7 @@ git -C "$D" merge -q --no-ff feat/1-merge -m "Merge feat/1-merge"
 land "$D" feat/1-merge
 prune_in "$D"
 check "a merged, remote-deleted worktree is removed"  "$([[ ! -d "$P" ]]; echo $?)"
-check "…with the report mass_merge relies on"         "$(printf '%s' "$RUN_OUT" | grep -q 'removed (merged to main, remote gone)'; echo $?)"
+check "…with the report mass_merge relies on"         "$(grep -q 'removed (merged to main, remote gone)' <<<"$RUN_OUT"; echo $?)"
 
 # --- Case 2: tip rewritten after its last push (the reported bug) -----------
 echo "Case 2: local tip rewritten after push"
@@ -130,7 +130,7 @@ git -C "$P" commit -q --amend -m "reworded after the push"
 check "precondition: the rewritten tip is not an ancestor of main" "$(not_ancestor "$D" chore/2-amended; echo $?)"
 prune_in "$D"
 check "a rewritten tip whose patch is in main is removed"  "$([[ ! -d "$P" ]]; echo $?)"
-check "…and says why"                                      "$(printf '%s' "$RUN_OUT" | grep -q 'every patch already in main'; echo $?)"
+check "…and says why"                                      "$(grep -q 'every patch already in main' <<<"$RUN_OUT"; echo $?)"
 
 # --- Case 3: squash merge, merged MR head == local tip ---------------------
 echo "Case 3: squash merge matched by MR head"
@@ -154,7 +154,7 @@ git -C "$D" merge -q --squash feat/4-squash >/dev/null && git -C "$D" commit -qm
 land "$D" feat/4-squash
 prune_in "$D" '[{"iid": 1, "sha": "0000000000000000000000000000000000000000"}]'
 check "a squash merge whose MR head differs is kept"  "$([[ -d "$P" ]]; echo $?)"
-check "…with the not-in-main warning"                 "$(printf '%s' "$RUN_OUT" | grep -q 'NOT in origin/main'; echo $?)"
+check "…with the not-in-main warning"                 "$(grep -q 'NOT in origin/main' <<<"$RUN_OUT"; echo $?)"
 
 # --- Case 5: only some of the branch's patches reached main -----------------
 echo "Case 5: partially landed branch"

@@ -114,7 +114,7 @@ before="$(side_effects "$D1")"
 run "$D1" bash "$WT" new --help; out="$RUN_OUT"; rc="$RUN_RC"
 after="$(side_effects "$D1")"
 check "wt new --help exits 0"                    "$([[ "$rc" -eq 0 ]]; echo $?)"
-check "…prints the subcommand's usage"           "$(printf '%s' "$out" | grep -q 'usage: wt new'; echo $?)"
+check "…prints the subcommand's usage"           "$(grep -q 'usage: wt new' <<<"$out"; echo $?)"
 # The half an exit-code check misses. Before #3283 this line failed while the
 # assertions above would both have passed.
 check "…and creates NO branch, worktree or reservation" \
@@ -126,7 +126,7 @@ D2="$TMP/case2"; mk_repo "$D2"
 for sub in new remove claim release prune doctor list; do
   run "$D2" bash "$WT" "$sub" -h; o="$RUN_OUT"; r="$RUN_RC"
   check "wt $sub -h exits 0"                     "$([[ "$r" -eq 0 ]]; echo $?)"
-  check "wt $sub -h prints a usage line"         "$(printf '%s' "$o" | grep -q '^usage: wt '; echo $?)"
+  check "wt $sub -h prints a usage line"         "$(grep -q '^usage: wt ' <<<"$o"; echo $?)"
 done
 
 # --- Case 3: an undeclared flag is rejected, not adopted as input ----------
@@ -136,7 +136,7 @@ before="$(side_effects "$D3")"
 run "$D3" bash "$WT" new --forse; out="$RUN_OUT"; rc="$RUN_RC"
 after="$(side_effects "$D3")"
 check "a typo'd flag exits 2 (rejected, not consumed)" "$([[ "$rc" -eq 2 ]]; echo $?)"
-check "…names the offending option"                    "$(printf '%s' "$out" | grep -q 'unknown option: --forse'; echo $?)"
+check "…names the offending option"                    "$(grep -q 'unknown option: --forse' <<<"$out"; echo $?)"
 check "…creates nothing"                               "$([[ "$before" == "$after" ]]; echo $?)"
 
 # --- Case 4: declared flags still reach the subcommand's own parser --------
@@ -160,7 +160,7 @@ while IFS= read -r argv; do
   # shellcheck disable=SC2086  # argv is a test-authored literal, split on purpose
   run "$D4" bash "$WT" $argv; r="$RUN_RC"; o="$RUN_OUT"
   check "wt $argv reaches its own parser, not the guard" \
-        "$( [[ "$r" -ne 2 ]] && ! printf '%s' "$o" | grep -q 'unknown option'; echo $? )"
+        "$( [[ "$r" -ne 2 ]] && ! grep -q 'unknown option' <<<"$o"; echo $? )"
 done <<'ARGS'
 new --adr
 new --no-adr
@@ -188,12 +188,12 @@ run "$D6" bash "$WT" reserve adr
 led="$D6/.git/trueppm-wt-reservations.tsv"
 printf 'adr\t-\t0999\tfeat/branch-that-never-existed\t2026-01-01T00:00:00Z\n' >> "$led"
 run "$D6" bash "$WT" doctor; out="$RUN_OUT"
-check "doctor reports the orphaned reservation"   "$(printf '%s' "$out" | grep -q 'branch feat/branch-that-never-existed'; echo $?)"
+check "doctor reports the orphaned reservation"   "$(grep -q 'branch feat/branch-that-never-existed' <<<"$out"; echo $?)"
 # The live one must NOT be reported: a branch that merely has no worktree yet is
 # the normal case, and flagging it would train people to ignore this warning.
 live_branch="$(git -C "$D6" rev-parse --abbrev-ref HEAD)"
 check "…and does NOT report the live branch's row" \
-      "$(printf '%s' "$out" | grep -q "branch ${live_branch}\$" && echo 1 || echo 0)"
+      "$(grep -q "branch ${live_branch}\$" <<<"$out" && echo 1 || echo 0)"
 
 # --- Case 7: release-reservation is the way out, and refuses a live branch -
 echo "Case 7: release-reservation"

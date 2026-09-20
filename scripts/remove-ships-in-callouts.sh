@@ -94,12 +94,12 @@ shipped_versions() {
   sed -n '/^## Shipped[[:space:]]*$/,/^## /p' "$roadmap" \
     | grep -E '^###[[:space:]]+[0-9]+\.[0-9]+' \
     | sed -E 's/^###[[:space:]]+([0-9]+\.[0-9]+).*/\1/' \
-    | head -n 100
+    | sed -n 1,100p
 }
 
 is_shipped() {
   local version="$1" roadmap="$2"
-  shipped_versions "$roadmap" | grep -qxF "$version"
+  grep -qxF "$version" <<<"$(shipped_versions "$roadmap")"
 }
 
 usage() {
@@ -549,13 +549,13 @@ Rest of the page.
     local before after dry_out
     before="$(shasum "$case_docs/getting-started/try-it.md" | awk '{print $1}')"
     dry_out="$(run_scan "0.4" "dry-run" "$case_docs")"
-    if printf '%s\n' "$dry_out" | grep -q '  REMOVE  '; then
+    if grep -q '  REMOVE  ' <<<"$dry_out"; then
       echo "SELF-TEST FAILED: try-it.md — a block was reported as removable; it must always be excluded." >&2
       failures=$((failures + 1))
     else
       echo "SELF-TEST OK: try-it.md — no block reported as removable."
     fi
-    if ! printf '%s\n' "$dry_out" | grep -q 'excluded — try-it.md'; then
+    if ! grep -q 'excluded — try-it.md' <<<"$dry_out"; then
       echo "SELF-TEST FAILED: try-it.md — expected an explicit exclusion reason in the report." >&2
       failures=$((failures + 1))
     else
@@ -601,7 +601,7 @@ The installable PWA follows in 0.5, so this line must not be reported.
       failures=$((failures + 1))
     fi
 
-    if printf '%s\n' "$dry_out" | grep -q '  REMOVE  '; then
+    if grep -q '  REMOVE  ' <<<"$dry_out"; then
       echo "SELF-TEST FAILED: README — a removable block was reported; it must never be edited." >&2
       failures=$((failures + 1))
     else

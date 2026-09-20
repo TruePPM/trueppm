@@ -112,7 +112,7 @@ run_check() {
   for seed_file in "${SEED_COMMAND_FILES[@]}"; do
     # The command must be an exact YAML list item on its own line: a commented-out
     # copy, or the command with something appended, is drift, not parity.
-    if ! sed -E 's/^[[:space:]]*-[[:space:]]+//' "$root/$seed_file" | grep -qxF -- "$SEED_COMMAND"; then
+    if ! grep -qxF -- "$SEED_COMMAND" <<<"$(sed -E 's/^[[:space:]]*-[[:space:]]+//' "$root/$seed_file")"; then
       echo "DRIFT: $seed_file no longer carries the shared seed command:" >&2
       echo "    $SEED_COMMAND" >&2
       drift=$((drift + 1))

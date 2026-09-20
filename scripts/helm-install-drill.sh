@@ -279,7 +279,7 @@ done
 # (TRUEPPM_ALLOW_UNENCRYPTED_DB) is auto-injected by the chart because
 # postgresql.enabled && networkPolicy.enabled (chart defaults), so it is NOT set
 # here — proving that default path boots.
-secret_key="$(head -c 50 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 60)"
+secret_key="$(head -c 50 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-60)"
 integration_key="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_')"
 # ALLOWED_HOSTS is a CONCRETE list, never '*' (#3183). A wildcard makes this
 # drill prove the chart boots under a configuration configuration.md marks
@@ -375,7 +375,7 @@ kubectl run secret-guard-probe \
 kubectl wait --for=jsonpath='{.status.phase}'=Failed pod/secret-guard-probe --timeout=90s \
   || fail "secret-guard probe did not FAIL — the boot guard may not be fail-closed"
 probe_log="$(kubectl logs secret-guard-probe 2>&1 || true)"
-echo "$probe_log" | grep -qi "SECRET_KEY" \
+grep -qi "SECRET_KEY" <<<"$probe_log" \
   || fail "probe failed but not on SECRET_KEY; log tail: $(echo "$probe_log" | tail -3)"
 log "negative probe GREEN — deploy without SECRET_KEY refuses to start"
 
@@ -420,7 +420,7 @@ log "admin denied at the web tier (HTTP 403) — deny-by-default holds at runtim
 worker_pod="$(kubectl get pod -l app.kubernetes.io/component=celery-worker -o jsonpath='{.items[0].metadata.name}')"
 [ -n "$worker_pod" ] || fail "no celery-worker pod found"
 worker_cmd="$(kubectl get pod "$worker_pod" -o jsonpath='{.spec.containers[0].command}')"
-echo "$worker_cmd" | grep -qE -- '--concurrency=[0-9]+' \
+grep -qE -- '--concurrency=[0-9]+' <<<"$worker_cmd" \
   || fail "running celery-worker has no --concurrency; command was: $worker_cmd"
 restarts="$(kubectl get pod "$worker_pod" -o jsonpath='{.status.containerStatuses[0].restartCount}')"
 [ "${restarts:-0}" -eq 0 ] \

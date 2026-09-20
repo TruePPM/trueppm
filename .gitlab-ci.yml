@@ -2348,6 +2348,36 @@ nginx:headers:
     - bash scripts/check-nginx-security-headers.sh --self-test
     - bash scripts/check-nginx-security-headers.sh
 
+scripts:sigpipe-readers:
+  extends: .fast-job
+  # No shell script may put an early-exit reader (`grep -q`, `grep -m`, `head`) on
+  # the far side of a pipe (#3942).
+  #
+  # Every script runs under `set -o pipefail`. `git tag | grep -qxF "$TAG" && die`
+  # in release.sh — the script that gates immutable release tags — reads a SIGPIPE
+  # (141) from the writer as "tag not found" and lets a release proceed against an
+  # existing tag. The same pattern already red-flagged this repo twice (#3331,
+  # #3758). It is a race on how much the writer has flushed, so it is invisible in
+  # every small local run and fails once, on a runner, naming the wrong cause.
+  #
+  # This replaces a three-file offender scan that lived inside
+  # check-nginx-security-headers.sh: a hardcoded list covers exactly the files that
+  # have already been bitten, which is how release.sh stayed outside it. This walks
+  # every shell script under scripts/. Grep + find over ~90 files; well under a second.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash grep sed
+  script:
+    # Self-test FIRST: prove the gate still rejects the release.sh tag-guard shape,
+    # `head`, and a bare `# sigpipe-ok:` marker, and still accepts a here-string,
+    # before believing it found none (#3195).
+    - bash scripts/check-sigpipe-readers.sh --self-test
+    - bash scripts/check-sigpipe-readers.sh
+
 api:lint:
   extends: .fast-job
   stage: lint

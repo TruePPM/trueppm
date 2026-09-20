@@ -232,7 +232,7 @@ fi
 # Same secret set as the install drill. TRUEPPM_ALLOW_UNENCRYPTED_DB is
 # deliberately NOT set: the chart auto-injects it because
 # postgresql.enabled && networkPolicy.enabled, and this drill is what earns that.
-secret_key="$(head -c 50 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 60)"
+secret_key="$(head -c 50 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-60)"
 integration_key="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_')"
 # ALLOWED_HOSTS is concrete here for the same reason as the install drill
 # (#3183): a wildcard makes every drill prove the chart boots under a config
@@ -307,12 +307,11 @@ probe() {
   kubectl delete pod "$name" --ignore-not-found --wait=true >/dev/null 2>&1 || true
   local overrides
   overrides="$(printf '{"metadata":{"labels":%s}}' "$labels")"
-  if kubectl run "$name" \
+  if grep -q __OPEN__ <<<"$(kubectl run "$name" \
       --image="$PROBE_IMAGE" --image-pull-policy=IfNotPresent --restart=Never \
       --overrides="$overrides" \
       --attach --rm --quiet \
-      --command -- sh -c "nc -w ${PROBE_TIMEOUT} -z ${host} ${port} && echo __OPEN__ || echo __SHUT__" 2>/dev/null \
-      | grep -q __OPEN__; then
+      --command -- sh -c "nc -w ${PROBE_TIMEOUT} -z ${host} ${port} && echo __OPEN__ || echo __SHUT__" 2>/dev/null)"; then
     echo "ALLOWED"
   else
     echo "DENIED"

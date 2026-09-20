@@ -244,7 +244,7 @@ EOF
     cd "$tmp/scan"
     WEB_SRC="src"
     raw="$(grep -rnE "$BASE_PAT" "$WEB_SRC" --include='*.tsx' 2>/dev/null || true)"
-    echo "$raw" | grep -qE 'Seeded\.tsx:3' \
+    grep -qE 'Seeded\.tsx:3' <<<"$raw" \
       || { echo "::error:: hover-reveal-focus self-test: seeded violation was not even found by the raw scan" >&2; exit 1; }
   ) || rc=1
 

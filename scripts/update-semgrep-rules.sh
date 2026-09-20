@@ -37,7 +37,7 @@ for pack in "${PACKS[@]}"; do
   # transit.
   curl --proto '=https' --tlsv1.2 -fsSL "${BASE}/${pack}" -o "${DEST}/${pack}.yml"
   # Sanity-check the download is a rules document, not an error page.
-  if ! head -1 "${DEST}/${pack}.yml" | grep -q '^rules:'; then
+  if ! grep -q '^rules:' <<<"$(head -1 "${DEST}/${pack}.yml")"; then
     echo "error: ${DEST}/${pack}.yml does not start with 'rules:' — aborting" >&2
     exit 1
   fi

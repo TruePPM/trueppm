@@ -51,7 +51,7 @@ ADD_BLOCK="$(awk '
   inblock             { print }
   inblock && !/\\$/   { exit }
 ' "$RELEASE_SH")"
-if printf '%s\n' "$ADD_BLOCK" | grep -qF 'changelog.d'; then r=0; else r=1; fi
+if grep -qF 'changelog.d' <<<"$ADD_BLOCK"; then r=0; else r=1; fi
 check "git add block includes changelog.d/" "$r"
 
 # --- Case 2: behavioral — staging captures the consumed-fragment deletion ----
@@ -82,11 +82,10 @@ EOF
     git add CHANGELOG.md changelog.d                 # the staging under test (#1386 fix)
   )
   # The consumed fragment must show as a STAGED deletion (index), not unstaged.
-  if ( cd "$D" && git diff --cached --name-status -- changelog.d \
-        | grep -qE '^D[[:space:]]+changelog\.d/77\.fixed\.md$' ); then r=0; else r=1; fi
+  if ( cd "$D" && grep -qE '^D[[:space:]]+changelog\.d/77\.fixed\.md$' <<<"$(git diff --cached --name-status -- changelog.d)" ); then r=0; else r=1; fi
   check "consumed fragment deletion is staged" "$r"
   # And nothing about that fragment should remain in the unstaged worktree diff.
-  if ( cd "$D" && git diff --name-only -- changelog.d | grep -q '77.fixed.md' ); then r=1; else r=0; fi
+  if ( cd "$D" && grep -q '77.fixed.md' <<<"$(git diff --name-only -- changelog.d)" ); then r=1; else r=0; fi
   check "no leftover unstaged fragment deletion" "$r"
 fi
 
@@ -108,7 +107,7 @@ for path in \
   packages/mcp/server.json \
   packages/mcp/src/trueppm_mcp/__init__.py
 do
-  if printf '%s\n' "$ADD_BLOCK" | grep -qF "$path"; then r=0; else r=1; fi
+  if grep -qF "$path" <<<"$ADD_BLOCK"; then r=0; else r=1; fi
   check "git add block includes $path" "$r"
 done
 
@@ -150,7 +149,7 @@ for pair in "scheduler SCHEDULER_TAG" "mcp MCP_TAG"; do
     inblock && /^[^[:space:]]/    { exit }
     inblock                       { print }
   ' "$CI_YML")"
-  if printf '%s\n' "$WORKFLOW_BLOCK" | grep -qE "CI_COMMIT_TAG =~ /\^${prefix}-v"; then r=0; else r=1; fi
+  if grep -qE "CI_COMMIT_TAG =~ /\^${prefix}-v" <<<"$WORKFLOW_BLOCK"; then r=0; else r=1; fi
   check "workflow: rules create a pipeline for ${prefix}-v* tags" "$r"
 done
 

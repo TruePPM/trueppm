@@ -278,7 +278,7 @@ find_worktree() {
   git -C "$REPO_ROOT" worktree list --porcelain \
     | awk '/^worktree /{print $2}' \
     | { grep -v "^${REPO_ROOT}$" | grep -E "/${needle}(-|$)" || true; } \
-    | head -n1
+    | sed -n 1p
 }
 
 # ---------------------------------------------------------------------------
@@ -351,7 +351,7 @@ write_owner_marker() {
 owner_field() {
   local path="$1" key="$2"
   [[ -f "$path/$WT_OWNER_FILE" ]] || return 0
-  sed -n -E "s/^${key}=(.*)$/\1/p" "$path/$WT_OWNER_FILE" 2>/dev/null | head -n1
+  sed -n -E "s/^${key}=(.*)$/\1/p" "$path/$WT_OWNER_FILE" 2>/dev/null | sed -n 1p
 }
 
 # Age of a worktree in seconds — from the owner marker's `created` epoch if
@@ -679,7 +679,7 @@ resolve_port_offset() {
     offset=$(( (start + i) % WT_PORT_SPAN ))
     preview=$(( WT_PREVIEW_PORT_BASE + offset ))
     dev=$(( WT_DEV_PORT_BASE + offset ))
-    if printf '%s\n' "$claimed" | grep -qx "$preview"; then continue; fi
+    if grep -qx "$preview" <<<"$claimed"; then continue; fi
     if port_is_free "$preview" && port_is_free "$dev"; then
       printf '%s' "$offset"
       return 0
@@ -830,7 +830,7 @@ print(hits[-1] if hits else '')
 
 # Create the scoped lock label if the project doesn't have it yet (idempotent).
 ensure_lock_label() {
-  glab label list 2>/dev/null | grep -qF "$WT_LOCK_LABEL" && return 0
+  grep -qF "$WT_LOCK_LABEL" <<<"$(glab label list 2>/dev/null)" && return 0
   glab label create -n "$WT_LOCK_LABEL" -c "#ec9a29" \
     -d "Checked out by an agent/worktree (scripts/wt) — do not grab in parallel" \
     >/dev/null 2>&1 || true
@@ -1614,7 +1614,7 @@ cmd_stash() {
       # said out loud rather than silently differing from what push would do.
       git -C "$CURRENT_TOPLEVEL" reset --hard -q HEAD
       ok "stashed to ${ref} — restore with: scripts/wt stash pop"
-      if [[ -n "$(git -C "$CURRENT_TOPLEVEL" ls-files --others --exclude-standard 2>/dev/null | head -n1)" ]]; then
+      if [[ -n "$(git -C "$CURRENT_TOPLEVEL" ls-files --others --exclude-standard 2>/dev/null | sed -n 1p)" ]]; then
         warn "untracked files were NOT stashed (git stash create does not capture them)"
       fi
       ;;

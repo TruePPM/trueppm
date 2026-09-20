@@ -199,7 +199,7 @@ fi
       It is the only thing proving the guard can still reject a drifted mock; a
       guard that cannot fail is indistinguishable from one that works (#3194)."
 if [ -f "$PW_CONFIG" ] && grep -q 'testIgnore' "$PW_CONFIG" 2>/dev/null; then
-  if sed -n '/testIgnore/,/]/p' "$PW_CONFIG" | grep -q 'schema-guard'; then
+  if grep -q 'schema-guard' <<<"$(sed -n '/testIgnore/,/]/p' "$PW_CONFIG")"; then
     fail "$PW_CONFIG excludes schema-guard.spec.ts from the run.
       The negative control only counts if it executes."
   fi
