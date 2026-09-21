@@ -1576,8 +1576,65 @@ admin:
 # full walkthrough.
 # https://docs.trueppm.com/administration/helm-values/#public-read-only-demo-mode
 demo:
-  # Master switch. Everything else in this block is inert while false.
+  # Master switch for the SHARE-LINK demo. Everything else in this block is inert
+  # while false, except `interactive` below, which is its own switch.
   enabled: false
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Interactive read-only demo mode (ADR-1197, #3925).
+  #
+  # A SEPARATE switch from `enabled`, on purpose. `enabled` publishes two anonymous
+  # share projections and nothing else; `interactive` publishes a LOGIN and lets a
+  # visitor walk the whole app. Turning `enabled` on must not turn this on — the
+  # share-link demo's rendered manifests are asserted unchanged by CI's helm:template
+  # job for exactly that reason.
+  #
+  # What it does here: renders TRUEPPM_DEMO_READ_ONLY=true onto the api Deployment,
+  # so DemoReadOnlyMiddleware refuses every unsafe HTTP method under /api/ except
+  # sign-in, token refresh and sign-out — regardless of the caller's role. THAT is
+  # the guarantee. The seeded account's role is not, and must never be cited as one.
+  #
+  # DO NOT EXPOSE AN INTERACTIVE DEMO PUBLICLY YET. Two edge-layer controls are not
+  # built (#3925 MR 2): the nginx method fence on the third server block, and the
+  # egress NetworkPolicy. Without the former, `login_account` throttles on the
+  # submitted USERNAME at 5/min across all source IPs (settings/base.py), so one
+  # shared username gives the whole internet a 5/min login budget — threat-model T2,
+  # which fires with no attacker at all. Run it behind an access control until then.
+  #
+  # In practice this is used together with `enabled`, because the demo account and
+  # its data come from the demo seed hook, which renders under `enabled`. Left on
+  # alone it renders the fence and the hint and seeds nothing; the demo verification
+  # hook (`helm test`) then fails, which is the intended signal.
+  interactive: false
+
+  # The published credential, and the ONLY source of the text the login page shows.
+  #
+  # Deliberately NOT derived from $TRUEPPM_DEMO_PASSWORD (the `--with-personas`
+  # persona password): if the mode flag were mis-set on a real install that happens
+  # to set that variable, deriving the hint from it would print a LIVE credential for
+  # every persona — including ones holding OWNER/ADMIN. An independent key cannot do
+  # that. `load_sample_project` refuses `--with-personas` outright while read-only
+  # mode is on, and refuses to password any account holding ADMIN/OWNER (ADR-1197 D5).
+  #
+  # `username` must name an account the loaded sample itself seeds. For the bundled
+  # Atlas sample that is `atlas-visitor`, a MEMBER on the program and on all three
+  # projects.
+  #
+  # WHY MEMBER AND NOT VIEWER (ADR-1197 Amendment 1, owner decision): a Member sees
+  # the comment composer, the attach control, the edit forms and Author mode, so the
+  # tour feels like the real app rather than a museum. Security does not depend on
+  # it — D2 refuses by request METHOD regardless of role. The cost is purely UX: more
+  # surfaces end in a refusal, which #3926 handles by disabling them up front.
+  #
+  # The chart renders this as TRUEPPM_DEMO_LOGIN_HINT ("<username> / <password>") on
+  # the api Deployment, and as the seed workloads' TRUEPPM_DEMO_LOGIN_USERNAME /
+  # TRUEPPM_DEMO_LOGIN_PASSWORD. Setting it while read-only mode is OFF fails the
+  # render: that combination publishes a working login to a WRITABLE instance, which
+  # is strictly worse than publishing nothing.
+  loginHint:
+    username: ""
+    password: ""
+
   # Public origin serving this instance, e.g. https://demo.example.com — no trailing
   # slash. Used to print the share URLs; it cannot be inferred from inside the
   # cluster, so demo.enabled with an empty baseUrl fails the render.
@@ -1628,10 +1685,16 @@ demo:
   #   1. The share links do not exist between the two commands (the delete cascades
   #      them away; the second recreates them at the SAME pinned URLs), so each run
   #      has a window of seconds in which the share URLs return 404.
-  #   2. Assume project and program ids change on every run (a search of the seed
-  #      found no deterministic-id mechanism; not verified against a live cluster).
-  #      Share URLs survive because their tokens are pinned; a bookmark or open tab
-  #      on /projects/<id> does not.
+  #   2. Project and program ids DO change on every run. This is no longer an
+  #      assumption: the importer's teardown calls `hard_delete_program()` and the
+  #      seed then re-creates the rows, and both models use DB-generated UUID
+  #      primary keys that the seed document cannot pin. Share URLs survive because
+  #      their tokens are pinned; a bookmark or open tab on /projects/<id> does not,
+  #      and an interactive visitor sitting on a project page when a reset lands
+  #      gets a 404. Making them stable needs the importer to accept explicit ids —
+  #      it is not something the seed script can do alone, and it is not built.
+  #      Word any user-facing reset note accordingly (#3926): say the sample data is
+  #      refreshed, not that ids are preserved.
   #   3. A failed run does not fail the release. The failed Job is kept
   #      (failedJobsHistoryLimit) for `kubectl logs`, and alerts.enabled adds the
   #      TruePPMDemoReset* rules.

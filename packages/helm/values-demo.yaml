@@ -61,6 +61,42 @@ demo:
   reset:
     enabled: true
 
+  # ───────────────────────────────────────────────────────────────────────────
+  # Interactive read-only mode (ADR-1197, #3925) — DELIBERATELY LEFT OFF HERE.
+  #
+  # This overlay is the SHARE-LINK demo, and its rendered manifests are asserted
+  # unchanged by CI precisely so that turning that demo on can never turn a public
+  # login on as a side effect. To run the interactive demo instead, add:
+  #
+  #     --set demo.interactive=true \
+  #     --set demo.loginHint.username=atlas-visitor \
+  #     --set demo.loginHint.password="$(openssl rand -base64 18 | tr -d '=+/')"
+  #
+  # `atlas-visitor` is the bundled Atlas sample's demo account: a MEMBER on the
+  # program and on all three projects, holding no work and no ADMIN/OWNER role
+  # anywhere. Member rather than Viewer is an owner decision (ADR-1197 Amendment 1)
+  # and a UX one only — the read-only guarantee is DemoReadOnlyMiddleware refusing by
+  # request method, never the role. See the demo.loginHint block in values.yaml.
+  #
+  # THE LOGIN IS NOT REACHABLE THROUGH THIS OVERLAY'S WEB TIER YET, and that is not a
+  # bug in the recipe — it is the deferral. The web ConfigMap has exactly two
+  # branches, keyed on `demo.enabled`: the share-link branch (this one) `return 404`s
+  # all of `location /api/`, which includes /api/v1/auth/token/, and redirects the
+  # bare origin to the schedule share link. The interactive mode needs a THIRD server
+  # block with a `limit_except GET HEAD OPTIONS` method fence, and that block is
+  # #3925 MR 2. Until it lands, reach the login only by port-forwarding the api
+  # Service, or front the release with your own access-controlled ingress.
+  #
+  # DO NOT EXPOSE IT PUBLICLY YET for the same reason, plus two more: the egress
+  # NetworkPolicy is also MR 2, and `login_account` throttles on the submitted
+  # USERNAME at 5/min across all source IPs — so one shared username hands the whole
+  # internet a 5/min login budget (threat-model T2, which fires with no attacker).
+  #
+  # Verify an interactive install with `helm test <release>`: it signs in with the
+  # hint and asserts an authenticated POST answers 403 demo_read_only. Read what it
+  # says carefully — it reaches the api Service by in-cluster DNS, so it proves the
+  # API-tier fence and says NOTHING about the public edge.
+
   # REQUIRED — no default is shipped, and the chart render fails without them.
   #
   # baseUrl: the public origin, no trailing slash (e.g. https://demo.example.com).

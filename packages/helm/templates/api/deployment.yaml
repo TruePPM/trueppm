@@ -188,14 +188,37 @@ spec:
             {{- include "trueppm.appEnv" . | nindent 12 }}
             - name: TRUEPPM_ADMIN_PASSWORD_FILE
               value: {{ .Values.admin.passwordFile | quote }}
-            {{- if .Values.demo.enabled }}
-            # DemoReadOnlyMiddleware's fence (#3924, #3932): refuses every unsafe
-            # method under /api/ except sign-in/refresh/sign-out. Hardcoded to the
-            # literal "true" rather than sourced from a new values.yaml boolean —
+            {{- include "trueppm.demoGuards" . }}
+            {{- if include "trueppm.demoReadOnly" . }}
+            # DemoReadOnlyMiddleware's fence (#3924, #3932, #3925): refuses every
+            # unsafe method under /api/ except sign-in/refresh/sign-out. Hardcoded to
+            # the literal "true" rather than sourced from a values.yaml boolean —
             # parse_demo_read_only accepts only specific string words, and a bare
             # Go bool rendered through `| quote` is not guaranteed to match one.
+            #
+            # Armed by demo.enabled (the share-link demo, unchanged) OR by
+            # demo.interactive (the published-login demo, #3925). Two switches, one
+            # fence: the guarantee is a property of the DEPLOYMENT, never of the
+            # visitor's role.
             - name: TRUEPPM_DEMO_READ_ONLY
               value: "true"
+            {{- end }}
+            {{- if .Values.demo.interactive }}
+            # Read path for both of these lands in #3926 — Django settings, two
+            # fields on the public GET /api/v1/edition/ response, and the login-page
+            # hook. Between this MR and that one they are RENDERED BUT UNREAD, which
+            # is stated here so the next reader does not diagnose a dead control.
+            #
+            # The displayed credential, assembled from demo.loginHint and from
+            # nothing else. Never from $TRUEPPM_DEMO_PASSWORD: see trueppm.demoGuards.
+            - name: TRUEPPM_DEMO_LOGIN_HINT
+              value: {{ include "trueppm.demoLoginHint" . | quote }}
+            # The reset cadence, so the login page can state it instead of hardcoding
+            # a number that drifts from the CronJob the moment an operator retunes it
+            # (ADR-1197 D9). Empty when demo.reset is off — a login page must then say
+            # nothing about refreshes rather than imply a schedule that does not run.
+            - name: TRUEPPM_DEMO_RESET_SCHEDULE
+              value: {{ (and .Values.demo.enabled .Values.demo.reset.enabled) | ternary (.Values.demo.reset.schedule | toString) "" | quote }}
             {{- end }}
           volumeMounts:
             - name: admin-password

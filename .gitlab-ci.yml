@@ -2706,6 +2706,102 @@ helm:template:
       [ -n "$backends" ] || { echo "DEMO REGRESSION: an all-web demo Ingress no longer renders (#3908)"; exit 1; }
       echo "$backends" | grep -qv -- '-web$' \
         && { echo "DEMO REGRESSION: a demo Ingress backend is not the web Service: $backends (#3908)"; exit 1; } || true
+    # ── Interactive demo mode (ADR-1197, #3925) ───────────────────────────────
+    # The SHARE-LINK demo's render must be unchanged by the interactive mode. It is
+    # a separate switch precisely so that publishing two anonymous projections can
+    # never publish a LOGIN as a side effect, and /tmp/rendered-demo.yaml above is
+    # that render (values-demo.yaml leaves demo.interactive off). Assert the absence
+    # of every artifact the new mode adds, rather than trusting the `if` guards.
+    - |
+      for leaked in TRUEPPM_DEMO_LOGIN_HINT TRUEPPM_DEMO_RESET_SCHEDULE \
+                    TRUEPPM_DEMO_LOGIN_USERNAME TRUEPPM_DEMO_LOGIN_PASSWORD; do
+        grep -q "$leaked" /tmp/rendered-demo.yaml \
+          && { echo "DEMO REGRESSION: $leaked leaked into the share-link demo render — demo.interactive must be the only switch that adds it (#3925)"; exit 1; } || true
+      done
+      yq ea 'select(.kind == "Pod") | .metadata.name' /tmp/rendered-demo.yaml | grep -q 'test-demo-read-only' \
+        && { echo "DEMO REGRESSION: the interactive verification hook rendered with demo.interactive=false (#3925)"; exit 1; } || true
+      grep -q 'TRUEPPM_DEMO_LOGIN' /tmp/rendered.yaml \
+        && { echo "LEAK: an interactive-demo credential rendered into a normal deploy (#3925)"; exit 1; } || true
+    # The positive case. Three env vars form the chart -> API contract (#3926 reads
+    # the latter two through GET /api/v1/edition/), and both seed workloads must
+    # carry the login so the scheduled reset RE-CREATES the account rather than
+    # leaving a published hint pointing at nothing.
+    - |
+      helm template trueppm packages/helm -f packages/helm/values-demo.yaml \
+        --set image.tag=latest --set demo.baseUrl=https://demo.example.com \
+        --set demo.shareToken.schedule=ci-schedule-token \
+        --set demo.shareToken.board=ci-board-token \
+        --set demo.interactive=true \
+        --set demo.loginHint.username=atlas-visitor \
+        --set demo.loginHint.password=ci-visitor-password > /tmp/rendered-demo-interactive.yaml
+      kubeconform -strict -summary -ignore-missing-schemas /tmp/rendered-demo-interactive.yaml
+      api_env="$(yq ea 'select(.kind == "Deployment" and (.metadata.name | test("-api$"))) | .spec.template.spec.containers[] | select(.name == "api") | .env[] | .name + "=" + (.value // "")' /tmp/rendered-demo-interactive.yaml)"
+      for want in 'TRUEPPM_DEMO_READ_ONLY=true' 'TRUEPPM_DEMO_LOGIN_HINT=atlas-visitor / ci-visitor-password' 'TRUEPPM_DEMO_RESET_SCHEDULE=0 */6 * * *'; do
+        printf '%s\n' "$api_env" | grep -qxF -- "$want" \
+          || { echo "DEMO REGRESSION: the api Deployment does not carry '$want' in interactive mode (#3925)"; printf '%s\n' "$api_env"; exit 1; }
+      done
+      seed_env="$(yq ea 'select((.kind == "Job" or .kind == "CronJob") and (.metadata.name | test("-demo-(seed|reset)$"))) | .metadata.name as $w | (.spec.template.spec // .spec.jobTemplate.spec.template.spec) | .containers[] | .env[] | select(.name == "TRUEPPM_DEMO_LOGIN_USERNAME") | $w + "=" + .value' /tmp/rendered-demo-interactive.yaml | grep -vE '^(---)?$' | sort -u)"
+      [ "$(printf '%s\n' "$seed_env" | grep -c .)" -eq 2 ] \
+        || { echo "DEMO REGRESSION: the demo login must reach BOTH the install hook and the reset CronJob, got: $seed_env (#3925)"; exit 1; }
+      yq ea 'select(.kind == "Pod") | .metadata.name' /tmp/rendered-demo-interactive.yaml | grep -q 'test-demo-read-only' \
+        || { echo "DEMO REGRESSION: the interactive verification hook did not render (#3925)"; exit 1; }
+    # The inverse guard, and the one that matters most: a login hint on an instance
+    # whose write fence is OFF publishes a working credential to a WRITABLE install.
+    # A missing hint only breaks a demo; this hands out an account.
+    - |
+      if out=$(helm template trueppm packages/helm --set image.tag=latest \
+            --set demo.loginHint.username=atlas-visitor \
+            --set demo.loginHint.password=ci-visitor-password 2>&1); then
+        echo "DEMO REGRESSION: demo.loginHint rendered with the read-only fence off (#3925)"; exit 1
+      fi
+      echo "$out" | grep -q 'publishes a working login to a WRITABLE instance' \
+        || { echo "DEMO TEST INVALID: render failed but not from the #3925 loginHint guard:"; echo "$out"; exit 1; }
+    # ADR-1197 D5: the persona-password path must fail the install, not the audit.
+    # --with-personas passwords EVERY persona and refuses only staff/superuser rows,
+    # so three accounts holding OWNER/ADMIN would receive a published password.
+    - |
+      if out=$(helm template trueppm packages/helm --set image.tag=latest \
+            --set demo.interactive=true \
+            --set demo.loginHint.username=atlas-visitor \
+            --set demo.loginHint.password=ci-visitor-password \
+            --set env.TRUEPPM_DEMO_PASSWORD=hunter2 2>&1); then
+        echo "DEMO REGRESSION: demo.interactive rendered alongside env.TRUEPPM_DEMO_PASSWORD (#3925, ADR-1197 D5)"; exit 1
+      fi
+      echo "$out" | grep -q 'ADR-1197 D5' \
+        || { echo "DEMO TEST INVALID: render failed but not from the #3925 persona-password guard:"; echo "$out"; exit 1; }
+    # And the mode cannot be half-configured: interactive with no credential would
+    # seed no account and leave the login page with nothing to show.
+    - |
+      if out=$(helm template trueppm packages/helm --set image.tag=latest \
+            --set demo.interactive=true 2>&1); then
+        echo "DEMO REGRESSION: demo.interactive rendered with no demo.loginHint (#3925)"; exit 1
+      fi
+      echo "$out" | grep -q 'demo.loginHint.username / demo.loginHint.password are not both set' \
+        || { echo "DEMO TEST INVALID: render failed but not from the #3925 hint-required guard:"; echo "$out"; exit 1; }
+    # A null loginHint must reach the crafted guard, not a raw Go nil-pointer from
+    # whichever template renders first. The templates resolve both halves through
+    # nil-safe helpers precisely so the guard is the thing that speaks.
+    - |
+      if out=$(helm template trueppm packages/helm --set image.tag=latest \
+            --set demo.interactive=true --set demo.loginHint=null 2>&1); then
+        echo "DEMO REGRESSION: demo.interactive rendered with demo.loginHint=null (#3925)"; exit 1
+      fi
+      echo "$out" | grep -q 'are not both set' \
+        || { echo "DEMO TEST INVALID: demo.loginHint=null produced a raw template error instead of the #3925 guard:"; echo "$out"; exit 1; }
+    # The quieter half: demo.enabled on, demo.interactive off, a hint set. The fence IS
+    # armed so the first guard cannot fire, and nothing reads the hint — an operator
+    # would get a demo with no login and no diagnostic.
+    - |
+      if out=$(helm template trueppm packages/helm --set image.tag=latest \
+            --set demo.enabled=true --set demo.baseUrl=https://demo.example.com \
+            --set demo.shareToken.schedule=ci-schedule-token \
+            --set demo.shareToken.board=ci-board-token \
+            --set demo.loginHint.username=atlas-visitor \
+            --set demo.loginHint.password=ci-visitor-password 2>&1); then
+        echo "DEMO REGRESSION: demo.loginHint rendered with demo.interactive=false (#3925)"; exit 1
+      fi
+      echo "$out" | grep -q 'demo.interactive is false, so nothing reads it' \
+        || { echo "DEMO TEST INVALID: render failed but not from the #3925 inert-hint guard:"; echo "$out"; exit 1; }
     # And the inverse: none of this may leak into a normal deploy. Scoped to the
     # Job kind, not a bare grep: the datastore NetworkPolicy allow-lists name
     # `demo-seed` as a client selector unconditionally (#2560), and a selector

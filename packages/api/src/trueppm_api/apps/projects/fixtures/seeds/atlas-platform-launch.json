@@ -326,6 +326,13 @@
       "display_name": "Ada Boyega",
       "email": "ada@atlas.example",
       "role": "VIEWER"
+    },
+    {
+      "slug": "visitor",
+      "username": "atlas-visitor",
+      "display_name": "Demo Visitor",
+      "email": "visitor@atlas.example",
+      "role": "MEMBER"
     }
   ],
   "calendars": [
@@ -726,6 +733,10 @@
         {
           "account": "ada",
           "role": "VIEWER"
+        },
+        {
+          "account": "visitor",
+          "role": "MEMBER"
         }
       ],
       "default_view": "BOARD",
@@ -2105,6 +2116,10 @@
         {
           "account": "ada",
           "role": "VIEWER"
+        },
+        {
+          "account": "visitor",
+          "role": "MEMBER"
         }
       ],
       "default_view": "SCHEDULE",
@@ -2888,6 +2903,10 @@
         {
           "account": "ada",
           "role": "VIEWER"
+        },
+        {
+          "account": "visitor",
+          "role": "MEMBER"
         }
       ],
       "default_view": "OVERVIEW",
