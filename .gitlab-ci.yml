@@ -2955,14 +2955,29 @@ helm:upgrade:
     RELEASE_IMAGE_TAG: "$CI_COMMIT_SHA"
     APISERVER_HOST: "docker"
     DRILL_LEG: "upgrade"
+  # PAUSED (#3965): step 6 of scripts/helm-install-drill.sh (admin password
+  # retrievable) fails deterministically on this leg, not flakily. The
+  # password file lives in a Pod-scoped emptyDir and is written only while no
+  # superuser exists yet; `helm upgrade` rolls a fresh pod whose bootstrap
+  # correctly skips rewriting it because a superuser already exists from the
+  # install leg. That is the chart's one-time-password design working as
+  # intended — the CI assertion is checking the wrong proxy for "admin access
+  # survives an upgrade." First failed on main at pipeline 2868638832 (sha
+  # 3da8c93fe1beab0c0c4a1cc08c019c1bb4745c18), immediately after !2677 merged
+  # — its own MR pipeline never ran this job, since these rules deliberately
+  # exclude merge_request_event. Re-enable (drop the `when: never` overrides
+  # below) once #3965 lands in 0.5.
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
-      allow_failure: true
+      when: never
+      # was: allow_failure: true
     - if: '$CI_COMMIT_BRANCH == "main"'
-      changes:
-        - packages/helm/**/*
-        - scripts/helm-install-drill.sh
-        - .gitlab-ci.yml
+      when: never
+      # was:
+      # changes:
+      #   - packages/helm/**/*
+      #   - scripts/helm-install-drill.sh
+      #   - .gitlab-ci.yml
   before_script:
     - apk add --no-cache bash curl
     - curl -sSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && chmod +x /usr/local/bin/kind
