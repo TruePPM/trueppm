@@ -456,21 +456,25 @@ expect_probe DENIED "negative: web-labeled pod denied Valkey (component scoping 
 # ---- 9. EGRESS: datastore pods cannot dial out ----------------------------
 # `egress: []` with Egress in policyTypes is a default-deny. Probe an in-cluster
 # address rather than the internet so a CI job with no external egress cannot
-# produce a false pass: the api Service is reachable from any unpoliced pod, so a
-# failure here is attributable to the datastore's own egress rule.
-api_svc="$(kubectl get svc -l app.kubernetes.io/component=api -o jsonpath='{.items[0].metadata.name}')"
-api_port="$(kubectl get svc "$api_svc" -o jsonpath='{.spec.ports[0].port}')"
-expect_probe ALLOWED "control: api Service reachable from an unpoliced pod (egress baseline)" \
-  netpol-egress-baseline '{}' "$api_svc" "$api_port"
+# produce a false pass. This used to target the api Service on the assumption
+# it was reachable from any unpoliced pod — #3850 added an ingress NetworkPolicy
+# for api too, so api is no longer a valid "definitely reachable" baseline; a
+# DENIED result here would be ambiguous between "datastore egress is blocked"
+# (what this step tests) and "api's own ingress policy doesn't admit this pod"
+# (unrelated). Target the netpol-canary Service from step 4 instead — nothing
+# in templates/networkpolicy.yaml selects it, so a DENIED result from a
+# datastore pod can only be attributed to that pod's OWN default-deny egress.
+expect_probe ALLOWED "control: canary Service reachable from an unpoliced pod (egress baseline)" \
+  netpol-egress-baseline '{}' netpol-canary-svc 8080
 
 for ds in postgresql valkey; do
   ds_pod="$(kubectl get pod -l "app.kubernetes.io/name=${ds}" -o jsonpath='{.items[0].metadata.name}')"
-  log "egress probe from ${ds} pod (${ds_pod}) -> ${api_svc}:${api_port}"
+  log "egress probe from ${ds} pod (${ds_pod}) -> netpol-canary-svc:8080"
   # Both datastore images ship bash, so /dev/tcp is available without adding a
   # sidecar. `timeout` bounds a DROPPED SYN, which never returns on its own.
   if kubectl exec "$ds_pod" -- bash -c \
-      "timeout ${PROBE_TIMEOUT} bash -c 'echo > /dev/tcp/${api_svc}/${api_port}'" >/dev/null 2>&1; then
-    fail "${ds} pod reached ${api_svc}:${api_port} — default-deny EGRESS is not enforced"
+      "timeout ${PROBE_TIMEOUT} bash -c 'echo > /dev/tcp/netpol-canary-svc/8080'" >/dev/null 2>&1; then
+    fail "${ds} pod reached netpol-canary-svc:8080 — default-deny EGRESS is not enforced"
   fi
   log "OK [DENIED] ${ds} egress blocked"
 done
