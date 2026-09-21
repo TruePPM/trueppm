@@ -196,3 +196,59 @@ def test_re_import_revives_a_revoked_program_membership(owner: Any) -> None:
     assert revived.is_deleted is False
     assert revived.deleted_version is None
     assert ProgramMembership.objects.filter(program=program, user=ada).count() == 1
+
+
+# --- the interactive demo's published account (#3925, ADR-1197 D5) -------------
+
+
+def test_the_demo_account_reaches_the_program_rail_and_every_atlas_project(
+    owner: Any,
+) -> None:
+    """``atlas-visitor`` is the credential the interactive demo publishes.
+
+    Everything a visitor is shown hangs off these rows. A ``ProgramMembership``
+    alone reaches the program rail and *no* project, and a project that declares a
+    ``members`` roster replaces the program-role fallback for itself — so an account
+    added to ``ACCOUNTS`` and left out of the three rosters signs in to an empty
+    project list. That is a broken demo, not a failing assertion, which is why this
+    asserts the rows rather than the seed file's claim about them.
+    """
+    from rest_framework.test import APIClient
+
+    from trueppm_api.apps.access.models import ProgramMembership
+
+    payload = json.loads((_SEEDS_DIR / "atlas-platform-launch.json").read_text(encoding="utf-8"))
+    program = import_seed(payload, owner=owner, create_users=True, is_sample=True)
+    visitor = User.objects.get(username="atlas-visitor")
+
+    program_row = ProgramMembership.objects.get(program=program, user=visitor, is_deleted=False)
+    assert program_row.role == Role.MEMBER
+
+    projects = Project.objects.filter(program=program)
+    assert projects.count() == 3
+    reached = ProjectMembership.objects.filter(user=visitor, project__in=projects, is_deleted=False)
+    assert reached.count() == 3
+    assert {row.role for row in reached} == {Role.MEMBER}
+
+    client = APIClient()
+    client.force_authenticate(user=visitor)
+    assert client.get(f"/api/v1/programs/{program.pk}/rollup/").status_code == 200
+
+
+def test_the_demo_account_holds_no_privileged_role_anywhere(owner: Any) -> None:
+    """The published password must never open an ADMIN/OWNER account (ADR-1197 D5).
+
+    The read-only fence is a property of the *deployment*, so it can be turned off
+    by a misconfiguration that leaves the seeded data in place. If that happens the
+    published credential is whatever role this account holds — which is why Member,
+    not Admin, and why this is asserted here rather than left to the chart.
+    """
+    payload = json.loads((_SEEDS_DIR / "atlas-platform-launch.json").read_text(encoding="utf-8"))
+    program = import_seed(payload, owner=owner, create_users=True, is_sample=True)
+    visitor = User.objects.get(username="atlas-visitor")
+
+    assert visitor.is_staff is False
+    assert visitor.is_superuser is False
+    assert not ProjectMembership.objects.filter(
+        user=visitor, project__program=program, is_deleted=False, role__gte=Role.ADMIN
+    ).exists()

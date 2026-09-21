@@ -208,13 +208,39 @@ def test_deterministic_projects_with_actuals_simulate_to_the_cpm_finish(seed: in
 
     Scope note before widening this generator: it only ever stamps ``actual_start``
     on tasks it has already marked 100% complete, and the strict equality below
-    depends on that. An *in-progress* task with a non-working ``actual_start`` is
-    the one case Monte Carlo cannot reproduce exactly — the working-day offset
-    index has no offset for the date, so the floor snaps forward and the finish
-    can land up to one working day late, deliberately (see ``_mc_es_floors``,
-    #2833). Draw that here and the assertion must relax to ``>=``, which is the
-    property ``test_contract_fuzz.test_monte_carlo_never_precedes_cpm`` already
-    covers over exactly that space.
+    depends on that.
+
+    **This carve-out used to be far wider than the facts justified, and that is how
+    #3963 hid inside it.** It read: "an *in-progress* task with a non-working
+    ``actual_start`` is the one case Monte Carlo cannot reproduce exactly", and it
+    was written on 2026-07-27 to explain a divergence that was really
+    ``schedule()`` computing the wrong finish — the deterministic pass counted the
+    non-working day as work-day 1 of the duration and finished a working day early,
+    so the two passes disagreed and ``monte_carlo()`` was the one that was right.
+    Carving the input out of the generator rather than asking which engine was
+    wrong made this harness structurally unable to see the defect it was sitting
+    on, for two months.
+    ``test_in_progress_non_working_actual_start_simulates_to_the_cpm_finish`` below
+    now covers that space with the strict assertion, and it fails on the pre-#3963
+    engine (318 of 2,000 generated projects).
+
+    Two narrow residuals genuinely remain, and only these justify keeping actuals
+    off in-progress tasks *here*, where the generator draws every dependency type
+    and zero-duration tasks:
+
+    * **Zero remaining duration** — a milestone, or in-progress work whose
+      ``percent_complete`` burns the duration to 0. Its ``early_finish`` *is* the
+      verbatim non-working date (there are no working days to lay out, so nothing
+      snaps), while the offset index has to stand a neighbour in for it.
+    * **An SS or SF successor**, which keys on the predecessor's *start* rather
+      than its finish. ``schedule()`` reads the verbatim date; the index reads the
+      snapped one.
+
+    Both are the documented, one-directional #2833 trade-off (see
+    ``_mc_es_floors``): snapping forward can only report *later*, never earlier, so
+    a risk forecast rounds toward more risk. Where they apply the assertion must
+    relax to ``>=``, which is the property
+    ``test_contract_fuzz.test_monte_carlo_never_precedes_cpm`` covers.
     """
     rng = random.Random(seed)
     n = rng.randint(2, 6)
@@ -255,6 +281,92 @@ def test_deterministic_projects_with_actuals_simulate_to_the_cpm_finish(seed: in
                 f"T{i}",
                 f"T{j}",
                 rng.choice(list(DependencyType)),
+                timedelta(days=rng.randint(-2, 4)),
+            )
+        )
+    _assert_mc_matches_cpm(_project(tasks, deps))
+
+
+# ---------------------------------------------------------------------------
+# #3963 — the space the generator above carved out, with the carve-out narrowed
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("seed", range(30))
+def test_in_progress_non_working_actual_start_simulates_to_the_cpm_finish(seed: int) -> None:
+    """In-progress work started on a weekend still makes both passes agree (#3963).
+
+    The generator above excluded this input on the belief that ``monte_carlo()``
+    could not reproduce it. The real reason the two passes disagreed was that
+    ``schedule()`` was wrong: ``_finish_from_start`` counted a non-working
+    ``actual_start`` as work-day 1, spending one working day of the duration on a
+    day nobody works, so the deterministic finish landed a working day early.
+    ``monte_carlo()`` snaps the floor forward (``_mc_es_floors``, #2833) and gave
+    the task its full remaining duration — the correct answer. A PM could read two
+    different finish dates for one fully deterministic plan, and the *risk* tool
+    was the one telling the truth.
+
+    This is the guard #2861 asks for rather than a regression case for the one
+    repro: the class had already been entered from four readers (#1830, #1929,
+    #2461, #1827) without anyone asserting a property that spanned them. On the
+    pre-#3963 engine this generator mismatches on 318 of 2,000 seeds (first at
+    seed 8, so the 30 below are not a coincidence); on the fixed engine, 0.
+
+    The space is deliberately bounded to what the fix actually made exact, so a
+    failure here means a regression and never a known trade-off:
+
+    * **remaining duration >= 1** — the pct roll is reset to 0 when it would burn
+      the duration to nothing, because a zero-remaining task's ``early_finish``
+      *is* its verbatim non-working date and the offset index cannot represent it;
+    * **FS/FF edges only** — SS and SF key on the predecessor's *start*, which
+      ``schedule()`` reads verbatim and the index reads snapped.
+
+    Both exclusions are the one-directional #2833 rounding (later, never earlier)
+    and are covered as an inequality by
+    ``test_contract_fuzz.test_monte_carlo_never_precedes_cpm``. Neither is a
+    ``_finish_from_start`` question, which is the whole point of drawing the line
+    here: what is carved out now is a stated property of the offset index, not an
+    unexamined "MC cannot do this".
+    """
+    rng = random.Random(seed)
+    n = rng.randint(2, 6)
+    tasks: list[Task] = []
+    for i in range(n):
+        # Duration >= 1: a zero-duration milestone is one of the two residuals.
+        duration_days = rng.randint(1, 6)
+        t = Task(id=f"T{i}", name=f"T{i}", duration=timedelta(days=duration_days))
+        roll = rng.random()
+        if roll < 0.30:
+            t.percent_complete = 100.0
+            finish = START + timedelta(days=rng.randint(0, 15))
+            t.actual_finish = finish
+            if rng.random() < 0.5:
+                t.actual_start = finish - timedelta(days=rng.randint(0, 5))
+        elif roll < 0.85:
+            # In progress with a recorded start, drawn over any weekday so roughly
+            # two in seven land on a non-working one. This is the draw the older
+            # generator refuses to make.
+            pct = float(rng.choice([10, 25, 50, 75]))
+            if duration_days - int(duration_days * pct / 100.0) < 1:
+                pct = 0.0  # keep remaining >= 1; see the docstring
+            t.percent_complete = pct
+            t.actual_start = START + timedelta(days=rng.randint(0, 15))
+        if rng.random() < 0.2:
+            t.planned_start = START + timedelta(days=rng.randint(0, 20))
+        tasks.append(t)
+
+    deps: list[Dependency] = []
+    seen: set[tuple[int, int]] = set()
+    for _ in range(rng.randint(1, n)):
+        i, j = rng.randrange(n), rng.randrange(n)
+        if i >= j or (i, j) in seen:
+            continue
+        seen.add((i, j))
+        deps.append(
+            Dependency(
+                f"T{i}",
+                f"T{j}",
+                rng.choice([DependencyType.FS, DependencyType.FF]),
                 timedelta(days=rng.randint(-2, 4)),
             )
         )

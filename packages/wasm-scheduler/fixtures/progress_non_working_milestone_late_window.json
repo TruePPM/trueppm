@@ -1,0 +1,19 @@
+{
+  "id": "p-non-working-milestone-late-window",
+  "name": "A milestone pinned to a non-working actual_start keeps a coherent late window (#3963)",
+  "start_date": "2026-02-02",
+  "tasks": [
+    {"id": "M", "name": "Milestone recorded on a Saturday", "duration": 0.0, "actual_start": "2026-02-07"},
+    {"id": "N", "name": "FS successor milestone", "duration": 0.0},
+    {"id": "T", "name": "Unconstrained live task", "duration": 259200.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "M", "successor_id": "N", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

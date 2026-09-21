@@ -49,8 +49,8 @@ def test_every_sample_persona_logs_in_through_the_token_endpoint(key: str) -> No
 
     failures: dict[str, Any] = {}
     for account in sample_accounts(key):
-        # The login endpoint is scope-throttled on a shared LocMem cache; fifteen
-        # sign-ins in a row would 429 on the throttle, not on the password.
+        # The login endpoint is scope-throttled on a shared LocMem cache; a pack's
+        # worth of sign-ins in a row would 429 on the throttle, not on the password.
         cache.clear()
         resp = APIClient().post(
             "/api/v1/auth/token/",

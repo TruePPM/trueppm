@@ -21,6 +21,16 @@ already created, not only to rows this run mints (#3484). It still never overwri
 a password a real user set, and never touches a staff/superuser account — and the
 report lists only the accounts the printed password verifiably opens, naming any it
 refused, so the command cannot claim a login state it did not produce.
+
+Interactive demo mode (ADR-1197 D5, #3925) uses a *different* path. ``--with-personas``
+is refused outright while ``settings.DEMO_READ_ONLY`` is on, because it passwords
+**every** persona in the pack with one shared secret and its only refusals are staff
+and superuser rows — a persona holding a project or program ``OWNER``/``ADMIN`` role
+gets the password too, so publishing it would publish a Project Admin credential.
+Instead, ``TRUEPPM_DEMO_LOGIN_USERNAME`` + ``TRUEPPM_DEMO_LOGIN_PASSWORD`` enable
+exactly one named account, and only after proving that account holds no
+``ADMIN``/``OWNER`` role anywhere and looks like a row this sample seeded rather
+than a real user who happens to share the username.
 """
 
 from __future__ import annotations
@@ -33,6 +43,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.models import Project
 from trueppm_api.apps.projects.seed.samples import (
     DEFAULT_SAMPLE,
@@ -41,10 +52,22 @@ from trueppm_api.apps.projects.seed.samples import (
     load_sample,
     sample_accounts,
 )
+from trueppm_api.apps.workspace.models import WorkspaceRole
+from trueppm_api.apps.workspace.permissions import workspace_role_for_user
 
 User = get_user_model()
 
 DEMO_PASSWORD_ENV = "TRUEPPM_DEMO_PASSWORD"
+
+#: The interactive demo's single published login (#3925). Both must be set together.
+#: The chart renders this pair onto the demo seed Job and the reset CronJob. The api
+#: Deployment gets a different variable, ``TRUEPPM_DEMO_LOGIN_HINT``, whose value is
+#: "<username> / <password>" — so the password *is* on the api pod, deliberately: it
+#: is published on the login page by design (#3926 serves it from the unauthenticated
+#: GET /api/v1/edition/). Nothing here is confidential; do not reason about it as if
+#: it were.
+DEMO_LOGIN_USERNAME_ENV = "TRUEPPM_DEMO_LOGIN_USERNAME"
+DEMO_LOGIN_PASSWORD_ENV = "TRUEPPM_DEMO_LOGIN_PASSWORD"
 
 
 class Command(BaseCommand):
@@ -72,8 +95,29 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         sample_key = options["sample"]
-        owner = self._resolve_owner(options.get("owner"), sample_key)
         with_personas = options["with_personas"]
+
+        # Fail BEFORE the import, not after (ADR-1197 D5). In demo read-only mode the
+        # seed Job's exit status is the Helm release's exit status, so refusing here
+        # fails the install rather than leaving a public instance whose every persona —
+        # including three that hold OWNER or ADMIN — shares one published password.
+        if with_personas and settings.DEMO_READ_ONLY:
+            raise CommandError(
+                "--with-personas is refused while TRUEPPM_DEMO_READ_ONLY is on. It gives "
+                "EVERY persona in the sample the same password and refuses only staff and "
+                "superuser rows, so a persona holding a project or program OWNER/ADMIN "
+                "role receives it too — publishing that password would publish a Project "
+                f"Admin credential. Enable exactly one non-privileged account instead, via "
+                f"{DEMO_LOGIN_USERNAME_ENV} + {DEMO_LOGIN_PASSWORD_ENV} (ADR-1197 D5)."
+            )
+
+        # Resolve the demo-login request before the import too, for the same reason:
+        # a typo in the username, or one half of the env pair, is a refusal that costs
+        # nothing to discover before any data is written. The checks that need the
+        # imported rows (privilege, provenance) necessarily run afterwards.
+        demo_login = self._resolve_demo_login_request(sample_key)
+
+        owner = self._resolve_owner(options.get("owner"), sample_key)
 
         persona_password: str | None = None
         password_source: str | None = None
@@ -100,6 +144,8 @@ class Command(BaseCommand):
                 "  Personas created with unusable passwords (view-only). "
                 "Re-run with --with-personas to enable persona logins."
             )
+
+        self._enable_demo_login(program, demo_login)
 
     def _report_personas(self, sample_key: str, password: str | None, source: str | None) -> None:
         """Print the persona usernames the printed password actually opens.
@@ -160,6 +206,168 @@ class Command(BaseCommand):
                 "  To take one of these over deliberately, set its password yourself: "
                 "python manage.py changepassword <username>"
             )
+
+    def _resolve_demo_login_request(self, sample_key: str) -> dict[str, str] | None:
+        """Validate the demo-login env pair before anything is written (#3925).
+
+        Everything checkable without the imported rows is checked here, so a typo or a
+        half-set pair costs a refusal rather than a seeded-then-failed install. The
+        checks that genuinely need the rows — privilege and provenance — cannot move.
+
+        Returns:
+            The resolved request, or ``None`` when neither variable is set.
+        """
+        username = (os.environ.get(DEMO_LOGIN_USERNAME_ENV) or "").strip()
+        password = os.environ.get(DEMO_LOGIN_PASSWORD_ENV) or ""
+        if not username and not password:
+            return None
+        if not username or not password:
+            raise CommandError(
+                f"{DEMO_LOGIN_USERNAME_ENV} and {DEMO_LOGIN_PASSWORD_ENV} must be set "
+                "together — one without the other cannot open an account, and a demo "
+                "that publishes a login hint nobody can use is a broken demo."
+            )
+
+        # The invariant lives HERE, not only in the Helm guard that has the same rule.
+        # The chart is one caller; `kubectl exec ... manage.py load_sample_project`,
+        # `docker compose run` and a CI seed step are not covered by a render-time
+        # check, and on a writable instance this account's MEMBER role plus an open
+        # `POST /projects/` is a self-granted OWNER.
+        if not settings.DEMO_READ_ONLY:
+            raise CommandError(
+                f"{DEMO_LOGIN_USERNAME_ENV} is set but TRUEPPM_DEMO_READ_ONLY is not on. "
+                "That would publish a working login to a WRITABLE instance, which is "
+                "worse than publishing none: any authenticated user may POST /projects/ "
+                "and is made its OWNER. Arm the read-only fence, or unset the pair."
+            )
+
+        account = next(
+            (a for a in sample_accounts(sample_key) if a.get("username") == username), None
+        )
+        if account is None:
+            raise CommandError(
+                f"{DEMO_LOGIN_USERNAME_ENV}={username!r} is not one of sample "
+                f"{sample_key!r}'s accounts. Only an account the sample itself seeds may "
+                "be enabled: anything else is a pre-existing real user whose password "
+                "this command must never set."
+            )
+        return {
+            "username": username,
+            "password": password,
+            "email": account.get("email", "") or "",
+        }
+
+    def _enable_demo_login(self, program: Any, request: dict[str, str] | None) -> None:
+        """Give ONE named sample account a usable password (ADR-1197 D5, #3925).
+
+        This is the interactive demo's published credential, so every failure here is
+        a ``CommandError``: the seed Job is a Helm hook, so raising fails the release
+        rather than publishing a login hint for an account that does not exist, or --
+        worse -- quietly passwording an account that is not ours to password.
+
+        Two questions have to be answered, and the sample pack can answer neither:
+
+        **Is it privileged?** Read the membership rows this import produced, not the
+        pack's declared roles -- the roster in the JSON is a claim about the seed, the
+        rows are what the API enforces. The query is deliberately NOT scoped to this
+        program: a role held somewhere else is exactly as published as a role held
+        here, and scoping the check to one program is how it would miss that.
+
+        **Is it ours?** ``SeedImporter._resolve_accounts`` binds an account by bare
+        username, so a pre-existing real user who happens to hold a sample username is
+        adopted by the import. ``has_usable_password()`` -- the guard the persona path
+        uses -- cannot be reused here, because the scheduled reset must re-apply the
+        password on every run and a rotated credential must be able to land. Provenance
+        is asserted instead: a seeded row carries the pack's own email and holds
+        memberships in this program and nowhere else.
+
+        Residual, stated rather than hidden: a pre-existing account that shares the
+        sample's username AND its ``@atlas.example`` email AND holds no membership
+        outside this program would still be passworded. Never point
+        ``demo.loginHint.username`` at an instance that has real users.
+        """
+        if request is None:
+            return
+        username = request["username"]
+        password = request["password"]
+
+        user = User.objects.filter(username=username).first()
+        if user is None:
+            raise CommandError(
+                f"{DEMO_LOGIN_USERNAME_ENV}={username!r} names a sample account that does "
+                "not exist after the load. The seed did not produce it — refusing to "
+                "report a demo login that cannot work."
+            )
+        if user.is_staff or user.is_superuser:
+            raise CommandError(
+                f"Refusing to set a published password on {username!r}: it is a staff or "
+                "superuser account."
+            )
+
+        if (
+            ProjectMembership.objects.filter(
+                user=user, is_deleted=False, role__gte=Role.ADMIN
+            ).exists()
+            or ProgramMembership.objects.filter(
+                user=user, is_deleted=False, role__gte=Role.ADMIN
+            ).exists()
+        ):
+            raise CommandError(
+                f"Refusing to set a published password on {username!r}: it holds an "
+                "ADMIN or OWNER role on some project or program. The interactive demo's "
+                "credential is public, and the read-only fence is a deployment property "
+                "that a future misconfiguration can remove — a published Project Admin "
+                "login would then be a full write credential (ADR-1197 D5)."
+            )
+
+        # The third privilege axis, and the one a project/program sweep cannot see.
+        # A seeded persona holds no WorkspaceMembership row and therefore resolves to
+        # the implicit MEMBER, so the bundled pack passes — but an operator who granted
+        # this account workspace ADMIN on a long-lived demo instance has handed it the
+        # exfil and irreversible surfaces behind IsWorkspaceAdminStrict, and neither
+        # membership query above would notice.
+        workspace_role = workspace_role_for_user(user)
+        if workspace_role is not None and workspace_role >= WorkspaceRole.ADMIN:
+            raise CommandError(
+                f"Refusing to set a published password on {username!r}: it holds "
+                "workspace ADMIN or higher, which gates the export and irreversible "
+                "surfaces regardless of any project role (ADR-1197 D5)."
+            )
+
+        foreign = (
+            ProjectMembership.objects.filter(user=user, is_deleted=False)
+            .exclude(project__program=program)
+            .exists()
+            or ProgramMembership.objects.filter(user=user, is_deleted=False)
+            .exclude(program=program)
+            .exists()
+        )
+        if foreign or (request["email"] and user.email != request["email"]):
+            raise CommandError(
+                f"Refusing to set a published password on {username!r}: it does not look "
+                "like an account this sample seeded (it holds membership outside this "
+                "program, or its email is not the pack's). A real user who happens to "
+                "share a sample username must never have their password replaced by a "
+                "published one."
+            )
+
+        if user.check_password(password):
+            # Already correct — a reset re-running the identical seed. Skip the write
+            # so a no-op run does not churn the password hash.
+            self.stdout.write(f"  Interactive demo login for {username!r} already current.")
+            return
+
+        # A seeded persona, not an interactive signup, so the password validators that
+        # govern real sign-ups do not apply; the value is an operator's own choice.
+        # nosemgrep: unvalidated-password
+        user.set_password(password)
+        user.save(update_fields=["password"])
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"  Interactive demo login enabled for {username!r} "
+                "(password from the environment; not echoed)."
+            )
+        )
 
     @staticmethod
     def _persona_refusal_reason(user: Any) -> str:

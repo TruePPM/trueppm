@@ -2660,3 +2660,161 @@ class TestDrivingEdges:
         assert d["driving_edges"] == [
             {"predecessor_id": "A", "successor_id": "B", "dep_type": "FS"}
         ]
+
+
+# ---------------------------------------------------------------------------
+# A non-working actual never spends a working day of the duration (#3963)
+# ---------------------------------------------------------------------------
+
+
+class TestNonWorkingActualDurationWalk:
+    """``duration`` counts working days, so the walk that lays it out begins on one.
+
+    The recorded ``actual_start`` is still kept verbatim as the ES floor — actuals
+    are truth (ADR-0132 §2) and :func:`_early_start_floors` does not snap them. Only
+    the duration walk moves. The two are separate quantities: *when work began*, and
+    *how many working days of effort it takes*.
+
+    The trigger needs no user intent. ``serializers.py``'s "Any → IN_PROGRESS: set
+    ``actual_start`` = today" means a contributor dragging a card to In Progress on a
+    Saturday arms it; nobody typed a date. The cases below are the three shapes that
+    reach a duration walk from a non-working day, plus the milestone whose
+    ``early_finish`` *is* the non-working date.
+    """
+
+    # Mon 2026-02-02 project start; Sat 2026-02-07 / Sun 2026-02-08 are non-working.
+    SAT = date(2026, 2, 7)
+    SUN = date(2026, 2, 8)
+
+    def test_weekend_actual_start_does_not_shorten_the_task(self) -> None:
+        """A weekend start gets the same finish as the following Monday, not the
+        preceding Friday's."""
+        p = make_project(
+            [task("A", "A", 3, percent_complete=10.0, actual_start=self.SAT)],
+            start=date(2026, 2, 2),
+        )
+        t = schedule(p).tasks[0]
+        assert t.early_start == self.SAT, "the recorded actual is kept verbatim"
+        # Mon 9, Tue 10, Wed 11 — three working days, the same three a Monday start
+        # would get. Before the fix the Saturday was counted as work-day 1 and this
+        # was Tue the 10th, one working day early.
+        assert t.early_finish == date(2026, 2, 11)
+
+    def test_weekend_and_following_monday_starts_agree(self) -> None:
+        """Sat, Sun and Mon starts all finish together; Friday's finishes a day earlier.
+
+        Stated as the comparison because the defect is only visible as one: each
+        individual date looked plausible, and the Friday leg is what proves the
+        weekend legs are not simply off by one in the other direction.
+        """
+        finishes = {}
+        for label, d in (
+            ("fri", date(2026, 2, 6)),
+            ("sat", self.SAT),
+            ("sun", self.SUN),
+            ("mon", date(2026, 2, 9)),
+        ):
+            p = make_project(
+                [task("A", "A", 3, percent_complete=10.0, actual_start=d)],
+                start=date(2026, 2, 2),
+            )
+            finishes[label] = schedule(p).tasks[0].early_finish
+
+        assert finishes["sat"] == finishes["sun"] == finishes["mon"]
+        assert finishes["fri"] < finishes["mon"]
+
+    def test_completed_with_only_a_weekend_actual_start_keeps_full_duration(self) -> None:
+        """``_pinned_placement`` takes the same walk, so the completed case moves too."""
+        p = make_project(
+            [task("A", "A", 3, percent_complete=100.0, actual_start=self.SAT)],
+            start=date(2026, 2, 2),
+        )
+        t = schedule(p).tasks[0]
+        assert t.early_start == self.SAT
+        assert t.early_finish == date(2026, 2, 11)  # Mon 9 + Tue 10 + Wed 11
+
+    def test_completed_with_only_a_weekend_actual_finish_keeps_full_duration(self) -> None:
+        """The mirror through ``_start_from_finish``: the back-off begins on a working day."""
+        p = make_project(
+            [task("A", "A", 3, percent_complete=100.0, actual_finish=self.SUN)],
+            start=date(2026, 2, 2),
+        )
+        t = schedule(p).tasks[0]
+        assert t.early_finish == self.SUN, "the recorded actual is kept verbatim"
+        # Back off from Fri the 6th: Fri, Thu, Wed — so the span holds three working
+        # days. Before the fix the Sunday was counted as the last of them.
+        assert t.early_start == date(2026, 2, 4)
+
+    def test_late_window_never_precedes_the_early_window(self) -> None:
+        """The inversion the defect produced, and what erased it.
+
+        ``late_start`` before ``early_start`` is an incoherent window: the float bar
+        the web draws from ES to LS renders backwards. ``_working_days_between``
+        clamps the negative span to zero on the way into ``total_float``, so the task
+        was additionally reported as critical and nothing downstream could tell.
+        """
+        p = make_project(
+            [task("A", "A", 5, percent_complete=20.0, actual_start=self.SAT)],
+            start=date(2026, 2, 2),
+        )
+        t = schedule(p).tasks[0]
+        assert t.late_start is not None and t.early_start is not None
+        assert t.late_finish is not None and t.early_finish is not None
+        assert t.late_start >= t.early_start
+        assert t.late_finish >= t.early_finish
+
+    def test_milestone_on_a_weekend_actual_keeps_a_coherent_late_window(self) -> None:
+        """A milestone lays out no working days, so its EF *is* the non-working date.
+
+        Nothing in the duration walk can snap that — there is no walk. Every backward
+        bound is working-day snapped and so cannot name the Saturday, which is why
+        the late window is floored at the early one in ``_apply_late_dates``.
+        """
+        p = make_project(
+            [
+                task("M", "M", 0, actual_start=self.SAT),
+                task("N", "N", 0),
+            ],
+            dependencies=[Dependency("M", "N")],
+            start=date(2026, 2, 2),
+        )
+        m = {t.id: t for t in schedule(p).tasks}["M"]
+        assert m.early_start == m.early_finish == self.SAT
+        assert m.late_start == self.SAT
+        assert m.late_finish == self.SAT
+
+    def test_deterministic_project_agrees_with_monte_carlo(self) -> None:
+        """The engine disagreeing with itself was the reason this ranked above a
+        one-day rounding slip.
+
+        No three-point estimates and no velocity signal, so every simulated run is
+        identical and ``monte_carlo()`` must land exactly on ``schedule()``'s finish.
+        Before the fix ``schedule()`` returned 2026-02-11 and every percentile
+        returned 2026-02-12 — a PM could read two finish dates for one plan, and the
+        risk tool was the one that was right (``_mc_es_floors`` snaps the floor
+        forward, #2833).
+        """
+        p = make_project(
+            [task("A", "A", 5, percent_complete=20.0, actual_start=self.SAT)],
+            start=date(2026, 2, 2),
+        )
+        cpm = schedule(p).project_finish
+        mc = monte_carlo(p, runs=64, seed=3)
+        assert mc.p50 == mc.p80 == mc.p95 == cpm
+
+    def test_working_day_starts_are_unchanged(self) -> None:
+        """The inert half: a project whose actuals all land on working days is
+        byte-identical to before, which is what keeps this a bugfix."""
+        p = make_project(
+            [
+                task("A", "A", 3, percent_complete=25.0, actual_start=date(2026, 2, 3)),
+                task("B", "B", 4),
+            ],
+            dependencies=[Dependency("A", "B")],
+            start=date(2026, 2, 2),
+        )
+        by_id = {t.id: t for t in schedule(p).tasks}
+        assert by_id["A"].early_start == date(2026, 2, 3)  # Tue, verbatim
+        assert by_id["A"].early_finish == date(2026, 2, 5)  # Tue + Wed + Thu
+        assert by_id["B"].early_start == date(2026, 2, 6)  # Fri
+        assert by_id["B"].early_finish == date(2026, 2, 11)  # Fri, Mon, Tue, Wed

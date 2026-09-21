@@ -2,27 +2,37 @@
 
 ## Status
 
-Accepted — status corrected 2026-09-21 as the D3/D4 slice (#3926) landed, matching the
-convention established by the #2539 audit (verified: `DemoReadOnlyMiddleware` in
-`packages/api/src/trueppm_api/core/demo_read_only.py`, shipped by the D2 child #3924).
-Proposed 2026-09-19. Amended 2026-09-20 — see **Amendment 2026-09-20** below. Resolves
-#3912. Amends ADR-0658 — which continues to govern the share-link demo **unchanged** — for
-one new mode only.
+Accepted — status corrected 2026-09-21 as the D3/D4 slice (#3926) landed on top of #3925
+MR 1, matching the convention established by the #2539 audit (verified: D2's middleware
+merged as `trueppm_api.core.demo_read_only` in #3924, and `load_sample_project` now cites
+D5 by name). Proposed 2026-09-19; amended 2026-09-20 and 2026-09-21 — see **Amendment
+2026-09-20** and the dated notes on D9 below. Resolves #3912. Amends ADR-0658 — which
+continues to govern the share-link demo **unchanged** — for one new mode only.
 
-> **Implementation status.** Superseded, 2026-09-21: the paragraph below described the
-> tree on 2026-09-19 and is kept because it is why several decisions here read as
-> forward-looking. Since then D2 shipped (#3924 — `DemoReadOnlyMiddleware`, the
-> deny-by-default method fence), D3/D4 shipped (#3926 — the refusal affordance, the
-> preview overlay, the login and shell announcements, and the `demo_read_only` /
-> `demo_login_hint` fields on `GET /api/v1/edition/`), and the chart-side
-> `demo.interactive` work is #3925. Re-verify against the tree before citing the
-> snapshot below as current.
+> **Implementation status (2026-09-21).** The 2026-09-19 note below said "no code ships
+> with this ADR", and that has stopped being true — which is why the status moved. What
+> exists now:
 >
-> **Implementation status (2026-09-19):** **no code ships with this ADR.** Verified
-> 2026-09-19 against `f502f488c` (0.4.0-beta.3, this branch's base): there is no `demo.interactive` values
-> key in `packages/helm/values*.yaml`, no read-only middleware anywhere under
-> `packages/api/src/trueppm_api/core/`, and `packages/helm/templates/web/configmap.yaml`
-> renders two server blocks, not three.
+> - **D2 — shipped** (#3924): `DemoReadOnlyMiddleware` refuses every unsafe method under
+>   `/api/` except sign-in, token refresh and sign-out, keyed on the deployment.
+> - **D5, D9 — shipped** (#3925 MR 1): the `demo.interactive` values key and its
+>   `TRUEPPM_DEMO_READ_ONLY` / `TRUEPPM_DEMO_LOGIN_HINT` / `TRUEPPM_DEMO_RESET_SCHEDULE`
+>   env contract, the seeded `atlas-visitor` Member account, the persona-flag refusals,
+>   the configurable reset, and a `helm test` hook that proves the fence end to end.
+> - **D3, D4 — shipped** (#3926): the refusal affordance, the preview overlay, the login
+>   and shell announcements, and the `demo_read_only` / `demo_login_hint` fields on
+>   `GET /api/v1/edition/`.
+> - **D1 — NOT shipped.** `packages/helm/templates/web/configmap.yaml` still renders two
+>   server blocks, not three, so the method fence at the edge does not exist and the
+>   interactive login is not reachable through the chart's own web tier. That block, the
+>   egress NetworkPolicy and the T2 throttle re-aim are #3925 MR 2, and until they land
+>   **an interactive demo must not be exposed publicly.**
+>
+> The original note, kept because it is the baseline the above is measured against:
+> verified 2026-09-19 against `f502f488c` (0.4.0-beta.3, this branch's base): there was no
+> `demo.interactive` values key in `packages/helm/values*.yaml`, no read-only middleware
+> anywhere under `packages/api/src/trueppm_api/core/`, and two server blocks in the web
+> ConfigMap.
 
 ## Context
 
@@ -260,6 +270,46 @@ not a control and must not be cited as mitigation for any finding.
 > almost nothing to clean up, so the reset's real job is re-anchoring the sample dates (the
 > seed anchors them to the import day so the demo reads as a program in flight) as well as
 > containment. See the Amendment.
+
+> **Amended 2026-09-21 (#3925 MR 1, as built).** The key is `demo.reset.schedule`,
+> defaulting to `0 */6 * * *`, and it is now the *only* statement of the cadence: the chart
+> renders it to the api pod as `TRUEPPM_DEMO_RESET_SCHEDULE` so the login page (#3926) reads
+> it rather than hardcoding a number that drifts the moment an operator retunes the CronJob.
+> It renders empty when `demo.reset.enabled` is false, so a login page that claims a refresh
+> schedule can only do so when one actually runs.
+>
+> The two reasons, ranked, because only one of them survives D2:
+>
+> 1. **Date re-anchoring — the operational reason, and the one that still applies.**
+>    `build_atlas_seed.py` anchors every date to the import day. Without a refresh the
+>    sample ages out of "a program in flight" into a program that finished months ago, and
+>    the demo stops demonstrating the product. This is why the cadence is hours, not days.
+> 2. **Containment — the original reason, and still NOT a control.** It bounds how long any
+>    successful write stays visible. It prevents nothing, mitigates no finding, and must not
+>    be cited as if it did. With D2 armed there is nothing for it to clean up.
+>
+> Two consequences of the reset are now established by code reading rather than assumed,
+> and neither is a reason to lengthen the cadence:
+>
+> - **Project and program ids change on every run.** The importer's teardown calls
+>   `hard_delete_program()` and the seed re-creates the rows with DB-generated UUID primary
+>   keys the seed document cannot pin. A visitor sitting on `/projects/<id>` when a reset
+>   lands gets a 404. Stabilizing them requires the *importer* to accept explicit ids; it is
+>   not something the seed script can do alone, and it is not built. Amendment item 4's
+>   "must not log out an active visitor" is honored — the account row survives and JWTs are
+>   not bound to it — but the visitor's *page* does not survive, which is the effect a user
+>   actually feels. Word the user-facing note as "sample data is refreshed", never as a
+>   promise that anything is preserved.
+> - **The demo account is re-created, not merely left alone.** `load_sample_project`
+>   re-applies the published password from `TRUEPPM_DEMO_LOGIN_USERNAME` /
+>   `TRUEPPM_DEMO_LOGIN_PASSWORD` on every run, so a reset cannot leave a published login
+>   hint pointing at an account that no longer opens.
+>
+> A failed reset must stay observable to an operator (a failed Job, its logs, and the
+> `TruePPMDemoReset*` alerts) and must never become a readiness signal: gating API readiness
+> on the demo account existing would let one failed reset take the whole demo down, which is
+> strictly worse than the stale-but-read-only data this ADR and Durable Execution item 8
+> already accept as degraded.
 
 ### D10 — Host isolation from CI is an acceptance criterion no gate can enforce
 

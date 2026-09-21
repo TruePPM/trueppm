@@ -1099,3 +1099,109 @@ scripts/helm-structure-check.sh does.
 !! and answers 400 DisallowedHost if it is not listed.
 {{- end }}
 {{- end -}}
+
+{{/*
+Interactive demo read-only mode (ADR-1197, #3925).
+
+`trueppm.demoReadOnly` renders the string "true" when DemoReadOnlyMiddleware must be
+armed, and the empty string otherwise. Two switches arm it: the share-link demo
+(`demo.enabled`, which has done so since #3932) and the interactive demo
+(`demo.interactive`). They are independent — `enabled` must not imply `interactive`,
+because the share-link demo publishes no login and its rendered manifests are
+asserted unchanged by CI.
+
+Callers must compare against the literal string, e.g. `{{ if include
+"trueppm.demoReadOnly" . }}`. The env value itself is the literal "true" rather than
+a Go bool piped through `| quote`: parse_demo_read_only accepts only specific words
+and REFUSES TO BOOT on anything else, so "the value happens to render as true" is not
+good enough.
+*/}}
+{{- define "trueppm.demoReadOnly" -}}
+{{- if or .Values.demo.enabled .Values.demo.interactive -}}true{{- end -}}
+{{- end -}}
+
+{{/*
+Render-time guards for the interactive demo (ADR-1197 D5/D6, #3925).
+
+Included from templates/api/deployment.yaml, which renders on every install, so the
+guards cannot be skipped by turning another component off. Nothing is emitted on the
+happy path — every branch either fails the render or produces no output.
+*/}}
+{{- define "trueppm.demoGuards" -}}
+{{- $hint := .Values.demo.loginHint | default dict -}}
+{{- $hintSet := or ($hint.username | default "") ($hint.password | default "") -}}
+{{- /*
+  The inverse of the obvious check, and the more important direction: a login hint on
+  an instance whose write fence is OFF publishes a WORKING credential to a writable
+  deployment. A missing hint only breaks a demo; this one hands the internet an
+  account. Fail the render rather than letting an operator discover it in production.
+*/ -}}
+{{- if and $hintSet (not (include "trueppm.demoReadOnly" .)) -}}
+{{- fail "demo.loginHint is set but neither demo.interactive nor demo.enabled is true, so TRUEPPM_DEMO_READ_ONLY is not rendered and DemoReadOnlyMiddleware is off. That combination publishes a working login to a WRITABLE instance. Set demo.interactive=true, or clear demo.loginHint." -}}
+{{- end -}}
+{{- /*
+  The quieter half of the same mistake: with demo.enabled on and demo.interactive
+  off, the fence IS armed, so the guard above does not fire — and nothing reads
+  demo.loginHint, so the operator gets a demo with no login and no diagnostic. An
+  inert credential is not dangerous, but silence about it is how an operator
+  concludes the mode is broken rather than unconfigured.
+*/ -}}
+{{- if and $hintSet (not .Values.demo.interactive) -}}
+{{- fail "demo.loginHint is set but demo.interactive is false, so nothing reads it: the seed enables no account and the login page is shown no credential. demo.enabled alone is the SHARE-LINK demo, which publishes no login. Set demo.interactive=true, or clear demo.loginHint." -}}
+{{- end -}}
+{{- if .Values.demo.interactive -}}
+{{- if not (and ($hint.username | default "") ($hint.password | default "")) -}}
+{{- fail "demo.interactive is true but demo.loginHint.username / demo.loginHint.password are not both set. The interactive demo IS a published login — without one the login page has nothing to show, the seed enables no account, and the demo verification hook fails. Set both to the credential you intend to publish; the username must name an account the loaded sample seeds (atlas-visitor for the bundled Atlas pack)." -}}
+{{- end -}}
+{{- /*
+  Both halves are interpolated into a JSON body inside the verification hook's shell
+  command, and into env values. Constrain them to what a username and a demo password
+  legitimately need, so neither can close a quote and inject a command — the same
+  "fail the render, never sanitize at use" line demo.shareToken draws (#3911).
+*/ -}}
+{{- if not (regexMatch "^[A-Za-z0-9._@+-]{1,150}$" ($hint.username | toString)) -}}
+{{- fail "demo.loginHint.username may contain only letters, digits and . _ @ + - (max 150 chars). It is interpolated into the demo verification hook's request body." -}}
+{{- end -}}
+{{- if not (regexMatch "^[A-Za-z0-9._@+~!*=:,;?-]{8,128}$" ($hint.password | toString)) -}}
+{{- fail "demo.loginHint.password must be 8-128 characters of letters, digits and . _ @ + ~ ! * = : , ; ? - (no quotes, spaces, backslashes or $). It is interpolated into the demo verification hook's request body, and it is published, so it must be unguessable but shell-inert." -}}
+{{- end -}}
+{{- /*
+  ADR-1197 D5, fail-fast at install time. `--with-personas` passwords EVERY persona
+  in the pack with one shared secret and refuses only staff/superuser rows, so a
+  persona holding project or program OWNER/ADMIN gets it too. TRUEPPM_DEMO_PASSWORD
+  is that flag's env-side half; its presence here means someone intends the persona
+  path in the one mode where a published password must open exactly one unprivileged
+  account. load_sample_project refuses the flag itself at runtime — this refuses the
+  intent minutes earlier, before anything is deployed.
+*/ -}}
+{{- if (.Values.env | default dict).TRUEPPM_DEMO_PASSWORD -}}
+{{- fail "demo.interactive is true and env.TRUEPPM_DEMO_PASSWORD is set. That variable is the persona-login password: load_sample_project --with-personas gives it to EVERY persona in the sample and refuses only staff/superuser rows, so personas holding OWNER/ADMIN receive it as well. A published demo credential must open exactly one unprivileged account — use demo.loginHint, and remove env.TRUEPPM_DEMO_PASSWORD (ADR-1197 D5)." -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The credential text the login page displays (#3925, read by #3926).
+
+One string, assembled here so the chart owns the format and the client owns none of
+it. Empty unless the interactive mode is on, so a share-link-only demo renders no
+TRUEPPM_DEMO_LOGIN_HINT at all.
+*/}}
+{{- define "trueppm.demoLoginHint" -}}
+{{- printf "%s / %s" (include "trueppm.demoLoginUsername" .) (include "trueppm.demoLoginPassword" .) -}}
+{{- end -}}
+
+{{/*
+The published demo credential's two halves, nil-safe (#3925).
+
+Templates must NOT dereference `.Values.demo.loginHint.username` directly:
+`--set demo.loginHint=null` then dies with a raw Go nil-pointer error from whichever
+template happens to render first, burying trueppm.demoGuards' crafted message. These
+resolve through `| default dict`, so the guard is always the thing that speaks.
+*/}}
+{{- define "trueppm.demoLoginUsername" -}}
+{{- ((.Values.demo.loginHint | default dict).username | default "") -}}
+{{- end -}}
+{{- define "trueppm.demoLoginPassword" -}}
+{{- ((.Values.demo.loginHint | default dict).password | default "") -}}
+{{- end -}}

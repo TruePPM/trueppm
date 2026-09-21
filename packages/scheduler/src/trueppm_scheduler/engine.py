@@ -434,12 +434,34 @@ def _finish_from_start(start: date, duration_days: int, calendar: Calendar) -> d
     """Return the last working day of a task given its start and working-day duration.
 
     A duration of 1 means the task occupies only the start day.
-    A duration of 0 is treated as a milestone: returns the start day.
+    A duration of 0 is treated as a milestone: returns the start day unchanged.
+
+    Why the walk begins at ``_next_working_day(start)`` rather than at ``start``
+    (#3963): ``duration`` counts **working** days, so the first day of the walk has
+    to be one. ``start`` is not guaranteed to be — a recorded ``actual_start`` is
+    kept verbatim as the ES floor (ADR-0132 §2 / :func:`_early_start_floors`:
+    actuals are truth and are never renegotiated), and the API sets one with no
+    user intent at all ("Any → IN_PROGRESS: set actual_start = today"), so a
+    contributor moving a card on a Saturday arms it. Counting that Saturday as
+    work-day 1 spent one working day of the duration on a day the calendar says
+    nobody works: the task finished a working day early, and because the backward
+    pass lays the same duration back from a working-day LF, ``late_start`` landed
+    *before* ``early_start`` and the inverted span was then clamped to zero float.
+
+    Two separate quantities were being conflated. *When work began* is the recorded
+    date and is kept; *how many working days of effort it takes* is the duration
+    and is now laid out on working days only. Both engines take this rule
+    (``wasm-scheduler/src/calendar.rs::finish_from_start``), and it is the rule
+    ``monte_carlo``'s :func:`_mc_es_floors` already applied, which is why the two
+    passes disagreed on a fully deterministic project.
+
+    A duration of 0 is not a walk: a milestone keeps its verbatim date, so a
+    completed milestone stays pinned exactly where it was recorded.
     """
     if duration_days <= 0:
         return start
     remaining = duration_days - 1
-    current = start
+    current = _next_working_day(start, calendar)
     while remaining > 0:
         current = _scan_for_working_day(current, calendar, forward=True)
         remaining -= 1
@@ -449,12 +471,23 @@ def _finish_from_start(start: date, duration_days: int, calendar: Calendar) -> d
 def _start_from_finish(finish: date, duration_days: int, calendar: Calendar) -> date:
     """Return the first working day of a task given its finish and working-day duration.
 
-    Inverse of _finish_from_start.
+    Inverse of :func:`_finish_from_start`, and snapped the same way for the same
+    reason (#3963): the walk begins at ``_prev_working_day(finish)`` because the
+    duration it lays out counts working days only. ``finish`` can be a non-working
+    day — a completed task's ``actual_finish`` is recorded verbatim (ADR-0136,
+    "actuals are truth") and drives this back-off in :func:`_pinned_placement` —
+    and counting it as the last work day gave the task one working day fewer than
+    its duration, the mirror image of the forward defect. Keeping the two helpers
+    snapped symmetrically is what makes them inverses on every input rather than
+    only on working-day ones.
+
+    A duration of 0 returns ``finish`` unchanged, for the milestone reason in
+    :func:`_finish_from_start`.
     """
     if duration_days <= 0:
         return finish
     remaining = duration_days - 1
-    current = finish
+    current = _prev_working_day(finish, calendar)
     while remaining > 0:
         current = _scan_for_working_day(current, calendar, forward=False)
         remaining -= 1
@@ -1174,6 +1207,11 @@ def _collect_backward_constraints(
     imposes no backward constraint on a still-live predecessor. Including it would
     clamp this task's late dates to the done successor's actuals — reporting
     false-zero float and polluting the critical path (#1819).
+
+    Every bound produced here is snapped to a working day, so none of them can
+    express an early window that sits on a non-working day; the coordinate-system
+    mismatch that creates is resolved once, in :func:`_apply_late_dates` (#3963),
+    rather than by special-casing each constraint.
     """
     lf_constraints: list[date] = [_prev_working_day(project_finish, node_cal)]
     ls_constraints: list[date] = []
@@ -1227,7 +1265,46 @@ def _apply_late_dates(
     ls_constraints: list[date],
     node_cal: Calendar,
 ) -> None:
-    """Set ``late_finish``/``late_start`` from the binding constraints, in place."""
+    """Set ``late_finish``/``late_start`` from the binding constraints, in place.
+
+    The late window is finally floored at the task's own early window (#3963): a
+    late date is never earlier than its early counterpart. That is not a tie-break
+    or a tolerance — a task asked to finish before the day it can finish has an
+    incoherent window that no consumer can draw, and ``late_start``/``late_finish``
+    are persisted and read by the web float bar
+    (``packages/web/src/hooks/useScheduleTasks.ts``), which renders the span
+    backwards. ``_working_days_between`` clamps the negative span to ``0`` on the
+    way into ``total_float``, so the task is additionally reported as *critical*
+    and the evidence is erased.
+
+    It is needed because the two passes work in different coordinate systems on
+    exactly one class of input. An early window may sit on a **non-working day** —
+    a recorded ``actual_start`` is kept verbatim (ADR-0132 §2) and a zero-duration
+    milestone keeps it as its ``early_finish`` too, since a milestone lays out no
+    working days for :func:`_finish_from_start` to snap. Every backward bound, by
+    contrast, is ``_prev_working_day``-snapped (:func:`_collect_backward_constraints`,
+    :func:`_append_successor_constraint`) and so *cannot* name that day: a milestone
+    pinned to a Saturday whose successor starts Monday gets a late finish of Friday.
+    Friday and Saturday are the same position in working-day arithmetic — the float
+    is genuinely zero either way — so raising the late window to the early one picks
+    the coherent representation of an already-correct answer rather than discarding
+    a constraint. For every window that lies on working days the floor is a no-op.
+
+    Stated once here rather than at each constraint site: the bounds are produced
+    in four places, and a rule spread across four snaps is the shape that let the
+    #3963 class survive four previous fixes (#1830, #1929, #2461, #1827).
+
+    **It is not a purely local correction — say so rather than let it surprise.**
+    This pass runs in reverse topological order and
+    :func:`_append_successor_constraint` reads ``succ.late_start``, so raising one
+    task's late window propagates upstream: on ``P -FS-> M(milestone, actual_start
+    = Sat) -FS-> S``, ``P``'s total float goes from 1 working day to 2, and ``P``
+    carries no actual and sits entirely on working days. The new number is the
+    right one — ``P`` really can finish a day later and still let ``M`` begin on
+    its recorded Saturday — but "representational" describes the *choice between
+    two encodings of the same float*, not the blast radius, and a predecessor's
+    ``late_start``, ``late_finish`` and ``total_float`` all move.
+    """
     duration_days = _effective_duration_days(task)
 
     # LF = earliest of all LF constraints (binding constraint).
@@ -1242,6 +1319,10 @@ def _apply_late_dates(
             # Push LF forward to match.
             fwd_finish = _finish_from_start(task.late_start, duration_days, node_cal)
             task.late_finish = min(fwd_finish, min(lf_constraints))
+
+    assert task.early_start is not None and task.early_finish is not None
+    task.late_finish = max(task.late_finish, task.early_finish)
+    task.late_start = max(task.late_start, task.early_start)
 
 
 def _compute_floats(
@@ -3336,16 +3417,37 @@ def _mc_es_floors(
     it verbatim.** That is a deliberate, one-directional divergence, not an oversight.
     ``_forward_pass`` works in scalar dates and can hold a Saturday actual; this index
     holds working days only, so the date has no offset and *some* neighbour has to
-    stand in for it. Neither neighbour is exact: the offset below reproduces
-    ``ES + duration`` for a finish-anchored (FS/FF) successor but reads the start
-    itself a working day early, which walks an SS/SF successor — and the terminal
-    finish of a task whose remaining work fits in its start day — back before the day
-    work demonstrably began. Snapping forward can only ever report *later* than the
-    deterministic pass, by at most one working day. A risk forecast may round toward
-    more risk; it may never round toward less, which is the whole failure mode #2833
-    was. Representing the date exactly needs the scalar-date treatment completed tasks
+    stand in for it.
+
+    **What that divergence covers shrank with #3963 — do not read the paragraph
+    below as still describing the finish.** Until then ``_finish_from_start`` began
+    an in-progress task's duration walk *on* the non-working actual, so the
+    deterministic pass spent one working day of the duration on a Saturday and
+    finished a working day early, while this snap gave the task its full remaining
+    duration. The two passes returned different finishes for a fully deterministic
+    project, and **this one was right**. The divergence was therefore never
+    "unavoidable index rounding" in the finish direction; it was reporting a
+    defect in the other pass. That is fixed: both engines now begin the walk at the
+    next working day, and for any task with remaining duration >= 1 the finish this
+    index produces is exactly ``schedule()``'s.
+
+    Two narrow residuals are genuine, and they are what this snap still costs:
+
+    * a task whose **remaining duration is zero** (a milestone, or in-progress work
+      burned to nothing) — its ``early_finish`` *is* the verbatim non-working date,
+      because there are no working days to lay out and so nothing to snap;
+    * an **SS/SF successor**, which keys on the predecessor's *start* rather than
+      its finish, and so reads the snapped date where ``schedule()`` reads the
+      verbatim one.
+
+    In both, snapping forward can only ever report *later* than the deterministic
+    pass, by at most one working day. A risk forecast may round toward more risk; it
+    may never round toward less, which is the whole failure mode #2833 was.
+    Representing the date exactly needs the scalar-date treatment completed tasks
     get (:func:`_completed_edge_constraints`), and that rests on a run-invariant
     window an in-progress task does not have.
+    ``tests/test_redteam_20260727.py`` holds both halves: the strict equality over
+    the space #3963 made exact, and the carve-out narrowed to these two.
 
     All three are ES lower bounds on the same task, so they merge here and the forward
     pass reads a single number.

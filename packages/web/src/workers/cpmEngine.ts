@@ -168,6 +168,13 @@ function nextWorkingDay(ms: number): number {
   return cur;
 }
 
+/** Return `ms` if it falls on a working day, otherwise the previous working day. */
+function prevWorkingDay(ms: number): number {
+  let cur = ms;
+  while (!isWorkingDay(cur)) cur -= MS_PER_DAY;
+  return cur;
+}
+
 /**
  * Step one day forward or backward from `ms` until landing on a working day.
  * Unlike {@link nextWorkingDay}, this always advances at least one day — the
@@ -184,11 +191,27 @@ function scanForWorkingDay(ms: number, forward: boolean): number {
  * Last working day of a task given its start and working-day duration.
  * A duration of 0 is a milestone: returns the start day unchanged.
  * Mirrors the server engine's `_finish_from_start`.
+ *
+ * The walk begins at `nextWorkingDay(startMs)`, not at `startMs` (#3963).
+ * `durationDays` counts WORKING days, and `startMs` is not guaranteed to be one:
+ * `applyStartFloors` raises the early start to a recorded `actualStartMs`
+ * verbatim (ADR-0132 §2 — actuals are truth), and the API stamps one with no
+ * user intent at all when a card moves to In Progress, so a contributor working
+ * a Saturday produces one. Counting that Saturday as work-day 1 spent a working
+ * day of the duration on a day nobody works.
+ *
+ * This is the drag PREVIEW engine, so the cost of getting it wrong is specific:
+ * the preview would place the bar a working day earlier than the CPM run that
+ * follows, and the bar would visibly snap back on commit — which this file's
+ * header names as reading like data corruption. There are three implementations
+ * of this rule (Python `engine.py`, Rust `calendar.rs`, and this one); all three
+ * take it, or the preview drifts from the server for exactly the input #3963
+ * fixed.
  */
 function finishFromStart(startMs: number, durationDays: number): number {
   if (durationDays <= 0) return startMs;
   let remaining = durationDays - 1;
-  let cur = startMs;
+  let cur = nextWorkingDay(startMs);
   while (remaining > 0) {
     cur = scanForWorkingDay(cur, true);
     remaining -= 1;
@@ -201,11 +224,15 @@ function finishFromStart(startMs: number, durationDays: number): number {
  * Inverse of {@link finishFromStart} — used to translate an FF/SF
  * finish-side constraint back into an equivalent start-side constraint.
  * Mirrors the server engine's `_start_from_finish`.
+ *
+ * Snapped symmetrically to `prevWorkingDay(finishMs)` for the same reason
+ * (#3963), so the two stay inverses on every input rather than only on
+ * working-day ones.
  */
 function startFromFinish(finishMs: number, durationDays: number): number {
   if (durationDays <= 0) return finishMs;
   let remaining = durationDays - 1;
-  let cur = finishMs;
+  let cur = prevWorkingDay(finishMs);
   while (remaining > 0) {
     cur = scanForWorkingDay(cur, false);
     remaining -= 1;

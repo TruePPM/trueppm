@@ -711,3 +711,96 @@ describe('runCpmForwardPass — relaxation is bidirectional', () => {
     expect(worstMilestone).toBeNull();
   });
 });
+
+describe('runCpmForwardPass — a non-working actual never spends a working day (#3963)', () => {
+  // The preview engine is the THIRD implementation of the working-day duration
+  // walk, beside the Python `engine.py` and the Rust `calendar.rs`. Before
+  // #3963 all three began the walk on the raw start date and all three were
+  // wrong together; the conformance harness could not see it, because it
+  // compares engines to each other.
+  //
+  // The cost of leaving this one behind is specific to a preview: it would
+  // place the bar a working day earlier than the CPM run that follows it, and
+  // the bar would snap back on commit — the failure this file's header exists
+  // to prevent. The shared fixtures cannot cover it either (every `progress_*`
+  // fixture is OUT_OF_SCOPE in `cpmEngine.conformance.test.ts` because the
+  // adapter does not thread actuals), so it is asserted directly here.
+
+  it('lays a weekend-started task forward from the following Monday', () => {
+    // Sat 2026-02-07 recorded as the actual start of a 3-day task. The drag
+    // lands earlier than the actual, so `applyStartFloors` raises the early
+    // start back to the Saturday verbatim (ADR-0132 §2) and the duration walk
+    // starts from Mon the 9th: Mon + Tue + Wed = Wed the 11th.
+    const tasks: CpmTask[] = [
+      task('A', '2026-02-07', '2026-02-11', {
+        durationDays: 3,
+        actualStart: '2026-02-07',
+      }),
+    ];
+
+    const { results } = runCpmForwardPass(tasks, [], 'A', '2026-02-02');
+    const a = results.find((r) => r.taskId === 'A')!;
+
+    expect(a.earlyStart).toBe('2026-02-07');
+    expect(a.earlyFinish).toBe('2026-02-11');
+  });
+
+  it('gives a weekend start the same finish as the following Monday', () => {
+    // The comparison is the assertion: each date looked plausible alone, and
+    // it is the Friday leg that proves the weekend legs are not off by one in
+    // the other direction.
+    const finishFor = (actualStart: string): string => {
+      const tasks: CpmTask[] = [
+        task('A', actualStart, actualStart, { durationDays: 3, actualStart }),
+      ];
+      const { results } = runCpmForwardPass(tasks, [], 'A', '2026-02-02');
+      return results.find((r) => r.taskId === 'A')!.earlyFinish;
+    };
+
+    const fri = finishFor('2026-02-06');
+    const sat = finishFor('2026-02-07');
+    const sun = finishFor('2026-02-08');
+    const mon = finishFor('2026-02-09');
+
+    expect(sat).toBe(mon);
+    expect(sun).toBe(mon);
+    expect(fri < mon).toBe(true);
+  });
+
+  it('pushes an FS successor from the corrected finish', () => {
+    // The whole point of the preview agreeing with the server: the successor
+    // must land where the CPM run will put it, or the cascade snaps back too.
+    const tasks: CpmTask[] = [
+      task('A', '2026-02-07', '2026-02-11', {
+        durationDays: 3,
+        actualStart: '2026-02-07',
+      }),
+      task('B', '2026-02-12', '2026-02-13', { durationDays: 2 }),
+    ];
+
+    const { results } = runCpmForwardPass(tasks, [edge('A', 'B', 'FS')], 'A', '2026-02-02');
+    const byId = (id: string) => results.find((r) => r.taskId === id)!;
+
+    expect(byId('A').earlyFinish).toBe('2026-02-11'); // Wed
+    expect(byId('B').earlyStart).toBe('2026-02-12'); // Thu
+    expect(byId('B').earlyFinish).toBe('2026-02-13'); // Fri
+  });
+
+  it('leaves a working-day start byte-identical', () => {
+    // The inert half. `nextWorkingDay` is idempotent on a working day, so the
+    // change is provably a no-op for every project whose actuals fall on one —
+    // which is what keeps this a bugfix rather than a semantics change.
+    const tasks: CpmTask[] = [
+      task('A', '2026-02-03', '2026-02-05', {
+        durationDays: 3,
+        actualStart: '2026-02-03',
+      }),
+    ];
+
+    const { results } = runCpmForwardPass(tasks, [], 'A', '2026-02-02');
+    const a = results.find((r) => r.taskId === 'A')!;
+
+    expect(a.earlyStart).toBe('2026-02-03'); // Tue
+    expect(a.earlyFinish).toBe('2026-02-05'); // Tue + Wed + Thu
+  });
+});

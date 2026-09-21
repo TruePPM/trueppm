@@ -1,0 +1,153 @@
+{{- if .Values.demo.interactive }}
+{{/*
+Interactive-demo verification hook (ADR-1197, #3925).
+
+`helm test <release>` proves, in one pass and with no internet access, the three
+things that have to be simultaneously true for an interactive demo to be both usable
+and safe:
+
+  1. The seed ran and produced the published account — the login returns 200. A
+     missing or unpassworded account fails here, which is the whole reason the demo
+     account is verified rather than assumed. Note what this deliberately does NOT do:
+     it does not gate API readiness on the account existing. A failed reset must
+     degrade the demo to stale-but-read-only data, never take the instance down
+     (ADR-1197 D9, Durable Execution item 8), so this is a `helm test` hook an
+     operator and CI run, not a readiness probe.
+
+  2. TRUEPPM_DEMO_READ_ONLY actually reached the api container AND the middleware is
+     in the stack — an authenticated POST answers 403 with the machine-readable
+     `demo_read_only` code. A green render is not evidence of either: #3932 shipped a
+     chart that rendered demo mode correctly and set the variable nowhere.
+
+  3. Those two hold *together*. A demo that refuses writes because nobody can sign in
+     proves nothing about the fence, and a fence verified anonymously proves nothing
+     about an authenticated caller — who is the only caller that matters here, since
+     `POST /projects/` is open to any authenticated user and mints its creator an
+     OWNER membership.
+
+It talks to the api Service by its in-cluster DNS name, so it never traverses the
+ingress, the tunnel, or any access control in front of the demo.
+
+The credential comes from demo.loginHint and from nowhere else; trueppm.demoGuards
+has already refused any value that could close a quote in the body below.
+*/}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "trueppm.fullname" . }}-test-demo-read-only
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    helm.sh/hook: test
+    # Run after the connection probe so a plain "the API is not up" failure is
+    # reported by the test that is about that, not by this one.
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  securityContext:
+    {{- toYaml .Values.podSecurityContext | nindent 4 }}
+  volumes:
+    # readOnlyRootFilesystem is on and curl writes its response bodies to disk.
+    - name: tmp
+      emptyDir: {}
+  containers:
+    - name: curl
+      image: "{{ .Values.tests.image.repository }}:{{ .Values.tests.image.tag }}"
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      securityContext:
+        {{- toYaml .Values.containerSecurityContext | nindent 8 }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      # Literal, for the same reason as the connection probe's: a short-lived curl
+      # pod never needs tuning, and a values-driven toYaml hides the limits from
+      # static analysis.
+      resources:
+        requests:
+          cpu: 20m
+          memory: 32Mi
+          ephemeral-storage: 16Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi
+          ephemeral-storage: 32Mi
+      command:
+        - /bin/sh
+        - -ec
+        - |
+          host="{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }}"
+
+          # (a) The published login must work. --retry rides out the rollout window;
+          # the seed hook is a post-install hook, so on a first install the account
+          # may appear moments after the api turns Ready.
+          echo "signing in as {{ include "trueppm.demoLoginUsername" . }} ..."
+          # --retry-delay 6 (not 3) because --retry-all-errors retries a 429, and
+          # `login_account` throttles at 5/min keyed on the submitted USERNAME. Ten
+          # retries three seconds apart would burn the whole shared budget inside one
+          # throttle window and then report a 429 under a message blaming the seed.
+          login_code="$(curl -sS --retry 10 --retry-delay 6 --retry-all-errors \
+            -o /tmp/login.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -X POST "http://${host}/api/v1/auth/token/" \
+            -d '{"username":"{{ include "trueppm.demoLoginUsername" . }}","password":"{{ include "trueppm.demoLoginPassword" . }}"}' || echo 000)"
+          if [ "$login_code" = "429" ]; then
+            echo "FAIL: sign-in returned 429 — the login throttle, not the seed."
+            echo "      login_account allows 5/min keyed on the submitted username, across"
+            echo "      all source IPs. Wait a minute and re-run \`helm test\`."
+            exit 1
+          fi
+          if [ "$login_code" != "200" ]; then
+            echo "FAIL: sign-in returned ${login_code}, expected 200."
+            echo "      Either the seed did not produce {{ include "trueppm.demoLoginUsername" . }},"
+            echo "      or demo.loginHint.password is not the password it was seeded with."
+            echo "      demo.loginHint.username must name an account the loaded sample seeds."
+            exit 1
+          fi
+          # Tolerant of whitespace in the JSON: the renderer's spacing is not part of
+          # any contract this hook should depend on.
+          token="$(sed -n 's/.*"access"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' /tmp/login.json)"
+          if [ -z "$token" ]; then
+            echo "FAIL: sign-in answered 200 but carried no access token."
+            exit 1
+          fi
+          echo "OK: sign-in 200 with an access token"
+
+          # (b) An AUTHENTICATED write must be refused, by the deployment and not by
+          # the role. POST /projects/ is the sharpest case available: it is open to
+          # any authenticated user and mints the creator an OWNER membership, so it
+          # is precisely the call no seeded role can stop.
+          write_code="$(curl -sS -o /tmp/write.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${token}" \
+            -X POST "http://${host}/api/v1/projects/" \
+            -d '{"name":"helm-test-demo-read-only"}' || echo 000)"
+          if [ "$write_code" != "403" ]; then
+            echo "FAIL: authenticated POST /api/v1/projects/ returned ${write_code}, expected 403."
+            echo "      The demo write fence is NOT in force. Do not expose this instance."
+            cat /tmp/write.json || true
+            exit 1
+          fi
+          # The status code alone is not enough: a 403 from a permission class would
+          # look identical while proving nothing about the fence, and the fence is
+          # what the mode rests on. Assert the code the middleware emits.
+          if ! grep -q 'demo_read_only' /tmp/write.json; then
+            echo "FAIL: the write was refused with 403, but not by DemoReadOnlyMiddleware"
+            echo "      (no \"demo_read_only\" code in the body). Something else refused it,"
+            echo "      so the fence itself is unproven."
+            cat /tmp/write.json || true
+            exit 1
+          fi
+          echo "OK: authenticated write refused 403 demo_read_only"
+          # Say only what was proven. This hook talks to the api Service directly, so
+          # it says NOTHING about the public edge: the web tier's demo branch 404s
+          # /api/, which includes the login route, and the production branch proxies
+          # /api/ and /ws/ wholesale. Neither is the posture an interactive demo
+          # needs — that third server block is #3925 MR 2. An operator who reads this
+          # line as "the demo is ready to expose" would be reading a claim it did not
+          # make, and that misreading is how the deferred edge controls get skipped.
+          echo "OK: api-tier fence verified in-cluster (seeded login works, authenticated"
+          echo "    writes are refused). The PUBLIC EDGE POSTURE IS NOT CHECKED HERE."
+{{- end }}

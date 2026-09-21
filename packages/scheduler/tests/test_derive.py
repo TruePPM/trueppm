@@ -616,3 +616,89 @@ class TestPrebuiltResultEquivalence:
                 fresh = derive_value(project, t.id, q)
                 reused = derive_value(project, t.id, q, result=result)
                 assert fresh.to_dict() == reused.to_dict(), (t.id, q)
+
+
+# ---------------------------------------------------------------------------
+# The late-window floor is explained as itself (#3963)
+# ---------------------------------------------------------------------------
+
+
+class TestLateWindowFloorDerivation:
+    """A floored late window must cite the floor, not a duration expansion.
+
+    ``_apply_late_dates`` raises the late window to the early one when the early
+    window sits on a non-working day — a milestone pinned to a recorded Saturday
+    ``actual_start``, whose successor starts Monday, whose backward constraint
+    therefore resolves to the Friday. No backward candidate term can name the
+    Saturday, so before this the derivation fell through to
+    ``duration_from_late_finish`` and reported a zero-day expansion that never
+    happened. Under ADR-0112 an agent must be able to account for a computed value;
+    the right date with the wrong mechanism is the failure mode that rule exists to
+    prevent, because it reads as an explanation.
+    """
+
+    SAT = date(2026, 2, 7)
+
+    def _milestone_project(self) -> Project:
+        return make_project(
+            [task("M", "Milestone", 0, actual_start=self.SAT), task("N", "After", 0)],
+            dependencies=[Dependency("M", "N")],
+            start=date(2026, 2, 2),
+        )
+
+    @pytest.mark.parametrize("quantity", [Quantity.LATE_START, Quantity.LATE_FINISH])
+    def test_floored_late_date_cites_the_floor(self, quantity: Quantity) -> None:
+        d = derive_value(self._milestone_project(), "M", quantity)
+        binding = [c for c in d.contributions if c.is_binding]
+        assert [c.kind for c in binding] == ["late_window_floor"]
+        # Faithfulness: the binding date is the engine's own value (rule 120).
+        assert binding[0].imposed_date is not None
+        assert binding[0].imposed_date.isoformat() == d.value == self.SAT.isoformat()
+        # The candidate terms it beat are still reported, so a reader can see the
+        # Saturday is neither the project-finish anchor nor the successor bound.
+        assert {c.kind for c in d.contributions} >= {"project_finish", "successor_fs"}
+
+    def test_floor_on_a_working_day_finish_is_still_cited(self) -> None:
+        """The case a calendar-based discriminator waved through.
+
+        The first cut of ``_late_window_floor_binding`` tested whether the value
+        sat on a non-working day, on the reasoning that every backward term is
+        working-day snapped so only the floor could produce one. That holds for
+        ``late_start`` and **not** for ``late_finish``: the LS-pullback branch
+        takes ``min(finish_from_start(late_start, d), binding_lf)``, which can land
+        below a working-day ``early_finish`` and be floored back up to it. Measured
+        at 3 of 11 floor activations over 4,000 generated projects — each one an
+        explanation that named a pullback which had not produced the date.
+
+        Here ``A``'s ``actual_start`` is a Sunday, so its early finish walks to the
+        Thursday, while the SF-lag-5 edge retreats its late start to the preceding
+        Friday and pulls the late finish back to the Wednesday. Both legs are
+        floored, and the finish leg is floored onto a **working** day.
+        """
+        p = make_project(
+            [
+                task("A", "A", 5, percent_complete=37.0, actual_start=date(2027, 2, 28)),
+                task("B", "B", 11, percent_complete=58.0),
+            ],
+            dependencies=[Dependency("A", "B", dep_type=DependencyType.SF, lag=timedelta(days=5))],
+            start=date(2027, 2, 1),
+        )
+        scheduled = {t.id: t for t in schedule(p).tasks}["A"]
+        assert scheduled.early_finish == date(2027, 3, 4)
+        assert p.calendar.is_working_day(scheduled.early_finish), "the point of this case"
+
+        for quantity in (Quantity.LATE_START, Quantity.LATE_FINISH):
+            d = derive_value(p, "A", quantity)
+            assert [c.kind for c in d.contributions if c.is_binding] == ["late_window_floor"], (
+                quantity
+            )
+
+    def test_floor_is_not_cited_when_it_did_not_bind(self) -> None:
+        """The control: an ordinary critical task also has late == early, and must
+        still be explained by the duration expansion that really produced it."""
+        p = make_project(
+            [task("A", "A", 3), task("B", "B", 2)],
+            dependencies=[Dependency("A", "B")],
+        )
+        d = derive_value(p, "A", Quantity.LATE_START)
+        assert [c.kind for c in d.contributions if c.is_binding] == ["duration_from_late_finish"]
