@@ -391,6 +391,15 @@ the operator-facing highlights:
   demo-seed tiers — and applying a default-deny **egress** posture to the datastore
   pods themselves. See [datastore network isolation](#datastore-network-isolation)
   for what enforcement requires and how it is verified.
+- **Default-deny ingress on the app tier itself** (`api`, `web`,
+  `celery-worker`, `celery-beat`) — this one is *not* gated by
+  `postgresql.enabled` / `valkey.enabled`, so it renders on the recommended
+  production overlay (`values-prod.yaml`, managed datastores) as well as the
+  bundled-subchart topology. `api` and `web` admit only the configured ingress
+  controller (`networkPolicy.ingressControllerSelector`) plus each other where
+  the chart's own topology needs it; `celery-worker` and `celery-beat` have no
+  Service and admit nothing. Egress is unaffected — this control is
+  ingress-only, same caveat as the datastore policy above.
 - **Django admin denied at the edge** (`web.adminAccess.allowCIDRs: []`). The web
   tier's nginx answers `403` for `/admin/` from every source until you name one,
   and rate-limits the surface at 5 requests/minute per IP. See
@@ -554,6 +563,12 @@ Two CI gates cover the policy, and they cover different things:
 nightly. It is the gate that makes the `TRUEPPM_ALLOW_UNENCRYPTED_DB`
 auto-injection defensible; before it existed, the isolation the chart relies on was
 never actually tested.
+
+The app-tier default-deny ingress policies (`api`/`web`/`celery-worker`/
+`celery-beat`, described above) are covered by `helm:template` only —
+render-and-assert, not a live CNI-enforcement drill like `helm:netpol` runs for
+the datastores. Enforcement still depends on your cluster's CNI the same way;
+nothing chart-side proves it beyond the render.
 
 #### What the policy does NOT cover
 

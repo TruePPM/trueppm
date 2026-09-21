@@ -390,10 +390,24 @@ log "negative probe GREEN — deploy without SECRET_KEY refuses to start"
 
 # ---- 8. Django admin is NOT reachable through the web tier (#2569) ----------
 # The static half of this lives in helm-structure-check.sh; this is the runtime
-# proof. The request originates from the api pod, i.e. an ordinary in-cluster
-# address that is not in the (empty by default) web.adminAccess.allowCIDRs, so
-# nginx must answer 403. Driven from the api pod because the nginx image carries
-# no curl, and with urllib because it needs no extra dependency.
+# proof. Driven with urllib because it needs no extra dependency.
+#
+# The probe must originate from a pod the #3850 web-ingress NetworkPolicy
+# actually admits — as of KIND_VERSION 0.24.0 (pinned above), kindnetd DOES
+# enforce basic NetworkPolicy (confirmed empirically; kindnetd gained this in
+# kind >=0.20, contrary to the older assumption recorded in
+# templates/networkpolicy.yaml and scripts/helm-netpol-drill.sh, both corrected
+# alongside this). The api pod is NOT in that admit list — the chart's own
+# topology only has web calling OUT to api, never the reverse — so a request
+# from api now gets dropped before nginx ever sees it, which reads as a
+# connection timeout rather than the nginx-level 403 this probe exists to
+# prove. Run it instead from a throwaway pod placed in a namespace matching
+# networkPolicy.ingressControllerSelector's default (an `ingress-nginx`
+# namespace, matched via the label every namespace has carried since
+# Kubernetes 1.21) — the chart default this drill installs under, and
+# unmodified here. That pod is treated exactly like real ingress-controller
+# traffic: admitted by the NetworkPolicy, then still subject to nginx's own
+# `web.adminAccess.allowCIDRs` check, which is what #2569 actually guards.
 log "probing /admin/ through the web tier — must be denied"
 # Resolve the Service by LABEL, never by string-building the release name:
 # `trueppm.fullname` collapses when the release name already contains the chart
@@ -402,12 +416,17 @@ log "probing /admin/ through the web tier — must be denied"
 # correct for every release name.
 web_svc="$(kubectl get svc -l app.kubernetes.io/component=web -o jsonpath='{.items[0].metadata.name}')"
 [ -n "$web_svc" ] || fail "no web Service found (component=web)"
+web_ns="$(kubectl get svc -l app.kubernetes.io/component=web -o jsonpath='{.items[0].metadata.namespace}')"
+kubectl create namespace ingress-nginx
 # URLError (DNS/connection) is caught separately from HTTPError so a
 # connectivity failure reports as a distinct sentinel rather than an unhandled
 # traceback that `set -e` would turn into an opaque red with no message.
-admin_code="$(kubectl exec "$api_pod" -c api -- python -c "
+admin_code="$(kubectl run admin-probe -n ingress-nginx \
+  --image="$API_IMAGE" --image-pull-policy=IfNotPresent --restart=Never \
+  --attach --rm --quiet \
+  --command -- python -c "
 import urllib.request, urllib.error
-url = 'http://${web_svc}/admin/'
+url = 'http://${web_svc}.${web_ns}.svc.cluster.local/admin/'
 try:
     print(urllib.request.urlopen(url, timeout=15).status)
 except urllib.error.HTTPError as e:

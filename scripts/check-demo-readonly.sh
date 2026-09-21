@@ -20,9 +20,16 @@
 # bearing documentation. The check matches the flag in command position only —
 # the same "syntax, not prose" distinction the enterprise-boundary gate makes.
 #
+# A second, unrelated posture is checked here too (#3932): the compose demo
+# stack must set TRUEPPM_DEMO_READ_ONLY=true, which DemoReadOnlyMiddleware reads
+# to refuse every unsafe method under /api/. The two Helm manifests get an
+# equivalent assertion in CI's helm:template job, which can render the chart and
+# inspect the actual env list; docker-compose.demo.yml has no analogous
+# render-time check, so it needs its own presence check here.
+#
 # Exit codes:
 #   0  posture intact
-#   1  a demo manifest carries --with-personas
+#   1  a demo manifest carries --with-personas, or is missing TRUEPPM_DEMO_READ_ONLY
 #   2  invocation / setup error (a guarded file is missing)
 #
 # Modes:
@@ -51,6 +58,12 @@ SEED_COMMAND_FILES=(
   "packages/helm/templates/demo-seed-job.yaml"
   "packages/helm/templates/demo-reset-cronjob.yaml"
 )
+
+# The compose demo stack's copy of the write fence (#3932). Only docker-compose.demo.yml
+# is checked here — the two Helm manifests are asserted by rendering the chart in CI's
+# helm:template job, which can see the actual env list rather than grepping source text.
+READONLY_ENV_FILE="docker-compose.demo.yml"
+READONLY_ENV_PATTERN='^[[:space:]]*TRUEPPM_DEMO_READ_ONLY:[[:space:]]*"true"[[:space:]]*$'
 
 # Two patterns, one posture. `--with-personas` creates login-capable persona
 # accounts; `create_admin` creates a superuser (#3187). Either one alone makes
@@ -158,7 +171,35 @@ MSG
     return 1
   fi
 
-  echo "OK: no demo manifest enables persona logins or bootstraps a superuser (${#GUARDED_FILES[@]} file(s) x ${#BANNED_PATTERNS[@]} pattern(s)); the install hook and the reset run the same seed."
+  local readonly_missing=0
+  if [ ! -f "$root/$READONLY_ENV_FILE" ]; then
+    echo "ERROR: guarded demo manifest not found: $READONLY_ENV_FILE" >&2
+    echo "       If it moved, update READONLY_ENV_FILE in $0 — do not delete the guard." >&2
+    return 2
+  fi
+  if ! grep -qE -- "$READONLY_ENV_PATTERN" "$root/$READONLY_ENV_FILE"; then
+    readonly_missing=1
+  fi
+
+  if [ "$readonly_missing" -gt 0 ]; then
+    cat >&2 <<MSG
+
+MISSING: $READONLY_ENV_FILE does not set TRUEPPM_DEMO_READ_ONLY: "true".
+
+DemoReadOnlyMiddleware refuses every unsafe method under /api/ except sign-in,
+token refresh, and sign-out when TRUEPPM_DEMO_READ_ONLY is on — it merged as
+#3924 but nothing set the variable in any deployment artifact (#3932). The two
+Helm manifests (demo-seed-job.yaml, demo-reset-cronjob.yaml) render it
+unconditionally now; the compose demo stack must carry it as a literal line in
+its x-api-env anchor:
+
+    TRUEPPM_DEMO_READ_ONLY: "true"
+
+MSG
+    return 1
+  fi
+
+  echo "OK: no demo manifest enables persona logins or bootstraps a superuser (${#GUARDED_FILES[@]} file(s) x ${#BANNED_PATTERNS[@]} pattern(s)); the install hook and the reset run the same seed; the compose stack sets TRUEPPM_DEMO_READ_ONLY."
   return 0
 }
 
@@ -179,6 +220,20 @@ self_test() {
   # comment that NAMES the flag to explain its absence.
   ok_helm() { printf '# load_sample_project runs WITHOUT --with-personas\ncommand:\n  - %s\n' "$SEED_COMMAND" > "$1"; }
 
+  # The compose fixture body always carries a compliant TRUEPPM_DEMO_READ_ONLY line
+  # appended, so every case below isolates the ONE failure mode it names — without
+  # this every persona/create_admin case would also fail the readonly-env check.
+  READONLY_LINE='  TRUEPPM_DEMO_READ_ONLY: "true"'
+  # $1 may contain \n escapes, as every case below already wrote inline — `%b`
+  # expands them in the DATA argument (unlike `%s`, which would print them
+  # literally), so the compliant readonly line can be appended as a real
+  # second line without interpolating $1 into the format string itself.
+  write_compose() {
+    local body
+    body="$(printf '%b' "$1")"
+    printf '%s\n%s\n' "$body" "$READONLY_LINE" > "$compose"
+  }
+
   # expect <exit code> <what the case proves> [text the output must contain]. The
   # text check is what stops two different failures (a banned flag vs seed drift)
   # from being indistinguishable: both exit 1, so the exit code alone would let a
@@ -197,34 +252,34 @@ self_test() {
   }
 
   # Case 1: the real posture — flag named only in a comment. Must pass.
-  printf 'command: >\n  sh -c "python manage.py load_sample_project"\n# NOTE: runs WITHOUT --with-personas\n' > "$compose"
+  write_compose 'command: >\n  sh -c "python manage.py load_sample_project"\n# NOTE: runs WITHOUT --with-personas'
   ok_helm "$job"; ok_helm "$reset"
   expect 0 "a comment mentioning the persona flag was treated as a violation" || return 1
 
   # Case 1b: options that merely START with --w are not the banned flag.
-  printf 'command: >\n  sh -c "python manage.py migrate --wait --workers 2"\n' > "$compose"
+  write_compose 'command: >\n  sh -c "python manage.py migrate --wait --workers 2"'
   expect 0 "--wait / --workers were treated as the persona flag" || return 1
 
   # Case 2: the drift — flag in command position. Must fail.
-  printf 'command: >\n  sh -c "python manage.py load_sample_project --with-personas"\n' > "$compose"
+  write_compose 'command: >\n  sh -c "python manage.py load_sample_project --with-personas"'
   expect 1 "--with-personas in command position was not caught" VIOLATION || return 1
 
   # Case 2a: an argparse abbreviation enables the same behavior. Must fail.
-  printf 'command: >\n  sh -c "python manage.py load_sample_project --with-pers"\n' > "$compose"
+  write_compose 'command: >\n  sh -c "python manage.py load_sample_project --with-pers"'
   expect 1 "an abbreviated --with-pers was not caught" VIOLATION || return 1
 
   # Case 2a2: a `#` inside a token is not a comment and must not hide the flag.
-  printf 'command: >\n  sh -c "echo x#y --with-personas"\n' > "$compose"
+  write_compose 'command: >\n  sh -c "echo x#y --with-personas"'
   expect 1 "a flag after a mid-token # was hidden by comment stripping" VIOLATION || return 1
 
   # Case 2b: the #3187 drift — create_admin in command position. Must fail.
-  printf 'command: >\n  sh -c "python manage.py migrate && python manage.py create_admin"\n' > "$compose"
+  write_compose 'command: >\n  sh -c "python manage.py migrate && python manage.py create_admin"'
   expect 1 "create_admin in command position was not caught" VIOLATION || return 1
 
   # Case 2c: create_admin named only in a comment must still pass — the demo
   # manifests explain at length why they do NOT run it, and that prose has to
   # survive the guard.
-  printf 'command: >\n  sh -c "python manage.py migrate"\n# deliberately no create_admin here\n' > "$compose"
+  write_compose 'command: >\n  sh -c "python manage.py migrate"\n# deliberately no create_admin here'
   printf '# and no create_admin here either\ncommand:\n  - %s\n' "$SEED_COMMAND" > "$job"
   printf '# and no create_admin here either\ncommand:\n  - %s\n' "$SEED_COMMAND" > "$reset"
   expect 0 "a comment mentioning create_admin was treated as a violation" || return 1
@@ -250,13 +305,31 @@ self_test() {
   # Case 3: a guarded file that has moved must error, not silently pass.
   rm "$compose"
   expect 2 "a missing compose manifest did not error" || return 1
-  printf 'command: >\n  sh -c "python manage.py load_sample_project"\n' > "$compose"
+  write_compose 'command: >\n  sh -c "python manage.py load_sample_project"'
 
   # Case 3b: the same for the new template — deleting it must error, not pass.
   rm "$reset"
   expect 2 "a missing reset template did not error" || return 1
+  ok_helm "$reset"
 
-  echo "SELF-TEST OK: comments ignored, both command-position patterns (incl. abbreviations) caught in all three files, seed drift caught three ways, missing file errors."
+  # Case 4: the compose stack's own copy of the write fence (#3932). A
+  # persona-clean compose file that never wires TRUEPPM_DEMO_READ_ONLY must
+  # still fail — this is a second, independent posture, not covered by the
+  # persona/create_admin scan above.
+  printf 'command: >\n  sh -c "python manage.py load_sample_project"\n' > "$compose"
+  expect 1 "a compose file missing TRUEPPM_DEMO_READ_ONLY was not caught" MISSING || return 1
+
+  # Case 4b: present but not the accepted literal must still fail —
+  # parse_demo_read_only is strict about the exact word, and this check mirrors
+  # that rather than accepting any truthy-looking value.
+  printf 'command: >\n  sh -c "python manage.py load_sample_project"\nTRUEPPM_DEMO_READ_ONLY: "false"\n' > "$compose"
+  expect 1 "a compose file with TRUEPPM_DEMO_READ_ONLY: \"false\" was not caught" MISSING || return 1
+
+  # Case 4c: restore compliance — the guard must not stay stuck failing.
+  write_compose 'command: >\n  sh -c "python manage.py load_sample_project"'
+  expect 0 "a fully compliant compose file was flagged" || return 1
+
+  echo "SELF-TEST OK: comments ignored, both command-position patterns (incl. abbreviations) caught in all three files, seed drift caught three ways, missing file errors, TRUEPPM_DEMO_READ_ONLY presence enforced in the compose stack."
   return 0
 }
 
