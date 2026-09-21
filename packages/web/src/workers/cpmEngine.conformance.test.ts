@@ -110,6 +110,13 @@ const OUT_OF_SCOPE: Record<string, string> = {
   progress_out_of_sequence: 'adapter: does not thread actuals/status date',
   progress_status_date_floor: 'adapter: does not thread actuals/status date',
   progress_weekend_finish_late_seed: 'adapter: does not thread actuals/status date',
+  // #3963. The engine DOES take the fix these two pin (`finishFromStart` /
+  // `startFromFinish` now begin the walk on a working day), but the adapter
+  // still cannot feed them — so the assertion lives in `cpmEngine.test.ts`
+  // instead, where the actuals can be set directly. Excused for the adapter
+  // gap, not for a missing capability.
+  progress_non_working_actual_duration_walk: 'adapter: does not thread actuals/status date',
+  progress_non_working_milestone_late_window: 'adapter: does not thread actuals/status date',
   // A genuine forward-pass divergence, unrelated to calendars or the adapter.
   fs_negative_lag_floored: 'engine gap: negative lag is not floored at the project start',
 };

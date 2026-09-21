@@ -1,0 +1,62 @@
+{
+  "project_id": "p-non-working-actual-duration-walk",
+  "project_start": "2026-02-04",
+  "project_finish": "2026-02-16",
+  "tasks": [
+    {
+      "id": "IP",
+      "early_start": "2026-02-07",
+      "early_finish": "2026-02-12",
+      "late_start": "2026-02-09",
+      "late_finish": "2026-02-12",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-02-07"
+    },
+    {
+      "id": "S",
+      "early_start": "2026-02-13",
+      "early_finish": "2026-02-16",
+      "late_start": "2026-02-13",
+      "late_finish": "2026-02-16",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-02-13"
+    },
+    {
+      "id": "DONE_START",
+      "early_start": "2026-02-07",
+      "early_finish": "2026-02-11",
+      "late_start": "2026-02-07",
+      "late_finish": "2026-02-11",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-02-07"
+    },
+    {
+      "id": "DONE_FINISH",
+      "early_start": "2026-02-04",
+      "early_finish": "2026-02-08",
+      "late_start": "2026-02-04",
+      "late_finish": "2026-02-08",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-02-04"
+    }
+  ],
+  "critical_path": [
+    "IP",
+    "S"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "IP",
+      "successor_id": "S",
+      "dep_type": "FS"
+    }
+  ]
+}

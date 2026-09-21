@@ -37,6 +37,7 @@ from trueppm_scheduler.engine import (
     SchedulerError,
     ScheduleResult,
     _effective_duration_days,
+    _finish_from_start,
     _is_complete,
     _next_working_day,
     _prev_working_day,
@@ -103,7 +104,12 @@ class DerivationContribution:
     #: ``actual_start`` | ``actual_finish`` | ``early_start`` | ``late_start`` |
     #: ``successor_free_slack`` | ``total_float`` | ``duration_from_early_start`` |
     #: ``early_finish_pullback`` | ``duration_from_late_finish`` |
-    #: ``duration_from_late_start`` | ``full_duration_backoff`` (ADR-0752
+    #: ``duration_from_late_start`` | ``late_window_floor`` (the late window raised
+    #: to the early window by ``engine._apply_late_dates``, reachable whenever an
+    #: early date sits on a non-working day — a recorded actual the engine keeps
+    #: verbatim — and, through the LS-pullback branch, on a working-day
+    #: ``early_finish`` too, #3963) |
+    #: ``full_duration_backoff`` (ADR-0752
     #: ``scheduled_start``: the calendar back-off of the task's full duration
     #: from ``early_finish``, for an in-progress task with no ``actual_start``).
     kind: str
@@ -545,14 +551,21 @@ def _derive_backward(
     contribs = [*lf_terms, *ls_terms]
 
     # _flag_binding marks the matching term in place and returns it; None means no
-    # candidate produced the engine's value, so the derived term below is the cause.
+    # candidate produced the engine's value, so a derived term below is the cause.
+    # The late-window floor is checked first: it also produces a value no candidate
+    # term can name, and attributing it to the duration expansion would explain the
+    # right date with the wrong mechanism (#3963).
     if want_start:
         if _flag_binding(ls_terms, task.late_start) is None:
-            contribs.append(_backward_duration_binding(task))
+            floor = _late_window_floor_binding(task, lf_terms, ls_terms, cal, want_start=True)
+            contribs.append(floor if floor is not None else _backward_duration_binding(task))
         value = task.late_start
     else:
         if _flag_binding(lf_terms, task.late_finish) is None:
-            contribs.append(_backward_pullback_binding(task, ls_terms))
+            floor = _late_window_floor_binding(task, lf_terms, ls_terms, cal, want_start=False)
+            contribs.append(
+                floor if floor is not None else _backward_pullback_binding(task, ls_terms)
+            )
         value = task.late_finish
 
     return (value.isoformat() if value else None, contribs)
@@ -617,6 +630,85 @@ def _backward_successor_terms(
         )
 
     return lf_terms, ls_terms
+
+
+def _prefloor_late_window(
+    task: Task,
+    lf_terms: list[DerivationContribution],
+    ls_terms: list[DerivationContribution],
+    cal: Calendar,
+) -> tuple[date | None, date | None]:
+    """Replay ``engine._apply_late_dates`` from the candidate terms, *without* its floor.
+
+    This is the engine's own arithmetic over the same inputs, so the pair it
+    returns is what the pass would have produced had the #3963 floor not been
+    there. Comparing that against the value the engine actually reports is what
+    makes :func:`_late_window_floor_binding` exact rather than a guess.
+
+    Returns ``(None, None)`` when there are no LF terms to seed from — the engine
+    always seeds one (the project-finish anchor), so this is defensive only, and
+    the caller falls back to its existing attribution.
+    """
+    lf_dates = [c.imposed_date for c in lf_terms if c.imposed_date is not None]
+    if not lf_dates:
+        return None, None
+    duration_days = _effective_duration_days(task)
+    binding_lf = min(lf_dates)
+    late_finish = binding_lf
+    late_start = _start_from_finish(late_finish, duration_days, cal)
+
+    ls_dates = [c.imposed_date for c in ls_terms if c.imposed_date is not None]
+    if ls_dates:
+        tightest_ls = min(ls_dates)
+        if tightest_ls < late_start:
+            late_start = tightest_ls
+            late_finish = min(_finish_from_start(late_start, duration_days, cal), binding_lf)
+    return late_start, late_finish
+
+
+def _late_window_floor_binding(
+    task: Task,
+    lf_terms: list[DerivationContribution],
+    ls_terms: list[DerivationContribution],
+    cal: Calendar,
+    *,
+    want_start: bool,
+) -> DerivationContribution | None:
+    """The late window was raised to the early window (``engine._apply_late_dates``, #3963).
+
+    Returns ``None`` when the floor is not what produced the value, leaving the
+    caller's duration/pullback attribution in place.
+
+    Without this, the floored value is explained as a duration expansion or an
+    SS/SF pullback that never ran — the right date with the wrong mechanism, which
+    is the failure ADR-0112 exists to prevent: an explanation an agent cannot act
+    on is worse than no explanation, because it looks like one. ADR-0218 puts it
+    as a prohibition — a derivation must not fabricate contributions.
+
+    **The discriminator replays the pass rather than reading the calendar.** The
+    first cut tested whether the value sat on a non-working day, reasoning that
+    every backward term is working-day snapped so only the floor could produce one.
+    That is sound for ``late_start`` but *not* for ``late_finish``: the LS-pullback
+    branch takes ``min(finish_from_start(late_start, d), binding_lf)``, which can
+    land below a working-day ``early_finish`` and be floored back up to it —
+    measured at 3 of 11 floor activations over 4,000 generated projects, each one a
+    fabricated explanation the calendar test waved through. :func:`_prefloor_late_window`
+    computes what the pass would have produced without the floor, so the test is
+    the floor's own condition and not a proxy for it.
+    """
+    value = task.late_start if want_start else task.late_finish
+    early = task.early_start if want_start else task.early_finish
+    if value is None or early is None or value != early:
+        return None
+    pre_start, pre_finish = _prefloor_late_window(task, lf_terms, ls_terms, cal)
+    pre = pre_start if want_start else pre_finish
+    if pre is None or pre >= early:
+        return None
+    return DerivationContribution(
+        kind="late_window_floor",
+        imposed_date=early,
+        is_binding=True,
+    )
 
 
 def _backward_duration_binding(task: Task) -> DerivationContribution:

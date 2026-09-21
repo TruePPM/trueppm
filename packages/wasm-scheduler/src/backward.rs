@@ -64,6 +64,10 @@ pub fn backward_pass(
         // a day this node cannot work (a completed task's weekend actual_finish),
         // overstating float and propagating upstream (#1820). A no-op when
         // project_finish is already a working day.
+        //
+        // Every bound below is likewise working-day snapped, so none of them can
+        // express an early window that sits on a non-working day. That mismatch is
+        // resolved once, at the end of this iteration (#3963).
         let mut lf_constraints: Vec<NaiveDate> = vec![prev_working_day(project_finish, node_cal)?];
         let (succ_lf_constraints, ls_constraints) =
             successor_constraints(idx, tasks, pg, deps, node_cal)?;
@@ -84,9 +88,38 @@ pub fn backward_pass(
             }
         }
 
+        // Floor the late window at this task's own early window (#3963). A late
+        // date is never earlier than its early counterpart: a task asked to finish
+        // before the day it can finish has an incoherent window no consumer can
+        // draw, and `working_days_between` clamps the negative span to 0 on the way
+        // into total_float, additionally reporting the task as critical.
+        //
+        // The two passes differ in coordinate system on exactly one class of input.
+        // An early window may sit on a NON-WORKING day — a recorded `actual_start`
+        // is kept verbatim (ADR-0132 §2), and a zero-duration milestone keeps it as
+        // its early_finish too, since a milestone lays out no working days for
+        // `finish_from_start` to snap. Every backward bound is `prev_working_day`
+        // snapped and so cannot name that day: a milestone pinned to a Saturday
+        // whose successor starts Monday gets a late finish of Friday. Friday and
+        // Saturday are the same position in working-day arithmetic — the float is
+        // genuinely zero either way — so raising the late window picks the coherent
+        // representation of an already-correct answer. For a window on working days
+        // it is a no-op. Mirrors the Python `_apply_late_dates`.
+        //
+        // Not purely local: this loop runs in reverse topological order and
+        // `successor_constraints` reads `succ.late_start`, so raising one task's
+        // late window propagates upstream. On `P -FS-> M(milestone, actual_start =
+        // Sat) -FS-> S`, P's total float goes 1 -> 2 working days even though P
+        // carries no actual and sits entirely on working days. The new number is
+        // correct — P really can finish a day later and still let M begin on its
+        // recorded Saturday — but the blast radius is wider than one task.
+        let (es, ef) = {
+            let t = &tasks[i];
+            (t.early_start.unwrap(), t.early_finish.unwrap())
+        };
         let task = &mut tasks[i];
-        task.late_start = Some(ls);
-        task.late_finish = Some(final_lf);
+        task.late_start = Some(ls.max(es));
+        task.late_finish = Some(final_lf.max(ef));
     }
     Ok(())
 }
