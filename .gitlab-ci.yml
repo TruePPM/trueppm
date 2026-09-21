@@ -207,6 +207,14 @@ workflow:
     - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/web/**/*
+        # The shared scheduler fixtures are a declared INPUT to a web test:
+        # `cpmEngine.conformance.test.ts` reads this directory directly and its
+        # ratchet (#3535) fails when a fixture appears in neither
+        # IN_SCOPE_FIXTURES nor OUT_OF_SCOPE. Without this line a branch that
+        # adds a fixture and touches nothing under packages/web/ does not run
+        # `web:test` at all, and the red lands on main instead — on whoever
+        # pushes next, in a job they have no reason to read (#3963).
+        - packages/wasm-scheduler/fixtures/**/*
         - .gitlab-ci.yml
 
 .rules-mobile: &rules-mobile

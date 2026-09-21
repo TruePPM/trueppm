@@ -1,0 +1,20 @@
+{
+  "id": "p-non-working-actual-duration-walk",
+  "name": "A duration walk that starts or ends on a non-working actual still spends its full working-day duration (#3963)",
+  "start_date": "2026-02-02",
+  "tasks": [
+    {"id": "IP", "name": "In progress, actual_start on a Saturday", "duration": 432000.0, "percent_complete": 20.0, "actual_start": "2026-02-07"},
+    {"id": "S", "name": "FS successor of the weekend-started task", "duration": 172800.0},
+    {"id": "DONE_START", "name": "Complete, only a Saturday actual_start recorded", "duration": 259200.0, "percent_complete": 100.0, "actual_start": "2026-02-07"},
+    {"id": "DONE_FINISH", "name": "Complete, only a Sunday actual_finish recorded", "duration": 259200.0, "percent_complete": 100.0, "actual_finish": "2026-02-08"}
+  ],
+  "dependencies": [
+    {"predecessor_id": "IP", "successor_id": "S", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

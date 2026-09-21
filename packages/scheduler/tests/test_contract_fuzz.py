@@ -45,7 +45,7 @@ from datetime import date, timedelta
 from typing import Any
 
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from trueppm_scheduler import (
@@ -475,6 +475,203 @@ def test_monte_carlo_never_precedes_cpm(project: Project) -> None:
             f"{cpm.project_finish} — the simulation sampled a window schedule() rejected"
         )
     assert mc.p50 <= mc.p80 <= mc.p95, "percentiles must be monotonically non-decreasing"
+
+
+#: Two shapes that must be tried on every run, not left to the search (#3963).
+#:
+#: The default ``gate`` profile is 200 derandomized examples, and that budget
+#: reliably finds the *duration-walk* half of #3963 but **not** the
+#: *late-window-floor* half — the floor's trigger needs a task whose early window
+#: sits on a non-working day AND a successor tight enough to pull the backward
+#: bound below it, which the generator produces rarely enough to miss at 200. A
+#: property that only fails under ``fuzz-deep`` is not a gate on the blocking
+#: pipeline, so the two triggers are pinned as examples and the search is left to
+#: find the rest.
+_FLOOR_TRIGGERS = [
+    # A milestone pinned to a Saturday actual: it lays out no working days for
+    # the duration walk to snap, so its early_finish IS the Saturday, while the
+    # successor's backward bound resolves to the Friday.
+    Project(
+        id="p",
+        name="p",
+        start_date=_PLAUSIBLE_ANCHOR,
+        tasks=[
+            Task(
+                id="t0",
+                name="t",
+                duration=timedelta(days=0),
+                actual_start=date(2026, 3, 7),  # Saturday
+            ),
+            Task(id="t1", name="t", duration=timedelta(days=0)),
+        ],
+        dependencies=[Dependency(predecessor_id="t0", successor_id="t1")],
+        calendar=Calendar(working_days=0b0011111),
+    ),
+    # The LS-pullback shape: an SF edge retreats the late start below the early
+    # start, and the re-expanded late finish lands below a WORKING-day early
+    # finish. Both legs floor, and the finish leg floors onto a working day —
+    # the case a calendar-based discriminator cannot see (see
+    # ``test_derive.TestLateWindowFloorDerivation``).
+    Project(
+        id="p",
+        name="p",
+        start_date=date(2027, 2, 1),
+        tasks=[
+            Task(
+                id="t0",
+                name="t",
+                duration=timedelta(days=5),
+                percent_complete=37.0,
+                actual_start=date(2027, 2, 28),  # Sunday
+            ),
+            Task(id="t1", name="t", duration=timedelta(days=11), percent_complete=58.0),
+        ],
+        dependencies=[
+            Dependency(
+                predecessor_id="t0",
+                successor_id="t1",
+                dep_type=DependencyType.SF,
+                lag=timedelta(days=5),
+            )
+        ],
+        calendar=Calendar(working_days=0b0011111),
+    ),
+]
+
+
+@example(project=_FLOOR_TRIGGERS[0])
+@example(project=_FLOOR_TRIGGERS[1])
+@given(project=_plausible_projects())
+def test_late_window_never_precedes_early_window(project: Project) -> None:
+    """Every task ``schedule()`` returns has ``late_start >= early_start`` and
+    ``late_finish >= early_finish``.
+
+    This is the float definition itself: total float is the working days between
+    the early and late start, and a late date before its early counterpart is not
+    "negative float" but an incoherent window — the task is asked to start after
+    it has to start and before it is allowed to. No consumer can draw it. The web
+    reads ``late_start``/``late_finish`` off the persisted CPM output
+    (``useScheduleTasks.ts``), so a float bar spanning ES→LS renders backwards,
+    and ``_working_days_between`` clamps the negative span to ``0`` on the way out
+    — which reports the task as **critical** and erases the evidence that anything
+    was wrong.
+
+    **Why this is a property and not three regression cases (#2861).** The class is
+    "a working-day duration walk that does not begin on a working day", and it has
+    now been entered from four separate readers (#1830, #1929, #2461, #1827) — each
+    of which fixed *its* reader and left the walk alone, because nothing in the
+    suite asserted an invariant that spanned them. #3963 was found by an invariant
+    fuzzer, not by any of those fixes: 143 of 3,000 generated projects produced
+    ``late_start < early_start`` and every one traced to an ``actual_start`` on a
+    non-working day, which ``_early_start_floors`` keeps verbatim by design
+    (ADR-0132 §2) and ``_finish_from_start`` then counted as work-day 1.
+
+    The generator is ``_plausible_projects``, which already draws exactly the input
+    that breaks it: a Mon-Fri calendar with holiday exceptions, and
+    ``actual_start``/``actual_finish``/``planned_start``/``status_date`` drawn over
+    a working year, so non-working actuals arrive on their own rather than needing
+    a special case. That is load-bearing and is why this property lives here rather
+    than in its own module with a bespoke strategy — a detector built around the
+    one shape that was found would be blind to the fifth instance in the same way
+    its predecessors were.
+
+    Scoped to tasks whose four dates are all set, which after a clean return is all
+    of them; the guard is there so a future engine that legitimately leaves a
+    window unresolved fails on the new behavior rather than on a ``None``
+    comparison. An input the engine *rejects* is not a counterexample — it never
+    produced a window to check.
+
+    **What the search finds and what is pinned.** At the ``gate`` profile's 200
+    derandomized examples this fails on a pre-#3963 engine through the duration
+    walk, so the main defect is guarded on the blocking pipeline. The
+    late-window-floor half needs a rarer shape and was not reached at that budget
+    — see ``_FLOOR_TRIGGERS`` above, which pins both triggers as explicit examples
+    rather than leaving a second half of the fix guarded only by the scheduled
+    ``fuzz-deep`` job.
+    """
+    try:
+        with _time_limit(HANG_SECONDS):
+            result = schedule(project)
+    except SchedulerError:
+        return
+    except _Timeout as exc:  # pragma: no cover - guarded by the conformance tests
+        raise AssertionError(f"schedule: HANG — {exc}") from exc
+
+    for t in result.tasks:
+        if t.early_start is None or t.late_start is None:
+            continue
+        assert t.late_start >= t.early_start, (
+            f"{t.id}: late_start {t.late_start} precedes early_start {t.early_start} — "
+            f"the late window is inverted (actual_start={t.actual_start}, "
+            f"actual_finish={t.actual_finish}, duration={t.duration})"
+        )
+        if t.early_finish is None or t.late_finish is None:
+            continue
+        assert t.late_finish >= t.early_finish, (
+            f"{t.id}: late_finish {t.late_finish} precedes early_finish "
+            f"{t.early_finish} (actual_start={t.actual_start}, "
+            f"actual_finish={t.actual_finish}, duration={t.duration})"
+        )
+
+
+@given(project=_plausible_projects())
+def test_duration_walk_spends_only_working_days(project: Project) -> None:
+    """A task's early window spans exactly its scheduled working-day duration.
+
+    The companion to the ordering property above, asserting the *cause* rather
+    than the symptom: ``duration`` counts working days, so the working days in
+    ``[early_start, early_finish]`` must equal the duration the pass laid out — the
+    full estimate for a not-started or completed task, the remaining portion for an
+    in-progress one (ADR-0132 §3). Before #3963 a non-working ``actual_start`` was
+    counted as work-day 1, so the window held one working day *fewer* than the
+    duration and the task finished a working day early — a defect the ordering
+    property only catches when it happens to invert the late window, and which
+    propagates to ``ProjectForecastSnapshot`` (append-only) whether it does or not.
+
+    Only network-scheduled tasks are checked. A task pinned by a recorded
+    ``actual_finish`` (:func:`_pinned_placement`) deliberately spans whatever its
+    actuals say — possibly out of sequence, possibly longer or shorter than its
+    estimate — because actuals are truth (ADR-0136), so its window is not a
+    statement about duration at all. An ``early_finish`` pushed out by an FF/SF
+    constraint is likewise longer than the duration by design.
+    """
+    try:
+        with _time_limit(HANG_SECONDS):
+            result = schedule(project)
+    except SchedulerError:
+        return
+    except _Timeout as exc:  # pragma: no cover - guarded by the conformance tests
+        raise AssertionError(f"schedule: HANG — {exc}") from exc
+
+    has_finish_constraint = {
+        d.successor_id
+        for d in project.dependencies
+        if d.dep_type in (DependencyType.FF, DependencyType.SF)
+    }
+    cal = project.calendar
+    for t in result.tasks:
+        if t.early_start is None or t.early_finish is None:
+            continue
+        if t.actual_finish is not None or t.id in has_finish_constraint:
+            continue
+        duration_days = t.duration.days
+        pct = t.percent_complete or 0.0
+        if 0 < pct < 100:
+            duration_days -= int(duration_days * min(pct, 100.0) / 100.0)
+        if duration_days <= 0:
+            # A milestone (or fully-burned remaining work) is a single pinned day.
+            assert t.early_start == t.early_finish, f"{t.id}: zero-duration span is not a point"
+            continue
+        worked = sum(
+            1
+            for n in range((t.early_finish - t.early_start).days + 1)
+            if cal.is_working_day(t.early_start + timedelta(days=n))
+        )
+        assert worked == duration_days, (
+            f"{t.id}: early window {t.early_start}..{t.early_finish} holds {worked} "
+            f"working days but the pass laid out {duration_days} "
+            f"(actual_start={t.actual_start}, percent_complete={t.percent_complete})"
+        )
 
 
 @given(value=_json_values)

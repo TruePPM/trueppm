@@ -318,7 +318,20 @@ pub fn prev_working_day(d: NaiveDate, cal: &Calendar) -> Result<NaiveDate, Strin
 /// Return the last working day of a task given its start and working-day duration.
 ///
 /// A duration of 1 means the task occupies only the start day.
-/// A duration of 0 is treated as a milestone: returns the start day.
+/// A duration of 0 is treated as a milestone: returns the start day unchanged.
+///
+/// Why the walk begins at `next_working_day(start)` rather than at `start`
+/// (#3963): `duration` counts **working** days, so the first day of the walk has
+/// to be one. `start` is not guaranteed to be — a recorded `actual_start` is kept
+/// verbatim as the ES floor (ADR-0132 §2: actuals are truth and are never
+/// renegotiated), and the API sets one with no user intent at all ("Any →
+/// IN_PROGRESS: set actual_start = today"), so a contributor moving a card on a
+/// Saturday arms it. Counting that Saturday as work-day 1 spent one working day
+/// of the duration on a day the calendar says nobody works: the task finished a
+/// working day early, and because the backward pass lays the same duration back
+/// from a working-day LF, `late_start` landed *before* `early_start`. Mirrors
+/// the Python engine's `_finish_from_start`; both engines had the identical rule,
+/// so `wasm:conformance` agreed and agreed wrongly.
 ///
 /// The `MAX_CALENDAR_SCAN_DAYS` budget is **per non-working gap**, not for the
 /// whole expansion: it resets on every working-day hit, mirroring the Python
@@ -327,7 +340,9 @@ pub fn prev_working_day(d: NaiveDate, cal: &Calendar) -> Result<NaiveDate, Strin
 /// reject validator-legal long durations (e.g. `MAX_DURATION_DAYS` on a Mon-Fri
 /// calendar needs ~51k calendar steps) that Python schedules (#1855). The guard
 /// still catches its target — a calendar whose exceptions blanket the window —
-/// because such a calendar produces one gap longer than the budget.
+/// because such a calendar produces one gap longer than the budget. The opening
+/// `next_working_day` snap carries the same guard in its own helper, so a
+/// blanketed calendar is still rejected rather than walked past the ceiling.
 pub fn finish_from_start(
     start: NaiveDate,
     duration_days: i32,
@@ -337,7 +352,7 @@ pub fn finish_from_start(
         return Ok(start);
     }
     let mut remaining = duration_days - 1;
-    let mut current = start;
+    let mut current = next_working_day(start, cal)?;
     let mut scanned = 0i64;
     while remaining > 0 {
         if scanned >= MAX_CALENDAR_SCAN_DAYS {
@@ -358,7 +373,15 @@ pub fn finish_from_start(
 /// Return the first working day of a task given its finish and working-day duration.
 ///
 /// Inverse of `finish_from_start`, with the same per-gap (not whole-walk) scan
-/// budget — see that function's doc comment (#1855).
+/// budget — see that function's doc comment (#1855) — and snapped the same way
+/// for the same reason (#3963): the walk begins at `prev_working_day(finish)`
+/// because the duration it lays out counts working days only. `finish` can be a
+/// non-working day — a completed task's `actual_finish` is recorded verbatim
+/// (ADR-0136, "actuals are truth") and drives this back-off in `pinned_placement`
+/// — and counting it as the last work day gave the task one working day fewer
+/// than its duration, the mirror image of the forward defect. Keeping the two
+/// helpers snapped symmetrically is what makes them inverses on every input
+/// rather than only on working-day ones.
 pub fn start_from_finish(
     finish: NaiveDate,
     duration_days: i32,
@@ -368,7 +391,7 @@ pub fn start_from_finish(
         return Ok(finish);
     }
     let mut remaining = duration_days - 1;
-    let mut current = finish;
+    let mut current = prev_working_day(finish, cal)?;
     let mut scanned = 0i64;
     while remaining > 0 {
         if scanned >= MAX_CALENDAR_SCAN_DAYS {
@@ -514,6 +537,42 @@ mod tests {
         let cal = weekday_cal();
         let start = NaiveDate::from_ymd_opt(2026, 3, 30).unwrap();
         assert_eq!(finish_from_start(start, 0, &cal).unwrap(), start);
+    }
+
+    #[test]
+    fn test_finish_from_start_does_not_spend_a_non_working_start_day() {
+        // #3963: a recorded actual_start is kept verbatim as the ES floor and can
+        // land on a Saturday, so the duration walk — which counts WORKING days —
+        // must begin on the following Monday. Counting the Saturday as work-day 1
+        // gave the task one working day fewer than its duration.
+        let cal = weekday_cal();
+        let sat = NaiveDate::from_ymd_opt(2026, 2, 7).unwrap();
+        let sun = NaiveDate::from_ymd_opt(2026, 2, 8).unwrap();
+        let mon = NaiveDate::from_ymd_opt(2026, 2, 9).unwrap();
+        let fri = NaiveDate::from_ymd_opt(2026, 2, 6).unwrap();
+        // Mon 9 + Tue 10 + Wed 11.
+        let wed = NaiveDate::from_ymd_opt(2026, 2, 11).unwrap();
+        assert_eq!(finish_from_start(sat, 3, &cal).unwrap(), wed);
+        assert_eq!(finish_from_start(sun, 3, &cal).unwrap(), wed);
+        assert_eq!(finish_from_start(mon, 3, &cal).unwrap(), wed);
+        // The Friday leg is what proves the weekend legs are not off by one the
+        // other way: a genuine working-day start earlier than Monday finishes
+        // earlier than Monday's.
+        assert!(finish_from_start(fri, 3, &cal).unwrap() < wed);
+        // A milestone lays out no working days, so it keeps its verbatim date.
+        assert_eq!(finish_from_start(sat, 0, &cal).unwrap(), sat);
+    }
+
+    #[test]
+    fn test_start_from_finish_does_not_spend_a_non_working_finish_day() {
+        // #3963, the mirror: a completed task's actual_finish is verbatim too
+        // (ADR-0136), so the back-off begins on the preceding working day.
+        let cal = weekday_cal();
+        let sun = NaiveDate::from_ymd_opt(2026, 2, 8).unwrap();
+        // Back off from Fri 6: Fri, Thu, Wed.
+        let wed = NaiveDate::from_ymd_opt(2026, 2, 4).unwrap();
+        assert_eq!(start_from_finish(sun, 3, &cal).unwrap(), wed);
+        assert_eq!(start_from_finish(sun, 0, &cal).unwrap(), sun);
     }
 
     #[test]

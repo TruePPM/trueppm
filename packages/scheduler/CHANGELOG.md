@@ -16,7 +16,55 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **A non-working `actual_start` no longer spends one working day of the task's
+  duration (#3963).** `duration` counts working days, but the forward pass began
+  its expansion *on* the recorded start date — which `schedule()` deliberately
+  keeps verbatim, since an actual can legitimately be logged over a weekend
+  (ADR-0132 §2). The walk now begins at the next working day; the recorded date is
+  unchanged and still floors `early_start`. `_start_from_finish` is snapped
+  symmetrically, so a completed task pinned by a non-working `actual_finish` also
+  spans its full duration.
+
+  Three observable consequences:
+
+  - `early_finish` (and every date downstream of it) moves up to **one working
+    day later** on an affected task. A project whose actuals all fall on working
+    days produces byte-identical output.
+  - `late_start`/`late_finish` could previously precede `early_start`/`early_finish`
+    — an inverted window that `_working_days_between` clamped to zero float,
+    reporting the task as critical. The late window is now floored at the early
+    one, which also covers a zero-duration milestone pinned to a non-working
+    actual (no working days to lay out, so nothing to snap).
+  - **That floor is not local to the floored task.** The backward pass runs in
+    reverse topological order and reads each successor's `late_start`, so raising
+    one task's late window moves its predecessors' `late_start`, `late_finish` and
+    `total_float` too — including predecessors that carry no actual and sit
+    entirely on working days. On `P → M(milestone, weekend actual) → S`, `P`'s
+    total float goes from 1 working day to 2. The new value is the correct one,
+    but it is a wider change than "the floored task's own window moved."
+  - `schedule()` and `monte_carlo()` returned **different finishes for the same
+    fully deterministic project**; `monte_carlo()` was the one that was right
+    (it already snapped the floor forward, #2833). They now agree for any task
+    with remaining duration >= 1.
+
+  The Rust/WASM engine takes the identical change, as does TruePPM's in-browser
+  drag-preview engine (outside this package). `wasm:conformance` compares two of
+  the three implementations to each other and so was structurally blind to this —
+  they implemented the same rule and agreed wrongly — which is why the guard added
+  with the fix is a property over generated projects, not another shared fixture.
+
+### Changed
+
+- **`DerivationContribution.kind` can now be `late_window_floor`.** `derive_value()`
+  reports it as the binding term for `late_start`/`late_finish` when the late window
+  was raised to the early one — which only happens when the early window sits on a
+  non-working day, i.e. a recorded actual the engine keeps verbatim. Previously that
+  case fell through to `duration_from_late_finish` and attributed the date to a
+  duration expansion that had not occurred. Additive: `kind` is a plain string and
+  no existing value changed meaning, but a consumer switching exhaustively on it
+  will see a new member.
 
 ## [0.4.0b3] - 2026-09-19
 
