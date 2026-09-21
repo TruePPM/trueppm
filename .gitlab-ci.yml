@@ -386,7 +386,7 @@ workflow:
 
 .web:
   # node:22 — react-router 8 requires Node >=22.22 (dropped Node 20 support, #2362).
-  image: node:22-alpine@sha256:ab07539e0988b63558ff621f5fbe1077054c39d9809112974fb79993949d41cd
+  image: node:22-alpine@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85
   # Cache npm's content cache (NPM_CONFIG_CACHE), not node_modules: `npm ci`
   # deletes node_modules and reinstalls every run, so a node_modules cache buys
   # nothing — but a warm content cache lets `npm ci --prefer-offline` rebuild it
@@ -452,7 +452,7 @@ workflow:
 
 .website:
   # node:22 — Astro 7 requires Node >=22.12 (dropped Node 20 support).
-  image: node:22-alpine@sha256:ab07539e0988b63558ff621f5fbe1077054c39d9809112974fb79993949d41cd
+  image: node:22-alpine@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85
   cache:
     key:
       files:
@@ -6125,7 +6125,7 @@ license:check:web:
   # already use needs:[]).
   needs: []
   # node:22 — react-router 8 requires Node >=22.22 (#2362).
-  image: node:22-alpine@sha256:ab07539e0988b63558ff621f5fbe1077054c39d9809112974fb79993949d41cd
+  image: node:22-alpine@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85
   cache:
     <<: *web-cache
     policy: pull
@@ -6184,7 +6184,7 @@ license:check:website:
   # private and its declared license should be checked like any other.)
   stage: security
   needs: []
-  image: node:22-alpine@sha256:ab07539e0988b63558ff621f5fbe1077054c39d9809112974fb79993949d41cd
+  image: node:22-alpine@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85
   cache:
     key:
       files:
@@ -7557,7 +7557,7 @@ web:publish:npm:
   # Distinct from web:publish, which ships the Docker image.
   stage: publish
   # node:22 — react-router 8 requires Node >=22.22 (#2362).
-  image: node:22-alpine@sha256:ab07539e0988b63558ff621f5fbe1077054c39d9809112974fb79993949d41cd
+  image: node:22-alpine@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85
   <<: *rules-release-tag
   needs:
     - job: tag:wait-for-main
