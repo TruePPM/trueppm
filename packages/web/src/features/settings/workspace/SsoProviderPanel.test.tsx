@@ -151,6 +151,29 @@ describe('SsoProviderPanel — Add mode, provider-type switching', () => {
     expect(screen.queryByLabelText('Base URL')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Tenant ID')).toHaveValue('');
   });
+
+  it('states that the allowed-domains gate does not revoke already-linked accounts, and that a blank list blocks everyone (#3949)', () => {
+    renderPanel();
+    // The old copy ("Only these domains may sign in via this provider") implied
+    // an ongoing access gate; resolve_user's durable-identity path (services.py)
+    // never re-checks the domain list once an account is linked, so that phrasing
+    // overstated what removing a domain actually does.
+    expect(
+      screen.queryByText(/^Only these domains may sign in via this provider/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Gates new account linking and auto-created members only/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/no effect on accounts already linked/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/deactivate them or remove this provider/),
+    ).toBeInTheDocument();
+    // Second-order: a blank list fails closed for everyone, stated up front
+    // rather than only surfacing as a save-time field error.
+    expect(
+      screen.getByText(/Leaving this blank blocks everyone from signing in/),
+    ).toBeInTheDocument();
+  });
 });
 
 describe('SsoProviderPanel — save (create)', () => {
