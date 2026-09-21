@@ -5375,6 +5375,17 @@ sso:integration:
         - packages/web/e2e/integration/sso-keycloak.spec.ts
         - .gitlab/keycloak/trueppm-realm.json
         - .gitlab/ci-images/keycloak.Dockerfile
+        # Web-side SSO surface (#3948) — the real-Keycloak round trip is the
+        # only test that exercises these against a live IdP; every other SSO
+        # web test mocks at page.route. Without these paths, an MR that only
+        # touches the login/callback/admin-panel code never runs this job.
+        - packages/web/src/hooks/ssoLogin.ts
+        - packages/web/src/hooks/useSso.ts
+        - packages/web/src/features/auth/LoginPage.tsx
+        - packages/web/src/features/auth/SsoCompletePage.tsx
+        - packages/web/src/features/settings/workspace/SsoProviderPanel.tsx
+        - packages/web/src/features/settings/workspace/ssoProviders.ts
+        - packages/web/src/features/settings/workspace/WorkspaceSsoPage.tsx
   cache:
     - key:
         files:
