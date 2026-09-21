@@ -7277,38 +7277,64 @@ helm:publish:
 # trueppm-enterprise can pin exact OSS versions instead of path-dep references
 # (Enterprise ADR E-0005, phase-2 switchover). Closes #479.
 #
-# Like helm:publish, each job exits 0 — not fail — when its registry token is
-# absent. This keeps the release pipeline green before the tokens and the
-# PyPI/npm project-name reservations land (the scheduler:publish job is dormant
-# for the same reason); once the tokens are configured, a v* tag publishes
-# automatically and the E-0005 remote agent detects both packages.
+# api:publish:pypi authenticates via PyPI Trusted Publishing (OIDC) + PEP 740
+# attestations, mirroring scheduler:publish / mcp:publish (#3943) — it carries
+# no static token, and unlike the pre-#3943 version it does NOT skip silently:
+# a missing/misconfigured Trusted Publisher fails the job loudly (PyPI's own
+# 422 at the mint-token step), because a live, publicly-consumed package
+# should never appear to succeed while quietly not publishing. See the
+# "BEFORE THE FIRST v* TAG" comment below the job for the required PyPI-side
+# setup. web:publish:npm still exits 0 — not fail — when NPM_TOKEN is absent,
+# keeping the release pipeline green before the npm token and package-name
+# reservation land; once configured, a v* tag publishes automatically and the
+# E-0005 remote agent detects it.
 #
 # Required CI/CD variables (Settings → CI/CD → Variables), Masked + Protected:
-#   PYPI_TOKEN — PyPI API token with upload scope for the trueppm-api project.
-#   NPM_TOKEN  — npm automation token with publish scope for the @trueppm scope.
+#   NPM_TOKEN — npm automation token with publish scope for the @trueppm scope.
+# PyPI needs no static token for api:publish:pypi — see the Trusted Publisher
+# setup comment below the job.
 # ---------------------------------------------------------------------------
 
 api:publish:pypi:
-  # trueppm-api → PyPI sdist + wheel. Mirrors scheduler:publish (PEP 517 build
-  # via hatchling, twine upload). Distinct from api:publish, which ships the
-  # Docker image to the container registry.
+  # trueppm-api → PyPI sdist + wheel. Mirrors scheduler:publish / mcp:publish:
+  # PyPI Trusted Publishing (OIDC) + PEP 740 attestations, no static token
+  # (#3943). Distinct from api:publish, which ships the Docker image to the
+  # container registry.
   stage: publish
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   <<: *rules-release-tag
   needs:
     - job: tag:wait-for-main
+  # Binds the GitLab OIDC claims to a named environment so the PyPI Trusted
+  # Publisher for `trueppm-api` can be registered with a NON-BLANK environment
+  # (mirrors mcp:publish's reasoning; scheduler:publish predates it and uses a
+  # blank one). The environment name here MUST match the "Environment name"
+  # field configured on pypi.org, or the mint-token exchange fails closed with
+  # PyPI's own explanation.
+  environment:
+    name: pypi-api
+    url: https://pypi.org/project/trueppm-api/
+  # GitLab OIDC tokens for PyPI Trusted Publishing (#3943, mirrors
+  # scheduler:publish / mcp:publish). Two audiences:
+  #   PYPI_ID_TOKEN (aud: pypi)         — exchanged at PyPI's mint-token endpoint
+  #                                       for a short-lived, project-scoped token.
+  #   SIGSTORE_ID_TOKEN (aud: sigstore) — ambient identity Sigstore uses to sign
+  #                                       the PEP 740 attestations (read by
+  #                                       sigstore-python's GitLab detector).
+  id_tokens:
+    PYPI_ID_TOKEN:
+      aud: pypi
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
   variables:
-    TWINE_USERNAME: __token__
-    TWINE_PASSWORD: $PYPI_TOKEN
     # Suppress the keyring warning that fires in non-interactive environments.
     PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+  before_script:
+    # twine>=6.1 uploads the PEP 740 attestation sidecars passed to it (see the
+    # upload step below); pypi-attestations signs them via Sigstore — pinned so
+    # its CLI cannot drift silently, matching scheduler:publish / mcp:publish.
+    - pip install build "twine>=6.1" pypi-attestations==0.0.28 --quiet
   script:
-    - |
-      if [ -z "${PYPI_TOKEN}" ]; then
-        echo "INFO: PYPI_TOKEN not set — skipping PyPI publish of trueppm-api"
-        exit 0
-      fi
-    - pip install build twine --quiet
     # Verify the tag version matches the version declared in pyproject.toml.
     # A mismatch (e.g. forgot to bump) fails fast before uploading.
     - |
@@ -7326,12 +7352,59 @@ api:publish:pypi:
       echo "Version check passed: $PKG_VERSION"
     - cd packages/api
     - python -m build
-    - twine upload dist/* --non-interactive --verbose
+    # Sign PEP 740 attestations for the SAME sdist + wheel uploaded below.
+    # Sigstore signs using the ambient SIGSTORE_ID_TOKEN.
+    - python -m pypi_attestations sign dist/*.tar.gz dist/*.whl
+    # Mint a short-lived, project-scoped PyPI upload token from the GitLab OIDC
+    # token (Trusted Publishing) — no static PYPI_TOKEN. The minted token is
+    # passed only via the twine environment below and is never echoed.
+    - |
+      PYPI_API_TOKEN=$(python -c '
+      import json, os, sys, urllib.request, urllib.error
+      req = urllib.request.Request("https://pypi.org/_/oidc/mint-token", data=json.dumps({"token": os.environ["PYPI_ID_TOKEN"]}).encode(), headers={"Content-Type": "application/json"})
+      try:
+          resp = urllib.request.urlopen(req)
+      except urllib.error.HTTPError as e:
+          # PyPI states the exact reason (e.g. no Trusted Publisher matches the
+          # pipeline OIDC claims, including a mismatched environment) in the
+          # response body; surface it on stderr instead of the bare "HTTP Error
+          # 422" traceback so the failure is self-diagnosing. Only the token
+          # goes to stdout (captured by the command substitution).
+          sys.stderr.write("PyPI mint-token failed: HTTP %s %s\n" % (e.code, e.reason))
+          sys.stderr.write(e.read().decode("utf-8", "replace") + "\n")
+          sys.exit(1)
+      print(json.load(resp)["token"])
+      ')
+    # Upload the wheel + sdist plus their `.publish.attestation` sidecars. In
+    # twine >= 6.1 `--attestations` is an opt-in GATE (fail if none present),
+    # NOT filesystem discovery — the sidecars must appear in the argument list
+    # or twine errors with "has no associated attestations" before any upload.
+    - TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_API_TOKEN" twine upload --attestations dist/*.tar.gz dist/*.whl dist/*.publish.attestation --non-interactive --verbose
   artifacts:
-    # Keep the built wheel as a CI artifact for traceability (7-day expiry).
+    # Keep the built wheel + sdist as a CI artifact for traceability (7-day
+    # expiry — unlike scheduler:publish / mcp:publish this job does not
+    # generate an SBOM, so there is no Generic Package Registry copy to make
+    # this the sole/long-lived record of).
     paths:
       - packages/api/dist/
     expire_in: 7 days
+
+# BEFORE THE FIRST `v*` TAG THAT SHOULD PUBLISH trueppm-api (one-time, human,
+# cannot be automated): register a PyPI Trusted Publisher for the project name
+# `trueppm-api` at https://pypi.org/manage/account/publishing/ with:
+#   Publisher     : GitLab
+#   Namespace     : trueppm
+#   Project       : trueppm
+#   Workflow file : .gitlab-ci.yml
+#   Environment   : pypi-api        <- MUST be set, and MUST match the
+#                                      `environment:` block above
+# Leaving the environment blank would let any pipeline in this project that can
+# mint a `pypi`-audience OIDC token upload to the package; the named
+# environment narrows the binding to this release job. Until the publisher
+# exists, the mint-token step fails closed with PyPI's own 422 explanation and
+# nothing is uploaded — this job no longer skips silently when unconfigured
+# (#3943): trueppm-api is a live, publicly-pinned package (trueppm-enterprise
+# pins it), so a quiet no-op here is worse than a loud failure.
 
 web:publish:npm:
   # @trueppm/web → npm registry. Builds the production bundle and publishes

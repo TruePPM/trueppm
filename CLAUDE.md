@@ -5,7 +5,7 @@ Self-hosted open-core Project, Program, and Portfolio Management (P3M) platform.
 
 - **Company**: MacroDream, LLC — the umbrella for all MacroDream projects; TruePPM is one of its products | trueppm.com
 - **Copyright**: MacroDream, LLC and contributors (see `NOTICE`). `LICENSE` carries the Apache 2.0 text verbatim — never fill in its appendix
-- **Publisher**: Kelly Hair personally, not MacroDream, LLC, on the published packages (`trueppm-scheduler` and `trueppm-mcp` on PyPI: `authors`, owning account) and in the scheduler's citation metadata (`CITATION.cff`, `.zenodo.json`, `paper.md`). There are no org accounts yet — do not add a company affiliation. The one open question is the JOSS paper's affiliation, which is settled at submission (see `packages/scheduler/PUBLISHING.md`)
+- **Publisher**: Kelly Hair personally, not MacroDream, LLC, on the published packages (`trueppm-scheduler`, `trueppm-mcp`, and `trueppm-api` on PyPI: `authors`, owning account) and in the scheduler's citation metadata (`CITATION.cff`, `.zenodo.json`, `paper.md`). There are no org accounts yet — do not add a company affiliation. The one open question is the JOSS paper's affiliation, which is settled at submission (see `packages/scheduler/PUBLISHING.md`)
 - **Trademarks**: the TruePPM name and marks belong to MacroDream, LLC (`packages/web/brand/TRADEMARK.md`; canonical copy in `trueppm-web`). MacroDream, LLC's ownership of the code and marks depends on a written IP assignment from Kelly Hair; do not treat "Kelly Hair as publisher" as contradicting it — author, publisher, and owner are separate roles
 - **License**: Community edition is Apache 2.0. Enterprise features are proprietary.
 - **Repos**: `trueppm/trueppm-suite` (OSS), `trueppm/trueppm-enterprise` (proprietary)
@@ -18,7 +18,8 @@ trueppm-suite/
 ├── packages/
 │   ├── scheduler/       # trueppm-scheduler (Python, pip package, Apache 2.0)
 │   ├── wasm-scheduler/  # Rust + petgraph CPM engine, compiled to WASM (wasm-pack)
-│   ├── api/             # Django 5.2 REST + Channels backend
+│   ├── api/             # Django 5.2 REST + Channels backend; also published as
+│   │                    #   trueppm-api on PyPI (installable library, v* tags)
 │   ├── web/             # React 19 + TypeScript + Vite frontend
 │   ├── mobile/          # React Native app scaffold — nav shell + typed boundaries;
 │   │                    #   offline layer is #41, no native projects yet (see its README)

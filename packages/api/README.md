@@ -158,9 +158,12 @@ Every `v*` tag publishes this package to PyPI automatically (CI job
 `api:publish:pypi`), alongside the Docker images and the Helm chart. `@trueppm/web`
 on npm is wired to the same tag (`web:publish:npm`) but is not live yet — see the
 [root README's Published artifacts table](https://gitlab.com/trueppm/trueppm#published-artifacts)
-for current status. It is **not** published via PyPI Trusted Publishing —
-unlike `trueppm-scheduler`, which authenticates via GitLab OIDC, this job uses a
-static, scoped upload token. Pre-release versions (`aN`/`bN`/`rcN`) are real
+for current status. As of #3943, this job authenticates via **PyPI Trusted
+Publishing** (GitLab OIDC) and signs [PEP 740](https://peps.python.org/pep-0740/)
+attestations, the same as `trueppm-scheduler` and `trueppm-mcp` — there is no
+static upload token on the publish path. That release job is unproven until
+the next `v*` tag, so versions through `0.4.0-beta.3` predate it and were
+published with a static token, with no attestation. Pre-release versions (`aN`/`bN`/`rcN`) are real
 releases of whatever that tag shipped, not throwaway snapshots — TruePPM is
 pre-1.0 and ships its entire release line as alphas/betas/RCs, per
 [SECURITY.md](https://gitlab.com/trueppm/trueppm/-/blob/main/SECURITY.md).

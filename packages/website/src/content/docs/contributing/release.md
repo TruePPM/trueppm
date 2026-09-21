@@ -102,7 +102,7 @@ The `git push origin main v0.2.0` command triggers the CI **publish stage**:
 - `api:publish` — builds the API Docker image, Trivy-scans it, generates a CycloneDX SBOM (Syft), pushes it to the internal GitLab container registry **and** to the public GHCR (`ghcr.io/<user>/api:<version>` + `latest`), then Cosign-signs the GHCR digest keyless and attaches the SBOM as a CycloneDX attestation
 - `web:publish` — same as above for the web image (`ghcr.io/<user>/web`)
 - `helm:publish` — packages and pushes the Helm chart to `oci://ghcr.io/<user>/charts`, then Cosign-signs the pushed chart digest
-- `api:publish:pypi` — publishes `trueppm-api` to PyPI (skipped without `PYPI_TOKEN`)
+- `api:publish:pypi` — publishes `trueppm-api` to PyPI via Trusted Publishing (see [PyPI Trusted Publishing](#pypi-trusted-publishing-one-time-setup))
 - `web:publish:npm` — publishes `@trueppm/web` to npm (skipped without `NPM_TOKEN`)
 - `release:create` — creates the GitLab release entry
 
@@ -122,20 +122,22 @@ git push origin main v0.2.0 scheduler-v0.2.0
 
 The `scheduler:publish` CI job fires on `scheduler-v*` tags and publishes to PyPI.
 
-### PyPI Trusted Publishing (one-time setup)
+## PyPI Trusted Publishing (one-time setup)
 
-`scheduler:publish` authenticates to PyPI via **Trusted Publishing** (GitLab OIDC) — there is no static `PYPI_TOKEN` on the publish path. The job presents a short-lived GitLab ID token that PyPI exchanges for a single-use, project-scoped upload token. For that exchange to succeed, a **Trusted Publisher must be registered on the PyPI project** whose claims match this pipeline exactly. This is a **one-time PyPI-side configuration** — do it **before the first `scheduler-v*` tag** that uses OIDC, or the `mint-token` step fails `HTTP 422` before anything is uploaded.
+`scheduler:publish`, `mcp:publish`, and `api:publish:pypi` all authenticate to PyPI via **Trusted Publishing** (GitLab OIDC) — none carries a static `PYPI_TOKEN` on its publish path (`api:publish:pypi` was migrated off one in #3943). Each job presents a short-lived GitLab ID token that PyPI exchanges for a single-use, project-scoped upload token. For that exchange to succeed, a **Trusted Publisher must be registered on the corresponding PyPI project** whose claims match the pipeline exactly. This is a **one-time PyPI-side configuration per package** — do it **before the first tag** that publishes via OIDC, or the `mint-token` step fails `HTTP 422` before anything is uploaded.
 
-On PyPI → `trueppm-scheduler` → **Manage → Publishing → Add a new publisher (GitLab)**:
+On PyPI → the project (`trueppm-scheduler`, `trueppm-mcp`, or `trueppm-api`) → **Manage → Publishing → Add a new publisher (GitLab)**:
 
-| Field | Value |
-|---|---|
-| Namespace | `trueppm` |
-| Project name | `trueppm` (the repo is `trueppm/trueppm`) |
-| Top-level pipeline file path | `.gitlab-ci.yml` |
-| Environment name | **blank** — `scheduler:publish` sets no `environment:`; a non-blank value here makes the OIDC claims mismatch and itself returns 422 |
+| Field | `trueppm-scheduler` | `trueppm-mcp` | `trueppm-api` |
+|---|---|---|---|
+| Namespace | `trueppm` | `trueppm` | `trueppm` |
+| Project name | `trueppm` (the repo is `trueppm/trueppm`) | `trueppm` | `trueppm` |
+| Top-level pipeline file path | `.gitlab-ci.yml` | `.gitlab-ci.yml` | `.gitlab-ci.yml` |
+| Environment name | **blank** — `scheduler:publish` sets no `environment:`; a non-blank value here makes the OIDC claims mismatch and itself returns 422 | `pypi-mcp` — must exactly match the `environment:` block on `mcp:publish` | `pypi-api` — must exactly match the `environment:` block on `api:publish:pypi` |
 
-The values must match the running job: namespace/project come from the repo path (`gitlab.com/trueppm/trueppm`), and the environment must be left blank because the job declares no `environment:`. After registering the publisher, **retry `scheduler:publish` on the existing tag** — no re-tag is needed; the job rebuilds from the tag and the fix is purely PyPI-side.
+The values must match the running job: namespace/project come from the repo path (`gitlab.com/trueppm/trueppm`), and the environment field must match what that job declares (or be left blank if the job declares none — a non-blank value where the job declares none, or vice versa, makes the OIDC claims mismatch and PyPI returns 422). After registering the publisher, **retry the job on the existing tag** — no re-tag is needed; it rebuilds from the tag and the fix is purely PyPI-side.
+
+**`trueppm-api` specifically:** register the `pypi-api` publisher **before the next `v*` tag**. `api:publish:pypi` is tag-only, so this MR's own pipeline cannot exercise it — the migration lands in `.gitlab-ci.yml` but is unproven until that tag runs. Every `trueppm-api` version through `0.4.0-beta.3` was published under the old static-token job and carries no attestation.
 
 When a future package is migrated from a static token to OIDC, complete this PyPI-side registration as part of the migration, not after the first failed tag.
 
@@ -186,8 +188,8 @@ The Helm chart version in `packages/helm/Chart.yaml` is kept in sync manually �
 
 **"[Unreleased] section is empty"** — add changelog fragments to `changelog.d/` and run `bash scripts/assemble-changelog.sh` to populate `[Unreleased]` before releasing.
 
-**`scheduler:publish` fails `HTTP 422` at the `mint-token` step** — PyPI has no Trusted Publisher matching the pipeline's OIDC claims (it builds and signs the wheel correctly, then fails *before* any upload, so nothing is published). Register the publisher as described in [PyPI Trusted Publishing](#pypi-trusted-publishing-one-time-setup) above, then retry the job on the existing tag — no re-tag needed. The job prints PyPI's exact reason from the 422 response body to the log, so read it to confirm the mismatched claim (most often a non-blank environment name).
+**`scheduler:publish` / `mcp:publish` / `api:publish:pypi` fails `HTTP 422` at the `mint-token` step** — PyPI has no Trusted Publisher matching the pipeline's OIDC claims (it builds and signs the wheel correctly, then fails *before* any upload, so nothing is published). Register the publisher as described in [PyPI Trusted Publishing](#pypi-trusted-publishing-one-time-setup) above, then retry the job on the existing tag — no re-tag needed. The job prints PyPI's exact reason from the 422 response body to the log, so read it to confirm the mismatched claim (most often a non-blank environment name where the job expects blank, or vice versa).
 
-**`scheduler:publish` fails `InvalidDistribution: ... has no associated attestations`** — `twine --attestations` is an opt-in gate, not filesystem discovery: it only attaches `.publish.attestation` sidecars that are passed to it as explicit arguments. The `twine upload` command must list the sidecars (`dist/*.publish.attestation`) alongside the dists, or it rejects the upload before anything is published. (Fixed in #1390.)
+**`scheduler:publish` / `mcp:publish` / `api:publish:pypi` fails `InvalidDistribution: ... has no associated attestations`** — `twine --attestations` is an opt-in gate, not filesystem discovery: it only attaches `.publish.attestation` sidecars that are passed to it as explicit arguments. The `twine upload` command must list the sidecars (`dist/*.publish.attestation`) alongside the dists, or it rejects the upload before anything is published. (Fixed in #1390 for `scheduler:publish`; the same shape applies to any job built on this pattern.)
 
-**CI publish job fails** — the failure is in the build or push itself (Docker build error, registry outage, expired credentials), so read the job log. Starting with the 0.4 beta a *missing* `GHCR_TOKEN`/`GHCR_USER` will **fail** the image/chart publish jobs with an actionable error (GHCR will become the public release target, not optional) — set both in GitLab CI/CD variables (Settings → CI/CD → Variables, Masked + Protected) with a PAT that has `write:packages` scope before tagging. The PyPI/npm jobs (`api:publish:pypi`, `web:publish:npm`) still exit 0 when their token is absent.
+**CI publish job fails** — the failure is in the build or push itself (Docker build error, registry outage, expired credentials), so read the job log. Starting with the 0.4 beta a *missing* `GHCR_TOKEN`/`GHCR_USER` will **fail** the image/chart publish jobs with an actionable error (GHCR will become the public release target, not optional) — set both in GitLab CI/CD variables (Settings → CI/CD → Variables, Masked + Protected) with a PAT that has `write:packages` scope before tagging. The npm job (`web:publish:npm`) still exits 0 when `NPM_TOKEN` is absent. `api:publish:pypi` no longer has a token to be absent (#3943) — it now fails loudly at the `mint-token` step if the Trusted Publisher isn't registered, per the entry above.
