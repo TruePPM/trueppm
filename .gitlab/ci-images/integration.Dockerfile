@@ -36,7 +36,7 @@
 # Playwright image ($CI_REGISTRY_IMAGE/playwright-base) instead of pulling it
 # anonymously from mcr.microsoft.com, which throttles cold pulls from CI runner
 # IPs (401/429). The default keeps local `docker build` working out of the box.
-ARG PLAYWRIGHT_BASE=mcr.microsoft.com/playwright:v1.62.1-noble
+ARG PLAYWRIGHT_BASE=mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e
 FROM ${PLAYWRIGHT_BASE}
 
 # Python 3 + build deps for psycopg's C extension. curl is used by the

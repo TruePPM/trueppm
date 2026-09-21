@@ -339,7 +339,7 @@ workflow:
     # own postgres service and MUST keep durability on — it exists to prove a
     # dump survives a real restore, and a drill run against fsync=off is not
     # evidence of anything. tests/test_ci_api_test_contract.py pins both sides.
-    - name: postgres:16-alpine
+    - name: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
       alias: postgres
       command:
         - postgres
@@ -349,7 +349,7 @@ workflow:
         - full_page_writes=off
         - -c
         - synchronous_commit=off
-    - name: valkey/valkey:8-alpine
+    - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
   variables:
     DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
@@ -3087,13 +3087,13 @@ backup:restore-drill:
   # no dind, no liveness probes.
   needs: []
   image:
-    name: postgres:16
+    name: postgres:16@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
     # The postgres image ENTRYPOINT starts a database; blank it so GitLab runs
     # the job script instead (same override helm:lint uses for alpine/helm).
     entrypoint: [""]
   services:
     # The service reads POSTGRES_DB/USER/PASSWORD from the global variables block.
-    - name: postgres:16-alpine
+    - name: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
       alias: postgres
     # Object store for the off-cluster leg of the drill (#2611).
     - name: minio/minio:latest
@@ -4014,10 +4014,10 @@ api:fuzz:
     # leak: the trace was truncated at GitLab's 16 MB limit before the summary, so
     # the source of the accumulation was never isolated. A recurrence on this same
     # signature means the accumulation is real and needs its own investigation.
-    - name: postgres:16-alpine
+    - name: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
       alias: postgres
       command: ["postgres", "-c", "max_connections=300"]
-    - name: valkey/valkey:8-alpine
+    - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
@@ -4198,9 +4198,9 @@ perf:load:
     - job: ci:build-integration-image
       optional: true
   services:
-    - name: postgres:16-alpine
+    - name: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
       alias: postgres
-    - name: valkey/valkey:8-alpine
+    - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
@@ -4624,9 +4624,9 @@ api:s3-drill:
   services:
     # .api's services are REPLACED, not merged — postgres/valkey are re-declared
     # because the tests import Django settings, which parse DATABASE_URL/REDIS_URL.
-    - name: postgres:16-alpine
+    - name: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
       alias: postgres
-    - name: valkey/valkey:8-alpine
+    - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
     # Pinned to a dated release tag (same convention as the postgres/valkey
     # services above — not `latest`). `server /data` is the command MinIO needs to
@@ -5234,9 +5234,9 @@ web:integration:
     - job: ci:build-integration-image
       optional: true
   services:
-    - name: postgres:16-alpine
+    - name: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
       alias: postgres
-    - name: valkey/valkey:8-alpine
+    - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
   variables:
     DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
@@ -5377,9 +5377,9 @@ sso:integration:
     - job: ci:build-keycloak-image
       optional: true
   services:
-    - name: postgres:16-alpine
+    - name: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
       alias: postgres
-    - name: valkey/valkey:8-alpine
+    - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
     - name: $CI_REGISTRY_IMAGE/ci-keycloak:26
       alias: keycloak
@@ -5756,7 +5756,7 @@ security:gitleaks:
   # Scoped, documented allowlists live in .gitleaks.toml (extends the upstream
   # default ruleset). Pinned static binary download, matching the osv/trivy jobs.
   stage: security
-  image: alpine:3.20
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   needs: []
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
