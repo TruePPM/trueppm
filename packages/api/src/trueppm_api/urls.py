@@ -46,7 +46,10 @@ def health(_request: Request) -> Response:
     description=(
         'Returns `{"edition": "community" | "enterprise"}` from the TRUEPPM_EDITION '
         "Django setting. No authentication required. The React shell calls this once "
-        "at startup to decide the post-login redirect target (ADR-0029, ADR-0030)."
+        "at startup to decide the post-login redirect target (ADR-0029, ADR-0030).\n\n"
+        "Also carries the deployment's read-only demo mode (ADR-1197 D3/D4): "
+        "`demo_read_only` is always present, and `demo_login_hint` carries the "
+        "published shared credential when — and only when — that mode is on."
     ),
     responses={
         200: inline_serializer(
@@ -55,6 +58,16 @@ def health(_request: Request) -> Response:
                 "edition": serializers.CharField(),
                 "version": serializers.CharField(),
                 "build_sha": serializers.CharField(allow_blank=True),
+                "demo_read_only": serializers.BooleanField(),
+                "demo_login_hint": inline_serializer(
+                    "DemoLoginHint",
+                    {
+                        "username": serializers.CharField(),
+                        "password": serializers.CharField(),
+                    },
+                    allow_null=True,
+                    required=False,
+                ),
             },
         )
     },
@@ -70,7 +83,13 @@ def edition(request: Request) -> Response:
     startup to decide the post-login redirect target (ADR-0029, ADR-0030).
     The value is controlled by the TRUEPPM_EDITION Django setting, which the
     enterprise Helm chart sets to "enterprise".
+
+    Also the pre-login channel for the read-only demo mode (ADR-1197 D3/D4). It is
+    the only endpoint the shell already calls unauthenticated, so the login screen
+    can learn the deployment's mode without a second discovery route — and the
+    post-login shell reads the same cached response.
     """
+    demo_read_only = bool(getattr(settings, "DEMO_READ_ONLY", False))
     return Response(
         {
             "edition": settings.TRUEPPM_EDITION,
@@ -79,6 +98,15 @@ def edition(request: Request) -> Response:
             # startup without auth. `build_sha` is empty on a source checkout.
             "version": settings.TRUEPPM_VERSION,
             "build_sha": settings.TRUEPPM_BUILD_SHA,
+            # Always emitted, so a client can distinguish "not a demo" from "a server
+            # too old to say" without inferring it from an absent key.
+            "demo_read_only": demo_read_only,
+            # Gated on the MODE, not merely on the setting being present: the hint is
+            # a published credential, and an operator who leaves the variable set after
+            # turning the demo off must not keep broadcasting it from a live install.
+            "demo_login_hint": (
+                getattr(settings, "DEMO_LOGIN_HINT", None) if demo_read_only else None
+            ),
         }
     )
 

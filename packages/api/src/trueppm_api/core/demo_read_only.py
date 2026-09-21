@@ -105,6 +105,46 @@ def parse_demo_read_only(raw: str | None) -> bool:
     )
 
 
+def parse_demo_login_hint(raw: str | None) -> dict[str, str] | None:
+    """Parse ``TRUEPPM_DEMO_LOGIN_HINT`` into the credential the login page prints.
+
+    The interactive demo publishes one shared account, so the login screen has to
+    *show* it — a visitor with no credential is a visitor who leaves. The value is a
+    ``username:password`` pair, and it is deliberately its own variable rather than
+    something derived from whatever password the seed job used: nothing should be able
+    to turn a real password into published copy by accident, so the operator states the
+    published pair explicitly or the panel does not render at all.
+
+    Splits on the **first** colon only, so a password may contain colons.
+
+    Args:
+        raw: The raw environment value, or ``None`` when the variable is unset.
+
+    Returns:
+        ``{"username": …, "password": …}``, or ``None`` when unset or empty.
+
+    Raises:
+        ImproperlyConfigured: If ``raw`` is set to something that is not a
+            ``username:password`` pair. Refusing to boot is the same trade-off
+            ``parse_demo_read_only`` makes one function up: a demo whose one
+            advertised credential is a typo is a demo nobody can sign in to, and an
+            operator would rather find that at boot than in a visitor's bug report.
+    """
+    if raw is None:
+        return None
+    value = raw.strip()
+    if not value:
+        return None
+    username, sep, password = value.partition(":")
+    if not sep or not username.strip() or not password:
+        raise ImproperlyConfigured(
+            "TRUEPPM_DEMO_LOGIN_HINT must be 'username:password' with both halves "
+            "non-empty. Refusing to start rather than publishing a demo whose only "
+            "advertised credential is unusable."
+        )
+    return {"username": username.strip(), "password": password}
+
+
 def _is_api_path(path_info: str) -> bool:
     """Whether ``path_info`` addresses the API, ignoring any run of leading slashes.
 

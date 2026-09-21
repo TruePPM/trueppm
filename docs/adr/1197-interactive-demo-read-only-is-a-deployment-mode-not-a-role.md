@@ -2,10 +2,22 @@
 
 ## Status
 
-Proposed (2026-09-19). Amended 2026-09-20 — see **Amendment 2026-09-20** below. Resolves
+Accepted — status corrected 2026-09-21 as the D3/D4 slice (#3926) landed, matching the
+convention established by the #2539 audit (verified: `DemoReadOnlyMiddleware` in
+`packages/api/src/trueppm_api/core/demo_read_only.py`, shipped by the D2 child #3924).
+Proposed 2026-09-19. Amended 2026-09-20 — see **Amendment 2026-09-20** below. Resolves
 #3912. Amends ADR-0658 — which continues to govern the share-link demo **unchanged** — for
 one new mode only.
 
+> **Implementation status.** Superseded, 2026-09-21: the paragraph below described the
+> tree on 2026-09-19 and is kept because it is why several decisions here read as
+> forward-looking. Since then D2 shipped (#3924 — `DemoReadOnlyMiddleware`, the
+> deny-by-default method fence), D3/D4 shipped (#3926 — the refusal affordance, the
+> preview overlay, the login and shell announcements, and the `demo_read_only` /
+> `demo_login_hint` fields on `GET /api/v1/edition/`), and the chart-side
+> `demo.interactive` work is #3925. Re-verify against the tree before citing the
+> snapshot below as current.
+>
 > **Implementation status (2026-09-19):** **no code ships with this ADR.** Verified
 > 2026-09-19 against `f502f488c` (0.4.0-beta.3, this branch's base): there is no `demo.interactive` values
 > key in `packages/helm/values*.yaml`, no read-only middleware anywhere under

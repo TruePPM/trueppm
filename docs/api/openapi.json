@@ -4062,7 +4062,7 @@
         "/api/v1/edition/": {
             "get": {
                 "operationId": "v1_edition_retrieve",
-                "description": "Returns `{\"edition\": \"community\" | \"enterprise\"}` from the TRUEPPM_EDITION Django setting. No authentication required. The React shell calls this once at startup to decide the post-login redirect target (ADR-0029, ADR-0030).",
+                "description": "Returns `{\"edition\": \"community\" | \"enterprise\"}` from the TRUEPPM_EDITION Django setting. No authentication required. The React shell calls this once at startup to decide the post-login redirect target (ADR-0029, ADR-0030).\n\nAlso carries the deployment's read-only demo mode (ADR-1197 D3/D4): `demo_read_only` is always present, and `demo_login_hint` carries the published shared credential when — and only when — that mode is on.",
                 "summary": "Running edition",
                 "tags": [
                     "meta"
@@ -54692,6 +54692,21 @@
                 "type": "string",
                 "description": "* `waterfall` - Waterfall\n* `scrum` - Scrum\n* `kanban` - Kanban\n* `milestone` - Milestone"
             },
+            "DemoLoginHint": {
+                "type": "object",
+                "properties": {
+                    "username": {
+                        "type": "string"
+                    },
+                    "password": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "password",
+                    "username"
+                ]
+            },
             "DemoReadOnlyError": {
                 "type": "object",
                 "description": "Returned with HTTP 403 for every `POST`, `PUT`, `PATCH` or `DELETE` under `/api/` when the deployment runs in demo read-only mode (`TRUEPPM_DEMO_READ_ONLY=true`), except sign-in, token refresh and sign-out. Independent of role, permission class and authentication: an Owner and an anonymous caller are refused identically, and retrying with more permission never helps. A normal installation never returns it.",
@@ -54944,10 +54959,22 @@
                     },
                     "build_sha": {
                         "type": "string"
+                    },
+                    "demo_read_only": {
+                        "type": "boolean"
+                    },
+                    "demo_login_hint": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DemoLoginHint"
+                            }
+                        ],
+                        "nullable": true
                     }
                 },
                 "required": [
                     "build_sha",
+                    "demo_read_only",
                     "edition",
                     "version"
                 ]

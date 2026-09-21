@@ -9,7 +9,7 @@ from pathlib import Path
 
 import environ
 
-from trueppm_api.core.demo_read_only import parse_demo_read_only
+from trueppm_api.core.demo_read_only import parse_demo_login_hint, parse_demo_read_only
 from trueppm_api.core.ratelimit import apply_rate_limit_disable, resolve_rate_limit_enabled
 from trueppm_api.core.refresh_cookie_policy import resolve_refresh_cookie_samesite
 from trueppm_api.core.storage_config import S3_STORAGE_BACKENDS, build_s3_storage_options
@@ -303,6 +303,14 @@ DJANGO_ADMIN_ENABLED = env.bool("TRUEPPM_DJANGO_ADMIN_ENABLED", default=False)
 # disable the one control the demo's safety rests on. An unrecognized value here
 # refuses to boot instead.
 DEMO_READ_ONLY: bool = parse_demo_read_only(os.environ.get("TRUEPPM_DEMO_READ_ONLY"))
+
+# The shared credential the interactive demo's login page prints (#3926, ADR-1197 D3).
+# "username:password"; unset on every normal install. Read here rather than derived
+# from any real password variable so nothing can promote a live secret to published
+# copy by accident. /api/v1/edition/ emits it ONLY while DEMO_READ_ONLY is true.
+DEMO_LOGIN_HINT: dict[str, str] | None = parse_demo_login_hint(
+    os.environ.get("TRUEPPM_DEMO_LOGIN_HINT")
+)
 
 # Global rate-limiting kill switch (ADR-0604, extends ADR-0208). Operator-only
 # escape hatch to disable ALL DRF throttling — used by the k6 perf:load job to
