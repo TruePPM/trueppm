@@ -6640,7 +6640,20 @@ mcp:publish:
 # Cosign signing needs no key material or secret — it is keyless via the
 # id_tokens: SIGSTORE_ID_TOKEN OIDC block below.
 #
-# Multi-arch (linux/arm64) is deferred to 0.5 — single-platform amd64 for 0.4.
+# Multi-arch (linux/amd64 + linux/arm64) publishing (#3407): the amd64 leg
+# below (.docker-publish-base) is unchanged. The arm64 leg
+# (.docker-publish-arm64-base) runs on a dedicated Apple Silicon macOS runner
+# (tag: arm64, SHELL executor — no docker:27 image / dind services, since
+# those keys are meaningless under a shell executor). It builds against that
+# runner's own Docker Desktop daemon, whose VM is itself arm64, so the build
+# is NATIVE linux/arm64 — no QEMU emulation, which is the whole performance
+# case #3407 was opened for. A `*:publish:manifest` job assembles the two
+# single-arch images each leg pushes under an `-amd64`/`-arm64` suffixed tag
+# into a manifest list under the real release tag, and Cosign signs +
+# attests only that multi-arch INDEX digest — not either per-platform
+# manifest — so `cosign verify` succeeds regardless of which platform the
+# puller resolves. Ships from v0.4.0-beta.4 (the latest published tag at the
+# time this landed was v0.4.0-beta.3, single-platform amd64 only).
 # ---------------------------------------------------------------------------
 
 # Fires on any semver tag — stable and pre-release alike.
@@ -6661,6 +6674,12 @@ mcp:publish:
     - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
+    # `docker manifest` (used by the `*:publish:manifest` jobs below to
+    # assemble the amd64+arm64 manifest list) has remained gated behind the
+    # CLI's experimental flag on every Docker version this fleet runs. Set
+    # here rather than only on the manifest jobs so it travels with anything
+    # that extends this base.
+    DOCKER_CLI_EXPERIMENTAL: "enabled"
   # Keyless Cosign signing (#940): Sigstore reads this ambient GitLab OIDC token
   # (aud: sigstore) to sign the pushed GHCR images without any key material —
   # the same audience scheduler:publish uses for PEP 740 attestations.
@@ -6670,9 +6689,11 @@ mcp:publish:
   before_script:
     - docker login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
     # Trivy scans each built image before it is pushed (the docker save |
-    # trivy image --input gate), Syft generates a CycloneDX SBOM per image, and
-    # Cosign signs + attests the GHCR-published digest (see api:publish /
-    # web:publish).
+    # trivy image --input gate) and Syft generates a CycloneDX SBOM per
+    # image. This base also carries Cosign, used only by the amd64 leg's
+    # sibling *:publish:manifest job (also extends this base) to sign +
+    # attest the multi-arch INDEX digest once both arch legs have pushed
+    # (see api:publish:manifest / web:publish:manifest, #3407).
     - apk add --no-cache curl
     # Install pinned, checksum-verified Trivy + Syft releases instead of piping
     # the mutable upstream install.sh through `sh` (#904 supply-chain hardening —
@@ -6703,7 +6724,65 @@ mcp:publish:
       echo "${COSIGN_SHA256}  /usr/local/bin/cosign" | sha256sum -c -
       chmod +x /usr/local/bin/cosign
 
+# Shared base for the arm64 leg of the Docker publish jobs (#3407). Runs on
+# the Apple Silicon macOS runner (tag: arm64) under the SHELL executor, NOT
+# the docker:27 image / docker:27-dind services .docker-publish-base uses —
+# `image:`/`services:` are meaningless under a shell executor, and dind's
+# privileged-container model has no macOS-host equivalent anyway. The job
+# runs directly against the runner host's own already-installed Docker
+# Desktop, whose VM is itself arm64, so `docker build` here produces a
+# NATIVE linux/arm64 image with no QEMU — an emulated build would defeat the
+# entire performance case #3407 was opened for.
+#
+# Only signs nothing itself: this leg pushes an `-arm64`-suffixed single-arch
+# tag and stops. The `*:publish:manifest` jobs (which extend
+# .docker-publish-base, not this one) assemble the manifest list from both
+# legs' suffixed tags and do the one Cosign sign/attest of the merged index.
+#
+# Trivy/Syft ship no macOS-arm64 build with the pinned-binary layout the
+# Linux downloads above use — separate pinned, checksum-verified
+# darwin_arm64 downloads, same #904 supply-chain rationale. Bump version +
+# hash together in BOTH bases when upgrading either tool.
+.docker-publish-arm64-base:
+  stage: publish
+  tags:
+    - arm64
+  before_script:
+    - docker login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
+    # Fail loudly here rather than letting the first `docker build` below die
+    # with a bare "cannot connect to the Docker daemon" deep in the script.
+    - |
+      if ! docker info > /dev/null; then
+        echo "ERROR: Docker Desktop is not running on this arm64 runner."
+        exit 1
+      fi
+    # Job-local tool directory instead of /usr/local/bin: this is a
+    # persistent shared host (shell executor, not a disposable container), so
+    # writing into a system path would need sudo and would race a concurrent
+    # job on the same runner. $CI_PROJECT_DIR is unique per job.
+    - |
+      TOOLBIN="${CI_PROJECT_DIR}/.ci-tools/bin"
+      mkdir -p "$TOOLBIN"
+    - |
+      TRIVY_VERSION=0.71.0
+      TRIVY_SHA256=95d4e896b120816edd0995a2df8adca26a8621b7bf62036a89b1d54a7b718a74
+      TRIVY_TARBALL="trivy_${TRIVY_VERSION}_macOS-ARM64.tar.gz"
+      curl -sSfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${TRIVY_TARBALL}" -o /tmp/trivy-arm64.tar.gz
+      echo "${TRIVY_SHA256}  /tmp/trivy-arm64.tar.gz" | shasum -a 256 -c -
+      tar xzf /tmp/trivy-arm64.tar.gz -C "$TOOLBIN" trivy
+    - |
+      SYFT_VERSION=1.18.1
+      SYFT_SHA256=bc5ad238a7cc60f19459b6f358079847bff5f8e520c8239706730f3fc5c5edd5
+      SYFT_TARBALL="syft_${SYFT_VERSION}_darwin_arm64.tar.gz"
+      curl -sSfL "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/${SYFT_TARBALL}" -o /tmp/syft-arm64.tar.gz
+      echo "${SYFT_SHA256}  /tmp/syft-arm64.tar.gz" | shasum -a 256 -c -
+      tar xzf /tmp/syft-arm64.tar.gz -C "$TOOLBIN" syft
+    - export PATH="${TOOLBIN}:${PATH}"
+
 api:publish:
+  # amd64 leg of the multi-arch publish (#3407). Pushes ONLY the
+  # `-amd64`-suffixed tag — the real release tag, `:latest`, and Cosign
+  # signing now belong to api:publish:manifest once both arch legs are in.
   extends: .docker-publish-base
   <<: *rules-release-tag
   needs:
@@ -6713,23 +6792,21 @@ api:publish:
       VERSION="${CI_COMMIT_TAG#v}"
       GL_IMAGE="${CI_REGISTRY_IMAGE}/api"
       docker build -f packages/api/Dockerfile \
-        -t "${GL_IMAGE}:${CI_COMMIT_TAG}" \
-        -t "${GL_IMAGE}:latest" \
+        -t "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" \
         .
       # Scan the built image before publishing — fail the release on fixable
       # HIGH/CRITICAL CVEs. --ignore-unfixed skips base-image CVEs with no
       # available patch (unactionable) while still gating on anything fixable.
-      docker save "${GL_IMAGE}:${CI_COMMIT_TAG}" -o /tmp/api-image.tar
-      trivy image --input /tmp/api-image.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+      docker save "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" -o /tmp/api-image-amd64.tar
+      trivy image --input /tmp/api-image-amd64.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
       # Generate a CycloneDX SBOM from the same image tarball (no daemon
-      # dependency) so operators can audit the exact published image. Kept as a
-      # non-expiring job artifact AND attached to the signed GHCR image as a
-      # Cosign CycloneDX attestation below.
+      # dependency) so operators can audit the exact published image. Kept as
+      # a non-expiring job artifact AND attached to the signed multi-arch
+      # manifest as a Cosign CycloneDX attestation by api:publish:manifest.
       mkdir -p sbom
-      syft "docker-archive:/tmp/api-image.tar" -o "cyclonedx-json=sbom/api-${VERSION}.cdx.json"
+      syft "docker-archive:/tmp/api-image-amd64.tar" -o "cyclonedx-json=sbom/api-${VERSION}-amd64.cdx.json"
       # Internal GitLab Container Registry mirror (always available).
-      docker push "${GL_IMAGE}:${CI_COMMIT_TAG}"
-      docker push "${GL_IMAGE}:latest"
+      docker push "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64"
       # Public GHCR release — REQUIRED on a release tag (#939). Fail loudly with
       # an actionable message if the maintainer-configured credentials are
       # missing, rather than silently shipping GitLab-registry-only.
@@ -6744,16 +6821,104 @@ api:publish:
       fi
       echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
       GH_IMAGE="ghcr.io/${GHCR_USER}/api"
-      docker tag "${GL_IMAGE}:${CI_COMMIT_TAG}" "${GH_IMAGE}:${VERSION}"
-      docker tag "${GL_IMAGE}:latest" "${GH_IMAGE}:latest"
-      docker push "${GH_IMAGE}:${VERSION}"
-      docker push "${GH_IMAGE}:latest"
-      # Sign the immutable, by-digest reference (a tag can be re-pointed; a
-      # digest cannot) and attach the SBOM as a CycloneDX attestation. Keyless —
-      # the ambient SIGSTORE_ID_TOKEN is the signing identity, no key material.
-      GH_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${GH_IMAGE}:${VERSION}")"
-      cosign sign --yes "${GH_DIGEST}"
-      cosign attest --yes --type cyclonedx --predicate "sbom/api-${VERSION}.cdx.json" "${GH_DIGEST}"
+      docker tag "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" "${GH_IMAGE}:${VERSION}-amd64"
+      docker push "${GH_IMAGE}:${VERSION}-amd64"
+  artifacts:
+    name: "api-sbom-amd64-${CI_COMMIT_TAG}"
+    paths:
+      - sbom/
+    expire_in: never
+
+api:publish:arm64:
+  # arm64 leg of the multi-arch publish (#3407) — see .docker-publish-arm64-base
+  # for why this runs on a shell-executor macOS runner instead of extending
+  # .docker-publish-base. Pushes ONLY the `-arm64`-suffixed tag; api:publish:manifest
+  # assembles the final tag + :latest + signing from both legs.
+  extends: .docker-publish-arm64-base
+  <<: *rules-release-tag
+  needs:
+    - job: tag:wait-for-main
+  script:
+    - |
+      VERSION="${CI_COMMIT_TAG#v}"
+      GL_IMAGE="${CI_REGISTRY_IMAGE}/api"
+      docker build -f packages/api/Dockerfile \
+        -t "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" \
+        .
+      docker save "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" -o /tmp/api-image-arm64.tar
+      trivy image --input /tmp/api-image-arm64.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+      mkdir -p sbom
+      syft "docker-archive:/tmp/api-image-arm64.tar" -o "cyclonedx-json=sbom/api-${VERSION}-arm64.cdx.json"
+      docker push "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64"
+      if [ -z "${GHCR_USER}" ] || [ -z "${GHCR_TOKEN}" ]; then
+        echo "ERROR: GHCR_USER/GHCR_TOKEN not set — cannot publish the public arm64 image."
+        echo "Configure both under Settings → CI/CD → Variables (Masked + Protected)."
+        exit 1
+      fi
+      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      GH_IMAGE="ghcr.io/${GHCR_USER}/api"
+      docker tag "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" "${GH_IMAGE}:${VERSION}-arm64"
+      docker push "${GH_IMAGE}:${VERSION}-arm64"
+  artifacts:
+    name: "api-sbom-arm64-${CI_COMMIT_TAG}"
+    paths:
+      - sbom/
+    expire_in: never
+
+api:publish:manifest:
+  # Assembles the amd64 + arm64 single-arch images api:publish and
+  # api:publish:arm64 each pushed under an `-amd64`/`-arm64` suffix into a
+  # manifest list under the real release tag and `:latest`, on both
+  # registries, then Cosign signs + attests ONLY the resulting multi-arch
+  # INDEX — never either per-platform manifest — so `cosign verify` and
+  # `cosign verify-attestation` succeed regardless of which platform the
+  # puller resolves (#3407 acceptance criteria). Passing a tag reference to
+  # `cosign sign`/`attest` is deliberate, not a shortcut: cosign resolves it
+  # to whatever digest currently backs it and signs THAT — for a tag that
+  # now points at a manifest list, that is the index digest — so there is no
+  # need to separately extract and pin it here.
+  extends: .docker-publish-base
+  <<: *rules-release-tag
+  needs:
+    - job: api:publish
+      artifacts: true
+    - job: api:publish:arm64
+      artifacts: true
+  script:
+    - |
+      VERSION="${CI_COMMIT_TAG#v}"
+      GL_IMAGE="${CI_REGISTRY_IMAGE}/api"
+      # Internal GitLab Container Registry mirror — unsigned, matching the
+      # existing internal-mirror behavior (only the public GHCR release is
+      # Cosign-signed).
+      docker manifest create "${GL_IMAGE}:${CI_COMMIT_TAG}" \
+        "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64"
+      docker manifest push "${GL_IMAGE}:${CI_COMMIT_TAG}"
+      docker manifest create "${GL_IMAGE}:latest" \
+        "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64"
+      docker manifest push "${GL_IMAGE}:latest"
+      # Public GHCR release — REQUIRED on a release tag (#939). Fail loudly
+      # with an actionable message if the maintainer-configured credentials
+      # are missing, rather than silently shipping GitLab-registry-only.
+      if [ -z "${GHCR_USER}" ] || [ -z "${GHCR_TOKEN}" ]; then
+        echo "ERROR: GHCR_USER/GHCR_TOKEN not set — cannot publish the public 0.4 multi-arch manifest."
+        echo "Configure both under Settings → CI/CD → Variables (Masked + Protected)."
+        echo "If they ARE configured and this still fires: they are Protected variables,"
+        echo "so this tag ref must ALSO be a Protected Tag (Settings -> Repository ->"
+        echo "Protected tags) or GitLab withholds them from this job. Found missing at"
+        echo "the 0.4.0-beta.1 cut — v* was not protected though scheduler-v* was."
+        exit 1
+      fi
+      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      GH_IMAGE="ghcr.io/${GHCR_USER}/api"
+      docker manifest create "${GH_IMAGE}:${VERSION}" \
+        "${GH_IMAGE}:${VERSION}-amd64" "${GH_IMAGE}:${VERSION}-arm64"
+      docker manifest push "${GH_IMAGE}:${VERSION}"
+      docker manifest create "${GH_IMAGE}:latest" \
+        "${GH_IMAGE}:${VERSION}-amd64" "${GH_IMAGE}:${VERSION}-arm64"
+      docker manifest push "${GH_IMAGE}:latest"
+      cosign sign --yes "${GH_IMAGE}:${VERSION}"
+      cosign attest --yes --type cyclonedx --predicate "sbom/api-${VERSION}-amd64.cdx.json" "${GH_IMAGE}:${VERSION}"
   artifacts:
     name: "api-sbom-${CI_COMMIT_TAG}"
     paths:
@@ -6761,6 +6926,8 @@ api:publish:
     expire_in: never
 
 web:publish:
+  # amd64 leg of the multi-arch publish (#3407). See api:publish above for
+  # the full rationale — the web image restructures identically.
   extends: .docker-publish-base
   <<: *rules-release-tag
   needs:
@@ -6771,18 +6938,16 @@ web:publish:
       GL_IMAGE="${CI_REGISTRY_IMAGE}/web"
       cd packages/web
       docker build \
-        -t "${GL_IMAGE}:${CI_COMMIT_TAG}" \
-        -t "${GL_IMAGE}:latest" \
+        -t "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" \
         .
       # Scan the built image before publishing (see api:publish for rationale).
-      docker save "${GL_IMAGE}:${CI_COMMIT_TAG}" -o /tmp/web-image.tar
-      trivy image --input /tmp/web-image.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+      docker save "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" -o /tmp/web-image-amd64.tar
+      trivy image --input /tmp/web-image-amd64.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
       # CycloneDX SBOM from the image tarball (see api:publish for rationale).
       mkdir -p sbom
-      syft "docker-archive:/tmp/web-image.tar" -o "cyclonedx-json=sbom/web-${VERSION}.cdx.json"
+      syft "docker-archive:/tmp/web-image-amd64.tar" -o "cyclonedx-json=sbom/web-${VERSION}-amd64.cdx.json"
       # Internal GitLab Container Registry mirror (always available).
-      docker push "${GL_IMAGE}:${CI_COMMIT_TAG}"
-      docker push "${GL_IMAGE}:latest"
+      docker push "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64"
       # Public GHCR release — REQUIRED on a release tag (see api:publish).
       if [ -z "${GHCR_USER}" ] || [ -z "${GHCR_TOKEN}" ]; then
         echo "ERROR: GHCR_USER/GHCR_TOKEN not set — cannot publish the public 0.4 image."
@@ -6795,14 +6960,83 @@ web:publish:
       fi
       echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
       GH_IMAGE="ghcr.io/${GHCR_USER}/web"
-      docker tag "${GL_IMAGE}:${CI_COMMIT_TAG}" "${GH_IMAGE}:${VERSION}"
-      docker tag "${GL_IMAGE}:latest" "${GH_IMAGE}:latest"
-      docker push "${GH_IMAGE}:${VERSION}"
-      docker push "${GH_IMAGE}:latest"
-      # Keyless Cosign sign + CycloneDX SBOM attestation of the pushed digest.
-      GH_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${GH_IMAGE}:${VERSION}")"
-      cosign sign --yes "${GH_DIGEST}"
-      cosign attest --yes --type cyclonedx --predicate "sbom/web-${VERSION}.cdx.json" "${GH_DIGEST}"
+      docker tag "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" "${GH_IMAGE}:${VERSION}-amd64"
+      docker push "${GH_IMAGE}:${VERSION}-amd64"
+  artifacts:
+    name: "web-sbom-amd64-${CI_COMMIT_TAG}"
+    paths:
+      - sbom/
+    expire_in: never
+
+web:publish:arm64:
+  # arm64 leg of the multi-arch publish (#3407). See api:publish:arm64 above.
+  extends: .docker-publish-arm64-base
+  <<: *rules-release-tag
+  needs:
+    - job: tag:wait-for-main
+  script:
+    - |
+      VERSION="${CI_COMMIT_TAG#v}"
+      GL_IMAGE="${CI_REGISTRY_IMAGE}/web"
+      cd packages/web
+      docker build \
+        -t "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" \
+        .
+      docker save "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" -o /tmp/web-image-arm64.tar
+      trivy image --input /tmp/web-image-arm64.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+      mkdir -p sbom
+      syft "docker-archive:/tmp/web-image-arm64.tar" -o "cyclonedx-json=sbom/web-${VERSION}-arm64.cdx.json"
+      docker push "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64"
+      if [ -z "${GHCR_USER}" ] || [ -z "${GHCR_TOKEN}" ]; then
+        echo "ERROR: GHCR_USER/GHCR_TOKEN not set — cannot publish the public arm64 image."
+        echo "Configure both under Settings → CI/CD → Variables (Masked + Protected)."
+        exit 1
+      fi
+      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      GH_IMAGE="ghcr.io/${GHCR_USER}/web"
+      docker tag "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" "${GH_IMAGE}:${VERSION}-arm64"
+      docker push "${GH_IMAGE}:${VERSION}-arm64"
+  artifacts:
+    name: "web-sbom-arm64-${CI_COMMIT_TAG}"
+    paths:
+      - sbom/
+    expire_in: never
+
+web:publish:manifest:
+  # Assembles the amd64 + arm64 images into a manifest list and signs the
+  # index. See api:publish:manifest above for the full rationale.
+  extends: .docker-publish-base
+  <<: *rules-release-tag
+  needs:
+    - job: web:publish
+      artifacts: true
+    - job: web:publish:arm64
+      artifacts: true
+  script:
+    - |
+      VERSION="${CI_COMMIT_TAG#v}"
+      GL_IMAGE="${CI_REGISTRY_IMAGE}/web"
+      docker manifest create "${GL_IMAGE}:${CI_COMMIT_TAG}" \
+        "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64"
+      docker manifest push "${GL_IMAGE}:${CI_COMMIT_TAG}"
+      docker manifest create "${GL_IMAGE}:latest" \
+        "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64"
+      docker manifest push "${GL_IMAGE}:latest"
+      if [ -z "${GHCR_USER}" ] || [ -z "${GHCR_TOKEN}" ]; then
+        echo "ERROR: GHCR_USER/GHCR_TOKEN not set — cannot publish the public 0.4 multi-arch manifest."
+        echo "Configure both under Settings → CI/CD → Variables (Masked + Protected)."
+        exit 1
+      fi
+      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      GH_IMAGE="ghcr.io/${GHCR_USER}/web"
+      docker manifest create "${GH_IMAGE}:${VERSION}" \
+        "${GH_IMAGE}:${VERSION}-amd64" "${GH_IMAGE}:${VERSION}-arm64"
+      docker manifest push "${GH_IMAGE}:${VERSION}"
+      docker manifest create "${GH_IMAGE}:latest" \
+        "${GH_IMAGE}:${VERSION}-amd64" "${GH_IMAGE}:${VERSION}-arm64"
+      docker manifest push "${GH_IMAGE}:latest"
+      cosign sign --yes "${GH_IMAGE}:${VERSION}"
+      cosign attest --yes --type cyclonedx --predicate "sbom/web-${VERSION}-amd64.cdx.json" "${GH_IMAGE}:${VERSION}"
   artifacts:
     name: "web-sbom-${CI_COMMIT_TAG}"
     paths:
