@@ -1,0 +1,44 @@
+# packages/web build context (issue #3938).
+#
+# The `builder` stage does a bare `COPY . .` after `npm ci`, so anything here
+# reaches the build unless excluded. `npm ci` already produces a fresh,
+# linux-target node_modules inside the image from the committed
+# package-lock.json — copying the host's node_modules over that is never
+# correct: at best it's dead weight, at worst (host-platform native binaries
+# like esbuild, or a worktree's node_modules symlink) it silently produces a
+# build for the wrong platform, or makes the `COPY` itself fail outright
+# ("cannot replace to directory .../app/node_modules with file").
+#
+# .env is local-only and never read at build time (Vite bakes in build-time
+# env via --build-arg / compose env, not a copied .env file) — shipping it
+# into the builder stage risks leaking whatever secrets a developer has in
+# their local file, even though it never reaches the final nginx stage today.
+node_modules
+**/node_modules
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Build output / caches — never inputs to this Dockerfile, only outputs of it
+# or of local `npm run` scripts.
+dist
+**/dist
+coverage
+**/coverage
+playwright-report
+**/playwright-report
+test-results
+**/test-results
+*.tsbuildinfo
+**/*.tsbuildinfo
+*.log
+**/*.log
+
+# Editor / OS cruft
+.DS_Store
+**/.DS_Store
+.idea
+**/.idea
+.vscode
+**/.vscode
