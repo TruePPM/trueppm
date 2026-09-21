@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1: builder — compile dependencies into a virtual environment
 # ---------------------------------------------------------------------------
-FROM python:3.11-slim AS builder
+FROM python:3.11-slim@sha256:da047cb8f9d1d98e5c070f5300ba9f7274e33b8fc0e5be5ed88740aed1b95ba9 AS builder
 
 # `apt-get upgrade` (not just `update`) so this layer carries the Debian
 # security team's latest point-release patches even when the upstream
@@ -58,7 +58,7 @@ RUN pip install --no-cache-dir "/build/api[${PSYCOPG_EXTRA}]"
 # ---------------------------------------------------------------------------
 # Stage 2: runtime — lean image with only what is needed to run
 # ---------------------------------------------------------------------------
-FROM python:3.11-slim AS runtime
+FROM python:3.11-slim@sha256:da047cb8f9d1d98e5c070f5300ba9f7274e33b8fc0e5be5ed88740aed1b95ba9 AS runtime
 
 # See the matching comment in the builder stage above — this is the stage that
 # actually ships, so this `upgrade` is the one that matters for the Trivy gate.
