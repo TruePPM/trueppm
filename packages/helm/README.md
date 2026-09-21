@@ -94,6 +94,19 @@ flags:
   on a cluster whose CNI does not enforce policy these objects are accepted but
   silently unenforced. If your cluster lacks one, do not use the bundled datastores
   for anything sensitive — use managed external datastores with TLS instead.
+- **Default-deny ingress NetworkPolicy on the app tier itself** (`api`, `web`,
+  `celery-worker`, `celery-beat`, #3850) — independent of `postgresql.enabled` /
+  `valkey.enabled` above, so it renders on the **managed-datastore path
+  (`values-prod.yaml`) too**, not only the bundled-subchart topology. `api` and
+  `web` admit only the configured ingress controller
+  (`networkPolicy.ingressControllerSelector`, default: an `ingress-nginx`
+  namespace) plus each other where the chart's own topology needs it (`web`'s
+  nginx proxies to `api`; the `helm test` connection probe curls `api`
+  directly); `celery-worker` and `celery-beat` admit nothing — neither has a
+  Service and nothing has a legitimate reason to dial into either. **Egress is
+  deliberately untouched** — the API/worker pods keep the open egress described
+  above (OIDC/SMTP/S3/OTLP are deployment-specific destinations a chart-imposed
+  allowlist would break). Same CNI requirement as the datastore policies.
 
 ### Retrieving the generated database password
 
@@ -113,6 +126,7 @@ kubectl get secret <release>-trueppm-connection \
 | `ingress.className` | `""` | IngressClass to bind (e.g. `nginx`). Empty uses the cluster default. |
 | `ingress.tls` | `[]` | TLS Secret + host list for edge termination. Empty renders HTTP-only (dev/demo). |
 | `networkPolicy.enabled` | `true` | Default-on; requires a NetworkPolicy-enforcing CNI. |
+| `networkPolicy.ingressControllerSelector` | `namespaceSelector` matching `kubernetes.io/metadata.name: ingress-nginx`, empty `podSelector` | `{namespaceSelector, podSelector}` peer admitted by the `api`/`web` default-deny ingress policies. Override for a different controller/namespace (e.g. `rke2-ingress-nginx`) — an unconfigured default silently blackholes ingress on a cluster whose controller uses different labels. |
 | `podSecurityContext` | `runAsNonRoot`, uid 1000, `fsGroup` 1000 | Pod-level security context for every workload. `fsGroup` keeps `persistence.media` / `backup.persistence` PVCs writable. Set `runAsUser: null` and `fsGroup: null` on OpenShift. |
 | `containerSecurityContext` | restricted profile | Container-level hardening for API/worker. |
 | `resources.api` / `resources.worker` / `resources.beat` / `resources.web` | see values.yaml | Per-container resources. |

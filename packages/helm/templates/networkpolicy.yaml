@@ -89,4 +89,133 @@ spec:
   # No egress rules → default-deny egress from the Valkey pod.
   egress: []
 {{- end }}
+{{/*
+App-tier default-deny INGRESS (#3850). Unlike the two datastore policies above,
+these four render regardless of .Values.postgresql.enabled / .Values.valkey.enabled
+— they protect the chart's OWN pods (api/web/celery-worker/celery-beat), not the
+bundled subcharts, so they must not depend on whether those subcharts are in use.
+Before this, `values-prod.yaml` — the recommended production overlay, which turns
+BOTH subcharts off in favor of managed datastores — rendered ZERO NetworkPolicy
+objects: the least-hardened rendering was the one the README recommends operators
+actually run.
+
+Egress is deliberately UNCHANGED here — only Ingress is in policyTypes. The api and
+celery-worker/-beat pods make legitimate outbound calls (OIDC/OAuth to the
+operator's IdP, SMTP, S3/object storage, OTLP telemetry, the managed Postgres/
+Valkey endpoints) whose destinations are deployment-specific; a chart-imposed
+egress allowlist would break real installs the same way it would if bolted onto
+the datastore policies above. Restrict egress at the platform layer if your
+environment requires it.
+
+Ingress-controller traffic is matched via the operator-configurable
+networkPolicy.ingressControllerSelector (defaults to an `ingress-nginx` namespace)
+rather than a hardcoded selector — the controller's own namespace/pod labels vary
+by distribution (RKE2, GKE, k3s, …), and a policy that assumes the wrong one
+silently blackholes ingress traffic rather than merely under-protecting it.
+*/}}
+{{- $ingressFrom := .Values.networkPolicy.ingressControllerSelector | default dict }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "trueppm.fullname" . }}-api-ingress
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "trueppm.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- /* the web tier's nginx proxies /api and /admin to this Service
+             (templates/web/configmap.yaml), and the default Ingress topology
+             (values.yaml ingress.hosts) also routes /api and /ws straight here,
+             bypassing web entirely — both paths need to be allowed. `test` is
+             the `helm test` connection-probe Pod (templates/tests/
+             api-connection.yaml), which curls this Service directly; omitting
+             it breaks `helm test` — and CI's helm:install job that runs it —
+             under an enforcing CNI. */}}
+        - podSelector:
+            matchLabels:
+              {{- include "trueppm.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: web
+        - podSelector:
+            matchLabels:
+              {{- include "trueppm.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: test
+        - namespaceSelector:
+            {{- toYaml $ingressFrom.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml ($ingressFrom.podSelector | default dict) | nindent 12 }}
+      ports:
+        - protocol: TCP
+          port: http
+  # No egress rules and Egress absent from policyTypes → this policy does not
+  # touch egress at all; the api pod's outbound calls are unaffected.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "trueppm.fullname" . }}-web-ingress
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "trueppm.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: web
+  policyTypes:
+    - Ingress
+  ingress:
+    {{- /* Only the ingress controller ever dials the web pod: the default
+         Ingress topology routes `/` here, and nothing else in the chart's own
+         pods proxies to the web tier (the web tier proxies OUT to api, not the
+         other way around). */}}
+    - from:
+        - namespaceSelector:
+            {{- toYaml $ingressFrom.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml ($ingressFrom.podSelector | default dict) | nindent 12 }}
+      ports:
+        - protocol: TCP
+          port: http
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "trueppm.fullname" . }}-celery-worker-ingress
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "trueppm.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: celery-worker
+  policyTypes:
+    - Ingress
+  # No `ingress:` rules → default-deny. The worker has no Service and nothing in
+  # the chart, the platform, or an operator's own workloads has a legitimate
+  # reason to open a connection TO it — it only ever dials OUT to the broker and
+  # the database. Its liveness/readiness/startup probes are `exec` probes
+  # (trueppm.celeryProbe), which run inside the container via the kubelet, not
+  # over the pod network, so they are unaffected by Ingress policy.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "trueppm.fullname" . }}-celery-beat-ingress
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "trueppm.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: celery-beat
+  policyTypes:
+    - Ingress
+  # No `ingress:` rules → default-deny, same reasoning as celery-worker above:
+  # beat has no Service and only ever dials out.
 {{- end }}
