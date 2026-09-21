@@ -901,6 +901,23 @@ env:
   # name it receives, and always when SSO is enabled.
   # No trailing slash, no path.
   TRUEPPM_PUBLIC_API_BASE_URL: ""
+  # Comma-separated list of scheme+host origins Django's CSRF middleware trusts
+  # for unsafe (POST/PUT/PATCH/DELETE) requests, e.g.
+  # "https://trueppm.example.com". Read at settings/base.py:310
+  # (env.list("CSRF_TRUSTED_ORIGINS", default=[])).
+  #
+  # REQUIRED whenever the web app's origin differs from the API's — a
+  # split-origin deployment such as app.example.com (web) + api.example.com
+  # (API), which is the topology most Ingress operators reach for. It is
+  # harmless to leave empty on the chart's default single-origin Ingress.
+  #
+  # The break this fixes lands specifically on SSO, and only after the hard
+  # part already worked: the IdP redirect completes, the callback validates
+  # the ID token and sets the refresh cookie, and then the SPA's post-login
+  # refresh POST is rejected with a 403 CSRF failure because the web origin
+  # is not in Django's trusted list. Set it to the SAME origin(s) as
+  # TRUEPPM_FRONTEND_BASE_URL above. No trailing slash, no path.
+  CSRF_TRUSTED_ORIGINS: ""
   # Retention window (days) for soft-deleted ("trashed") projects. Once a project
   # has been in the trash longer than this, the consolidated retention purge
   # (retention.run_purge, ADR-0173) HARD-deletes it and all its child data —
