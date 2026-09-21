@@ -194,6 +194,27 @@ WEB_IMAGE="${IMAGE_REPO}/web:${RELEASE_IMAGE_TAG}"
 log() { echo "==> $*"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
+# ---- admin password retrievable from the shared emptyDir (#3964) -----------
+# The password file lives on an emptyDir — pod-local, not persisted across a
+# pod replacement — and create_admin is deliberately idempotent: it no-ops the
+# moment a superuser already exists (packages/api/.../create_admin.py). So this
+# can only ever be checked against the pod bootstrap actually ran on, which for
+# the upgrade leg is the PRE-upgrade pod from the initial `helm install` of the
+# previous chart — `helm upgrade` rolls a new pod whose create_admin init
+# container correctly skips writing the file a second time, and checking the
+# post-upgrade pod for it (the original bug, #3964) fails by construction,
+# not because anything is broken.
+check_admin_password() {
+  local api_pod pw_file admin_pw
+  api_pod="$(kubectl get pod -l app.kubernetes.io/component=api -o jsonpath='{.items[0].metadata.name}')"
+  # Chart default admin.passwordFile; overridable via $ADMIN_PASSWORD_FILE.
+  pw_file="${ADMIN_PASSWORD_FILE:-/run/trueppm/admin_password}"
+  log "reading admin password from ${api_pod}:${pw_file}"
+  admin_pw="$(kubectl exec "$api_pod" -c api -- cat "$pw_file" 2>/dev/null || true)"
+  [ -n "$admin_pw" ] || fail "admin password file '$pw_file' empty/absent — create_admin did not write it"
+  log "admin password present (${#admin_pw} chars) — bootstrap wrote the shared emptyDir"
+}
+
 # ---- resolve the previous released chart version (upgrade leg only, #3941) -
 # Pins "the previous version" to the real last published tag instead of a
 # hardcoded string, so it keeps tracking reality as releases ship (beta.1 ->
@@ -464,6 +485,13 @@ if [ "$DRILL_LEG" = "upgrade" ]; then
   log "previous release ${PREV_CHART_VERSION} rolled out — now helm upgrade -> HEAD chart"
   kubectl get pods -o wide
 
+  # ---- 4a-cont. admin password, checked against THIS pod before it is gone -
+  # This is the only point in the upgrade leg where the check can pass: see
+  # check_admin_password's header comment. `--wait` above already gates on the
+  # pod being Ready, which means its init containers (including create_admin)
+  # already ran to completion.
+  check_admin_password
+
   # ---- 4b. upgrade THE SAME RELEASE to the HEAD chart/images ---------------
   # This is the leg #3941 exists for: migration ordering + the migrate_locked
   # advisory lock under values-prod.yaml's replicaCount: 2, bundled-datastore
@@ -512,13 +540,12 @@ log "helm test ${RELEASE}"
 helm test "$RELEASE" --timeout 3m
 
 # ---- 6. admin password retrievable from the shared emptyDir ----------------
-api_pod="$(kubectl get pod -l app.kubernetes.io/component=api -o jsonpath='{.items[0].metadata.name}')"
-# Chart default admin.passwordFile; overridable via $ADMIN_PASSWORD_FILE.
-pw_file="${ADMIN_PASSWORD_FILE:-/run/trueppm/admin_password}"
-log "reading admin password from ${api_pod}:${pw_file}"
-admin_pw="$(kubectl exec "$api_pod" -c api -- cat "$pw_file" 2>/dev/null || true)"
-[ -n "$admin_pw" ] || fail "admin password file '$pw_file' empty/absent — create_admin did not write it"
-log "admin password present (${#admin_pw} chars) — bootstrap wrote the shared emptyDir"
+# Upgrade leg already ran this (4a-cont., above) against the pre-upgrade pod —
+# the only pod create_admin ever wrote it to. See check_admin_password's
+# header comment for why a post-upgrade pod can never pass this check.
+if [ "$DRILL_LEG" != "upgrade" ]; then
+  check_admin_password
+fi
 
 # ---- 7. negative probe: boot guard fails closed without SECRET_KEY ----------
 # settings.prod reads SECRET_KEY (import-time, no default) BEFORE it ever touches
