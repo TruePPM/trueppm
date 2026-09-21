@@ -154,6 +154,14 @@ services:
       TRUEPPM_ALLOW_DEV_SETTINGS: "1"
       SECRET_KEY: dev-secret-key-change-in-prod
       PYTHONPATH: /app/src
+      # Plain Docker Compose has NO mechanism that restarts a container on
+      # healthcheck failure — `restart: unless-stopped` fires only on process
+      # EXIT, unlike the Helm chart's `celery inspect ping` livenessProbe,
+      # which kubelet acts on directly (#3936). This gives `restart:
+      # unless-stopped` something to act on: trueppm_api.core.worker_selfheal
+      # self-exits the worker once its own heartbeat file (below) goes stale
+      # past its threshold, instead of sitting `unhealthy` forever.
+      TRUEPPM_CELERY_WORKER_SELF_HEAL: "1"
     volumes:
       - ./packages/api/src:/app/src
     depends_on:
@@ -161,13 +169,18 @@ services:
         condition: service_healthy
       valkey:
         condition: service_healthy
-    # `restart: unless-stopped` only restarts on process EXIT, so a worker whose
-    # event loop has wedged reports `Up` forever without this. Stats a heartbeat
-    # file trueppm_api.core.worker_heartbeat touches every ~2s on the worker's
-    # own timer (#3346) — NOT `celery inspect ping`, which forks a full Django
+    # `restart: unless-stopped` only restarts on process EXIT — a healthcheck
+    # transitioning to `unhealthy` changes only what `docker compose ps`
+    # reports; nothing in Compose reads that status and restarts anything
+    # (#3936). This check itself stats a heartbeat file
+    # trueppm_api.core.worker_heartbeat touches every ~2s on the worker's own
+    # timer (#3346) — NOT `celery inspect ping`, which forks a full Django
     # import into the container it measures and can fail a worker that is busy
-    # doing its job (#3236). Matches the Helm chart's worker readiness probe;
-    # see administration/probes.md.
+    # doing its job (#3236). It matches the Helm chart's worker READINESS
+    # probe, which only takes a pod out of rotation — actual recovery here
+    # comes from TRUEPPM_CELERY_WORKER_SELF_HEAL above, Compose's equivalent
+    # of the chart's separate liveness probe. See administration/probes.md
+    # and administration/troubleshooting.md.
     healthcheck:
       test: ["CMD-SHELL", "find /tmp/trueppm-celery-worker-heartbeat -newermt '-30 seconds' 2>/dev/null | grep -q ."]
       interval: 10s

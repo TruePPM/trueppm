@@ -79,7 +79,14 @@ spec:
         - name: migrate
           image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["python", "manage.py", "migrate", "--noinput"]
+          # migrate_locked, not migrate (#3188, #3933). This init container
+          # starts at essentially the same wall-clock moment as the api
+          # Deployment's own migrate init container — Helm does not wait for
+          # the api Deployment to become Ready before firing this hook (see
+          # note 1 above) — so a bare `migrate` here reintroduces the
+          # concurrent-migration race migrate_locked exists to eliminate, on
+          # every demo install and every demo upgrade.
+          command: ["python", "manage.py", "migrate_locked"]
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           {{- with .Values.envFrom }}
