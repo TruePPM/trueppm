@@ -6,7 +6,7 @@
  * link-pin modal) lands in phase 2 alongside the offline IndexedDB queue.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
 import {
   BanIcon,
@@ -355,6 +355,7 @@ export function AttachmentSection({
   const { isDemoReadOnly } = useDemoMode();
   const uploadBlocked = !isOnline || createAttachment.isPending || isDemoReadOnly;
   const demoDisabledTitle = isDemoReadOnly ? DEMO_DISABLED_NOTE : undefined;
+  const demoNoteId = useId();
 
   // Pinned float to top — server returns pinned-first by default but a stale
   // optimistic mutation could shuffle order, so sort defensively.
@@ -452,7 +453,11 @@ export function AttachmentSection({
               attachment={a}
               projectId={projectId}
               taskId={taskId}
-              canEdit={canEdit}
+              // Withdrawn in the read-only demo, like every other mutating control
+              // on this surface: a live Delete that 403s into a red "Couldn't
+              // delete." beside a drop zone politely explaining the mode is the
+              // half-gated state that reads as a broken product (web rule 430).
+              canEdit={canEdit && !isDemoReadOnly}
             />
           ))}
         </ul>
@@ -484,6 +489,7 @@ export function AttachmentSection({
               onClick={() => fileInputRef.current?.click()}
               disabled={uploadBlocked}
               title={demoDisabledTitle}
+              aria-describedby={isDemoReadOnly ? demoNoteId : undefined}
               className="text-xs border border-neutral-border rounded-control px-3 min-h-11 md:min-h-7 font-medium
                 shrink-0 whitespace-nowrap
                 text-neutral-text-primary hover:bg-neutral-surface
@@ -497,6 +503,7 @@ export function AttachmentSection({
               onClick={() => setLinkModalOpen(true)}
               disabled={uploadBlocked}
               title={demoDisabledTitle}
+              aria-describedby={isDemoReadOnly ? demoNoteId : undefined}
               className="text-xs border border-neutral-border rounded-control px-3 min-h-11 md:min-h-7 font-medium
                 shrink-0 whitespace-nowrap
                 text-neutral-text-primary hover:bg-neutral-surface
@@ -506,6 +513,14 @@ export function AttachmentSection({
               + Pin link
             </button>
           </div>
+          {/* A VISIBLE sibling, not just the `title` above: a `title` on a `disabled`
+              button reaches nobody — Tab skips it, Firefox and Safari suppress the
+              tooltip on a disabled element, and touch has no equivalent. */}
+          {isDemoReadOnly && (
+            <p id={demoNoteId} className="text-xs text-neutral-text-secondary mt-1.5">
+              {DEMO_DISABLED_NOTE}
+            </p>
+          )}
           {(createAttachment.isPending || !isOnline || uploadError) && (
             <div className="flex flex-col gap-1 mt-1.5">
               {createAttachment.isPending && (

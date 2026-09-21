@@ -8,6 +8,6 @@ Two reasons, and the second is the one that gets missed. First, a live region an
 
 `<aside aria-label>` is what replaces it: a landmark gives the bar findability in a landmark list without claiming it will speak again.
 
-**Responsive copy stays in ONE text node.** Where a mode bar has a short base sentence and a longer pitch, the pitch is a `<span className="hidden md:inline">` *inside the same node*, not a second conditionally-rendered element. The truncation is then visual only — assistive technology reads the whole sentence at every width — and there is no breakpoint at which a screen-reader user hears less than a sighted one.
+**Responsive copy stays in ONE text node — hidden with `sr-only`, never `hidden`.** Where a mode bar has a short base sentence and a longer pitch, the pitch is a `<span className="sr-only md:not-sr-only md:inline">` *inside the same node*, not a second conditionally-rendered element. The mechanism matters as much as the nesting: `hidden` is `display:none`, which takes the span out of the accessibility tree as well as out of the layout, so a screen-reader user below `md` would hear a shorter sentence than a sighted one at `md` — see rule 429, which this clause originally got wrong.
 
 **Render nothing while the mode is unresolved.** Gate on the query's `isLoading` as well as the flag, so a normal install never flashes a banner it takes back on the next tick.

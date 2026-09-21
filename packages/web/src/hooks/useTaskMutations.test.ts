@@ -32,6 +32,9 @@ import {
   parseGuardrailBlockedError,
 } from './useTaskMutations';
 import type { Task } from '@/types';
+import { useDemoOverlayStore } from '@/stores/demoOverlayStore';
+import { useReconcileStore } from '@/stores/reconcileStore';
+import { queryClient as appQueryClient } from '@/lib/queryClient';
 
 const { patchMock, postMock, deleteMock } = vi.hoisted(() => ({
   patchMock: vi.fn().mockResolvedValue({ data: {} }),
@@ -422,7 +425,6 @@ describe('useCreateTask', () => {
     expect(postMock.mock.calls[0][1]).not.toHaveProperty('board_lane');
   });
 
-
   it('falls back to undefined query key when projectId is null', async () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useCreateTask(null), { wrapper: makeWrapper(qc) });
@@ -723,7 +725,9 @@ describe('useBulkDeleteTasks', () => {
     postMock.mockResolvedValue({
       data: {
         applied: [],
-        rejected: [{ index: 0, id: 't1', code: 'forbidden', message: 'You may not edit this task.' }],
+        rejected: [
+          { index: 0, id: 't1', code: 'forbidden', message: 'You may not edit this task.' },
+        ],
         skipped: [],
       },
     });
@@ -1002,9 +1006,7 @@ describe('parseGuardrailWarnings', () => {
     // result as a sprint assignment the user can Undo, so letting a dropped-key notice
     // through would offer an Undo for a write that never happened.
     const data = {
-      warnings: [
-        { rule: 'dropped_fields', detail: 'Ignored key(s) not written: predecessors.' },
-      ],
+      warnings: [{ rule: 'dropped_fields', detail: 'Ignored key(s) not written: predecessors.' }],
     };
     expect(parseGuardrailWarnings(data)).toEqual([]);
   });
@@ -1295,5 +1297,108 @@ describe('buildCopyName exhaustion fallback', () => {
 
     expect(name).toBe(`Foo (copy ${Date.now()})`);
     expect(taken).not.toContain(name);
+  });
+});
+
+describe('useUpdateTask — read-only demo date edits (ADR-1197 D4, #3926)', () => {
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+    useDemoOverlayStore.getState().clear();
+    useReconcileStore.setState({ entries: {} });
+    // `isDemoReadOnlySync` reads the app SINGLETON, not this test's client.
+    appQueryClient.setQueryData(['edition'], { edition: 'community', demo_read_only: true });
+  });
+
+  afterEach(() => {
+    useDemoOverlayStore.getState().clear();
+    appQueryClient.removeQueries({ queryKey: ['edition'] });
+  });
+
+  function rejectWith(err: AxiosError) {
+    patchMock.mockRejectedValueOnce(err);
+  }
+
+  const demo403 = () => {
+    const err = new AxiosError('Request failed with status code 403');
+    err.config = { headers: new AxiosHeaders() };
+    err.response = {
+      status: 403,
+      data: { detail: 'read-only demo', code: 'demo_read_only' },
+      statusText: '',
+      headers: {},
+      config: err.config,
+    } as AxiosError['response'];
+    return err;
+  };
+
+  const plain403 = () => {
+    const err = new AxiosError('Request failed with status code 403');
+    err.config = { headers: new AxiosHeaders() };
+    err.response = {
+      status: 403,
+      data: { detail: 'Not permitted.' },
+      statusText: '',
+      headers: {},
+      config: err.config,
+    } as AxiosError['response'];
+    return err;
+  };
+
+  it('keeps an authored planned_start in the overlay and skips the rejection strip', async () => {
+    // The milestone date popover and build-mode date edits write through THIS hook,
+    // not useRescheduleTask — so a demo visitor moving a milestone must see it hold.
+    rejectWith(demo403());
+    const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ id: 't1', projectId: 'p1', planned_start: '2026-07-14' });
+
+    await waitFor(() =>
+      expect(useDemoOverlayStore.getState().entries.get('t1')).toEqual({ start: '2026-07-14' }),
+    );
+    // ADR-0784's strip offers a Retry that can never succeed here.
+    expect(Object.values(useReconcileStore.getState().entries).map((e) => e.status)).not.toContain(
+      'rejected',
+    );
+  });
+
+  // NEGATIVE CONTROL — without it the branch above could be passing vacuously.
+  it('a plain 403 still takes the ordinary rejection path and writes no overlay', async () => {
+    rejectWith(plain403());
+    const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ id: 't1', projectId: 'p1', planned_start: '2026-07-14' });
+
+    await waitFor(() =>
+      expect(Object.values(useReconcileStore.getState().entries).map((e) => e.status)).toContain(
+        'rejected',
+      ),
+    );
+    expect(useDemoOverlayStore.getState().entries.size).toBe(0);
+  });
+
+  it('writes no overlay on a demo-coded 403 when the deployment is NOT a demo', async () => {
+    appQueryClient.setQueryData(['edition'], { edition: 'community', demo_read_only: false });
+    rejectWith(demo403());
+    const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ id: 't1', projectId: 'p1', planned_start: '2026-07-14' });
+
+    await waitFor(() =>
+      expect(Object.values(useReconcileStore.getState().entries).map((e) => e.status)).toContain(
+        'rejected',
+      ),
+    );
+    expect(useDemoOverlayStore.getState().entries.size).toBe(0);
+  });
+
+  it('leaves a refused NON-date edit on the ordinary path (the named asymmetry)', async () => {
+    rejectWith(demo403());
+    const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ id: 't1', projectId: 'p1', name: 'Renamed' });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(useDemoOverlayStore.getState().entries.size).toBe(0);
   });
 });

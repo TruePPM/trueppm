@@ -14,9 +14,12 @@
 export function DemoModePanelNote() {
   return (
     <div className="relative rounded-card border border-chrome-border bg-chrome-surface-raised p-4 max-w-sm flex flex-col gap-2">
-      <div className="inline-flex items-center gap-1.5 text-sm font-semibold text-chrome-text-primary">
+      {/* A real heading, not a bold div: it reads as one, and a screen-reader user
+          browsing this page's headings would otherwise skip the whole block. `h2`
+          sits under the form column's `h1` and beside the panel's own `h2`. */}
+      <h2 className="inline-flex items-center gap-1.5 text-sm font-semibold text-chrome-text-primary">
         <span aria-hidden="true">◆</span> Read-only demo
-      </div>
+      </h2>
       <p className="text-xs leading-relaxed text-chrome-text-secondary">
         Drag a task on the Schedule and watch the critical path recompute in your browser. Nothing
         you do here is saved.

@@ -19,9 +19,12 @@ interface Props {
  * `select-all` on each value so one click takes the whole token — a copy button would
  * be a second affordance for what the Fill control already does in one step.
  *
- * The live region is mounted permanently and empty (`empty:hidden`) rather than
- * conditionally rendered: a region that appears *with* its text is announced
- * inconsistently, so the text is injected into a node already in the tree.
+ * The live region is mounted permanently and empty rather than conditionally
+ * rendered: a region that appears *with* its text is announced inconsistently, so the
+ * text is injected into a node already in the tree. It hides while empty with
+ * `empty:sr-only`, **not** `empty:hidden` — `display:none` removes a node from the
+ * accessibility tree, which would make the "permanently mounted" pattern behave
+ * exactly like the conditional rendering it exists to avoid (web rule 429).
  */
 export function DemoLoginHint({ hint, onFill, disabled }: Props) {
   const [filledNotice, setFilledNotice] = useState('');
@@ -47,12 +50,16 @@ export function DemoLoginHint({ hint, onFill, disabled }: Props) {
         onClick={handleFill}
         disabled={disabled}
         aria-label="Fill in the demo email and password"
+        // Visually the SSO secondary recipe, but with rule 4's `focus:` ring rather
+        // than the `focus-visible:` those buttons carry: this is a standalone trigger,
+        // and Firefox and desktop Safari do not match `:focus-visible` on a
+        // pointer-initiated button focus, so the ring would simply never paint there.
         className="
           h-11 w-full rounded border border-neutral-border
           bg-neutral-surface-raised text-neutral-text-primary
           text-sm font-medium
           hover:bg-neutral-surface-sunken
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
           disabled:opacity-50 disabled:cursor-not-allowed
           transition-colors
         "
@@ -62,7 +69,7 @@ export function DemoLoginHint({ hint, onFill, disabled }: Props) {
       <p
         role="status"
         aria-live="polite"
-        className="text-xs text-neutral-text-secondary empty:hidden"
+        className="text-xs text-neutral-text-secondary empty:sr-only"
       >
         {filledNotice}
       </p>

@@ -2,7 +2,8 @@ import { isValidElement, useEffect, useRef } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { createMemoryRouter, Outlet, type RouteObject } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
-import { QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-query';
+import { QueryClientProvider, useMutation } from '@tanstack/react-query';
+import { queryClient } from '@/lib/queryClient';
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import { routes } from './router';
 import { AppShell } from '@/features/shell/AppShell';
@@ -139,7 +140,12 @@ function unloadBlocked(): boolean {
 }
 
 function renderCrash(target: { path: string; url: string }, options: CrashOptions = {}) {
-  const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+  // The APP SINGLETON, not a fresh client (#3926). `RootLayout` now provides
+  // `@/lib/queryClient` inside the route tree so a public route may hold a query, and
+  // `PendingWritesGuard` — rendered under it — resolves the NEAREST provider. A client
+  // minted here would be shadowed, so the seeded pending write would be invisible to
+  // the guard and `unloadBlocked()` would report false for a reason nothing names.
+  // One client on both sides is also what production actually runs.
   const router = createMemoryRouter(withCrashingRoute(routes, target.path, options), {
     initialEntries: [target.url],
   });
@@ -168,6 +174,9 @@ beforeEach(() => {
 
 afterEach(() => {
   errorSpy.mockRestore();
+  // The seeded write never settles, so it would otherwise leak across the 12 cases
+  // now that they share the singleton.
+  queryClient.clear();
 });
 
 describe('router — every shell-hosted route carries an errorElement (#2834)', () => {

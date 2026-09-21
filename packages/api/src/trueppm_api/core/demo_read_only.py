@@ -121,7 +121,10 @@ def parse_demo_login_hint(raw: str | None) -> dict[str, str] | None:
         raw: The raw environment value, or ``None`` when the variable is unset.
 
     Returns:
-        ``{"username": …, "password": …}``, or ``None`` when unset or empty.
+        ``{"username": …, "password": …}``, or ``None`` when unset or empty. Whitespace
+        around the **whole** value is stripped before the split, so a trailing newline
+        from a heredoc or a ConfigMap block scalar does not become part of the
+        password; whitespace *inside* the password is preserved.
 
     Raises:
         ImproperlyConfigured: If ``raw`` is set to something that is not a

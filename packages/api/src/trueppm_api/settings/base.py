@@ -304,14 +304,6 @@ DJANGO_ADMIN_ENABLED = env.bool("TRUEPPM_DJANGO_ADMIN_ENABLED", default=False)
 # refuses to boot instead.
 DEMO_READ_ONLY: bool = parse_demo_read_only(os.environ.get("TRUEPPM_DEMO_READ_ONLY"))
 
-# The shared credential the interactive demo's login page prints (#3926, ADR-1197 D3).
-# "username:password"; unset on every normal install. Read here rather than derived
-# from any real password variable so nothing can promote a live secret to published
-# copy by accident. /api/v1/edition/ emits it ONLY while DEMO_READ_ONLY is true.
-DEMO_LOGIN_HINT: dict[str, str] | None = parse_demo_login_hint(
-    os.environ.get("TRUEPPM_DEMO_LOGIN_HINT")
-)
-
 # Global rate-limiting kill switch (ADR-0604, extends ADR-0208). Operator-only
 # escape hatch to disable ALL DRF throttling — used by the k6 perf:load job to
 # measure raw throughput, and by an operator load-testing / debugging a real
@@ -329,6 +321,29 @@ RATE_LIMIT_ENABLED, _rate_limit_switch_message = resolve_rate_limit_enabled(
 _settings_log = logging.getLogger("trueppm.settings")
 if _rate_limit_switch_message:
     _settings_log.critical(_rate_limit_switch_message)
+
+# The shared credential the interactive demo's login page prints (#3926, ADR-1197 D3).
+# "username:password"; unset on every normal install. Read here rather than derived from
+# any real password variable so nothing can promote a live secret to published copy by
+# accident. /api/v1/edition/ emits it ONLY while DEMO_READ_ONLY is true.
+#
+# Parsed strictly only where it MATTERS. Refusing to boot on a malformed value is right
+# for a demo — the one credential it advertises being a typo makes the demo unusable —
+# and wrong for a production install, where a leftover variable is inert and crashing
+# the process over it is an outage caused by something that does nothing. What the
+# `else` branch must not be is silent: hint-set-while-mode-off is exactly the state
+# "a real account's password is sitting in a writable install's environment", and
+# nothing else anywhere would say so.
+_demo_login_hint_raw = os.environ.get("TRUEPPM_DEMO_LOGIN_HINT")
+DEMO_LOGIN_HINT: dict[str, str] | None = (
+    parse_demo_login_hint(_demo_login_hint_raw) if DEMO_READ_ONLY else None
+)
+if not DEMO_READ_ONLY and _demo_login_hint_raw and _demo_login_hint_raw.strip():
+    _settings_log.warning(
+        "TRUEPPM_DEMO_LOGIN_HINT is set but TRUEPPM_DEMO_READ_ONLY is not true. The "
+        "value is IGNORED and never served, but a published credential is sitting in "
+        "this install's environment. Unset it unless this really is a demo."
+    )
 
 # Origins trusted for cross-origin POST / CSRF — required when the web app is
 # served from a different origin than the API (split dev setup or subdomain

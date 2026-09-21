@@ -1459,6 +1459,32 @@ describe('useScheduleCommit — read-only demo refusal (ADR-1197 D3/D4, #3926)',
     expect(useScheduleStore.getState().scheduleActionToast).toBeNull();
   });
 
+  it('does NOT suppress the global toast in the md band, where the popover is hidden', async () => {
+    // ADR-0064: the popover is `hidden lg:block`, but the canvas still mounts between
+    // `md` and `lg`. Suppressing the toast there would leave a refused commit with no
+    // affordance at all — the silent failure D3 exists to prevent.
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(min-width: 768px)',
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+    try {
+      const engine = new ControllableEngine();
+      dragAndConfirm(engine);
+      await waitFor(() => expect(patchMock).toHaveBeenCalled());
+      // No config arg at all — the flag is absent, so the interceptor's
+      // `!== true` lets the global toast through.
+      expect(patchMock.mock.calls[0]).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('marks the popover confirm as handling its own refusal, and never sends the flag', async () => {
     const engine = new ControllableEngine();
     const { result } = dragAndConfirm(engine);
@@ -1492,9 +1518,10 @@ describe('useScheduleCommit — read-only demo refusal (ADR-1197 D3/D4, #3926)',
       axiosRefusal(403, { detail: 'read-only demo', code: 'demo_read_only' }),
     );
     const { result } = dragAndConfirm(engine);
-    await waitFor(() => expect(result.current.state?.demoRefusal).toBe(true));
-    // The popover still renders the mode's notice (the code is the server's own
-    // word for it), but no schedule is fabricated above the cache.
+    await waitFor(() => expect(result.current.state?.error).not.toBeNull());
+    // Neither half of the mode's affordance engages: no terminal notice, and no
+    // schedule fabricated above the cache.
+    expect(result.current.state?.demoRefusal).toBe(false);
     expect(useDemoOverlayStore.getState().entries.size).toBe(0);
     expect(Object.values(useReconcileStore.getState().entries).map((e) => e.status)).toContain(
       'rejected',

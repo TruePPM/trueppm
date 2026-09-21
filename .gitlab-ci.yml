@@ -2751,8 +2751,12 @@ helm:template:
           || { echo "PROD REGRESSION: the ${want} NetworkPolicy no longer admits networkPolicy.ingressControllerSelector's default (#3850)"; exit 1; }
       done
     - |
-      grep -q 'TRUEPPM_DEMO_READ_ONLY' /tmp/rendered.yaml \
-        && { echo "LEAK: TRUEPPM_DEMO_READ_ONLY rendered into a non-demo release (#3932)"; exit 1; } || true
+      # Both demo variables, not just the boolean (#3926). The hint is the one that
+      # actually carries a password, so a copy-paste of demo env into a production
+      # values file plants a plaintext credential in a live cluster's manifest — the
+      # emission gate on /edition/ stops it being *served*, not stored.
+      grep -qE 'TRUEPPM_DEMO_(READ_ONLY|LOGIN_HINT)' /tmp/rendered.yaml \
+        && { echo "LEAK: a TRUEPPM_DEMO_* variable rendered into a non-demo release (#3932, #3926)"; exit 1; } || true
 
 ci:build-deploy-images:
   # Build the deployable api + web runtime images from the CURRENT COMMIT's code

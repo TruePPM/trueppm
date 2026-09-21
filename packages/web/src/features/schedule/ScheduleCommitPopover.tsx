@@ -301,6 +301,13 @@ export function ScheduleCommitPopover({
           variant="primary"
           onClick={demoRefusal ? onCancel : onConfirm}
           disabled={!demoRefusal && isPending}
+          // Bound to the BUTTON as well as the dialog: focus lands here on the same
+          // commit that writes the assertive announcement, and a focus move during an
+          // announcement truncates it often enough to matter. The dialog's own
+          // `aria-describedby` change is not re-announced, because the dialog never
+          // receives focus — so without this a user whose announcement was cut is left
+          // on a button named "Got it" with no idea what it acknowledges.
+          aria-describedby={demoRefusal ? 'schedule-commit-demo-notice' : undefined}
         >
           {demoRefusal ? 'Got it' : isPending ? 'Saving…' : error?.retryable ? 'Retry' : verb}
         </Button>

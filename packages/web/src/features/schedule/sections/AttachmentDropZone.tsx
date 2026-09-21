@@ -115,16 +115,20 @@ export function AttachmentDropZone({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       aria-hidden={!visible}
-      title={isDemoReadOnly ? DEMO_DISABLED_NOTE : undefined}
       className={`rounded-card border-2 border-dashed text-xs text-center transition-opacity
         ${visible ? 'opacity-100 p-3' : 'opacity-0 h-0 overflow-hidden p-0 border-0'}
         ${dragOver ? 'border-brand-primary bg-brand-primary/5' : 'border-neutral-border bg-neutral-surface'}
-        ${disabled ? 'opacity-50' : ''}`}
+        ${/* NOT dimmed in the demo: the note below is the only thing on this surface
+             that explains the restriction, and 50% opacity puts it at ~2.2:1. The
+             transient disabled states (upload in flight, offline) keep the dim. */ ''}
+        ${disabledProp ? 'opacity-50' : ''}`}
     >
-      <span className="text-neutral-text-secondary">Drop file here · max 100 MB · {typeHint}</span>
-      {isDemoReadOnly && (
-        <p className="text-xs text-neutral-text-secondary mt-1">{DEMO_DISABLED_NOTE}</p>
-      )}
+      {/* Replaces the hint rather than sitting under it — "Drop file here" above
+          "Not available in the read-only demo." instructs and forbids in one breath,
+          and the larger line is the one that gets read. */}
+      <span className="text-neutral-text-secondary">
+        {isDemoReadOnly ? DEMO_DISABLED_NOTE : `Drop file here · max 100 MB · ${typeHint}`}
+      </span>
     </div>
   );
 }

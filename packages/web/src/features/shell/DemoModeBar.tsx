@@ -29,11 +29,13 @@ export function DemoModeBar() {
       className="flex items-center justify-center gap-2 border-b border-brand-primary/30 bg-brand-primary/10 text-brand-primary px-4 py-1.5 text-xs font-medium"
     >
       <span aria-hidden="true">◆</span>
-      {/* One text node: the pitch half is hidden below `md` visually only, so assistive
-          technology reads the whole sentence at every width. */}
+      {/* One text node, and the pitch half is hidden below `md` VISUALLY only —
+          `sr-only`, never `hidden`. `display:none` would take it out of the
+          accessibility tree too, so a screen-reader user on a phone would hear a
+          shorter sentence than a sighted one (web rule 429). */}
       <span>
         Read-only demo — nothing you change here is saved.
-        <span className="hidden md:inline">
+        <span className="sr-only md:not-sr-only md:inline">
           {' '}
           Drag a task on the Schedule to watch the critical path recompute.
         </span>

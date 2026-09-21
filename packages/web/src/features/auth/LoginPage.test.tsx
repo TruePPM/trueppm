@@ -486,6 +486,18 @@ describe('LoginPage — read-only demo (ADR-1197 D3, #3926)', () => {
     editionPayload = { edition: 'community', demo_read_only: true, demo_login_hint: HINT };
   });
 
+  it('renders nothing demo-related on a server that emits a hint but is not a demo', async () => {
+    // Belt-and-braces over the server's own emission gate: a client that printed a
+    // credential for any server that emitted one would have no defense of its own.
+    editionPayload = { edition: 'community', demo_read_only: false, demo_login_hint: HINT };
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeVisible());
+    expect(screen.queryByText(HINT.password)).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Fill in the demo email and password' }),
+    ).toBeNull();
+  });
+
   it('renders nothing demo-related when there is no published credential', async () => {
     // Gated on the HINT, never on the mode alone: announcing a demo a visitor has no
     // way into would be worse than silence.

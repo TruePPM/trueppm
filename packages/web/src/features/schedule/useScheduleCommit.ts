@@ -4,6 +4,8 @@ import { useUpdateProject } from '@/hooks/useProjectMutations';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { describeWriteRefusal, type WriteRefusal } from '@/lib/writeRefusal';
 import { isDemoReadOnlyRefusal } from '@/lib/demoReadOnly';
+import { isDemoReadOnlySync } from '@/hooks/useDemoMode';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import type { GanttEngine } from './engine';
 import { dateToLeft, leftToDate } from './engine';
 import { CHART_HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
@@ -245,6 +247,8 @@ export function useScheduleCommit({
   const [beforeStartPrompt, setBeforeStartPrompt] = useState<BeforeStartPromptState | null>(null);
   const rescheduleTask = useRescheduleTask();
   const updateProject = useUpdateProject(projectId);
+  // ADR-0064: the commit popover is `hidden lg:block`. See `handleConfirm`.
+  const popoverIsVisible = useBreakpoint() === 'lg';
   const setScheduleActionToast = useScheduleStore((s) => s.setScheduleActionToast);
   const setScheduleError = useScheduleStore((s) => s.setScheduleError);
 
@@ -602,10 +606,16 @@ export function useScheduleCommit({
             // demo's refusal itself (ADR-1197 D3) and the global toast stands down.
             // The keyboard and snap paths deliberately do NOT set this: they have no
             // anchored surface, so the toast IS their affordance.
-            demoRefusalHandled: true,
+            //
+            // Conditional on the popover being VISIBLE, not merely mounted. It is
+            // `hidden lg:block` (ADR-0064), and the canvas still mounts between `md`
+            // and `lg` — so in that band suppressing the toast would leave a refused
+            // commit with no affordance at all, which is the silent failure D3 exists
+            // to prevent, not an improvement on it.
+            demoRefusalHandled: popoverIsVisible,
           }
         : {
-            demoRefusalHandled: true,
+            demoRefusalHandled: popoverIsVisible,
             // #951: send the target finish DATE; the server derives the
             // working-day duration from the project calendar. `newDuration` is
             // the client estimate used only for the optimistic preview — the
@@ -629,7 +639,10 @@ export function useScheduleCommit({
         // (a red RefusalAlert is what D3 forbids), and the bar is left alone.
         // Announced through the region ScheduleView already owns rather than a second
         // live region, which would compete with it.
-        if (isDemoReadOnlyRefusal(err)) {
+        // Both facts, as everywhere else this discriminator is read: the code alone
+        // would let a mislabeled 403 on a real install tell the planner their change
+        // was "calculated, not saved" when the server refused it for a real reason.
+        if (isDemoReadOnlyRefusal(err) && isDemoReadOnlySync()) {
           setState((prev) => (prev ? { ...prev, error: null, demoRefusal: true } : prev));
           if (ariaAssertiveRef.current) {
             ariaAssertiveRef.current.textContent =
@@ -655,6 +668,7 @@ export function useScheduleCommit({
     projectId,
     projectStartDate,
     effectiveFloorDate,
+    popoverIsVisible,
     rescheduleTask,
     revertEngine,
     setScheduleError,

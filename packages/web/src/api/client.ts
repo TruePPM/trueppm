@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/authStore';
 // happen.
 import { toast } from '@/components/Toast/toast';
 import { DEMO_REFUSAL_TOAST, isDemoReadOnlyRefusal } from '@/lib/demoReadOnly';
+import { isDemoReadOnlySync } from '@/hooks/useDemoMode';
 
 declare module 'axios' {
   interface AxiosRequestConfig {
@@ -127,7 +128,17 @@ apiClient.interceptors.response.use(
     // an `info` toast, never the red one, and only for writes that have no anchored
     // affordance of their own. The rejection still propagates below — every downstream
     // `onError` (the preview overlay's write included) depends on it.
-    if (isDemoReadOnlyRefusal(error) && error.config?.demoRefusalHandled !== true) {
+    // Gated on BOTH facts, like the overlay write in `useTaskMutations`: the code is
+    // the server's word for this refusal, and `isDemoReadOnlySync()` is what says this
+    // deployment is actually the demo. Without the second, any future 403 carrying
+    // that code on a real install would tell the user their change "wasn't saved
+    // because this is a read-only demo" when it was refused for a real reason — D3's
+    // failure mode, inverted.
+    if (
+      isDemoReadOnlyRefusal(error) &&
+      isDemoReadOnlySync() &&
+      error.config?.demoRefusalHandled !== true
+    ) {
       toast.info(DEMO_REFUSAL_TOAST);
     }
     if (!axios.isAxiosError(error) || error.response?.status !== 401) {

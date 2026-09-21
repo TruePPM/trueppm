@@ -174,8 +174,10 @@ describe('AttachmentDropZone — read-only demo (ADR-1197 D3, #3926)', () => {
       />,
     );
     expect(getByText('Not available in the read-only demo.')).toBeInTheDocument();
+    // The instruction is REPLACED, not appended to — a zone that says "Drop file
+    // here" above "Not available" instructs and forbids in one breath.
+    expect(container.textContent).not.toContain('Drop file here');
     const zone = container.firstElementChild!;
-    expect(zone).toHaveAttribute('title', 'Not available in the read-only demo.');
     fireEvent.drop(zone, {
       dataTransfer: { files: [new File(['x'], 'a.pdf', { type: 'application/pdf' })] },
     });

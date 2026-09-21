@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, vi, afterEach } from 'vitest';
 import axios, { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/stores/authStore';
 import { useToastStore } from '@/components/Toast/toastStore';
+import { queryClient } from '@/lib/queryClient';
 
 // Re-import every time so each test gets the module-level interceptors registered
 // by client.ts. Module caching means the same apiClient instance is reused within
@@ -233,10 +234,14 @@ describe('apiClient', () => {
 describe('apiClient — read-only demo refusal (ADR-1197 D3, #3926)', () => {
   beforeEach(() => {
     useToastStore.getState().clear();
+    // The toast is gated on the deployment mode as well as the refusal code, so the
+    // cached `/edition/` answer is part of the fixture.
+    queryClient.setQueryData(['edition'], { edition: 'community', demo_read_only: true });
   });
 
   afterEach(() => {
     useToastStore.getState().clear();
+    queryClient.removeQueries({ queryKey: ['edition'] });
   });
 
   function demoRefusal(config: Record<string, unknown> = {}): AxiosError {
@@ -264,6 +269,16 @@ describe('apiClient — read-only demo refusal (ADR-1197 D3, #3926)', () => {
     const client = await getApiClient();
     const { rejected } = getResponseInterceptors(client);
     await expect(rejected(demoRefusal({ demoRefusalHandled: true }))).rejects.toBeDefined();
+    expect(useToastStore.getState().transient).toBeNull();
+  });
+
+  it('stays silent on a deployment that is NOT a demo, even with the code present', async () => {
+    // Both facts are required: the code is the server's word for the refusal, the
+    // cached mode is what says this deployment is the demo.
+    queryClient.setQueryData(['edition'], { edition: 'community', demo_read_only: false });
+    const client = await getApiClient();
+    const { rejected } = getResponseInterceptors(client);
+    await expect(rejected(demoRefusal())).rejects.toBeDefined();
     expect(useToastStore.getState().transient).toBeNull();
   });
 
