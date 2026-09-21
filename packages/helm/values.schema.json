@@ -331,7 +331,7 @@
           "type": "object"
         },
         "sentinel": {
-          "description": "EXPERIMENTAL in 0.4 (#2554, ADR-0716): wiring is unit-tested but has NOT been verified against a live Sentinel quorum performing a real failover — there is no end-to-end promotion test. Do not treat failover as proven until #3778/#3404 close. Shape may still change before 0.5.",
+          "description": "EXPERIMENTAL in 0.4 (#2554, ADR-0716): wiring is unit-tested but has NOT been verified against a live Sentinel quorum performing a real failover \u2014 there is no end-to-end promotion test. Do not treat failover as proven until #3778/#3404 close. Shape may still change before 0.5.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -625,7 +625,7 @@
           "$ref": "#/definitions/celeryBeatProbe"
         },
         "web": {
-          "description": "nginx readiness/liveness probes (#3346). No startup key — the web container serves a pre-built static bundle with no boot-time dependency for a startup probe to cover.",
+          "description": "nginx readiness/liveness probes (#3346). No startup key \u2014 the web container serves a pre-built static bundle with no boot-time dependency for a startup probe to cover.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -1254,6 +1254,21 @@
         "enabled": {
           "type": "boolean"
         },
+        "interactive": {
+          "type": "boolean"
+        },
+        "loginHint": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "username": {
+              "type": "string"
+            },
+            "password": {
+              "type": "string"
+            }
+          }
+        },
         "baseUrl": {
           "type": "string"
         },
@@ -1316,33 +1331,54 @@
       "properties": {
         "enabled": {
           "description": "Render this probe. null inherits probes.<component>.enabled.",
-          "type": ["boolean", "null"]
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "initialDelaySeconds": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         },
         "periodSeconds": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1
         },
         "timeoutSeconds": {
-          "description": "For a ping-mode probe (liveness), celery's own `inspect ping --timeout`. For a heartbeat-mode probe (worker startup/readiness, #3346), kubelet's own exec timeout directly — the check is a filesystem stat, so no derivation is needed.",
-          "type": ["integer", "null"],
+          "description": "For a ping-mode probe (liveness), celery's own `inspect ping --timeout`. For a heartbeat-mode probe (worker startup/readiness, #3346), kubelet's own exec timeout directly \u2014 the check is a filesystem stat, so no derivation is needed.",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1
         },
         "failureThreshold": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1
         },
         "kubeletTimeoutSeconds": {
           "description": "Ping-mode only. kubelet's probe timeout. null derives max(timeoutSeconds + 5, 1.5 x timeoutSeconds), which must also cover the sh fork, Python start, and Django/Celery import each exec probe pays.",
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1
         },
         "staleSeconds": {
           "description": "Heartbeat-mode only (worker readiness, #3346). How old the heartbeat file may be before the probe fails.",
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1
         }
       }
@@ -1356,23 +1392,38 @@
           "type": "boolean"
         },
         "initialDelaySeconds": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         },
         "periodSeconds": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1
         },
         "timeoutSeconds": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1
         },
         "failureThreshold": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1
         },
         "kubeletTimeoutSeconds": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1
         },
         "heartbeatFile": {
@@ -1392,7 +1443,7 @@
       }
     },
     "celeryBeatProbe": {
-      "description": "`celery inspect ping` exec probe for the beat deployment. Liveness only — beat is a pinned singleton behind no Service, so there is deliberately no `readiness` key rather than one nothing reads.",
+      "description": "`celery inspect ping` exec probe for the beat deployment. Liveness only \u2014 beat is a pinned singleton behind no Service, so there is deliberately no `readiness` key rather than one nothing reads.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1400,23 +1451,38 @@
           "type": "boolean"
         },
         "initialDelaySeconds": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         },
         "periodSeconds": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1
         },
         "timeoutSeconds": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1
         },
         "failureThreshold": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1
         },
         "kubeletTimeoutSeconds": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1
         },
         "liveness": {

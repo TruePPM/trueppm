@@ -679,6 +679,9 @@ link, because the demo has no accounts and the app's login form could never succ
 | Value | Default | Effect |
 |-------|---------|--------|
 | `demo.enabled` | `false` | Master switch. Everything else in the block is inert while false. |
+| `demo.interactive` | `false` | A **separate** switch from `demo.enabled`, and the two do not imply each other. It arms `DemoReadOnlyMiddleware` on the API pod (`TRUEPPM_DEMO_READ_ONLY=true`), which refuses every unsafe HTTP method under `/api/` except sign-in, token refresh and sign-out — regardless of the caller's role — so a demo may publish a login and still be read-only. `demo.enabled` alone renders exactly what it always did. **Not ready to expose publicly:** the matching nginx method fence and egress policy are not built yet, and the login throttle keys on the submitted username, so one shared username gives the whole internet a 5/min budget. Keep an interactive demo behind an access control. |
+| `demo.loginHint.username` | `""` | The published account. **Required** when `demo.interactive` is true, and rejected when it is false. Must name an account the loaded sample seeds — `atlas-visitor` for the bundled Atlas pack, a Member on the program and all three projects that holds no work and no `ADMIN`/`OWNER` role anywhere. The seed refuses to password a staff/superuser row, a row holding `ADMIN`/`OWNER` or workspace admin, or a row that does not look like one this sample created. Letters, digits and `.` `_` `@` `+` `-` only: the value is written into the verification hook's request body. |
+| `demo.loginHint.password` | `""` | The published password, 8–128 characters of letters, digits and `.` `_` `@` `+` `~` `!` `*` `=` `:` `,` `;` `?` `-`. It is deliberately **not** derived from `TRUEPPM_DEMO_PASSWORD` (the `--with-personas` persona password), so a mis-set mode flag on a real install cannot print a live credential. It reaches the API pod inside `TRUEPPM_DEMO_LOGIN_HINT` on purpose — it is published by design and is not a secret. Never point this at an instance with real users. |
 | `demo.baseUrl` | `""` | Public origin — scheme, host and optional port, such as `https://demo.example.com`. **Required** when enabled; it cannot be inferred from inside the cluster. A single trailing slash is trimmed. A path, a query, or any other character is rejected at render time, because the value is written into the demo nginx config for the `/` redirect. |
 | `demo.shareToken.schedule` | `""` | Pinned token for the schedule link, and the target of the `/` redirect. **Required** when enabled. Letters, digits, `-` and `_` only — anything else is rejected at render time because the token is written into the nginx config. The generator command below always satisfies this. |
 | `demo.shareToken.board` | `""` | Pinned token for the board link. **Required** when enabled, must differ from the schedule token, and follows the same character rule. |
@@ -752,6 +755,25 @@ API and `/ws/` around the allowlist, so the chart refuses to render them:
 - `demo.enabled` with an API Service (`service.type`) other than `ClusterIP`. A
   `LoadBalancer` or `NodePort` there is reachable with no Ingress at all. To publish a
   demo through a load balancer, set `web.service.type` instead.
+
+Three more refusals guard the interactive mode's published credential:
+
+- `demo.loginHint` set while neither `demo.interactive` nor `demo.enabled` is true. The
+  write fence is then off, so the hint would publish a working login to a **writable**
+  instance — any authenticated user may `POST /projects/` and is made its owner.
+- `demo.loginHint` set while `demo.interactive` is false. Nothing reads it, so the
+  result is a demo with no login and no diagnostic.
+- `demo.interactive` together with `env.TRUEPPM_DEMO_PASSWORD`. That variable is the
+  persona-login password: `load_sample_project --with-personas` gives it to *every*
+  persona in the sample and refuses only staff and superuser rows, so personas holding
+  `OWNER` or `ADMIN` receive it too. A published demo credential must open exactly one
+  unprivileged account. The seeder refuses the flag outright in this mode as well.
+
+Verify an interactive install with `helm test <release>`: the hook signs in with the
+hint and asserts that an authenticated `POST /api/v1/projects/` answers `403` with
+`code: "demo_read_only"`, so a missing seed, a wrong overlay or an unarmed middleware
+fails the release. It reaches the API Service by in-cluster DNS, so it proves the
+API-tier fence and says nothing about the public edge.
 
 The guard sees only what the chart renders. It cannot see an Ingress you create
 yourself, or controller annotations under `ingress.annotations` that reroute traffic

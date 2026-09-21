@@ -93,6 +93,16 @@ ACCOUNTS = [
     ("clara", "clara", "Clara Mendes", "clara@atlas.example", "MEMBER"),
     ("ivan", "ivan", "Ivan Petrov", "ivan@atlas.example", "MEMBER"),
     ("ada", "ada", "Ada Boyega", "ada@atlas.example", "VIEWER"),
+    # The interactive demo's published account (ADR-1197 D5/Amendment 1, #3925).
+    # Deliberately NOT one of the personas above: the published password must never
+    # open an account that holds OWNER or ADMIN anywhere, and `alex`, `priya` and
+    # `jordan` all do. MEMBER rather than VIEWER on purpose — a Member sees the
+    # comment composer, the attach control, the edit forms and Author mode, so the
+    # tour looks like the product; the read-only guarantee comes from
+    # DemoReadOnlyMiddleware refusing by request METHOD, never from this role.
+    # It owns no work: no resource, no assignment, no authored event, so adding it
+    # changes no schedule, capacity or rollup number.
+    ("visitor", "visitor", "Demo Visitor", "visitor@atlas.example", "MEMBER"),
 ]
 
 # resource slug -> (name account, job role, max_units, calendar slug)
@@ -256,6 +266,11 @@ def three_point(most_likely: int, risk: float = 1.0) -> dict:
 # ``test_project_memberships`` additionally requires every account to reach at
 # least one project, so a person dropped from every list is a failing test rather
 # than a persona who silently cannot sign in anywhere.
+#
+# ``visitor`` is the one deliberate exception to "named by the content": it is the
+# interactive demo's published login (#3925), so it must reach ALL THREE projects
+# and the program rail even though it owns nothing. A ProgramMembership alone
+# reaches the program rail and no project, which is why it is listed here as well.
 PROJECT_MEMBERS: dict[str, list[tuple[str, str]]] = {
     "platform-core": [
         ("alex", "OWNER"),
@@ -271,6 +286,7 @@ PROJECT_MEMBERS: dict[str, list[tuple[str, str]]] = {
         ("lena", "MEMBER"),
         ("ivan", "VIEWER"),
         ("ada", "VIEWER"),
+        ("visitor", "MEMBER"),
     ],
     # raj is the DevOps engineer and works only this stream, at SCHEDULER — the
     # clearest "same person, different authority" contrast with priya below.
@@ -284,6 +300,7 @@ PROJECT_MEMBERS: dict[str, list[tuple[str, str]]] = {
         ("tom", "MEMBER"),
         ("ivan", "VIEWER"),
         ("ada", "VIEWER"),
+        ("visitor", "MEMBER"),
     ],
     # jordan owns GTM outright while holding only MEMBER on platform-core.
     "gtm-readiness": [
@@ -293,6 +310,7 @@ PROJECT_MEMBERS: dict[str, list[tuple[str, str]]] = {
         ("clara", "MEMBER"),
         ("lena", "MEMBER"),
         ("ada", "VIEWER"),
+        ("visitor", "MEMBER"),
     ],
 }
 

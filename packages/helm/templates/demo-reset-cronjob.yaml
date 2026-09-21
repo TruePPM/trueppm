@@ -125,6 +125,18 @@ spec:
                 # it is hardcoded rather than a new values.yaml boolean.
                 - name: TRUEPPM_DEMO_READ_ONLY
                   value: "true"
+                {{- if .Values.demo.interactive }}
+                # Identical to the install hook's pair (ADR-1197 D5, #3925). This is
+                # what makes the reset RE-CREATE the demo account rather than leave a
+                # published login hint pointing at nothing: load_sample_project is
+                # destructively idempotent, and it re-enables this one account on
+                # every run. A run that cannot (account missing, or privileged) fails
+                # the Job loudly rather than seeding a demo nobody can sign in to.
+                - name: TRUEPPM_DEMO_LOGIN_USERNAME
+                  value: {{ include "trueppm.demoLoginUsername" . | quote }}
+                - name: TRUEPPM_DEMO_LOGIN_PASSWORD
+                  value: {{ include "trueppm.demoLoginPassword" . | quote }}
+                {{- end }}
               volumeMounts:
                 - name: tmp
                   mountPath: /tmp

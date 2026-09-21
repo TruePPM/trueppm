@@ -139,6 +139,22 @@ spec:
             # is hardcoded rather than a new values.yaml boolean.
             - name: TRUEPPM_DEMO_READ_ONLY
               value: "true"
+            {{- if .Values.demo.interactive }}
+            # The interactive demo's single published login (ADR-1197 D5, #3925).
+            # load_sample_project enables EXACTLY this account and refuses it if the
+            # sample does not declare it, if it is staff/superuser, or if it holds
+            # ADMIN/OWNER anywhere in the program — so the published password can
+            # never be a Project Admin credential. The command also refuses
+            # --with-personas outright while the read-only fence is armed.
+            #
+            # Plain env, not a Secret: this value is PUBLISHED on the login page by
+            # design. Treating it as a secret would imply a confidentiality it does
+            # not have. Never point demo.loginHint at a real account.
+            - name: TRUEPPM_DEMO_LOGIN_USERNAME
+              value: {{ include "trueppm.demoLoginUsername" . | quote }}
+            - name: TRUEPPM_DEMO_LOGIN_PASSWORD
+              value: {{ include "trueppm.demoLoginPassword" . | quote }}
+            {{- end }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp

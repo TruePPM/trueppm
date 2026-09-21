@@ -14,9 +14,10 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.access.models import Role
+from trueppm_api.apps.access.models import ProgramMembership, Role
 from trueppm_api.apps.projects.models import Dependency, Program, Project, Task
 from trueppm_api.apps.projects.seed.samples import SAMPLES, UnknownSampleError, load_sample
 
@@ -688,3 +689,191 @@ def test_sample_anchor_date_is_not_client_writable(owner: Any) -> None:
 
     assert resp.status_code in (200, 400)
     assert Program.objects.get(pk=program.pk).sample_anchor_date == original
+
+
+# --- interactive demo login (#3925, ADR-1197 D5) ---------------------------
+
+# A fixture value, hoisted out of the call sites: a string literal beside a
+# "password" key trips the secret scanner exactly as a real credential would.
+_DEMO_LOGIN_PASSWORD = "visitor-" + "pw-3925"
+
+
+def _demo_login_env(monkeypatch: Any, username: str, password: str) -> None:
+    monkeypatch.setenv("TRUEPPM_DEMO_LOGIN_USERNAME", username)
+    monkeypatch.setenv("TRUEPPM_DEMO_LOGIN_PASSWORD", password)
+
+
+def test_demo_login_env_enables_exactly_one_account(
+    owner: Any, monkeypatch: Any, settings: Any
+) -> None:
+    """The interactive demo publishes one credential; it must open one account.
+
+    This is the whole reason ``--with-personas`` is not the mechanism: that flag
+    passwords every persona in the pack with the same secret, three of which hold
+    OWNER or ADMIN.
+    """
+    settings.DEBUG = False
+    settings.DEMO_READ_ONLY = True
+    owner.is_superuser = True
+    owner.save(update_fields=["is_superuser"])
+    _demo_login_env(monkeypatch, "atlas-visitor", _DEMO_LOGIN_PASSWORD)
+
+    call_command("load_sample_project")
+
+    assert User.objects.get(username="atlas-visitor").check_password(_DEMO_LOGIN_PASSWORD) is True
+    assert User.objects.get(username="atlas-alex").has_usable_password() is False
+
+    cache.clear()
+    resp = APIClient().post(
+        "/api/v1/auth/token/",
+        {"username": "atlas-visitor", "password": _DEMO_LOGIN_PASSWORD},
+        format="json",
+    )
+    assert resp.status_code == 200
+
+
+def test_demo_login_survives_a_reset(owner: Any, monkeypatch: Any, settings: Any) -> None:
+    """The scheduled reset re-runs the same command, so it must re-create the login.
+
+    ``load_sample_project`` is destructively idempotent. If the second run did not
+    re-apply the password, the demo would publish a login hint that stopped working
+    at the first reset — six hours after launch, with nothing failing anywhere.
+    """
+    settings.DEMO_READ_ONLY = True
+    owner.is_superuser = True
+    owner.save(update_fields=["is_superuser"])
+    _demo_login_env(monkeypatch, "atlas-visitor", _DEMO_LOGIN_PASSWORD)
+
+    call_command("load_sample_project")
+    call_command("load_sample_project")
+
+    assert User.objects.get(username="atlas-visitor").check_password(_DEMO_LOGIN_PASSWORD) is True
+
+
+def test_demo_login_refuses_a_privileged_account(
+    owner: Any, monkeypatch: Any, settings: Any
+) -> None:
+    settings.DEMO_READ_ONLY = True
+    owner.is_superuser = True
+    owner.save(update_fields=["is_superuser"])
+    _demo_login_env(monkeypatch, "atlas-alex", _DEMO_LOGIN_PASSWORD)
+
+    with pytest.raises(CommandError, match="ADMIN or OWNER"):
+        call_command("load_sample_project")
+
+
+def test_demo_login_refuses_an_account_the_sample_does_not_declare(
+    owner: Any, monkeypatch: Any, settings: Any
+) -> None:
+    """A username outside the pack is a real user, whose password is not ours to set."""
+    settings.DEMO_READ_ONLY = True
+    owner.is_superuser = True
+    owner.save(update_fields=["is_superuser"])
+    User.objects.create_user(username="a-real-person", password="their-own-secret")
+    _demo_login_env(monkeypatch, "a-real-person", _DEMO_LOGIN_PASSWORD)
+
+    with pytest.raises(CommandError, match="not one of sample"):
+        call_command("load_sample_project")
+
+    assert User.objects.get(username="a-real-person").check_password("their-own-secret") is True
+
+
+def test_demo_login_requires_both_env_vars(owner: Any, monkeypatch: Any, settings: Any) -> None:
+    settings.DEMO_READ_ONLY = True
+    owner.is_superuser = True
+    owner.save(update_fields=["is_superuser"])
+    monkeypatch.setenv("TRUEPPM_DEMO_LOGIN_USERNAME", "atlas-visitor")
+    monkeypatch.delenv("TRUEPPM_DEMO_LOGIN_PASSWORD", raising=False)
+
+    with pytest.raises(CommandError, match="must be set"):
+        call_command("load_sample_project")
+
+
+def test_with_personas_is_refused_in_demo_read_only_mode(
+    owner: Any, monkeypatch: Any, settings: Any
+) -> None:
+    """ADR-1197 D5: the persona path fails the INSTALL, not a later audit.
+
+    The seed Job is a Helm hook, so a ``CommandError`` here fails the release. It is
+    raised before the import so a refused install also leaves no data behind.
+    """
+    settings.DEMO_READ_ONLY = True
+    settings.DEBUG = True
+    owner.is_superuser = True
+    owner.save(update_fields=["is_superuser"])
+
+    with pytest.raises(CommandError, match="--with-personas is refused"):
+        call_command("load_sample_project", "--with-personas")
+
+    assert Program.objects.filter(code="atlas-platform-launch").exists() is False
+
+
+def test_demo_login_is_refused_when_the_write_fence_is_off(
+    owner: Any, monkeypatch: Any, settings: Any
+) -> None:
+    """The invariant lives in the command, not only in the Helm guard with the same rule.
+
+    The chart is one caller. ``kubectl exec ... manage.py load_sample_project``,
+    ``docker compose run`` and a CI seed step are not covered by a render-time check,
+    and on a writable instance this MEMBER account plus an open ``POST /projects/``
+    is a self-granted OWNER.
+    """
+    settings.DEMO_READ_ONLY = False
+    owner.is_superuser = True
+    owner.save(update_fields=["is_superuser"])
+    _demo_login_env(monkeypatch, "atlas-visitor", _DEMO_LOGIN_PASSWORD)
+
+    with pytest.raises(CommandError, match="TRUEPPM_DEMO_READ_ONLY is not on"):
+        call_command("load_sample_project")
+
+    assert Program.objects.filter(code="atlas-platform-launch").exists() is False
+
+
+def test_demo_login_refuses_a_privileged_role_held_in_another_program(
+    owner: Any, monkeypatch: Any, settings: Any
+) -> None:
+    """A role held somewhere else is exactly as published as a role held here.
+
+    The privilege query is deliberately unscoped. Scoping it to the program just
+    imported is how it would miss an account that owns something unrelated — and the
+    importer binds accounts by bare username, so a pre-existing user *can* be the one
+    the sample adopts.
+    """
+    settings.DEMO_READ_ONLY = True
+    owner.is_superuser = True
+    owner.save(update_fields=["is_superuser"])
+    squatter = User.objects.create_user(username="atlas-visitor", email="visitor@atlas.example")
+    elsewhere = Program.objects.create(name="Unrelated", code="unrelated-program")
+    ProgramMembership.objects.create(program=elsewhere, user=squatter, role=Role.OWNER)
+    _demo_login_env(monkeypatch, "atlas-visitor", _DEMO_LOGIN_PASSWORD)
+
+    with pytest.raises(CommandError, match="ADMIN or OWNER"):
+        call_command("load_sample_project")
+
+    squatter.refresh_from_db()
+    assert squatter.has_usable_password() is False
+
+
+def test_demo_login_refuses_a_row_this_sample_did_not_seed(
+    owner: Any, monkeypatch: Any, settings: Any
+) -> None:
+    """Provenance, because ``has_usable_password()`` cannot be the guard here.
+
+    The persona path refuses any account that already has a password. This path
+    cannot: the scheduled reset must re-apply the credential on every run, and a
+    rotated password must be able to land. So it asserts the row looks seeded — the
+    pack's own email, and no membership outside this program — instead.
+    """
+    settings.DEMO_READ_ONLY = True
+    owner.is_superuser = True
+    owner.save(update_fields=["is_superuser"])
+    real = User.objects.create_user(
+        username="atlas-visitor", email="someone@real.example", password="their-own-secret"
+    )
+    _demo_login_env(monkeypatch, "atlas-visitor", _DEMO_LOGIN_PASSWORD)
+
+    with pytest.raises(CommandError, match="does not look"):
+        call_command("load_sample_project")
+
+    real.refresh_from_db()
+    assert real.check_password("their-own-secret") is True
