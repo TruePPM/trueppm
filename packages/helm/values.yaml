@@ -359,6 +359,35 @@ valkey:
 # https://docs.trueppm.com/administration/helm-values/#network-and-pod-security
 networkPolicy:
   enabled: true
+  # Default-deny INGRESS NetworkPolicy for the api, celery-worker, celery-beat
+  # and web pods (#3850). Independent of postgresql.enabled / valkey.enabled
+  # above — those two toggles only gate the BUNDLED-DATASTORE policies further
+  # down this file, so the managed-datastore topology (values-prod.yaml, the
+  # recommended production overlay) rendered ZERO NetworkPolicy objects at
+  # all: the app tier's own pods were unprotected in exactly the topology the
+  # README recommends. This block only restricts INGRESS. Egress on the
+  # api/celery-worker pods stays deliberately open (OIDC/SMTP/S3/OTLP/webhook
+  # endpoints are deployment-specific) — see templates/networkpolicy.yaml.
+  #
+  # The ingress controller's namespace/pod labels are cluster- and
+  # distribution-specific, so they are a value, not a hardcoded selector. The
+  # default below matches a controller installed into its own `ingress-nginx`
+  # namespace (the ingress-nginx project's own recommended install; every
+  # namespace has carried the immutable `kubernetes.io/metadata.name` label
+  # since Kubernetes 1.21, so this needs no chart-applied label). Override it
+  # for a different controller or namespace name — e.g. RKE2's bundled
+  # `rke2-ingress-nginx`, or a cloud-managed Ingress (GKE) whose health-check
+  # and LB traffic does not come from an in-cluster controller pod at all, and
+  # instead needs an ipBlock-shaped peer here naming the LB's source ranges.
+  # An unconfigurable policy that blackholes ingress traffic on a cluster
+  # whose controller uses different labels is worse than no policy — verify
+  # this against your controller's actual namespace/pod labels before relying
+  # on the default.
+  ingressControllerSelector:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: ingress-nginx
+    podSelector: {}
 
 # Pod-level and container-level security hardening applied to the API and Celery
 # worker pods. Defaults follow the restricted Pod Security Standard.

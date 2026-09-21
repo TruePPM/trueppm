@@ -160,6 +160,53 @@ defaults above) — never the Docker-internal `http://api:8000/...` form. If you
 change the published ports in `docker-compose.yml`, update both variables to
 match.
 
+### Kubernetes / Helm deployments
+
+The same redirect-URI derivation the dev-stack section above works around also
+applies behind a Helm-managed Ingress, and it is easy to miss because the
+failure surfaces at your identity provider, not in TruePPM: the admin panel
+shows a redirect URI that looks plausible, gets registered at the IdP in good
+faith, and the IdP then redirects signed-in users somewhere their browser
+cannot reach.
+
+- **`env.TRUEPPM_PUBLIC_API_BASE_URL`** — set this whenever SSO is enabled.
+  Until it is set, the redirect URI shown in step 4 above is derived from the
+  request's `Host` header, which behind an Ingress is frequently an internal
+  cluster address rather than your public origin. `values.yaml`'s own comment
+  next to the key states this requirement; see the
+  [Helm Values Reference](/administration/helm-values/) and
+  [`TRUEPPM_PUBLIC_API_BASE_URL`](/administration/configuration/advanced/#optional--advanced-settings)
+  for the full description.
+- **`env.TRUEPPM_FRONTEND_BASE_URL`** — the origin the OIDC callback sends the
+  browser back to once sign-in completes. Leave it empty only on this chart's
+  default single-origin Ingress, where the SPA and the API share one host; set
+  it explicitly for a split-origin deployment (the SPA and the API on
+  different hostnames).
+- **`CSRF_TRUSTED_ORIGINS`** — required on a split-origin deployment, or the
+  post-login token refresh fails with a 403 immediately after the IdP
+  handshake has already succeeded. The chart does not yet expose this as a
+  named `values.yaml` key —
+  [#3945](https://gitlab.com/trueppm/trueppm/-/issues/3945) tracks adding it
+  alongside `TRUEPPM_PUBLIC_API_BASE_URL`. Until that lands, set it yourself
+  through the chart's generic `env:` map, which accepts any key the API reads:
+  ```yaml
+  env:
+    CSRF_TRUSTED_ORIGINS: "https://app.example.com"
+  ```
+  See [`CSRF_TRUSTED_ORIGINS`](/administration/configuration/advanced/#optional--advanced-settings)
+  for what the setting does and when a single-origin deployment needs no value.
+- **In-cluster identity provider** — if the IdP itself runs inside your
+  cluster (e.g. Keycloak at a private service address), the SSRF guard blocks
+  discovery to it until you allow-list it via
+  `env.TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`, documented in `values.yaml` next to
+  `TRUEPPM_INTEGRATION_ALLOWED_HOSTS`. See [Running the identity provider
+  inside your cluster](#running-the-identity-provider-inside-your-cluster)
+  below.
+
+For the full set of chart values and how they map to the API's environment
+variables, see the [Helm Values Reference](/administration/helm-values/) and
+[Configuration](/administration/configuration/).
+
 ### GitHub specifics
 
 GitHub uses OAuth 2.0 rather than OIDC, so there is no issuer or discovery
