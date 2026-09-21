@@ -258,7 +258,7 @@ cd /opt/trueppm
 git pull origin main
 
 # Update the target version in .env:
-# APP_VERSION=0.2.0
+# APP_VERSION=0.4.0-beta.3
 
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
