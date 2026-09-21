@@ -77,6 +77,13 @@ export interface SsoTestResult {
   issuer?: string;
   endpoints?: Record<string, string>;
   error?: string;
+  /**
+   * Stable machine code for the failure *cause*, narrower than `error` (present
+   * only when applicable — currently just `"egress_blocked"`). Lets the UI
+   * branch on the cause instead of substring-matching `detail`, which is prose
+   * and not a contract (#3947).
+   */
+  reason?: string;
   detail?: string;
 }
 

@@ -118,7 +118,12 @@ holding a token cannot list, add, edit, delete, or test a provider; it receives
 
 Once a provider is saved, use **Test connection** on it (via **Edit**) to verify
 that — for OIDC — the issuer's discovery document and signing keys are reachable,
-or — for GitHub — that the GitHub API is reachable.
+or — for GitHub — that the GitHub API is reachable. When the failure is
+specifically the outbound egress guard blocking a private address — the common
+case for an identity provider running inside your own cluster — the card shows
+an inline hint pointing at `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` instead of only the
+raw diagnosis; see [Running the identity provider inside your
+cluster](#running-the-identity-provider-inside-your-cluster) below.
 
 The **Scopes** shown on the form are fixed by the open-source core
 (`openid email profile` for OIDC, `read:user user:email` for GitHub) and cannot be

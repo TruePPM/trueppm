@@ -223,8 +223,29 @@ class OIDCAccountDisabled(OIDCError):
 
 
 class OIDCProviderUnreachable(OIDCError):
+    """Raised when discovery could not be fetched.
+
+    ``reason`` is a second, narrower axis than ``code``: ``code`` stays
+    ``provider_unreachable`` for every cause (it is also surfaced in the login
+    redirect's error query param, where callers don't branch on cause), but the
+    admin "Test connection" probe needs to tell an SSRF-guard refusal apart from
+    a DNS failure or timeout so the UI can offer the egress-allowlist remedy only
+    when it actually applies (#3947). ``None`` for every other cause.
+    """
+
     code = "provider_unreachable"
     http_status = 502
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        code: str | None = None,
+        http_status: int | None = None,
+        reason: str | None = None,
+    ) -> None:
+        super().__init__(message, code=code, http_status=http_status)
+        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -370,7 +391,9 @@ def get_discovery_document(issuer_url: str) -> dict[str, Any]:
     try:
         resp = egress.get(url, headers={"Accept": _ACCEPT_JSON})
     except egress.EgressBlocked as exc:
-        raise OIDCProviderUnreachable(f"issuer URL blocked by SSRF guard: {exc}") from exc
+        raise OIDCProviderUnreachable(
+            f"issuer URL blocked by SSRF guard: {exc}", reason="egress_blocked"
+        ) from exc
     except (egress.EgressTimeout, egress.EgressError) as exc:
         raise OIDCProviderUnreachable(f"could not reach issuer discovery: {exc}") from exc
 
@@ -1329,7 +1352,16 @@ def _check_oidc_reachability(issuer_url: str) -> dict[str, Any]:
     try:
         doc = get_discovery_document(issuer_url)
     except OIDCError as exc:
-        return {"ok": False, "issuer": issuer_url, "error": exc.code, "detail": str(exc)}
+        result: dict[str, Any] = {
+            "ok": False,
+            "issuer": issuer_url,
+            "error": exc.code,
+            "detail": str(exc),
+        }
+        reason = getattr(exc, "reason", None)
+        if reason:
+            result["reason"] = reason
+        return result
 
     jwks_uri = doc.get("jwks_uri", "")
     # Deliberately its own egress call rather than ``_fetch_jwks``: "Test
@@ -1338,10 +1370,22 @@ def _check_oidc_reachability(issuer_url: str) -> dict[str, Any]:
     # not populate the login path's cache from a probe. It also keeps the probe's
     # own error taxonomy, which folds a non-200 into ``jwks_empty`` — for an admin
     # "the keys are not usable" and "the keys are not there" need the same fix.
+    # ``EgressBlocked`` is caught separately from timeout/connection errors so the
+    # response can carry a ``reason: "egress_blocked"`` the UI branches on (#3947) —
+    # substring-matching the prose ``detail`` is brittle and the message is not a
+    # stable contract.
     try:
         egress.assert_url_allowed(jwks_uri)
         jwks_resp = egress.get(jwks_uri, headers={"Accept": _ACCEPT_JSON})
-    except (egress.EgressBlocked, egress.EgressTimeout, egress.EgressError) as exc:
+    except egress.EgressBlocked as exc:
+        return {
+            "ok": False,
+            "issuer": issuer_url,
+            "error": "jwks_unreachable",
+            "reason": "egress_blocked",
+            "detail": str(exc),
+        }
+    except (egress.EgressTimeout, egress.EgressError) as exc:
         return {"ok": False, "issuer": issuer_url, "error": "jwks_unreachable", "detail": str(exc)}
 
     keys = jwks_resp.json() if jwks_resp.status == 200 else None
@@ -1363,7 +1407,19 @@ def _check_github_reachability() -> dict[str, Any]:
     try:
         egress.assert_url_allowed(GITHUB_USER_URL)
         resp = egress.get(GITHUB_USER_URL)
-    except (egress.EgressBlocked, egress.EgressTimeout, egress.EgressError) as exc:
+    except egress.EgressBlocked as exc:
+        # GitHub SaaS is a public host, so this only fires when the operator's own
+        # egress allow-list has been tightened past the default (e.g. an explicit
+        # deny-by-default policy) rather than the in-cluster-IdP case #3947 targets
+        # — but the response shape stays consistent with the OIDC branch above.
+        return {
+            "ok": False,
+            "issuer": GITHUB_ISSUER,
+            "error": "github_unreachable",
+            "reason": "egress_blocked",
+            "detail": str(exc),
+        }
+    except (egress.EgressTimeout, egress.EgressError) as exc:
         return {
             "ok": False,
             "issuer": GITHUB_ISSUER,

@@ -415,12 +415,21 @@ class SsoDiscoverResponseSerializer(serializers.Serializer[Any]):
 
 
 class SsoTestConnectionResponseSerializer(serializers.Serializer[Any]):
-    """Structured result of the admin "Test connection" probe."""
+    """Structured result of the admin "Test connection" probe.
+
+    ``reason`` is a narrower, stable machine code than ``error`` (which already
+    varies per failure mode — ``jwks_unreachable``, ``github_unreachable``, an
+    :class:`~trueppm_api.apps.sso.services.OIDCError` ``code`` like
+    ``provider_unreachable``). It is present only when the underlying cause is
+    specifically the outbound SSRF/egress guard, so the SPA can offer the
+    allow-list remedy without substring-matching ``detail`` (#3947).
+    """
 
     ok = serializers.BooleanField()
     issuer = serializers.CharField(required=False, allow_blank=True)
     endpoints = serializers.DictField(required=False)
     error = serializers.CharField(required=False, allow_blank=True)
+    reason = serializers.CharField(required=False, allow_blank=True)
     detail = serializers.CharField(required=False, allow_blank=True)
 
 
