@@ -10,9 +10,15 @@ This page walks through moving an existing TruePPM instance to a newer version, 
 
 1. **Read the changelog** for the target version — check `CHANGELOG.md` or the [release notes](https://gitlab.com/trueppm/trueppm/-/releases) for breaking changes and migration notes.
 2. **Back up PostgreSQL** with `scripts/backup.sh`. Valkey state is ephemeral (broker + cache); PostgreSQL is the only stateful service.
-   ```bash
-   ./scripts/backup.sh --output-dir ./backups
-   ```
+   The exact invocation differs by how you run TruePPM — a bare
+   `./scripts/backup.sh --output-dir ./backups` only works when `DATABASE_URL`
+   is already exported and `pg_dump` is on the host's `PATH`, which is true for
+   neither the production Compose stack (no host database port, no `pg_dump` in
+   the application images) nor a fresh shell against Helm. See
+   [Backup & Restore](/administration/backup-restore/#manual-backup) for the
+   command for your stack — Compose (development), Compose (production), or
+   Kubernetes/Helm.
+
    Use this rather than a hand-rolled `pg_dump > file.sql`. The runbook's restore
    tooling reads `--format=custom` archives, so a plain-SQL dump is an artifact
    `scripts/restore.sh` cannot consume — you would discover that during a
