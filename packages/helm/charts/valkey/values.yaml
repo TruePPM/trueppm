@@ -37,6 +37,36 @@ persistence:
 maxmemory: 768mb
 maxmemoryPolicy: noeviction
 
+# Eviction posture for the bundled cache/broker (#3934, structural sibling of
+# postgresql's — see charts/postgresql/values.yaml). A StatefulSet of one with
+# no PDB and no priority is the first thing a node drain evicts and the last
+# thing rescheduling brings back — and this pod is load-bearing for FOUR
+# subsystems at once (Django Channels real-time layer, Celery broker, Django
+# cache backend, and notification throttles), so its loss degrades real-time,
+# async, and caching together.
+#
+# The PDB is maxUnavailable: 0, unlike the app tiers' maxUnavailable: 1. On a
+# single-replica stateful workload that is the point: it does not make Valkey
+# highly available (nothing here can, see #3404 for that), it makes a drain
+# BLOCK and surface as a stuck drain the operator can see and act on, rather
+# than a silent outage. `kubectl drain --disable-eviction` or deleting the PDB
+# is the deliberate override. Turn it off if you would rather drains never
+# block.
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 0
+
+# Set to a PriorityClass you have created (the subchart creates none — a chart
+# that mints a cluster-scoped PriorityClass steps on the cluster's own priority
+# budget). system-cluster-critical exists on every cluster but is generally
+# reserved for control-plane components; prefer your own class.
+priorityClassName: ""
+
+# Seconds Valkey gets to finish its AOF rewrite/fsync and shut down cleanly. The
+# 30s Kubernetes default can still cut a large AOF flush short and force a
+# slower AOF-log replay on next start.
+terminationGracePeriodSeconds: 60
+
 resources:
   requests:
     cpu: 100m

@@ -8,15 +8,6 @@ TruePPM's zero-config evaluation paths — a hosted read-only demo and a
 one-command local trial, both preloaded with the same **Atlas Platform Launch**
 hybrid sample project — arrive with the **0.4 beta**.
 
-:::note[Hosted demo: being brought online]
-The one-command **local** trial below is live as of the 0.4 tag — its
-`docker-compose.demo.yml` pulls the release images the tag publishes. The
-**hosted** `try.trueppm.com` instance is a separate deploy step and is being
-brought online now; if the link below isn't answering yet, use the local
-trial or the [Installation](/getting-started/installation/) /
-[Quickstart](/getting-started/quickstart/) path in the meantime.
-:::
-
 ## The hosted read-only demo
 
 Nothing to install — open the hosted demo and click around a real, populated
@@ -152,7 +143,7 @@ has nothing to verify.
 | Learn the data model via the API | [Quickstart, Route B](/getting-started/quickstart/#route-b--build-a-project-via-the-api) | Now |
 | Stand up a real instance for your team | [Installation](/getting-started/installation/) | Now |
 | Run the read-only demo on your own machine | `docker compose -f docker-compose.demo.yml up` | Now |
-| Click around a live schedule with nothing to install | [try.trueppm.com](https://try.trueppm.com) | Being deployed |
+| Click around a live schedule with nothing to install | [try.trueppm.com](https://try.trueppm.com) | Now |
 
 ## Next steps
 

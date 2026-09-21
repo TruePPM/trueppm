@@ -1,0 +1,29 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+{{- /*
+PodDisruptionBudget for the bundled cache/broker (#3934, structural sibling of
+postgresql's — see charts/postgresql/templates/pdb.yaml).
+
+maxUnavailable: 0 on a single-replica stateful workload is deliberate and is NOT
+the same promise the app tiers' maxUnavailable: 1 makes. Nothing here can keep
+Valkey available across a node drain — there is one replica. What this does is
+turn a silent eviction into a BLOCKED drain: the operator sees it, and decides.
+This pod is load-bearing for FOUR subsystems at once (Django Channels real-time
+layer, Celery broker, Django cache backend, and notification throttles), so an
+unannounced eviction takes all four down together with nothing making the drain
+visibly stall.
+
+Override deliberately with `kubectl drain --disable-eviction`, or set
+valkey.podDisruptionBudget.enabled=false if you would rather drains never block.
+*/}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "valkey.fullname" . }}
+  labels:
+    {{- include "valkey.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "valkey.selectorLabels" . | nindent 6 }}
+{{- end }}
