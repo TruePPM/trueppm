@@ -9,6 +9,7 @@ has none; a helper is renderable offline through a throwaway probe template.
 TruePPM {{ .Chart.AppVersion }} — release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
 
 {{ include "trueppm.bootGuardNotice" . }}
+{{ include "trueppm.csrfOriginNotice" . }}
 
 Watch the rollout:
 

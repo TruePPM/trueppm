@@ -33,6 +33,11 @@
 #                                      of the request's Host header (#3515);
 #                                      required with SSO, and the fix if your
 #                                      edge does not preserve Host
+#   env.CSRF_TRUSTED_ORIGINS           required whenever the web origin differs
+#                                      from the API origin (split-origin
+#                                      Ingress) — without it, SSO token refresh
+#                                      403s with a CSRF failure right after the
+#                                      IdP redirect succeeds (#3945)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Two API + two Celery worker pods. The web tier follows this automatically
@@ -103,6 +108,16 @@ env:
   # preserves it.
   #   TRUEPPM_PUBLIC_API_BASE_URL: "https://trueppm.example.com"
   TRUEPPM_PUBLIC_API_BASE_URL: ""
+
+  # REQUIRED whenever the web app's origin differs from the API's — the
+  # split-origin topology (app.example.com + api.example.com) an Ingress
+  # operator is most likely to build. Without it, SSO login completes and
+  # sets the refresh cookie, and then the SPA's post-login refresh POST 403s
+  # with a CSRF failure — after the hard part already worked. Set it to the
+  # SAME origin(s) as TRUEPPM_FRONTEND_BASE_URL above (comma-separate more
+  # than one web origin).
+  #   CSRF_TRUSTED_ORIGINS: "https://trueppm.example.com"
+  CSRF_TRUSTED_ORIGINS: ""
 
 # REQUIRED. The four values settings.prod refuses to start without live here, in
 # a Secret you create — never in plaintext above. See packages/helm/README.md

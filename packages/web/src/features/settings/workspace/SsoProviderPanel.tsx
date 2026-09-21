@@ -751,7 +751,19 @@ export function SsoProviderPanel({
         </h4>
         <FieldRow
           label="Allowed email domains"
-          hint="Only these domains may sign in via this provider. Comma- or space-separated."
+          hint={
+            <>
+              <p>
+                Gates new account linking and auto-created members only — it has no
+                effect on accounts already linked. To cut off an existing member&apos;s
+                access, deactivate them or remove this provider. Comma- or
+                space-separated.
+              </p>
+              <p className="mt-1">
+                Leaving this blank blocks everyone from signing in via this provider.
+              </p>
+            </>
+          }
           error={fieldErrors.allowed_email_domains}
           errorId={`${domainsId}-err`}
         >
