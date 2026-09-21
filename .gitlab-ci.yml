@@ -2569,6 +2569,21 @@ helm:template:
         echo "$offenders"
         exit 1
       fi
+    # DemoReadOnlyMiddleware's fence (#3924) has to reach the api container and
+    # both seed workloads (#3932) — nothing rendered it before this MR. Scoped to
+    # api/demo-seed/demo-reset only, not celery-worker/celery-beat: those are the
+    # three places the fix issue names, and the middleware only ever runs in the
+    # ASGI api process anyway. Checked against a literal "true", not mere presence
+    # — the settings-layer parser (parse_demo_read_only) is strict about which
+    # words it accepts, so a wrong-but-present value must fail exactly like a
+    # missing one.
+    - |
+      offenders="$(yq 'select((.kind=="Deployment" or .kind=="Job" or .kind=="CronJob") and (.metadata.name | test("-(api|demo-seed|demo-reset)$"))) | .metadata.name as $w | (.spec.template.spec // .spec.jobTemplate.spec.template.spec) | .containers[] | select(.name=="api" or .name=="demo-seed" or .name=="demo-reset") | .name as $c | ((.env[]? | select(.name=="TRUEPPM_DEMO_READ_ONLY") | .value) // "MISSING") as $v | select($v != "true") | [$w, $c, $v] | join("/")' /tmp/rendered-demo.yaml | grep -vE '^(---)?$' || true)"
+      if [ -n "$offenders" ]; then
+        echo "DEMO REGRESSION: TRUEPPM_DEMO_READ_ONLY is missing, or not the literal \"true\", on these containers (workload/container/value) (#3932):"
+        echo "$offenders"
+        exit 1
+      fi
     # The demo's security model IS the nginx allowlist: /admin/, /ws/ and every
     # /api/ route other than the share projections and the liveness probe must be
     # closed. A regression here silently publishes the authenticated API — the
@@ -2701,6 +2716,9 @@ helm:template:
     - |
       grep -q 'X-Robots-Tag' /tmp/rendered.yaml \
         && { echo "LEAK: demo noindex rendered into a non-demo release"; exit 1; } || true
+    - |
+      grep -q 'TRUEPPM_DEMO_READ_ONLY' /tmp/rendered.yaml \
+        && { echo "LEAK: TRUEPPM_DEMO_READ_ONLY rendered into a non-demo release (#3932)"; exit 1; } || true
 
 ci:build-deploy-images:
   # Build the deployable api + web runtime images from the CURRENT COMMIT's code

@@ -71,6 +71,12 @@ x-api-env: &api-env
   # Internal Docker network links only; TLS is terminated upstream.
   TRUEPPM_ALLOW_UNENCRYPTED_DB: "true"
   TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE: "true"
+  # DemoReadOnlyMiddleware's fence (#3924, #3932): refuses every unsafe method
+  # under /api/ except sign-in/refresh/sign-out. Defense-in-depth alongside the
+  # no-login-capable-accounts posture above — the middleware's own docstring
+  # says that posture alone is insufficient, since POST /projects/ mints any
+  # authenticated user an Owner membership.
+  TRUEPPM_DEMO_READ_ONLY: "true"
 
 # Log rotation for every service below. Docker's json-file driver has no cap by
 # default, and a long-running demo host fills its disk exactly like a production
