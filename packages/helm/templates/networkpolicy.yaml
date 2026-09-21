@@ -25,9 +25,16 @@ chart-imposed egress allowlist would break real installs. Restrict their egress
 at the platform layer if your environment requires it.
 
 Requires a CNI that enforces NetworkPolicy (Calico, Cilium, Antrea, etc.); on a
-cluster without one these objects are accepted but SILENTLY UNENFORCED. kind's
-default kindnetd is such a CNI, which is why the enforcement drill creates its own
-Calico cluster instead of reusing the helm:install one.
+cluster without one these objects are accepted but SILENTLY UNENFORCED. Do NOT
+assume kind's default kindnetd is such a cluster: kind >=0.20 ships a kindnetd
+that DOES enforce basic NetworkPolicy (confirmed empirically against
+KIND_VERSION 0.24.0, the version scripts/helm-install-drill.sh pins), so both
+drills' probes must originate from (or target) a pod the relevant policy
+actually admits, not merely any in-cluster pod. The enforcement drill
+(scripts/helm-netpol-drill.sh) still creates its own Calico cluster rather than
+leaning on that — Calico is the CNI actually documented for production, and
+kindnetd's NetworkPolicy behavior is an undocumented implementation detail this
+chart's tests should not depend on.
 
 Only rendered for the datastores the chart actually bundles — when postgresql /
 valkey are disabled (managed-service path) the corresponding policy is skipped.
