@@ -398,7 +398,7 @@ networkPolicy:
 tests:
   image:
     repository: curlimages/curl
-    tag: "8.11.1"
+    tag: "8.11.1@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69"
   # Whether the `helm test` connection probe also checks /api/v1/readyz in
   # addition to /api/v1/health/. Defaults on, because a version-matched deploy
   # serves the migration-aware readyz endpoint (#1894, #2217) and operators want
@@ -1414,7 +1414,7 @@ backup:
   # restores are performed manually with scripts/restore.sh.
   image:
     repository: postgres
-    tag: "16-alpine"
+    tag: "16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea"
     pullPolicy: IfNotPresent
   # How many previously-failed/succeeded jobs Kubernetes retains for inspection.
   successfulJobsHistoryLimit: 3
@@ -1499,7 +1499,7 @@ backup:
     # TODO(#1733): pin by digest alongside the other subchart/backup images.
     image:
       repository: amazon/aws-cli
-      tag: "2.17.0"
+      tag: "2.17.0@sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73"
       pullPolicy: IfNotPresent
   # Extra volumes / mounts for the backup job — the supported way to give the job
   # read access to your media PVC when mediaDir is set. Ignored unless mediaDir

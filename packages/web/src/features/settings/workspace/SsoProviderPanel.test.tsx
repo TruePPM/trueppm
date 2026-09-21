@@ -21,13 +21,19 @@ const h = vi.hoisted(() => ({
   createPending: false,
   updatePending: false,
   testPending: false,
-  testData: undefined as { ok: boolean; detail?: string; error?: string } | undefined,
+  testData: undefined as
+    | { ok: boolean; detail?: string; error?: string; reason?: string }
+    | undefined,
 }));
 
 vi.mock('@/hooks/useSso', () => ({
   useCreateSsoProvider: () => ({ mutateAsync: h.createMutateAsync, isPending: h.createPending }),
   useUpdateSsoProvider: () => ({ mutateAsync: h.updateMutateAsync, isPending: h.updatePending }),
-  useTestSsoConnection: () => ({ mutate: h.testMutate, isPending: h.testPending, data: h.testData }),
+  useTestSsoConnection: () => ({
+    mutate: h.testMutate,
+    isPending: h.testPending,
+    data: h.testData,
+  }),
 }));
 
 // EnterpriseBadge (rendered in the panel's Password-sign-in row) reads the edition.
@@ -438,7 +444,10 @@ describe('SsoProviderPanel — Edit mode', () => {
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
     expect(h.updateMutateAsync).toHaveBeenCalledTimes(1);
-    const arg = h.updateMutateAsync.mock.calls[0][0] as { slug: string; body: Record<string, unknown> };
+    const arg = h.updateMutateAsync.mock.calls[0][0] as {
+      slug: string;
+      body: Record<string, unknown>;
+    };
     expect(arg.slug).toBe('keycloak');
     expect(arg.body.server_url).toBe('https://id.acme.io/realms/staging');
     expect(onClose).toHaveBeenCalled();
@@ -505,6 +514,47 @@ describe('SsoProviderPanel — Edit mode', () => {
     h.testData = { ok: false, detail: 'discovery 404' };
     renderPanel({ mode: 'edit', existing: KEYCLOAK });
     expect(screen.getByText('discovery 404')).toBeInTheDocument();
+    // No egress-allowlist remedy for an ordinary failure.
+    expect(screen.queryByText(/TRUEPPM_EGRESS_ALLOWLISTED_HOSTS/)).not.toBeInTheDocument();
+  });
+
+  it('surfaces the egress-allowlist remedy when the SSRF guard blocked the probe (#3947)', () => {
+    h.testData = {
+      ok: false,
+      error: 'provider_unreachable',
+      reason: 'egress_blocked',
+      detail: "issuer URL blocked by SSRF guard: host 'keycloak.sso.svc.cluster.local'",
+    };
+    renderPanel({ mode: 'edit', existing: KEYCLOAK });
+    // The original diagnosis is kept verbatim, not replaced.
+    expect(screen.getByText(/blocked by SSRF guard/)).toBeInTheDocument();
+    expect(screen.getByText(/TRUEPPM_EGRESS_ALLOWLISTED_HOSTS/)).toBeInTheDocument();
+    const advancedLink = screen.getByRole('link', { name: /Advanced configuration reference/ });
+    expect(advancedLink).toHaveAttribute(
+      'href',
+      expect.stringContaining('administration/configuration/advanced'),
+    );
+    const clusterLink = screen.getByRole('link', { name: /In-cluster identity provider setup/ });
+    expect(clusterLink).toHaveAttribute(
+      'href',
+      expect.stringContaining(
+        'administration/single-sign-on#running-the-identity-provider-inside-your-cluster',
+      ),
+    );
+  });
+
+  it('does not show the egress-allowlist remedy for a non-egress failure reason', () => {
+    h.testData = { ok: false, error: 'jwks_empty' };
+    renderPanel({ mode: 'edit', existing: KEYCLOAK });
+    expect(screen.queryByText(/TRUEPPM_EGRESS_ALLOWLISTED_HOSTS/)).not.toBeInTheDocument();
+  });
+
+  it('exposes a FieldHelp ⓘ on the Test-connection card deep-linking to the SSO docs', async () => {
+    const user = userEvent.setup();
+    renderPanel({ mode: 'edit', existing: KEYCLOAK });
+    await user.click(screen.getByRole('button', { name: 'About the Test connection options' }));
+    const link = screen.getByRole('link', { name: /Learn more/ });
+    expect(link).toHaveAttribute('href', expect.stringContaining('administration/single-sign-on'));
   });
 
   it('shows a testing-in-progress label and disables the test button while pending', () => {

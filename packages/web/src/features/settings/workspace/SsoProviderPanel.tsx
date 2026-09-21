@@ -26,6 +26,7 @@ import { FieldRow } from '../SettingsShell';
 import { Toggle } from '../components/Toggle';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { FieldHelp } from '@/components/FieldHelp';
+import { docsUrl } from '@/lib/docsUrl';
 import { CheckIcon, CloseIcon, LockIcon, XMarkIcon } from '@/components/Icons';
 import {
   PICKER_PROVIDERS,
@@ -360,6 +361,15 @@ function IssuerFields({
  * (#2245) to keep the component body under the cognitive-complexity budget;
  * markup verbatim.
  */
+/**
+ * The reason code {@link useTestSsoConnection} reports when the probe's outbound
+ * request was refused by the server's own SSRF/egress guard rather than by DNS,
+ * TLS, a timeout, or the provider itself. Kept as a constant rather than an
+ * inline string literal so the branch below reads as "the egress guard" and not
+ * a magic string to keep in sync with the API by eye (#3947).
+ */
+const EGRESS_BLOCKED_REASON = 'egress_blocked';
+
 function TestConnectionSection({
   mode,
   def,
@@ -373,9 +383,17 @@ function TestConnectionSection({
 }) {
   if (mode !== 'edit') return null;
   const testResult = test.data;
+  const egressBlocked = testResult?.ok === false && testResult.reason === EGRESS_BLOCKED_REASON;
   return (
     <div className="mt-5 rounded-card border border-neutral-border px-3.5 py-3">
-      <h4 className="text-[13px] font-semibold text-neutral-text-primary">Test connection</h4>
+      <div className="flex items-center gap-1">
+        <h4 className="text-[13px] font-semibold text-neutral-text-primary">Test connection</h4>
+        <FieldHelp
+          label="Test connection"
+          body="Probes the identity provider from the server: for OIDC, the issuer's discovery document and signing-key endpoint; for GitHub, the API host. The provider must be reachable from inside the cluster, not just from your browser — an in-cluster identity provider needs an egress allow-list entry (see below)."
+          docHref="administration/single-sign-on"
+        />
+      </div>
       <p className="mt-0.5 text-[12px] text-neutral-text-secondary">
         {def.type === 'OAuth'
           ? "Checks that GitHub's API is reachable."
@@ -393,18 +411,57 @@ function TestConnectionSection({
         <p className="text-[12px]" aria-live="polite">
           {testResult?.ok === true && (
             <span className="text-semantic-on-track">
-              <CheckIcon aria-hidden="true" className="mr-1 inline-block h-3.5 w-3.5 align-[-0.125em]" />
+              <CheckIcon
+                aria-hidden="true"
+                className="mr-1 inline-block h-3.5 w-3.5 align-[-0.125em]"
+              />
               Reachable.
             </span>
           )}
           {testResult?.ok === false && (
             <span className="text-semantic-critical">
-              <XMarkIcon aria-hidden="true" className="mr-1 inline-block h-3.5 w-3.5 align-[-0.125em]" />
+              <XMarkIcon
+                aria-hidden="true"
+                className="mr-1 inline-block h-3.5 w-3.5 align-[-0.125em]"
+              />
               {testResult.detail || testResult.error || 'Not reachable.'}
             </span>
           )}
         </p>
       </div>
+      {egressBlocked && (
+        <div className="mt-2.5 rounded-control border border-neutral-border bg-neutral-surface-sunken px-3 py-2.5 text-[12px] text-neutral-text-secondary">
+          <p>
+            This looks like an identity provider running inside your own cluster (a private address
+            like a <code className="text-[11px]">.svc.cluster.local</code> hostname). The
+            server&apos;s outbound egress guard blocks private addresses by default — set{' '}
+            <code className="text-[11px]">TRUEPPM_EGRESS_ALLOWLISTED_HOSTS</code> to admit it. This
+            allow-list is process-wide, so only add hosts you trust.
+          </p>
+          <p className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+            <a
+              href={docsUrl(
+                'administration/single-sign-on#running-the-identity-provider-inside-your-cluster',
+              )}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-sm"
+            >
+              In-cluster identity provider setup
+              <span className="sr-only"> (opens in a new tab)</span>
+            </a>
+            <a
+              href={docsUrl('administration/configuration/advanced')}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-sm"
+            >
+              Advanced configuration reference
+              <span className="sr-only"> (opens in a new tab)</span>
+            </a>
+          </p>
+        </div>
+      )}
     </div>
   );
 }
