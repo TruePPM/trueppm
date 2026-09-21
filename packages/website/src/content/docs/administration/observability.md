@@ -1,11 +1,10 @@
 ---
 title: OpenTelemetry & OTLP Export
 description: How to export TruePPM's traces and metrics to your own OpenTelemetry collector over OTLP — an opt-in, off-by-default integration configured with environment variables or Helm values.
-documentedFor: "0.4"
 ---
 
 
-TruePPM will export distributed **traces** (a record of the steps one request or
+TruePPM exports distributed **traces** (a record of the steps one request or
 job took, and how long each one spent) and **metrics** (aggregate numbers over
 time, like request latency or queue depth) using
 [OpenTelemetry](https://opentelemetry.io/) (OTel), the vendor-neutral CNCF
@@ -19,7 +18,7 @@ you configure a collector, TruePPM installs no telemetry provider at all — a
 strict no-op that costs nothing per request and opens no outbound connection.
 Telemetry is a deliberate operator choice, never a silent egress.
 
-## What 0.4 will ship
+## What's included
 
 - A provider bootstrap that builds the OTel `TracerProvider` / `MeterProvider` at
   API startup and wires the OTLP exporter — **only** when an endpoint is set.
@@ -193,7 +192,7 @@ ready-to-paste environment-variable or Helm-values snippets.
 
 ### Live export health
 
-When export is on, the card will also show a live strip (shipped in 0.4) with the
+When export is on, the card also shows a live strip with the
 cross-process export health aggregated across the pods that actually export — the
 Celery worker and beat pods carry almost all the span and metric volume, not the
 web pod that serves this page. Per signal (traces, metrics) it reports the state —
@@ -401,13 +400,13 @@ service:
 
 ## Structured logging & trace correlation
 
-Alongside OTLP export, TruePPM 0.4 **will emit structured application logs**
-correlated with the traces above. In production the API will write **single-line
+Alongside OTLP export, TruePPM **emits structured application logs**
+correlated with the traces above. In production the API writes **single-line
 JSON** to stdout — one object per log record — so your log stack (Loki,
 Elasticsearch, CloudWatch) can index the fields directly instead of parsing free
 text. Development keeps human-readable console output.
 
-Every record will carry three correlation fields:
+Every record carries three correlation fields:
 
 | Field | Value |
 |---|---|
@@ -421,13 +420,13 @@ lines emitted while that trace was active — and a user quoting the `X-Request-
 from their browser's network tab lets an operator find that request's logs directly.
 
 :::note[Log correlation, not log export]
-0.4 will ship structured logs to **stdout** for your existing log collector to
+TruePPM ships structured logs to **stdout** for your existing log collector to
 scrape. Shipping these records to the OTLP collector as OpenTelemetry log signals
 is planned for a later release; for now, collect logs the way you already collect
 container stdout.
 :::
 
-Two environment variables will control logging:
+Two environment variables control logging:
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -436,18 +435,18 @@ Two environment variables will control logging:
 ## Browser (frontend) telemetry
 
 The sections above cover the **API's** server-side traces and metrics. The
-**web frontend** will gain its own opt-in, off-by-default client telemetry in
-0.4 (#1901), so a self-hoster can also see what breaks in the browser:
+**web frontend** has its own opt-in, off-by-default client telemetry
+(#1901), so a self-hoster can also see what breaks in the browser:
 
 - **Uncaught render errors** — when a route or section error boundary catches a
-  crash, it will report the error message, stack, and route to your collector
+  crash, it reports the error message, stack, and route to your collector
   (alongside the console log it already writes). No user tokens, form contents,
   or URL query strings are ever included.
 - **Core Web Vitals** — CLS, LCP, INP, FCP, and TTFB, collected from the browser's
   native `PerformanceObserver` (no third-party script and no added bundle
   dependency) and sent with `navigator.sendBeacon`.
 
-Like the API export, frontend telemetry will be a **strict no-op until you
+Like the API export, frontend telemetry is a **strict no-op until you
 configure an endpoint** — no observers are registered, and nothing leaves the
 browser. Point it at a collector that accepts a JSON `POST` (for example an
 OpenTelemetry Collector's OTLP/HTTP receiver) in one of two ways:
@@ -471,7 +470,7 @@ OpenTelemetry Collector's OTLP/HTTP receiver) in one of two ways:
 The Helm chart ships a starter Grafana dashboard and a set of Prometheus alerting
 rules for the async/outbox subsystem. Both are **off by default** — they depend on
 tooling (a Grafana sidecar; the Prometheus Operator CRDs) that not every cluster
-runs — and both land in **0.4**.
+runs.
 
 ```yaml
 # Grafana dashboard as a labeled ConfigMap, auto-imported by the Grafana sidecar.

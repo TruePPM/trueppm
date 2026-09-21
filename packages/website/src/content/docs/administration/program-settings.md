@@ -1,7 +1,6 @@
 ---
 title: Program Settings
 description: Configure a program's identity, delivery model, rollup KPIs, cadence, risk policy, and lifecycle — and how each setting inherits from the workspace or is overridden per program.
-documentedFor: "0.4"
 ---
 
 :::note[Added in 0.2 (alpha)]
@@ -104,34 +103,34 @@ project really does fall back to the program's.)
 
 ### After you save a methodology
 
-From 0.4, saving the **Methodology** on the General section will report the
+From 0.4, saving the **Methodology** on the General section reports the
 partition it left behind, immediately under the picker:
 
 > Saved. 9 of 12 projects in this program run as Waterfall; 3 do not. Existing
 > projects keep their own methodology. **Align the 3**
 
-**Align the 3** will scroll you to this matrix with the *Deviates from default*
+**Align the 3** scrolls you to this matrix with the *Deviates from default*
 filter already applied, those rows already checked and **Methodology** already
-chosen in the field picker. It will **not** stage a value, so **Apply** stays
+chosen in the field picker. It does **not** stage a value, so **Apply** stays
 disabled until you pick one — the link takes you to the change, it does not make
 it. Where the program has no projects, or where every project already matches,
-the message will say that instead of showing nothing.
+the message says that instead of showing nothing.
 
 ### Seeing which projects deviate from the default
 
 Scanning a column of values tells you what each project runs on, not which ones
-are a deliberate exception. From 0.4 the matrix will answer that directly, at
+are a deliberate exception. From 0.4 the matrix answers that directly, at
 three levels:
 
 - **Per row.** A project whose methodology differs from the one it would inherit
-  will read `Waterfall ≠ program (Hybrid)` — its own value, then the scope it was
+  reads `Waterfall ≠ program (Hybrid)` — its own value, then the scope it was
   compared against and that scope's value. Rows that match show the value alone.
   The marker is text, so it survives print, monochrome, and a color-vision
   deficit.
-- **Per column.** The **Methodology** header will carry the tally —
+- **Per column.** The **Methodology** header carries the tally —
   `Methodology · 12 differ`. When every project matches it reads
   `· none differ` rather than `· 0 differ`.
-- **Across the list.** A **methodology filter** above the matrix will narrow the
+- **Across the list.** A **methodology filter** above the matrix narrows the
   list to one preset or to **Deviates from default**, with a count on every
   option. Changing it clears any selection you had made, so a bulk edit can never
   land on rows you can no longer see.
@@ -161,23 +160,23 @@ by a note that they need a wider screen.
 
 ### Before applying a methodology across the selection
 
-From 0.4, pressing **Apply** with **Methodology** staged will not write
-immediately — it will swap the action bar into a preview naming what the change
+From 0.4, pressing **Apply** with **Methodology** staged does not write
+immediately — it swaps the action bar into a preview naming what the change
 does before a second press confirms it:
 
-- Setting **Waterfall** will name how many of the selected projects have
+- Setting **Waterfall** names how many of the selected projects have
   sprints or backlog stories, which that value hides — with the totals across
   the selection. Nothing is deleted; the preview says so.
-- Setting **Agile** will name how many of the selected projects have baselines
+- Setting **Agile** names how many of the selected projects have baselines
   or dependency links, which that value hides.
-- Setting **Hybrid** will state plainly that nothing is hidden, since Hybrid
+- Setting **Hybrid** states plainly that nothing is hidden, since Hybrid
   shows both.
-- The preview will also state how many of the selected projects already run on
+- The preview also states how many of the selected projects already run on
   the value you are about to apply.
 
 The counts come from the same read that loaded the matrix, so opening the
 preview makes no additional request — if a count cannot be read, the preview
-will say so rather than show a number it cannot back up. **Iteration label**
+says so rather than show a number it cannot back up. **Iteration label**
 is unaffected: it keeps applying immediately, since it hides nothing.
 
 ## Access

@@ -360,9 +360,18 @@ log "negative probe: api image without SECRET_KEY must refuse to start"
 # TRUEPPM_ALLOW_WILDCARD_HOSTS keeps that true. Since #3515 the wildcard has its
 # own boot guard, and it sits ABOVE the SECRET_KEY read in settings/prod.py — so
 # without the acknowledgment this probe refuses on the wildcard instead and the
-# grep below, which is the whole assertion, stops seeing "SECRET_KEY". Widening
+# grep below, which is the whole assertion, stops seeing that refusal. Widening
 # that grep to accept any refusal is the wrong fix: it would let the probe pass
 # on a guard it was not written to test.
+#
+# SECRET_KEY is left unset, so settings.prod's own `env("SECRET_KEY")` read
+# (before the guard's weak-key check even runs) raises django-environ's
+# ImproperlyConfigured with a fixed, distinguishing message — "Set the
+# SECRET_KEY environment variable" — never emitted by any other guard (#3521).
+# A bare "SECRET_KEY" substring match would also pass on, e.g., the JWT signing
+# key guard's message ("JWT signing inherits SECRET_KEY when ..."), which
+# mentions SECRET_KEY without being the guard under test — so a future reorder
+# that moved a different guard above this one could still read as green.
 kubectl run secret-guard-probe \
   --image="$API_IMAGE" --image-pull-policy=IfNotPresent --restart=Never \
   --env=DJANGO_SETTINGS_MODULE=trueppm_api.settings.prod \
@@ -375,8 +384,8 @@ kubectl run secret-guard-probe \
 kubectl wait --for=jsonpath='{.status.phase}'=Failed pod/secret-guard-probe --timeout=90s \
   || fail "secret-guard probe did not FAIL — the boot guard may not be fail-closed"
 probe_log="$(kubectl logs secret-guard-probe 2>&1 || true)"
-grep -qi "SECRET_KEY" <<<"$probe_log" \
-  || fail "probe failed but not on SECRET_KEY; log tail: $(echo "$probe_log" | tail -3)"
+grep -qi "Set the SECRET_KEY environment variable" <<<"$probe_log" \
+  || fail "probe failed but not on the missing-SECRET_KEY refusal; log tail: $(echo "$probe_log" | tail -3)"
 log "negative probe GREEN — deploy without SECRET_KEY refuses to start"
 
 # ---- 8. Django admin is NOT reachable through the web tier (#2569) ----------
