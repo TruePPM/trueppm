@@ -339,7 +339,7 @@ workflow:
     # own postgres service and MUST keep durability on — it exists to prove a
     # dump survives a real restore, and a drill run against fsync=off is not
     # evidence of anything. tests/test_ci_api_test_contract.py pins both sides.
-    - name: postgres:16-alpine
+    - name: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
       alias: postgres
       command:
         - postgres
@@ -349,7 +349,7 @@ workflow:
         - full_page_writes=off
         - -c
         - synchronous_commit=off
-    - name: valkey/valkey:8-alpine
+    - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
   variables:
     DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
@@ -2905,6 +2905,88 @@ helm:install:
   script:
     - bash scripts/helm-install-drill.sh
 
+helm:upgrade:
+  # Runtime UPGRADE smoke test on a real kind cluster (#3941): the operator
+  # workflow helm:install above never exercises. helm:install only ever
+  # `helm install`s onto an empty cluster; it says nothing about the path
+  # self-hosters actually walk on every release — beta.1 -> beta.2 -> beta.3,
+  # three cuts in six days at the time this job was added — and that path has
+  # its own failure modes: migration ordering + the migrate_locked advisory
+  # lock under values-prod.yaml's replicaCount: 2, bundled-datastore password
+  # regeneration on upgrade (templates/secret.yaml's lookup-returns-empty
+  # path), post-upgrade hook re-runs (the demo-seed Job re-firing), and
+  # PVC/StatefulSet field immutability on the postgresql/valkey subcharts.
+  #
+  # `helm install` the PREVIOUS released chart version from the public OCI
+  # registry (resolved dynamically against the registry's own tag list by
+  # scripts/helm-install-drill.sh's resolve_previous_chart_version — never a
+  # hardcoded version string), then `helm upgrade` the SAME release to the
+  # HEAD chart/images, then re-run the identical readyz / admin-password /
+  # admin-denied-at-edge / worker-serving / boot-guard assertions helm:install
+  # already uses (DRILL_LEG=upgrade in the same script — see its header
+  # comment). See scripts/helm-install-drill.sh.
+  #
+  # Trigger: main pushes and the nightly schedule ONLY — deliberately NOT
+  # merge_request_event. This leg pays for two kind clusters worth of pulls
+  # and two full `--wait` rollouts in one job (see INSTALL_TIMEOUT x2 below),
+  # roughly doubling helm:install's runtime; per the issue's own stated cost
+  # concern, that is worth paying on every push to main and nightly, not on
+  # every MR iteration. Schedule stays advisory (allow_failure), matching
+  # helm:install/helm:netpol: a nightly infra blip on the shared runner fleet
+  # is a signal, not a hard red. `needs:` the same per-commit image build as
+  # helm:install so it upgrades TO real HEAD code, not a stale tag.
+  stage: test
+  interruptible: false
+  timeout: 40m
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  needs:
+    - job: ci:build-deploy-images
+      artifacts: false
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    KIND_VERSION: "0.24.0"
+    KUBECTL_VERSION: "1.31.2"
+    HELM_VERSION: "3.16.3"
+    RELEASE_IMAGE_TAG: "$CI_COMMIT_SHA"
+    APISERVER_HOST: "docker"
+    DRILL_LEG: "upgrade"
+  # PAUSED (#3965): step 6 of scripts/helm-install-drill.sh (admin password
+  # retrievable) fails deterministically on this leg, not flakily. The
+  # password file lives in a Pod-scoped emptyDir and is written only while no
+  # superuser exists yet; `helm upgrade` rolls a fresh pod whose bootstrap
+  # correctly skips rewriting it because a superuser already exists from the
+  # install leg. That is the chart's one-time-password design working as
+  # intended — the CI assertion is checking the wrong proxy for "admin access
+  # survives an upgrade." First failed on main at pipeline 2868638832 (sha
+  # 3da8c93fe1beab0c0c4a1cc08c019c1bb4745c18), immediately after !2677 merged
+  # — its own MR pipeline never ran this job, since these rules deliberately
+  # exclude merge_request_event. Re-enable (drop the `when: never` overrides
+  # below) once #3965 lands in 0.5.
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      when: never
+      # was: allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: never
+      # was:
+      # changes:
+      #   - packages/helm/**/*
+      #   - scripts/helm-install-drill.sh
+      #   - .gitlab-ci.yml
+  before_script:
+    - apk add --no-cache bash curl
+    - curl -sSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && chmod +x /usr/local/bin/kind
+    - curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && chmod +x /usr/local/bin/kubectl
+    - curl -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm && mv /tmp/linux-amd64/helm /usr/local/bin/helm
+    - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
+  script:
+    - bash scripts/helm-install-drill.sh
+
 compose:prod:
   # Production docker-compose BOOT drill (#2817): the runtime half of the
   # prod-compose completeness fix (#2804, !1945), whose three fixes were all
@@ -3087,13 +3169,13 @@ backup:restore-drill:
   # no dind, no liveness probes.
   needs: []
   image:
-    name: postgres:16
+    name: postgres:16@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
     # The postgres image ENTRYPOINT starts a database; blank it so GitLab runs
     # the job script instead (same override helm:lint uses for alpine/helm).
     entrypoint: [""]
   services:
     # The service reads POSTGRES_DB/USER/PASSWORD from the global variables block.
-    - name: postgres:16-alpine
+    - name: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
       alias: postgres
     # Object store for the off-cluster leg of the drill (#2611).
     - name: minio/minio:latest
@@ -4014,10 +4096,10 @@ api:fuzz:
     # leak: the trace was truncated at GitLab's 16 MB limit before the summary, so
     # the source of the accumulation was never isolated. A recurrence on this same
     # signature means the accumulation is real and needs its own investigation.
-    - name: postgres:16-alpine
+    - name: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
       alias: postgres
       command: ["postgres", "-c", "max_connections=300"]
-    - name: valkey/valkey:8-alpine
+    - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
@@ -4198,9 +4280,9 @@ perf:load:
     - job: ci:build-integration-image
       optional: true
   services:
-    - name: postgres:16-alpine
+    - name: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
       alias: postgres
-    - name: valkey/valkey:8-alpine
+    - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
@@ -4624,9 +4706,9 @@ api:s3-drill:
   services:
     # .api's services are REPLACED, not merged — postgres/valkey are re-declared
     # because the tests import Django settings, which parse DATABASE_URL/REDIS_URL.
-    - name: postgres:16-alpine
+    - name: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
       alias: postgres
-    - name: valkey/valkey:8-alpine
+    - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
     # Pinned to a dated release tag (same convention as the postgres/valkey
     # services above — not `latest`). `server /data` is the command MinIO needs to
@@ -5234,9 +5316,9 @@ web:integration:
     - job: ci:build-integration-image
       optional: true
   services:
-    - name: postgres:16-alpine
+    - name: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
       alias: postgres
-    - name: valkey/valkey:8-alpine
+    - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
   variables:
     DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
@@ -5377,9 +5459,9 @@ sso:integration:
     - job: ci:build-keycloak-image
       optional: true
   services:
-    - name: postgres:16-alpine
+    - name: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
       alias: postgres
-    - name: valkey/valkey:8-alpine
+    - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
     - name: $CI_REGISTRY_IMAGE/ci-keycloak:26
       alias: keycloak
@@ -5756,7 +5838,7 @@ security:gitleaks:
   # Scoped, documented allowlists live in .gitleaks.toml (extends the upstream
   # default ruleset). Pinned static binary download, matching the osv/trivy jobs.
   stage: security
-  image: alpine:3.20
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   needs: []
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'

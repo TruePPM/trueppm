@@ -12,6 +12,28 @@
 #   4. the settings.prod boot guards fail CLOSED — a deploy missing SECRET_KEY
 #      does not start (negative probe).
 #
+# DRILL_LEG (#3941) selects which of two legs runs:
+#   install (default) — `helm install` the HEAD chart straight from a clean
+#     cluster, as above. This is the leg the `helm:install` CI job runs on
+#     every MR and main push.
+#   upgrade — `helm install` the PREVIOUS released chart version (pulled from
+#     the public OCI registry, oci://${CHART_GHCR_HOST}/${CHART_OCI_REPO}) at
+#     its OWN default image tag, then `helm upgrade` the SAME release to the
+#     HEAD chart/images, before running the identical section 5-9 assertions
+#     below. This is the leg real self-hosters walk on every upgrade
+#     (beta.1 -> beta.2 -> beta.3, three cuts in six days at the time #3941
+#     was filed) and it is the leg with the failure modes that hurt: migration
+#     ordering under a rolling update, bundled-datastore password regeneration
+#     on upgrade, post-upgrade hook re-runs (the demo-seed Job), and subchart
+#     field immutability. It never got a runtime drill before #3941 — only
+#     `helm install` from empty ever ran. "Previous released" is resolved
+#     dynamically against the OCI registry's tag list (see
+#     resolve_previous_chart_version below) rather than a hardcoded version
+#     string, so it keeps tracking the real last tag as releases ship. The
+#     `helm:upgrade` CI job runs this leg on main pushes and the nightly
+#     schedule only — not on every MR — because it doubles the cluster/install
+#     cost of `helm:install` (see .gitlab-ci.yml's `helm:upgrade` job comment).
+#
 # The api/web images are built per-commit by ci:build-deploy-images (#2284) and
 # tagged $CI_COMMIT_SHA, so this drills the HEAD chart against the SAME commit's
 # application code (RELEASE_IMAGE_TAG defaults to $CI_COMMIT_SHA in CI). There is
@@ -45,6 +67,14 @@ RELEASE_IMAGE_TAG="${RELEASE_IMAGE_TAG:-latest}"
 # service is reachable as `docker`; locally kind's own 127.0.0.1 mapping is used.
 APISERVER_HOST="${APISERVER_HOST:-docker}"
 INSTALL_TIMEOUT="${INSTALL_TIMEOUT:-8m}"
+# Which leg to run — see the DRILL_LEG note in the header comment (#3941).
+DRILL_LEG="${DRILL_LEG:-install}"
+# The public OCI coordinates helm:publish pushes the chart under (matches
+# scripts/check-chart-registry.sh's CHART_REPO/GHCR_HOST defaults exactly —
+# same registry, same repo path — so the two scripts can never disagree about
+# where "the published chart" lives).
+CHART_GHCR_HOST="${CHART_GHCR_HOST:-ghcr.io}"
+CHART_OCI_REPO="${CHART_OCI_REPO:-trueppm/charts/trueppm}"
 # Two-space indent for nesting diagnostic output under its section header.
 INDENT_SED='s/^/  /'
 
@@ -164,6 +194,73 @@ WEB_IMAGE="${IMAGE_REPO}/web:${RELEASE_IMAGE_TAG}"
 log() { echo "==> $*"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
+# ---- resolve the previous released chart version (upgrade leg only, #3941) -
+# Pins "the previous version" to the real last published tag instead of a
+# hardcoded string, so it keeps tracking reality as releases ship (beta.1 ->
+# beta.2 -> beta.3 -> ...). Reuses the exact anonymous-pull-token + tags/list
+# read that scripts/check-chart-registry.sh's list_versions() uses against the
+# same registry/repo, and the same STABLE_RE/PRE_RE shape, so the two scripts
+# can never disagree about what counts as a chart version vs. a stray
+# cosign sha256-* tag.
+#
+# "Previous" is defined as: the highest published version strictly BELOW
+# HEAD's own packages/helm/Chart.yaml `version`. In the common case HEAD's
+# Chart.yaml already equals the just-shipped tag (release.sh bumps it AT tag
+# time), so this resolves to the release before that one — e.g. HEAD ==
+# 0.4.0-beta.3 resolves to 0.4.0-beta.2, the exact beta.2 -> beta.3 path users
+# are walking. If HEAD has been bumped ahead of anything published yet
+# (mid-cycle dev before the next tag), it falls back to the highest version
+# actually in the registry. Merging HEAD's own version into the sorted list
+# and walking to it (rather than comparing PRE_RE bases like the publish
+# guard does) is what makes both cases fall out of the same code path without
+# a special-cased "is HEAD's version already published?" branch.
+resolve_previous_chart_version() {
+  local head_version token body versions merged
+  # HEAD_CHART_VERSION lets a test stub the version without a real Chart.yaml
+  # on disk (mirrors CHART_TAGS below and check-chart-registry.sh's own
+  # override style) — see scripts/tests/helm-upgrade-leg-version.test.sh.
+  if [ -n "${HEAD_CHART_VERSION:-}" ]; then
+    head_version="$HEAD_CHART_VERSION"
+  else
+    head_version="$(awk '/^version:[[:space:]]/{print $2; exit}' "${CHART}/Chart.yaml")"
+  fi
+  [ -n "$head_version" ] || fail "could not read 'version' from ${CHART}/Chart.yaml"
+
+  # CHART_TAGS (whitespace-separated) skips the network read — same override
+  # name and shape as scripts/check-chart-registry.sh's list_versions(), so a
+  # test can stub both scripts identically.
+  if [ "${CHART_TAGS+set}" = set ]; then
+    versions="$(printf '%s\n' $CHART_TAGS \
+      | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$|^[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+$' || true)"
+  else
+    token="$(curl -fsS --max-time 30 --retry 3 \
+      "https://${CHART_GHCR_HOST}/token?scope=repository:${CHART_OCI_REPO}:pull" \
+      | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')" \
+      || fail "could not get an anonymous pull token from ${CHART_GHCR_HOST} for ${CHART_OCI_REPO}"
+    [ -n "$token" ] || fail "empty pull token from ${CHART_GHCR_HOST} for ${CHART_OCI_REPO}"
+    body="$(curl -fsS --max-time 30 --retry 3 -H "Authorization: Bearer ${token}" \
+      "https://${CHART_GHCR_HOST}/v2/${CHART_OCI_REPO}/tags/list?n=1000")" \
+      || fail "could not read the chart tag list for ${CHART_GHCR_HOST}/${CHART_OCI_REPO}"
+    versions="$(printf '%s' "$body" \
+      | sed -n 's/.*"tags":\[\([^]]*\)\].*/\1/p' | tr ',' '\n' | tr -d '"' \
+      | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$|^[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+$' || true)"
+  fi
+  [ -n "$versions" ] || fail "no chart versions found in ${CHART_GHCR_HOST}/${CHART_OCI_REPO} — is the registry readable?"
+
+  merged="$(printf '%s\n%s\n' "$versions" "$head_version" | sort -V -u)"
+  PREV_CHART_VERSION="$(printf '%s\n' "$merged" | awk -v head="$head_version" '
+    $0 == head { print prev; found=1; exit }
+    { prev = $0 }
+    END { if (!found) print prev }
+  ')"
+
+  if [ -z "$PREV_CHART_VERSION" ]; then
+    log "no published chart version older than HEAD (${head_version}) found in ${CHART_GHCR_HOST}/${CHART_OCI_REPO} — nothing to upgrade FROM yet; skipping the upgrade leg"
+    exit 0
+  fi
+  log "upgrade leg: previous released chart = ${PREV_CHART_VERSION}, HEAD chart = ${head_version}"
+}
+
 # ---- diagnostics on any failure -------------------------------------------
 dump_diagnostics() {
   echo "======== DIAGNOSTICS (deploy did not reach a healthy state) ========" >&2
@@ -228,6 +325,13 @@ on_exit() {
 }
 trap on_exit EXIT
 
+# Resolve the upgrade-FROM version before spinning up a cluster — a registry
+# read is cheap, a kind cluster is not, and #3941's "nothing published yet"
+# case exits 0 here rather than after paying for a cluster we would never use.
+if [ "$DRILL_LEG" = "upgrade" ]; then
+  resolve_previous_chart_version
+fi
+
 # ---- 1. cluster ------------------------------------------------------------
 # apiServerAddress 0.0.0.0 + a pinned port + a `docker` cert SAN is the standard
 # kind-in-dind recipe: the API server is published on the dind host and the
@@ -272,6 +376,25 @@ for img in "$API_IMAGE" "$WEB_IMAGE"; do
   docker pull "$img"
   kind load docker-image "$img" --name "$CLUSTER"
 done
+
+# ---- 2b. preload the PREVIOUS release's images (upgrade leg only, #3941) --
+# The previous OCI chart's `image.tag` default is "" (resolves to
+# v<appVersion>, its OWN appVersion baked in at that historical chart
+# version) — so no --set image.tag override is needed on the install-previous
+# step below, but the image itself still has to be pulled and side-loaded the
+# same way the HEAD images just were, from the SAME registry these release
+# tags were published to (packages/helm/values.yaml's image.repository
+# default, registry.gitlab.com/trueppm/trueppm/*; the docker login above
+# already covers it).
+if [ "$DRILL_LEG" = "upgrade" ]; then
+  PREV_API_IMAGE="${IMAGE_REPO}/api:v${PREV_CHART_VERSION}"
+  PREV_WEB_IMAGE="${IMAGE_REPO}/web:v${PREV_CHART_VERSION}"
+  for img in "$PREV_API_IMAGE" "$PREV_WEB_IMAGE"; do
+    log "pull + load $img (previous release, upgrade FROM)"
+    docker pull "$img"
+    kind load docker-image "$img" --name "$CLUSTER"
+  done
+fi
 
 # ---- 3. the required operator secret ---------------------------------------
 # The three secrets settings.prod refuses to boot without (#566/#1002) plus the
@@ -323,15 +446,65 @@ kubectl create secret generic trueppm-env \
 # accept uploads it would lose. ReadWriteOnce is correct on this single-node kind
 # cluster — the guard only rejects RWO above one replica, where it would mean an
 # upload accepted by one pod 404s from another.
-log "helm install ${RELEASE} (image tag ${RELEASE_IMAGE_TAG})"
-helm install "$RELEASE" "$CHART" \
-  --set image.tag="$RELEASE_IMAGE_TAG" \
-  --set persistence.media.enabled=true \
-  --set persistence.media.accessMode=ReadWriteOnce \
-  --set 'envFrom[0].secretRef.name=trueppm-env' \
-  "${CELERY_PROBE_OVERRIDES[@]}" \
-  --wait --timeout "$INSTALL_TIMEOUT"
-log "rollout complete"
+if [ "$DRILL_LEG" = "upgrade" ]; then
+  # ---- 4a. install the PREVIOUS released chart from the public OCI registry
+  # No CELERY_PROBE_OVERRIDES here on purpose: this chart version already
+  # shipped, which means it already passed its OWN release drill (this same
+  # script, `install` leg) against its OWN probe defaults — reapplying the
+  # HEAD chart's tuning to a possibly-different probe schema would prove
+  # nothing about the version actually being installed. No --set image.tag
+  # either: this chart version's own default ("" -> v<appVersion>) already
+  # resolves to the image just pulled and loaded above.
+  log "helm install ${RELEASE} FROM PREVIOUS RELEASED CHART ${PREV_CHART_VERSION} (oci://${CHART_GHCR_HOST}/${CHART_OCI_REPO})"
+  helm install "$RELEASE" "oci://${CHART_GHCR_HOST}/${CHART_OCI_REPO}" --version "$PREV_CHART_VERSION" \
+    --set persistence.media.enabled=true \
+    --set persistence.media.accessMode=ReadWriteOnce \
+    --set 'envFrom[0].secretRef.name=trueppm-env' \
+    --wait --timeout "$INSTALL_TIMEOUT"
+  log "previous release ${PREV_CHART_VERSION} rolled out — now helm upgrade -> HEAD chart"
+  kubectl get pods -o wide
+
+  # ---- 4b. upgrade THE SAME RELEASE to the HEAD chart/images ---------------
+  # This is the leg #3941 exists for: migration ordering + the migrate_locked
+  # advisory lock under values-prod.yaml's replicaCount: 2, bundled-datastore
+  # password regeneration on upgrade (templates/secret.yaml's lookup-returns-
+  # empty path), post-upgrade hook re-runs (the demo-seed Job re-fires), and
+  # PVC/StatefulSet field immutability on the postgresql/valkey subcharts —
+  # none of which a from-empty `helm install` can ever exercise. Same release
+  # name, same namespace, same secret: a real operator upgrade never
+  # recreates either.
+  log "helm upgrade ${RELEASE} -> HEAD chart (image tag ${RELEASE_IMAGE_TAG})"
+  helm upgrade "$RELEASE" "$CHART" \
+    --set image.tag="$RELEASE_IMAGE_TAG" \
+    --set persistence.media.enabled=true \
+    --set persistence.media.accessMode=ReadWriteOnce \
+    --set 'envFrom[0].secretRef.name=trueppm-env' \
+    "${CELERY_PROBE_OVERRIDES[@]}" \
+    --wait --timeout "$INSTALL_TIMEOUT"
+  log "upgrade rollout complete"
+else
+  # ---- 4. install + wait for full rollout ----------------------------------
+  # The image is the current commit's code (ci:build-deploy-images, #2284), so the
+  # chart's migration-aware /api/v1/readyz readiness probe and the `helm test`
+  # readyz leg both resolve — no version-skew overrides. The full chart (secret,
+  # migrate->bootstrap init sequence, uvicorn, postgres, valkey, celery, Services)
+  # boots and readiness gates on the real deep /readyz check the deploy ships with.
+  # persistence.media is enabled deliberately (#3184): the chart's pods run with
+  # readOnlyRootFilesystem, so a local-attachment-storage install has nowhere to
+  # write without this claim and the boot guard now refuses to start rather than
+  # accept uploads it would lose. ReadWriteOnce is correct on this single-node kind
+  # cluster — the guard only rejects RWO above one replica, where it would mean an
+  # upload accepted by one pod 404s from another.
+  log "helm install ${RELEASE} (image tag ${RELEASE_IMAGE_TAG})"
+  helm install "$RELEASE" "$CHART" \
+    --set image.tag="$RELEASE_IMAGE_TAG" \
+    --set persistence.media.enabled=true \
+    --set persistence.media.accessMode=ReadWriteOnce \
+    --set 'envFrom[0].secretRef.name=trueppm-env' \
+    "${CELERY_PROBE_OVERRIDES[@]}" \
+    --wait --timeout "$INSTALL_TIMEOUT"
+  log "rollout complete"
+fi
 kubectl get pods -o wide
 
 # ---- 5. helm test: api booted end to end (readyz reachable) ----------------
@@ -582,4 +755,8 @@ print("all bound pidbox queues:", queues)
   fail "celery-worker is Ready with ${restarts:-0} restarts but never answered 'inspect ping' after ${WORKER_PING_ATTEMPTS} attempts of ${WORKER_PING_TIMEOUT}s — Ready does not mean serving (#3236). Startup: ${broker_waits} broker wait(s), ${consumer_refusals} consumer refusal(s) — 0 refusals falsifies #3722's startup-race explanation. Last ping output: ${ping_out:-<none>}"
 fi
 
-log "HELM INSTALL DRILL GREEN — chart boots, admin retrievable, admin denied at edge, worker pinned+Ready+serving, guards fail closed"
+if [ "$DRILL_LEG" = "upgrade" ]; then
+  log "HELM UPGRADE DRILL GREEN — ${PREV_CHART_VERSION} -> HEAD upgraded cleanly; admin retrievable, admin denied at edge, worker pinned+Ready+serving, guards fail closed"
+else
+  log "HELM INSTALL DRILL GREEN — chart boots, admin retrievable, admin denied at edge, worker pinned+Ready+serving, guards fail closed"
+fi

@@ -3,7 +3,7 @@
 # `condition: valkey.enabled` gates whether this subchart renders at all.
 image:
   repository: valkey/valkey
-  tag: "8"
+  tag: "8@sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2"
   pullPolicy: IfNotPresent
 
 auth:

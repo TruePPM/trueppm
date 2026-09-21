@@ -20,7 +20,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1: builder — install the package into an isolated virtualenv
 # ---------------------------------------------------------------------------
-FROM python:3.11-slim AS builder
+FROM python:3.11-slim@sha256:da047cb8f9d1d98e5c070f5300ba9f7274e33b8fc0e5be5ed88740aed1b95ba9 AS builder
 
 ENV VIRTUAL_ENV=/venv
 RUN python -m venv "$VIRTUAL_ENV"
@@ -40,7 +40,7 @@ RUN pip install --no-cache-dir /build/mcp
 # ---------------------------------------------------------------------------
 # Stage 2: runtime — lean image with only the venv
 # ---------------------------------------------------------------------------
-FROM python:3.11-slim AS runtime
+FROM python:3.11-slim@sha256:da047cb8f9d1d98e5c070f5300ba9f7274e33b8fc0e5be5ed88740aed1b95ba9 AS runtime
 
 COPY --from=builder /venv /venv
 

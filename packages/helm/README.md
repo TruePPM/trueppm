@@ -356,6 +356,14 @@ GitHub/GitLab — both of which otherwise render with the internal name and fail
 silently. Whatever `Host` does arrive must be in `ALLOWED_HOSTS`, and a bare `*`
 there refuses to boot (`TRUEPPM_ALLOW_WILDCARD_HOSTS=true` acknowledges it).
 
+If the web app and the API are reached under **different origins** — e.g.
+`app.example.com` (web) and `api.example.com` (API), rather than one Ingress
+host fronting both — also set `env.CSRF_TRUSTED_ORIGINS` to the web origin(s).
+Without it, SSO login completes and sets the refresh cookie, and then the
+SPA's post-login refresh request fails with a 403 CSRF error, right after the
+hard part (the IdP redirect) already worked. Harmless to leave empty on this
+chart's default single-origin Ingress. See `values.yaml`'s `env.CSRF_TRUSTED_ORIGINS`.
+
 ## Bundled datastores are dev/demo only (#1715, #1716)
 
 The bundled PostgreSQL and Valkey subcharts are for **dev / demo / CI only**. They

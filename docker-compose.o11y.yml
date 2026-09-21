@@ -49,7 +49,7 @@ services:
       TRUEPPM_OTEL_ENABLED: "true"
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.104.0
+    image: otel/opentelemetry-collector-contrib:0.104.0@sha256:e07e325e303e86f4a87a617491e921b579a92da6d404007394757ac910bf9587
     profiles: ["o11y"]
     command: ["--config=/etc/otel/config.yaml"]
     volumes:
@@ -60,7 +60,7 @@ services:
       - "127.0.0.1:8889:8889"   # Prometheus exporter (scraped by prometheus)
 
   prometheus:
-    image: prom/prometheus:v2.54.1
+    image: prom/prometheus:v2.54.1@sha256:f6639335d34a77d9d9db382b92eeb7fc00934be8eae81dbc03b31cfe90411a94
     profiles: ["o11y"]
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -72,7 +72,7 @@ services:
       - otel-collector
 
   grafana:
-    image: grafana/grafana:11.2.0
+    image: grafana/grafana:11.2.0@sha256:408afb9726de5122b00a2576763a8a57a3c86d5b0eff5305bc994ceb3eb96c3f
     profiles: ["o11y"]
     environment:
       GF_SECURITY_ADMIN_USER: admin
