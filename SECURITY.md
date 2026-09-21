@@ -131,10 +131,15 @@ the relevant config (`.gitleaks.toml`, `osv-scanner.toml`, `.trivyignore.yaml`,
 ## Supply-chain verification
 
 Every published artifact — the `api`/`web` container images, the Helm chart,
-and the `trueppm-scheduler`/`trueppm-mcp` PyPI packages — is Cosign-signed (or
-PEP 740-attested, for the PyPI packages) and carries a CycloneDX SBOM. For the
-verification commands and a table of exactly where each artifact's SBOM lives,
-see
+and the `trueppm-scheduler` / `trueppm-mcp` / `trueppm-api` PyPI packages — is
+Cosign-signed (or PEP 740-attested, for the PyPI packages) via GitLab OIDC
+Trusted Publishing, with no static upload token on any publish path (`#3943`
+closed this gap for `trueppm-api`; that release job is unproven until the next
+`v*` tag, so `trueppm-api` versions through `0.4.0-beta.3` predate it and carry
+no attestation). The images, the Helm chart, and the `trueppm-scheduler` /
+`trueppm-mcp` packages also carry a CycloneDX SBOM; `trueppm-api` does not yet.
+For the verification commands and a table of exactly where each artifact's
+SBOM lives, see
 [**Supply-chain verification**](https://docs.trueppm.com/administration/security/#supply-chain-verification)
 in the docs.
 
