@@ -32,7 +32,7 @@ image:
   # version would never pull (#2811). GHCR is the opposite: it carries only the
   # bare version (`0.4.0-beta.3`), so set this when you repoint the repositories
   # above at ghcr.io. Override per-deploy with a concrete tag.
-  tag: "@sha256:19ef362a4ea2c57eeacc97fe5ea9e9bfaf49e5cc77154e91ff447e2377750fc7"
+  tag: ""
   pullPolicy: IfNotPresent
 
 service:
