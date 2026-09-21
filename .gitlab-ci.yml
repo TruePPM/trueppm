@@ -2716,6 +2716,40 @@ helm:template:
     - |
       grep -q 'X-Robots-Tag' /tmp/rendered.yaml \
         && { echo "LEAK: demo noindex rendered into a non-demo release"; exit 1; } || true
+    # App-tier NetworkPolicy must not depend on the bundled subcharts (#3850).
+    # values-prod.yaml — the recommended production overlay — sets
+    # postgresql.enabled=false and valkey.enabled=false, which used to be the
+    # ONLY two conditions templates/networkpolicy.yaml checked: that topology
+    # rendered zero NetworkPolicy objects, leaving the api/worker/web pods
+    # unprotected in exactly the rendering the README recommends operators run.
+    - |
+      helm template trueppm packages/helm -f packages/helm/values-prod.yaml \
+        --set image.tag=latest \
+        --set 'env.DATABASE_URL=postgres://u:p@db.example.com:5432/trueppm?sslmode=require' \
+        --set 'env.REDIS_URL=redis://cache.example.com:6379/0' \
+        --set 'envFrom[0].secretRef.name=trueppm-env' \
+        --set 'ingress.hosts[0].host=trueppm.example.com' \
+        --set ingress.className=nginx \
+        --set 'ingress.tls[0].secretName=trueppm-tls' \
+        --set 'ingress.tls[0].hosts[0]=trueppm.example.com' > /tmp/rendered-prod.yaml
+      kubeconform -strict -summary -ignore-missing-schemas /tmp/rendered-prod.yaml
+      netpol_count=$(yq ea 'select(.kind == "NetworkPolicy") | .metadata.name' /tmp/rendered-prod.yaml | grep -vcE '^---$|^$' || true)
+      [ "$netpol_count" -gt 0 ] \
+        || { echo "PROD REGRESSION: values-prod.yaml (postgresql.enabled=false, valkey.enabled=false) renders ZERO NetworkPolicy objects — the api/worker/web pods are unprotected in the recommended production overlay (#3850)"; exit 1; }
+      for want in api web celery-worker celery-beat; do
+        yq ea "select(.kind == \"NetworkPolicy\" and .spec.podSelector.matchLabels.\"app.kubernetes.io/component\" == \"${want}\") | .metadata.name" /tmp/rendered-prod.yaml \
+          | grep -q . \
+          || { echo "PROD REGRESSION: values-prod.yaml renders no NetworkPolicy selecting component=${want} (#3850)"; exit 1; }
+      done
+      # The api and web policies must actually admit the configured ingress
+      # controller selector, not just exist — a policy present with an empty
+      # `from:` would still be a default-deny (silently blackholing the
+      # controller) while satisfying every check above it.
+      for want in api web; do
+        yq ea "select(.kind == \"NetworkPolicy\" and .spec.podSelector.matchLabels.\"app.kubernetes.io/component\" == \"${want}\") | .spec.ingress[].from[].namespaceSelector.matchLabels.\"kubernetes.io/metadata.name\"" /tmp/rendered-prod.yaml \
+          | grep -q 'ingress-nginx' \
+          || { echo "PROD REGRESSION: the ${want} NetworkPolicy no longer admits networkPolicy.ingressControllerSelector's default (#3850)"; exit 1; }
+      done
     - |
       grep -q 'TRUEPPM_DEMO_READ_ONLY' /tmp/rendered.yaml \
         && { echo "LEAK: TRUEPPM_DEMO_READ_ONLY rendered into a non-demo release (#3932)"; exit 1; } || true
