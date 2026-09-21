@@ -1,0 +1,43 @@
+{
+  "_comment": [
+    "Cross-language contract for the SSO callback's error-code vocabulary (#3951).",
+    "",
+    "The backend (packages/api/src/trueppm_api/apps/sso/services.py's OIDCError",
+    "hierarchy, plus the literal `error=\"...\"` codes in sso/views.py) and the",
+    "frontend (SsoCompletePage.tsx's ERROR_COPY) each independently enumerate the",
+    "same set of SSO callback error codes, and nothing kept them in sync — the file's",
+    "own comment records four codes that silently degraded to generic copy for",
+    "months (#2876) before anyone noticed. This file is the third artifact both",
+    "sides assert against: a pytest for the derived backend set, a vitest for the",
+    "web's authored ERROR_COPY keys. Drift on either side fails a pipeline instead",
+    "of surviving a code review.",
+    "",
+    "`mapped` is every code that gets its own actionable ERROR_COPY entry.",
+    "`genericFallback` is the closed set of codes that intentionally fall back to",
+    "the generic 'Something went wrong' copy — today just `oidc_error`, the",
+    "OIDCError base-class default. It is not currently reachable (every subclass",
+    "overrides `code`, and nothing raises the base class directly), but it exists",
+    "as the safety net for a future subclass that forgets to. There is no more",
+    "specific copy to give a code that by definition carries no information beyond",
+    "'something in the OIDC flow failed', so this is a stated choice, not an",
+    "oversight — see the comment beside ERROR_COPY in SsoCompletePage.tsx.",
+    "",
+    "Adding a new backend error code: give the raising class (or view redirect) a",
+    "distinct `code`, then decide whether it gets real copy (add it to `mapped`",
+    "here AND to ERROR_COPY in SsoCompletePage.tsx) or is an intentional generic",
+    "fallback (add it to `genericFallback` here). Either alone fails the gate."
+  ],
+  "mapped": [
+    "access_denied",
+    "email_unverified",
+    "invalid_id_token",
+    "invalid_request",
+    "invalid_state",
+    "provider_unreachable",
+    "sso_account_disabled",
+    "sso_no_member",
+    "sso_not_configured",
+    "token_exchange_failed"
+  ],
+  "genericFallback": ["oidc_error"]
+}

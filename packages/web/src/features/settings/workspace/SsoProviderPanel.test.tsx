@@ -157,6 +157,29 @@ describe('SsoProviderPanel — Add mode, provider-type switching', () => {
     expect(screen.queryByLabelText('Base URL')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Tenant ID')).toHaveValue('');
   });
+
+  it('states that the allowed-domains gate does not revoke already-linked accounts, and that a blank list blocks everyone (#3949)', () => {
+    renderPanel();
+    // The old copy ("Only these domains may sign in via this provider") implied
+    // an ongoing access gate; resolve_user's durable-identity path (services.py)
+    // never re-checks the domain list once an account is linked, so that phrasing
+    // overstated what removing a domain actually does.
+    expect(
+      screen.queryByText(/^Only these domains may sign in via this provider/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Gates new account linking and auto-created members only/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/no effect on accounts already linked/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/deactivate them or remove this provider/),
+    ).toBeInTheDocument();
+    // Second-order: a blank list fails closed for everyone, stated up front
+    // rather than only surfacing as a save-time field error.
+    expect(
+      screen.getByText(/Leaving this blank blocks everyone from signing in/),
+    ).toBeInTheDocument();
+  });
 });
 
 describe('SsoProviderPanel — save (create)', () => {
@@ -200,6 +223,17 @@ describe('SsoProviderPanel — save (create)', () => {
 
     const body = h.createMutateAsync.mock.calls[0][0] as Record<string, unknown>;
     expect(body).not.toHaveProperty('client_secret');
+  });
+
+  it('omits default_role from the body when auto-create is off (#3950)', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.type(screen.getByLabelText('Base URL'), 'https://id.example.com');
+    await user.type(screen.getByLabelText('Realm'), 'main');
+    await user.click(screen.getByRole('button', { name: 'Add provider' }));
+
+    const body = h.createMutateAsync.mock.calls[0][0] as Record<string, unknown>;
+    expect(body).not.toHaveProperty('default_role');
   });
 
   it('creates a GitHub OAuth provider with github_org and no server_url', async () => {
@@ -417,6 +451,54 @@ describe('SsoProviderPanel — Edit mode', () => {
     expect(arg.slug).toBe('keycloak');
     expect(arg.body.server_url).toBe('https://id.acme.io/realms/staging');
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('omits default_role on save when auto-create is off, even though a higher role is stored (#3950)', async () => {
+    const user = userEvent.setup();
+    // Stored by an Owner (or seed_sso_keycloak) at ADMIN — at/above what the
+    // acting admin editing this form may set, and the control that would let
+    // them change it is not rendered while auto-create is off.
+    const noAutoCreate: SsoProvider = {
+      ...KEYCLOAK,
+      auto_create_members: false,
+      default_role: 300,
+    };
+    renderPanel({ mode: 'edit', existing: noAutoCreate });
+    expect(
+      screen.queryByLabelText('Default role for auto-created members'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/The stored default role is kept but not changed while this is off\./),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(h.updateMutateAsync).toHaveBeenCalledTimes(1);
+    const arg = h.updateMutateAsync.mock.calls[0][0] as {
+      slug: string;
+      body: Record<string, unknown>;
+    };
+    expect(arg.body).not.toHaveProperty('default_role');
+  });
+
+  it('sends default_role once auto-create is turned on during the same edit', async () => {
+    const user = userEvent.setup();
+    const noAutoCreate: SsoProvider = {
+      ...KEYCLOAK,
+      auto_create_members: false,
+      default_role: 100,
+    };
+    renderPanel({ mode: 'edit', existing: noAutoCreate });
+    await user.click(
+      screen.getByRole('switch', { name: 'Auto-create members on first SSO sign-in' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    const arg = h.updateMutateAsync.mock.calls[0][0] as {
+      slug: string;
+      body: Record<string, unknown>;
+    };
+    expect(arg.body).toHaveProperty('default_role');
   });
 
   it('runs a connection test and reports a reachable issuer', async () => {

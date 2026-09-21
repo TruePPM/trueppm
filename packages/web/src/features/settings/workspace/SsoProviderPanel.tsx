@@ -554,7 +554,14 @@ export function SsoProviderPanel({
       enabled,
       allowed_email_domains: parseDomains(allowedDomains),
       auto_create_members: autoCreate,
-      default_role: defaultRole,
+      // Omitted when auto-create is off: the "Default role" control only
+      // renders while auto-create is on (below), so sending a value here
+      // unconditionally would submit a role the admin cannot see or have
+      // changed — and can trip the server's `default_role >= actor_role`
+      // ceiling guard (#3626) on a save that never touched it. The server's
+      // own `"default_role" not in validated_data` early-out (views.py) exists
+      // for exactly this; only send the key when the control is live.
+      ...(autoCreate ? { default_role: defaultRole } : {}),
       ...(clientSecret ? { client_secret: clientSecret } : {}),
     };
     if (def.kind === 'oauth') {
@@ -801,7 +808,19 @@ export function SsoProviderPanel({
         </h4>
         <FieldRow
           label="Allowed email domains"
-          hint="Only these domains may sign in via this provider. Comma- or space-separated."
+          hint={
+            <>
+              <p>
+                Gates new account linking and auto-created members only — it has no
+                effect on accounts already linked. To cut off an existing member&apos;s
+                access, deactivate them or remove this provider. Comma- or
+                space-separated.
+              </p>
+              <p className="mt-1">
+                Leaving this blank blocks everyone from signing in via this provider.
+              </p>
+            </>
+          }
           error={fieldErrors.allowed_email_domains}
           errorId={`${domainsId}-err`}
         >
@@ -823,7 +842,11 @@ export function SsoProviderPanel({
         </FieldRow>
         <FieldRow
           label="Auto-create members"
-          hint="Create a member on first sign-in for an allowed domain."
+          hint={
+            !autoCreate && mode === 'edit'
+              ? 'Create a member on first sign-in for an allowed domain. The stored default role is kept but not changed while this is off.'
+              : 'Create a member on first sign-in for an allowed domain.'
+          }
         >
           <Toggle
             on={autoCreate}

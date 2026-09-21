@@ -2905,6 +2905,73 @@ helm:install:
   script:
     - bash scripts/helm-install-drill.sh
 
+helm:upgrade:
+  # Runtime UPGRADE smoke test on a real kind cluster (#3941): the operator
+  # workflow helm:install above never exercises. helm:install only ever
+  # `helm install`s onto an empty cluster; it says nothing about the path
+  # self-hosters actually walk on every release — beta.1 -> beta.2 -> beta.3,
+  # three cuts in six days at the time this job was added — and that path has
+  # its own failure modes: migration ordering + the migrate_locked advisory
+  # lock under values-prod.yaml's replicaCount: 2, bundled-datastore password
+  # regeneration on upgrade (templates/secret.yaml's lookup-returns-empty
+  # path), post-upgrade hook re-runs (the demo-seed Job re-firing), and
+  # PVC/StatefulSet field immutability on the postgresql/valkey subcharts.
+  #
+  # `helm install` the PREVIOUS released chart version from the public OCI
+  # registry (resolved dynamically against the registry's own tag list by
+  # scripts/helm-install-drill.sh's resolve_previous_chart_version — never a
+  # hardcoded version string), then `helm upgrade` the SAME release to the
+  # HEAD chart/images, then re-run the identical readyz / admin-password /
+  # admin-denied-at-edge / worker-serving / boot-guard assertions helm:install
+  # already uses (DRILL_LEG=upgrade in the same script — see its header
+  # comment). See scripts/helm-install-drill.sh.
+  #
+  # Trigger: main pushes and the nightly schedule ONLY — deliberately NOT
+  # merge_request_event. This leg pays for two kind clusters worth of pulls
+  # and two full `--wait` rollouts in one job (see INSTALL_TIMEOUT x2 below),
+  # roughly doubling helm:install's runtime; per the issue's own stated cost
+  # concern, that is worth paying on every push to main and nightly, not on
+  # every MR iteration. Schedule stays advisory (allow_failure), matching
+  # helm:install/helm:netpol: a nightly infra blip on the shared runner fleet
+  # is a signal, not a hard red. `needs:` the same per-commit image build as
+  # helm:install so it upgrades TO real HEAD code, not a stale tag.
+  stage: test
+  interruptible: false
+  timeout: 40m
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  needs:
+    - job: ci:build-deploy-images
+      artifacts: false
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    KIND_VERSION: "0.24.0"
+    KUBECTL_VERSION: "1.31.2"
+    HELM_VERSION: "3.16.3"
+    RELEASE_IMAGE_TAG: "$CI_COMMIT_SHA"
+    APISERVER_HOST: "docker"
+    DRILL_LEG: "upgrade"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - packages/helm/**/*
+        - scripts/helm-install-drill.sh
+        - .gitlab-ci.yml
+  before_script:
+    - apk add --no-cache bash curl
+    - curl -sSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && chmod +x /usr/local/bin/kind
+    - curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && chmod +x /usr/local/bin/kubectl
+    - curl -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm && mv /tmp/linux-amd64/helm /usr/local/bin/helm
+    - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
+  script:
+    - bash scripts/helm-install-drill.sh
+
 compose:prod:
   # Production docker-compose BOOT drill (#2817): the runtime half of the
   # prod-compose completeness fix (#2804, !1945), whose three fixes were all
@@ -5427,6 +5494,17 @@ sso:integration:
         - packages/web/e2e/integration/sso-keycloak.spec.ts
         - .gitlab/keycloak/trueppm-realm.json
         - .gitlab/ci-images/keycloak.Dockerfile
+        # Web-side SSO surface (#3948) — the real-Keycloak round trip is the
+        # only test that exercises these against a live IdP; every other SSO
+        # web test mocks at page.route. Without these paths, an MR that only
+        # touches the login/callback/admin-panel code never runs this job.
+        - packages/web/src/hooks/ssoLogin.ts
+        - packages/web/src/hooks/useSso.ts
+        - packages/web/src/features/auth/LoginPage.tsx
+        - packages/web/src/features/auth/SsoCompletePage.tsx
+        - packages/web/src/features/settings/workspace/SsoProviderPanel.tsx
+        - packages/web/src/features/settings/workspace/ssoProviders.ts
+        - packages/web/src/features/settings/workspace/WorkspaceSsoPage.tsx
   cache:
     - key:
         files:
