@@ -245,3 +245,22 @@ condition: service_healthy` is a readiness question ("can dependents start
 using this now?"), and a shallow liveness check answers the wrong one — a
 healthy-looking `api` container whose database was actually unreachable would
 previously report `(healthy)` to Compose while every real request 503'd.
+
+**The worker row has no liveness column above because Compose itself has no
+liveness *mechanism* — not because the worker has no liveness concern
+(#3936).** `restart: unless-stopped` only fires on a process **exit**; a
+healthcheck reporting `unhealthy` changes what `docker compose ps` prints and
+nothing else, unlike a Kubernetes `livenessProbe`, which kubelet acts on
+directly. A worker whose heartbeat goes stale therefore has no path back on
+Compose from the healthcheck alone. Since 0.4, `TRUEPPM_CELERY_WORKER_SELF_HEAL=1`
+(set by both `docker-compose.yml` and `docker-compose.prod.yml`) closes that
+gap from inside the process instead: a background thread
+(`trueppm_api.core.worker_selfheal`) reads the same heartbeat file the
+readiness healthcheck does and calls `os._exit` once it has been stale for 90
+seconds — 3x the readiness check's own 30-second window, so a transient
+broker blip or a scheduling pause cannot turn into a crash loop. That exit is
+what `restart: unless-stopped` needed all along. See [A Celery worker wedges
+and never recovers](/administration/troubleshooting/#a-celery-worker-wedges-and-never-recovers-docker-compose)
+for the operator-facing version of this, including the manual
+`docker compose restart celery` remedy for a deployment that disables the
+env var.
