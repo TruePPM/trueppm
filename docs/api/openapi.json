@@ -73165,7 +73165,7 @@
             },
             "SsoTestConnectionResponse": {
                 "type": "object",
-                "description": "Structured result of the admin \"Test connection\" probe.",
+                "description": "Structured result of the admin \"Test connection\" probe.\n\n``reason`` is a narrower, stable machine code than ``error`` (which already\nvaries per failure mode — ``jwks_unreachable``, ``github_unreachable``, an\n:class:`~trueppm_api.apps.sso.services.OIDCError` ``code`` like\n``provider_unreachable``). It is present only when the underlying cause is\nspecifically the outbound SSRF/egress guard, so the SPA can offer the\nallow-list remedy without substring-matching ``detail`` (#3947).",
                 "properties": {
                     "ok": {
                         "type": "boolean"
@@ -73178,6 +73178,9 @@
                         "additionalProperties": {}
                     },
                     "error": {
+                        "type": "string"
+                    },
+                    "reason": {
                         "type": "string"
                     },
                     "detail": {

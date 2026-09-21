@@ -1203,17 +1203,37 @@ def test_check_reachability_oidc_ok(
 
 
 @pytest.mark.django_db
-def test_check_reachability_oidc_discovery_failure_reports_code(
+def test_check_reachability_oidc_discovery_egress_blocked_reports_reason(
     provider_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A discovery failure never raises — it becomes a structured ``ok: False``."""
+    """A discovery failure never raises — it becomes a structured ``ok: False``.
+
+    An SSRF-guard block also carries ``reason: "egress_blocked"`` — the most
+    common cause with an in-cluster IdP (#3947) — so the SPA can offer the
+    egress-allowlist remedy without parsing ``detail``.
+    """
     from trueppm_api.apps.integrations import http as egress
 
     monkeypatch.setattr(services.egress, "get", _raiser(egress.EgressBlocked("private host")))
     result = services.check_provider_reachability(provider_ctx)
     assert result["ok"] is False
     assert result["error"] == services.OIDCProviderUnreachable.code
+    assert result["reason"] == "egress_blocked"
     assert result["detail"]
+
+
+@pytest.mark.django_db
+def test_check_reachability_oidc_discovery_timeout_reports_no_reason(
+    provider_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A plain timeout is not an egress-guard block — no ``reason`` is added."""
+    from trueppm_api.apps.integrations import http as egress
+
+    monkeypatch.setattr(services.egress, "get", _raiser(egress.EgressTimeout("timed out")))
+    result = services.check_provider_reachability(provider_ctx)
+    assert result["ok"] is False
+    assert result["error"] == services.OIDCProviderUnreachable.code
+    assert "reason" not in result
 
 
 @pytest.mark.django_db
@@ -1234,6 +1254,29 @@ def test_check_reachability_oidc_jwks_unreachable(
     result = services.check_provider_reachability(provider_ctx)
     assert result["ok"] is False
     assert result["error"] == "jwks_unreachable"
+    assert "reason" not in result
+
+
+@pytest.mark.django_db
+def test_check_reachability_oidc_jwks_egress_blocked_reports_reason(
+    provider_ctx: services.ProviderContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The JWKS fetch can also be the leg the SSRF guard blocks — same reason code."""
+    from trueppm_api.apps.integrations import http as egress
+
+    def _get(url: str, **kwargs: Any) -> Any:
+        if url.endswith("/.well-known/openid-configuration"):
+            return _egress_response(payload=discovery_doc())
+        return _egress_response(payload={"keys": []})
+
+    monkeypatch.setattr(services.egress, "get", _get)
+    monkeypatch.setattr(
+        services.egress, "assert_url_allowed", _raiser(egress.EgressBlocked("private host"))
+    )
+    result = services.check_provider_reachability(provider_ctx)
+    assert result["ok"] is False
+    assert result["error"] == "jwks_unreachable"
+    assert result["reason"] == "egress_blocked"
 
 
 @pytest.mark.django_db
@@ -1318,6 +1361,7 @@ def test_check_reachability_github_unexpected_status_is_failure(
     assert result["ok"] is False
     assert result["error"] == "github_unreachable"
     assert "detail" not in result
+    assert "reason" not in result
 
 
 @pytest.mark.django_db
@@ -1332,6 +1376,7 @@ def test_check_reachability_github_blocked_reports_detail(
     result = services.check_provider_reachability(github_ctx)
     assert result["ok"] is False
     assert result["error"] == "github_unreachable"
+    assert result["reason"] == "egress_blocked"
     assert "blocked host" in result["detail"]
 
 

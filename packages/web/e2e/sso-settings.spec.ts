@@ -177,7 +177,10 @@ test.describe('Workspace Single sign-on — admin (multi-provider)', () => {
 
     await expect(page.getByText('SSO sign-in is live')).toBeVisible();
     await page.getByRole('button', { name: 'Edit' }).click();
-    await page.getByRole('button', { name: 'Test connection' }).click();
+    // Exact match: the section's own FieldHelp trigger is named "About the Test
+    // connection options" (#3947), which contains this button's name as a
+    // substring and would otherwise collide (strict-mode violation).
+    await page.getByRole('button', { name: 'Test connection', exact: true }).click();
     // The leading "✓" is now a house CheckIcon SVG (issue 1749); assert on the text.
     // Exact match: the section's help copy ("…are reachable.") also contains the
     // word, so a substring match would collide (strict-mode violation).
