@@ -1,0 +1,74 @@
+# Repo-root build context (issue #3938).
+#
+# This context is used by packages/api/Dockerfile (docker-compose.yml,
+# ci:build-deploy-images, api:publish all build it with `-f packages/api/Dockerfile .`)
+# and by the CI images under .gitlab/ci-images/ (api.Dockerfile, integration.Dockerfile,
+# scheduler.Dockerfile, wasm.Dockerfile, keycloak.Dockerfile). None of those COPY
+# .git, a virtualenv, node_modules, or local cache/env artifacts — they COPY only
+# specific package subpaths (packages/scheduler/src, packages/api, pyproject.toml /
+# README.md / CHANGELOG.md files, Cargo.toml/Cargo.lock, NOTICES/licenses/LICENSE/
+# NOTICE, .gitlab/keycloak/trueppm-realm.json) — so excluding everything below is
+# safe for all of them. None of the three published packages (scheduler, api, mcp)
+# use hatch-vcs/setuptools-scm — versions are static in pyproject.toml — so .git is
+# not needed by any build that uses this context.
+#
+# packages/web has its own .dockerignore scoped to its own (narrower) build context.
+
+# Version control
+.git
+**/.git
+
+# Python
+.venv
+**/.venv
+venv
+**/venv
+__pycache__
+**/__pycache__
+*.py[cod]
+**/*.py[cod]
+*.egg-info
+**/*.egg-info
+.mypy_cache
+**/.mypy_cache
+.pytest_cache
+**/.pytest_cache
+.ruff_cache
+**/.ruff_cache
+.hypothesis
+**/.hypothesis
+htmlcov
+**/htmlcov
+
+# Node (no trailing slash so a `scripts/wt`-created symlink is excluded too,
+# not just a real directory — see the matching note in the repo's own .gitignore)
+node_modules
+**/node_modules
+
+# Env files (may hold local secrets; never needed inside an image build)
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Build output / caches not needed by any image build in this context
+dist
+**/dist
+coverage
+**/coverage
+coverage.xml
+**/coverage.xml
+.astro
+**/.astro
+*.log
+**/*.log
+.scannerwork
+**/.scannerwork
+
+# Editor / OS cruft
+.DS_Store
+**/.DS_Store
+.idea
+**/.idea
+.vscode
+**/.vscode

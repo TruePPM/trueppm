@@ -284,6 +284,14 @@ services:
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
       # See the "Bundled-datastore posture" note above the api-init service.
       TRUEPPM_ALLOW_UNENCRYPTED_DB: "true"
+      # Plain Docker Compose has NO mechanism that restarts a container on
+      # healthcheck failure — `restart: unless-stopped` fires only on process
+      # EXIT, unlike the Helm chart's `celery inspect ping` livenessProbe,
+      # which kubelet acts on directly (#3936). This gives `restart:
+      # unless-stopped` something to act on: trueppm_api.core.worker_selfheal
+      # self-exits the worker once its own heartbeat file (below) goes stale
+      # past its threshold, instead of sitting `unhealthy` forever.
+      TRUEPPM_CELERY_WORKER_SELF_HEAL: "1"
     volumes:
       # Same claim as the api service — see its note. The worker opens the
       # seed-import payload the api wrote; beat needs it only because it runs
@@ -292,18 +300,23 @@ services:
     depends_on:
       api-init:
         condition: service_completed_successfully
-    # `restart: unless-stopped` only restarts on process EXIT, so a worker whose
-    # event loop has wedged reports `Up` forever (#3189). This USED to be
-    # `celery inspect ping`, described here as "the same probe the Helm chart
-    # uses" — that stopped being true in #3346: an exec probe forks a full
-    # Django import into the container it measures, so under load the same
-    # process that has to answer the ping can be busy servicing the pool and
-    # fail the check while doing exactly the job it exists to do (#3236 — a
-    # worker with 0 restarts, processing jobs throughout, that never once
-    # answered `inspect ping`). This now stats a heartbeat file
-    # trueppm_api.core.worker_heartbeat touches every ~2s on the worker's own
-    # timer, independent of task load — a plain filesystem check, matching the
-    # Helm chart's worker readiness probe. See administration/probes.md.
+    # `restart: unless-stopped` only restarts on process EXIT — a healthcheck
+    # transitioning to `unhealthy` changes only what `docker compose ps`
+    # reports; nothing in Compose reads that status and restarts anything
+    # (#3189, sharpened in #3936). This USED to be `celery inspect ping`,
+    # described here as "the same probe the Helm chart uses" — that stopped
+    # being true in #3346: an exec probe forks a full Django import into the
+    # container it measures, so under load the same process that has to
+    # answer the ping can be busy servicing the pool and fail the check while
+    # doing exactly the job it exists to do (#3236 — a worker with 0 restarts,
+    # processing jobs throughout, that never once answered `inspect ping`).
+    # This now stats a heartbeat file trueppm_api.core.worker_heartbeat
+    # touches every ~2s on the worker's own timer, independent of task load —
+    # a plain filesystem check. It matches the Helm chart's worker READINESS
+    # probe, which only takes a pod out of rotation — actual recovery here
+    # comes from TRUEPPM_CELERY_WORKER_SELF_HEAL above, Compose's equivalent
+    # of the chart's separate liveness probe. See administration/probes.md
+    # and administration/troubleshooting.md.
     healthcheck:
       test: ["CMD-SHELL", "find /tmp/trueppm-celery-worker-heartbeat -newermt '-30 seconds' 2>/dev/null | grep -q ."]
       interval: 15s
