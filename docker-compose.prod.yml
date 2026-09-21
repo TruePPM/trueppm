@@ -82,7 +82,7 @@ services:
     mem_limit: 2g
     cpus: 2.0
     pids_limit: 512
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -104,7 +104,7 @@ services:
   # existing self-hosters' .env files (deferred to 1.0).
   valkey:
     <<: *logging
-    image: valkey/valkey:8-alpine
+    image: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
     restart: unless-stopped
     read_only: true
     security_opt:
@@ -420,7 +420,7 @@ services:
     mem_limit: 256m
     cpus: 1.0
     pids_limit: 256
-    image: nginx:1.27-alpine
+    image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
     restart: unless-stopped
     read_only: true
     security_opt:
@@ -527,7 +527,7 @@ services:
     # in `certbot/conf`, and this container reads it back twice a day. A skew
     # between the writer and the reader surfaces at ~60 days as a renewal
     # failure against a certificate that was issued fine.
-    image: certbot/certbot:v5.7.0
+    image: certbot/certbot:v5.7.0@sha256:34ee91d2f43008eb78a007d22f23ed4b2eaa9a454cb27ca2c042b49527a695b4
     restart: unless-stopped
     profiles: ["letsencrypt"]
     volumes:

@@ -21,7 +21,7 @@
 # Pinned to a Keycloak 26.x tag; bump deliberately (a Keycloak major can change the
 # discovery-document shape, which is exactly the drift this nightly smoke exists to
 # catch — so the bump and the green smoke land together).
-FROM quay.io/keycloak/keycloak:26.0
+FROM quay.io/keycloak/keycloak:26.0@sha256:09a381c715ab0b111835b70f2905955274843a219c6f27efb348e4d9f4086858
 
 # `--import-realm` reads every *.json under /opt/keycloak/data/import at start.
 COPY .gitlab/keycloak/trueppm-realm.json /opt/keycloak/data/import/trueppm-realm.json
