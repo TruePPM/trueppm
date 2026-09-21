@@ -603,9 +603,7 @@ function PanelSplitter({ currentTaskWidth, setWidth, maxTaskWidth }: PanelSplitt
           44px of grabbable width around a 4px line. Fine pointers keep the 4px
           target: a mouse can aim at it, and a 44px invisible band there would
           swallow clicks meant for the outline's last column or the first bar. */}
-      {coarsePointer && (
-        <span aria-hidden="true" className="absolute -inset-x-5 inset-y-0" />
-      )}
+      {coarsePointer && <span aria-hidden="true" className="absolute -inset-x-5 inset-y-0" />}
     </div>
   );
   /* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */
@@ -1884,8 +1882,7 @@ export function ScheduleView() {
    * rather than re-derived at the call site.
    */
   const canEditRow = useCallback(
-    (task: Task) =>
-      canEditTaskRow(task.canEdit, currentRole, roleLoading || roleError === true),
+    (task: Task) => canEditTaskRow(task.canEdit, currentRole, roleLoading || roleError === true),
     [currentRole, roleLoading, roleError],
   );
 
@@ -1939,8 +1936,7 @@ export function ScheduleView() {
    * (line ~3375) — one function returns both lanes, so a reader cannot learn
    * about one and miss the other.
    */
-  const outlineWidth =
-    surfaceWidth + resolveOutlineLeftReserve(coarsePointer, !readOnly);
+  const outlineWidth = surfaceWidth + resolveOutlineLeftReserve(coarsePointer, !readOnly);
 
   /** Is the outline on screen at all? One predicate — see the function. */
   const outlineRendered = scheduleOutlineRendered(
@@ -2108,7 +2104,6 @@ export function ScheduleView() {
     const timer = setTimeout(() => setSeedingTimedOut(true), 60_000);
     return () => clearTimeout(timer);
   }, [seedApplicationId]);
-
 
   // The apply reporting `success` does NOT mean the rows are on screen: they ride
   // `task_created` WS events, and `useScheduleTasks` drops its fallback poll to 30s
@@ -2340,7 +2335,9 @@ export function ScheduleView() {
       // `blocksUndo` is the third narrow case (#3018): an insert appends a row that did
       // not exist when any older act ran, so it must not become an undo barrier the way
       // an unreversible edit to an EXISTING row does. See `TrailEntry.blocksUndo`.
-      return projectId ? recordTrailAct(projectId, trailText ?? sentence, undefined, blocksUndo) : null;
+      return projectId
+        ? recordTrailAct(projectId, trailText ?? sentence, undefined, blocksUndo)
+        : null;
     },
     [projectId, recordTrailAct],
   );
@@ -2553,9 +2550,7 @@ export function ScheduleView() {
           // The trail entry is written on SUCCESS, not on the click: a delete
           // that the server refused must not leave a record claiming it
           // happened (#2948).
-          recordAct(
-            deleteSentence({ name: snapshot.name, descendantCount: descendantCount }),
-          );
+          recordAct(deleteSentence({ name: snapshot.name, descendantCount: descendantCount }));
           // Neutral noun (#3031): this toast reports the deletion of whatever
           // row was focused — a phase and a milestone reach it too — so a
           // blank-named one must not be announced as a task.
@@ -2676,7 +2671,9 @@ export function ScheduleView() {
           return;
         }
         const row = actRow(taskId);
-        const parent = allTasks.find((t) => t.id === allTasks.find((x) => x.id === taskId)?.parentId);
+        const parent = allTasks.find(
+          (t) => t.id === allTasks.find((x) => x.id === taskId)?.parentId,
+        );
         const entryId = parent ? recordAct(outdentSentence(row, { name: parent.name })) : null;
         outdentTask.mutate(taskId, {
           onSuccess: (data) => {
@@ -3357,9 +3354,7 @@ export function ScheduleView() {
               });
               return;
             }
-            const entryId = recordAct(
-              adoptedPhaseSentence({ name: target.name }),
-            );
+            const entryId = recordAct(adoptedPhaseSentence({ name: target.name }));
             if (entryId !== null && data.operation_id) {
               attachTrailOperation(entryId, data.operation_id);
             }
@@ -3474,7 +3469,9 @@ export function ScheduleView() {
       // rights was never offered the buttons, so there is nothing to explain and the
       // guard stays silent.
       if (hasEditRights) {
-        setScheduleActionToast({ message: `Read mode — press ${formatChord('alt+a')} to author, then group.` });
+        setScheduleActionToast({
+          message: `Read mode — press ${formatChord('alt+a')} to author, then group.`,
+        });
       }
       return;
     }
@@ -3545,7 +3542,9 @@ export function ScheduleView() {
     if (readOnly) {
       // Same split as `handleGroupRows` (web rule 302).
       if (hasEditRights) {
-        setScheduleActionToast({ message: `Read mode — press ${formatChord('alt+a')} to author, then ungroup.` });
+        setScheduleActionToast({
+          message: `Read mode — press ${formatChord('alt+a')} to author, then ungroup.`,
+        });
       }
       return;
     }
@@ -3703,9 +3702,7 @@ export function ScheduleView() {
     // stale or foreign `?under=` id, and the tasks query not having resolved when the
     // role query settled. Naming a row that is not there is the one failure this
     // path cannot afford, since it is the only insert the user did not watch happen.
-    const authorParent = authorParentId
-      ? allTasks.find((t) => t.id === authorParentId)
-      : undefined;
+    const authorParent = authorParentId ? allTasks.find((t) => t.id === authorParentId) : undefined;
     createNewTask(
       authorParentId,
       undefined,
@@ -3952,11 +3949,8 @@ export function ScheduleView() {
   const handleWalkToUnscheduled = useCallback(() => {
     if (unscheduledTasks.length === 0) return;
     const trayIds = new Set(unscheduledTasks.map((t) => t.id));
-    const onScreen = findRowByPredicate(
-      visibleTasks,
-      focus.state.rowId,
-      'forward',
-      (task) => trayIds.has(task.id),
+    const onScreen = findRowByPredicate(visibleTasks, focus.state.rowId, 'forward', (task) =>
+      trayIds.has(task.id),
     );
 
     let target = onScreen;
@@ -4059,9 +4053,7 @@ export function ScheduleView() {
         // the mode actually changes — the confirm announces its own outcome.
         if (!requestAuthorToggle()) return;
         const said =
-          next === 'read'
-            ? 'Read mode. Edits are blocked.'
-            : 'Author mode. Edits are allowed.';
+          next === 'read' ? 'Read mode. Edits are blocked.' : 'Author mode. Edits are allowed.';
         if (ariaLiveRef.current) ariaLiveRef.current.textContent = said;
         setScheduleActionToast({ message: said });
       };
@@ -4309,9 +4301,7 @@ export function ScheduleView() {
               ? allTasks.find((t) => t.id === inferredParentId)
               : undefined;
             recordAct(
-              parent
-                ? insertSentence('child', { name: parent.name })
-                : insertSentence('end', null),
+              parent ? insertSentence('child', { name: parent.name }) : insertSentence('end', null),
               undefined,
               false,
             );
@@ -4754,11 +4744,7 @@ export function ScheduleView() {
       <NextStrip tasks={allTasks} links={allLinks} />
 
       {surfaces.monte_carlo && (
-        <ScheduleForecastBar
-          projectId={projectIdUndef}
-          cpmFinish={cpmFinish}
-          tasks={allTasks}
-        />
+        <ScheduleForecastBar projectId={projectIdUndef} cpmFinish={cpmFinish} tasks={allTasks} />
       )}
 
       {/* Mobile MC card — md:hidden; desktop uses ScheduleForecastBar above (issue #33) */}
@@ -4871,7 +4857,6 @@ export function ScheduleView() {
           }}
         />
       )}
-
     </div>
   );
 
@@ -5088,6 +5073,7 @@ function ScheduleOverlayLayer({
           action={scheduleCommit.state.action}
           isPending={scheduleCommit.isPending}
           error={scheduleCommit.state.error}
+          demoRefusal={scheduleCommit.state.demoRefusal}
           onConfirm={scheduleCommit.handleConfirm}
           onCancel={scheduleCommit.handleCancel}
           onDismissByOutsideClick={scheduleCommit.handleDismissByOutsideClick}
@@ -6019,10 +6005,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           Unpinned or demoted it moves into `···` (#3076) rather than
           disappearing; the entry there carries the same name and chord. */}
       {projectId && hasEditRights && !readOnly && composition.milestone === 'bar' && (
-        <ScheduleAddMilestoneButton
-          onAddMilestone={handleAddMilestone}
-          pending={createPending}
-        />
+        <ScheduleAddMilestoneButton onAddMilestone={handleAddMilestone} pending={createPending} />
       )}
       {/* Phase / Group / Ungroup (#2955) — the three structure controls, behind one
           Display option that starts OFF.
@@ -6160,92 +6143,92 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           // authoring rows follow `hasEditRights`, matching the gate on the
           // buttons they govern (rule 302: absent, not disabled).
           {
-                rows: [
-                  ...(hasEditRights
-                    ? [
-                        {
-                          id: 'pin-milestone',
-                          label: 'Milestone',
-                          checked: displayOptions.pinMilestone,
-                          where: placementLabel(composition.milestone),
-                          onToggle: () => onToggleDisplayOption('pinMilestone'),
-                        },
-                        {
-                          id: 'structure-buttons',
-                          label: 'Phase, Group and Ungroup buttons',
-                          checked: displayOptions.structureButtons,
-                          where: placementLabel(composition.structure),
-                          onToggle: () => onToggleDisplayOption('structureButtons'),
-                        },
-                      ]
-                    : []),
-                  {
-                    id: 'pin-export-pdf',
-                    label: 'Export PDF',
-                    checked: displayOptions.pinExportPdf,
-                    where: placementLabel(composition.pdf),
-                    onToggle: () => onToggleDisplayOption('pinExportPdf'),
-                  },
-                  {
-                    id: 'pin-counts',
-                    label: 'Task and critical counts',
-                    checked: displayOptions.pinCounts,
-                    where: placementLabel(composition.counts),
-                    onToggle: () => onToggleDisplayOption('pinCounts'),
-                  },
-                  {
-                    id: 'pin-today',
-                    label: 'Today',
-                    checked: displayOptions.pinToday,
-                    where: placementLabel(composition.today),
-                    onToggle: () => onToggleDisplayOption('pinToday'),
-                  },
-                  // Shown, inert, and explained — two rows rather than silence,
-                  // so the list is a complete inventory of the bar and a user
-                  // learns that zoom and the mode chip *collapse* rather than
-                  // vanish.
-                  {
-                    id: 'locked-tier-a',
-                    // Named for what this reader actually has: a viewer has no
-                    // `+ Item`, so listing it as "always in the toolbar" would
-                    // be a claim about a control that is not there.
-                    // …and an editor in Read has no `+ Item` either (#3748).
-                    label: !hasEditRights
-                      ? 'Grid / Timeline, Display, Actions'
-                      : readOnly
-                        ? 'Grid / Timeline, Display, Actions, mode'
-                        : 'Item, Grid / Timeline, Display, Actions, mode',
-                    sub: 'Always in the toolbar.',
-                    checked: true,
-                    where: 'always',
-                    locked: true,
-                  },
-                  {
-                    id: 'locked-state',
-                    // `mode` moved up to the tier-A row in #3263 and is no longer
-                    // in this one's ternary — it is one chip at every width now,
-                    // so "collapse when narrow" stopped being true of it. This
-                    // popover is the product's only answer to "where did my
-                    // button go" (rule 343(f)), so a stale sentence here sends
-                    // someone resizing a window for a shape change that will
-                    // never come.
-                    label: 'Zoom, engine status',
-                    sub: 'Always present; collapse when narrow.',
-                    checked: true,
-                    where: 'always',
-                    locked: true,
-                  },
-                ],
-                footer: pinFooterSentence(
-                  // A viewer has no authoring controls, so their pins are not
-                  // "pinned but crowded out" — they are not applicable, and
-                  // counting them would report a shortfall that no amount of
-                  // widening could fix.
-                  // Same for an editor in Read, whose authoring controls are absent (#3748).
-                  !readOnly ? pins : { ...pins, milestone: false, structure: false },
-                  composition,
-                ),
-              }
+            rows: [
+              ...(hasEditRights
+                ? [
+                    {
+                      id: 'pin-milestone',
+                      label: 'Milestone',
+                      checked: displayOptions.pinMilestone,
+                      where: placementLabel(composition.milestone),
+                      onToggle: () => onToggleDisplayOption('pinMilestone'),
+                    },
+                    {
+                      id: 'structure-buttons',
+                      label: 'Phase, Group and Ungroup buttons',
+                      checked: displayOptions.structureButtons,
+                      where: placementLabel(composition.structure),
+                      onToggle: () => onToggleDisplayOption('structureButtons'),
+                    },
+                  ]
+                : []),
+              {
+                id: 'pin-export-pdf',
+                label: 'Export PDF',
+                checked: displayOptions.pinExportPdf,
+                where: placementLabel(composition.pdf),
+                onToggle: () => onToggleDisplayOption('pinExportPdf'),
+              },
+              {
+                id: 'pin-counts',
+                label: 'Task and critical counts',
+                checked: displayOptions.pinCounts,
+                where: placementLabel(composition.counts),
+                onToggle: () => onToggleDisplayOption('pinCounts'),
+              },
+              {
+                id: 'pin-today',
+                label: 'Today',
+                checked: displayOptions.pinToday,
+                where: placementLabel(composition.today),
+                onToggle: () => onToggleDisplayOption('pinToday'),
+              },
+              // Shown, inert, and explained — two rows rather than silence,
+              // so the list is a complete inventory of the bar and a user
+              // learns that zoom and the mode chip *collapse* rather than
+              // vanish.
+              {
+                id: 'locked-tier-a',
+                // Named for what this reader actually has: a viewer has no
+                // `+ Item`, so listing it as "always in the toolbar" would
+                // be a claim about a control that is not there.
+                // …and an editor in Read has no `+ Item` either (#3748).
+                label: !hasEditRights
+                  ? 'Grid / Timeline, Display, Actions'
+                  : readOnly
+                    ? 'Grid / Timeline, Display, Actions, mode'
+                    : 'Item, Grid / Timeline, Display, Actions, mode',
+                sub: 'Always in the toolbar.',
+                checked: true,
+                where: 'always',
+                locked: true,
+              },
+              {
+                id: 'locked-state',
+                // `mode` moved up to the tier-A row in #3263 and is no longer
+                // in this one's ternary — it is one chip at every width now,
+                // so "collapse when narrow" stopped being true of it. This
+                // popover is the product's only answer to "where did my
+                // button go" (rule 343(f)), so a stale sentence here sends
+                // someone resizing a window for a shape change that will
+                // never come.
+                label: 'Zoom, engine status',
+                sub: 'Always present; collapse when narrow.',
+                checked: true,
+                where: 'always',
+                locked: true,
+              },
+            ],
+            footer: pinFooterSentence(
+              // A viewer has no authoring controls, so their pins are not
+              // "pinned but crowded out" — they are not applicable, and
+              // counting them would report a shortfall that no amount of
+              // widening could fix.
+              // Same for an editor in Read, whose authoring controls are absent (#3748).
+              !readOnly ? pins : { ...pins, milestone: false, structure: false },
+              composition,
+            ),
+          }
         }
       />
 

@@ -16,6 +16,8 @@ import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProject } from '@/hooks/useProject';
 import { useProjectMembers } from '@/hooks/useProjectMembers';
 import { useCreateComment } from '@/hooks/useTaskComments';
+import { useDemoMode } from '@/hooks/useDemoMode';
+import { DEMO_DISABLED_NOTE } from '@/lib/demoReadOnly';
 import { useMentionGroups } from '@/features/settings/hooks/useMentionGroups';
 import {
   buildMentionSuggestions,
@@ -162,8 +164,17 @@ export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCa
         ? ' — getting long'
         : '';
 
+  // ADR-1197 D3: in the read-only demo the composer is disabled UP FRONT rather than
+  // refused after the visitor has typed a comment. A control that accepts input it can
+  // never keep is the "the product is broken" impression D3 exists to prevent — and
+  // unlike a permission refusal, there is no role that would make this one succeed.
+  const { isDemoReadOnly } = useDemoMode();
+
   const canSubmit =
-    body.trim().length > 0 && charCount <= MAX_BODY_CHARS && !createComment.isPending;
+    body.trim().length > 0 &&
+    charCount <= MAX_BODY_CHARS &&
+    !createComment.isPending &&
+    !isDemoReadOnly;
 
   // Register unstaged text with the drawer so its unsaved-changes guard covers a
   // half-written comment/reply — an Escape or task-swap must not destroy it
@@ -264,7 +275,8 @@ export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCa
         onSelect={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
         rows={parentId ? 2 : 3}
         placeholder="Add a comment. @ to mention someone or a group."
-        disabled={createComment.isPending}
+        disabled={createComment.isPending || isDemoReadOnly}
+        title={isDemoReadOnly ? DEMO_DISABLED_NOTE : undefined}
         aria-describedby={`comment-counter-${taskId}-${parentId ?? 'top'}`}
         // WAI-ARIA combobox pattern: while the @-autocomplete popover is open,
         // expose listbox id + active option id so AT users hear the highlighted
@@ -297,6 +309,9 @@ export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCa
           onSelect={insertSuggestion}
         />
       )}
+      {isDemoReadOnly && (
+        <p className="text-xs text-neutral-text-secondary">{DEMO_DISABLED_NOTE}</p>
+      )}
       <div className="flex items-center gap-2 flex-wrap">
         <span
           id={`comment-counter-${taskId}-${parentId ?? 'top'}`}
@@ -325,7 +340,13 @@ export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCa
               Cancel
             </button>
           )}
-          <Button variant="primary" size="sm" onClick={handleSubmit} disabled={!canSubmit}>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleSubmit}
+            disabled={!canSubmit}
+            title={isDemoReadOnly ? DEMO_DISABLED_NOTE : undefined}
+          >
             {createComment.isPending ? 'Posting…' : parentId ? 'Reply' : 'Post'}
           </Button>
         </div>

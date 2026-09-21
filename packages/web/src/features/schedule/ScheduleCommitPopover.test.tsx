@@ -209,3 +209,61 @@ describe('ScheduleCommitPopover', () => {
     expect(region).toBeEmptyDOMElement();
   });
 });
+
+describe('ScheduleCommitPopover — read-only demo refusal (ADR-1197 D3)', () => {
+  beforeEach(() => {
+    Object.defineProperty(window, 'innerWidth', { value: 1280, configurable: true });
+    Object.defineProperty(window, 'innerHeight', { value: 900, configurable: true });
+  });
+
+  it('renders the terminal notice with its exact copy, keeping the change line', () => {
+    renderPopover({ demoRefusal: true });
+    expect(screen.getByText('Calculated, not saved')).toBeInTheDocument();
+    // The mono change line still says WHAT moved.
+    expect(screen.getByText('May 17 → Jun 5')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'This is a read-only demo. Your change ran through the scheduling engine in your browser — nothing was written to the server.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('The bar stays where you put it until you reload the page.'),
+    ).toBeInTheDocument();
+  });
+
+  it('offers exactly one button, named "Got it"', () => {
+    renderPopover({ demoRefusal: true });
+    const buttons = screen.getAllByRole('button');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).toHaveAccessibleName('Got it');
+    expect(screen.queryByRole('button', { name: /retry|reschedule|resize|cancel/i })).toBeNull();
+  });
+
+  it('never paints the critical token — a red refusal is what D3 forbids', () => {
+    const { container } = renderPopover({ demoRefusal: true });
+    expect(container.ownerDocument.body.innerHTML).not.toMatch(/semantic-critical/);
+  });
+
+  it('dismisses through the host cancel handler without reverting', () => {
+    const { onCancel, onConfirm } = renderPopover({ demoRefusal: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Got it' }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it('routes Enter to dismissal rather than a second confirm', () => {
+    const { onCancel, onConfirm } = renderPopover({ demoRefusal: true });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Got it' }), { key: 'Enter' });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it('seats focus on the acknowledgment and describes the dialog with the notice', () => {
+    renderPopover({ demoRefusal: true });
+    expect(screen.getByRole('button', { name: 'Got it' })).toHaveFocus();
+    expect(screen.getByRole('dialog')).toHaveAttribute(
+      'aria-describedby',
+      'schedule-commit-demo-notice',
+    );
+  });
+});

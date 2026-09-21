@@ -1,8 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ROLE_ADMIN } from '@/lib/roles';
 import type { TaskAttachment, TaskComment } from '@/types';
 import { CommentSection } from './CommentSection';
+
+// This section and the CommentComposer inside it read the read-only demo gate
+// (ADR-1197 D3, #3926). Mocked so these specs keep rendering the section bare; the
+// demo branch has its own case at the bottom of the file.
+const demoMode = vi.hoisted(() => ({
+  value: { isDemoReadOnly: false, loginHint: null, isLoading: false },
+}));
+vi.mock('@/hooks/useDemoMode', () => ({ useDemoMode: () => demoMode.value }));
 
 const useCommentsMock = vi.hoisted(() => vi.fn());
 const useAttachmentsMock = vi.hoisted(() => vi.fn());
@@ -278,9 +286,7 @@ describe('CommentSection — interactions', () => {
     });
     render(<CommentSection taskId="t1" projectId="p1" canEdit />);
     fireEvent.click(screen.getByLabelText('React with 👍'));
-    expect(mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ commentId: 'c1', emoji: '👍' }),
-    );
+    expect(mutate).toHaveBeenCalledWith(expect.objectContaining({ commentId: 'c1', emoji: '👍' }));
   });
 
   it('reflects a reacted state with aria-pressed and a toggle-off label (#2171)', () => {
@@ -504,9 +510,7 @@ describe('CommentSection — body rendering boundaries', () => {
       error: null,
     });
     useCommentsMock.mockReturnValue({
-      comments: [
-        comment({ body: `[[attachment:${ATT_ID}]] and [[attachment:${second}]] done` }),
-      ],
+      comments: [comment({ body: `[[attachment:${ATT_ID}]] and [[attachment:${second}]] done` })],
       isLoading: false,
       error: null,
     });
@@ -888,5 +892,41 @@ describe('CommentSection — permission branches', () => {
     });
     render(<CommentSection taskId="t1" projectId="p1" />);
     expect(screen.getByRole('list', { name: 'Comments — 2 total' })).toBeInTheDocument();
+  });
+});
+
+describe('CommentSection — read-only demo (ADR-1197 D3, web rule 430)', () => {
+  beforeEach(() => {
+    demoMode.value = { isDemoReadOnly: true, loginHint: null, isLoading: false };
+  });
+
+  afterEach(() => {
+    demoMode.value = { isDemoReadOnly: false, loginHint: null, isLoading: false };
+  });
+
+  it('withdraws EVERY mutating control, not the subset that was easy', () => {
+    useCommentsMock.mockReturnValue({
+      comments: [comment({ body: 'read me', created_at: new Date().toISOString() })],
+      isLoading: false,
+      error: null,
+    });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit userRole={ROLE_ADMIN} />);
+
+    expect(screen.getByText('read me')).toBeInTheDocument();
+    // Each of these 403s under the mode; a live one would answer in red beside a
+    // composer politely explaining the mode.
+    expect(screen.queryByLabelText('Reply to this comment')).toBeNull();
+    expect(screen.queryByLabelText('Acknowledge this comment')).toBeNull();
+    expect(screen.queryByLabelText('React with 👍')).toBeNull();
+    expect(screen.queryByLabelText('Edit this comment')).toBeNull();
+    expect(screen.queryByLabelText('Delete this comment')).toBeNull();
+  });
+
+  it('keeps the composer rendered — it is the surface’s one statement of the mode', () => {
+    useCommentsMock.mockReturnValue({ comments: [], isLoading: false, error: null });
+    render(<CommentSection taskId="t1" projectId="p1" canEdit />);
+    const composer = screen.getByRole('combobox');
+    expect(composer).toBeInTheDocument();
+    expect(composer).toBeDisabled();
   });
 });

@@ -28,6 +28,7 @@ import { formatRelative } from '@/lib/formatRelative';
 import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import type { TaskAttachment, TaskComment } from '@/types';
 import { CommentComposer } from './CommentComposer';
+import { useDemoMode } from '@/hooks/useDemoMode';
 
 const ATTACHMENT_REF_RE = /\[\[attachment:([0-9a-f-]{36})\]\]/g;
 const MENTION_RE = /(^|\s)(\\?)@([A-Za-z0-9_.-]+)/g;
@@ -472,7 +473,16 @@ export function CommentSection({ taskId, projectId, userRole, canEdit }: DrawerS
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
 
   // ADR-0133/1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
-  const editable = canEdit ?? canEditTask(userRole);
+  const hasWriteRights = canEdit ?? canEditTask(userRole);
+  // ADR-1197 D3 / web rule 430: the read-only demo withdraws EVERY mutating control on
+  // this surface, not the subset that was easy. Reply, acknowledge, react, edit and
+  // delete all 403 under the mode, and a live control that answers with a red
+  // "Couldn't delete." beside a composer politely explaining the mode is worse than no
+  // gate at all — it is the impression D3 exists to prevent. The composer itself stays
+  // RENDERED (on `hasWriteRights`) rather than withdrawn: it is this surface's one
+  // visible statement of why nothing here can be changed.
+  const { isDemoReadOnly } = useDemoMode();
+  const editable = hasWriteRights && !isDemoReadOnly;
   const isAdmin = (userRole ?? 0) >= ROLE_ADMIN;
 
   // Mirror the Notes contract (#2171): the author may edit their own comment for
@@ -575,7 +585,7 @@ export function CommentSection({ taskId, projectId, userRole, canEdit }: DrawerS
           ))}
         </ol>
       )}
-      {editable && <CommentComposer projectId={projectId} taskId={taskId} />}
+      {hasWriteRights && <CommentComposer projectId={projectId} taskId={taskId} />}
     </div>
   );
 }

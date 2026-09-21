@@ -1,6 +1,24 @@
 import axios from 'axios';
 import type { AxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/stores/authStore';
+// Imported from the module, not the barrel: the barrel also exports `ToastHost`, and
+// pulling a React component into the API client's module graph is a cycle waiting to
+// happen.
+import { toast } from '@/components/Toast/toast';
+import { DEMO_REFUSAL_TOAST, isDemoReadOnlyRefusal } from '@/lib/demoReadOnly';
+import { isDemoReadOnlySync } from '@/hooks/useDemoMode';
+
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    /**
+     * Set by a caller that renders the read-only demo's refusal on a surface of its
+     * own (ADR-1197 D3) — today only the Schedule commit popover, which is already
+     * anchored at the moved bar. The global toast below stands down for it so the
+     * visitor is not told the same thing twice in two places.
+     */
+    demoRefusalHandled?: boolean;
+  }
+}
 
 export const apiClient = axios.create({
   baseURL: '/api/v1',
@@ -106,6 +124,23 @@ export async function bootstrapAccessToken(): Promise<boolean> {
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: unknown) => {
+    // The read-only demo's refusal is a designed surface, not an error (ADR-1197 D3):
+    // an `info` toast, never the red one, and only for writes that have no anchored
+    // affordance of their own. The rejection still propagates below — every downstream
+    // `onError` (the preview overlay's write included) depends on it.
+    // Gated on BOTH facts, like the overlay write in `useTaskMutations`: the code is
+    // the server's word for this refusal, and `isDemoReadOnlySync()` is what says this
+    // deployment is actually the demo. Without the second, any future 403 carrying
+    // that code on a real install would tell the user their change "wasn't saved
+    // because this is a read-only demo" when it was refused for a real reason — D3's
+    // failure mode, inverted.
+    if (
+      isDemoReadOnlyRefusal(error) &&
+      isDemoReadOnlySync() &&
+      error.config?.demoRefusalHandled !== true
+    ) {
+      toast.info(DEMO_REFUSAL_TOAST);
+    }
     if (!axios.isAxiosError(error) || error.response?.status !== 401) {
       const err = error instanceof Error ? error : new Error(String(error));
       throw err;

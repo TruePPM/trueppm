@@ -2,12 +2,12 @@
 
 ## Status
 
-Accepted — status corrected 2026-09-21 after the decision began shipping (#3925 MR 1,
-verified: D2's middleware merged as `trueppm_api.core.demo_read_only` in #3924, and
-`load_sample_project` now cites D5 by name). Proposed 2026-09-19; amended 2026-09-20 and
-2026-09-21 — see **Amendment 2026-09-20** and the dated notes on D9 below. Resolves #3912.
-Amends ADR-0658 — which continues to govern the share-link demo **unchanged** — for one
-new mode only.
+Accepted — status corrected 2026-09-21 as the D3/D4 slice (#3926) landed on top of #3925
+MR 1, matching the convention established by the #2539 audit (verified: D2's middleware
+merged as `trueppm_api.core.demo_read_only` in #3924, and `load_sample_project` now cites
+D5 by name). Proposed 2026-09-19; amended 2026-09-20 and 2026-09-21 — see **Amendment
+2026-09-20** and the dated notes on D9 below. Resolves #3912. Amends ADR-0658 — which
+continues to govern the share-link demo **unchanged** — for one new mode only.
 
 > **Implementation status (2026-09-21).** The 2026-09-19 note below said "no code ships
 > with this ADR", and that has stopped being true — which is why the status moved. What
@@ -19,6 +19,9 @@ new mode only.
 >   `TRUEPPM_DEMO_READ_ONLY` / `TRUEPPM_DEMO_LOGIN_HINT` / `TRUEPPM_DEMO_RESET_SCHEDULE`
 >   env contract, the seeded `atlas-visitor` Member account, the persona-flag refusals,
 >   the configurable reset, and a `helm test` hook that proves the fence end to end.
+> - **D3, D4 — shipped** (#3926): the refusal affordance, the preview overlay, the login
+>   and shell announcements, and the `demo_read_only` / `demo_login_hint` fields on
+>   `GET /api/v1/edition/`.
 > - **D1 — NOT shipped.** `packages/helm/templates/web/configmap.yaml` still renders two
 >   server blocks, not three, so the method fence at the edge does not exist and the
 >   interactive login is not reachable through the chart's own web tier. That block, the
@@ -26,9 +29,10 @@ new mode only.
 >   **an interactive demo must not be exposed publicly.**
 >
 > The original note, kept because it is the baseline the above is measured against:
-> verified 2026-09-19 against `f502f488c` (0.4.0-beta.3) there was no `demo.interactive`
-> values key in `packages/helm/values*.yaml`, no read-only middleware anywhere under
-> `packages/api/src/trueppm_api/core/`, and two server blocks in the web ConfigMap.
+> verified 2026-09-19 against `f502f488c` (0.4.0-beta.3, this branch's base): there was no
+> `demo.interactive` values key in `packages/helm/values*.yaml`, no read-only middleware
+> anywhere under `packages/api/src/trueppm_api/core/`, and two server blocks in the web
+> ConfigMap.
 
 ## Context
 

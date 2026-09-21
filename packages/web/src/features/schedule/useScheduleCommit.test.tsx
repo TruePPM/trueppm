@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createRef, type ReactNode, type MutableRefObject } from 'react';
@@ -9,6 +9,9 @@ import { GanttEngineStub } from './engine';
 import type { GanttEngine, GanttEngineEventMap, GanttScaleData } from './engine';
 import type { Task, ApiSprint } from '@/types';
 import { axiosRefusal } from '@/test/axiosError';
+import { useDemoOverlayStore } from '@/stores/demoOverlayStore';
+import { useReconcileStore } from '@/stores/reconcileStore';
+import { queryClient } from '@/lib/queryClient';
 
 const { patchMock } = vi.hoisted(() => ({
   patchMock: vi.fn().mockResolvedValue({ data: {} }),
@@ -444,7 +447,13 @@ describe('useScheduleCommit', () => {
     act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
     act(() => result.current.handleConfirm());
     await waitFor(() =>
-      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-31' }),
+      expect(patchMock).toHaveBeenCalledWith(
+        '/tasks/t1/',
+        { planned_start: '2026-01-31' },
+        {
+          demoRefusalHandled: true,
+        },
+      ),
     );
     expect(result.current.state).toBeNull();
   });
@@ -460,8 +469,10 @@ describe('useScheduleCommit', () => {
     const engine = new ControllableEngine();
     const { result } = renderCommit(engine);
     act(() => result.current.commitKeyboardReschedule('t1', '2026-01-31'));
-    // Same endpoint and same payload shape as the pointer path above — that is
-    // the point of routing both through one function.
+    // Same endpoint and same payload as the pointer path above — that is the point of
+    // routing both through one function. The keyboard path deliberately carries NO
+    // `demoRefusalHandled` config (#3926): it has no anchored surface, so the global
+    // demo toast is its affordance.
     await waitFor(() =>
       expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-31' }),
     );
@@ -503,7 +514,13 @@ describe('useScheduleCommit', () => {
     // Server-authoritative: the client sends the dropped finish DATE; the API
     // derives the working-day duration from the project calendar (#951).
     await waitFor(() =>
-      expect(patchMock).toHaveBeenCalledWith('/tasks/tw/', { planned_finish: '2026-01-15' }),
+      expect(patchMock).toHaveBeenCalledWith(
+        '/tasks/tw/',
+        { planned_finish: '2026-01-15' },
+        {
+          demoRefusalHandled: true,
+        },
+      ),
     );
   });
 
@@ -582,7 +599,13 @@ describe('useScheduleCommit', () => {
       act(() => result.current.handleConfirm());
       expect(result.current.beforeStartPrompt).toBeNull();
       await waitFor(() =>
-        expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-26' }),
+        expect(patchMock).toHaveBeenCalledWith(
+          '/tasks/t1/',
+          { planned_start: '2026-01-26' },
+          {
+            demoRefusalHandled: true,
+          },
+        ),
       );
     });
 
@@ -650,7 +673,11 @@ describe('useScheduleCommit', () => {
       act(() => result.current.handleConfirm());
       expect(result.current.beforeStartPrompt).toBeNull();
       await waitFor(() =>
-        expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-19' }),
+        expect(patchMock).toHaveBeenCalledWith(
+          '/tasks/t1/',
+          { planned_start: '2026-01-19' },
+          { demoRefusalHandled: true },
+        ),
       );
     });
 
@@ -1061,7 +1088,13 @@ describe('useScheduleCommit — missing aria-live region', () => {
     act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
     act(() => result.current.handleConfirm());
     await waitFor(() =>
-      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-31' }),
+      expect(patchMock).toHaveBeenCalledWith(
+        '/tasks/t1/',
+        { planned_start: '2026-01-31' },
+        {
+          demoRefusalHandled: true,
+        },
+      ),
     );
   });
 
@@ -1332,5 +1365,166 @@ describe('useScheduleCommit — late failures after the user has moved on', () =
     });
     await waitFor(() => expect(result.current.beforeStartPending).toBe(false));
     expect(result.current.beforeStartPrompt).toBeNull();
+  });
+});
+
+describe('useScheduleCommit — read-only demo refusal (ADR-1197 D3/D4, #3926)', () => {
+  beforeEach(() => {
+    useDemoOverlayStore.getState().clear();
+    useReconcileStore.setState({ entries: {} });
+    queryClient.setQueryData(['edition'], { edition: 'community', demo_read_only: true });
+  });
+
+  afterEach(() => {
+    useDemoOverlayStore.getState().clear();
+    queryClient.removeQueries({ queryKey: ['edition'] });
+  });
+
+  function dragAndConfirm(engine: ControllableEngine) {
+    const view = renderCommit(engine);
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 20, cancelled: false }));
+    act(() => view.result.current.handleConfirm());
+    return view;
+  }
+
+  it('turns the popover into the terminal notice and leaves `error` null', async () => {
+    const engine = new ControllableEngine();
+    patchMock.mockRejectedValueOnce(
+      axiosRefusal(403, { detail: 'read-only demo', code: 'demo_read_only' }),
+    );
+    const { result } = dragAndConfirm(engine);
+    await waitFor(() => expect(result.current.state?.demoRefusal).toBe(true));
+    expect(result.current.state?.error).toBeNull();
+  });
+
+  it('writes the attempted dates to the overlay and does NOT open a rejection entry', async () => {
+    const engine = new ControllableEngine();
+    patchMock.mockRejectedValueOnce(
+      axiosRefusal(403, { detail: 'read-only demo', code: 'demo_read_only' }),
+    );
+    const { result } = dragAndConfirm(engine);
+    await waitFor(() => expect(result.current.state?.demoRefusal).toBe(true));
+    // left: 20 → 2026-01-21, a 5-day task → finish 2026-01-26.
+    expect(useDemoOverlayStore.getState().entries.get('t1')).toEqual({
+      start: '2026-01-21',
+      finish: '2026-01-26',
+      duration: undefined,
+    });
+    // `onMutate` still opens the preview entries — what must NOT happen is any of
+    // them moving to `rejected`, which renders a strip offering a Retry that can
+    // never succeed beside a popover saying the change was deliberately not saved.
+    const statuses = Object.values(useReconcileStore.getState().entries).map((e) => e.status);
+    expect(statuses).not.toContain('rejected');
+  });
+
+  it('announces the refusal through the existing assertive region', async () => {
+    const engine = new ControllableEngine();
+    patchMock.mockRejectedValueOnce(
+      axiosRefusal(403, { detail: 'read-only demo', code: 'demo_read_only' }),
+    );
+    const { result, ariaAssertiveRef } = dragAndConfirm(engine);
+    await waitFor(() => expect(result.current.state?.demoRefusal).toBe(true));
+    expect(ariaAssertiveRef.current?.textContent).toBe(
+      'Not saved. This is a read-only demo — your change was calculated in your browser only.',
+    );
+  });
+
+  it('dismissal leaves the bar where it was dropped, and raises no cancellation toast', async () => {
+    const engine = new ControllableEngine();
+    patchMock.mockRejectedValueOnce(
+      axiosRefusal(403, { detail: 'read-only demo', code: 'demo_read_only' }),
+    );
+    const { result } = dragAndConfirm(engine);
+    await waitFor(() => expect(result.current.state?.demoRefusal).toBe(true));
+    const callsBefore = engine.updateTaskCalls.length;
+
+    act(() => result.current.handleCancel());
+    expect(result.current.state).toBeNull();
+    expect(engine.updateTaskCalls).toHaveLength(callsBefore);
+    expect(useScheduleStore.getState().scheduleActionToast).toBeNull();
+  });
+
+  it('click-outside dismissal also leaves the bar alone and stays silent', async () => {
+    const engine = new ControllableEngine();
+    patchMock.mockRejectedValueOnce(
+      axiosRefusal(403, { detail: 'read-only demo', code: 'demo_read_only' }),
+    );
+    const { result } = dragAndConfirm(engine);
+    await waitFor(() => expect(result.current.state?.demoRefusal).toBe(true));
+    const callsBefore = engine.updateTaskCalls.length;
+
+    act(() => result.current.handleDismissByOutsideClick());
+    expect(result.current.state).toBeNull();
+    expect(engine.updateTaskCalls).toHaveLength(callsBefore);
+    expect(useScheduleStore.getState().scheduleActionToast).toBeNull();
+  });
+
+  it('does NOT suppress the global toast in the md band, where the popover is hidden', async () => {
+    // ADR-0064: the popover is `hidden lg:block`, but the canvas still mounts between
+    // `md` and `lg`. Suppressing the toast there would leave a refused commit with no
+    // affordance at all — the silent failure D3 exists to prevent.
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(min-width: 768px)',
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+    try {
+      const engine = new ControllableEngine();
+      dragAndConfirm(engine);
+      await waitFor(() => expect(patchMock).toHaveBeenCalled());
+      // No config arg at all — the flag is absent, so the interceptor's
+      // `!== true` lets the global toast through.
+      expect(patchMock.mock.calls[0]).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('marks the popover confirm as handling its own refusal, and never sends the flag', async () => {
+    const engine = new ControllableEngine();
+    const { result } = dragAndConfirm(engine);
+    await waitFor(() => expect(patchMock).toHaveBeenCalled());
+    const [, body, config] = patchMock.mock.calls[0] as [string, Record<string, unknown>, unknown];
+    expect(body).not.toHaveProperty('demoRefusalHandled');
+    expect(config).toEqual({ demoRefusalHandled: true });
+    expect(result.current.state).toBeNull();
+  });
+
+  // NEGATIVE CONTROL — without this the branch above could pass vacuously.
+  it('a plain 403 with no code still takes the ordinary rejection path', async () => {
+    const engine = new ControllableEngine();
+    patchMock.mockRejectedValueOnce(axiosRefusal(403, { detail: 'Not permitted.' }));
+    const { result } = dragAndConfirm(engine);
+    await waitFor(() => expect(result.current.state?.error).not.toBeNull());
+    expect(result.current.state?.demoRefusal).toBe(false);
+    expect(result.current.state?.error?.message).toBe('Not permitted.');
+    expect(useDemoOverlayStore.getState().entries.size).toBe(0);
+    expect(Object.values(useReconcileStore.getState().entries).map((e) => e.status)).toContain(
+      'rejected',
+    );
+  });
+
+  it('a demo-coded 403 on a deployment that is NOT a demo takes the ordinary path', async () => {
+    // Both facts are required: a mislabeled 403 on a real install must never be
+    // allowed to fabricate a schedule the server does not hold.
+    queryClient.setQueryData(['edition'], { edition: 'community', demo_read_only: false });
+    const engine = new ControllableEngine();
+    patchMock.mockRejectedValueOnce(
+      axiosRefusal(403, { detail: 'read-only demo', code: 'demo_read_only' }),
+    );
+    const { result } = dragAndConfirm(engine);
+    await waitFor(() => expect(result.current.state?.error).not.toBeNull());
+    // Neither half of the mode's affordance engages: no terminal notice, and no
+    // schedule fabricated above the cache.
+    expect(result.current.state?.demoRefusal).toBe(false);
+    expect(useDemoOverlayStore.getState().entries.size).toBe(0);
+    expect(Object.values(useReconcileStore.getState().entries).map((e) => e.status)).toContain(
+      'rejected',
+    );
   });
 });

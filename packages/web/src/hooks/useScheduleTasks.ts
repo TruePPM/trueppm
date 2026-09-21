@@ -22,6 +22,7 @@ import type { ExternalLinkStatus } from '@/lib/linkStatus';
 import { computeWbsCodes } from '@/utils/computeWbsCodes';
 import { mapWithConcurrency } from '@/utils/mapWithConcurrency';
 import { useWsConnectionStore } from '@/stores/wsConnectionStore';
+import { applyDemoOverlay, useDemoOverlayStore } from '@/stores/demoOverlayStore';
 
 export interface UseScheduleTasksResult {
   tasks: Task[] | undefined;
@@ -722,12 +723,24 @@ export function useScheduleTasks(
     enabled,
   });
 
+  // ADR-1197 D4 — the read-only demo's preview overlay. Laid over the query's data
+  // rather than written into the cache: the cache stays truthful to the server, and a
+  // refetch (or the mutation's own rollback) can never erase the bar the visitor just
+  // dropped. Applied HERE, after the queryFn's `computeWbsCodes` pass, so it can only
+  // ever touch date VALUES — never row order, parentage or WBS numbering, which are
+  // derived from sibling index. On every normal install the map is empty and this is a
+  // size check.
+  const demoOverlay = useDemoOverlayStore((s) => s.entries);
+  const tasks = useMemo(
+    () => applyDemoOverlay(tasksQuery.data, demoOverlay),
+    [tasksQuery.data, demoOverlay],
+  );
+
   // Derive link criticality from the endpoint tasks: a dependency edge is on the
   // critical path when both its predecessor and successor are critical tasks.
   // (The API has no per-dependency is_critical field — criticality lives on the
   // task. Without this the Gantt rendered every critical-path arrow as
   // non-critical, since the old code read a field that never existed.)
-  const tasks = tasksQuery.data;
   const links = useMemo(() => {
     const rawLinks = linksQuery.data;
     if (!rawLinks) return undefined;

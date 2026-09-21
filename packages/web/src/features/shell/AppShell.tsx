@@ -9,6 +9,7 @@ import { StatusBar } from './StatusBar';
 import { BottomNav } from './BottomNav';
 import { SessionExpiredBanner, SessionExpiredReadOnlyBar } from './SessionExpiredBanner';
 import { OfflineBanner } from './OfflineBanner';
+import { DemoModeBar } from './DemoModeBar';
 import { RateLimitDisabledBanner } from './RateLimitDisabledBanner';
 import { PendingWritesGuard } from './PendingWritesGuard';
 import { StartExploringCallout } from './StartExploringCallout';
@@ -129,6 +130,10 @@ export function AppShell() {
             (not fixed) so it never covers the TopBar and stays part of the
             always-visible header region above the scrollable content. */}
         <SessionExpiredReadOnlyBar />
+
+        {/* Read-only demo indicator (ADR-1197 D3) — renders only on a demo
+            deployment, at every width, above the mode-wide banners below. */}
+        <DemoModeBar />
 
         {/* Proactive offline indicator (WCAG 4.1.3) — renders only when offline */}
         <OfflineBanner />

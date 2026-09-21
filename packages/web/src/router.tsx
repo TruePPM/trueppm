@@ -1,5 +1,7 @@
 import { createBrowserRouter, Navigate, Outlet, useNavigate, type RouteObject } from 'react-router';
 import { lazy, Suspense, useEffect } from 'react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from '@/lib/queryClient';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { safeLandingPath } from '@/features/me/landing';
 import { lensDefaultView } from '@/features/shell/lensOrder';
@@ -333,12 +335,7 @@ export function RootRedirect() {
   // terminal failure (`retry: false`), but `!user` never clears, so without
   // this branch the app's front door hangs on a lie forever with no retry.
   if (isError) {
-    return (
-      <QueryErrorState
-        message="Couldn't sign you in."
-        onRetry={() => refetch?.()}
-      />
-    );
+    return <QueryErrorState message="Couldn't sign you in." onRetry={() => refetch?.()} />;
   }
 
   // Hold the loading state while `me` resolves — never flash a fallback first.
@@ -397,10 +394,16 @@ export function ProjectIndexRedirect() {
  */
 function RootLayout() {
   return (
-    <>
+    // The **same** client instance `AppShell` provides, hoisted to the root so the
+    // PUBLIC routes can read a query too (#3926): the login screen announces the
+    // deployment's read-only demo mode from `GET /api/v1/edition/`, and before this
+    // there was no provider anywhere outside the shell, so any `useQuery` on /login
+    // threw "No QueryClient set" into the route error boundary. Nesting the shell's
+    // provider inside this one is a no-op — one client, two contexts pointing at it.
+    <QueryClientProvider client={queryClient}>
       <RouteTitle />
       <Outlet />
-    </>
+    </QueryClientProvider>
   );
 }
 

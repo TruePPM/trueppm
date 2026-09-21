@@ -43,6 +43,13 @@ export interface ScheduleCommitPopoverProps {
    * is what tells the user what they are about to commit (web-rule 372a, #3332).
    */
   error: WriteRefusal | null;
+  /**
+   * Terminal read-only-demo state (ADR-1197 D3). Mutually exclusive with `error`:
+   * this is not a failure, it is the mode working as designed, and rendering it
+   * through `RefusalAlert` would paint `semantic-critical` — a red refusal is exactly
+   * what D3 forbids.
+   */
+  demoRefusal?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
   /** Fired when the user clicks outside the popover; the host surfaces the toast. */
@@ -69,6 +76,7 @@ export function ScheduleCommitPopover({
   action,
   isPending,
   error,
+  demoRefusal = false,
   onConfirm,
   onCancel,
   onDismissByOutsideClick,
@@ -116,6 +124,12 @@ export function ScheduleCommitPopover({
     confirmRef.current?.focus();
   }, []);
 
+  // Entering the terminal demo state replaces the two buttons with one, so focus is
+  // re-seated on it (WCAG 2.4.3) rather than left on a control that no longer exists.
+  useEffect(() => {
+    if (demoRefusal) confirmRef.current?.focus();
+  }, [demoRefusal]);
+
   // Esc cancels regardless of focus location. Capture at the window level so
   // we take priority over the hover-chain Esc (ADR-0066) and the build-mode
   // focus rollback (ADR-0054).
@@ -132,13 +146,16 @@ export function ScheduleCommitPopover({
         if (popoverRef.current?.contains(target)) {
           e.preventDefault();
           e.stopPropagation();
-          if (!isPending) onConfirm();
+          // In the terminal demo state there is nothing left to confirm — the single
+          // button acknowledges and dismisses, so Enter must do the same.
+          if (demoRefusal) onCancel();
+          else if (!isPending) onConfirm();
         }
       }
     };
     window.addEventListener('keydown', handler, true);
     return () => window.removeEventListener('keydown', handler, true);
-  }, [onCancel, onConfirm, isPending]);
+  }, [onCancel, onConfirm, isPending, demoRefusal]);
 
   // Click-outside cancels with a discoverable toast.
   useEffect(() => {
@@ -159,6 +176,13 @@ export function ScheduleCommitPopover({
       if (e.key !== 'Tab') return;
       const c = cancelRef.current;
       const k = confirmRef.current;
+      // Terminal demo state: one button, so Tab has nowhere else to go inside the
+      // dialog and must not walk out behind it.
+      if (!c && k) {
+        e.preventDefault();
+        k.focus();
+        return;
+      }
       if (!c || !k) return;
       // Only two focusable elements, so Tab and Shift+Tab both toggle to the
       // other one — a single direction-agnostic swap covers both.
@@ -175,7 +199,11 @@ export function ScheduleCommitPopover({
     return () => window.removeEventListener('keydown', trap);
   }, []);
 
-  const title = action.kind === 'reschedule' ? 'Reschedule task?' : 'Resize task?';
+  const title = demoRefusal
+    ? 'Calculated, not saved'
+    : action.kind === 'reschedule'
+      ? 'Reschedule task?'
+      : 'Resize task?';
   const verb = action.kind === 'reschedule' ? 'Reschedule' : 'Resize';
 
   const changeText =
@@ -205,7 +233,7 @@ export function ScheduleCommitPopover({
       role="dialog"
       aria-modal="false"
       aria-labelledby="schedule-commit-title"
-      aria-describedby="schedule-commit-change"
+      aria-describedby={demoRefusal ? 'schedule-commit-demo-notice' : 'schedule-commit-change'}
       // ADR-0064 — Schedule canvas overlays are desktop-only.
       className="fixed z-[70] hidden lg:block bg-neutral-surface border border-neutral-border rounded-card p-3"
       style={{ top: position.top, left: position.left, width: POPOVER_WIDTH }}
@@ -231,20 +259,57 @@ export function ScheduleCommitPopover({
         </div>
       )}
 
-      <RefusalAlert refusal={error} testId="commit-popover-error" className="mt-2" persistent />
+      {demoRefusal && (
+        <div
+          id="schedule-commit-demo-notice"
+          data-testid="commit-popover-demo-notice"
+          // Brand tone, deliberately NOT a semantic-critical alert: the same geometry
+          // as the active-sprint notice above, one token family over.
+          className="mt-2 border-l-2 border-brand-primary bg-brand-primary/5 pl-2 py-1 pr-2 text-xs text-neutral-text-primary"
+        >
+          <p>
+            This is a read-only demo. Your change ran through the scheduling engine in your browser
+            — nothing was written to the server.
+          </p>
+          <p className="mt-1 text-neutral-text-secondary">
+            The bar stays where you put it until you reload the page.
+          </p>
+        </div>
+      )}
+
+      {!demoRefusal && (
+        <RefusalAlert refusal={error} testId="commit-popover-error" className="mt-2" persistent />
+      )}
 
       <div className="mt-3 flex justify-end gap-2">
-        <button
-          ref={cancelRef}
-          type="button"
-          onClick={onCancel}
-          disabled={isPending}
-          className="border border-neutral-border text-neutral-text-primary px-3 h-8 rounded-control text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        {/* Terminal demo state: one acknowledgment, no Cancel and no Retry. There is
+            nothing to cancel (the change was never going to be saved) and nothing a
+            replay could achieve (the deployment refuses every write by design). */}
+        {!demoRefusal && (
+          <button
+            ref={cancelRef}
+            type="button"
+            onClick={onCancel}
+            disabled={isPending}
+            className="border border-neutral-border text-neutral-text-primary px-3 h-8 rounded-control text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          >
+            Cancel
+          </button>
+        )}
+        <Button
+          ref={confirmRef}
+          variant="primary"
+          onClick={demoRefusal ? onCancel : onConfirm}
+          disabled={!demoRefusal && isPending}
+          // Bound to the BUTTON as well as the dialog: focus lands here on the same
+          // commit that writes the assertive announcement, and a focus move during an
+          // announcement truncates it often enough to matter. The dialog's own
+          // `aria-describedby` change is not re-announced, because the dialog never
+          // receives focus — so without this a user whose announcement was cut is left
+          // on a button named "Got it" with no idea what it acknowledges.
+          aria-describedby={demoRefusal ? 'schedule-commit-demo-notice' : undefined}
         >
-          Cancel
-        </button>
-        <Button ref={confirmRef} variant="primary" onClick={onConfirm} disabled={isPending}>
-          {isPending ? 'Saving…' : error?.retryable ? 'Retry' : verb}
+          {demoRefusal ? 'Got it' : isPending ? 'Saving…' : error?.retryable ? 'Retry' : verb}
         </Button>
       </div>
 

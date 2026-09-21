@@ -1,0 +1,13 @@
+# Rule 430 — A deployment-mode gate is all-or-nothing across a surface, and its explanation is a visible sibling
+
+> **Invariant.** Indexed from [`packages/web/CLAUDE.md`](../../../packages/web/CLAUDE.md), section *Surface states*. The index carries the rule's headline; this file carries its full text. Binding everywhere, not only on the surface that produced it.
+
+**When a deployment mode refuses every write (ADR-1197's read-only demo is the first), every mutating control on a gated surface derives from ONE root predicate. None of them may reach the generic refusal path.**
+
+**A partial gate is worse than no gate.** Once a visitor sees the comment composer politely explain that nothing here is saved, the one control that still fires — an ack toggle, a reaction, Edit, Delete, Reply — takes its `403` and answers in `text-semantic-critical`: *"Couldn't delete."*, in red, beside the polite explanation. The visitor's conclusion is not "consistent mode" but "broken product", which is the exact impression the mode's affordance exists to prevent. Gating the composer alone is the easy half; the surface is not gated until the predicate reaches the delete button in a row three items down.
+
+**Derive it once, at the surface root.** `CommentSection` computes `hasWriteRights` (role/server verdict) and then `editable = hasWriteRights && !isDemoReadOnly`, and every control in the action bar reads `editable` — the same shape `canEdit` already threads. A per-control `isDemoReadOnly` check is how the next control added to the surface misses the gate.
+
+**Withdraw or disable per control, but state the mode once, visibly.** This rule does not override rule 302: a control the *role* forbids stays absent. A control the *mode* forbids may be withdrawn (a row's Delete) or kept visible-and-disabled (the composer, the attachment add-controls) — the choice is which reading is less confusing for that control. What is not optional is that the surface says why, in a **visible** element. A `title` on a `disabled` button reaches nobody: `disabled` removes it from the tab order so the description is never announced, Firefox and Safari suppress tooltips on disabled elements, and touch has no hover. Render the sentence as a sibling and point `aria-describedby` at it; keep `title` only as a bonus.
+
+**Do not instruct and forbid in the same breath.** A drop zone that renders "Drop file here · max 100 MB" *above* "Not available in the read-only demo." has two lines saying opposite things, and the larger one is read first. Replace the instruction, do not append to it. And keep the explanation out of any `opacity-50` disabled wrapper — the one line on the surface that explains the restriction must not be the one at 2.2:1.
