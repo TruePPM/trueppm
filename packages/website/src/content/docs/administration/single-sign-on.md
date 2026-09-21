@@ -103,8 +103,15 @@ holding a token cannot list, add, edit, delete, or test a provider; it receives
    origin and is **the same for every provider**
    (`{origin}/api/v1/auth/oidc/callback/`), so you never have to change the
    allow-list when you add another provider.
-5. **Allowed email domains** — only users whose email is in one of these domains
-   may sign in via this provider. This also gates member auto-creation.
+5. **Allowed email domains** — gates **new** account linking and auto-created
+   members only: a user whose email is not on this list cannot link a fresh
+   account to this provider or be auto-created by it. It has **no effect on an
+   account already linked** — narrowing or clearing this list does not revoke
+   access for anyone who has signed in before. To cut off an existing member,
+   deactivate them (see [How users sign in](#how-users-sign-in)) or remove the
+   provider. Leaving the list **blank blocks everyone** from signing in via this
+   provider; TruePPM also refuses to let you enable a provider with an empty
+   list.
 6. **Auto-create members** *(optional)* — when on, a user signing in for the
    first time from an allowed domain is created as a member at the **default
    role** you choose (Member or Admin; SSO can never grant Owner). Leave it off to
