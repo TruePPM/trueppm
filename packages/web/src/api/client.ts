@@ -1,6 +1,23 @@
 import axios from 'axios';
 import type { AxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/stores/authStore';
+// Imported from the module, not the barrel: the barrel also exports `ToastHost`, and
+// pulling a React component into the API client's module graph is a cycle waiting to
+// happen.
+import { toast } from '@/components/Toast/toast';
+import { DEMO_REFUSAL_TOAST, isDemoReadOnlyRefusal } from '@/lib/demoReadOnly';
+
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    /**
+     * Set by a caller that renders the read-only demo's refusal on a surface of its
+     * own (ADR-1197 D3) — today only the Schedule commit popover, which is already
+     * anchored at the moved bar. The global toast below stands down for it so the
+     * visitor is not told the same thing twice in two places.
+     */
+    demoRefusalHandled?: boolean;
+  }
+}
 
 export const apiClient = axios.create({
   baseURL: '/api/v1',
@@ -106,6 +123,13 @@ export async function bootstrapAccessToken(): Promise<boolean> {
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: unknown) => {
+    // The read-only demo's refusal is a designed surface, not an error (ADR-1197 D3):
+    // an `info` toast, never the red one, and only for writes that have no anchored
+    // affordance of their own. The rejection still propagates below — every downstream
+    // `onError` (the preview overlay's write included) depends on it.
+    if (isDemoReadOnlyRefusal(error) && error.config?.demoRefusalHandled !== true) {
+      toast.info(DEMO_REFUSAL_TOAST);
+    }
     if (!axios.isAxiosError(error) || error.response?.status !== 401) {
       const err = error instanceof Error ? error : new Error(String(error));
       throw err;

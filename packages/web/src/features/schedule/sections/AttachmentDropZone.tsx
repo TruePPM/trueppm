@@ -16,6 +16,8 @@ import {
   normalizeMime,
 } from '@/hooks/useTaskAttachments';
 import { labelForMime } from '@/lib/attachmentTypes';
+import { useDemoMode } from '@/hooks/useDemoMode';
+import { DEMO_DISABLED_NOTE } from '@/lib/demoReadOnly';
 
 interface Props {
   /** Called once per dropped file. Rejected files surface via `onError`. */
@@ -50,8 +52,19 @@ export function validateFileForUpload(file: File, allowedMimes: readonly string[
   return null;
 }
 
-export function AttachmentDropZone({ onFile, onError, allowedMimes, disabled, alwaysVisible }: Props) {
+export function AttachmentDropZone({
+  onFile,
+  onError,
+  allowedMimes,
+  disabled: disabledProp,
+  alwaysVisible,
+}: Props) {
   const [dragOver, setDragOver] = useState(false);
+  // ADR-1197 D3: the read-only demo refuses the upload POST, so the drop target is
+  // disabled up front instead of accepting a file it will throw away. Folded into the
+  // existing `disabled` so every handler below inherits it unchanged.
+  const { isDemoReadOnly } = useDemoMode();
+  const disabled = disabledProp || isDemoReadOnly;
 
   const onDragOver = useCallback(
     (e: DragEvent<HTMLDivElement>) => {
@@ -83,8 +96,10 @@ export function AttachmentDropZone({ onFile, onError, allowedMimes, disabled, al
   );
 
   // Hidden-until-dragover behavior matches the ux-design spec. Always-visible
-  // mode is used in the empty state to teach the drop affordance.
-  const visible = alwaysVisible || dragOver;
+  // mode is used in the empty state to teach the drop affordance — and in the
+  // read-only demo, where the note explaining WHY nothing can be dropped is the whole
+  // point of rendering the zone at all.
+  const visible = alwaysVisible || dragOver || isDemoReadOnly;
 
   // The hint lists the project's resolved types (truncated) so the drop zone
   // reflects the actual policy, not a frozen default (ADR-0153).
@@ -100,14 +115,16 @@ export function AttachmentDropZone({ onFile, onError, allowedMimes, disabled, al
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       aria-hidden={!visible}
+      title={isDemoReadOnly ? DEMO_DISABLED_NOTE : undefined}
       className={`rounded-card border-2 border-dashed text-xs text-center transition-opacity
         ${visible ? 'opacity-100 p-3' : 'opacity-0 h-0 overflow-hidden p-0 border-0'}
         ${dragOver ? 'border-brand-primary bg-brand-primary/5' : 'border-neutral-border bg-neutral-surface'}
         ${disabled ? 'opacity-50' : ''}`}
     >
-      <span className="text-neutral-text-secondary">
-        Drop file here · max 100 MB · {typeHint}
-      </span>
+      <span className="text-neutral-text-secondary">Drop file here · max 100 MB · {typeHint}</span>
+      {isDemoReadOnly && (
+        <p className="text-xs text-neutral-text-secondary mt-1">{DEMO_DISABLED_NOTE}</p>
+      )}
     </div>
   );
 }

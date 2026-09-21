@@ -144,6 +144,13 @@ export interface ApiMockOptions {
   statusSummary?: Partial<StatusSummaryFixture>;
   /** Edition flag returned by /edition/. Defaults to 'community'. */
   edition?: 'community' | 'enterprise';
+  /**
+   * Read-only demo mode on `/edition/` (ADR-1197, #3926). Defaults to `false`, so
+   * every existing spec keeps the normal-install behaviour it was written against.
+   */
+  demoReadOnly?: boolean;
+  /** Published demo credential on `/edition/`. Defaults to `null` (no credential). */
+  demoLoginHint?: { username: string; password: string } | null;
 }
 
 // -----------------------------------------------------------------------------
@@ -382,7 +389,13 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
 
   // ----- Global (non-project-scoped) -----
   await page.route('**/api/v1/edition/', (route) =>
-    route.fulfill(jsonResponse({ edition: opts.edition ?? 'community' })),
+    route.fulfill(
+      jsonResponse({
+        edition: opts.edition ?? 'community',
+        demo_read_only: opts.demoReadOnly ?? false,
+        demo_login_hint: opts.demoLoginHint ?? null,
+      }),
+    ),
   );
   await page.route('**/api/v1/auth/me/', (route) => route.fulfill(jsonResponse(user)));
   await page.route('**/api/v1/calendars/', (route) => route.fulfill(jsonResponse(paginated([]))));

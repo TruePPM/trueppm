@@ -1,7 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ROLE_ADMIN } from '@/lib/roles';
 import { CommentComposer } from './CommentComposer';
+
+// Read-only demo gate (ADR-1197 D3, #3926). Mocked rather than provider-wrapped so
+// these specs keep rendering the component bare; the demo branch is exercised by its
+// own case below.
+const demoMode = vi.hoisted(() => ({
+  value: { isDemoReadOnly: false, loginHint: null, isLoading: false },
+}));
+vi.mock('@/hooks/useDemoMode', () => ({ useDemoMode: () => demoMode.value }));
 
 const mutateMock = vi.hoisted(() => vi.fn());
 const useCreateMock = vi.hoisted(() => vi.fn());
@@ -305,5 +313,24 @@ describe('CommentComposer — user-defined mention groups (#2254)', () => {
     fireEvent.select(ta, { target: { selectionStart: 10 } });
     expect(screen.getByText('@backend-team')).toBeTruthy();
     expect(screen.getByText('4 members')).toBeTruthy();
+  });
+});
+
+describe('CommentComposer — read-only demo (ADR-1197 D3, #3926)', () => {
+  beforeEach(() => {
+    demoMode.value = { isDemoReadOnly: true, loginHint: null, isLoading: false };
+  });
+
+  afterEach(() => {
+    demoMode.value = { isDemoReadOnly: false, loginHint: null, isLoading: false };
+  });
+
+  it('disables the composer up front and says why', () => {
+    render(<CommentComposer projectId="p1" taskId="t1" />);
+    const textarea = screen.getByRole('combobox');
+    expect(textarea).toBeDisabled();
+    expect(textarea).toHaveAttribute('title', 'Not available in the read-only demo.');
+    expect(screen.getByRole('button', { name: 'Post' })).toBeDisabled();
+    expect(screen.getAllByText('Not available in the read-only demo.').length).toBeGreaterThan(0);
   });
 });

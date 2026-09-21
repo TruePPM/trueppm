@@ -11,6 +11,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render } from '@testing-library/react';
 import { AttachmentDropZone, validateFileForUpload } from './AttachmentDropZone';
 
+// Read-only demo gate (ADR-1197 D3, #3926). Mocked rather than provider-wrapped so
+// these specs keep rendering the component bare; the demo branch is exercised by its
+// own case below.
+const demoMode = vi.hoisted(() => ({
+  value: { isDemoReadOnly: false, loginHint: null, isLoading: false },
+}));
+vi.mock('@/hooks/useDemoMode', () => ({ useDemoMode: () => demoMode.value }));
+
 // A representative resolved allow-list (the prior static default plus a couple
 // catalog types) so the validator tests stay meaningful.
 const ALLOWED = [
@@ -117,7 +125,13 @@ describe('AttachmentDropZone — drop interactions', () => {
     const onFile = vi.fn();
     const onError = vi.fn();
     const { container } = render(
-      <AttachmentDropZone onFile={onFile} onError={onError} allowedMimes={ALLOWED} alwaysVisible disabled />,
+      <AttachmentDropZone
+        onFile={onFile}
+        onError={onError}
+        allowedMimes={ALLOWED}
+        alwaysVisible
+        disabled
+      />,
     );
     const zone = container.firstChild as HTMLElement;
     fireEvent.dragOver(zone);
@@ -130,7 +144,12 @@ describe('AttachmentDropZone — drop interactions', () => {
 
   it('toggles dragOver styling on drag over and leave', () => {
     const { container } = render(
-      <AttachmentDropZone onFile={vi.fn()} onError={vi.fn()} allowedMimes={ALLOWED} alwaysVisible={false} />,
+      <AttachmentDropZone
+        onFile={vi.fn()}
+        onError={vi.fn()}
+        allowedMimes={ALLOWED}
+        alwaysVisible={false}
+      />,
     );
     const zone = container.firstChild as HTMLElement;
     expect(zone.getAttribute('aria-hidden')).toBe('true');
@@ -138,5 +157,30 @@ describe('AttachmentDropZone — drop interactions', () => {
     expect(zone.getAttribute('aria-hidden')).toBe('false');
     fireEvent.dragLeave(zone);
     expect(zone.getAttribute('aria-hidden')).toBe('true');
+  });
+});
+
+describe('AttachmentDropZone — read-only demo (ADR-1197 D3, #3926)', () => {
+  it('renders the reason and refuses a drop', () => {
+    demoMode.value = { isDemoReadOnly: true, loginHint: null, isLoading: false };
+    const onFile = vi.fn();
+    const onError = vi.fn();
+    const { getByText, container } = render(
+      <AttachmentDropZone
+        onFile={onFile}
+        onError={onError}
+        allowedMimes={['application/pdf']}
+        alwaysVisible={false}
+      />,
+    );
+    expect(getByText('Not available in the read-only demo.')).toBeInTheDocument();
+    const zone = container.firstElementChild!;
+    expect(zone).toHaveAttribute('title', 'Not available in the read-only demo.');
+    fireEvent.drop(zone, {
+      dataTransfer: { files: [new File(['x'], 'a.pdf', { type: 'application/pdf' })] },
+    });
+    expect(onFile).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    demoMode.value = { isDemoReadOnly: false, loginHint: null, isLoading: false };
   });
 });

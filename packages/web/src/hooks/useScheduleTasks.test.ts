@@ -15,6 +15,7 @@ import {
   type TaskDatesDelta,
 } from './useScheduleTasks';
 import { useWsConnectionStore } from '@/stores/wsConnectionStore';
+import { useDemoOverlayStore } from '@/stores/demoOverlayStore';
 
 // ---------------------------------------------------------------------------
 // Mocks for hook tests
@@ -985,5 +986,78 @@ describe('applyTaskDatesDelta', () => {
     const snapshot = { ...existing };
     applyTaskDatesDelta(existing, delta);
     expect(existing).toEqual(snapshot);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Read-only demo preview overlay (ADR-1197 D4, #3926)
+// ---------------------------------------------------------------------------
+
+describe('useScheduleTasks demo preview overlay (#3926)', () => {
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    getMock.mockReset();
+    useDemoOverlayStore.getState().clear();
+  });
+
+  afterEach(() => {
+    useDemoOverlayStore.getState().clear();
+  });
+
+  function serveTasks(tasks: ApiTask[]) {
+    getMock.mockImplementation((url: string) => {
+      if (url === '/dependencies/') return Promise.resolve(paginatedResponse([]));
+      return Promise.resolve(paginatedResponse(tasks, null));
+    });
+  }
+
+  it('overlays the dropped dates over what the server keeps serving', async () => {
+    // The point of the store: the server never accepted the change, so every refetch
+    // re-serves the ORIGINAL dates. The bar must not snap back to them (D4).
+    serveTasks([{ ...base, id: 't-1', wbs_path: null, planned_start: '2026-10-05' }]);
+    useDemoOverlayStore.getState().set('t-1', { start: '2026-11-02', finish: '2026-11-12' });
+
+    const { result } = renderHook(() => useScheduleTasks('proj-1'), { wrapper: makeWrapper(qc) });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.tasks![0].start).toBe('2026-11-02');
+    expect(result.current.tasks![0].finish).toBe('2026-11-12');
+
+    // A refetch (the 30 s fallback, or any invalidation) serves the server's own
+    // dates again — and the overlay re-applies above them.
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ['tasks', 'proj-1'] });
+    });
+    await waitFor(() => expect(result.current.tasks![0].start).toBe('2026-11-02'));
+  });
+
+  it('is ignored when the store is empty (every normal install)', async () => {
+    serveTasks([{ ...base, id: 't-1', wbs_path: null, planned_start: '2026-10-05' }]);
+    const { result } = renderHook(() => useScheduleTasks('proj-1'), { wrapper: makeWrapper(qc) });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.tasks![0].start).toBe('2026-10-05');
+  });
+
+  it('leaves WBS codes and row order untouched, with and without an overlay', async () => {
+    // WBS display codes are numbered by sibling INDEX inside the queryFn, so an
+    // overlay applied above it must not be able to renumber or reorder anything.
+    const parent = { ...base, id: 'p-1', wbs_path: null, parent_id: null, is_summary: true };
+    const childA = { ...base, id: 'c-1', wbs_path: null, parent_id: 'p-1' };
+    const childB = { ...base, id: 'c-2', wbs_path: null, parent_id: 'p-1' };
+    serveTasks([parent, childA, childB]);
+
+    const { result, rerender } = renderHook(() => useScheduleTasks('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    const before = result.current.tasks!.map((t) => [t.id, t.wbs]);
+
+    act(() => {
+      useDemoOverlayStore.getState().set('c-2', { start: '2026-12-01', finish: '2026-12-09' });
+    });
+    rerender();
+    await waitFor(() => expect(result.current.tasks![2].start).toBe('2026-12-01'));
+    expect(result.current.tasks!.map((t) => [t.id, t.wbs])).toEqual(before);
   });
 });

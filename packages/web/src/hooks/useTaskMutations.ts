@@ -8,6 +8,9 @@ import {
   rejectSchedulePreview,
   scheduleDatesFromUpdatePayload,
 } from '@/features/schedule/reconcile/fromMutation';
+import { isDemoReadOnlyRefusal } from '@/lib/demoReadOnly';
+import { isDemoReadOnlySync } from '@/hooks/useDemoMode';
+import { useDemoOverlayStore, type DemoOverlayEntry } from '@/stores/demoOverlayStore';
 import type { Task, TaskType, GovernanceClass, DeliveryMode } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -300,6 +303,13 @@ export function useUpdateTask() {
       if (context?.snapshot) {
         queryClient.setQueryData(['tasks', variables.projectId], context.snapshot);
       }
+      // ADR-1197 D4 — same branch as `useRescheduleTask`: the milestone date popover
+      // and build-mode date edits write through HERE, so a demo visitor who moves a
+      // milestone must see it hold too. Non-date edits fall through to the ordinary
+      // path and get the global toast (the named asymmetry on `captureDemoOverlay`).
+      if (captureDemoOverlay(err, variables.id, scheduleDatesFromUpdatePayload(variables))) {
+        return;
+      }
       // ADR-0784: surface the refusal instead of reverting the row in silence.
       rejectSchedulePreview(
         variables.id,
@@ -355,6 +365,39 @@ export interface RescheduleTaskPayload {
   planned_finish?: string | null;
   /** Partial Task values applied to the cache immediately (optimistic UI). */
   optimistic: Partial<Task>;
+  /**
+   * The caller renders the read-only demo's refusal itself (ADR-1197 D3), so the
+   * global demo toast should stand down for this request. Client-only — destructured
+   * out of the PATCH body in `mutationFn`, never sent.
+   */
+  demoRefusalHandled?: boolean;
+}
+
+/**
+ * Route a refused write to the demo's preview overlay instead of the rejection strip.
+ *
+ * Gated on **both** facts, never on the refusal code alone: `isDemoReadOnlySync()`
+ * says this deployment really is the demo, and `isDemoReadOnlyRefusal(err)` says this
+ * particular 403 is the mode's own. Without the first, a mislabeled 403 on a real
+ * install could fabricate a schedule the server does not hold.
+ *
+ * Returns true when it handled the refusal, so the caller skips
+ * `rejectSchedulePreview` — leaving that wired would put a red "server refused" strip
+ * with a Retry that can never succeed next to a popover saying the change was
+ * deliberately not saved.
+ *
+ * **Named asymmetry (ADR-1197 D4):** only dates and duration persist this way. A
+ * refused rename, status or percent edit rolls back and gets the global toast. Dates
+ * are the demo's whole pitch — the visitor is watching the bar they just dropped —
+ * and a snap-back there reads as a bug rather than as a refusal.
+ */
+function captureDemoOverlay(err: unknown, taskId: string, dates: DemoOverlayEntry): boolean {
+  if (!isDemoReadOnlySync() || !isDemoReadOnlyRefusal(err)) return false;
+  if (dates.start === undefined && dates.finish === undefined && dates.duration === undefined) {
+    return false;
+  }
+  useDemoOverlayStore.getState().set(taskId, dates);
+  return true;
 }
 
 /**
@@ -369,7 +412,21 @@ export function useRescheduleTask() {
   const mutateRef = useRef<((p: RescheduleTaskPayload) => void) | null>(null);
 
   const mutation = useMutation({
-    mutationFn: async ({ id, projectId: _p, optimistic: _o, ...data }: RescheduleTaskPayload) => {
+    mutationFn: async ({
+      id,
+      projectId: _p,
+      optimistic: _o,
+      // Client-only routing flag — destructured OUT of `data` here, before the body is
+      // built, so it is never sent as an unknown field on the PATCH.
+      demoRefusalHandled,
+      ...data
+    }: RescheduleTaskPayload) => {
+      // Only pass a config arg when opting in, so the default call shape is unchanged
+      // — the same pattern `useUpdateTask`'s `baseVersion` branch uses above.
+      if (demoRefusalHandled) {
+        await apiClient.patch(`/tasks/${id}/`, data, { demoRefusalHandled: true });
+        return;
+      }
       await apiClient.patch(`/tasks/${id}/`, data);
     },
     onMutate: async (payload) => {
@@ -412,6 +469,19 @@ export function useRescheduleTask() {
       // Roll back on API error
       if (context?.snapshot) {
         queryClient.setQueryData(['tasks', projectId], context.snapshot);
+      }
+      // ADR-1197 D4: in the read-only demo the dropped bar STAYS where the visitor
+      // put it. The cache rollback above is untouched — the overlay is an explicit
+      // layer above it — and the rejection strip below is skipped, because "the
+      // server refused, Retry" is neither true nor actionable here.
+      if (
+        captureDemoOverlay(err, id, {
+          start: payload.optimistic.start,
+          finish: payload.optimistic.finish,
+          duration: payload.optimistic.duration,
+        })
+      ) {
+        return;
       }
       // ADR-0784: a silent revert is the defect. Surface the server's reason on
       // a persistent strip with a Retry that re-issues this exact mutation.

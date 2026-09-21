@@ -49,6 +49,9 @@ function makeCurrentUser(overrides: Partial<CurrentUser> = {}): CurrentUser {
 let ssoProviders: { slug: string; display_name: string }[] = [];
 let meHandler: () => Promise<{ data: CurrentUser }> = () =>
   Promise.reject(new Error('no me handler set'));
+// The login screen also reads the public `/edition/` endpoint to learn whether this
+// deployment is a read-only demo (#3926). Default: a normal install.
+let editionPayload: Record<string, unknown> = { edition: 'community', demo_read_only: false };
 
 // useNavigate and useSearchParams come from the MemoryRouter in renderWithRouter.
 describe('LoginPage', () => {
@@ -56,6 +59,7 @@ describe('LoginPage', () => {
     vi.clearAllMocks();
     mockNavigate.mockClear();
     ssoProviders = [];
+    editionPayload = { edition: 'community', demo_read_only: false };
     meHandler = () => Promise.reject(new Error('no me handler set'));
     mockedAxios.get.mockImplementation((url: string) => {
       if (typeof url === 'string' && url.includes('/auth/oidc/discover/')) {
@@ -65,6 +69,9 @@ describe('LoginPage', () => {
       }
       if (typeof url === 'string' && url.includes('/auth/me/')) {
         return meHandler();
+      }
+      if (typeof url === 'string' && url.includes('/edition/')) {
+        return Promise.resolve({ data: editionPayload });
       }
       return Promise.reject(new Error(`unmocked GET ${String(url)}`));
     });
@@ -99,9 +106,7 @@ describe('LoginPage', () => {
 
     // #2246: makes the unchecked (session cookie, dies on browser close) default
     // explicit so "don't remember me" on a shared machine is understood.
-    expect(
-      screen.getByText(/Leave off on shared devices/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Leave off on shared devices/i)).toBeInTheDocument();
   });
 
   it('sign-in button is disabled when both fields are empty', () => {
@@ -471,5 +476,78 @@ describe('loginRedirectDest — defers to the landing path (ADR-0129, #1181)', (
 
   it('an off-allowlist landing path degrades to My Work', () => {
     expect(loginRedirectDest('', '/portfolio')).toBe('/me/work');
+  });
+});
+
+describe('LoginPage — read-only demo (ADR-1197 D3, #3926)', () => {
+  const HINT = { username: 'demo@trueppm.com', password: 'trueppm-demo' };
+
+  beforeEach(() => {
+    editionPayload = { edition: 'community', demo_read_only: true, demo_login_hint: HINT };
+  });
+
+  it('renders nothing demo-related when there is no published credential', async () => {
+    // Gated on the HINT, never on the mode alone: announcing a demo a visitor has no
+    // way into would be worse than silence.
+    editionPayload = { edition: 'community', demo_read_only: true, demo_login_hint: null };
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeVisible());
+    expect(screen.queryByText('Read-only demo')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Fill in the demo email and password' }),
+    ).toBeNull();
+  });
+
+  it('renders the panel note and the credential block with their exact copy', async () => {
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+    await waitFor(() => expect(screen.getByText('Read-only demo')).toBeInTheDocument());
+    expect(
+      screen.getByText(
+        'Drag a task on the Schedule and watch the critical path recompute in your browser. Nothing you do here is saved.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This demo shows the scheduling engine. Boards, backlogs, sprints and resource plans are populated with real sample data — you can look at them, but you can't change them.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Read-only demo — sign in with the shared account below. Nothing you change is saved.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText(HINT.username)).toBeInTheDocument();
+    expect(screen.getByText(HINT.password)).toBeInTheDocument();
+  });
+
+  it('Fill puts the credential in the form, moves focus to Sign in, and does NOT submit', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+    const fill = await screen.findByRole('button', {
+      name: 'Fill in the demo email and password',
+    });
+    expect(fill).toHaveTextContent('Fill in demo login');
+
+    await user.click(fill);
+
+    expect(screen.getByLabelText('Email')).toHaveValue(HINT.username);
+    expect(screen.getByLabelText('Password')).toHaveValue(HINT.password);
+    expect(screen.getByRole('button', { name: 'Sign in' })).toHaveFocus();
+    // The token endpoint is a POST; filling a form must never issue one.
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- mockedAxios.post is a vi.mocked mock, not a bound method
+    expect(mockedAxios.post).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(
+      screen.getByText('Demo credentials filled in. Select Sign in to continue.'),
+    ).toBeInTheDocument();
+  });
+
+  it('the fill confirmation lives in a permanently-mounted polite region', async () => {
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+    await screen.findByRole('button', { name: 'Fill in the demo email and password' });
+    // Mounted and empty before the click — a region that appears WITH its text is
+    // announced inconsistently.
+    const regions = screen.getAllByRole('status');
+    expect(regions.some((r) => r.getAttribute('aria-live') === 'polite')).toBe(true);
   });
 });

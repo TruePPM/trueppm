@@ -1,0 +1,11 @@
+# Rule 424 — A deployment-mode refusal is matched on status AND code together, and routed to the mode's own affordance
+
+> **Invariant.** Indexed from [`packages/web/CLAUDE.md`](../../../packages/web/CLAUDE.md), section *Surface states*. The index carries the rule's headline; this file carries its full text. Binding everywhere, not only on the surface that produced it.
+
+**A refusal that a *deployment mode* produced — today `403` + `code: "demo_read_only"` (ADR-1197 D2) — is recognized by `isDemoReadOnlyRefusal` (`src/lib/demoReadOnly.ts`) and routed to the mode's own affordance. It is never handed to a generic error component, and never treated as an ordinary preview rejection.**
+
+**Both halves of the predicate are load-bearing, in opposite directions.** Status alone mislabels an ordinary RBAC `403` as a demo notice — telling a user with genuinely insufficient rights that "nothing here is saved", which is the failure the mode notice exists to prevent, inverted. Code alone would match a `400` whose body happens to carry the same string. The body arrives as `unknown`: a Django HTML 500 page reaches axios as a **string**, and `typeof 'x' === 'object'` is false, so the guard is closed against it by construction rather than by a length check.
+
+**The affordance is not an error.** A visitor who meets a red "Forbidden" concludes the product is broken, and a demo that makes the product look buggy is worse than no demo (ADR-1197 D3). So the presentation is brand/info tone: a `toast.info` globally, and on the Schedule commit popover a terminal notice that keeps `error` **null** — `RefusalAlert` renders `text-semantic-critical`, which is precisely what D3 forbids. Where the two states could both be set, they are mutually exclusive by construction (`ScheduleCommitState.demoRefusal` is only ever set alongside `error: null`).
+
+**A second predicate gates anything the refusal is allowed to *write*.** Recognizing the code says what the server called this refusal; it does not say this deployment is the demo. Any client state that survives the refusal — the D4 preview overlay in particular — is gated on `isDemoReadOnlySync() && isDemoReadOnlyRefusal(err)`, so a mislabeled or spoofed `403` on a real install can never fabricate a schedule the server does not hold.

@@ -2,6 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import type { TaskAttachment } from '@/types';
 import { AttachmentSection } from './AttachmentSection';
+
+// Read-only demo gate (ADR-1197 D3, #3926). Mocked rather than provider-wrapped so
+// these specs keep rendering the component bare; the demo branch is exercised by its
+// own case below.
+const demoMode = vi.hoisted(() => ({
+  value: { isDemoReadOnly: false, loginHint: null, isLoading: false },
+}));
+vi.mock('@/hooks/useDemoMode', () => ({ useDemoMode: () => demoMode.value }));
+
 import { ROLE_MEMBER, ROLE_VIEWER } from '@/lib/roles';
 
 const useListMock = vi.hoisted(() => vi.fn());
@@ -116,7 +125,9 @@ describe('AttachmentSection — upload + delete actions', () => {
     const mutate = vi.fn();
     useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
     useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
-    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    const { container } = render(
+      <AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />,
+    );
     const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!;
     const file = new File(['x'], 'doc.pdf', { type: 'application/pdf' });
     fireEvent.change(fileInput, { target: { files: [file] } });
@@ -130,7 +141,9 @@ describe('AttachmentSection — upload + delete actions', () => {
     const mutate = vi.fn();
     useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
     useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
-    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    const { container } = render(
+      <AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />,
+    );
     const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!;
     const bad = new File(['x'], 'clip.mp4', { type: 'video/mp4' });
     fireEvent.change(fileInput, { target: { files: [bad] } });
@@ -145,7 +158,9 @@ describe('AttachmentSection — upload + delete actions', () => {
     const mutate = vi.fn();
     useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
     useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
-    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    const { container } = render(
+      <AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />,
+    );
 
     const attachBtn = screen.getByText('+ Attach file');
     const pinBtn = screen.getByText('+ Pin link');
@@ -164,7 +179,9 @@ describe('AttachmentSection — upload + delete actions', () => {
     const mutate = vi.fn();
     useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
     useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
-    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    const { container } = render(
+      <AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />,
+    );
     fireEvent.click(screen.getByText('+ Pin link'));
     const urlInput = container.querySelector<HTMLInputElement>('input[type="url"]')!;
     fireEvent.change(urlInput, { target: { value: 'https://figma.com/x' } });
@@ -526,7 +543,13 @@ describe('AttachmentSection — file-type icons by MIME', () => {
 
 describe('AttachmentSection — external-link host glyphs', () => {
   function externalAttachment(url: string, title: string, id: string): TaskAttachment {
-    return attachment({ id, file_name: '', file_mime: '', external_url: url, external_title: title });
+    return attachment({
+      id,
+      file_name: '',
+      file_mime: '',
+      external_url: url,
+      external_title: title,
+    });
   }
 
   it('renders a house folder mark for cloud file-storage hosts and a link mark otherwise', () => {
@@ -629,7 +652,9 @@ describe('AttachmentSection — upload progress + error surfacing', () => {
     });
     useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
     useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
-    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    const { container } = render(
+      <AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />,
+    );
     const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!;
     fireEvent.change(fileInput, {
       target: { files: [new File(['x'], 'doc.pdf', { type: 'application/pdf' })] },
@@ -643,7 +668,9 @@ describe('AttachmentSection — upload progress + error surfacing', () => {
     });
     useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
     useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
-    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    const { container } = render(
+      <AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />,
+    );
     fireEvent.click(screen.getByText('+ Pin link'));
     const urlInput = container.querySelector<HTMLInputElement>('input[type="url"]')!;
     fireEvent.change(urlInput, { target: { value: 'https://figma.com/x' } });
@@ -658,7 +685,9 @@ describe('AttachmentSection — upload progress + error surfacing', () => {
     });
     useCreateMock.mockReturnValue({ mutate, isPending: false, isError: false });
     useListMock.mockReturnValue({ attachments: [], isLoading: false, error: null });
-    const { container } = render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    const { container } = render(
+      <AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />,
+    );
     fireEvent.click(screen.getByText('+ Pin link'));
     const urlInput = container.querySelector<HTMLInputElement>('input[type="url"]')!;
     fireEvent.change(urlInput, { target: { value: 'https://figma.com/x' } });

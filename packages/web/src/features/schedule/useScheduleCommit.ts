@@ -3,6 +3,7 @@ import { useRescheduleTask } from '@/hooks/useTaskMutations';
 import { useUpdateProject } from '@/hooks/useProjectMutations';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { describeWriteRefusal, type WriteRefusal } from '@/lib/writeRefusal';
+import { isDemoReadOnlyRefusal } from '@/lib/demoReadOnly';
 import type { GanttEngine } from './engine';
 import { dateToLeft, leftToDate } from './engine';
 import { CHART_HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
@@ -48,6 +49,12 @@ export interface ScheduleCommitState {
   anchor: { x: number; y: number };
   /** The refusal from a failed PATCH, or null — the popover reads its own Confirm label off it. */
   error: WriteRefusal | null;
+  /**
+   * The read-only demo refused the commit (ADR-1197 D3). Mutually exclusive with
+   * `error` — this is the mode working, not a failure — and terminal: the popover
+   * turns into a one-button notice and every dismissal leaves the bar where it is.
+   */
+  demoRefusal: boolean;
   /** ACTIVE sprint name when the task is committed to one, else null. */
   activeSprintName: string | null;
 }
@@ -325,6 +332,7 @@ export function useScheduleCommit({
         newDuration: proposed.newDuration,
         anchor,
         error: null,
+        demoRefusal: false,
         activeSprintName: findActiveSprintName(task),
       });
       if (ariaAssertiveRef.current) {
@@ -403,6 +411,7 @@ export function useScheduleCommit({
         newDuration,
         anchor,
         error: null,
+        demoRefusal: false,
         activeSprintName: findActiveSprintName(task),
       });
       if (ariaAssertiveRef.current) {
@@ -432,6 +441,14 @@ export function useScheduleCommit({
 
   const handleCancel = useCallback(() => {
     if (!state) return;
+    // ADR-1197 D4: in the terminal demo state every dismissal leaves the bar where the
+    // visitor dropped it. A snap-back here reads as a bug and destroys exactly the
+    // impression the mode exists to create — and there is nothing to cancel, because
+    // the change was never going to be written.
+    if (state.demoRefusal) {
+      setState(null);
+      return;
+    }
     revertEngine(state);
     setState(null);
     if (ariaAssertiveRef.current) {
@@ -442,6 +459,12 @@ export function useScheduleCommit({
 
   const handleDismissByOutsideClick = useCallback(() => {
     if (!state) return;
+    // Same as handleCancel: no revert, and no "change not saved" toast either — the
+    // notice the visitor just dismissed said the opposite of "cancelled".
+    if (state.demoRefusal) {
+      setState(null);
+      return;
+    }
     revertEngine(state);
     const message =
       state.action.kind === 'reschedule'
@@ -575,8 +598,14 @@ export function useScheduleCommit({
             projectId,
             planned_start: newStart,
             optimistic: { start: newStart, finish: newFinish },
+            // This popover is already anchored at the moved bar, so it renders the
+            // demo's refusal itself (ADR-1197 D3) and the global toast stands down.
+            // The keyboard and snap paths deliberately do NOT set this: they have no
+            // anchored surface, so the toast IS their affordance.
+            demoRefusalHandled: true,
           }
         : {
+            demoRefusalHandled: true,
             // #951: send the target finish DATE; the server derives the
             // working-day duration from the project calendar. `newDuration` is
             // the client estimate used only for the optimistic preview — the
@@ -595,6 +624,19 @@ export function useScheduleCommit({
         }
       },
       onError: (err) => {
+        // ADR-1197 D3 — the read-only demo's refusal is a designed terminal state,
+        // not a failure: the popover becomes a one-button notice, `error` stays null
+        // (a red RefusalAlert is what D3 forbids), and the bar is left alone.
+        // Announced through the region ScheduleView already owns rather than a second
+        // live region, which would compete with it.
+        if (isDemoReadOnlyRefusal(err)) {
+          setState((prev) => (prev ? { ...prev, error: null, demoRefusal: true } : prev));
+          if (ariaAssertiveRef.current) {
+            ariaAssertiveRef.current.textContent =
+              'Not saved. This is a read-only demo — your change was calculated in your browser only.';
+          }
+          return;
+        }
         // Engine already shows the new position via updateTask; on PATCH
         // failure we keep the popover open so the user can Retry or Cancel.
         // useRescheduleTask.onError rolls back the cache snapshot — the engine

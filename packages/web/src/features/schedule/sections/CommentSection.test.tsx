@@ -4,6 +4,12 @@ import { ROLE_ADMIN } from '@/lib/roles';
 import type { TaskAttachment, TaskComment } from '@/types';
 import { CommentSection } from './CommentSection';
 
+// CommentComposer, rendered inside this section, reads the read-only demo gate
+// (ADR-1197 D3, #3926). Mocked so these specs keep rendering the section bare.
+vi.mock('@/hooks/useDemoMode', () => ({
+  useDemoMode: () => ({ isDemoReadOnly: false, loginHint: null, isLoading: false }),
+}));
+
 const useCommentsMock = vi.hoisted(() => vi.fn());
 const useAttachmentsMock = vi.hoisted(() => vi.fn());
 const useAckMock = vi.hoisted(() => vi.fn());
@@ -278,9 +284,7 @@ describe('CommentSection — interactions', () => {
     });
     render(<CommentSection taskId="t1" projectId="p1" canEdit />);
     fireEvent.click(screen.getByLabelText('React with 👍'));
-    expect(mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ commentId: 'c1', emoji: '👍' }),
-    );
+    expect(mutate).toHaveBeenCalledWith(expect.objectContaining({ commentId: 'c1', emoji: '👍' }));
   });
 
   it('reflects a reacted state with aria-pressed and a toggle-off label (#2171)', () => {
@@ -504,9 +508,7 @@ describe('CommentSection — body rendering boundaries', () => {
       error: null,
     });
     useCommentsMock.mockReturnValue({
-      comments: [
-        comment({ body: `[[attachment:${ATT_ID}]] and [[attachment:${second}]] done` }),
-      ],
+      comments: [comment({ body: `[[attachment:${ATT_ID}]] and [[attachment:${second}]] done` })],
       isLoading: false,
       error: null,
     });

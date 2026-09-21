@@ -1,4 +1,4 @@
-import { useEffect, useState, useId, type FormEvent } from 'react';
+import { useEffect, useRef, useState, useId, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import axios from 'axios';
 import { useAuthStore } from '@/stores/authStore';
@@ -8,6 +8,9 @@ import { safeLandingPath } from '@/features/me/landing';
 import { LogoMark } from '@/components/Icons';
 import { OSSChip } from '@/components/OSSChip';
 import { discoverSsoProviders, ssoLoginUrl, type SsoProviderSummary } from '@/hooks/ssoLogin';
+import { useDemoMode } from '@/hooks/useDemoMode';
+import { DemoLoginHint } from './DemoLoginHint';
+import { DemoModePanelNote } from './DemoModePanelNote';
 
 interface TokenResponse {
   // The refresh token is no longer returned in the body — it is set as an
@@ -134,6 +137,41 @@ export function LoginPage() {
 
   const setAccessToken = useAuthStore((s) => s.setAccessToken);
   const navigate = useNavigate();
+  const submitRef = useRef<HTMLButtonElement>(null);
+  const [pendingSubmitFocus, setPendingSubmitFocus] = useState(false);
+
+  // Read-only demo mode (ADR-1197 D3). Gated on the HINT, never on the mode alone: no
+  // published credential means nothing for a visitor to sign in with, so a panel
+  // announcing a demo they cannot enter would be worse than silence. The read costs
+  // one public GET on this route and warms the cache the post-login shell reads.
+  const { loginHint } = useDemoMode();
+
+  /**
+   * Put the published demo credential into the form — and stop there.
+   *
+   * Deliberately does not submit: a visitor who lands on a login screen and finds
+   * themselves signed in by a button they pressed to *look* at something has lost the
+   * one moment where they decide to proceed. Focus moves to Sign in so that decision
+   * is one keystroke away.
+   */
+  function fillDemoCredentials() {
+    if (!loginHint) return;
+    setEmail(loginHint.username);
+    setPassword(loginHint.password);
+    setPendingSubmitFocus(true);
+  }
+
+  // Focus is handed over in an effect, not inline above: Sign in is `disabled` until
+  // both fields hold a value, and a disabled element cannot take focus — a synchronous
+  // `focus()` in the click handler runs before React has re-rendered the button as
+  // enabled, so it silently does nothing and the keyboard user is left on Fill.
+  useEffect(() => {
+    if (!pendingSubmitFocus) return;
+    const btn = submitRef.current;
+    if (!btn || btn.disabled) return;
+    btn.focus();
+    setPendingSubmitFocus(false);
+  }, [pendingSubmitFocus, email, password]);
 
   // Discover the enabled providers once on mount so the screen can render a
   // sign-in button per provider. `discoverSsoProviders` never throws — a failure
@@ -364,8 +402,15 @@ export function LoginPage() {
             </p>
           )}
 
+          {/* Read-only demo credential (ADR-1197 D3) — immediately above Sign in, and
+              visible at every width, because it is what a visitor needs to proceed. */}
+          {loginHint && (
+            <DemoLoginHint hint={loginHint} onFill={fillDemoCredentials} disabled={isSubmitting} />
+          )}
+
           {/* Sign in button */}
           <button
+            ref={submitRef}
             type="submit"
             disabled={!canSubmit}
             className="
@@ -494,6 +539,10 @@ export function LoginPage() {
           {/* Mini Gantt */}
           <MiniGantt />
         </div>
+
+        {/* Read-only demo announcement (ADR-1197 D3). Third flex child, so
+            `justify-between` seats it below the mini-Gantt and above the footer. */}
+        {loginHint && <DemoModePanelNote />}
 
         {/* Panel footer */}
         <p className="relative tppm-mono text-xs text-chrome-text-secondary">

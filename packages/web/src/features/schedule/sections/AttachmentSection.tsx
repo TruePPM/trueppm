@@ -31,6 +31,8 @@ import {
 import { formatRelative } from '@/lib/formatRelative';
 import { safeExternalHref } from '@/lib/safeExternalHref';
 import type { TaskAttachment } from '@/types';
+import { useDemoMode } from '@/hooks/useDemoMode';
+import { DEMO_DISABLED_NOTE } from '@/lib/demoReadOnly';
 import { AttachmentDropZone, validateFileForUpload } from './AttachmentDropZone';
 import { LinkInputModal } from './LinkInputModal';
 
@@ -222,54 +224,60 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
         >
           {isExternal ? (
             <>
-              <ExternalLinkIcon aria-hidden="true" className="mr-1 inline-block h-3 w-3 align-[-0.125em]" />
+              <ExternalLinkIcon
+                aria-hidden="true"
+                className="mr-1 inline-block h-3 w-3 align-[-0.125em]"
+              />
               Open
             </>
           ) : (
             <>
-              <DownloadIcon aria-hidden="true" className="mr-1 inline-block h-3 w-3 align-[-0.125em]" />
+              <DownloadIcon
+                aria-hidden="true"
+                className="mr-1 inline-block h-3 w-3 align-[-0.125em]"
+              />
               Download
             </>
           )}
         </button>
         {canEdit &&
           (!confirmingDelete ? (
-          <button
-            type="button"
-            onClick={() => setConfirmingDelete(true)}
-            className="text-xs text-neutral-text-secondary hover:text-semantic-critical
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              className="text-xs text-neutral-text-secondary hover:text-semantic-critical
               rounded-control px-2 min-h-11 md:min-h-7
               focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
               focus:outline-none"
-            aria-label={`Delete ${displayName}`}
-          >
-            Delete
-          </button>
-        ) : (
-          <>
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={deleteAttachment.isPending}
-              className="text-xs bg-semantic-critical text-white rounded-control px-2 min-h-11 md:min-h-7 font-medium
+              aria-label={`Delete ${displayName}`}
+            >
+              Delete
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleteAttachment.isPending}
+                className="text-xs bg-semantic-critical text-white rounded-control px-2 min-h-11 md:min-h-7 font-medium
                 hover:opacity-90 disabled:opacity-50
                 focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
                 focus:outline-none"
-              aria-label={`Confirm delete ${displayName}`}
-            >
-              {deleteAttachment.isPending ? 'Deleting…' : 'Confirm'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirmingDelete(false)}
-              className="text-xs text-neutral-text-secondary rounded-control px-2 min-h-11 md:min-h-7
+                aria-label={`Confirm delete ${displayName}`}
+              >
+                {deleteAttachment.isPending ? 'Deleting…' : 'Confirm'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(false)}
+                className="text-xs text-neutral-text-secondary rounded-control px-2 min-h-11 md:min-h-7
                 hover:bg-neutral-surface
                 focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
                 focus:outline-none"
-            >
-              Cancel
-            </button>
-          </>
+              >
+                Cancel
+              </button>
+            </>
           ))}
         {canEdit && deleteAttachment.isError && (
           <span className="text-xs text-semantic-critical ml-1" role="alert">
@@ -339,7 +347,14 @@ export function AttachmentSection({
       window.removeEventListener('offline', off);
     };
   }, []);
-  const uploadBlocked = !isOnline || createAttachment.isPending;
+  // ADR-1197 D3 — the read-only demo refuses the upload POST, so the add-controls are
+  // disabled up front rather than after a visitor has picked a file. Folded into the
+  // existing predicate so the drop zone, "+ Attach file" and "+ Pin link" all inherit
+  // it from one place; the `title` below names the reason, which `!isOnline` already
+  // explains for itself elsewhere.
+  const { isDemoReadOnly } = useDemoMode();
+  const uploadBlocked = !isOnline || createAttachment.isPending || isDemoReadOnly;
+  const demoDisabledTitle = isDemoReadOnly ? DEMO_DISABLED_NOTE : undefined;
 
   // Pinned float to top — server returns pinned-first by default but a stale
   // optimistic mutation could shuffle order, so sort defensively.
@@ -445,11 +460,8 @@ export function AttachmentSection({
 
       {showDisabledNote && (
         <p role="note" className="text-xs text-neutral-text-secondary mt-1">
-          <BanIcon
-            className="inline-block h-3 w-3 align-[-0.125em] mr-1"
-            aria-hidden="true"
-          />{' '}
-          File attachments are disabled for this project.
+          <BanIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" /> File
+          attachments are disabled for this project.
         </p>
       )}
 
@@ -471,6 +483,7 @@ export function AttachmentSection({
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploadBlocked}
+              title={demoDisabledTitle}
               className="text-xs border border-neutral-border rounded-control px-3 min-h-11 md:min-h-7 font-medium
                 shrink-0 whitespace-nowrap
                 text-neutral-text-primary hover:bg-neutral-surface
@@ -483,6 +496,7 @@ export function AttachmentSection({
               type="button"
               onClick={() => setLinkModalOpen(true)}
               disabled={uploadBlocked}
+              title={demoDisabledTitle}
               className="text-xs border border-neutral-border rounded-control px-3 min-h-11 md:min-h-7 font-medium
                 shrink-0 whitespace-nowrap
                 text-neutral-text-primary hover:bg-neutral-surface
