@@ -397,6 +397,10 @@
       "properties": {
         "enabled": {
           "type": "boolean"
+        },
+        "ingressControllerSelector": {
+          "description": "NetworkPolicyPeer selecting the ingress controller ({namespaceSelector, podSelector}), rendered verbatim into the api/web ingress-allow policies. Open: the valid keys are Kubernetes', not this chart's.",
+          "type": "object"
         }
       }
     },
