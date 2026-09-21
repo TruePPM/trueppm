@@ -1,0 +1,20 @@
+{
+  "_comment": [
+    "Cross-language contract for the SSO server-fixed OAuth scopes (ADR-0517 §3.4, #3951).",
+    "",
+    "The scopes are server-fixed — an admin cannot widen them — and enforced only at",
+    "packages/api/src/trueppm_api/apps/sso/services.py's OIDC_SCOPES / GITHUB_SCOPES,",
+    "which is what start_login() actually sends to the IdP. SsoProviderPanel.tsx",
+    "duplicates the same two lists (line ~486) purely for Add-mode display, since no",
+    "provider exists yet to read `existing.scopes` from — in Add mode this hardcoded",
+    "copy is the ONLY thing the admin sees, so a server-side widening would display a",
+    "lie until someone noticed by inspection. This file pins the two copies together:",
+    "a pytest reads the server constants, a vitest reads the literal arrays out of",
+    "SsoProviderPanel.tsx's source text (it has no exported constant to import).",
+    "",
+    "Changing the fixed scopes: edit OIDC_SCOPES/GITHUB_SCOPES in services.py, the",
+    "hardcoded arrays in SsoProviderPanel.tsx, and this file. Any one alone fails."
+  ],
+  "oidc": ["openid", "email", "profile"],
+  "github": ["read:user", "user:email"]
+}
