@@ -235,6 +235,7 @@ metadata:
   #   12 values.schema.json closing the root
   #   N  probe Host header · N+1 collectstatic · N+2 media claim
   #   N+3 backup destinations and MANIFEST parity · N+4 placement knobs
+  #   N+9 no bare `manage.py migrate` anywhere in the chart
   # Each of those is asserted against the real chart on the real run only; none
   # has been shown to still be able to fail. They are candidates for more
   # fixtures, not gaps this self-test quietly covers.
@@ -1603,6 +1604,40 @@ if grep -q fsGroup <<<"$fsg_null_check"; then
   fail "podSecurityContext.fsGroup=null did not remove fsGroup — the OpenShift restricted-v2 override is broken"
 fi
 
+# N+9. No rendered manifest invokes bare `manage.py migrate` (#3188, #3933). The api
+#      Deployment's init container deliberately runs migrate_locked — a session-level
+#      PostgreSQL advisory lock around `migrate` — because concurrent unserialized
+#      `migrate` runs against one database race each other into a duplicate-key error,
+#      a lock timeout, or a partially-applied DDL sequence (migrate_locked.py's own
+#      docstring). The demo-seed install hook shipped a bare `migrate` in its own init
+#      container (#3933): Helm fires post-install/post-upgrade hooks without waiting for
+#      the api Deployment to become Ready, so the two init containers start at
+#      essentially the same wall-clock moment and reintroduce the exact race
+#      migrate_locked exists to eliminate, on every demo install AND every demo upgrade.
+#      Checked by a word-boundary match on "migrate" in the joined command line, not
+#      array `contains` — yq/jq `contains` does per-element SUBSTRING matching, so
+#      `contains(["migrate"])` is true against `["...", "migrate_locked"]` too and
+#      would fail on every legitimate init container this chart ships (caught by the
+#      negative control below: it false-failed the unmodified chart on first write).
+#      Runs across every Deployment/Job/CronJob container and init container, on BOTH
+#      the default and the demo render — a future workload that copies the old
+#      demo-seed pattern must fail here too, not just the one path this issue found.
+assert_no_bare_migrate() { # <label> <full multi-doc render>
+  local label="$1" full="$2" bad
+  bad="$(yq 'select(.kind=="Deployment" or .kind=="Job" or .kind=="CronJob") |
+    .metadata.name as $w |
+    (.spec.template.spec // .spec.jobTemplate.spec.template.spec) |
+    ([.initContainers[]?] + [.containers[]?])[] |
+    select(((.command // []) | join(" ")) | test("(^| )migrate( |$)")) |
+    $w + "/" + .name' <<<"$full" | grep -vE '^(---)?$' || true)"
+  [ -z "$bad" ] \
+    || fail "$label: container(s) invoke bare 'manage.py migrate' instead of migrate_locked (#3188, #3933): $bad"
+}
+assert_no_bare_migrate "default install" \
+  "$(helm template trueppm "$CHART" --set image.tag=latest --set 'envFrom[0].secretRef.name=trueppm-env-probe')"
+assert_no_bare_migrate "demo install" \
+  "$(helm template trueppm "$CHART" "${demo_args[@]}" --set demo.reset.enabled=true)"
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches all $env_checked containers that import settings.prod"
@@ -1629,3 +1664,4 @@ echo "  - celery probes: worker liveness ${cp_live_i}/${cp_live_p}x${cp_live_f} 
 echo "  - api.workers=1 by default (image CMD behavior preserved), api.workers=4 renders --workers 4 without disturbing --host/--port, and 0 is refused (#3833)"
 echo "  - demo reset: CronJob absent unless demo.enabled AND demo.reset.enabled; Forbid + deadlines + demo-seed label; same command and env as the install hook; schedule validated; three alerts follow the switch"
 echo "  - podSecurityContext.fsGroup=1000 on all $fsg_checked workloads plus the helm test pod (PVC writable under a root:root CSI volume); fsGroup: null still removes it for OpenShift"
+echo "  - no Deployment/Job/CronJob container invokes bare 'manage.py migrate' — every migrate call goes through migrate_locked (#3188, #3933)"

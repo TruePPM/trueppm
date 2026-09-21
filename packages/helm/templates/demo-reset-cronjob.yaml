@@ -71,12 +71,14 @@ spec:
             - name: tmp
               emptyDir: {}
           initContainers:
-            # Idempotent and cheap. Kept for parity with the install hook: a run that
-            # lands mid-upgrade must not race the api Deployment's own migrate.
+            # migrate_locked, not migrate (#3188, #3933) — same reasoning as the install
+            # hook (templates/demo-seed-job.yaml) and the api Deployment. This CronJob
+            # fires on a schedule and can land mid-upgrade, racing the api Deployment's
+            # own migrate init container against one database with no serialization.
             - name: migrate
               image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
               imagePullPolicy: {{ .Values.image.pullPolicy }}
-              command: ["python", "manage.py", "migrate", "--noinput"]
+              command: ["python", "manage.py", "migrate_locked"]
               securityContext:
                 {{- toYaml .Values.containerSecurityContext | nindent 16 }}
               {{- with .Values.envFrom }}
