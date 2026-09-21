@@ -188,6 +188,15 @@ spec:
             {{- include "trueppm.appEnv" . | nindent 12 }}
             - name: TRUEPPM_ADMIN_PASSWORD_FILE
               value: {{ .Values.admin.passwordFile | quote }}
+            {{- if .Values.demo.enabled }}
+            # DemoReadOnlyMiddleware's fence (#3924, #3932): refuses every unsafe
+            # method under /api/ except sign-in/refresh/sign-out. Hardcoded to the
+            # literal "true" rather than sourced from a new values.yaml boolean —
+            # parse_demo_read_only accepts only specific string words, and a bare
+            # Go bool rendered through `| quote` is not guaranteed to match one.
+            - name: TRUEPPM_DEMO_READ_ONLY
+              value: "true"
+            {{- end }}
           volumeMounts:
             - name: admin-password
               mountPath: /run/trueppm

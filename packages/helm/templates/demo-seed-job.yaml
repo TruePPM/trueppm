@@ -133,6 +133,12 @@ spec:
               value: {{ .Values.demo.shareToken.schedule | quote }}
             - name: TRUEPPM_DEMO_SHARE_TOKEN_BOARD
               value: {{ .Values.demo.shareToken.board | quote }}
+            # DemoReadOnlyMiddleware's fence (#3924, #3932). This whole Job only
+            # renders under demo.enabled (see the top of this file), so the
+            # literal is unconditional here — see the api Deployment for why it
+            # is hardcoded rather than a new values.yaml boolean.
+            - name: TRUEPPM_DEMO_READ_ONLY
+              value: "true"
           volumeMounts:
             - name: tmp
               mountPath: /tmp
