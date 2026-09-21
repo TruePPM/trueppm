@@ -38,7 +38,24 @@ interface ErrorCopy {
 // Map the backend's non-sensitive error codes (services.OIDCError.code + the
 // view-level codes) to human copy. Anything unrecognized falls back to generic —
 // we never echo an arbitrary server string into the page.
-const ERROR_COPY: Record<string, ErrorCopy> = {
+//
+// #3951: nothing here used to keep this set in sync with the backend's actual
+// codes, which is exactly how the four codes above drifted silently for months
+// (#2876). `contracts/sso-error-codes.json` is now the checked-in vocabulary both
+// sides assert against — this object's keys must equal its `mapped` list, enforced
+// by `SsoCompletePage.errorCodes.test.tsx` (web) and
+// `test_sso_error_codes_contract.py` (server, which derives the backend's actual
+// code set from `OIDCError.__subclasses__()` + the literal `error="..."` redirects
+// in `views.py`). `oidc_error` — the `OIDCError` base-class default — is
+// deliberately NOT a key here: it is the contract's one `genericFallback` entry,
+// not an oversight. It is not currently reachable (every subclass overrides
+// `code`, and nothing raises the base class directly), and even if a future
+// subclass forgot to set one, there is no more specific copy to give a code that
+// by definition carries no information beyond "something in the OIDC flow
+// failed" — it falls through to `GENERIC_ERROR` below, same as any other
+// unrecognized code. Exported for the contract test only; nothing in the app
+// should need this object directly — prefer `copyFor`.
+export const ERROR_COPY: Record<string, ErrorCopy> = {
   sso_no_member: {
     title: "You're verified, but not a member yet",
     subtitle:
