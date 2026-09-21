@@ -219,6 +219,9 @@ Availability](/administration/valkey-ha/).
 | `postgresql.podDisruptionBudget.enabled` | `true` | PDB on the bundled database, `maxUnavailable: 0`. This does **not** make a single-replica database highly available — it makes a node drain *block* and surface as something the operator can see, rather than a silent eviction that takes the whole release down behind it. Override with `kubectl drain --disable-eviction`. |
 | `postgresql.priorityClassName` | `""` | A PriorityClass you have created, so the database is not the first thing evicted under pressure. |
 | `postgresql.terminationGracePeriodSeconds` | `120` | Time to finish a checkpoint and shut down cleanly. The 30s Kubernetes default can cut a large checkpoint short and force crash recovery on next start. |
+| `valkey.podDisruptionBudget.enabled` | `true` | PDB on the bundled Valkey, `maxUnavailable: 0`, mirroring `postgresql.podDisruptionBudget.enabled` above — same non-HA caveat, same drain-blocks-instead-of-silently-evicts effect. Valkey is load-bearing for the Channels layer, the Celery broker, the cache backend, **and** notification throttles at once, so an unannounced eviction takes all four down together. Override with `kubectl drain --disable-eviction`. |
+| `valkey.priorityClassName` | `""` | A PriorityClass you have created, so Valkey is not the first thing evicted under pressure. |
+| `valkey.terminationGracePeriodSeconds` | `60` | Time for Valkey to finish its AOF rewrite/fsync and shut down cleanly. The 30s Kubernetes default can cut a large AOF flush short and force a slower AOF-log replay on next start. |
 | `global.trueppm.connectionSecretName` | `""` | Override only if you renamed the chart-owned connection Secret. |
 
 ## Network and pod security

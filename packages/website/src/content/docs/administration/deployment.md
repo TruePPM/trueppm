@@ -72,7 +72,8 @@ single-server production stack below or the Helm chart.
 ### Public read-only demo (`docker-compose.demo.yml`)
 
 `docker-compose.demo.yml` is a **separate, hardened** stack for a public hosted
-demo (the mechanism behind `try.trueppm.com`, which went live at the 0.4 tag) —
+demo (the mechanism behind `try.trueppm.com`, which went live with 0.4, the
+first beta) —
 not the dev stack above. It seeds the sample **without** persona logins, so the
 instance has **zero user accounts and no authenticated write path**; the only way
 in is the product's own anonymous, tokenized, read-only
@@ -711,7 +712,7 @@ TRUEPPM_S3_BUCKET_NAME=trueppm-attachments
 # chart-managed allowlist to lean on. Leave it unset unless you have a reason.
 # TRUEPPM_DJANGO_ADMIN_ENABLED=true
 
-APP_VERSION=0.2.0
+APP_VERSION=0.4.0-beta.3
 ```
 
 :::caution[Three values the API refuses to start without]

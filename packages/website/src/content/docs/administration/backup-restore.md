@@ -110,11 +110,17 @@ both exist, or neither.
 ## Manual backup
 
 Both scripts take their connection from `DATABASE_URL` (and optional
-`REDIS_URL` / `TRUEPPM_MEDIA_ROOT`), so the same command works on the Compose dev
-stack and inside a Helm-deployed pod. Run `scripts/backup.sh --help` for the full
-flag list.
+`REDIS_URL` / `TRUEPPM_MEDIA_ROOT`) — it is the same script and the same flags
+everywhere, but **which container you run it from, and what `DATABASE_URL`
+points at, differs by stack**: the dev Compose stack, the production Compose
+stack, and a Helm-deployed pod each need their own invocation, below. Run
+`scripts/backup.sh --help` for the full flag list.
 
-### Docker Compose
+### Docker Compose (development)
+
+This targets **`docker-compose.yml`** — the bind-mounted dev stack started with
+`make up`. It publishes `db` on loopback `:5432` with the hardcoded
+`trueppm`/`trueppm` credentials, so `backup.sh` can run straight from the host:
 
 ```bash
 # From the repo root, against the running dev stack (db published on :5432):
@@ -148,6 +154,94 @@ The upload uses the AWS CLI (`aws`) when it is installed and the MinIO client
 and neither client is installed, the run **fails before the dump starts** rather
 than quietly leaving the artifact on local disk.
 
+### Docker Compose (production)
+
+**None of the commands in the section above work against `docker-compose.prod.yml`.**
+The production `db` service publishes no host port at all (`"ports": null` in
+`docker compose config` — deliberate, since #3189) and authenticates with the
+`DB_PASSWORD` you generated into `.env`, not `trueppm`. There is also no `psql`
+client anywhere in the stack: `packages/api/Dockerfile`'s runtime stage installs
+only `libpq5` (the shared library the compiled psycopg driver links against),
+not `postgresql-client`, so `pg_dump` is absent from the `api`/`celery` images
+and `scripts/backup.sh` is not `COPY`'d into any image that ships. The only
+image in the stack that carries `pg_dump` is `db` itself (the stock
+`postgres:16-alpine`), and it has no route to the host filesystem or to the
+`scripts/` directory on its own.
+
+The fix is to run `backup.sh` **inside a throwaway container built from the
+`db` service**, with `scripts/` and an output directory bind-mounted from the
+host and `DATABASE_URL` pointing at the `db` service by its Compose network
+name — not `localhost`, since this container never gets the loopback port
+mapping. `docker compose run` starts a one-off container from a service's
+image/config, attached to the same project network as the running stack, so
+`db:5432` resolves exactly as it does for the `api` container:
+
+```bash
+# From the repo root, with the production stack already up
+# (docker compose -f docker-compose.prod.yml up -d). Reads DB_PASSWORD from .env.
+set -a; source .env; set +a
+
+docker compose -f docker-compose.prod.yml run --rm --no-deps \
+  -v "$(pwd)/scripts:/scripts:ro" \
+  -v "$(pwd)/backups:/backups" \
+  -e DATABASE_URL="postgres://trueppm:${DB_PASSWORD}@db:5432/trueppm" \
+  db bash /scripts/backup.sh --output-dir /backups
+```
+
+`--no-deps` stops this from restarting `db`'s own dependencies (it has none,
+but it is harmless-by-habit on every service). The `db` image's entrypoint only
+runs its Postgres bootstrap logic when the container's command starts with
+`postgres` or a flag; handing it `bash /scripts/backup.sh` execs that directly
+and never touches `PGDATA`. `postgres:16-alpine` also carries `bash`, `tar`,
+`gzip`, and `find`, everything `backup.sh` needs beyond `pg_dump` itself — this
+whole invocation was run hands-on against the dev stack's `db` service before
+being written down here, not inferred from reading the image.
+
+This keeps every feature the dev-stack invocation has — the tarball, the
+`MANIFEST`, `--keep-daily` pruning, and `--s3-bucket` upload — because it is
+the same script, just run from a container that can reach `db` and has
+somewhere to write. Add `-e TRUEPPM_MEDIA_ROOT=/media -v media:/media:ro` (the
+named volume the compose file declares, resolved by Compose to
+`<project>_media` — `trueppm_media` under this file's pinned `name: trueppm`)
+to fold the attachment directory into the same tarball, or back it up
+separately as shown below.
+
+If you only need the database and are willing to forfeit media archiving, the
+manifest, retention pruning, and the S3 upload leg, `exec` into the already-running
+`db` container directly:
+
+```bash
+set -a; source .env; set +a
+
+docker compose -f docker-compose.prod.yml exec -T \
+  -e DATABASE_URL="postgres://trueppm:${DB_PASSWORD}@localhost:5432/trueppm" \
+  db sh -c 'exec pg_dump --format=custom --no-owner --no-privileges \
+    -d "$DATABASE_URL"' > backups/trueppm-$(date -u +%Y%m%dT%H%M%SZ).dump
+```
+
+(`localhost` is correct here — `exec` runs inside the already-running `db`
+container, not a fresh one, so it reaches Postgres over the loopback interface
+the same way `pg_isready`'s own healthcheck does.)
+
+#### Backing up the `media` volume
+
+Task attachments and the workspace logo live in the `media` named volume
+(mounted at `/var/lib/trueppm/media` in the `api`/`celery`/`celery-beat`
+containers), not on the host filesystem — `backup.sh --media-dir` cannot see
+it directly from the host the way it can a dev-stack bind mount. Archive the
+volume with a disposable helper container instead:
+
+```bash
+docker run --rm \
+  -v trueppm_media:/media:ro \
+  -v "$(pwd)/backups:/backup" \
+  alpine tar -czf "/backup/trueppm-media-$(date -u +%Y%m%dT%H%M%SZ).tar.gz" -C /media .
+```
+
+Skip this entirely if attachments are on S3/MinIO
+(`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` unset) — the bucket is the backup, per
+the [object storage note](#object-storage-note) above.
+
 ### Kubernetes / Helm
 
 Take an on-demand backup by running the script inside a client pod that can reach
@@ -174,7 +268,8 @@ extensions** (`ltree`, `pg_trgm`, `btree_gist`) exist afterward — a schema mis
 silently broken, so the restore fails loudly instead.
 
 ```bash
-# Compose: restore onto a freshly-created empty database
+# Compose (development, docker-compose.yml): restore onto a freshly-created
+# empty database
 DATABASE_URL="postgres://trueppm:trueppm@localhost:5432/trueppm" \
   ./scripts/restore.sh --artifact backups/trueppm-backup-<UTC>.tar.gz --yes
 
@@ -185,6 +280,44 @@ DATABASE_URL="postgres://trueppm:trueppm@localhost:5432/trueppm" \
 `restore.sh` does **not** restore the Redis snapshot even when the artifact
 contains one — the cache and broker rebuild themselves. After a database restore,
 restart the API and worker pods so any cached state is discarded.
+
+### Docker Compose (production)
+
+Same mismatch as the backup side: `docker-compose.prod.yml`'s `db` publishes no
+host port and there is no `psql`/`pg_restore` client in the `api` image. Run
+`restore.sh` the same way as `backup.sh` above — as a one-off container built
+from the `db` service, with `scripts/` and the artifact's directory
+bind-mounted and `DATABASE_URL` pointing at `db` by its Compose network name:
+
+```bash
+set -a; source .env; set +a
+
+docker compose -f docker-compose.prod.yml run --rm --no-deps \
+  -v "$(pwd)/scripts:/scripts:ro" \
+  -v "$(pwd)/backups:/backups" \
+  -e DATABASE_URL="postgres://trueppm:${DB_PASSWORD}@db:5432/trueppm" \
+  db bash /scripts/restore.sh \
+    --artifact /backups/trueppm-backup-<UTC>.tar.gz --yes
+```
+
+Restart the stack afterward so every container picks up the restored schema
+and discards any cached state:
+
+```bash
+docker compose -f docker-compose.prod.yml restart api celery celery-beat
+```
+
+To restore the `media` volume alongside the database, reverse the backup step
+with the same disposable helper container (this **overwrites** the volume's
+current contents — stop the `api`/`celery`/`celery-beat` containers first so
+nothing is writing to it mid-restore):
+
+```bash
+docker run --rm \
+  -v trueppm_media:/media \
+  -v "$(pwd)/backups:/backup:ro" \
+  alpine sh -c 'find /media -mindepth 1 -delete; tar -xzf /backup/trueppm-media-<UTC>.tar.gz -C /media'
+```
 
 ### Restoring straight from the bucket
 

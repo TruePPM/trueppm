@@ -1638,6 +1638,42 @@ assert_no_bare_migrate "default install" \
 assert_no_bare_migrate "demo install" \
   "$(helm template trueppm "$CHART" "${demo_args[@]}" --set demo.reset.enabled=true)"
 
+# N+10. The valkey subchart carries the same PDB / priorityClassName /
+#       terminationGracePeriodSeconds knobs as its structural sibling postgresql
+#       (#3934). Before this, `packages/helm/charts/valkey/templates/` had no
+#       pdb.yaml at all, so a `kubectl drain` silently evicted the single-replica
+#       Valkey pod — which is load-bearing for the Channels layer, the Celery
+#       broker, the cache backend, AND notification throttles at once — instead
+#       of blocking visibly the way the postgresql drain does. maxUnavailable: 0
+#       is asserted explicitly: it is the whole point (see charts/valkey/pdb.yaml),
+#       not merely "a PDB exists".
+valkey_pdb_render="$(helm template trueppm "$CHART" --set image.tag=latest)"
+valkey_pdb="$(echo "$valkey_pdb_render" | yq eval 'select(.kind == "PodDisruptionBudget" and .metadata.name == "trueppm-valkey-primary")' -)"
+[ -n "$valkey_pdb" ] && [ "$valkey_pdb" != "null" ] \
+  || fail "no PodDisruptionBudget for the bundled valkey pod on a default render — a drain would silently take Channels/Celery/cache/throttles down together (#3934)"
+valkey_pdb_max="$(echo "$valkey_pdb" | yq eval '.spec.maxUnavailable' -)"
+[ "$valkey_pdb_max" = "0" ] \
+  || fail "valkey PodDisruptionBudget maxUnavailable is '$valkey_pdb_max', expected 0 — a single-replica PDB that isn't maxUnavailable:0 doesn't block the drain it exists to surface (#3934)"
+
+# The PDB must also come OFF when disabled — a template `{{- if }}` that never
+# actually gates would look identical on the enabled-by-default render above.
+valkey_pdb_disabled="$(helm template trueppm "$CHART" --set image.tag=latest --set valkey.podDisruptionBudget.enabled=false \
+  | yq eval 'select(.kind == "PodDisruptionBudget" and .metadata.name == "trueppm-valkey-primary")' -)"
+[ -z "$valkey_pdb_disabled" ] || [ "$valkey_pdb_disabled" = "null" ] \
+  || fail "valkey.podDisruptionBudget.enabled=false still rendered a PodDisruptionBudget for valkey (#3934)"
+
+# priorityClassName and terminationGracePeriodSeconds must reach the rendered
+# StatefulSet, the same contract N+4 asserts for the app-tier Deployments.
+valkey_place_render="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --set valkey.priorityClassName=high --set valkey.terminationGracePeriodSeconds=45 \
+  --show-only charts/valkey/templates/statefulset.yaml)"
+valkey_prio="$(echo "$valkey_place_render" | yq eval '.spec.template.spec.priorityClassName' -)"
+[ "$valkey_prio" = "high" ] \
+  || fail "valkey.priorityClassName does not reach the rendered StatefulSet pod spec (#3934): got '$valkey_prio'"
+valkey_grace="$(echo "$valkey_place_render" | yq eval '.spec.template.spec.terminationGracePeriodSeconds' -)"
+[ "$valkey_grace" = "45" ] \
+  || fail "valkey.terminationGracePeriodSeconds does not reach the rendered StatefulSet pod spec (#3934): got '$valkey_grace'"
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches all $env_checked containers that import settings.prod"
@@ -1665,3 +1701,4 @@ echo "  - api.workers=1 by default (image CMD behavior preserved), api.workers=4
 echo "  - demo reset: CronJob absent unless demo.enabled AND demo.reset.enabled; Forbid + deadlines + demo-seed label; same command and env as the install hook; schedule validated; three alerts follow the switch"
 echo "  - podSecurityContext.fsGroup=1000 on all $fsg_checked workloads plus the helm test pod (PVC writable under a root:root CSI volume); fsGroup: null still removes it for OpenShift"
 echo "  - no Deployment/Job/CronJob container invokes bare 'manage.py migrate' — every migrate call goes through migrate_locked (#3188, #3933)"
+echo "  - valkey has a PDB (maxUnavailable: 0, gated by valkey.podDisruptionBudget.enabled) and priorityClassName/terminationGracePeriodSeconds reach its StatefulSet, matching postgresql (#3934)"
