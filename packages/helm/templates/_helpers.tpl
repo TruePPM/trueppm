@@ -970,6 +970,61 @@ enforced at the network layer).
 {{- end -}}
 
 {{/*
+Split-origin CSRF preflight notice (#3945).
+
+CSRF_TRUSTED_ORIGINS is read by the API at settings/base.py:310
+(env.list("CSRF_TRUSTED_ORIGINS", default=[])) and is required whenever the web
+app's origin differs from the API's — the split-origin Ingress (app.example.com
++ api.example.com) an operator is most likely to build. It is harmless to leave
+unset on this chart's default single-origin Ingress, so the notice must fire
+ONLY when the two configured origins actually differ, never unconditionally
+(the same "warn only on the broken shape" discipline as trueppm.bootGuardNotice
+above and trueppm.portForwardHostNotice below).
+
+The break this catches lands specifically on SSO, and only after the hard part
+already worked: the IdP redirect completes, the callback validates the ID token
+and sets the refresh cookie, and then the SPA's post-login refresh POST is
+rejected 403 CSRF because the web origin is not in Django's trusted list. That
+sequencing is why an operator who got this far is unlikely to guess
+CSRF_TRUSTED_ORIGINS is the missing piece on their own.
+
+Compares scheme+host (not the full origin string) so a trailing slash or an
+explicit default port on only one side does not produce a false warning. Both
+TRUEPPM_FRONTEND_BASE_URL and TRUEPPM_PUBLIC_API_BASE_URL must be a valid URL
+for the comparison to mean anything — an operator who left one blank already
+gets the boot-guard-adjacent silence documented on those keys in values.yaml,
+not a second, contradictory notice here.
+*/}}
+{{- define "trueppm.csrfOriginNotice" -}}
+{{- $env := .Values.env | default dict }}
+{{- $frontend := "" }}
+{{- $api := "" }}
+{{- if hasKey $env "TRUEPPM_FRONTEND_BASE_URL" }}{{- $frontend = $env.TRUEPPM_FRONTEND_BASE_URL }}{{- end }}
+{{- if hasKey $env "TRUEPPM_PUBLIC_API_BASE_URL" }}{{- $api = $env.TRUEPPM_PUBLIC_API_BASE_URL }}{{- end }}
+{{- /* $env carries an empty-string default for CSRF_TRUSTED_ORIGINS, so hasKey
+     is always true here — "unset" means falsy (missing OR ""), not absent. A
+     secretKeyRef map is truthy, so referencing it via a Secret still silences
+     the notice, same as a literal string would. */}}
+{{- if and $frontend $api (not $env.CSRF_TRUSTED_ORIGINS) }}
+{{- $frontendUrl := urlParse $frontend }}
+{{- $apiUrl := urlParse $api }}
+{{- $frontendOrigin := printf "%s://%s" $frontendUrl.scheme $frontendUrl.host }}
+{{- $apiOrigin := printf "%s://%s" $apiUrl.scheme $apiUrl.host }}
+{{- if ne $frontendOrigin $apiOrigin }}
+
+!! TRUEPPM_FRONTEND_BASE_URL ({{ $frontend }}) and TRUEPPM_PUBLIC_API_BASE_URL
+!! ({{ $api }}) are different origins, and env.CSRF_TRUSTED_ORIGINS is unset.
+!! SSO login will complete and set the refresh cookie, then the SPA's
+!! post-login refresh request will fail with a 403 CSRF error. Set:
+!!
+!!   env.CSRF_TRUSTED_ORIGINS: "{{ $frontend }}"
+!!
+!! (comma-separate more than one web origin.)
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
 Host header for the api container's HTTP probes (#3183).
 
 kubelet connects to a probe by POD IP, so without an explicit Host header it

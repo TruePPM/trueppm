@@ -1674,6 +1674,64 @@ valkey_grace="$(echo "$valkey_place_render" | yq eval '.spec.template.spec.termi
 [ "$valkey_grace" = "45" ] \
   || fail "valkey.terminationGracePeriodSeconds does not reach the rendered StatefulSet pod spec (#3934): got '$valkey_grace'"
 
+# 13. NOTES.txt must warn on a split-origin deploy with no CSRF_TRUSTED_ORIGINS
+#     (#3945). CSRF_TRUSTED_ORIGINS is read by the API at settings/base.py:310
+#     and is required whenever TRUEPPM_FRONTEND_BASE_URL and
+#     TRUEPPM_PUBLIC_API_BASE_URL name different origins — the split-origin
+#     Ingress (app.example.com + api.example.com) an operator is most likely to
+#     build. Without it, SSO login completes and sets the refresh cookie, and
+#     then the SPA's post-login refresh request 403s with a CSRF failure, after
+#     the hard part (the IdP redirect) already worked.
+#
+#     Probed the same way as trueppm.bootGuardNotice and
+#     trueppm.portForwardHostNotice above: rendered offline through a
+#     throwaway probe template in the same scratch chart, because
+#     `helm install --dry-run` needs a reachable cluster this job does not have.
+grep -q 'trueppm.csrfOriginNotice' "$CHART/templates/NOTES.txt" \
+  || fail "NOTES.txt does not include the trueppm.csrfOriginNotice helper — a split-origin deploy with no CSRF_TRUSTED_ORIGINS gets no warning before SSO 403s (#3945)"
+
+cat > "$PROBE_DIR/chart/templates/zz-csrf-notice-probe.yaml" <<'CSRFPROBE'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: csrf-notice-probe
+data:
+  notice: |
+{{ include "trueppm.csrfOriginNotice" . | indent 4 }}
+CSRFPROBE
+
+csrf_notice() {
+  helm template trueppm "$PROBE_DIR/chart" --set image.tag=latest "$@" \
+    --show-only templates/zz-csrf-notice-probe.yaml 2>&1
+}
+
+# Same-origin (the chart default, and the common single-Ingress topology): silent.
+if grep -q 'CSRF_TRUSTED_ORIGINS' <<<"$(csrf_notice)"; then
+  fail "the CSRF-origin notice fires with both base-URL keys unset — a notice on the DEFAULT render is a notice nobody reads (#3945)"
+fi
+if grep -q 'CSRF_TRUSTED_ORIGINS' <<<"$(csrf_notice \
+    --set env.TRUEPPM_FRONTEND_BASE_URL=https://trueppm.example.com \
+    --set env.TRUEPPM_PUBLIC_API_BASE_URL=https://trueppm.example.com)"; then
+  fail "the CSRF-origin notice fires when both base URLs are the SAME origin — same-origin Ingress never needs CSRF_TRUSTED_ORIGINS (#3945)"
+fi
+
+# Split origin, CSRF_TRUSTED_ORIGINS unset: must fire, and must name both keys.
+csrf_split_notice="$(csrf_notice \
+  --set env.TRUEPPM_FRONTEND_BASE_URL=https://app.example.com \
+  --set env.TRUEPPM_PUBLIC_API_BASE_URL=https://api.example.com)"
+grep -q 'TRUEPPM_FRONTEND_BASE_URL' <<<"$csrf_split_notice" \
+  || fail "the CSRF-origin notice on a split-origin deploy does not name TRUEPPM_FRONTEND_BASE_URL (#3945)"
+grep -q 'CSRF_TRUSTED_ORIGINS' <<<"$csrf_split_notice" \
+  || fail "the CSRF-origin notice on a split-origin deploy does not name CSRF_TRUSTED_ORIGINS — the operator is not told which key fixes the coming SSO 403 (#3945)"
+
+# Split origin, CSRF_TRUSTED_ORIGINS SET: the warning must go away.
+if grep -q 'CSRF_TRUSTED_ORIGINS' <<<"$(csrf_notice \
+    --set env.TRUEPPM_FRONTEND_BASE_URL=https://app.example.com \
+    --set env.TRUEPPM_PUBLIC_API_BASE_URL=https://api.example.com \
+    --set env.CSRF_TRUSTED_ORIGINS=https://app.example.com)"; then
+  fail "the CSRF-origin notice still fires on a split-origin deploy once env.CSRF_TRUSTED_ORIGINS is set (#3945)"
+fi
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches all $env_checked containers that import settings.prod"
@@ -1702,3 +1760,4 @@ echo "  - demo reset: CronJob absent unless demo.enabled AND demo.reset.enabled;
 echo "  - podSecurityContext.fsGroup=1000 on all $fsg_checked workloads plus the helm test pod (PVC writable under a root:root CSI volume); fsGroup: null still removes it for OpenShift"
 echo "  - no Deployment/Job/CronJob container invokes bare 'manage.py migrate' — every migrate call goes through migrate_locked (#3188, #3933)"
 echo "  - valkey has a PDB (maxUnavailable: 0, gated by valkey.podDisruptionBudget.enabled) and priorityClassName/terminationGracePeriodSeconds reach its StatefulSet, matching postgresql (#3934)"
+echo "  - NOTES.txt warns on a split-origin deploy (differing TRUEPPM_FRONTEND_BASE_URL/TRUEPPM_PUBLIC_API_BASE_URL) with no CSRF_TRUSTED_ORIGINS, and stays quiet when same-origin or once it is set (#3945)"
