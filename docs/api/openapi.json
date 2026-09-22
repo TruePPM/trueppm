@@ -4062,7 +4062,7 @@
         "/api/v1/edition/": {
             "get": {
                 "operationId": "v1_edition_retrieve",
-                "description": "Returns `{\"edition\": \"community\" | \"enterprise\"}` from the TRUEPPM_EDITION Django setting. No authentication required. The React shell calls this once at startup to decide the post-login redirect target (ADR-0029, ADR-0030).\n\nAlso carries the deployment's read-only demo mode (ADR-1197 D3/D4): `demo_read_only` is always present, and `demo_login_hint` carries the published shared credential when — and only when — that mode is on.",
+                "description": "Returns `{\"edition\": \"community\" | \"enterprise\"}` from the TRUEPPM_EDITION Django setting. No authentication required. The React shell calls this once at startup to decide the post-login redirect target (ADR-0029, ADR-0030).\n\nAlso carries the deployment's read-only demo mode (ADR-1197 D3/D4): `demo_read_only` is always present, and `demo_login_hint` carries the published shared credential when — and only when — that mode is on.\n\n`demo_access_gate` names an external identity gate (e.g. Cloudflare Access) the operator has declared in front of a demo host, so the app can disclose that the visitor's email was collected before they reached it (#3969, ADR-1197 D8). It is an operator **assertion** — nothing verifies it — and, like the login hint, it is emitted only while `demo_read_only` is on.",
                 "summary": "Running edition",
                 "tags": [
                     "meta"
@@ -54692,6 +54692,22 @@
                 "type": "string",
                 "description": "* `waterfall` - Waterfall\n* `scrum` - Scrum\n* `kanban` - Kanban\n* `milestone` - Milestone"
             },
+            "DemoAccessGate": {
+                "type": "object",
+                "properties": {
+                    "provider": {
+                        "type": "string"
+                    },
+                    "privacy_url": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "privacy_url",
+                    "provider"
+                ]
+            },
             "DemoLoginHint": {
                 "type": "object",
                 "properties": {
@@ -54967,6 +54983,14 @@
                         "allOf": [
                             {
                                 "$ref": "#/components/schemas/DemoLoginHint"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "demo_access_gate": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DemoAccessGate"
                             }
                         ],
                         "nullable": true

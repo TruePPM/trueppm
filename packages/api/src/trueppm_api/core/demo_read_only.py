@@ -148,6 +148,70 @@ def parse_demo_login_hint(raw: str | None) -> dict[str, str] | None:
     return {"username": username.strip(), "password": password}
 
 
+#: URL schemes the access-gate privacy link may use. The value is rendered as an
+#: ``href`` on a pre-auth page, so ``javascript:`` and ``data:`` must be unreachable
+#: even though the value comes from the operator rather than a visitor -- a chart
+#: value copied between deployments is not a trusted input.
+_ALLOWED_PRIVACY_URL_SCHEMES = ("https://", "http://")
+
+
+def parse_demo_access_gate(
+    raw_provider: str | None, raw_privacy_url: str | None
+) -> dict[str, str | None] | None:
+    """Parse the external access gate an operator declares in front of the demo.
+
+    A demo host may sit behind a third-party identity gate -- Cloudflare Access,
+    Authelia, Authentik, Google IAP -- that makes every visitor hand over an email
+    address *before* any TruePPM code runs. ADR-1197 D8 records that such a gate is
+    **not** a security control here, and that its email collection is a PII asset the
+    project does not otherwise hold. #3969 resolves the disclosure half of that: the
+    app says so, in the app, when and only when a gate is actually declared.
+
+    **This is an operator assertion and nothing verifies it.** The gate lives in a
+    third-party dashboard outside the cluster; no request the API can make will
+    confirm it is armed, and turning it off in that dashboard leaves this value
+    untouched. A stale ``true`` therefore over-discloses (claims a collection that
+    stopped) and an unset value under-discloses (a real gate nobody declared). Header
+    corroboration (``Cf-Access-Jwt-Assertion``) was considered and rejected in the
+    #3969 architect pass: it would be stripped by the chart's own web tier and fail
+    *closed*, which is the dangerous direction for a disclosure. Declaring fails open.
+
+    The provider name is deliberately operator-supplied rather than a constant. A
+    self-hoster running this same demo mode behind Authelia must not be made to
+    publish a notice naming Cloudflare, which is exactly the false claim #3969's
+    scope note forbids.
+
+    Args:
+        raw_provider: ``TRUEPPM_DEMO_ACCESS_GATE_PROVIDER`` -- the gate's display
+            name, e.g. ``"Cloudflare Access"``. Unset or empty means no gate is
+            declared, which is the default and the normal-install case.
+        raw_privacy_url: ``TRUEPPM_DEMO_ACCESS_GATE_PRIVACY_URL`` -- optional link to
+            the privacy statement covering what that gate collects.
+
+    Returns:
+        ``{"provider": …, "privacy_url": … | None}``, or ``None`` when no provider is
+        declared. A privacy URL without a provider is ``None`` too: the link is an
+        attribute of a declared gate, not a disclosure on its own.
+
+    Raises:
+        ImproperlyConfigured: If the privacy URL is not http(s). Refusing to boot
+            follows the same trade-off as the parsers above -- a disclosure carrying a
+            dead or hostile link is worse than a deployment that will not start, and
+            the operator finds out now rather than from a visitor.
+    """
+    provider = (raw_provider or "").strip()
+    if not provider:
+        return None
+    privacy_url = (raw_privacy_url or "").strip()
+    if privacy_url and not privacy_url.lower().startswith(_ALLOWED_PRIVACY_URL_SCHEMES):
+        raise ImproperlyConfigured(
+            f"TRUEPPM_DEMO_ACCESS_GATE_PRIVACY_URL={raw_privacy_url!r} must start with "
+            "https:// or http://. It is rendered as a link on the pre-auth login page, "
+            "so any other scheme is refused rather than sanitized at use."
+        )
+    return {"provider": provider, "privacy_url": privacy_url or None}
+
+
 def _is_api_path(path_info: str) -> bool:
     """Whether ``path_info`` addresses the API, ignoring any run of leading slashes.
 

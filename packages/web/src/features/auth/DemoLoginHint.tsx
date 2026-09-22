@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { DemoLoginHint as DemoLoginHintValue } from '@/hooks/useEdition';
+import { useDemoAccessGate, type DemoLoginHint as DemoLoginHintValue } from '@/hooks/useEdition';
 
 interface Props {
   hint: DemoLoginHintValue;
@@ -28,6 +28,9 @@ interface Props {
  */
 export function DemoLoginHint({ hint, onFill, disabled }: Props) {
   const [filledNotice, setFilledNotice] = useState('');
+  // Null on every normal install and on a demo with no gate declared, which is what
+  // keeps this disclosure conditional rather than a blanket claim (#3969).
+  const accessGate = useDemoAccessGate();
 
   function handleFill() {
     onFill();
@@ -73,6 +76,45 @@ export function DemoLoginHint({ hint, onFill, disabled }: Props) {
       >
         {filledNotice}
       </p>
+      {accessGate && (
+        // The email-capture disclosure (ADR-1197 D8 resolution, #3969).
+        //
+        // Deliberately POST-HOC, and it says so: the gate intercepts in front of the
+        // app, so by the time any TruePPM code runs the visitor has already handed
+        // over an address. This confirms what happened and names who holds it; the
+        // notice that arrives *before* the prompt lives on the page that links here
+        // (getting-started/try-it). Shipping only this half would not meet the
+        // "before the email-capture step" bar and must not be described as if it did.
+        //
+        // Rendered only when the deployment declared a gate — `provider` is the
+        // operator's own text, never a hardcoded vendor, so a demo behind Authelia
+        // does not publish a notice naming Cloudflare.
+        <p
+          data-testid="demo-access-gate-notice"
+          className="text-xs text-neutral-text-secondary border-t border-neutral-border pt-2"
+        >
+          <strong className="font-medium text-neutral-text-primary">
+            {accessGate.provider}
+          </strong>{' '}
+          gates this demo host and collected your email address before you reached this
+          page. TruePPM does not store it, and a TruePPM instance you host yourself has
+          no such check unless you add one.
+          {accessGate.privacy_url && (
+            <>
+              {' '}
+              <a
+                href={accessGate.privacy_url}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="underline hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded"
+              >
+                What {accessGate.provider} collects
+                <span className="sr-only"> (opens in a new tab)</span>
+              </a>
+            </>
+          )}
+        </p>
+      )}
     </div>
   );
 }

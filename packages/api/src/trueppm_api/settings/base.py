@@ -9,7 +9,11 @@ from pathlib import Path
 
 import environ
 
-from trueppm_api.core.demo_read_only import parse_demo_login_hint, parse_demo_read_only
+from trueppm_api.core.demo_read_only import (
+    parse_demo_access_gate,
+    parse_demo_login_hint,
+    parse_demo_read_only,
+)
 from trueppm_api.core.ratelimit import apply_rate_limit_disable, resolve_rate_limit_enabled
 from trueppm_api.core.refresh_cookie_policy import resolve_refresh_cookie_samesite
 from trueppm_api.core.storage_config import S3_STORAGE_BACKENDS, build_s3_storage_options
@@ -303,6 +307,19 @@ DJANGO_ADMIN_ENABLED = env.bool("TRUEPPM_DJANGO_ADMIN_ENABLED", default=False)
 # disable the one control the demo's safety rests on. An unrecognized value here
 # refuses to boot instead.
 DEMO_READ_ONLY: bool = parse_demo_read_only(os.environ.get("TRUEPPM_DEMO_READ_ONLY"))
+
+# External access gate declared in front of a demo host (#3969, ADR-1197 D8 resolution
+# of 2026-09-21). A gate such as Cloudflare Access collects a visitor's email address
+# before any TruePPM code runs; this is how the deployment says so, and it is surfaced
+# only while DEMO_READ_ONLY is on (see the edition view). IT IS AN OPERATOR ASSERTION
+# THAT NOTHING VERIFIES -- the gate is configured in a third-party dashboard outside
+# the cluster, so neither setting it nor clearing it proves anything about what is
+# actually in front of this pod. Unset on every normal install, which is the point:
+# the disclosure is conditional, never a blanket claim.
+DEMO_ACCESS_GATE: dict[str, str | None] | None = parse_demo_access_gate(
+    os.environ.get("TRUEPPM_DEMO_ACCESS_GATE_PROVIDER"),
+    os.environ.get("TRUEPPM_DEMO_ACCESS_GATE_PRIVACY_URL"),
+)
 
 # Global rate-limiting kill switch (ADR-0604, extends ADR-0208). Operator-only
 # escape hatch to disable ALL DRF throttling — used by the k6 perf:load job to

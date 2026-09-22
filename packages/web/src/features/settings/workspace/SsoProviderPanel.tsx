@@ -435,8 +435,16 @@ function TestConnectionSection({
             This looks like an identity provider running inside your own cluster (a private address
             like a <code className="text-[11px]">.svc.cluster.local</code> hostname). The
             server&apos;s outbound egress guard blocks private addresses by default — set{' '}
-            <code className="text-[11px]">TRUEPPM_EGRESS_ALLOWLISTED_HOSTS</code> to admit it. This
-            allow-list is process-wide, so only add hosts you trust.
+            <code className="text-[11px]">TRUEPPM_EGRESS_ALLOWLISTED_HOSTS</code> to admit it.
+          </p>
+          <p className="mt-1.5">
+            This isn&apos;t something you can toggle from this page: it&apos;s a Helm values
+            change and an API redeploy, so loop in your platform team.
+          </p>
+          <p className="mt-1.5">
+            The allow-list is process-wide — an allow-listed host also becomes reachable through
+            personal-access-token verification, git-link status refresh, webhook delivery, and
+            SMTP relay checks, not just SSO. Only add hosts you trust.
           </p>
           <p className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
             <a
