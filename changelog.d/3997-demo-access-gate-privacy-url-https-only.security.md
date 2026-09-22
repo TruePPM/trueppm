@@ -1,0 +1,1 @@
+- **Demo access-gate privacy link now requires HTTPS**: `TRUEPPM_DEMO_ACCESS_GATE_PRIVACY_URL` no longer accepts a plain `http://` link. The value is rendered as an `href` on the public, unauthenticated pre-auth page, so it is now held to the same bar as any other link a visitor is handed there. Declaring only a `provider` name with no privacy URL is unaffected.
