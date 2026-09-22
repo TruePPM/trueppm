@@ -1698,6 +1698,63 @@ demo:
     # explicitly, per D6, so this isn't silently re-derived by a future reader.
     maxPersonalAccessTokens: 10
 
+  # ───────────────────────────────────────────────────────────────────────────
+  # External access gate — the visitor-facing DISCLOSURE, not a control
+  # (#3969, ADR-1197 D8 resolution 2026-09-21).
+  #
+  # A public demo host is often fronted by a third-party identity gate for bot
+  # reduction — Cloudflare Access, Authelia, Authentik, Google IAP. Every one of them
+  # makes the visitor hand over an EMAIL ADDRESS before the request ever reaches this
+  # chart's web tier. That is a PII collection the project does not otherwise perform,
+  # by a third party outside the self-hosted boundary, and ADR-1197 D8 records that it
+  # sits in tension with the public "no seat count, no feature flags, no telemetry"
+  # positioning (#3760). The owner's resolution was to KEEP the gate on the hosted
+  # demo and DISCLOSE it. This block is the disclosure.
+  #
+  # WHAT IT IS NOT: not a security control, and nothing in the security design may
+  # depend on it. ADR-1197 D8's first paragraph holds either way — the gate mitigates
+  # none of T1–T7, and it is passed by anyone with any working email address.
+  #
+  # IT IS AN ASSERTION AND NOTHING VERIFIES IT. The gate is configured in a provider's
+  # dashboard entirely outside this cluster. Setting this does not arm anything, and
+  # clearing the gate in that dashboard does not clear this. So a stale value
+  # OVER-discloses (claims a collection that has stopped) and an unset one
+  # UNDER-discloses (a real gate nobody declared). Header corroboration
+  # (Cf-Access-Jwt-Assertion) was considered and rejected: the chart's own web tier
+  # would strip it and the disclosure would fail CLOSED, which is the wrong direction.
+  #
+  # CONDITIONAL BY CONSTRUCTION — this is the whole point of the block. Left empty
+  # (the default, and every normal install), GET /api/v1/edition/ emits
+  # `demo_access_gate: null` and the app says NOTHING about email collection. A
+  # self-hoster running this same demo mode without a gate must never carry a false
+  # claim that they are collecting addresses.
+  #
+  # `provider` is operator-supplied rather than a fixed constant for the same reason:
+  # a self-hoster behind Authelia must not be made to publish a notice naming
+  # Cloudflare. Whatever you write here is the name the visitor is shown, so write the
+  # one they met — e.g. "Cloudflare Access".
+  #
+  # Read only while the demo fence is armed (demo.enabled or demo.interactive), which
+  # is also the only time it is rendered. Setting it with both off FAILS THE RENDER
+  # rather than leaving an operator believing they published a notice that nothing
+  # emits. Both values are validated at render time — the provider is published copy
+  # and the URL becomes an href on a pre-auth page.
+  #
+  #     --set demo.accessGate.provider="Cloudflare Access" \
+  #     --set demo.accessGate.privacyUrl="https://example.com/demo-privacy"
+  #
+  # Pair it with the pre-capture notice on the page that LINKS to the demo: the gate
+  # intercepts in front of the app, so a visitor meets the email prompt before any
+  # TruePPM code runs and an in-app notice can only ever confirm it after the fact.
+  accessGate:
+    # Display name of the gate, e.g. "Cloudflare Access". Empty = no gate declared,
+    # no disclosure rendered. Letters, digits, spaces and . , ' ( ) & / _ - (max 60).
+    provider: ""
+    # Optional http(s) link to the privacy statement covering what that gate
+    # collects and how long it is kept. ADR-1197 D8 names the retention statement as
+    # part of the gap; this is where it is answered. Requires `provider`.
+    privacyUrl: ""
+
   # Public origin serving this instance, e.g. https://demo.example.com — no trailing
   # slash. Used to print the share URLs; it cannot be inferred from inside the
   # cluster, so demo.enabled with an empty baseUrl fails the render.

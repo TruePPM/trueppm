@@ -1273,6 +1273,18 @@
             }
           }
         },
+        "accessGate": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "provider": {
+              "type": "string"
+            },
+            "privacyUrl": {
+              "type": "string"
+            }
+          }
+        },
         "throttle": {
           "type": "object",
           "additionalProperties": false,

@@ -192,6 +192,29 @@ spec:
             - name: TRUEPPM_ADMIN_PASSWORD_FILE
               value: {{ .Values.admin.passwordFile | quote }}
             {{- include "trueppm.demoGuards" . }}
+            {{- if include "trueppm.demoReadOnly" . }}
+            {{- with (.Values.demo.accessGate | default dict) }}
+            {{- if .provider }}
+            # The external identity gate an operator declares in front of this demo
+            # host (#3969, ADR-1197 D8 resolution). A gate such as Cloudflare Access
+            # takes a visitor's email address BEFORE any TruePPM code runs, so the app
+            # cannot detect it and cannot disclose it unless it is told. This is that
+            # telling — and it is an ASSERTION: nothing in the cluster verifies that
+            # the gate is armed, and clearing it in the provider's dashboard leaves
+            # this value untouched.
+            #
+            # Rendered only while the read-only fence is armed, which is exactly when
+            # GET /api/v1/edition/ will surface it. trueppm.demoGuards fails the render
+            # if the two ever disagree, so this can never be a dead control.
+            - name: TRUEPPM_DEMO_ACCESS_GATE_PROVIDER
+              value: {{ .provider | quote }}
+            {{- if .privacyUrl }}
+            - name: TRUEPPM_DEMO_ACCESS_GATE_PRIVACY_URL
+              value: {{ .privacyUrl | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
             {{- /*
               TRUEPPM_DEMO_READ_ONLY itself comes from trueppm.appEnv above
               (trueppm.demoReadOnlyEnv, #3925) — every container/initContainer
