@@ -515,12 +515,12 @@ describe('LoginPage — read-only demo (ADR-1197 D3, #3926)', () => {
     await waitFor(() => expect(screen.getByText('Read-only demo')).toBeInTheDocument());
     expect(
       screen.getByText(
-        'Drag a task on the Schedule and watch the critical path recompute in your browser. Nothing you do here is saved.',
+        'The Schedule is the only interactive part of this demo — drag a task and watch the critical path recompute live in your browser. Nothing you do here is saved.',
       ),
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "This demo shows the scheduling engine. Boards, backlogs, sprints and resource plans are populated with real sample data — you can look at them, but you can't change them.",
+        "Everything else — boards, backlogs, sprints and resource plans — is real sample data to browse, not to try changes on. You can look, but nothing outside the Schedule responds to what you do.",
       ),
     ).toBeInTheDocument();
     expect(
