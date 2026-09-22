@@ -550,25 +550,51 @@ def _derive_backward(
     lf_terms, ls_terms = _backward_successor_terms(succs, cal, project_finish)
     contribs = [*lf_terms, *ls_terms]
 
-    # _flag_binding marks the matching term in place and returns it; None means no
-    # candidate produced the engine's value, so a derived term below is the cause.
-    # The late-window floor is checked first: it also produces a value no candidate
-    # term can name, and attributing it to the duration expansion would explain the
-    # right date with the wrong mechanism (#3963).
     if want_start:
-        if _flag_binding(ls_terms, task.late_start) is None:
-            floor = _late_window_floor_binding(task, lf_terms, ls_terms, cal, want_start=True)
-            contribs.append(floor if floor is not None else _backward_duration_binding(task))
+        contribs.extend(_derive_backward_start_fallback(task, lf_terms, ls_terms, cal))
         value = task.late_start
     else:
-        if _flag_binding(lf_terms, task.late_finish) is None:
-            floor = _late_window_floor_binding(task, lf_terms, ls_terms, cal, want_start=False)
-            contribs.append(
-                floor if floor is not None else _backward_pullback_binding(task, ls_terms)
-            )
+        contribs.extend(_derive_backward_finish_fallback(task, lf_terms, ls_terms, cal))
         value = task.late_finish
 
     return (value.isoformat() if value else None, contribs)
+
+
+def _derive_backward_start_fallback(
+    task: Task,
+    lf_terms: list[DerivationContribution],
+    ls_terms: list[DerivationContribution],
+    cal: Calendar,
+) -> list[DerivationContribution]:
+    """The late-start term(s) for :func:`_derive_backward`, when ``want_start`` is true.
+
+    ``_flag_binding`` marks the matching term in place and returns it; ``None`` means no
+    candidate produced the engine's value, so a derived term below is the cause. The
+    late-window floor is checked first: it also produces a value no candidate term can
+    name, and attributing it to the duration expansion would explain the right date with
+    the wrong mechanism (#3963).
+    """
+    if _flag_binding(ls_terms, task.late_start) is not None:
+        return []
+    floor = _late_window_floor_binding(task, lf_terms, ls_terms, cal, want_start=True)
+    return [floor if floor is not None else _backward_duration_binding(task)]
+
+
+def _derive_backward_finish_fallback(
+    task: Task,
+    lf_terms: list[DerivationContribution],
+    ls_terms: list[DerivationContribution],
+    cal: Calendar,
+) -> list[DerivationContribution]:
+    """The late-finish term(s) for :func:`_derive_backward`, when ``want_start`` is false.
+
+    Mirrors :func:`_derive_backward_start_fallback` for the finish side; see its
+    docstring for the floor-before-pullback ordering rationale (#3963).
+    """
+    if _flag_binding(lf_terms, task.late_finish) is not None:
+        return []
+    floor = _late_window_floor_binding(task, lf_terms, ls_terms, cal, want_start=False)
+    return [floor if floor is not None else _backward_pullback_binding(task, ls_terms)]
 
 
 def _backward_successor_terms(
