@@ -24,6 +24,7 @@ from .base import (
     ALLOW_UNENCRYPTED_DB,
     ALLOW_WILDCARD_ALLOWED_HOSTS,
     DATABASES,
+    DEMO_READ_ONLY,
     DJANGO_LOG_LEVEL,
     INTEGRATION_ENCRYPTION_KEY,
     MEDIA_ROOT,
@@ -151,12 +152,16 @@ SECURE_REDIRECT_EXEMPT = [r"^api/v1/health/$", r"^api/v1/readyz$", r"^api/v1/edi
 # MEDIA_ROOT extends the guard to the opted-in case (#3184): before this the
 # opt-in was an unverified claim, and the deployment it described — no MEDIA_ROOT
 # at all, on a read-only root filesystem — booted clean and then EROFS'd on the
-# first upload.
+# first upload. writes_disabled is the ADR-1197 escape: the interactive/share-link
+# demo modes have neither a writable media path nor storage credentials on
+# purpose, and DemoReadOnlyMiddleware (armed by the same TRUEPPM_DEMO_READ_ONLY)
+# already refuses every upload before it can reach storage.
 _storage_errors = validate_attachment_storage(
     STORAGES["default"]["BACKEND"],
     debug=DEBUG,
     allow_local=ALLOW_LOCAL_ATTACHMENT_STORAGE,
     media_root=MEDIA_ROOT,
+    writes_disabled=DEMO_READ_ONLY,
 )
 if _storage_errors:
     raise RuntimeError(_REFUSING_TO_START + "; ".join(str(e.msg) for e in _storage_errors))

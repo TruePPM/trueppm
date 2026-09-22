@@ -367,7 +367,12 @@ were not run in a browser.
      method-override test (#3924).
    - **Attachments are off in this mode.** D2 already refuses the upload. The chart also
      gives the api pod no writable media path and no storage write credentials, so a
-     hypothetical D2 hole has nowhere to save a file (#3925).
+     hypothetical D2 hole has nowhere to save a file (#3925). This combination would
+     otherwise trip `validate_attachment_storage`'s own #775 boot guard — no opt-in and no
+     writable path is exactly the misconfiguration it exists to refuse — so the guard
+     takes a `writes_disabled` escape keyed off the same `TRUEPPM_DEMO_READ_ONLY` that
+     arms D2, not a second independently-settable flag: the guard's durability question
+     only applies to a backend a request can actually reach.
    - **The comment composer and attachment dropzone are disabled up front** with a reason,
      and any form that is refused keeps the visitor's typed text (#3926).
    - Alternative B (enforce read-only through the seeded role) stays rejected for the

@@ -383,6 +383,7 @@ def validate_attachment_storage(
     debug: bool,
     allow_local: bool,
     media_root: str | os.PathLike[str] | None = None,
+    writes_disabled: bool = False,
 ) -> list[CheckMessage]:
     """Return a deploy error when attachments cannot durably land on disk.
 
@@ -403,8 +404,20 @@ def validate_attachment_storage(
 
     Returns an empty list under DEBUG so developer workstations keep using local
     storage.
+
+    ``writes_disabled`` (ADR-1197) is the third escape, distinct from both: the
+    interactive/share-link demo modes give the api pod no writable media path
+    and no storage credentials on purpose, but they are not durability holes —
+    ``DemoReadOnlyMiddleware`` (armed by the same ``TRUEPPM_DEMO_READ_ONLY`` this
+    flag is sourced from) refuses every attachment upload before a request can
+    reach storage at all. A backend that will never be written to cannot lose an
+    upload, so the durability question this check exists to enforce does not
+    apply. This is deliberately keyed off the SAME flag that arms the write
+    fence rather than a second, independently-settable one: a standalone
+    "attachments disabled" flag could drift out of sync with whether writes are
+    actually blocked and reopen the exact hole #775 closed.
     """
-    if debug:
+    if debug or writes_disabled:
         return []
 
     is_local = default_storage_backend in _LOCAL_STORAGE_BACKENDS
@@ -466,6 +479,7 @@ def check_attachment_storage(
         debug=bool(getattr(settings, "DEBUG", False)),
         allow_local=bool(getattr(settings, "ALLOW_LOCAL_ATTACHMENT_STORAGE", False)),
         media_root=getattr(settings, "MEDIA_ROOT", None),
+        writes_disabled=bool(getattr(settings, "DEMO_READ_ONLY", False)),
     )
 
 
