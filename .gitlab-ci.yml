@@ -7037,6 +7037,100 @@ mcp:publish:
       tar xzf /tmp/syft-arm64.tar.gz -C "$TOOLBIN" syft
     - export PATH="${TOOLBIN}:${PATH}"
 
+ci:arm64-smoke:
+  # Exercises the arm64 publish path WITHOUT cutting a release tag (#3990).
+  #
+  # api:publish:arm64, web:publish:arm64 and both :manifest jobs are gated on
+  # rules-release-tag, and a tag pipeline runs the CI file as it stood AT the
+  # tag commit — so they could only ever have run during a live release cut,
+  # and they have never run at all (absent from .gitlab-ci.yml at beta.1,
+  # beta.2 and beta.3). That matters more than "arm64 might be missing":
+  # api:publish:manifest now owns the real release tag, `:latest` and Cosign
+  # signing, so its debut failing would also break the amd64 publish that
+  # works today.
+  #
+  # Deliberately `extends: .docker-publish-arm64-base` rather than
+  # reimplementing it. The unproven surface is mostly that base's
+  # before_script — the Docker Desktop guard and the pinned trivy/syft
+  # macOS-ARM64 downloads with their SHA256 checks — so a smoke job that
+  # skipped it would prove the least interesting half.
+  #
+  # Opt-in only: the macOS runner is a persistent shared host and these builds
+  # are heavy, so this must never fire on an ordinary MR pipeline. Pass
+  # ARM64_SMOKE=1 as a per-run variable; do NOT set it as a project variable
+  # or it fires on every pipeline.
+  extends: .docker-publish-arm64-base
+  rules:
+    - if: '$ARM64_SMOKE == "1"'
+  # Start immediately instead of queueing behind every earlier stage — this
+  # job validates the runner, not the code.
+  needs: []
+  script:
+    - |
+      set -euo pipefail
+      GL_API="${CI_REGISTRY_IMAGE}/api"
+      echo "--- api: arm64 build (root context, matching api:publish) ---"
+      docker build -f packages/api/Dockerfile -t "${GL_API}:arm64-smoke" .
+      ARCH="$(docker image inspect "${GL_API}:arm64-smoke" --format '{{.Architecture}}')"
+      echo "api image architecture: ${ARCH}"
+      [ "$ARCH" = "arm64" ] || { echo "ERROR: expected arm64, got ${ARCH}"; exit 1; }
+      docker save "${GL_API}:arm64-smoke" -o /tmp/api-arm64-smoke.tar
+      trivy image --input /tmp/api-arm64-smoke.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+      mkdir -p sbom
+      syft "docker-archive:/tmp/api-arm64-smoke.tar" -o "cyclonedx-json=sbom/api-arm64-smoke.cdx.json"
+      . "$CI_PROJECT_DIR/scripts/docker-push-retry.sh"
+      push_with_retry "${GL_API}:arm64-smoke"
+    - |
+      set -euo pipefail
+      GL_WEB="${CI_REGISTRY_IMAGE}/web"
+      # web:publish cds into packages/web first — its Dockerfile COPYs
+      # nginx.conf and package-lock.json from the package dir, not the repo
+      # root, so a root-context build fails on a missing /nginx.conf.
+      echo "--- web: arm64 build (packages/web context, matching web:publish) ---"
+      cd packages/web
+      docker build -t "${GL_WEB}:arm64-smoke" .
+      cd "$CI_PROJECT_DIR"
+      ARCH="$(docker image inspect "${GL_WEB}:arm64-smoke" --format '{{.Architecture}}')"
+      echo "web image architecture: ${ARCH}"
+      [ "$ARCH" = "arm64" ] || { echo "ERROR: expected arm64, got ${ARCH}"; exit 1; }
+      docker save "${GL_WEB}:arm64-smoke" -o /tmp/web-arm64-smoke.tar
+      trivy image --input /tmp/web-arm64-smoke.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+      mkdir -p sbom
+      syft "docker-archive:/tmp/web-arm64-smoke.tar" -o "cyclonedx-json=sbom/web-arm64-smoke.cdx.json"
+      # This is the push that failed on the first run (job 16659791908) with
+      # "blob unknown to registry" after a cross-repo "Mounted from
+      # trueppm/trueppm/api" — see scripts/docker-push-retry.sh (#3990).
+      . "$CI_PROJECT_DIR/scripts/docker-push-retry.sh"
+      push_with_retry "${GL_WEB}:arm64-smoke"
+    - |
+      set -euo pipefail
+      # GHCR scratch push. NEVER `:latest` — that tag is the public default
+      # pull target and is assembled as a multi-arch manifest list, so an
+      # arm64-only push there would break every amd64 puller. GHCR package
+      # version deletion needs the delete:packages scope, so treat even these
+      # scratch tags as deliberate litter to clean up.
+      if [ -z "${GHCR_USER:-}" ] || [ -z "${GHCR_TOKEN:-}" ]; then
+        echo "NOTE: GHCR_USER/GHCR_TOKEN absent — skipping the GHCR scratch push."
+        echo "They are Masked + Protected, so an UNPROTECTED branch does not receive"
+        echo "them. This is the same class of failure api:publish documents inline"
+        echo "(missing at the 0.4.0-beta.1 cut because v* was not a Protected Tag)."
+        echo "The GitLab-registry pushes above still prove build + scan + SBOM on arm64."
+        exit 0
+      fi
+      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      . "$CI_PROJECT_DIR/scripts/docker-push-retry.sh"
+      for pkg in api web; do
+        docker tag "${CI_REGISTRY_IMAGE}/${pkg}:arm64-smoke" "ghcr.io/${GHCR_USER}/${pkg}:arm64-smoke"
+        push_with_retry "ghcr.io/${GHCR_USER}/${pkg}:arm64-smoke"
+        echo "pushed ghcr.io/${GHCR_USER}/${pkg}:arm64-smoke"
+      done
+      echo "Scratch tags only. :latest was NOT touched."
+  artifacts:
+    name: "arm64-smoke-sbom"
+    paths:
+      - sbom/
+    expire_in: 1 week
+
 api:publish:
   # amd64 leg of the multi-arch publish (#3407). Pushes ONLY the
   # `-amd64`-suffixed tag — the real release tag, `:latest`, and Cosign
@@ -7107,7 +7201,12 @@ api:publish:arm64:
       trivy image --input /tmp/api-image-arm64.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
       mkdir -p sbom
       syft "docker-archive:/tmp/api-image-arm64.tar" -o "cyclonedx-json=sbom/api-${VERSION}-arm64.cdx.json"
-      docker push "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64"
+      # Retry the push: this runner is a persistent shell executor, so its
+      # daemon can try a cross-repo blob mount the registry then cannot
+      # resolve ("blob unknown to registry"). The amd64 leg is immune — it
+      # gets a fresh daemon per job. See scripts/docker-push-retry.sh (#3990).
+      . "$CI_PROJECT_DIR/scripts/docker-push-retry.sh"
+      push_with_retry "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64"
       if [ -z "${GHCR_USER}" ] || [ -z "${GHCR_TOKEN}" ]; then
         echo "ERROR: GHCR_USER/GHCR_TOKEN not set — cannot publish the public arm64 image."
         echo "Configure both under Settings → CI/CD → Variables (Masked + Protected)."
@@ -7116,7 +7215,8 @@ api:publish:arm64:
       echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
       GH_IMAGE="ghcr.io/${GHCR_USER}/api"
       docker tag "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" "${GH_IMAGE}:${VERSION}-arm64"
-      docker push "${GH_IMAGE}:${VERSION}-arm64"
+      . "$CI_PROJECT_DIR/scripts/docker-push-retry.sh"
+      push_with_retry "${GH_IMAGE}:${VERSION}-arm64"
   artifacts:
     name: "api-sbom-arm64-${CI_COMMIT_TAG}"
     paths:
@@ -7244,7 +7344,10 @@ web:publish:arm64:
       trivy image --input /tmp/web-image-arm64.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
       mkdir -p sbom
       syft "docker-archive:/tmp/web-image-arm64.tar" -o "cyclonedx-json=sbom/web-${VERSION}-arm64.cdx.json"
-      docker push "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64"
+      # See the api arm64 leg and scripts/docker-push-retry.sh (#3990). This is
+      # the exact push that failed on job 16659791908 with a cross-repo mount.
+      . "$CI_PROJECT_DIR/scripts/docker-push-retry.sh"
+      push_with_retry "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64"
       if [ -z "${GHCR_USER}" ] || [ -z "${GHCR_TOKEN}" ]; then
         echo "ERROR: GHCR_USER/GHCR_TOKEN not set — cannot publish the public arm64 image."
         echo "Configure both under Settings → CI/CD → Variables (Masked + Protected)."
@@ -7253,7 +7356,8 @@ web:publish:arm64:
       echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
       GH_IMAGE="ghcr.io/${GHCR_USER}/web"
       docker tag "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" "${GH_IMAGE}:${VERSION}-arm64"
-      docker push "${GH_IMAGE}:${VERSION}-arm64"
+      . "$CI_PROJECT_DIR/scripts/docker-push-retry.sh"
+      push_with_retry "${GH_IMAGE}:${VERSION}-arm64"
   artifacts:
     name: "web-sbom-arm64-${CI_COMMIT_TAG}"
     paths:
