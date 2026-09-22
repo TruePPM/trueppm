@@ -626,6 +626,70 @@ See [Deployment](/administration/deployment/),
 [Helm values](/administration/helm-values/#managed-external-datastores), and the
 chart README.
 
+### Interactive demo mode
+
+`demo.interactive` publishes a real login and lets a visitor tour the whole app,
+read-only. It is a different shape from the plain [share-link demo](/administration/helm-values/#public-read-only-demo-mode)
+(`demo.enabled`), which publishes no login at all — see
+[ADR-1197](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/docs/adr/1197-interactive-demo-read-only-is-a-deployment-mode-not-a-role.md)
+for the full design. Four layers combine to make it safe to expose:
+
+1. **The write fence is server-side and role-independent.** `DemoReadOnlyMiddleware`
+   refuses every unsafe HTTP method under `/api/` except sign-in, token refresh
+   and sign-out — regardless of the visitor's role. This is the guarantee; the
+   remaining three layers are defense in depth over it.
+2. **A method fence at the edge.** The web tier's nginx renders a third server
+   block for this mode: `limit_except GET HEAD OPTIONS` over `/api/`, with the
+   same three sign-in paths exact-matched around it. `/admin/` and `/ws/` still
+   return `404`. A request refused here never reaches Django.
+3. **Egress-deny on the api and celery-worker pods.** This mode needs no outbound
+   access at all — no IdP, no SMTP, no object storage, no OTLP — so the chart
+   restricts their egress to DNS and the bundled PostgreSQL/Valkey pods only, the
+   one exception to the "API and worker egress stays open" rule described in
+   [Ports and firewall](/administration/networking/#ports-and-firewall). It also
+   covers the *outbound effects* of comments and webhooks, not only the obvious
+   integration path.
+4. **Per-account throttles re-aimed for a shared, published credential.** Every
+   visitor authenticates as the same account, so a throttle keyed on the account
+   rather than the caller's IP bounds the whole crowd together. The login-lockout
+   scope described in [Login rate limiting](#login-rate-limiting-and-per-account-lockout)
+   is raised in this mode from its ordinary credential-stuffing posture to one
+   sized for concurrent visitors — the per-IP `login` and `anon` scopes stay the
+   real limiters **for the sign-in request itself only**. They do not bound a
+   signed-in visitor's ordinary reads: DRF's stock anonymous throttle skips
+   authenticated requests, so once a visitor is signed in, the shared `"user"`
+   scope (`demo.throttle.userRate`) is the *only* throttle on their traffic, with
+   no independent per-IP ceiling. It is sized generously on purpose — this is a
+   shared-fate resource-consumption tradeoff, not a per-visitor fairness
+   guarantee, and closing that gap depends on whatever edge sits in front of the
+   host (see the Cloudflare Access caveat below). See the `demo.throttle.*` keys
+   in [Helm values](/administration/helm-values/#public-read-only-demo-mode).
+
+None of that makes the following true, and the design is deliberately **not**
+built assuming they are:
+
+- **A hostname gate in front of the demo (Cloudflare Access or similar) is bot
+  reduction and an email list, not a security control.** It is passed by anyone
+  with any working email address and mitigates none of the threat model's
+  findings. Run one if you want fewer automated signups; do not treat it as a
+  reason to skip the layers above.
+- **The scheduled reset (`demo.reset`) bounds contamination — it prevents
+  nothing.** It caps how long a successful write or a piece of vandalism stays
+  visible at one reset interval. It is not a control and must not be cited as
+  mitigating any finding above; with the write fence armed there is normally
+  nothing for it to clean up in the first place.
+- **Host isolation from your CI runners is a precondition this chart cannot
+  verify.** Give the interactive demo its own host, separate from anything a CI
+  job can reach — no chart flag, render-time guard, or CI job can check this for
+  you, because it depends on infrastructure outside the release. Treat it as a
+  deployment requirement with a human owner, the same way you would treat "do
+  not point this at your production database."
+
+No writable media path is rendered for the api pod in this mode either way — see
+`persistence.media` in [Helm values](/administration/helm-values/#attachment-storage-persistencemedia).
+The bundled Atlas sample's task attachments are external-link references, not
+uploaded files, so nothing is lost by that restriction.
+
 ## RBAC enforcement
 
 All API endpoints enforce role-based access control. See the [RBAC documentation](/administration/rbac/) for the full permission matrix.

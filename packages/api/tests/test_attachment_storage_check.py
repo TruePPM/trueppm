@@ -73,6 +73,56 @@ def test_system_check_flags_local_storage_when_debug_off(
     assert errors[0].id == "trueppm.E004"
 
 
+# ---------------------------------------------------------------------------
+# writes_disabled — the ADR-1197 demo-mode escape (#3925)
+#
+# Interactive/share-link demo deployments give the api pod no writable media
+# path and no storage credentials on purpose (D2 already refuses the upload at
+# DemoReadOnlyMiddleware), so a bare local-storage backend with nothing else
+# configured must NOT trip the durability guard when writes are disabled.
+# ---------------------------------------------------------------------------
+
+
+def test_writes_disabled_clears_bare_local_storage() -> None:
+    """No opt-in, no media_root, no object storage — clean when writes can't happen."""
+    assert (
+        validate_attachment_storage(_LOCAL, debug=False, allow_local=False, writes_disabled=True)
+        == []
+    )
+
+
+def test_writes_disabled_does_not_require_allow_local() -> None:
+    """writes_disabled is independent of the opt-in flag, not an alias for it."""
+    assert (
+        validate_attachment_storage(
+            _LOCAL,
+            debug=False,
+            allow_local=False,
+            media_root=None,
+            writes_disabled=True,
+        )
+        == []
+    )
+
+
+def test_writes_disabled_false_still_flags_local_storage() -> None:
+    """The new parameter defaults to False and changes nothing for every existing caller."""
+    errors = validate_attachment_storage(
+        _LOCAL, debug=False, allow_local=False, writes_disabled=False
+    )
+    assert len(errors) == 1
+    assert errors[0].id == "trueppm.E004"
+
+
+def test_system_check_clean_when_demo_read_only(settings: pytest.FixtureRequest) -> None:
+    """The registry caller reads DEMO_READ_ONLY, not just the unit function."""
+    settings.DEBUG = False  # type: ignore[attr-defined]
+    settings.ALLOW_LOCAL_ATTACHMENT_STORAGE = False  # type: ignore[attr-defined]
+    settings.STORAGES = {"default": {"BACKEND": _LOCAL}}  # type: ignore[attr-defined]
+    settings.DEMO_READ_ONLY = True  # type: ignore[attr-defined]
+    assert check_attachment_storage() == []
+
+
 #: chmod cannot make a directory unwritable to root, so a root test runner would
 #: pass the "rejects an unwritable MEDIA_ROOT" cases without exercising anything.
 #: CI runs as `ci` (.gitlab/ci-images/api.Dockerfile); skip rather than lie.

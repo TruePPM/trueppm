@@ -2,16 +2,17 @@
 
 ## Status
 
-Accepted — status corrected 2026-09-21 as the D3/D4 slice (#3926) landed on top of #3925
-MR 1, matching the convention established by the #2539 audit (verified: D2's middleware
-merged as `trueppm_api.core.demo_read_only` in #3924, and `load_sample_project` now cites
-D5 by name). Proposed 2026-09-19; amended 2026-09-20 and 2026-09-21 — see **Amendment
-2026-09-20** and the dated notes on D9 below. Resolves #3912. Amends ADR-0658 — which
-continues to govern the share-link demo **unchanged** — for one new mode only.
+Accepted — status corrected 2026-09-21 as the D1/D6/D7 slice (#3925 MR 2) landed on top of
+D3/D4 (#3926) and #3925 MR 1, matching the convention established by the #2539 audit
+(verified: D2's middleware merged as `trueppm_api.core.demo_read_only` in #3924, and
+`load_sample_project` now cites D5 by name). Proposed 2026-09-19; amended 2026-09-20 and
+2026-09-21 — see **Amendment 2026-09-20** and the dated notes on D9 below. Resolves #3912.
+Amends ADR-0658 — which continues to govern the share-link demo **unchanged** — for one new
+mode only.
 
-> **Implementation status (2026-09-21).** The 2026-09-19 note below said "no code ships
-> with this ADR", and that has stopped being true — which is why the status moved. What
-> exists now:
+> **Implementation status (2026-09-21, updated for #3925 MR 2).** The 2026-09-19 note below
+> said "no code ships with this ADR", and that has stopped being true — which is why the
+> status moved. What exists now:
 >
 > - **D2 — shipped** (#3924): `DemoReadOnlyMiddleware` refuses every unsafe method under
 >   `/api/` except sign-in, token refresh and sign-out, keyed on the deployment.
@@ -22,11 +23,30 @@ continues to govern the share-link demo **unchanged** — for one new mode only.
 > - **D3, D4 — shipped** (#3926): the refusal affordance, the preview overlay, the login
 >   and shell announcements, and the `demo_read_only` / `demo_login_hint` fields on
 >   `GET /api/v1/edition/`.
-> - **D1 — NOT shipped.** `packages/helm/templates/web/configmap.yaml` still renders two
->   server blocks, not three, so the method fence at the edge does not exist and the
->   interactive login is not reachable through the chart's own web tier. That block, the
->   egress NetworkPolicy and the T2 throttle re-aim are #3925 MR 2, and until they land
->   **an interactive demo must not be exposed publicly.**
+> - **D1, D6, D7 — shipped** (#3925 MR 2). `templates/web/configmap.yaml` now renders a
+>   THIRD server block under `demo.interactive`: a method fence (`limit_except GET HEAD
+>   OPTIONS` over `/api/`, with the three D2 auth POSTs exact-matched around it), `/admin/`
+>   and `/ws/` still 404. `templates/networkpolicy.yaml` renders an egress-deny
+>   NetworkPolicy for the api and celery-worker pods, DNS and the bundled datastores only,
+>   guarded so it refuses to render against a managed (non-bundled) datastore. The api
+>   Deployment renders `TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE` and `TRUEPPM_THROTTLE_USER_RATE`
+>   re-aimed for concurrency, and records `TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS` as accepted at
+>   its default (D2 already refuses token creation, so the cap is unreachable here).
+>   `trueppm.demoGuards` also now refuses `demo.interactive=true` alongside
+>   `persistence.media.enabled=true` — no writable media path for the api pod in this mode.
+>   Correction on the way in: #3926 shipped its runtime mode signal as
+>   `GET /api/v1/edition/`, an existing `AllowAny` route, not a new one — so the method
+>   fence needed no route-allowlist decision, only a method restriction, confirming the D1
+>   amendment below independently rather than depending on it.
+> - **D8 — the open question is resolved and its disclosure shipped** (#3969): the owner
+>   decided 2026-09-21 to keep Cloudflare Access on the hosted demo and disclose it. The
+>   `demo.accessGate` values block, the `demo_access_gate` field on
+>   `GET /api/v1/edition/`, the conditional login-screen notice and the pre-capture
+>   notice on `getting-started/try-it` are on `main`. D8's security statement is
+>   unchanged — Access remains a non-control. See the dated resolution on D8 below.
+>
+>   **What this does NOT close.** D10 (host isolation from CI runners) is unchanged — it is
+>   not a chart flag. A public launch still needs it addressed by the operator.
 >
 > The original note, kept because it is the baseline the above is measured against:
 > verified 2026-09-19 against `f502f488c` (0.4.0-beta.3, this branch's base): there was no
@@ -222,6 +242,20 @@ per-account, and under one shared identity they are shared-fate. They are re-aim
 accepted explicitly, never left at a default that happens to mean something different
 here than everywhere else.
 
+> **Correction (2026-09-21, #3925 MR 2 security-review).** "The per-IP `login` scope and
+> `anon` scope … become the real limiters" is only true of the sign-in request itself.
+> DRF's stock `AnonRateThrottle` skips throttling once `request.user.is_authenticated`,
+> and `login`/`login_account` are wired only to the token-obtain view — so neither
+> scope bounds a signed-in visitor's ordinary reads. Once authenticated, the shared
+> `"user"` scope is the *only* throttle in play, with no independent per-IP ceiling: a
+> single client holding the published credential can consume the whole account-wide
+> budget alone. `demo.throttle.userRate` is raised generously as a **shared-fate
+> resource ceiling**, not a per-visitor fairness control — closing that gap depends on
+> whatever sits in front of the host (Cloudflare or equivalent), which is what "alongside
+> Cloudflare" above was gesturing at without saying so precisely. Recorded here rather
+> than silently correcting the sentence above, per the memory-discipline convention this
+> project already follows for a stale belief.
+
 ### D7 — Egress is denied at the pod, not only in Python
 
 `assert_url_allowed` (`apps/webhooks/serializers.py:212`) is a good control and stays.
@@ -259,6 +293,61 @@ precisely the person who would deploy this. That is an owner's product call, not
 architectural one, and this ADR does not settle it. It only insists the trade be made
 knowingly and that D8's first paragraph hold either way: **nothing in the security design
 may depend on Access being present.**
+
+> **Resolved 2026-09-21 (owner decision, implemented by #3969).** The question this
+> section left open — keep the gate and its email collection, or drop it — is decided:
+> **keep Cloudflare Access on the primary hosted demo, and disclose it.** The trade is
+> made knowingly, which is what D8 asked for. D8's first paragraph is unchanged and
+> still governs: Access mitigates none of T1–T7, and nothing in the security design may
+> depend on it.
+>
+> The disclosure is **conditional, never a blanket statement**, and that is the whole
+> mechanism. A new `demo.accessGate.{provider,privacyUrl}` values block renders
+> `TRUEPPM_DEMO_ACCESS_GATE_PROVIDER` / `…_PRIVACY_URL` onto the api Deployment, parsed
+> into `DEMO_ACCESS_GATE` by `parse_demo_access_gate`, and surfaced as a third
+> `demo_access_gate` field on the existing unauthenticated `GET /api/v1/edition/` —
+> riding the `['edition']` query for the same reason D3/D4 do, not a new discovery
+> route. Left empty (the default, and every normal install) the field is `null` and the
+> app says nothing. A self-hoster running this same demo mode without a gate therefore
+> cannot be made to publish a false claim that they are collecting addresses, and one
+> running it behind Authelia names Authelia: `provider` is operator text, not a
+> hardcoded vendor.
+>
+> Two limits, both deliberate and neither closed by this change:
+>
+> 1. **It is an assertion that nothing verifies.** The gate lives in a provider's
+>    dashboard outside the cluster. Setting the value arms nothing; clearing the gate
+>    there leaves the value untouched. A stale value over-discloses and an unset one
+>    under-discloses. Header corroboration (`Cf-Access-Jwt-Assertion`) was considered
+>    and **rejected**: the chart's own web tier would strip it, so the disclosure would
+>    fail *closed* — the dangerous direction. Declaration fails open. The chart fails
+>    the render if a provider is declared while the demo fence is off, so the one
+>    failure it *can* catch — a notice the operator believes they published and that
+>    nothing emits — is caught at install time.
+> 2. **The in-app notice is necessarily post-hoc.** Access intercepts in front of the
+>    app: the visitor meets the email prompt before any TruePPM code runs, so nothing
+>    rendered by this codebase can satisfy "before the email-capture step" on its own.
+>    The pre-capture half is therefore a notice on the page that *links* to the demo
+>    (`getting-started/try-it`), and the in-app field is confirmation of what already
+>    happened. Both halves ship together; shipping only the in-app half would not meet
+>    the bar and must not be described as if it did.
+>
+> On #3760: the positioning claim is **not** narrowed, because it is not falsified. Its
+> subject is the software — "the community edition is Apache 2.0 with no seat count, no
+> feature flags, and no telemetry" — and Access runs on one host the project operates,
+> not on anyone's install. `administration/observability` already backs the software
+> claim exactly. What #3760 requires is that demo-side collection stay confined to the
+> demo host and be visible, which is what the two disclosures above deliver.
+>
+> A correction to the record, because it misled the issue that opened this: **Cloudflare
+> Access was never wired into this repository.** #3969's premise cited
+> `values-demo.yaml`, `templates/ingress.yaml` and `templates/api/service.yaml` as
+> evidence that Access was deployed infrastructure; those three files reference
+> Cloudflare **Tunnel** (`cloudflared`, ADR-0658 D9), an outbound connector that gates
+> no identity and collects no email. Before #3969 the string "Cloudflare Access"
+> appeared nowhere in the tree except this ADR. The gate is real on the hosted demo, but
+> it is configured outside the repo — which is precisely why the declaration above has
+> to exist at all, and why it can only ever be an assertion.
 
 ### D9 — A scheduled reset bounds contamination; it prevents nothing
 
@@ -338,7 +427,12 @@ were not run in a browser.
      method-override test (#3924).
    - **Attachments are off in this mode.** D2 already refuses the upload. The chart also
      gives the api pod no writable media path and no storage write credentials, so a
-     hypothetical D2 hole has nowhere to save a file (#3925).
+     hypothetical D2 hole has nowhere to save a file (#3925). This combination would
+     otherwise trip `validate_attachment_storage`'s own #775 boot guard — no opt-in and no
+     writable path is exactly the misconfiguration it exists to refuse — so the guard
+     takes a `writes_disabled` escape keyed off the same `TRUEPPM_DEMO_READ_ONLY` that
+     arms D2, not a second independently-settable flag: the guard's durability question
+     only applies to a backend a request can actually reach.
    - **The comment composer and attachment dropzone are disabled up front** with a reason,
      and any form that is refused keeps the visitor's typed text (#3926).
    - Alternative B (enforce read-only through the seeded role) stays rejected for the
