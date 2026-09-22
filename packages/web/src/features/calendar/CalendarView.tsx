@@ -20,7 +20,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
-import type { Task, TaskStatus } from '@/types';
+import type { Methodology, Task, TaskStatus } from '@/types';
 import { useCalendarFilter } from './useCalendarFilter';
 import { CalendarGrid } from './CalendarGrid';
 import {
@@ -143,6 +143,101 @@ export function TaskDetailBanner({ task, projectId, onClose }: TaskDetailBannerP
 // ---------------------------------------------------------------------------
 // CalendarView
 // ---------------------------------------------------------------------------
+
+/**
+ * The calendar pane's body: error / loading / AGILE-mismatch-empty / plain-
+ * empty / the populated grid — in that priority order (rule 246/248: a
+ * failed or in-flight fetch must never masquerade as "no tasks yet").
+ */
+function CalendarGridArea({
+  error,
+  isLoading,
+  tasks,
+  effectiveMethodology,
+  projectId,
+  itl,
+  calView,
+  canCreate,
+  onAddTask,
+  onRetry,
+  anchorIso,
+  onTaskClick,
+  sprintBoundaries,
+}: {
+  error: ReturnType<typeof useCalendarTasks>['error'];
+  isLoading: boolean;
+  tasks: Task[];
+  effectiveMethodology: Methodology;
+  projectId: string | undefined;
+  itl: ReturnType<typeof useIterationLabel>;
+  calView: 'month' | 'week';
+  canCreate: boolean;
+  onAddTask: () => void;
+  onRetry: () => void;
+  anchorIso: string;
+  onTaskClick: (taskId: string) => void;
+  sprintBoundaries: Set<string>;
+}) {
+  if (error) {
+    return <QueryErrorState message="Couldn't load the calendar." onRetry={onRetry} />;
+  }
+  if (isLoading) {
+    return (
+      <div
+        role="status"
+        aria-label="Loading calendar"
+        aria-busy="true"
+        className="flex h-full flex-col gap-1 p-3 bg-neutral-surface"
+      >
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div
+            key={i}
+            className="h-full rounded motion-safe:animate-pulse bg-neutral-surface-sunken"
+          />
+        ))}
+      </div>
+    );
+  }
+  if (tasks.length === 0 && effectiveMethodology === 'AGILE') {
+    return (
+      <MethodologyEmptyState
+        className="h-full bg-neutral-surface"
+        projectId={projectId}
+        icon={CalendarIcon}
+        title="Calendar isn't part of this project's workflow"
+        description={`This project runs on ${itl.lowerPlural}, not a phase-gated calendar. If a calendar view fits better here, switch the methodology in Settings.`}
+        primaryLabel={`Go to ${itl.plural}`}
+        primaryTo={projectId ? `/projects/${projectId}/sprints` : '#'}
+      />
+    );
+  }
+  if (tasks.length === 0) {
+    return (
+      <EmptyState
+        className="h-full bg-neutral-surface"
+        icon={CalendarIcon}
+        title="No tasks yet"
+        description={`Tasks with dates appear here across the ${calView}. Add your first task to get started.`}
+        action={
+          canCreate && projectId ? (
+            <Button variant="primary" onClick={onAddTask}>
+              + Add task
+            </Button>
+          ) : undefined
+        }
+      />
+    );
+  }
+  return (
+    <CalendarGrid
+      anchorIso={anchorIso}
+      calView={calView}
+      tasks={tasks}
+      onTaskClick={onTaskClick}
+      sprintBoundaries={sprintBoundaries}
+    />
+  );
+}
 
 export function CalendarView() {
   const { calView, anchorIso, setCalView, goToToday, goNext, goPrev } = useCalendarFilter();
@@ -336,55 +431,21 @@ export function CalendarView() {
           empty from a populated grid (rule 246/248): a failed or in-flight fetch
           must never masquerade as "no tasks yet". */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {error ? (
-          <QueryErrorState message="Couldn't load the calendar." onRetry={refetch} />
-        ) : isLoading ? (
-          <div
-            role="status"
-            aria-label="Loading calendar"
-            aria-busy="true"
-            className="flex h-full flex-col gap-1 p-3 bg-neutral-surface"
-          >
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-full rounded motion-safe:animate-pulse bg-neutral-surface-sunken"
-              />
-            ))}
-          </div>
-        ) : tasks.length === 0 && effectiveMethodology === 'AGILE' ? (
-          <MethodologyEmptyState
-            className="h-full bg-neutral-surface"
-            projectId={projectId}
-            icon={CalendarIcon}
-            title="Calendar isn't part of this project's workflow"
-            description={`This project runs on ${itl.lowerPlural}, not a phase-gated calendar. If a calendar view fits better here, switch the methodology in Settings.`}
-            primaryLabel={`Go to ${itl.plural}`}
-            primaryTo={projectId ? `/projects/${projectId}/sprints` : '#'}
-          />
-        ) : tasks.length === 0 ? (
-          <EmptyState
-            className="h-full bg-neutral-surface"
-            icon={CalendarIcon}
-            title="No tasks yet"
-            description={`Tasks with dates appear here across the ${calView}. Add your first task to get started.`}
-            action={
-              canCreate && projectId ? (
-                <Button variant="primary" onClick={() => setShowAddForm(true)}>
-                  + Add task
-                </Button>
-              ) : undefined
-            }
-          />
-        ) : (
-          <CalendarGrid
-            anchorIso={anchorIso}
-            calView={calView}
-            tasks={tasks}
-            onTaskClick={handleTaskClick}
-            sprintBoundaries={sprintBoundaries}
-          />
-        )}
+        <CalendarGridArea
+          error={error}
+          isLoading={isLoading}
+          tasks={tasks}
+          effectiveMethodology={effectiveMethodology}
+          projectId={projectId}
+          itl={itl}
+          calView={calView}
+          canCreate={canCreate}
+          onAddTask={() => setShowAddForm(true)}
+          onRetry={refetch}
+          anchorIso={anchorIso}
+          onTaskClick={handleTaskClick}
+          sprintBoundaries={sprintBoundaries}
+        />
       </div>
 
       {showAddForm && projectId && (

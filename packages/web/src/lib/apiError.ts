@@ -145,27 +145,36 @@ interface LocatedMessage {
  * position the user can act on. Only a non-string element contributes its index
  * to the path — which is what keeps the flat shapes byte-for-byte unchanged.
  */
+function findFirstMessageInArray(value: unknown[], depth: number): LocatedMessage | null {
+  for (const [index, item] of value.entries()) {
+    const found = findFirstMessage(item, depth + 1);
+    if (!found) continue;
+    return typeof item === 'string'
+      ? found
+      : { path: [String(index), ...found.path], message: found.message };
+  }
+  return null;
+}
+
+function findFirstMessageInObject(
+  value: Record<string, unknown>,
+  depth: number,
+): LocatedMessage | null {
+  for (const [key, item] of Object.entries(value)) {
+    const found = findFirstMessage(item, depth + 1);
+    if (found) return { path: [key, ...found.path], message: found.message };
+  }
+  return null;
+}
+
 function findFirstMessage(value: unknown, depth = 0): LocatedMessage | null {
   if (typeof value === 'string') {
     return value.trim() !== '' ? { path: [], message: value } : null;
   }
   if (depth >= MAX_ERROR_DEPTH) return null;
-  if (Array.isArray(value)) {
-    for (const [index, item] of value.entries()) {
-      const found = findFirstMessage(item, depth + 1);
-      if (!found) continue;
-      return typeof item === 'string'
-        ? found
-        : { path: [String(index), ...found.path], message: found.message };
-    }
-    return null;
-  }
+  if (Array.isArray(value)) return findFirstMessageInArray(value, depth);
   if (value && typeof value === 'object') {
-    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      const found = findFirstMessage(item, depth + 1);
-      if (found) return { path: [key, ...found.path], message: found.message };
-    }
-    return null;
+    return findFirstMessageInObject(value as Record<string, unknown>, depth);
   }
   return null;
 }

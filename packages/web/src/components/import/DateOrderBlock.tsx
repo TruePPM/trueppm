@@ -65,8 +65,7 @@ export function ambiguousContinueLabel(resolved: string): string {
 
 const REASON_CLAUSE: Record<string, string> = {
   no_thirteenth_month: 'there is no 13th month, so the file can only be day-first',
-  second_part_exceeds_twelve:
-    'the second part exceeds 12, so the file can only be month-first',
+  second_part_exceeds_twelve: 'the second part exceeds 12, so the file can only be month-first',
 };
 
 function Segments({
@@ -242,6 +241,98 @@ function TwoReadings({
   );
 }
 
+/** The prose line under the segmented control — priority order: inert, busy,
+ *  ambiguous, overridden-by-user, evidence (ISO 8601 special case, then the
+ *  general evidence sentence), plain statement. */
+function dateOrderStatement({
+  inert,
+  busy,
+  ambiguous,
+  overridden,
+  evidence,
+  rowCount,
+  resolved,
+  autoResolved,
+  columns,
+  matched,
+}: {
+  inert: boolean;
+  busy: boolean;
+  ambiguous: boolean;
+  overridden: boolean;
+  evidence: CsvPreview['date_order_evidence'];
+  rowCount: number;
+  resolved: CsvDateOrder;
+  autoResolved: CsvDateOrder;
+  columns: string;
+  matched: number;
+}): ReactNode {
+  if (inert) {
+    return (
+      <>
+        Nothing is mapped to <b>Start date</b> or <b>Finish date</b>, so no dates will be imported
+        and this setting has nothing to act on. Map a date column and the control becomes live.
+      </>
+    );
+  }
+  if (busy) {
+    return (
+      <b>
+        Re-reading {rowCount} rows as {shortName(resolved)}…
+      </b>
+    );
+  }
+  if (ambiguous) {
+    return (
+      <>
+        <b>Auto cannot tell.</b> Every value in <b>{columns}</b> is valid read either way, so
+        nothing in this file identifies its own convention. Auto will read it as{' '}
+        <b>{CSV_DATE_ORDER_NAMES[autoResolved]}</b>. If this export came from a European tool,
+        choose <b>D/M/Y</b>.
+      </>
+    );
+  }
+  if (overridden) {
+    return (
+      <>
+        <b>Set by you: {CSV_DATE_ORDER_NAMES[resolved] ?? shortName(resolved)}.</b> Auto would have
+        read this file as {shortName(autoResolved)}.
+        {evidence && (
+          <>
+            {' '}
+            Row {evidence.row} &ldquo;{evidence.value}&rdquo; now reads {shortName(resolved)}.
+          </>
+        )}
+      </>
+    );
+  }
+  if (evidence && evidence.reason === 'non_slash_layout') {
+    return (
+      <>
+        <b>Auto read this file as ISO 8601 (YYYY-MM-DD).</b> All {matched} values in{' '}
+        <b>{columns}</b> match that pattern.
+      </>
+    );
+  }
+  if (evidence) {
+    return (
+      <>
+        <b>Auto read this file as {CSV_DATE_ORDER_NAMES[resolved] ?? shortName(resolved)}.</b> Row{' '}
+        {evidence.row} is &ldquo;{evidence.value}&rdquo; —{' '}
+        {REASON_CLAUSE[evidence.reason] ?? 'it can only be read one way'}. All {matched} values in{' '}
+        <b>{columns}</b> fit that reading.
+      </>
+    );
+  }
+  return (
+    <>
+      <b>
+        Reading dates in {columns} as {shortName(resolved)}.
+      </b>
+    </>
+  );
+}
+
 export interface DateOrderBlockProps {
   preview: CsvPreview;
   value: CsvDateOrder;
@@ -278,64 +369,18 @@ export function DateOrderBlock({
       ? `Auto · ${shortName(autoResolved)}?`
       : `Auto · ${shortName(autoResolved)}`;
 
-  let statement: ReactNode;
-  if (inert) {
-    statement = (
-      <>
-        Nothing is mapped to <b>Start date</b> or <b>Finish date</b>, so no dates will be imported
-        and this setting has nothing to act on. Map a date column and the control becomes live.
-      </>
-    );
-  } else if (busy) {
-    statement = (
-      <b>
-        Re-reading {preview.row_count} rows as {shortName(resolved)}…
-      </b>
-    );
-  } else if (ambiguous) {
-    statement = (
-      <>
-        <b>Auto cannot tell.</b> Every value in <b>{columns}</b> is valid read either way, so
-        nothing in this file identifies its own convention. Auto will read it as{' '}
-        <b>{CSV_DATE_ORDER_NAMES[autoResolved]}</b>. If this export came from a European tool,
-        choose <b>D/M/Y</b>.
-      </>
-    );
-  } else if (overridden) {
-    statement = (
-      <>
-        <b>Set by you: {CSV_DATE_ORDER_NAMES[resolved] ?? shortName(resolved)}.</b> Auto would have
-        read this file as {shortName(autoResolved)}.
-        {evidence && (
-          <>
-            {' '}
-            Row {evidence.row} &ldquo;{evidence.value}&rdquo; now reads {shortName(resolved)}.
-          </>
-        )}
-      </>
-    );
-  } else if (evidence && evidence.reason === 'non_slash_layout') {
-    statement = (
-      <>
-        <b>Auto read this file as ISO 8601 (YYYY-MM-DD).</b> All {matched} values in{' '}
-        <b>{columns}</b> match that pattern.
-      </>
-    );
-  } else if (evidence) {
-    statement = (
-      <>
-        <b>Auto read this file as {CSV_DATE_ORDER_NAMES[resolved] ?? shortName(resolved)}.</b> Row{' '}
-        {evidence.row} is &ldquo;{evidence.value}&rdquo; — {REASON_CLAUSE[evidence.reason] ?? 'it can only be read one way'}.
-        All {matched} values in <b>{columns}</b> fit that reading.
-      </>
-    );
-  } else {
-    statement = (
-      <>
-        <b>Reading dates in {columns} as {shortName(resolved)}.</b>
-      </>
-    );
-  }
+  const statement = dateOrderStatement({
+    inert,
+    busy,
+    ambiguous,
+    overridden,
+    evidence,
+    rowCount: preview.row_count,
+    resolved,
+    autoResolved,
+    columns,
+    matched,
+  });
 
   const firstFailure = (preview.date_preview ?? []).find((r) => r.unreadable);
 
@@ -378,10 +423,7 @@ export function DateOrderBlock({
       {/* Polite, so a change is announced without stealing focus from the control
           that caused it. Mounted unconditionally: a live region added at the same
           moment its text appears is not reliably announced. */}
-      <p
-        aria-live="polite"
-        className="mt-2 text-sm leading-relaxed text-neutral-text-secondary"
-      >
+      <p aria-live="polite" className="mt-2 text-sm leading-relaxed text-neutral-text-secondary">
         {statement}
       </p>
 
@@ -391,7 +433,8 @@ export function DateOrderBlock({
             {failed} of {matched + failed} date values cannot be read as {shortName(resolved)}.
           </b>{' '}
           They will import without dates and are listed in the preview.
-          {firstFailure && ` Row ${firstFailure.row} is “${firstFailure.raw_start || firstFailure.raw_finish}”.`}
+          {firstFailure &&
+            ` Row ${firstFailure.row} is “${firstFailure.raw_start || firstFailure.raw_finish}”.`}
         </p>
       )}
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useProductBacklog } from '@/features/project/backlog/hooks/useProductBacklog';
@@ -7,7 +7,7 @@ import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { toast } from '@/components/Toast/toast';
 import { SearchIcon, WarningIcon } from '@/components/Icons';
-import { capacityPointsChip } from './sprintMath';
+import { capacityPointsChip, type CapacityPointsChip } from './sprintMath';
 import {
   buildStoryCommitOperations,
   reconcileStoryCommit,
@@ -68,6 +68,414 @@ function plural(n: number, one: string, many: string): string {
 
 /** Referenced by the result phase's buttons so the breakdown is announced with them. */
 const RESULT_PANEL_ID = 'story-picker-result-summary';
+
+/**
+ * The pick phase's main content: search + readiness filter, the hidden-count
+ * disclosure, the loading/error/empty/table list area, and the two advisory
+ * banners (not-ready selections, a whole-request commit failure). Pulled out
+ * of `StoryPickerModal`'s own render so this block's conditionals are scored
+ * as their own function's cognitive complexity rather than folded into the
+ * modal component's — mirroring `ScheduleMainAreaEmptyState`'s reasoning.
+ */
+function StoryPickerPickBody({
+  query,
+  onQueryChange,
+  readyOnly,
+  onReadyOnlyChange,
+  hiddenNotReadyCount,
+  isLoading,
+  isError,
+  visible,
+  allRowsEmpty,
+  allVisibleSelected,
+  onToggleAllVisible,
+  selected,
+  onToggleOne,
+  projectId,
+  selectedNotReadyCount,
+  iterationLower,
+  commitError,
+  searchRef,
+}: {
+  query: string;
+  onQueryChange: (value: string) => void;
+  readyOnly: boolean;
+  onReadyOnlyChange: (value: boolean) => void;
+  hiddenNotReadyCount: number;
+  isLoading: boolean;
+  isError: boolean;
+  visible: PickerRow[];
+  allRowsEmpty: boolean;
+  allVisibleSelected: boolean;
+  onToggleAllVisible: () => void;
+  selected: Set<string>;
+  onToggleOne: (id: string) => void;
+  projectId: string;
+  selectedNotReadyCount: number;
+  iterationLower: string;
+  commitError: string | null;
+  searchRef: RefObject<HTMLInputElement | null>;
+}) {
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-b border-neutral-border">
+        <div className="relative flex-1 min-w-[160px]">
+          <SearchIcon
+            aria-hidden="true"
+            className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-neutral-text-disabled"
+          />
+          <input
+            ref={searchRef}
+            type="text"
+            value={query}
+            onChange={(e) => onQueryChange(e.target.value)}
+            placeholder="Search backlog stories…"
+            aria-label="Search backlog stories"
+            className="w-full h-8 pl-7 pr-2 rounded border border-neutral-border bg-neutral-surface
+                  text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          />
+        </div>
+        <div role="radiogroup" aria-label="Readiness filter" className="flex gap-1 shrink-0">
+          {(
+            [
+              { val: true, label: 'Ready only' },
+              { val: false, label: 'Show all' },
+            ] as const
+          ).map((opt) => (
+            <label
+              key={String(opt.val)}
+              className={[
+                'px-2.5 py-1 rounded border text-xs font-medium cursor-pointer transition-colors',
+                'has-[:focus-visible]:outline-none has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-primary has-[:focus-visible]:ring-offset-1',
+                readyOnly === opt.val
+                  ? 'border-2 border-brand-primary bg-brand-primary-light text-brand-primary'
+                  : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
+              ].join(' ')}
+            >
+              <input
+                type="radio"
+                name="picker-ready-filter"
+                className="sr-only"
+                checked={readyOnly === opt.val}
+                onChange={() => onReadyOnlyChange(opt.val)}
+              />
+              {opt.label}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {readyOnly && hiddenNotReadyCount > 0 && (
+        <p className="px-5 pt-2 text-xs text-neutral-text-secondary">
+          {hiddenNotReadyCount} not-ready {hiddenNotReadyCount === 1 ? 'story is' : 'stories are'}{' '}
+          hidden.{' '}
+          <button
+            type="button"
+            onClick={() => onReadyOnlyChange(false)}
+            className="font-medium text-brand-primary hover:text-brand-primary-dark underline
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+          >
+            Show all
+          </button>
+        </p>
+      )}
+
+      <div className="flex-1 overflow-y-auto px-5 py-2">
+        {isLoading ? (
+          <div role="status" aria-label="Loading backlog stories…" className="flex flex-col gap-2">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                aria-hidden="true"
+                className="h-10 motion-safe:animate-pulse rounded bg-neutral-surface-sunken"
+              />
+            ))}
+          </div>
+        ) : isError ? (
+          <p role="alert" className="text-sm text-semantic-critical py-4">
+            Couldn&apos;t load the backlog — try closing and reopening this picker.
+          </p>
+        ) : visible.length === 0 ? (
+          <div
+            role="status"
+            className="rounded-card border border-dashed border-neutral-border bg-neutral-surface-raised p-6 text-center flex flex-col items-center gap-2"
+          >
+            <p className="text-sm font-medium text-neutral-text-primary">
+              {allRowsEmpty
+                ? 'The backlog is empty.'
+                : readyOnly
+                  ? 'No Ready stories to pull.'
+                  : 'No backlog stories match your search.'}
+            </p>
+            <p className="text-xs text-neutral-text-secondary max-w-sm">
+              {allRowsEmpty
+                ? 'Add stories from the Product Backlog, or create a new task from this sprint.'
+                : readyOnly
+                  ? 'Refine a story to Ready, or switch to "Show all" to pull one anyway.'
+                  : 'Try a different search term, or clear it.'}
+            </p>
+            <Link
+              to={`/projects/${projectId}/product-backlog`}
+              className="text-xs font-medium text-brand-primary hover:text-brand-primary-dark
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+            >
+              Manage full backlog →
+            </Link>
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left">
+                <th className="w-8 pb-1.5">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={onToggleAllVisible}
+                    aria-label={
+                      allVisibleSelected
+                        ? 'Deselect all visible stories'
+                        : 'Select all visible stories'
+                    }
+                    className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  />
+                </th>
+                <th className="pb-1.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
+                  Story
+                </th>
+                <th className="pb-1.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary text-right w-14">
+                  Pts
+                </th>
+                <th className="pb-1.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary w-24">
+                  Ready
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map(({ story, epicName }) => {
+                const isReady = story.dor === 'ready';
+                const checked = selected.has(story.id);
+                return (
+                  <tr
+                    key={story.id}
+                    className={`border-t border-neutral-border/60 ${!isReady ? 'opacity-70' : ''}`}
+                  >
+                    <td className="py-2 align-top">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => onToggleOne(story.id)}
+                        aria-label={`Select ${story.name}`}
+                        className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                      />
+                    </td>
+                    <td className="py-2 align-top pr-2">
+                      <button
+                        type="button"
+                        onClick={() => onToggleOne(story.id)}
+                        className="block w-full text-left cursor-pointer rounded
+                              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                      >
+                        <span
+                          className="block text-sm text-neutral-text-primary truncate"
+                          title={story.name}
+                        >
+                          {story.name}
+                        </span>
+                        {epicName && (
+                          <span className="block text-xs text-neutral-text-disabled truncate">
+                            {epicName}
+                          </span>
+                        )}
+                        {!isReady && (
+                          <span className="block text-xs text-semantic-at-risk">
+                            <WarningIcon
+                              className="inline-block h-3 w-3 align-[-0.125em] mr-1"
+                              aria-hidden="true"
+                            />
+                            Not ready — {blockerSummary(story.dorBlockers) || 'needs refinement'}
+                          </span>
+                        )}
+                      </button>
+                    </td>
+                    <td className="py-2 align-top text-right tppm-mono text-xs text-neutral-text-primary">
+                      {story.storyPoints ?? '—'}
+                    </td>
+                    <td className="py-2 align-top text-xs">
+                      {isReady ? (
+                        <span className="text-semantic-on-track font-medium">Ready</span>
+                      ) : (
+                        <span className="text-neutral-text-secondary capitalize">
+                          {story.dor ?? 'idea'}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {selectedNotReadyCount > 0 && (
+        <p
+          role="alert"
+          className="mx-5 mb-2 rounded px-3 py-2 text-xs bg-semantic-at-risk-bg text-semantic-at-risk"
+        >
+          <WarningIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
+          {selectedNotReadyCount} selected{' '}
+          {selectedNotReadyCount === 1 ? 'story is' : 'stories are'} not marked Ready — you can
+          still pull {selectedNotReadyCount === 1 ? 'it' : 'them'} into {iterationLower}.
+        </p>
+      )}
+
+      {commitError && (
+        <p
+          role="alert"
+          className="mx-5 mb-2 rounded px-3 py-2 text-xs bg-semantic-critical-bg text-semantic-critical"
+        >
+          <WarningIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
+          {commitError}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** The pick phase's footer: selection summary + capacity chip, Cancel/Commit. */
+function StoryPickerPickFooter({
+  onClose,
+  selectedCount,
+  selectedPoints,
+  pointsChip,
+  iterationLower,
+  committing,
+  onCommit,
+}: {
+  onClose: () => void;
+  selectedCount: number;
+  selectedPoints: number;
+  pointsChip: CapacityPointsChip | null;
+  iterationLower: string;
+  committing: boolean;
+  onCommit: () => void;
+}) {
+  return (
+    <>
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="text-xs text-neutral-text-secondary tppm-mono">
+          {selectedCount} selected · {selectedPoints} pts
+        </span>
+        {pointsChip && (
+          <span
+            className={`tppm-mono text-xs px-2 py-0.5 rounded-full border shrink-0 ${
+              pointsChip.variant === 'critical'
+                ? 'bg-semantic-critical-bg border-semantic-critical/40 text-semantic-critical'
+                : 'bg-brand-primary-light border-brand-primary/30 text-brand-primary-dark'
+            }`}
+            aria-label={`If committed: ${pointsChip.total} of ${pointsChip.capacity} ${iterationLower} points, ${pointsChip.pct} percent of capacity`}
+          >
+            If committed: {pointsChip.total}/{pointsChip.capacity} pts · {pointsChip.pct}%
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          type="button"
+          onClick={onClose}
+          className="h-8 px-3 rounded border border-neutral-border text-xs font-medium text-neutral-text-primary
+                      hover:bg-neutral-surface-raised
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onCommit}
+          disabled={selectedCount === 0 || committing}
+          className="h-8 px-3 rounded bg-sage-500 text-navy-900 border border-sage-600 text-xs font-medium
+                      hover:bg-sage-400 disabled:opacity-50 disabled:cursor-not-allowed
+                      dark:bg-sage-400 dark:text-navy-900 dark:border-sage-500 dark:hover:bg-sage-300
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-700 focus-visible:ring-offset-1 focus-visible:ring-offset-sage-500"
+        >
+          {committing
+            ? 'Committing…'
+            : selectedCount === 0
+              ? 'Commit stories'
+              : `Commit ${selectedCount} ${plural(selectedCount, 'story', 'stories')}`}
+        </button>
+      </div>
+    </>
+  );
+}
+
+/**
+ * The result phase's footer: committed/sent tally, Done, and (when any row is
+ * retryable) Retry. See the focus effect at the call site for why `resultActionRef`
+ * is threaded through rather than owned here.
+ */
+function StoryPickerResultFooter({
+  outcome,
+  onClose,
+  committing,
+  onRetry,
+  resultActionRef,
+}: {
+  outcome: StoryCommitOutcome;
+  onClose: () => void;
+  committing: boolean;
+  onRetry: () => void;
+  resultActionRef: RefObject<HTMLButtonElement | null>;
+}) {
+  return (
+    <>
+      <span className="text-xs text-neutral-text-secondary tppm-mono min-w-0">
+        {outcome.committedCount}/{outcome.sentCount} committed
+      </span>
+      {/* Both result-phase buttons use `focus:`, not `focus-visible:`
+          (rule 288(c) / 204(b)): one of them is the target of a SCRIPTED
+          .focus() on the phase swap, and browsers may withhold
+          :focus-visible on programmatic focus — which would land a
+          keyboard user on a button with no visible ring. They also carry
+          `aria-describedby` so the breakdown itself is announced: moving
+          focus to a button otherwise announces only the button, and a
+          live region inserted together with its content is not reliably
+          read. */}
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          type="button"
+          // Seat target when nothing is retryable — see the focus effect.
+          ref={outcome.retryIds.length === 0 ? resultActionRef : undefined}
+          onClick={onClose}
+          aria-describedby={RESULT_PANEL_ID}
+          className="h-8 px-3 rounded border border-neutral-border text-xs font-medium text-neutral-text-primary
+                      hover:bg-neutral-surface-raised
+                      focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+        >
+          Done
+        </button>
+        {outcome.retryIds.length > 0 && (
+          <button
+            type="button"
+            ref={resultActionRef}
+            onClick={onRetry}
+            disabled={committing}
+            aria-describedby={RESULT_PANEL_ID}
+            className="h-8 px-3 rounded bg-sage-500 text-navy-900 border border-sage-600 text-xs font-medium
+                        hover:bg-sage-400 disabled:opacity-50 disabled:cursor-not-allowed
+                        dark:bg-sage-400 dark:text-navy-900 dark:border-sage-500 dark:hover:bg-sage-300
+                        focus:outline-none focus:ring-2 focus:ring-navy-700 focus:ring-offset-1 focus:ring-offset-sage-500"
+          >
+            {committing
+              ? 'Retrying…'
+              : `Retry ${outcome.retryIds.length} ${plural(outcome.retryIds.length, 'story', 'stories')}`}
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
 
 /**
  * Multi-select story picker for committing existing backlog stories into a
@@ -313,340 +721,47 @@ export function StoryPickerModal({
           {outcome ? (
             <CommitResultPanel outcome={outcome} sprintLabel={sprint.short_id_display} />
           ) : (
-            <>
-              <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-b border-neutral-border">
-                <div className="relative flex-1 min-w-[160px]">
-                  <SearchIcon
-                    aria-hidden="true"
-                    className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-neutral-text-disabled"
-                  />
-                  <input
-                    ref={searchRef}
-                    type="text"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search backlog stories…"
-                    aria-label="Search backlog stories"
-                    className="w-full h-8 pl-7 pr-2 rounded border border-neutral-border bg-neutral-surface
-                  text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                  />
-                </div>
-                <div
-                  role="radiogroup"
-                  aria-label="Readiness filter"
-                  className="flex gap-1 shrink-0"
-                >
-                  {(
-                    [
-                      { val: true, label: 'Ready only' },
-                      { val: false, label: 'Show all' },
-                    ] as const
-                  ).map((opt) => (
-                    <label
-                      key={String(opt.val)}
-                      className={[
-                        'px-2.5 py-1 rounded border text-xs font-medium cursor-pointer transition-colors',
-                        'has-[:focus-visible]:outline-none has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-primary has-[:focus-visible]:ring-offset-1',
-                        readyOnly === opt.val
-                          ? 'border-2 border-brand-primary bg-brand-primary-light text-brand-primary'
-                          : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
-                      ].join(' ')}
-                    >
-                      <input
-                        type="radio"
-                        name="picker-ready-filter"
-                        className="sr-only"
-                        checked={readyOnly === opt.val}
-                        onChange={() => setReadyOnly(opt.val)}
-                      />
-                      {opt.label}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {readyOnly && hiddenNotReadyCount > 0 && (
-                <p className="px-5 pt-2 text-xs text-neutral-text-secondary">
-                  {hiddenNotReadyCount} not-ready{' '}
-                  {hiddenNotReadyCount === 1 ? 'story is' : 'stories are'} hidden.{' '}
-                  <button
-                    type="button"
-                    onClick={() => setReadyOnly(false)}
-                    className="font-medium text-brand-primary hover:text-brand-primary-dark underline
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
-                  >
-                    Show all
-                  </button>
-                </p>
-              )}
-
-              <div className="flex-1 overflow-y-auto px-5 py-2">
-                {isLoading ? (
-                  <div
-                    role="status"
-                    aria-label="Loading backlog stories…"
-                    className="flex flex-col gap-2"
-                  >
-                    {[0, 1, 2].map((i) => (
-                      <div
-                        key={i}
-                        aria-hidden="true"
-                        className="h-10 motion-safe:animate-pulse rounded bg-neutral-surface-sunken"
-                      />
-                    ))}
-                  </div>
-                ) : isError ? (
-                  <p role="alert" className="text-sm text-semantic-critical py-4">
-                    Couldn&apos;t load the backlog — try closing and reopening this picker.
-                  </p>
-                ) : visible.length === 0 ? (
-                  <div
-                    role="status"
-                    className="rounded-card border border-dashed border-neutral-border bg-neutral-surface-raised p-6 text-center flex flex-col items-center gap-2"
-                  >
-                    <p className="text-sm font-medium text-neutral-text-primary">
-                      {allRows.length === 0
-                        ? 'The backlog is empty.'
-                        : readyOnly
-                          ? 'No Ready stories to pull.'
-                          : 'No backlog stories match your search.'}
-                    </p>
-                    <p className="text-xs text-neutral-text-secondary max-w-sm">
-                      {allRows.length === 0
-                        ? 'Add stories from the Product Backlog, or create a new task from this sprint.'
-                        : readyOnly
-                          ? 'Refine a story to Ready, or switch to "Show all" to pull one anyway.'
-                          : 'Try a different search term, or clear it.'}
-                    </p>
-                    <Link
-                      to={`/projects/${projectId}/product-backlog`}
-                      className="text-xs font-medium text-brand-primary hover:text-brand-primary-dark
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
-                    >
-                      Manage full backlog →
-                    </Link>
-                  </div>
-                ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left">
-                        <th className="w-8 pb-1.5">
-                          <input
-                            type="checkbox"
-                            checked={allVisibleSelected}
-                            onChange={toggleAllVisible}
-                            aria-label={
-                              allVisibleSelected
-                                ? 'Deselect all visible stories'
-                                : 'Select all visible stories'
-                            }
-                            className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                          />
-                        </th>
-                        <th className="pb-1.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
-                          Story
-                        </th>
-                        <th className="pb-1.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary text-right w-14">
-                          Pts
-                        </th>
-                        <th className="pb-1.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary w-24">
-                          Ready
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visible.map(({ story, epicName }) => {
-                        const isReady = story.dor === 'ready';
-                        const checked = selected.has(story.id);
-                        return (
-                          <tr
-                            key={story.id}
-                            className={`border-t border-neutral-border/60 ${!isReady ? 'opacity-70' : ''}`}
-                          >
-                            <td className="py-2 align-top">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => toggleOne(story.id)}
-                                aria-label={`Select ${story.name}`}
-                                className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                              />
-                            </td>
-                            <td className="py-2 align-top pr-2">
-                              <button
-                                type="button"
-                                onClick={() => toggleOne(story.id)}
-                                className="block w-full text-left cursor-pointer rounded
-                              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                              >
-                                <span
-                                  className="block text-sm text-neutral-text-primary truncate"
-                                  title={story.name}
-                                >
-                                  {story.name}
-                                </span>
-                                {epicName && (
-                                  <span className="block text-xs text-neutral-text-disabled truncate">
-                                    {epicName}
-                                  </span>
-                                )}
-                                {!isReady && (
-                                  <span className="block text-xs text-semantic-at-risk">
-                                    <WarningIcon
-                                      className="inline-block h-3 w-3 align-[-0.125em] mr-1"
-                                      aria-hidden="true"
-                                    />
-                                    Not ready —{' '}
-                                    {blockerSummary(story.dorBlockers) || 'needs refinement'}
-                                  </span>
-                                )}
-                              </button>
-                            </td>
-                            <td className="py-2 align-top text-right tppm-mono text-xs text-neutral-text-primary">
-                              {story.storyPoints ?? '—'}
-                            </td>
-                            <td className="py-2 align-top text-xs">
-                              {isReady ? (
-                                <span className="text-semantic-on-track font-medium">Ready</span>
-                              ) : (
-                                <span className="text-neutral-text-secondary capitalize">
-                                  {story.dor ?? 'idea'}
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              {selectedNotReady.length > 0 && (
-                <p
-                  role="alert"
-                  className="mx-5 mb-2 rounded px-3 py-2 text-xs bg-semantic-at-risk-bg text-semantic-at-risk"
-                >
-                  <WarningIcon
-                    className="inline-block h-3 w-3 align-[-0.125em] mr-1"
-                    aria-hidden="true"
-                  />
-                  {selectedNotReady.length} selected{' '}
-                  {selectedNotReady.length === 1 ? 'story is' : 'stories are'} not marked Ready —
-                  you can still pull {selectedNotReady.length === 1 ? 'it' : 'them'} into{' '}
-                  {itl.lower}.
-                </p>
-              )}
-
-              {commitError && (
-                <p
-                  role="alert"
-                  className="mx-5 mb-2 rounded px-3 py-2 text-xs bg-semantic-critical-bg text-semantic-critical"
-                >
-                  <WarningIcon
-                    className="inline-block h-3 w-3 align-[-0.125em] mr-1"
-                    aria-hidden="true"
-                  />
-                  {commitError}
-                </p>
-              )}
-            </>
+            <StoryPickerPickBody
+              query={query}
+              onQueryChange={setQuery}
+              readyOnly={readyOnly}
+              onReadyOnlyChange={setReadyOnly}
+              hiddenNotReadyCount={hiddenNotReadyCount}
+              isLoading={isLoading}
+              isError={isError}
+              visible={visible}
+              allRowsEmpty={allRows.length === 0}
+              allVisibleSelected={allVisibleSelected}
+              onToggleAllVisible={toggleAllVisible}
+              selected={selected}
+              onToggleOne={toggleOne}
+              projectId={projectId}
+              selectedNotReadyCount={selectedNotReady.length}
+              iterationLower={itl.lower}
+              commitError={commitError}
+              searchRef={searchRef}
+            />
           )}
 
           <footer className="flex items-center justify-between gap-3 px-5 py-3 border-t border-neutral-border">
             {outcome ? (
-              <>
-                <span className="text-xs text-neutral-text-secondary tppm-mono min-w-0">
-                  {outcome.committedCount}/{outcome.sentCount} committed
-                </span>
-                {/* Both result-phase buttons use `focus:`, not `focus-visible:`
-                    (rule 288(c) / 204(b)): one of them is the target of a SCRIPTED
-                    .focus() on the phase swap, and browsers may withhold
-                    :focus-visible on programmatic focus — which would land a
-                    keyboard user on a button with no visible ring. They also carry
-                    `aria-describedby` so the breakdown itself is announced: moving
-                    focus to a button otherwise announces only the button, and a
-                    live region inserted together with its content is not reliably
-                    read. */}
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    // Seat target when nothing is retryable — see the focus effect.
-                    ref={outcome.retryIds.length === 0 ? resultActionRef : undefined}
-                    onClick={onClose}
-                    aria-describedby={RESULT_PANEL_ID}
-                    className="h-8 px-3 rounded border border-neutral-border text-xs font-medium text-neutral-text-primary
-                      hover:bg-neutral-surface-raised
-                      focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
-                  >
-                    Done
-                  </button>
-                  {outcome.retryIds.length > 0 && (
-                    <button
-                      type="button"
-                      ref={resultActionRef}
-                      onClick={() => void handleCommit(outcome.retryIds)}
-                      disabled={committing}
-                      aria-describedby={RESULT_PANEL_ID}
-                      className="h-8 px-3 rounded bg-sage-500 text-navy-900 border border-sage-600 text-xs font-medium
-                        hover:bg-sage-400 disabled:opacity-50 disabled:cursor-not-allowed
-                        dark:bg-sage-400 dark:text-navy-900 dark:border-sage-500 dark:hover:bg-sage-300
-                        focus:outline-none focus:ring-2 focus:ring-navy-700 focus:ring-offset-1 focus:ring-offset-sage-500"
-                    >
-                      {committing
-                        ? 'Retrying…'
-                        : `Retry ${outcome.retryIds.length} ${plural(outcome.retryIds.length, 'story', 'stories')}`}
-                    </button>
-                  )}
-                </div>
-              </>
+              <StoryPickerResultFooter
+                outcome={outcome}
+                onClose={onClose}
+                committing={committing}
+                onRetry={() => void handleCommit(outcome.retryIds)}
+                resultActionRef={resultActionRef}
+              />
             ) : (
-              <>
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="text-xs text-neutral-text-secondary tppm-mono">
-                    {selected.size} selected · {selectedPoints} pts
-                  </span>
-                  {pointsChip && (
-                    <span
-                      className={`tppm-mono text-xs px-2 py-0.5 rounded-full border shrink-0 ${
-                        pointsChip.variant === 'critical'
-                          ? 'bg-semantic-critical-bg border-semantic-critical/40 text-semantic-critical'
-                          : 'bg-brand-primary-light border-brand-primary/30 text-brand-primary-dark'
-                      }`}
-                      aria-label={`If committed: ${pointsChip.total} of ${pointsChip.capacity} ${itl.lower} points, ${pointsChip.pct} percent of capacity`}
-                    >
-                      If committed: {pointsChip.total}/{pointsChip.capacity} pts · {pointsChip.pct}%
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="h-8 px-3 rounded border border-neutral-border text-xs font-medium text-neutral-text-primary
-                      hover:bg-neutral-surface-raised
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleCommit(Array.from(selected))}
-                    disabled={selected.size === 0 || committing}
-                    className="h-8 px-3 rounded bg-sage-500 text-navy-900 border border-sage-600 text-xs font-medium
-                      hover:bg-sage-400 disabled:opacity-50 disabled:cursor-not-allowed
-                      dark:bg-sage-400 dark:text-navy-900 dark:border-sage-500 dark:hover:bg-sage-300
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-navy-700 focus-visible:ring-offset-1 focus-visible:ring-offset-sage-500"
-                  >
-                    {committing
-                      ? 'Committing…'
-                      : selected.size === 0
-                        ? 'Commit stories'
-                        : `Commit ${selected.size} ${plural(selected.size, 'story', 'stories')}`}
-                  </button>
-                </div>
-              </>
+              <StoryPickerPickFooter
+                onClose={onClose}
+                selectedCount={selected.size}
+                selectedPoints={selectedPoints}
+                pointsChip={pointsChip}
+                iterationLower={itl.lower}
+                committing={committing}
+                onCommit={() => void handleCommit(Array.from(selected))}
+              />
             )}
           </footer>
         </div>
