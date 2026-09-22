@@ -44,6 +44,34 @@ export interface RollupResult<R> {
  * @param contribute What this row hands up, or a falsy value for "nothing".
  * @param collapse How a set of contributions becomes the row's resolved value.
  */
+/**
+ * Resolve one fully-expanded stack frame: collect what its children contributed,
+ * fall back to the row's own contribution when none did, and record both the
+ * resolved value and the (possibly still-mixed) contributed set for its parent.
+ */
+function resolveFrame<T, R>(
+  id: string,
+  kids: string[],
+  byId: Map<string, Task>,
+  contributed: Map<string, Set<T>>,
+  resolved: Map<string, R>,
+  contribute: (task: Task) => T | null | undefined,
+  collapse: (parts: Set<T>) => R,
+): void {
+  const task = byId.get(id);
+  if (!task) return;
+  const parts = new Set<T>();
+  for (const kid of kids) {
+    for (const part of contributed.get(kid) ?? []) parts.add(part);
+  }
+  if (!parts.size) {
+    const own = contribute(task);
+    if (own) parts.add(own);
+  }
+  contributed.set(id, parts);
+  resolved.set(id, collapse(parts));
+}
+
 export function postOrderRollup<T, R>(
   tasks: Task[],
   contribute: (task: Task) => T | null | undefined,
@@ -74,18 +102,7 @@ export function postOrderRollup<T, R>(
         for (const kid of kids) stack.push({ id: kid, expanded: false });
         continue;
       }
-      const task = byId.get(frame.id);
-      if (!task) continue;
-      const parts = new Set<T>();
-      for (const kid of kids) {
-        for (const part of contributed.get(kid) ?? []) parts.add(part);
-      }
-      if (!parts.size) {
-        const own = contribute(task);
-        if (own) parts.add(own);
-      }
-      contributed.set(frame.id, parts);
-      resolved.set(frame.id, collapse(parts));
+      resolveFrame(frame.id, kids, byId, contributed, resolved, contribute, collapse);
     }
   };
 
