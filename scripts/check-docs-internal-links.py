@@ -149,38 +149,75 @@ def page_url(docs: Path, file: Path) -> str:
     return f"/{rel}/"
 
 
+def _frontmatter_end(lines: list[str]) -> int:
+    """Line index where a leading ``---`` frontmatter block ends, or 0 if there is none."""
+    if not lines or lines[0].strip() != "---":
+        return 0
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return i + 1
+    return 0
+
+
+def _unique_slug(base: str, seen: dict[str, int]) -> str:
+    """github-slugger's ``-1``, ``-2`` suffixing for a heading slug seen again."""
+    slug = base
+    while slug in seen:
+        seen[base] += 1
+        slug = f"{base}-{seen[base]}"
+    seen[slug] = 0
+    return slug
+
+
+def _update_fence(fence: str | None, line: str) -> tuple[str | None, bool]:
+    """Track a ``` / ~~~ code-fence's open/close state for one line.
+
+    Returns the fence token now open (``None`` if closed/not open) and whether
+    ``line`` is itself a fence-marker line (which the caller must not otherwise
+    parse as content).
+    """
+    marker = FENCE.match(line)
+    if not marker:
+        return fence, False
+    token = marker.group(1)
+    if fence is None:
+        return token, True
+    if token[0] == fence[0] and len(token) >= len(fence):
+        return None, True
+    return fence, True
+
+
+def _heading_anchor(line: str, seen: dict[str, int]) -> str | None:
+    heading = HEADING.match(line)
+    if not heading:
+        return None
+    raw_text = TRAILING_HASHES.sub("", heading.group(2))
+    base = slugify(heading_text(raw_text))
+    return _unique_slug(base, seen)
+
+
+def _line_links(lineno: int, line: str) -> list[tuple[int, str]]:
+    text = INLINE_CODE.sub("", line)
+    links = [(lineno, target) for rx in (MD_LINK, HREF) for target in rx.findall(text)]
+    ref = REF_DEF.match(text)
+    if ref:
+        links.append((lineno, ref.group(1) or ref.group(2)))
+    return links
+
+
 def parse_page(docs: Path, file: Path) -> Page:
     page = Page(file=file, url=page_url(docs, file), anchors={"_top"})
     seen: dict[str, int] = {}
     lines = file.read_text(encoding="utf-8").splitlines()
-    start = 0
-    if lines and lines[0].strip() == "---":
-        for i in range(1, len(lines)):
-            if lines[i].strip() == "---":
-                start = i + 1
-                break
+    start = _frontmatter_end(lines)
     fence: str | None = None
     for lineno, line in enumerate(lines[start:], start=start + 1):
-        marker = FENCE.match(line)
-        if marker:
-            token = marker.group(1)
-            if fence is None:
-                fence = token
-            elif token[0] == fence[0] and len(token) >= len(fence):
-                fence = None
+        fence, is_marker = _update_fence(fence, line)
+        if is_marker or fence is not None:
             continue
-        if fence is not None:
-            continue
-        heading = HEADING.match(line)
-        if heading:
-            raw_text = TRAILING_HASHES.sub("", heading.group(2))
-            base = slugify(heading_text(raw_text))
-            slug = base
-            while slug in seen:
-                seen[base] += 1
-                slug = f"{base}-{seen[base]}"
-            seen[slug] = 0
-            page.anchors.add(slug)
+        anchor = _heading_anchor(line, seen)
+        if anchor is not None:
+            page.anchors.add(anchor)
         page.anchors.update(ID_ATTR.findall(line))
         footnote = FOOTNOTE.match(line)
         if footnote:
@@ -188,12 +225,7 @@ def parse_page(docs: Path, file: Path) -> Page:
             page.anchors.update(
                 {"footnote-label", f"user-content-fn-{footnote.group(1)}"}
             )
-        text = INLINE_CODE.sub("", line)
-        for rx in (MD_LINK, HREF):
-            page.links.extend((lineno, target) for target in rx.findall(text))
-        ref = REF_DEF.match(text)
-        if ref:
-            page.links.append((lineno, ref.group(1) or ref.group(2)))
+        page.links.extend(_line_links(lineno, line))
     return page
 
 
@@ -212,6 +244,78 @@ def load_redirects(config: Path) -> dict[str, str]:
 def _norm_url(url: str) -> str:
     url = posixpath.normpath(url) if url not in ("", "/") else "/"
     return url if url.endswith("/") else url + "/"
+
+
+@dataclass
+class _LinkCheckResult:
+    links_checked: int = 0
+    anchors_checked: int = 0
+    violation: str | None = None
+
+
+def _check_link(
+    page: Page,
+    lineno: int,
+    raw: str,
+    rel: str,
+    pages: dict[str, Page],
+    redirects: dict[str, str],
+    root: Path,
+) -> _LinkCheckResult:
+    """One link's contribution to :func:`run_check`'s counters and violation list."""
+    target = raw.strip()
+    where = f"{rel}:{lineno}"
+    if target.startswith(SITE):
+        target = target[len(SITE) :] or "/"
+
+    source = REPO_SOURCE.match(target)
+    if source:
+        if (root / unquote(source.group(1)).rstrip("/")).exists():
+            return _LinkCheckResult(links_checked=1)
+        return _LinkCheckResult(
+            links_checked=1,
+            violation=f"{where} links to {raw} — no such file in this repository",
+        )
+
+    if target.startswith("//") or SCHEME.match(target):
+        return _LinkCheckResult()
+
+    path, _, anchor = target.partition("#")
+    path = path.split("?", 1)[0]
+    if path and not path.startswith("/") and ASSET_EXT.search(path):
+        if (page.file.parent / unquote(path)).exists():
+            return _LinkCheckResult(links_checked=1)
+        return _LinkCheckResult(
+            links_checked=1,
+            violation=f"{where} links to {raw} — no such file relative to the page",
+        )
+
+    if path == "":
+        resolved: Page | None = page
+        links_delta = 0
+    else:
+        url = _norm_url(
+            path if path.startswith("/") else posixpath.join(page.url, path)
+        )
+        resolved = pages.get(url) or (
+            pages.get(redirects[url]) if url in redirects else None
+        )
+        links_delta = 1
+        if resolved is None:
+            return _LinkCheckResult(
+                links_checked=1,
+                violation=f"{where} links to {raw} — no page publishes at {url}",
+            )
+
+    if not anchor:
+        return _LinkCheckResult(links_checked=links_delta)
+    if unquote(anchor) not in resolved.anchors:
+        return _LinkCheckResult(
+            links_checked=links_delta,
+            anchors_checked=1,
+            violation=f"{where} links to {raw} — {resolved.url} exists, the anchor '#{anchor}' does not",
+        )
+    return _LinkCheckResult(links_checked=links_delta, anchors_checked=1)
 
 
 def run_check(root: Path) -> int:
@@ -234,50 +338,11 @@ def run_check(root: Path) -> int:
     for page in pages.values():
         rel = page.file.relative_to(root).as_posix()
         for lineno, raw in page.links:
-            target = raw.strip()
-            where = f"{rel}:{lineno}"
-            if target.startswith(SITE):
-                target = target[len(SITE) :] or "/"
-            source = REPO_SOURCE.match(target)
-            if source:
-                links_checked += 1
-                if not (root / unquote(source.group(1)).rstrip("/")).exists():
-                    violations.append(
-                        f"{where} links to {raw} — no such file in this repository"
-                    )
-                continue
-            if target.startswith("//") or SCHEME.match(target):
-                continue
-            path, _, anchor = target.partition("#")
-            path = path.split("?", 1)[0]
-            if path and not path.startswith("/") and ASSET_EXT.search(path):
-                links_checked += 1
-                if not (page.file.parent / unquote(path)).exists():
-                    violations.append(
-                        f"{where} links to {raw} — no such file relative to the page"
-                    )
-                continue
-            if path == "":
-                resolved = page
-            else:
-                url = _norm_url(
-                    path if path.startswith("/") else posixpath.join(page.url, path)
-                )
-                links_checked += 1
-                resolved = pages.get(url)
-                if resolved is None and url in redirects:
-                    resolved = pages.get(redirects[url])
-                if resolved is None:
-                    violations.append(
-                        f"{where} links to {raw} — no page publishes at {url}"
-                    )
-                    continue
-            if anchor:
-                anchors_checked += 1
-                if unquote(anchor) not in resolved.anchors:
-                    violations.append(
-                        f"{where} links to {raw} — {resolved.url} exists, the anchor '#{anchor}' does not"
-                    )
+            result = _check_link(page, lineno, raw, rel, pages, redirects, root)
+            links_checked += result.links_checked
+            anchors_checked += result.anchors_checked
+            if result.violation:
+                violations.append(result.violation)
 
     if not pages or links_checked == 0 or anchors_checked == 0:
         print(

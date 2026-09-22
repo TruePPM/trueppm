@@ -588,6 +588,69 @@ async function settle(page, shot) {
   await page.waitForTimeout(shot.settleMs ?? 1200);
 }
 
+function resolveSelected(all, only) {
+  const selected = only ? all.filter((s) => only.includes(s.name)) : all;
+  if (only) {
+    const missing = only.filter((n) => !all.some((s) => s.name === n));
+    if (missing.length)
+      throw new Error(`Unknown shot(s): ${missing.join(", ")}`);
+  }
+  return selected;
+}
+
+async function capturePng(page, shot) {
+  if (!shot.crop) {
+    return page.screenshot({ type: "png", fullPage: false });
+  }
+  const target = await shot.crop(page);
+  await target.waitFor({ state: "visible", timeout: 10_000 });
+  // page.screenshot({clip}) does not auto-scroll (unlike locator.screenshot());
+  // a crop target below the fold — e.g. the last collapsible section on a
+  // long task-detail page — must be scrolled into view first or the clip
+  // clamps to whatever sliver of it is still inside the viewport.
+  await target.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(150);
+  const box = await target.boundingBox();
+  if (!box)
+    throw new Error("crop target resolved but has no bounding box (hidden?)");
+  const pad = shot.cropPad ?? 16;
+  const vp = page.viewportSize();
+  const x = Math.max(0, box.x - pad);
+  const y = Math.max(0, box.y - pad);
+  const clip = {
+    x,
+    y,
+    width: Math.min(vp.width - x, box.width + pad * 2),
+    height: Math.min(vp.height - y, box.height + pad * 2),
+  };
+  return page.screenshot({ type: "png", clip });
+}
+
+async function captureShot(ctx, shot) {
+  const page = await ctx.newPage();
+  try {
+    await page.goto(`${WEB}${shot.path}`);
+    await settle(page, shot);
+    await tidy(page);
+    if (shot.act) {
+      await shot.act(page);
+      await page.waitForTimeout(400);
+    }
+    await page.addStyleTag({
+      content: "* { caret-color: transparent !important; }",
+    });
+    const png = await capturePng(page, shot);
+    const out = path.join(OUT, `${shot.name}.webp`);
+    const webp = await sharp(png).webp({ quality: WEBP_QUALITY }).toBuffer();
+    await writeFile(out, webp);
+    console.log(
+      `✓ ${shot.name.padEnd(30)} ${(webp.length / 1024).toFixed(0).padStart(4)} KB  ${shot.path}`,
+    );
+  } finally {
+    await page.close();
+  }
+}
+
 async function main() {
   const browser = await chromium.launch();
   const baseContext = () =>
@@ -624,12 +687,7 @@ async function main() {
   const anon = await baseContext();
 
   const all = [...shots(ids), ...componentShots(ids)];
-  const selected = only ? all.filter((s) => only.includes(s.name)) : all;
-  if (only) {
-    const missing = only.filter((n) => !all.some((s) => s.name === n));
-    if (missing.length)
-      throw new Error(`Unknown shot(s): ${missing.join(", ")}`);
-  }
+  const selected = resolveSelected(all, only);
   if (listOnly) {
     for (const s of all) console.log(`${s.name.padEnd(30)} ${s.path}`);
     await browser.close();
@@ -640,58 +698,11 @@ async function main() {
   const failures = [];
   for (const shot of selected) {
     const ctx = shot.anonymous ? anon : shot.as === "member" ? member : authed;
-    const page = await ctx.newPage();
     try {
-      await page.goto(`${WEB}${shot.path}`);
-      await settle(page, shot);
-      await tidy(page);
-      if (shot.act) {
-        await shot.act(page);
-        await page.waitForTimeout(400);
-      }
-      await page.addStyleTag({
-        content: "* { caret-color: transparent !important; }",
-      });
-      let png;
-      if (shot.crop) {
-        const target = await shot.crop(page);
-        await target.waitFor({ state: "visible", timeout: 10_000 });
-        // page.screenshot({clip}) does not auto-scroll (unlike locator.screenshot());
-        // a crop target below the fold — e.g. the last collapsible section on a
-        // long task-detail page — must be scrolled into view first or the clip
-        // clamps to whatever sliver of it is still inside the viewport.
-        await target.scrollIntoViewIfNeeded();
-        await page.waitForTimeout(150);
-        const box = await target.boundingBox();
-        if (!box)
-          throw new Error(
-            "crop target resolved but has no bounding box (hidden?)",
-          );
-        const pad = shot.cropPad ?? 16;
-        const vp = page.viewportSize();
-        const x = Math.max(0, box.x - pad);
-        const y = Math.max(0, box.y - pad);
-        const clip = {
-          x,
-          y,
-          width: Math.min(vp.width - x, box.width + pad * 2),
-          height: Math.min(vp.height - y, box.height + pad * 2),
-        };
-        png = await page.screenshot({ type: "png", clip });
-      } else {
-        png = await page.screenshot({ type: "png", fullPage: false });
-      }
-      const out = path.join(OUT, `${shot.name}.webp`);
-      const webp = await sharp(png).webp({ quality: WEBP_QUALITY }).toBuffer();
-      await writeFile(out, webp);
-      console.log(
-        `✓ ${shot.name.padEnd(30)} ${(webp.length / 1024).toFixed(0).padStart(4)} KB  ${shot.path}`,
-      );
+      await captureShot(ctx, shot);
     } catch (err) {
       failures.push(shot.name);
       console.error(`✗ ${shot.name}: ${err.message.split("\n")[0]}`);
-    } finally {
-      await page.close();
     }
   }
   await browser.close();

@@ -196,6 +196,43 @@ def _is_membership_root(node: ast.AST) -> str | None:
     return name if name in MODELS else None
 
 
+def _finding_for_node(
+    node: ast.AST, parents: dict[int, ast.AST], seen: set[int]
+) -> tuple[int, str, str] | None:
+    """The finding tuple for `node` if it roots an unfloored membership read, else None.
+
+    Mutates `seen` with the outermost chain's id so a chain spanning several
+    membership-root attribute nodes (rare, but possible via chained managers) is
+    only ever reported once.
+    """
+    model = _is_membership_root(node)
+    if model is None:
+        return None
+    top = _outermost(parents, node)
+    if id(top) in seen:
+        return None
+    seen.add(id(top))
+
+    steps = _chain(top)
+    methods = {name for name, _ in steps}
+    if methods & WRITE_METHODS:
+        return None  # a write, not a read
+    if "select_for_update" in methods:
+        return None  # a lock acquisition, must cover the revoked row
+    if "live" in methods:
+        return None  # floored by the shared helper
+    if any(
+        call is not None and name in FILTERING_METHODS and _mentions_floor(call)
+        for name, call in steps
+    ):
+        return None  # floored inline
+
+    src = " ".join(ast.unparse(top).split())
+    if len(src) > 120:
+        src = src[:117] + "..."
+    return (getattr(node, "lineno", 0), model, src)
+
+
 def scan_file(path: Path) -> list[tuple[int, str, str]]:
     """Return [(lineno, model, source)] for every unfloored read in this file."""
     try:
@@ -208,36 +245,12 @@ def scan_file(path: Path) -> list[tuple[int, str, str]]:
         for child in ast.iter_child_nodes(parent):
             parents[id(child)] = parent
 
-    findings: list[tuple[int, str, str]] = []
     seen: set[int] = set()
-    for node in ast.walk(tree):
-        model = _is_membership_root(node)
-        if model is None:
-            continue
-        top = _outermost(parents, node)
-        if id(top) in seen:
-            continue
-        seen.add(id(top))
-
-        steps = _chain(top)
-        methods = {name for name, _ in steps}
-        if methods & WRITE_METHODS:
-            continue  # a write, not a read
-        if "select_for_update" in methods:
-            continue  # a lock acquisition, must cover the revoked row
-        if "live" in methods:
-            continue  # floored by the shared helper
-        if any(
-            call is not None and name in FILTERING_METHODS and _mentions_floor(call)
-            for name, call in steps
-        ):
-            continue  # floored inline
-
-        src = " ".join(ast.unparse(top).split())
-        if len(src) > 120:
-            src = src[:117] + "..."
-        findings.append((getattr(node, "lineno", 0), model, src))
-    return findings
+    return [
+        finding
+        for node in ast.walk(tree)
+        if (finding := _finding_for_node(node, parents, seen)) is not None
+    ]
 
 
 _PACKAGE_ANCHOR = "trueppm_api"
