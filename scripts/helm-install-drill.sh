@@ -374,7 +374,28 @@ kubeadmConfigPatches:
         - localhost
         - 127.0.0.1
 EOF
-kind create cluster --name "$CLUSTER" --config /tmp/kind-config.yaml --wait 120s
+# kind's own node-boot wait — it tails the node container's log for a systemd
+# target, separate from the --wait 120s above, which gates node Readiness —
+# has no knob to lengthen and can fail in under two seconds on a loaded runner
+# (#3966: "could not find a log line that matches ... Multi-User System"), the
+# same runner-contention class that made this drill bimodal under load
+# (#3218). Retry it: delete whatever partially came up and try again. Held in
+# sync with scripts/helm-netpol-drill.sh's identical retry.
+CLUSTER_CREATE_ATTEMPTS="${CLUSTER_CREATE_ATTEMPTS:-3}"
+CLUSTER_CREATE_RETRY_DELAY="${CLUSTER_CREATE_RETRY_DELAY:-5}"
+attempt=1
+while true; do
+  if kind create cluster --name "$CLUSTER" --config /tmp/kind-config.yaml --wait 120s; then
+    break
+  fi
+  if [ "$attempt" -ge "$CLUSTER_CREATE_ATTEMPTS" ]; then
+    fail "kind create cluster failed after ${CLUSTER_CREATE_ATTEMPTS} attempts"
+  fi
+  log "kind create cluster failed (attempt ${attempt}/${CLUSTER_CREATE_ATTEMPTS}) — deleting and retrying in ${CLUSTER_CREATE_RETRY_DELAY}s"
+  kind delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true
+  sleep "$CLUSTER_CREATE_RETRY_DELAY"
+  attempt=$((attempt + 1))
+done
 
 # Repoint kubeconfig at the dind-reachable host when running in CI (the generated
 # server is https://0.0.0.0:6443, unroutable from the job container).

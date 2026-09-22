@@ -190,7 +190,29 @@ kubeadmConfigPatches:
 EOF
 # No --wait: without a CNI, nodes stay NotReady until Calico is installed, so
 # waiting for node readiness here would always time out.
-kind create cluster --name "$CLUSTER" --config /tmp/kind-netpol-config.yaml
+#
+# kind's own node-boot wait — it tails the node container's log for a systemd
+# target, unrelated to the --wait flag above — has no knob to lengthen and can
+# fail in under two seconds on a loaded runner (#3966: "could not find a log
+# line that matches ... Multi-User System"), the same runner-contention class
+# that made helm:install bimodal under load (#3218). Retry it the way the
+# Calico manifest fetch below tolerates a transient failure: delete whatever
+# partially came up and try again.
+CLUSTER_CREATE_ATTEMPTS="${CLUSTER_CREATE_ATTEMPTS:-3}"
+CLUSTER_CREATE_RETRY_DELAY="${CLUSTER_CREATE_RETRY_DELAY:-5}"
+attempt=1
+while true; do
+  if kind create cluster --name "$CLUSTER" --config /tmp/kind-netpol-config.yaml; then
+    break
+  fi
+  if [ "$attempt" -ge "$CLUSTER_CREATE_ATTEMPTS" ]; then
+    fail "kind create cluster failed after ${CLUSTER_CREATE_ATTEMPTS} attempts"
+  fi
+  note "kind create cluster failed (attempt ${attempt}/${CLUSTER_CREATE_ATTEMPTS}) — deleting and retrying in ${CLUSTER_CREATE_RETRY_DELAY}s"
+  kind delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true
+  sleep "$CLUSTER_CREATE_RETRY_DELAY"
+  attempt=$((attempt + 1))
+done
 
 if [ "$APISERVER_HOST" != "127.0.0.1" ] && [ "$APISERVER_HOST" != "localhost" ]; then
   kubectl config set-cluster "kind-${CLUSTER}" --server="https://${APISERVER_HOST}:6443"
