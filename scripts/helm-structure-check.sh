@@ -1683,6 +1683,19 @@ $demo_ro_report
 EOF
 [ "$demo_ro_checked" -gt 0 ] || fail "TRUEPPM_DEMO_READ_ONLY propagation check inspected no containers (#3925)"
 
+# TRUEPPM_DEMO_LOGIN_HINT must be exactly "username:password" (#3925). Nothing
+# rendering-side ever checked its VALUE, only whether a login hint was set at all
+# (interactive_args above sets one purely to clear trueppm.demoGuards) — so a prior
+# version of trueppm.demoLoginHint could (and did) join the pair with " / " instead
+# of ":" and still render clean. parse_demo_login_hint (core/demo_read_only.py)
+# splits on the first colon and raises ImproperlyConfigured on anything else,
+# refusing to boot — so the mismatch was only ever caught by an actual pod trying to
+# start, which is exactly what scripts/helm-netpol-drill.sh does and this script does
+# not. This assertion is what would have caught it here instead.
+login_hint_val="$(yq '.spec.template.spec.containers[0].env[] | select(.name == "TRUEPPM_DEMO_LOGIN_HINT") | .value' <<<"$DEMO_RO_RENDER")"
+[ "$login_hint_val" = "struct-visitor:StructCheck1Pw" ] \
+  || fail "TRUEPPM_DEMO_LOGIN_HINT rendered '$login_hint_val', expected 'struct-visitor:StructCheck1Pw' — parse_demo_login_hint requires exactly username:password and refuses to boot on anything else (#3925)"
+
 # Guards: refuse to render rather than silently misconfigure (trueppm.demoGuards).
 if helm template trueppm "$CHART" "${interactive_args[@]}" --set persistence.media.enabled=true >/dev/null 2>&1; then
   fail "demo.interactive=true rendered successfully with persistence.media.enabled=true — this mode must give the api pod NO writable media path"

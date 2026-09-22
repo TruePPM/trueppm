@@ -1234,14 +1234,22 @@ happy path — every branch either fails the render or produces no output.
 {{- end -}}
 
 {{/*
-The credential text the login page displays (#3925, read by #3926).
+TRUEPPM_DEMO_LOGIN_HINT (#3925, read by #3926).
 
-One string, assembled here so the chart owns the format and the client owns none of
-it. Empty unless the interactive mode is on, so a share-link-only demo renders no
-TRUEPPM_DEMO_LOGIN_HINT at all.
+MUST be `username:password` — parse_demo_login_hint (core/demo_read_only.py) splits
+on the FIRST colon and raises ImproperlyConfigured on anything else, refusing to
+boot. #3926 parses this at settings-import time into DEMO_LOGIN_HINT (a
+{"username", "password"} dict), which urls.py then re-serializes as the structured
+`demo_login_hint` field on GET /api/v1/edition/ — the web app builds its own display
+text from those two fields; nothing reads this env var as display text directly, so
+the chart does not own that format and must not assemble one here. A prior version
+of this define rendered "%s / %s" on exactly that (stale) assumption, which meant
+demo.interactive could never actually boot with a login hint set — it always hit
+this guard's refusal, just never surfaced until #3925's own boot-guard fixes let the
+pod get far enough to reach it.
 */}}
 {{- define "trueppm.demoLoginHint" -}}
-{{- printf "%s / %s" (include "trueppm.demoLoginUsername" .) (include "trueppm.demoLoginPassword" .) -}}
+{{- printf "%s:%s" (include "trueppm.demoLoginUsername" .) (include "trueppm.demoLoginPassword" .) -}}
 {{- end -}}
 
 {{/*
