@@ -529,6 +529,14 @@ describe('SsoProviderPanel — Edit mode', () => {
     // The original diagnosis is kept verbatim, not replaced.
     expect(screen.getByText(/blocked by SSRF guard/)).toBeInTheDocument();
     expect(screen.getByText(/TRUEPPM_EGRESS_ALLOWLISTED_HOSTS/)).toBeInTheDocument();
+    // #3971: the remedy says this needs a Helm value change + redeploy, not a
+    // toggle on this page, and names the other subsystems the allow-list affects.
+    expect(screen.getByText(/Helm values/)).toBeInTheDocument();
+    expect(screen.getByText(/API redeploy/)).toBeInTheDocument();
+    expect(screen.getByText(/personal-access-token verification/)).toBeInTheDocument();
+    expect(screen.getByText(/git-link status refresh/)).toBeInTheDocument();
+    expect(screen.getByText(/webhook delivery/)).toBeInTheDocument();
+    expect(screen.getByText(/SMTP relay checks/)).toBeInTheDocument();
     const advancedLink = screen.getByRole('link', { name: /Advanced configuration reference/ });
     expect(advancedLink).toHaveAttribute(
       'href',
