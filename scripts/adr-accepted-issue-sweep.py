@@ -93,6 +93,98 @@ def open_issues() -> list[dict]:
     return issues
 
 
+def _classify_reference(
+    issue: dict, n: int, adrs: dict[int, str], args: argparse.Namespace
+) -> tuple[str, tuple] | None:
+    """Bucket ("risk" / "suppressed" / "unrankable") for one issue's mention of ADR `n`.
+
+    Returns None when the mention doesn't apply — a different ADR than --adr asked
+    for, an ADR we have no file for, or one that isn't Accepted.
+    """
+    if args.adr and n != args.adr:
+        return None
+    path = adrs.get(n)
+    if not path:
+        return None
+    state, date, is_corr, head = adr_status(path)
+    if state != "Accepted":
+        return None
+    created = issue["created_at"][:10]
+    row = (
+        issue["iid"],
+        created,
+        n,
+        date,
+        (issue.get("milestone") or {}).get("title"),
+        (issue.get("title") or "")[:62],
+    )
+    if date is None:
+        return ("unrankable", row)
+    if args.since and date < args.since:
+        return None
+    if created >= date:
+        return None
+    return ("suppressed" if is_corr else "risk", row)
+
+
+def _issue_risk_rows(
+    issues: list[dict], adrs: dict[int, str], args: argparse.Namespace
+) -> tuple[list[tuple], list[tuple], list[tuple]]:
+    """Classify every open issue's ADR references into (risk, suppressed, unrankable)."""
+    risk: list[tuple] = []
+    suppressed: list[tuple] = []
+    unrankable: list[tuple] = []
+    buckets = {"risk": risk, "suppressed": suppressed, "unrankable": unrankable}
+    for issue in issues:
+        blob = (issue.get("title") or "") + " " + (issue.get("description") or "")
+        for n in sorted({int(x) for x in ADR_REF.findall(blob)}):
+            classified = _classify_reference(issue, n, adrs, args)
+            if classified is not None:
+                bucket, row = classified
+                buckets[bucket].append(row)
+    return risk, suppressed, unrankable
+
+
+def _print_report(
+    issues: list[dict],
+    risk: list[tuple],
+    suppressed: list[tuple],
+    unrankable: list[tuple],
+    show_unrankable: bool,
+) -> None:
+    print(f"open issues scanned                 : {len(issues)}")
+    print(
+        f"suppressed (Status date is a bulk-audit CORRECTION, not acceptance) : {len(suppressed)}"
+    )
+    print(
+        f"unrankable (Accepted ADR carries no date)                           : {len(unrankable)}"
+    )
+    print()
+    print(f"REVIEW — open issue written BEFORE its ADR was accepted: {len(risk)}")
+    for iid, created, n, date, ms, title in sorted(risk, key=lambda r: -r[0]):
+        print(
+            f"   #{iid:<6} created {created} | ADR-{n:04d} accepted {date} | ms={ms or '-':<5} | {title}"
+        )
+    if not risk:
+        print("   (none — a zero here is a real outcome, record it)")
+
+    if show_unrankable:
+        print()
+        print(
+            f"--- unrankable: Accepted ADR with no date in its Status section ({len(unrankable)}) ---"
+        )
+        for iid, created, n, _d, ms, title in sorted(unrankable, key=lambda r: -r[0]):
+            print(
+                f"   #{iid:<6} created {created} | ADR-{n:04d} | ms={ms or '-':<5} | {title}"
+            )
+
+    print()
+    print("Each row is a QUESTION, not a defect. Re-read the issue against the ADR's")
+    print("rejected options; if it diverges, rewrite the TITLE as well as the body and")
+    print("lead with a dated correction note. Check the branch first — in #3136 the")
+    print("branch was right and the issue was wrong.")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--adr", type=int, help="only this ADR number")
@@ -115,67 +207,8 @@ def main() -> int:
     adrs = adr_index(root)
     issues = open_issues()
 
-    risk, suppressed, unrankable = [], [], []
-    for issue in issues:
-        blob = (issue.get("title") or "") + " " + (issue.get("description") or "")
-        for n in sorted({int(x) for x in ADR_REF.findall(blob)}):
-            if args.adr and n != args.adr:
-                continue
-            path = adrs.get(n)
-            if not path:
-                continue
-            state, date, is_corr, head = adr_status(path)
-            if state != "Accepted":
-                continue
-            created = issue["created_at"][:10]
-            row = (
-                issue["iid"],
-                created,
-                n,
-                date,
-                (issue.get("milestone") or {}).get("title"),
-                (issue.get("title") or "")[:62],
-            )
-            if date is None:
-                unrankable.append(row)
-                continue
-            if args.since and date < args.since:
-                continue
-            if created >= date:
-                continue
-            (suppressed if is_corr else risk).append(row)
-
-    print(f"open issues scanned                 : {len(issues)}")
-    print(
-        f"suppressed (Status date is a bulk-audit CORRECTION, not acceptance) : {len(suppressed)}"
-    )
-    print(
-        f"unrankable (Accepted ADR carries no date)                           : {len(unrankable)}"
-    )
-    print()
-    print(f"REVIEW — open issue written BEFORE its ADR was accepted: {len(risk)}")
-    for iid, created, n, date, ms, title in sorted(risk, key=lambda r: -r[0]):
-        print(
-            f"   #{iid:<6} created {created} | ADR-{n:04d} accepted {date} | ms={ms or '-':<5} | {title}"
-        )
-    if not risk:
-        print("   (none — a zero here is a real outcome, record it)")
-
-    if args.show_unrankable:
-        print()
-        print(
-            f"--- unrankable: Accepted ADR with no date in its Status section ({len(unrankable)}) ---"
-        )
-        for iid, created, n, _d, ms, title in sorted(unrankable, key=lambda r: -r[0]):
-            print(
-                f"   #{iid:<6} created {created} | ADR-{n:04d} | ms={ms or '-':<5} | {title}"
-            )
-
-    print()
-    print("Each row is a QUESTION, not a defect. Re-read the issue against the ADR's")
-    print("rejected options; if it diverges, rewrite the TITLE as well as the body and")
-    print("lead with a dated correction note. Check the branch first — in #3136 the")
-    print("branch was right and the issue was wrong.")
+    risk, suppressed, unrankable = _issue_risk_rows(issues, adrs, args)
+    _print_report(issues, risk, suppressed, unrankable, args.show_unrankable)
     return 0
 
 
