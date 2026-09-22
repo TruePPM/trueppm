@@ -1201,13 +1201,13 @@ happy path — every branch either fails the render or produces no output.
   The provider name is published copy rendered into a pre-auth page, and the URL
   becomes an href there. Constrain both at RENDER time rather than sanitizing at use
   — the same line demo.loginHint and demo.shareToken draw. The API refuses a
-  non-http(s) URL at boot as well; this is the earlier and louder of the two.
+  non-https URL at boot as well (#3997); this is the earlier and louder of the two.
 */ -}}
 {{- if not (regexMatch "^[A-Za-z0-9 .,'()&/_-]{1,60}$" $gateProvider) -}}
 {{- fail "demo.accessGate.provider may contain only letters, digits, spaces and . , ' ( ) & / _ - (max 60 chars). It is published as-is on the login page — e.g. \"Cloudflare Access\"." -}}
 {{- end -}}
-{{- if and $gatePrivacyUrl (not (regexMatch "^https?://[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]{1,500}$" $gatePrivacyUrl)) -}}
-{{- fail "demo.accessGate.privacyUrl must be an http:// or https:// URL (max 500 chars). It is rendered as a link on the pre-auth login page, so any other scheme is refused rather than escaped at use." -}}
+{{- if and $gatePrivacyUrl (not (regexMatch "^https://[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]{1,500}$" $gatePrivacyUrl)) -}}
+{{- fail "demo.accessGate.privacyUrl must be an https:// URL (max 500 chars). It is rendered as a link on the pre-auth login page, so any other scheme -- including plain http:// -- is refused rather than escaped at use." -}}
 {{- end -}}
 {{- end -}}
 {{- if .Values.demo.interactive -}}
