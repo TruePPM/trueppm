@@ -1643,11 +1643,12 @@ demo:
   # it — D2 refuses by request METHOD regardless of role. The cost is purely UX: more
   # surfaces end in a refusal, which #3926 handles by disabling them up front.
   #
-  # The chart renders this as TRUEPPM_DEMO_LOGIN_HINT ("<username> / <password>") on
-  # the api Deployment, and as the seed workloads' TRUEPPM_DEMO_LOGIN_USERNAME /
-  # TRUEPPM_DEMO_LOGIN_PASSWORD. Setting it while read-only mode is OFF fails the
-  # render: that combination publishes a working login to a WRITABLE instance, which
-  # is strictly worse than publishing nothing.
+  # The chart renders this as TRUEPPM_DEMO_LOGIN_HINT ("<username>:<password>",
+  # required by parse_demo_login_hint) on the api Deployment, and as the seed
+  # workloads' TRUEPPM_DEMO_LOGIN_USERNAME / TRUEPPM_DEMO_LOGIN_PASSWORD. Setting it
+  # while read-only mode is OFF fails the render: that combination publishes a
+  # working login to a WRITABLE instance, which is strictly worse than publishing
+  # nothing.
   loginHint:
     username: ""
     password: ""

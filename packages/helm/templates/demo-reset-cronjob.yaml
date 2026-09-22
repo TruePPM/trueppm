@@ -89,6 +89,15 @@ spec:
                 {{- include "trueppm.envVars" . | nindent 16 }}
                 {{- include "trueppm.connectionEnv" . | nindent 16 }}
                 {{- include "trueppm.datastoreSecurityEnv" . | nindent 16 }}
+                {{- /*
+                  This CronJob only renders under demo.enabled, so
+                  trueppm.demoReadOnly is always "true" here — but migrate imports
+                  settings.prod, whose attachment-storage boot guard now trusts
+                  DEMO_READ_ONLY as proof no request can reach storage (#775,
+                  #3925). Without it here this init container crash-loops exactly
+                  like the api Deployment's did before that fix.
+                */}}
+                {{- include "trueppm.demoReadOnlyEnv" . | nindent 16 }}
               volumeMounts:
                 - name: tmp
                   mountPath: /tmp
