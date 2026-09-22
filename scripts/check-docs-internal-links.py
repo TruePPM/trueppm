@@ -68,12 +68,36 @@ REPO_SOURCE = re.compile(
 )
 
 FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
-# Trailing optional-hashes stripped separately (TRAILING_HASHES below) rather
-# than via `(.+?)(?:[ \t]+#+)?[ \t]*$` (SonarCloud python:S8786) — the lazy
-# `.+?` overlaps `[ \t]` with the following `[ \t]+#+` / `[ \t]*$`, so the
+# Trailing optional-hashes stripped separately (_strip_trailing_hash_marker
+# below, plain str.rstrip logic — not a regex) rather than via
+# `(.+?)(?:[ \t]+#+)?[ \t]*$` (SonarCloud python:S8786) — the lazy `.+?`
+# overlaps `[ \t]` with the following `[ \t]+#+` / `[ \t]*$`, so the
 # backtracker retries every split point on a line with no closing marker.
-HEADING = re.compile(r"^\s{0,3}(#{1,6})[ \t]+(.+)$")
-TRAILING_HASHES = re.compile(r"[ \t]+#+[ \t]*$")
+# HEADING itself only matches the bounded `#{1,6}[ \t]` marker (SonarCloud
+# python:S8786) — an in-regex `(.+)$` tail after `[ \t]+` is the same
+# adjacent-quantifier-over-overlapping-chars shape, since `.` also matches
+# space/tab; callers slice `line[m.end():]` for the remainder instead. The
+# fixed-width `(?=[ \t].)` lookahead (not a second quantifier) preserves the
+# original's "at least one separator char AND at least one more char" floor —
+# without it, "### " (hash run + a single trailing space, no text) would
+# newly match where the original rejected it.
+HEADING = re.compile(r"^\s{0,3}(#{1,6})(?=[ \t].)[ \t]")
+
+
+def _strip_trailing_hash_marker(text: str) -> str:
+    """Strip a Markdown ATX heading's optional closing '#' run (e.g. 'Heading ###' ->
+    'Heading'). Plain str logic instead of a regex (SonarCloud python:S8786) — a
+    `[ \t]+#+[ \t]*$` pattern chains three adjacent quantified groups, which trips
+    the backtracking heuristic even though the character classes are disjoint."""
+    no_trailing_ws = text.rstrip(" \t")
+    no_hashes = no_trailing_ws.rstrip("#")
+    if no_hashes == no_trailing_ws:
+        return text  # no trailing hash run
+    if not no_hashes or no_hashes[-1] not in " \t":
+        return text  # hash run wasn't preceded by whitespace — not a closing marker
+    return no_hashes.rstrip(" \t")
+
+
 MD_LINK = re.compile(
     r"!?\[(?:[^\[\]]|\[[^\]]*\])*\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)"
 )
@@ -82,7 +106,12 @@ MD_LINK = re.compile(
 # on where the URL ends. The two shapes (angle-bracketed vs. bare) don't
 # overlap with each other, so matching them as distinct alternatives removes
 # the ambiguity; callers read `ref.group(1) or ref.group(2)`.
-REF_DEF = re.compile(r"^\s{0,3}\[(?!\^)[^\]]+\]:\s*(?:<([^<>]*)>|(\S+))(?:\s+.*)?$")
+# Trailing `(?=\s|$)` lookahead instead of `(?:\s+.*)?$` (SonarCloud
+# python:S8786) — the consuming form chains `\s+` next to `.*`, which overlaps
+# on whitespace; a zero-width lookahead enforces the same "nothing, or a
+# whitespace-separated title" restriction without a second quantifier, and
+# `.match()` doesn't need to consume the discarded title text anyway.
+REF_DEF = re.compile(r"^\s{0,3}\[(?!\^)[^\]]+\]:\s*(?:<([^<>]*)>|(\S+))(?=\s|$)")
 HREF = re.compile(r"""\bhref=["']([^"'{}]+)["']""")
 ID_ATTR = re.compile(r"""\bid=["']([^"'{}]+)["']""")
 FOOTNOTE = re.compile(r"^\s{0,3}\[\^([^\]]+)\]:")
@@ -191,7 +220,7 @@ def _heading_anchor(line: str, seen: dict[str, int]) -> str | None:
     heading = HEADING.match(line)
     if not heading:
         return None
-    raw_text = TRAILING_HASHES.sub("", heading.group(2))
+    raw_text = _strip_trailing_hash_marker(line[heading.end() :])
     base = slugify(heading_text(raw_text))
     return _unique_slug(base, seen)
 
