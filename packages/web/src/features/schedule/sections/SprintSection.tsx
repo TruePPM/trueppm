@@ -10,6 +10,7 @@ import {
   type GuardrailBlockedError,
 } from '@/hooks/useTaskMutations';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
+import type { ApiSprint, Task } from '@/types';
 import { canEditTask } from '@/lib/roles';
 import { isPhaseTask } from '@/lib/isPhaseTask';
 import { QueryErrorState } from '@/components/QueryErrorState';
@@ -23,6 +24,97 @@ const SELECT_CLASS =
 
 const LABEL_CLASS =
   'text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2';
+
+/**
+ * The label's control area: loading skeleton, error state, read-only text,
+ * empty-state nudge, or the editable picker — in that priority order.
+ *
+ * rule 246 / 392, #3455: a FAILED sprints read is not "no sprints" and not
+ * "Not assigned" — `sprints` is `[]` either way, so both later branches would
+ * state something about the project this render cannot know. Error sits
+ * ABOVE the read-only branch on purpose: a Viewer got the worse of the two
+ * lies, a flat "Not assigned" about a task that may well be committed.
+ */
+function SprintAssignmentControl({
+  isLoading,
+  hasError,
+  editable,
+  currentSprint,
+  assignable,
+  task,
+  itl,
+  isPending,
+  onChange,
+  onRetry,
+}: {
+  isLoading: boolean;
+  hasError: boolean;
+  editable: boolean;
+  currentSprint: ApiSprint | undefined;
+  assignable: ApiSprint[];
+  task: Task;
+  itl: ReturnType<typeof useIterationLabel>;
+  isPending: boolean;
+  onChange: (e: ChangeEvent<HTMLSelectElement>) => void;
+  onRetry: () => void;
+}) {
+  if (isLoading) {
+    return (
+      <div
+        className="h-9 rounded-control bg-neutral-surface-raised motion-safe:animate-pulse w-full"
+        aria-label={`Loading ${itl.lowerPlural}`}
+      />
+    );
+  }
+  if (hasError) {
+    return (
+      <QueryErrorState
+        variant="inline"
+        message={`Couldn't load ${itl.lowerPlural}.`}
+        onRetry={onRetry}
+      />
+    );
+  }
+  if (!editable) {
+    // Read-only: show the assigned iteration name as static text (the
+    // state badge / dates / remove control render separately by the caller).
+    return (
+      <p className="text-sm text-neutral-text-primary">
+        {currentSprint ? (
+          currentSprint.name
+        ) : (
+          <span className="italic text-neutral-text-secondary">Not assigned</span>
+        )}
+      </p>
+    );
+  }
+  if (assignable.length === 0 && !task.sprintId) {
+    return (
+      <p className="text-sm italic text-neutral-text-secondary">
+        No active or planned {itl.lowerPlural} — create one in the {itl.plural} tab.
+      </p>
+    );
+  }
+  return (
+    <select
+      aria-label={`${itl.singular} assignment`}
+      value={task.sprintId ?? ''}
+      onChange={onChange}
+      disabled={isPending}
+      className={SELECT_CLASS}
+    >
+      <option value="">— No {itl.lower} —</option>
+      {assignable.map((s) => (
+        <option key={s.id} value={s.id}>
+          {s.name}
+          {s.state === 'ACTIVE' ? ' (Active)' : ' (Planned)'}
+          {' · '}
+          {s.start_date} – {s.finish_date}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 /**
  * Sprint assignment section (ADR-0059 / ADR-0037).
@@ -73,9 +165,7 @@ export function SprintSection({ taskId, projectId, userRole, canEdit }: DrawerSe
     );
   }
 
-  const assignable = sprints.filter(
-    (s) => s.state === 'ACTIVE' || s.state === 'PLANNED',
-  );
+  const assignable = sprints.filter((s) => s.state === 'ACTIVE' || s.state === 'PLANNED');
 
   const currentSprint = sprints.find((s) => s.id === task.sprintId);
 
@@ -127,54 +217,21 @@ export function SprintSection({ taskId, projectId, userRole, canEdit }: DrawerSe
     <div className="space-y-3">
       <div>
         <div className={LABEL_CLASS}>{itl.singular}</div>
-        {isLoading ? (
-          <div className="h-9 rounded-control bg-neutral-surface-raised motion-safe:animate-pulse w-full" aria-label={`Loading ${itl.lowerPlural}`} />
-        ) : error ? (
-          // rule 246 / 392, #3455: a FAILED sprints read is not "no sprints" and
-          // not "Not assigned" — `sprints` is `[]` either way, so both branches
-          // below would state something about the project this render cannot
-          // know. Sits ABOVE the read-only branch on purpose: a Viewer got the
-          // worse of the two lies, a flat "Not assigned" about a task that may
-          // well be committed.
-          <QueryErrorState
-            variant="inline"
-            message={`Couldn't load ${itl.lowerPlural}.`}
-            onRetry={() => refetch?.()}
-          />
-        ) : !editable ? (
-          // Read-only: show the assigned iteration name as static text (the
-          // state badge / dates / remove control render separately below).
-          <p className="text-sm text-neutral-text-primary">
-            {currentSprint ? currentSprint.name : <span className="italic text-neutral-text-secondary">Not assigned</span>}
-          </p>
-        ) : assignable.length === 0 && !task.sprintId ? (
-          <p className="text-sm italic text-neutral-text-secondary">
-            No active or planned {itl.lowerPlural} — create one in the {itl.plural} tab.
-          </p>
-        ) : (
-          <select
-            aria-label={`${itl.singular} assignment`}
-            value={task.sprintId ?? ''}
-            onChange={handleChange}
-            disabled={isPending}
-            className={SELECT_CLASS}
-          >
-            <option value="">— No {itl.lower} —</option>
-            {assignable.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-                {s.state === 'ACTIVE' ? ' (Active)' : ' (Planned)'}
-                {' · '}
-                {s.start_date} – {s.finish_date}
-              </option>
-            ))}
-          </select>
-        )}
+        <SprintAssignmentControl
+          isLoading={isLoading}
+          hasError={!!error}
+          editable={editable}
+          currentSprint={currentSprint}
+          assignable={assignable}
+          task={task}
+          itl={itl}
+          isPending={isPending}
+          onChange={handleChange}
+          onRetry={() => refetch?.()}
+        />
       </div>
 
-      {block && (
-        <GuardrailBlock detail={block.detail} onDismiss={() => setBlock(null)} />
-      )}
+      {block && <GuardrailBlock detail={block.detail} onDismiss={() => setBlock(null)} />}
 
       {warnings.length > 0 && (
         <GuardrailNotice warnings={warnings} onUndo={handleUndo} onKeep={handleKeep} />
@@ -227,13 +284,12 @@ export function SprintSection({ taskId, projectId, userRole, canEdit }: DrawerSe
                   <span className="text-neutral-text-primary">{sc.itemName}</span>
                   {sc.goalImpact ? (
                     <span className="ml-1 text-semantic-at-risk font-medium">· affects goal</span>
-                  ) : ''}
+                  ) : (
+                    ''
+                  )}
                   {sc.addedByName ? ` · added by ${sc.addedByName}` : ''}
                   {' · '}
-                  <time
-                    dateTime={sc.addedAt}
-                    className="tppm-mono"
-                  >
+                  <time dateTime={sc.addedAt} className="tppm-mono">
                     {new Date(sc.addedAt).toLocaleDateString(undefined, {
                       month: 'short',
                       day: 'numeric',

@@ -408,6 +408,151 @@ export function matchParent(query: string, phases: ParentCandidate[]): ParentCan
  * on one project binding work to somebody who is a member of none of them
  * (ADR-0774 §3).
  */
+/** Mutable working state {@link resolveAuthoringDraft}'s token loop writes into. */
+interface DraftResolutionAcc {
+  unresolved: AnyAuthoringToken[];
+  overridden: AnyAuthoringToken[];
+  resolvedRaws: string[];
+  owners: ResolvedOwner[];
+  predecessors: ResolvedPredecessor[];
+  duration: number | null;
+  durationToken: AnyAuthoringToken | null;
+  isMilestone: boolean;
+  deliveryMode: DeliveryMode | null;
+  deliveryModeToken: AnyAuthoringToken | null;
+  parentId: string | null;
+}
+
+function resolveMilestoneToken(token: AnyAuthoringToken, acc: DraftResolutionAcc): void {
+  acc.isMilestone = true;
+  acc.resolvedRaws.push(token.raw);
+}
+
+function resolveDurationToken(token: AnyAuthoringToken, acc: DraftResolutionAcc): void {
+  // Last one wins — #5d followed by #3d reads as a correction, not a contradiction.
+  if (acc.durationToken) acc.overridden.push(acc.durationToken);
+  acc.duration = (token as DurationToken).days;
+  acc.durationToken = token;
+  acc.resolvedRaws.push(token.raw);
+}
+
+function resolveDeliveryModeToken(token: AnyAuthoringToken, acc: DraftResolutionAcc): void {
+  const mode = (token as DeliveryModeToken).mode;
+  if (!mode) {
+    acc.unresolved.push(token);
+    return;
+  }
+  if (acc.deliveryModeToken) acc.overridden.push(acc.deliveryModeToken);
+  acc.deliveryMode = mode;
+  acc.deliveryModeToken = token;
+  acc.resolvedRaws.push(token.raw);
+}
+
+function resolveOwnerToken(
+  token: AnyAuthoringToken,
+  pool: ProjectResource[],
+  acc: DraftResolutionAcc,
+): void {
+  const match = matchRosterMember(token.query, pool);
+  if (!match) {
+    acc.unresolved.push(token);
+    return;
+  }
+  // Re-lex the owner token to recover its allocation — `ownerToken` owns the
+  // percent grammar, so re-deriving `:50` here would be a second parser.
+  const withUnits = parseOwnerTokens(token.raw)[0] as OwnerToken | undefined;
+  const units = withUnits?.units ?? DEFAULT_OWNER_PERCENT;
+  const existing = acc.owners.findIndex((o) => o.resourceId === match.resourceId);
+  if (existing >= 0) acc.owners[existing] = { ...acc.owners[existing], units };
+  else acc.owners.push({ resourceId: match.resourceId, name: match.resource.name, units });
+  acc.resolvedRaws.push(token.raw);
+}
+
+function resolvePredecessorTokenEntry(
+  token: AnyAuthoringToken,
+  tasks: PredecessorCandidate[],
+  acc: DraftResolutionAcc,
+): void {
+  const match = matchPredecessor(token.query, tasks);
+  if (!match) {
+    acc.unresolved.push(token);
+    return;
+  }
+  const t = token as PredecessorToken;
+  const already = acc.predecessors.findIndex((p) => p.taskId === match.id);
+  const entry = { taskId: match.id, name: match.name, lag: t.lag, depType: t.depType };
+  if (already >= 0) acc.predecessors[already] = entry;
+  else acc.predecessors.push(entry);
+  acc.resolvedRaws.push(token.raw);
+}
+
+function resolveParentTokenEntry(
+  token: AnyAuthoringToken,
+  phases: ParentCandidate[],
+  acc: DraftResolutionAcc,
+): void {
+  const match = matchParent(token.query, phases);
+  if (!match) {
+    acc.unresolved.push(token);
+    return;
+  }
+  acc.parentId = match.id;
+  acc.resolvedRaws.push(token.raw);
+}
+
+/** One token's contribution to the draft resolution — dispatches on `token.kind`. */
+function resolveToken(
+  token: AnyAuthoringToken,
+  pool: ProjectResource[],
+  tasks: PredecessorCandidate[],
+  phases: ParentCandidate[],
+  acc: DraftResolutionAcc,
+): void {
+  switch (token.kind) {
+    case 'milestone':
+      resolveMilestoneToken(token, acc);
+      return;
+    case 'duration':
+      resolveDurationToken(token, acc);
+      return;
+    case 'deliveryMode':
+      resolveDeliveryModeToken(token, acc);
+      return;
+    case 'owner':
+      resolveOwnerToken(token, pool, acc);
+      return;
+    case 'predecessor':
+      resolvePredecessorTokenEntry(token, tasks, acc);
+      return;
+    case 'parent':
+      resolveParentTokenEntry(token, phases, acc);
+      return;
+  }
+}
+
+/**
+ * The coupled invariant: is_milestone ⟺ delivery_mode 'milestone' ⟺ duration 0.
+ *
+ * A row carrying both `!` and `~scrum` resolves to milestone, and the losing
+ * token is echoed back struck through rather than dropped — the author needs
+ * to see that their `~scrum` did not take, or they will assume it did.
+ */
+function reconcileMilestoneInvariant(acc: DraftResolutionAcc): void {
+  if (acc.isMilestone) {
+    if (acc.deliveryModeToken && acc.deliveryMode !== 'milestone') {
+      acc.overridden.push(acc.deliveryModeToken);
+    }
+    if (acc.durationToken && acc.duration !== 0) acc.overridden.push(acc.durationToken);
+    acc.deliveryMode = 'milestone';
+    acc.duration = 0;
+  } else if (acc.deliveryMode === 'milestone') {
+    // `~milestone` is the long spelling of `!`, so it implies the same invariant.
+    acc.isMilestone = true;
+    if (acc.durationToken && acc.duration !== 0) acc.overridden.push(acc.durationToken);
+    acc.duration = 0;
+  }
+}
+
 export function resolveAuthoringDraft(
   raw: string,
   context: AuthoringResolutionContext = {},
@@ -415,121 +560,39 @@ export function resolveAuthoringDraft(
   const { pool = [], tasks = [], phases = [], hoursPerDay = DEFAULT_HOURS_PER_DAY } = context;
   const tokens = parseAuthoringTokens(raw, hoursPerDay);
 
-  const unresolved: AnyAuthoringToken[] = [];
-  const overridden: AnyAuthoringToken[] = [];
-  const resolvedRaws: string[] = [];
-  const owners: ResolvedOwner[] = [];
-  const predecessors: ResolvedPredecessor[] = [];
-
-  let duration: number | null = null;
-  let durationToken: AnyAuthoringToken | null = null;
-  let isMilestone = false;
-  let deliveryMode: DeliveryMode | null = null;
-  let deliveryModeToken: AnyAuthoringToken | null = null;
-  let parentId: string | null = null;
+  const acc: DraftResolutionAcc = {
+    unresolved: [],
+    overridden: [],
+    resolvedRaws: [],
+    owners: [],
+    predecessors: [],
+    duration: null,
+    durationToken: null,
+    isMilestone: false,
+    deliveryMode: null,
+    deliveryModeToken: null,
+    parentId: null,
+  };
 
   for (const token of tokens) {
-    switch (token.kind) {
-      case 'milestone':
-        isMilestone = true;
-        resolvedRaws.push(token.raw);
-        break;
-
-      case 'duration':
-        // Last one wins — #5d followed by #3d reads as a correction, not a contradiction.
-        if (durationToken) overridden.push(durationToken);
-        duration = (token as DurationToken).days;
-        durationToken = token;
-        resolvedRaws.push(token.raw);
-        break;
-
-      case 'deliveryMode': {
-        const mode = (token as DeliveryModeToken).mode;
-        if (!mode) {
-          unresolved.push(token);
-          break;
-        }
-        if (deliveryModeToken) overridden.push(deliveryModeToken);
-        deliveryMode = mode;
-        deliveryModeToken = token;
-        resolvedRaws.push(token.raw);
-        break;
-      }
-
-      case 'owner': {
-        const match = matchRosterMember(token.query, pool);
-        if (!match) {
-          unresolved.push(token);
-          break;
-        }
-        // Re-lex the owner token to recover its allocation — `ownerToken` owns the
-        // percent grammar, so re-deriving `:50` here would be a second parser.
-        const withUnits = parseOwnerTokens(token.raw)[0] as OwnerToken | undefined;
-        const units = withUnits?.units ?? DEFAULT_OWNER_PERCENT;
-        const existing = owners.findIndex((o) => o.resourceId === match.resourceId);
-        if (existing >= 0) owners[existing] = { ...owners[existing], units };
-        else owners.push({ resourceId: match.resourceId, name: match.resource.name, units });
-        resolvedRaws.push(token.raw);
-        break;
-      }
-
-      case 'predecessor': {
-        const match = matchPredecessor(token.query, tasks);
-        if (!match) {
-          unresolved.push(token);
-          break;
-        }
-        const t = token as PredecessorToken;
-        const already = predecessors.findIndex((p) => p.taskId === match.id);
-        const entry = { taskId: match.id, name: match.name, lag: t.lag, depType: t.depType };
-        if (already >= 0) predecessors[already] = entry;
-        else predecessors.push(entry);
-        resolvedRaws.push(token.raw);
-        break;
-      }
-
-      case 'parent': {
-        const match = matchParent(token.query, phases);
-        if (!match) {
-          unresolved.push(token);
-          break;
-        }
-        parentId = match.id;
-        resolvedRaws.push(token.raw);
-        break;
-      }
-    }
+    resolveToken(token, pool, tasks, phases, acc);
   }
 
-  // The coupled invariant: is_milestone ⟺ delivery_mode 'milestone' ⟺ duration 0.
-  // A row carrying both `!` and `~scrum` resolves to milestone, and the losing token
-  // is echoed back struck through rather than dropped — the author needs to see that
-  // their `~scrum` did not take, or they will assume it did.
-  if (isMilestone) {
-    if (deliveryModeToken && deliveryMode !== 'milestone') overridden.push(deliveryModeToken);
-    if (durationToken && duration !== 0) overridden.push(durationToken);
-    deliveryMode = 'milestone';
-    duration = 0;
-  } else if (deliveryMode === 'milestone') {
-    // `~milestone` is the long spelling of `!`, so it implies the same invariant.
-    isMilestone = true;
-    if (durationToken && duration !== 0) overridden.push(durationToken);
-    duration = 0;
-  }
+  reconcileMilestoneInvariant(acc);
 
   let name = raw;
-  for (const rawToken of resolvedRaws) name = name.replace(rawToken, ' ');
+  for (const rawToken of acc.resolvedRaws) name = name.replace(rawToken, ' ');
 
   return {
     name: name.replace(/\s+/g, ' ').trim(),
-    duration,
-    isMilestone,
-    deliveryMode,
-    owners,
-    predecessors,
-    parentId,
-    unresolved,
-    overridden,
+    duration: acc.duration,
+    isMilestone: acc.isMilestone,
+    deliveryMode: acc.deliveryMode,
+    owners: acc.owners,
+    predecessors: acc.predecessors,
+    parentId: acc.parentId,
+    unresolved: acc.unresolved,
+    overridden: acc.overridden,
   };
 }
 
