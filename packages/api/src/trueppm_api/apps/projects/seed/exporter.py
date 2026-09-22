@@ -200,6 +200,18 @@ def _put(target: dict[str, Any], key: str, value: Any) -> None:
     target[key] = value
 
 
+def _ceremony_entry(ceremony: CeremonyTemplate) -> dict[str, Any]:
+    entry: dict[str, Any] = {"name": ceremony.name, "cadence_type": ceremony.cadence_type}
+    _put(entry, "cadence_day", ceremony.cadence_day)
+    if ceremony.cadence_time is not None:
+        entry["cadence_time"] = ceremony.cadence_time.strftime("%H:%M")
+    entry["duration_minutes"] = ceremony.duration_minutes
+    _put(entry, "owner_role", ceremony.owner_role)
+    if not ceremony.enabled:
+        entry["enabled"] = False
+    return entry
+
+
 def export_program(
     program: Program,
     *,
@@ -408,6 +420,39 @@ class _Exporter:
                 doc["schema_version"] = "2.1"
         return doc
 
+    def _backlog_item_entry(self, item: BacklogItem, allocator: _SlugAllocator) -> dict[str, Any]:
+        entry: dict[str, Any] = {"slug": allocator.take(item.title), "title": item.title}
+        _put(entry, "description", item.description)
+        entry["item_type"] = item.item_type
+        entry["status"] = item.status
+        if item.tags:
+            entry["tags"] = list(item.tags)
+        _put(entry, "priority_rank", item.priority_rank)
+        _put(entry, "story_points", item.story_points)
+        ref = self.task_ref.get(item.pulled_task_id) if item.pulled_task_id else None
+        if ref is not None:
+            entry["pulled_to"] = f"{ref[0]}:{ref[1]}"
+            if item.pulled_at is not None:
+                entry["pulled_at"] = self._rel_ts(item.pulled_at)
+            if item.pulled_by_id in self._account_user_pks:
+                entry["pulled_by"] = self._user_slug(item.pulled_by)
+        elif item.status == "pulled":
+            # The task it became is gone or unexportable; a "pulled" item that
+            # names no task would fail validation, so it re-imports as archived.
+            entry["status"] = "archived"
+        if item.created_by_id in self._account_user_pks:
+            entry["created_by"] = self._user_slug(item.created_by)
+        entry["created_at"] = self._rel_ts(item.created_at)
+        return entry
+
+    def _export_backlog_items(self) -> list[dict[str, Any]]:
+        items = sorted(
+            BacklogItem.objects.filter(program=self.program, is_deleted=False),
+            key=lambda i: (i.priority_rank is None, i.priority_rank or 0, i.created_at, i.title),
+        )
+        allocator = _SlugAllocator()
+        return [self._backlog_item_entry(item, allocator) for item in items]
+
     def _put_program_v21(self, block: dict[str, Any]) -> None:
         """Program backlog and ceremonies (v2.1, #3491/#3603). v2 export only.
 
@@ -418,52 +463,16 @@ class _Exporter:
         """
         if self.program is None:
             return
-        items = sorted(
-            BacklogItem.objects.filter(program=self.program, is_deleted=False),
-            key=lambda i: (i.priority_rank is None, i.priority_rank or 0, i.created_at, i.title),
-        )
-        allocator = _SlugAllocator()
-        backlog: list[dict[str, Any]] = []
-        for item in items:
-            entry: dict[str, Any] = {"slug": allocator.take(item.title), "title": item.title}
-            _put(entry, "description", item.description)
-            entry["item_type"] = item.item_type
-            entry["status"] = item.status
-            if item.tags:
-                entry["tags"] = list(item.tags)
-            _put(entry, "priority_rank", item.priority_rank)
-            _put(entry, "story_points", item.story_points)
-            ref = self.task_ref.get(item.pulled_task_id) if item.pulled_task_id else None
-            if ref is not None:
-                entry["pulled_to"] = f"{ref[0]}:{ref[1]}"
-                if item.pulled_at is not None:
-                    entry["pulled_at"] = self._rel_ts(item.pulled_at)
-                if item.pulled_by_id in self._account_user_pks:
-                    entry["pulled_by"] = self._user_slug(item.pulled_by)
-            elif item.status == "pulled":
-                # The task it became is gone or unexportable; a "pulled" item that
-                # names no task would fail validation, so it re-imports as archived.
-                entry["status"] = "archived"
-            if item.created_by_id in self._account_user_pks:
-                entry["created_by"] = self._user_slug(item.created_by)
-            entry["created_at"] = self._rel_ts(item.created_at)
-            backlog.append(entry)
+        backlog = self._export_backlog_items()
         if backlog:
             block["backlog_items"] = backlog
 
-        ceremonies: list[dict[str, Any]] = []
-        for ceremony in CeremonyTemplate.objects.filter(
-            program=self.program, is_deleted=False
-        ).order_by("name", "pk"):
-            entry = {"name": ceremony.name, "cadence_type": ceremony.cadence_type}
-            _put(entry, "cadence_day", ceremony.cadence_day)
-            if ceremony.cadence_time is not None:
-                entry["cadence_time"] = ceremony.cadence_time.strftime("%H:%M")
-            entry["duration_minutes"] = ceremony.duration_minutes
-            _put(entry, "owner_role", ceremony.owner_role)
-            if not ceremony.enabled:
-                entry["enabled"] = False
-            ceremonies.append(entry)
+        ceremonies = [
+            _ceremony_entry(ceremony)
+            for ceremony in CeremonyTemplate.objects.filter(
+                program=self.program, is_deleted=False
+            ).order_by("name", "pk")
+        ]
         if ceremonies:
             block["ceremonies"] = ceremonies
 

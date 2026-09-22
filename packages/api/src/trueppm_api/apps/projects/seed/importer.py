@@ -34,6 +34,7 @@ import logging
 import random
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from datetime import time as dt_time
 from decimal import Decimal
@@ -267,6 +268,28 @@ def import_seed(
     with transaction.atomic(), coalesce_sync_seq():
         program = importer.run()
     return program
+
+
+@dataclass
+class _TaskFields:
+    """Fields derived from one seed task's document before the ``Task`` is built.
+
+    Split out of :meth:`_SeedImporter._build_task` so the derivation (pure,
+    read-only) and the ``Task(...)`` construction it feeds are separately
+    readable; see that method's callers for the business rules behind each
+    field.
+    """
+
+    sprint: Sprint | None
+    assignee: Any
+    is_milestone: bool
+    estimate_fields: dict[str, Any]
+    final_status: str
+    planned_start: date | None
+    story_points: Any
+    base_status: str
+    base_percent: float
+    base_remaining: Any
 
 
 class _SeedImporter:
@@ -1384,20 +1407,7 @@ class _SeedImporter:
         lead_days = 2 + (digest[0] % 4)  # 2-5 days before kickoff
         return sprint.start_date - timedelta(days=lead_days)
 
-    def _build_task(
-        self, project: Project, project_slug: str, data: dict[str, Any], planning_beat: date
-    ) -> tuple[Task, date]:
-        """Construct one unsaved ``Task`` plus the date its creation row backdates to.
-
-        Returns rather than saves so the caller can batch a whole project's tasks
-        into one INSERT (ADR-0726 §8). The returned date is only consulted under
-        v2 replay.
-
-        Args:
-            planning_beat: the project's default creation-history anchor for a
-                non-sprint task (see :meth:`_project_planning_beat`) — computed
-                once per project rather than per task since it doesn't vary.
-        """
+    def _derive_task_fields(self, project_slug: str, data: dict[str, Any]) -> _TaskFields:
         sprint = self.sprints.get((project_slug, data["sprint"])) if data.get("sprint") else None
         assignee = self.users.get(data["assignee"]) if data.get("assignee") else None
         is_milestone = data.get("is_milestone", False)
@@ -1451,21 +1461,107 @@ class _SeedImporter:
         base_percent = 0.0 if progresses else data.get("percent_complete", 0.0)
         base_remaining = story_points if progresses else data.get("remaining_points")
 
+        return _TaskFields(
+            sprint=sprint,
+            assignee=assignee,
+            is_milestone=is_milestone,
+            estimate_fields=estimate_fields,
+            final_status=final_status,
+            planned_start=planned_start,
+            story_points=story_points,
+            base_status=base_status,
+            base_percent=base_percent,
+            base_remaining=base_remaining,
+        )
+
+    def _task_creation_beat(
+        self, project_slug: str, data: dict[str, Any], planning_beat: date, sprint: Sprint | None
+    ) -> date:
+        """The date this task's creation-history row backdates to (#3487).
+
+        A sprint-bound task backdates to shortly before its sprint kicks off;
+        everything else backdates to the project's own planning beat (earliest
+        baseline capture, else project start) — never to ``planned_start``, which
+        is a future schedule position, not a record of when the task came into
+        being, and is exactly what put creation rows months into the future
+        before this fix. Two further clamps, both required: an authored event
+        against this task (comment, status move, …) is honored as an even
+        earlier floor when the seed talks about the task before its plan
+        existed, and the anchor is a hard ceiling so a reload never manufactures
+        a future-dated creation row regardless of how far out the task or
+        sprint is planned.
+        """
+        beat = (
+            self._sprint_creation_beat(project_slug, data["wbs_path"], sprint)
+            if sprint
+            else planning_beat
+        )
+        earliest_event = self.earliest_task_event.get((project_slug, data["wbs_path"]))
+        if earliest_event is not None and earliest_event < beat:
+            beat = earliest_event
+        return min(beat, self.anchor)
+
+    def _capture_replay_progress(
+        self, project_slug: str, data: dict[str, Any], final_status: str
+    ) -> None:
+        """Record the authored progress fields a replayed task should be restored to.
+
+        A task born at 0%/full-points to give the timeline room to walk it
+        forward never gets those numbers back on its own — COMPLETE is rescued
+        by ``Task._coerce_signoff_percent``, IN_PROGRESS is not (#3486). REVIEW
+        is a mixed case (#3518): the same coercion fixes ``percent_complete`` to
+        100 by design ("work done, awaiting sign-off"), but ``remaining_points``
+        has no such contract — a story in review with points still open is a
+        real, authorable state — so REVIEW only hands back ``remaining_points``,
+        never ``percent_complete``, to avoid fighting the coercion. Hand replay
+        the authored values to restore, keyed per field so a dated
+        ``task.points`` beat still wins where the document declared nothing.
+        """
+        self.final_status[(project_slug, data["wbs_path"])] = final_status
+        progress_fields: tuple[str, ...]
+        if final_status == "IN_PROGRESS":
+            progress_fields = ("percent_complete", "remaining_points")
+        elif final_status == "REVIEW":
+            progress_fields = ("remaining_points",)
+        else:
+            progress_fields = ()
+        if not progress_fields:
+            return
+        authored = {key: data[key] for key in progress_fields if data.get(key) is not None}
+        if authored:
+            self.final_progress[(project_slug, data["wbs_path"])] = authored
+
+    def _build_task(
+        self, project: Project, project_slug: str, data: dict[str, Any], planning_beat: date
+    ) -> tuple[Task, date]:
+        """Construct one unsaved ``Task`` plus the date its creation row backdates to.
+
+        Returns rather than saves so the caller can batch a whole project's tasks
+        into one INSERT (ADR-0726 §8). The returned date is only consulted under
+        v2 replay.
+
+        Args:
+            planning_beat: the project's default creation-history anchor for a
+                non-sprint task (see :meth:`_project_planning_beat`) — computed
+                once per project rather than per task since it doesn't vary.
+        """
+        f = self._derive_task_fields(project_slug, data)
+
         task = Task(
             project=project,
             name=data["name"],
             wbs_path=data["wbs_path"],
             type=data.get("type", "task"),
-            status=base_status,
-            is_milestone=is_milestone,
-            duration=0 if is_milestone else data.get("duration", 1),
-            planned_start=planned_start,
-            percent_complete=base_percent,
+            status=f.base_status,
+            is_milestone=f.is_milestone,
+            duration=0 if f.is_milestone else data.get("duration", 1),
+            planned_start=f.planned_start,
+            percent_complete=f.base_percent,
             notes=data.get("notes", ""),
-            story_points=story_points,
-            remaining_points=base_remaining,
-            assignee=assignee,
-            sprint=sprint,
+            story_points=f.story_points,
+            remaining_points=f.base_remaining,
+            assignee=f.assignee,
+            sprint=f.sprint,
             sprint_rank=data.get("sprint_rank"),
             # Declared in the schema with an enum since v1 and read by nothing
             # (#3093): aurora authored 23 `ready` + 2 `refine` and every one of
@@ -1483,59 +1579,17 @@ class _SeedImporter:
             governance_class=data.get("governance_class", "flow"),
             # Couple delivery_mode to the milestone flag (#1773) so seeded
             # milestones satisfy the canonical invariant like every other path.
-            delivery_mode="milestone" if is_milestone else data.get("delivery_mode", "waterfall"),
+            delivery_mode="milestone" if f.is_milestone else data.get("delivery_mode", "waterfall"),
             color=data.get("color"),
             # Drawer subtask (ADR-0060, #3498). Validation already held it to a
             # depth-1 leaf under a decomposable parent, as the create view does.
             is_subtask=bool(data.get("is_subtask", False)),
-            **estimate_fields,
+            **f.estimate_fields,
         )
-        # The creation-history date (#3487). A sprint-bound task backdates to
-        # shortly before its sprint kicks off; everything else backdates to the
-        # project's own planning beat (earliest baseline capture, else project
-        # start) — never to ``planned_start``, which is a future schedule
-        # position, not a record of when the task came into being, and is
-        # exactly what put creation rows months into the future before this fix.
-        # Two further clamps, both required: an authored event against this
-        # task (comment, status move, …) is honored as an even earlier floor
-        # when the seed talks about the task before its plan existed, and the
-        # anchor is a hard ceiling so a reload never manufactures a future-dated
-        # creation row regardless of how far out the task or sprint is planned.
-        beat = (
-            self._sprint_creation_beat(project_slug, data["wbs_path"], sprint)
-            if sprint
-            else planning_beat
-        )
-        earliest_event = self.earliest_task_event.get((project_slug, data["wbs_path"]))
-        if earliest_event is not None and earliest_event < beat:
-            beat = earliest_event
-        created_on = min(beat, self.anchor)
+        created_on = self._task_creation_beat(project_slug, data, planning_beat, f.sprint)
         self.tasks[(project_slug, data["wbs_path"])] = task
         if self.replay:
-            self.final_status[(project_slug, data["wbs_path"])] = final_status
-            # A task born at 0%/full-points to give the timeline room to walk it
-            # forward never gets those numbers back on its own — COMPLETE is
-            # rescued by ``Task._coerce_signoff_percent``, IN_PROGRESS is not
-            # (#3486). REVIEW is a mixed case (#3518): the same coercion fixes
-            # ``percent_complete`` to 100 by design ("work done, awaiting
-            # sign-off"), but ``remaining_points`` has no such contract — a
-            # story in review with points still open is a real, authorable
-            # state — so REVIEW only hands back ``remaining_points``, never
-            # ``percent_complete``, to avoid fighting the coercion. Hand
-            # replay the authored values to restore, keyed per field so a
-            # dated ``task.points`` beat still wins where the document
-            # declared nothing.
-            progress_fields: tuple[str, ...]
-            if final_status == "IN_PROGRESS":
-                progress_fields = ("percent_complete", "remaining_points")
-            elif final_status == "REVIEW":
-                progress_fields = ("remaining_points",)
-            else:
-                progress_fields = ()
-            if progress_fields:
-                authored = {key: data[key] for key in progress_fields if data.get(key) is not None}
-                if authored:
-                    self.final_progress[(project_slug, data["wbs_path"])] = authored
+            self._capture_replay_progress(project_slug, data, f.final_status)
         return task, created_on
 
     # --- cross-cutting links (Pass B) --------------------------------------
@@ -2255,19 +2309,8 @@ class _SeedImporter:
         """
         if not (self.is_sample and self.replay):
             return
-        authored: set[tuple[str, str]] = set()
-        for event in self.payload.get("events", []):
-            if event.get("action") == "time.log":
-                _, _, ref = event.get("target", "").partition(":")
-                project_slug, _, wbs = ref.partition(":")
-                authored.add((project_slug, wbs))
-
-        allocations: dict[Any, list[TaskResource]] = defaultdict(list)
-        for row in TaskResource.objects.filter(
-            task_id__in=[task.pk for task in self.tasks.values()],
-            resource__user__isnull=False,
-        ).select_related("resource__user"):
-            allocations[row.task_id].append(row)
+        authored = self._authored_time_log_keys()
+        allocations = self._task_resource_allocations()
 
         program_code = self.payload["program"]["slug"]
         last_day = self.anchor - timedelta(days=1)
@@ -2276,33 +2319,74 @@ class _SeedImporter:
         for key, task in self.tasks.items():
             if key in authored or self.final_status.get(key) not in ("COMPLETE", "IN_PROGRESS"):
                 continue
-            if task.actual_start is None or getattr(task, "structure_role", "work") != "work":
-                continue
-            end = min(task.actual_finish or last_day, last_day)
-            if end < task.actual_start:
-                continue
-            project = self.projects[key[0]]
-            calendar = self._wc(key[0])
-            hours = float(project.calendar.hours_per_day) if project.calendar is not None else 8.0
-            day_cap = int(hours * 60 * 1.1)
-            for allocation in allocations.get(task.pk, []):
-                user = allocation.resource.user
-                if user is None:  # filtered out by the query; narrows the type
-                    continue
-                rng = random.Random(f"{program_code}:{key[0]}:{key[1]}:{user.get_username()}")
-                day = max(task.actual_start, end - timedelta(days=_TIME_FILL_MAX_DAYS))
-                while day <= end:
-                    if calendar.is_working_day(day) and rng.random() < 0.85:
-                        wanted = hours * 60 * float(allocation.units) * rng.uniform(0.6, 1.1)
-                        minutes = min(round(wanted / 15) * 15, day_cap - used[(user.pk, day)])
-                        if minutes >= 15:
-                            used[(user.pk, day)] += minutes
-                            by_project[project.pk].append(
-                                TimeEntry(task=task, user=user, minutes=minutes, entry_date=day)
-                            )
-                    day += timedelta(days=1)
+            entries = self._synthesize_task_time_entries(
+                key, task, allocations, program_code, last_day, used
+            )
+            if entries:
+                by_project[self.projects[key[0]].pk].extend(entries)
         for project_id, rows in by_project.items():
             self._bulk_insert(TimeEntry, rows, project_ids=[project_id])
+
+    def _authored_time_log_keys(self) -> set[tuple[str, str]]:
+        """(project_slug, wbs) pairs already carrying an authored ``time.log`` beat."""
+        authored: set[tuple[str, str]] = set()
+        for event in self.payload.get("events", []):
+            if event.get("action") == "time.log":
+                _, _, ref = event.get("target", "").partition(":")
+                project_slug, _, wbs = ref.partition(":")
+                authored.add((project_slug, wbs))
+        return authored
+
+    def _task_resource_allocations(self) -> dict[Any, list[TaskResource]]:
+        allocations: dict[Any, list[TaskResource]] = defaultdict(list)
+        for row in TaskResource.objects.filter(
+            task_id__in=[task.pk for task in self.tasks.values()],
+            resource__user__isnull=False,
+        ).select_related("resource__user"):
+            allocations[row.task_id].append(row)
+        return allocations
+
+    def _synthesize_task_time_entries(
+        self,
+        key: tuple[str, str],
+        task: Task,
+        allocations: dict[Any, list[TaskResource]],
+        program_code: str,
+        last_day: date,
+        used: dict[tuple[Any, date], int],
+    ) -> list[TimeEntry]:
+        """The ``TimeEntry`` rows synthesized for one task, or ``[]`` if it's out of scope.
+
+        Mutates `used` with every minute it allocates, so later tasks/allocations
+        sharing a (user, day) see the day already partly spent.
+        """
+        if task.actual_start is None or getattr(task, "structure_role", "work") != "work":
+            return []
+        end = min(task.actual_finish or last_day, last_day)
+        if end < task.actual_start:
+            return []
+        project = self.projects[key[0]]
+        calendar = self._wc(key[0])
+        hours = float(project.calendar.hours_per_day) if project.calendar is not None else 8.0
+        day_cap = int(hours * 60 * 1.1)
+        entries: list[TimeEntry] = []
+        for allocation in allocations.get(task.pk, []):
+            user = allocation.resource.user
+            if user is None:  # filtered out by the query; narrows the type
+                continue
+            rng = random.Random(f"{program_code}:{key[0]}:{key[1]}:{user.get_username()}")
+            day = max(task.actual_start, end - timedelta(days=_TIME_FILL_MAX_DAYS))
+            while day <= end:
+                if calendar.is_working_day(day) and rng.random() < 0.85:
+                    wanted = hours * 60 * float(allocation.units) * rng.uniform(0.6, 1.1)
+                    minutes = min(round(wanted / 15) * 15, day_cap - used[(user.pk, day)])
+                    if minutes >= 15:
+                        used[(user.pk, day)] += minutes
+                        entries.append(
+                            TimeEntry(task=task, user=user, minutes=minutes, entry_date=day)
+                        )
+                day += timedelta(days=1)
+        return entries
 
     def _synthesize_timesheet_submissions(self) -> None:
         """Submit every fully elapsed week a sample persona logged time in (#3490). Sample only.

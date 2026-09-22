@@ -539,12 +539,13 @@ _ACTION_TASK_COMMENT = "task.comment"
 _ACTOR_REQUIRED = frozenset({_ACTION_TIME_LOG, _ACTION_TASK_REACT, _ACTION_TASK_ACK})
 
 
-def _v21_event_errors(payload: dict[str, Any]) -> list[str]:
-    """Comment threading, comment-targeted beats, criterion ticks and time beats (#3603)."""
-    errors: list[str] = []
-    events = payload.get("events", [])
-    # Top-level comment slug -> the task target it was posted on, so a reply can be
-    # held to the same task. Replies keep only their slug: nothing may answer them.
+def _index_comment_threads(
+    events: list[dict[str, Any]], errors: list[str]
+) -> tuple[dict[str, str], set[str]]:
+    """Top-level comment slug -> the task target it was posted on, so a reply can be
+    held to the same task. Replies keep only their slug: nothing may answer them.
+    Appends a duplicate-slug error to `errors` in place rather than returning one.
+    """
     roots: dict[str, str] = {}
     replies: set[str] = set()
     for i, event in enumerate(events):
@@ -558,6 +559,41 @@ def _v21_event_errors(payload: dict[str, Any]) -> list[str]:
             replies.add(slug)
         else:
             roots[slug] = str(event.get("target", ""))
+    return roots, replies
+
+
+def _check_event(
+    event: dict[str, Any],
+    i: int,
+    roots: dict[str, str],
+    replies: set[str],
+    criteria_count: dict[tuple[str, Any], int],
+    errors: list[str],
+) -> None:
+    base = f"$.events[{i}]"
+    action = event.get("action")
+    _check_reply_to(event, action, base, roots, replies, errors)
+    if action in (_ACTION_TASK_REACT, _ACTION_TASK_ACK):
+        _, _, slug = str(event.get("target", "")).partition(":")
+        if slug and slug not in roots and slug not in replies:
+            errors.append(f"{base}.target: no comment with slug {slug!r}")
+    if action in _ACTOR_REQUIRED and not event.get("actor"):
+        errors.append(f"{base}.actor: {action} must name the account it is attributed to")
+    if action == _ACTION_TASK_REACT and "emoji" not in event:
+        errors.append(f"{base}.emoji: task.react requires an emoji")
+    if action == "task.note" and not event.get("body"):
+        errors.append(f"{base}.body: task.note requires a body")
+    if action == _ACTION_TIME_LOG:
+        _check_time_log(event, base, errors)
+    if "criterion" in event:
+        _check_criterion(event, action, base, criteria_count, errors)
+
+
+def _v21_event_errors(payload: dict[str, Any]) -> list[str]:
+    """Comment threading, comment-targeted beats, criterion ticks and time beats (#3603)."""
+    errors: list[str] = []
+    events = payload.get("events", [])
+    roots, replies = _index_comment_threads(events, errors)
 
     criteria_count = {
         (project.get("slug", ""), task.get("wbs_path")): len(task.get("acceptance_criteria", []))
@@ -566,23 +602,7 @@ def _v21_event_errors(payload: dict[str, Any]) -> list[str]:
     }
 
     for i, event in enumerate(events):
-        base = f"$.events[{i}]"
-        action = event.get("action")
-        _check_reply_to(event, action, base, roots, replies, errors)
-        if action in (_ACTION_TASK_REACT, _ACTION_TASK_ACK):
-            _, _, slug = str(event.get("target", "")).partition(":")
-            if slug and slug not in roots and slug not in replies:
-                errors.append(f"{base}.target: no comment with slug {slug!r}")
-        if action in _ACTOR_REQUIRED and not event.get("actor"):
-            errors.append(f"{base}.actor: {action} must name the account it is attributed to")
-        if action == _ACTION_TASK_REACT and "emoji" not in event:
-            errors.append(f"{base}.emoji: task.react requires an emoji")
-        if action == "task.note" and not event.get("body"):
-            errors.append(f"{base}.body: task.note requires a body")
-        if action == _ACTION_TIME_LOG:
-            _check_time_log(event, base, errors)
-        if "criterion" in event:
-            _check_criterion(event, action, base, criteria_count, errors)
+        _check_event(event, i, roots, replies, criteria_count, errors)
     return errors
 
 
