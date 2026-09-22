@@ -7101,7 +7101,9 @@ ci:arm64-smoke:
       docker save "${GL_WEB}:arm64-smoke" -o /tmp/web-arm64-smoke.tar
       trivy image --input /tmp/web-arm64-smoke.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
       mkdir -p sbom
-      syft "docker-archive:/tmp/web-arm64-smoke.tar" -o "cyclonedx-json=sbom/web-arm64-smoke.cdx.json"
+      syft "docker-archive:/tmp/web-arm64-smoke.tar" \
+        --source-name "ghcr.io/${GHCR_USER}/web" --source-version "smoke-arm64" \
+        -o "cyclonedx-json=sbom/web-smoke-arm64.cdx.json"
       # This is the push that failed on the first run (job 16659791908) with
       # "blob unknown to registry" after a cross-repo "Mounted from
       # trueppm/trueppm/api" — see scripts/docker-push-retry.sh (#3990).
@@ -7172,6 +7174,11 @@ ci:amd64-smoke:
       ARCH="$(docker image inspect "${GL_WEB}:amd64-smoke" --format '{{.Architecture}}')"
       echo "web image architecture: ${ARCH}"
       [ "$ARCH" = "amd64" ] || { echo "ERROR: expected amd64, got ${ARCH}"; exit 1; }
+      mkdir -p sbom
+      docker save "${GL_WEB}:amd64-smoke" -o /tmp/web-amd64-smoke.tar
+      syft "docker-archive:/tmp/web-amd64-smoke.tar" \
+        --source-name "ghcr.io/${GHCR_USER}/web" --source-version "smoke-amd64" \
+        -o "cyclonedx-json=sbom/web-smoke-amd64.cdx.json"
       push_with_retry "${GL_WEB}:amd64-smoke"
     - |
       set -euo pipefail
@@ -7253,58 +7260,66 @@ ci:manifest-probe:
     - |
       set -euo pipefail
       # Sign + attest ONLY the multi-arch index, exactly as the real jobs do.
-      GH_API="ghcr.io/${GHCR_USER}/api"
       # Mirrors the real jobs (#3995): SIGN the index — publisher identity for
       # whatever a consumer pulls by tag — but ATTEST each architecture's SBOM
       # to that architecture's own manifest digest. An index has no filesystem
       # and no packages, so one arch's SBOM attached to it verifies
       # successfully while describing the wrong image.
-      cosign sign --yes "${GH_API}:multiarch-smoke"
+      #
+      # BOTH packages: web:publish:manifest carries the identical attestation
+      # code, so a probe covering only api would leave half of what this MR
+      # changes unexecuted.
       apk add --no-cache jq
-      RAW=$(docker buildx imagetools inspect "${GH_API}:multiarch-smoke" --raw)
-      for arch in amd64 arm64; do
-        ARCH_DIGEST=$(echo "$RAW" | jq -r --arg a "$arch" \
-          '.manifests[] | select(.platform.architecture==$a and .platform.os=="linux") | .digest')
-        if [ -z "$ARCH_DIGEST" ] || [ "$ARCH_DIGEST" = "null" ]; then
-          echo "ERROR: no linux/${arch} manifest in the index"; exit 1
-        fi
-        cosign attest --yes --type cyclonedx \
-          --predicate "sbom/api-smoke-${arch}.cdx.json" "${GH_API}@${ARCH_DIGEST}"
-        echo "attested ${arch} SBOM to ${GH_API}@${ARCH_DIGEST}"
+      for pkg in api web; do
+        GH="ghcr.io/${GHCR_USER}/${pkg}"
+        cosign sign --yes "${GH}:multiarch-smoke"
+        RAW=$(docker buildx imagetools inspect "${GH}:multiarch-smoke" --raw)
+        for arch in amd64 arm64; do
+          ARCH_DIGEST=$(echo "$RAW" | jq -r --arg a "$arch" \
+            '.manifests[] | select(.platform.architecture==$a and .platform.os=="linux") | .digest')
+          if [ -z "$ARCH_DIGEST" ] || [ "$ARCH_DIGEST" = "null" ]; then
+            echo "ERROR: no linux/${arch} manifest in ${GH}:multiarch-smoke"; exit 1
+          fi
+          cosign attest --yes --type cyclonedx \
+            --predicate "sbom/${pkg}-smoke-${arch}.cdx.json" "${GH}@${ARCH_DIGEST}"
+          echo "attested ${pkg} ${arch} SBOM to ${GH}@${ARCH_DIGEST}"
+        done
       done
     - |
       set -euo pipefail
       # THE CHECK THE REAL JOBS DO NOT DO. A signature nothing validates is a
       # false assurance; this is what proves the index signing actually works
       # for a puller on either platform.
-      GH_API="ghcr.io/${GHCR_USER}/api"
       IDENTITY="https://gitlab.com/${CI_PROJECT_PATH}//.gitlab-ci.yml@refs/heads/${CI_COMMIT_REF_NAME}"
       echo "verifying against identity: ${IDENTITY}"
-      cosign verify \
-        --certificate-identity "${IDENTITY}" \
-        --certificate-oidc-issuer "https://gitlab.com" \
-        "${GH_API}:multiarch-smoke"
+      apk add --no-cache jq
+      for pkg in api web; do
+        GH="ghcr.io/${GHCR_USER}/${pkg}"
+        cosign verify \
+          --certificate-identity "${IDENTITY}" \
+          --certificate-oidc-issuer "https://gitlab.com" \
+          "${GH}:multiarch-smoke"
       # Verify each platform's attestation at its own digest, the way a
       # consumer on that platform would, and prove the SBOM it gets back names
       # its own architecture rather than the other one (#3995).
-      apk add --no-cache jq
-      RAW=$(docker buildx imagetools inspect "${GH_API}:multiarch-smoke" --raw)
-      for arch in amd64 arm64; do
-        ARCH_DIGEST=$(echo "$RAW" | jq -r --arg a "$arch" \
-          '.manifests[] | select(.platform.architecture==$a and .platform.os=="linux") | .digest')
-        cosign verify-attestation --type cyclonedx \
-          --certificate-identity "${IDENTITY}" \
-          --certificate-oidc-issuer "https://gitlab.com" \
-          "${GH_API}@${ARCH_DIGEST}" > "/tmp/att-${arch}.json"
-        FOUND=$(jq -r '.payload' "/tmp/att-${arch}.json" | base64 -d \
-          | jq -r '.predicate.metadata.component.version')
-        echo "${arch} attestation reports source-version: ${FOUND}"
-        [ "$FOUND" = "smoke-${arch}" ] || {
-          echo "ERROR: ${arch} digest carries an SBOM for '${FOUND}' — wrong architecture."
-          exit 1
-        }
+        RAW=$(docker buildx imagetools inspect "${GH}:multiarch-smoke" --raw)
+        for arch in amd64 arm64; do
+          ARCH_DIGEST=$(echo "$RAW" | jq -r --arg a "$arch" \
+            '.manifests[] | select(.platform.architecture==$a and .platform.os=="linux") | .digest')
+          cosign verify-attestation --type cyclonedx \
+            --certificate-identity "${IDENTITY}" \
+            --certificate-oidc-issuer "https://gitlab.com" \
+            "${GH}@${ARCH_DIGEST}" > "/tmp/att-${pkg}-${arch}.json"
+          FOUND=$(jq -r '.payload' "/tmp/att-${pkg}-${arch}.json" | base64 -d \
+            | jq -r '.predicate.metadata.component.version')
+          echo "${pkg} ${arch} attestation reports source-version: ${FOUND}"
+          [ "$FOUND" = "smoke-${arch}" ] || {
+            echo "ERROR: ${pkg} ${arch} digest carries an SBOM for '${FOUND}' — wrong architecture."
+            exit 1
+          }
+        done
       done
-      echo "VERIFIED: index signature valid, and each platform digest carries ITS OWN SBOM."
+      echo "VERIFIED: both packages, index signature valid and each platform digest carries ITS OWN SBOM."
     - |
       set -euo pipefail
       # Prove the assembled list really carries both platforms.
