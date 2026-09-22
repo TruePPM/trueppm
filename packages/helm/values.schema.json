@@ -401,6 +401,10 @@
         "ingressControllerSelector": {
           "description": "NetworkPolicyPeer selecting the ingress controller ({namespaceSelector, podSelector}), rendered verbatim into the api/web ingress-allow policies. Open: the valid keys are Kubernetes', not this chart's.",
           "type": "object"
+        },
+        "dnsSelector": {
+          "description": "NetworkPolicyPeer selecting the cluster's DNS resolver ({namespaceSelector, podSelector}), rendered verbatim into the demo.interactive egress-deny policies (ADR-1197 D7). Open: the valid keys are Kubernetes', not this chart's.",
+          "type": "object"
         }
       }
     },
@@ -1266,6 +1270,38 @@
             },
             "password": {
               "type": "string"
+            }
+          }
+        },
+        "accessGate": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "provider": {
+              "type": "string"
+            },
+            "privacyUrl": {
+              "type": "string"
+            }
+          }
+        },
+        "throttle": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "loginAccountRate": {
+              "type": "string",
+              "description": "DRF SimpleRateThrottle rate string, e.g. '120/min'. A typo is otherwise caught only at pod runtime (throttling.py's parse_rate KeyErrors on an unrecognized period), not at render time.",
+              "pattern": "^[0-9]+/(s|sec|m|min|h|hour|d|day)$"
+            },
+            "userRate": {
+              "type": "string",
+              "description": "DRF SimpleRateThrottle rate string, e.g. '6000/min'.",
+              "pattern": "^[0-9]+/(s|sec|m|min|h|hour|d|day)$"
+            },
+            "maxPersonalAccessTokens": {
+              "type": "integer",
+              "minimum": 1
             }
           }
         },

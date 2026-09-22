@@ -9,6 +9,21 @@ export interface DemoLoginHint {
   password: string;
 }
 
+/**
+ * An external identity gate the operator has declared in front of a demo host
+ * (ADR-1197 D8 resolution, #3969).
+ *
+ * `provider` is the gate's display name — operator-supplied, not a fixed constant,
+ * because the same demo mode may run behind Cloudflare Access, Authelia, Authentik or
+ * Google IAP, and naming the wrong one is exactly the false claim this field exists
+ * to avoid. Render it verbatim; never substitute a hardcoded vendor.
+ */
+export interface DemoAccessGate {
+  provider: string;
+  /** Privacy statement covering what the gate collects. Optional. */
+  privacy_url: string | null;
+}
+
 export interface EditionResponse {
   edition: Edition;
   /** Build identity (#2392); absent on a pre-0.4 server. */
@@ -21,6 +36,12 @@ export interface EditionResponse {
   demo_read_only?: boolean;
   /** Present only while `demo_read_only` is true; `null` otherwise. */
   demo_login_hint?: DemoLoginHint | null;
+  /**
+   * The external gate that collected the visitor's email before they reached this
+   * app (#3969). Like `demo_login_hint`, non-null only while `demo_read_only` is
+   * true; `null` or absent on every normal install and on a demo with no gate.
+   */
+  demo_access_gate?: DemoAccessGate | null;
 }
 
 /**
@@ -61,6 +82,38 @@ export function useEdition(): { edition: Edition; isLoading: boolean } {
     edition: data?.edition ?? 'community',
     isLoading,
   };
+}
+
+/**
+ * The external access gate to disclose, or `null` when there is nothing to disclose
+ * (ADR-1197 D8 resolution, #3969).
+ *
+ * Rides the shared `['edition']` query for the same reason the demo mode itself does
+ * (see `useDemoMode`): the fact is a property of the *deployment*, not of the build,
+ * and the visitor needs it on the login screen — before there is a session. A
+ * build-time global would be wrong here for exactly the reason it is wrong there: one
+ * image serves the gated hosted demo and an ungated self-hosted one.
+ *
+ * Returns `null` on every normal install, on a demo with no gate declared, and on a
+ * failed or unresolved `/edition/` read. That last case is deliberate and matches
+ * `useDemoMode`'s handling: a disclosure we cannot confirm must not be invented, and
+ * the server withholds the field unless demo mode is on, so absence already means
+ * "nothing to say" rather than "unknown".
+ */
+export function useDemoAccessGate(): DemoAccessGate | null {
+  const { data, isError } = useQuery(editionQueryOptions);
+  const gate = (isError ? undefined : data?.demo_access_gate) ?? null;
+  if (!gate) return null;
+  // Third check on the same value, and deliberately not redundant. `privacy_url`
+  // becomes an `href` on a pre-auth page, so `javascript:` must be unreachable. The
+  // chart refuses to render one and the API refuses to boot on one — but both of
+  // those are bypassed by an operator who sets DEMO_ACCESS_GATE in their own settings
+  // module, and this is the only check on the path that actually renders the link.
+  // Drop the URL rather than the notice: the disclosure is the part that matters.
+  if (gate.privacy_url && !/^https?:\/\//i.test(gate.privacy_url)) {
+    return { ...gate, privacy_url: null };
+  }
+  return gate;
 }
 
 export interface BuildInfo {
