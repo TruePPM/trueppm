@@ -515,6 +515,24 @@ done
 # all), so the upgrade below has to turn it back off to render at all. That
 # refusal is itself asserted at render time by scripts/helm-structure-check.sh
 # and helm:template, not by this drill, which is enforcement-only.
+#
+# The trueppm-env secret from step 3 still carries
+# TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true from the earlier RWO install, and
+# `helm upgrade` cannot reach into a plain kubectl-created Secret to flip it —
+# turning persistence.media back off above leaves the api/celery-worker pods
+# with the flag on and no writable MEDIA_ROOT, which is exactly the
+# configuration prod.py's own boot guard exists to refuse. Update the secret to
+# match demo.interactive's "no writable media path" invariant before the
+# upgrade rolls the pods, or they crash-loop on that guard instead of ever
+# reaching the NetworkPolicy this step means to test.
+log "updating trueppm-env secret: TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=false for demo.interactive"
+kubectl create secret generic trueppm-env \
+  --from-literal=SECRET_KEY="$secret_key" \
+  --from-literal=ALLOWED_HOSTS="$allowed_hosts" \
+  --from-literal=INTEGRATION_ENCRYPTION_KEY="$integration_key" \
+  --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=false \
+  --dry-run=client -o yaml | kubectl apply -f -
+
 log "upgrading release with demo.interactive=true to render the demo egress policies"
 helm upgrade "$RELEASE" "$CHART" \
   --reuse-values \
