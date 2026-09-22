@@ -1,17 +1,34 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { toast } from '@/components/Toast/toast';
+import { DEMO_REFUSAL_BOARD_NOTICE } from '@/lib/demoReadOnly';
 import type { TaskStatus } from '@/types';
 import { queueOfflineCardStatus } from '@/features/board/offline/useBoardOffline';
 import {
   optimisticStatusPatch,
   type CardStatusVars,
 } from '@/features/board/offline/cardStatusQueue';
+import { captureDemoOverlayEntry } from '@/stores/demoOverlayStore';
 import type { Task } from '@/types';
 
 /** The move a caller requests — `useUpdateTaskStatus().mutate(vars)`. */
 type UpdateTaskStatusVars = CardStatusVars;
+
+export interface UpdateTaskStatusOptions {
+  /**
+   * Called instead of the failure toast when the read-only demo refuses the move
+   * (ADR-1198, #3967). The card is left in its dropped column by the preview overlay,
+   * and the host renders {@link DEMO_REFUSAL_BOARD_NOTICE} on its own board-local
+   * surface — `BoardDropNotice`, per web rule 183.
+   *
+   * An option on the hook rather than a field on each `mutate()` call: the board has one
+   * notice surface and five or so move paths (cell drop, backlog demote, keyboard move,
+   * compose, promote-by-drag), and threading a callback through every one of them would
+   * put the same decision in five places for a single host to make once.
+   */
+  onDemoRefusal?: (message: string) => void;
+}
 
 export interface UpdateTaskStatusHandle {
   /** Move a card. When offline the write is queued to IndexedDB (ADR-0220); when
@@ -31,8 +48,14 @@ export interface UpdateTaskStatusHandle {
  * update and queues the move to a durable IndexedDB outbox that flushes on
  * reconnect. Only card-status moves diverge from ADR-0205's in-memory pause.
  */
-export function useUpdateTaskStatus(): UpdateTaskStatusHandle {
+export function useUpdateTaskStatus(options?: UpdateTaskStatusOptions): UpdateTaskStatusHandle {
   const queryClient = useQueryClient();
+  // Read through a ref so the mutation's `onError` never closes over a stale callback,
+  // and so an inline arrow at the call site does not re-create the mutation each render.
+  const onDemoRefusalRef = useRef(options?.onDemoRefusal);
+  useEffect(() => {
+    onDemoRefusalRef.current = options?.onDemoRefusal;
+  }, [options?.onDemoRefusal]);
 
   const netMutation = useMutation({
     mutationFn: async ({ taskId, status, parentId, sprintId, boardLane }: UpdateTaskStatusVars) => {
@@ -46,10 +69,27 @@ export function useUpdateTaskStatus(): UpdateTaskStatusHandle {
       // lanes configured, so an unladen board's PATCH body is byte-identical to
       // what it has always been.
       if (boardLane !== undefined) body['board_lane'] = boardLane;
-      const res = await apiClient.patch<{ id: string; status: TaskStatus }>(
-        `/tasks/${taskId}/`,
-        body,
-      );
+      // `demoRefusalHandled` (ADR-1197 D3): the board renders the read-only demo's
+      // refusal on its own surface, so the interceptor's app-wide toast stands down.
+      // Without it a refused move in the demo raises TWO notices for one gesture.
+      // Client-only — axios carries it on the request config and never on the wire.
+      //
+      // Conditional on the host having a surface, exactly like the Schedule popover's
+      // `demoRefusalHandled: popoverIsVisible`. A caller that passed no `onDemoRefusal`
+      // has nowhere to put the notice, so suppressing the global toast for it would
+      // leave a refused move with NO affordance at all — the silent failure D3 exists
+      // to prevent, not an improvement on it.
+      //
+      // Branched rather than passing `undefined` as a third argument so a host with no
+      // demo surface issues the byte-identical call it always has — the same reasoning
+      // as web rule 312, and what keeps the existing PATCH-shape assertions honest
+      // instead of re-baselining them around a new trailing argument.
+      const url = `/tasks/${taskId}/`;
+      const res = onDemoRefusalRef.current
+        ? await apiClient.patch<{ id: string; status: TaskStatus }>(url, body, {
+            demoRefusalHandled: true,
+          })
+        : await apiClient.patch<{ id: string; status: TaskStatus }>(url, body);
       return res.data;
     },
     // Optimistically move the card in the ['tasks'] cache so the drop lands
@@ -74,9 +114,22 @@ export function useUpdateTaskStatus(): UpdateTaskStatusHandle {
     },
     // Roll the optimistic patch back to the pre-move snapshot, then surface an
     // explicit toast so the user knows the move did not stick (issue 1631).
-    onError: (_err, variables, context) => {
+    onError: (err, variables, context) => {
       if (context?.snapshot) {
         queryClient.setQueryData(['tasks', variables.projectId], context.snapshot);
+      }
+      // ADR-1198 (#3967): in the read-only demo the dropped card STAYS in the column
+      // the visitor dropped it in, and the columns recount around it. The rollback
+      // above is deliberately untouched — the overlay is an explicit layer above the
+      // cache, which keeps the cache truthful about what the server actually holds.
+      //
+      // The red toast below is skipped rather than reworded: "Couldn't move the card —
+      // try again." is false twice over here. The card DID move on screen, and the move
+      // will be refused every time, so the instruction is the demo telling a visitor to
+      // retry the impossible.
+      if (captureDemoOverlayEntry(err, variables.taskId, { status: variables.status })) {
+        onDemoRefusalRef.current?.(DEMO_REFUSAL_BOARD_NOTICE);
+        return;
       }
       toast.error("Couldn't move the card — try again.");
     },
