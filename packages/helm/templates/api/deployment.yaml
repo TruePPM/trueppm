@@ -247,18 +247,20 @@ spec:
               there is nothing left for it to protect. Re-aimed for CONCURRENCY,
               never for credential-stuffing resistance — the per-IP `login`
               scope and the `anon` scope (both untouched here) become the real
-              limiters. Each yields to an operator's own env.TRUEPPM_* entry,
-              same pattern as trueppm.mediaEnv, so a values.yaml default here
-              never fights an explicit override.
+              limiters. The login-account rate yields to an operator's own
+              env.TRUEPPM_* entry, same pattern as trueppm.mediaEnv. The user
+              rate cannot: values.yaml's env block ships
+              TRUEPPM_THROTTLE_USER_RATE as a chart default, so hasKey is always
+              true and the demo value never rendered (#3998). In this mode
+              demo.throttle.userRate owns the key outright, trueppm.envVars
+              drops the generic entry, and demo.throttle.userRate is the knob.
             */ -}}
             {{- if not (hasKey .Values.env "TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE") }}
             - name: TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE
               value: {{ .Values.demo.throttle.loginAccountRate | quote }}
             {{- end }}
-            {{- if not (hasKey .Values.env "TRUEPPM_THROTTLE_USER_RATE") }}
             - name: TRUEPPM_THROTTLE_USER_RATE
               value: {{ .Values.demo.throttle.userRate | quote }}
-            {{- end }}
             {{- /*
               MAX_PERSONAL_ACCESS_TOKENS is per-account and therefore
               shared-fate too, but D2's ALLOWED_WRITES does not list any

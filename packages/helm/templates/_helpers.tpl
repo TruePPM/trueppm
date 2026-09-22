@@ -128,6 +128,11 @@ Deployment" guarantee promises never happens.
 {{- range $key, $value := .Values.env }}
 {{- if has $key (list "DATABASE_URL" "REDIS_URL") }}
 {{- /* owned by trueppm.connectionEnv — see the note above */}}
+{{- else if and (eq $key "TRUEPPM_THROTTLE_USER_RATE") $.Values.demo.interactive }}
+{{- /* owned by demo.throttle.userRate in this mode — see api/deployment.yaml. The
+     chart's own env default always sets this key, so an "operator override wins"
+     hasKey check can never tell an override from that default and the demo value
+     never rendered (#3998). */}}
 {{- else if kindIs "map" $value }}
 - name: {{ $key }}
   valueFrom:
