@@ -44,6 +44,36 @@ const chipClass = (selected: boolean) =>
       : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
   ].join(' ');
 
+/** The hardcoded status word the read-only/not-enforced branches print — distinct
+ *  from the caller-supplied `onLabel`/`offLabel` the editable Toggle uses. */
+const onOffWord = (effective: boolean) => (effective ? 'On' : 'Off');
+
+/** Where this scope's effective value came from, for the read-only/not-enforced
+ *  branches' composite `aria-label`/note. */
+const provenanceText = (inheriting: boolean, inheritFromLabel: string, scopeNoun: string) =>
+  inheriting ? `inherited from ${inheritFromLabel}` : `set on this ${scopeNoun}`;
+
+/** The dot + word pair the read-only/not-enforced branches both render, `aria-hidden`
+ *  either way — the composite `aria-label` on their wrapper carries the real name. */
+function StatusDotWord({ effective }: { effective: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        className={
+          effective
+            ? 'w-2 h-2 rounded-full bg-brand-primary'
+            : // input-border, not neutral-border: at 1.15:1 on white the "Off" dot
+              // reads as a dot that failed to paint. Not a 1.4.11 failure (it is
+              // aria-hidden and "Off" sits beside it), but the token exists for
+              // exactly this ≥3:1 boundary case.
+              'w-2 h-2 rounded-full border border-input-border'
+        }
+      />
+      <span className="font-medium text-neutral-text-primary">{onOffWord(effective)}</span>
+    </span>
+  );
+}
+
 /**
  * Inheritable boolean control for a scope that can INHERIT or OVERRIDE (ADR-0135).
  *
@@ -96,13 +126,11 @@ export function InheritableToggleField({
     // non-hidden child of the labelled group, so it is in normal browse order.
     // `aria-describedby` is belt-and-braces: descriptions are surfaced reliably
     // on FOCUS, and nothing here takes focus. Do not rely on it alone elsewhere.
-    const provenance = inheriting
-      ? `inherited from ${inheritFromLabel}`
-      : `set on this ${scopeNoun}`;
+    const provenance = provenanceText(inheriting, inheritFromLabel, scopeNoun);
     return (
       <div
         role="group"
-        aria-label={`${ariaLabel}: ${effective ? 'On' : 'Off'}, ${provenance}. Not enforced.`}
+        aria-label={`${ariaLabel}: ${onOffWord(effective)}, ${provenance}. Not enforced.`}
         aria-describedby={noteId}
         className="flex flex-col gap-1.5"
       >
@@ -111,22 +139,7 @@ export function InheritableToggleField({
               never contradict the word beside it (rule 7 — state is carried by
               text as well as color). What the pair does NOT claim is that the
               value has an effect; the bound note owns that. */}
-          <span className="inline-flex items-center gap-1.5">
-            <span
-              className={
-                effective
-                  ? 'w-2 h-2 rounded-full bg-brand-primary'
-                  : // input-border, not neutral-border: at 1.15:1 on white the
-                  // "Off" dot reads as a dot that failed to paint. Not a 1.4.11
-                  // failure (it is aria-hidden and "Off" sits beside it), but
-                  // the token exists for exactly this ≥3:1 boundary case.
-                  'w-2 h-2 rounded-full border border-input-border'
-              }
-            />
-            <span className="font-medium text-neutral-text-primary">
-              {effective ? 'On' : 'Off'}
-            </span>
-          </span>
+          <StatusDotWord effective={effective} />
           <span className="text-neutral-text-secondary">· {provenance}</span>
         </span>
         {/* neutral-text-secondary, never -disabled: this sentence is the whole
@@ -143,9 +156,7 @@ export function InheritableToggleField({
     // Read-only indicator (ADR-0133): state conveyed by text + dot, never color
     // alone (rule 7); body text uses neutral-text-secondary, not -disabled (rule
     // 169); one composite aria-label with aria-hidden children (rule 171).
-    const provenance = inheriting
-      ? `inherited from ${inheritFromLabel}`
-      : `set on this ${scopeNoun}`;
+    const provenance = provenanceText(inheriting, inheritFromLabel, scopeNoun);
     return (
       <div
         // role="img": `aria-label` on a bare div is `role="generic"`, where
@@ -158,21 +169,10 @@ export function InheritableToggleField({
         // component was extracted from.
         role="img"
         className="flex items-center gap-2 text-[13px]"
-        aria-label={`${ariaLabel}: ${effective ? 'On' : 'Off'}, ${provenance}. View only.`}
+        aria-label={`${ariaLabel}: ${onOffWord(effective)}, ${provenance}. View only.`}
       >
-        <span className="inline-flex items-center gap-1.5" aria-hidden="true">
-          <span
-            className={
-              effective
-                ? 'w-2 h-2 rounded-full bg-brand-primary'
-                : // input-border, not neutral-border: at 1.15:1 on white the
-                  // "Off" dot reads as a dot that failed to paint. Not a 1.4.11
-                  // failure (it is aria-hidden and "Off" sits beside it), but
-                  // the token exists for exactly this ≥3:1 boundary case.
-                  'w-2 h-2 rounded-full border border-input-border'
-            }
-          />
-          <span className="font-medium text-neutral-text-primary">{effective ? 'On' : 'Off'}</span>
+        <span aria-hidden="true">
+          <StatusDotWord effective={effective} />
         </span>
         <span className="text-neutral-text-secondary" aria-hidden="true">
           · {provenance}

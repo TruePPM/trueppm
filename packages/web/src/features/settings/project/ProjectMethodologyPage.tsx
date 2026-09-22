@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  SettingsPageTitle,
-  SettingsSubHeading,
-  type SettingsBlockProps,
-} from '../SettingsShell';
+import { SettingsPageTitle, SettingsSubHeading, type SettingsBlockProps } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
@@ -117,6 +113,27 @@ function keepWarnable(impacts: FlipImpact[]): FlipImpact[] {
 
 /** Stable empty list for "no flip pending", so `handleSave`'s identity is stable. */
 const NO_IMPACTS: FlipImpact[] = [];
+
+/**
+ * Which flip-warning dialog (if any) a pending methodology change should trigger.
+ *
+ * HYBRID hides nothing, so a flip to it never warns; nor does any flip whose
+ * destination hides only things this project does not have (#2619, #3294).
+ */
+function resolveFlipTarget(
+  methodology: Methodology,
+  initial: Methodology,
+  waterfallImpacts: FlipImpact[],
+  agileImpacts: FlipImpact[],
+): MethodologyFlipTarget | null {
+  if (methodology === 'WATERFALL' && initial !== 'WATERFALL' && waterfallImpacts.length > 0) {
+    return 'WATERFALL';
+  }
+  if (methodology === 'AGILE' && initial !== 'AGILE' && agileImpacts.length > 0) {
+    return 'AGILE';
+  }
+  return null;
+}
 
 const METHOD_LABEL: Record<Methodology, string> = {
   AGILE: 'Agile',
@@ -246,16 +263,13 @@ export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProp
       ]),
     [flipImpact.taskCount, flipImpact.dependencyCount],
   );
-  // HYBRID hides nothing, so a flip to it never warns; nor does any flip whose
-  // destination hides only things this project does not have.
-  const flipTarget: MethodologyFlipTarget | null =
-    methodology === 'WATERFALL' && initial !== 'WATERFALL' && waterfallImpacts.length > 0
-      ? 'WATERFALL'
-      : methodology === 'AGILE' && initial !== 'AGILE' && agileImpacts.length > 0
-        ? 'AGILE'
-        : null;
+  const flipTarget = resolveFlipTarget(methodology, initial, waterfallImpacts, agileImpacts);
   const flipImpacts =
-    flipTarget === 'AGILE' ? agileImpacts : flipTarget === 'WATERFALL' ? waterfallImpacts : NO_IMPACTS;
+    flipTarget === 'AGILE'
+      ? agileImpacts
+      : flipTarget === 'WATERFALL'
+        ? waterfallImpacts
+        : NO_IMPACTS;
 
   const handleSave = useCallback(async () => {
     if (flipTarget !== null) {

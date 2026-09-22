@@ -101,168 +101,206 @@ def import_csv(
     there is no second write path for it, so the graph guard below still covers
     every row that reaches the database.
     """
-    from django.conf import settings
-
-    from trueppm_api.apps.csvimport.parser import (
-        REVIEW_BRANCH_NAME,
-        CsvImportError,
-        parse_spreadsheet,
-    )
-
     with _get_tracker(self, project_id, initiated_by_id) as tracker:
         file_content = base64.b64decode(file_content_b64)
         tracker.update(5, f"Parsing {filename}...")
-
-        try:
-            parsed = parse_spreadsheet(
-                file_content,
-                filename,
-                column_map=column_map or None,
-                date_order=date_order or "auto",
-                max_rows=settings.CSV_IMPORT_MAX_ROWS,
-                max_uncompressed_bytes=settings.CSV_IMPORT_MAX_UNCOMPRESSED_MB * 1024 * 1024,
-            )
-        except CsvImportError as exc:
-            # Unparseable input is deterministic: retrying the same bytes always
-            # fails. Mark the row DEAD (terminal) so the orphan drain stops, and
-            # record why so the launching Schedule can show it (#2151).
-            if import_request_id:
-                _mark_import_dead(import_request_id, str(exc))
-            raise
-
-        # Validate the derived dependency graph BEFORE any write. A spreadsheet's
-        # predecessor column is hand-maintained and routinely cyclic; persisting
-        # an infeasible network would crash the CPM engine on the next recalc.
-        # Validate in uid space — a relabeling of the eventual PKs — so nothing
-        # is created if the graph is bad.
-        from trueppm_api.apps.scheduling.graph_guard import (
-            InfeasibleGraphError,
-            validate_task_graph,
+        parsed = _parse_spreadsheet_or_mark_dead(
+            file_content, filename, column_map, date_order, import_request_id
         )
 
-        edges = [
-            (str(link.predecessor_uid), str(task.uid))
-            for task in parsed.project_data.tasks
-            for link in task.predecessor_links
-        ]
         tracker.update(20, "Validating dependency graph...")
-        try:
-            validate_task_graph(edges)
-        except InfeasibleGraphError as exc:
-            if import_request_id:
-                _mark_import_dead(import_request_id, _describe_bad_graph(exc))
-            raise
+        _validate_graph_or_mark_dead(parsed, import_request_id)
 
-        from django.db import transaction
+        summary = _import_within_transaction(project_id, parsed, tracker, import_request_id)
+        if summary is None:
+            return {"skipped": True, "tasks_created": 0}
 
-        from trueppm_api.apps.msproject.importer import (
-            broadcast_import_project_record_change,
-            import_project,
-        )
-        from trueppm_api.apps.projects.models import TaskSource
-
-        # Make the additive CSV import idempotent under re-dispatch. import_project
-        # defaults to wipe_existing=False, so a second delivery would bulk-create
-        # the whole network again. The outbox row is the idempotency token: claim
-        # it (DISPATCHED -> DONE) and run the bulk_create in ONE transaction. A
-        # duplicate delivery — a drain re-dispatch after a worker-death window, or
-        # an acks_late / reject_on_worker_lost redelivery of an already completed
-        # message — finds no DISPATCHED row to claim and skips the import. The
-        # claim's row lock serializes any concurrent delivery; because claim and
-        # import share the transaction, a mid-import failure rolls the claim back
-        # too, returning the row to DISPATCHED for a clean retry.
-        summary: dict[str, Any]
-        try:
-            with transaction.atomic():
-                if import_request_id and not _claim_import(import_request_id):
-                    logger.info(
-                        "import.csv: request %s already completed — skipping duplicate delivery",
-                        import_request_id,
-                    )
-                    return {"skipped": True, "tasks_created": 0}
-                # source_kind is passed explicitly because this path shares
-                # import_project with the MS Project importer (ADR-0786, #2730) — the
-                # default would label spreadsheet rows as an MS Project import, and
-                # the divergence digest would then attribute them to the wrong file.
-                summary = import_project(
-                    project_id,
-                    parsed.project_data,
-                    tracker=tracker,
-                    source_kind=TaskSource.CSV_IMPORT,
-                    source_id=import_request_id or None,
-                )
-                if import_request_id:
-                    # ADR-0810 (#2756): the ⌘Z undo ledger, in the same
-                    # transaction as the write it records — the row already
-                    # flipped DISPATCHED -> DONE above via _claim_import.
-                    from trueppm_api.apps.projects.task_batch_services import (
-                        finalize_import_fix_operation,
-                    )
-
-                    finalize_import_fix_operation(
-                        import_request_id, project_id, summary.get("created_task_ids") or []
-                    )
-        except Exception as exc:
-            # Any unanticipated failure during persistence (e.g. a Postgres
-            # DataError from an oversized ltree path that slipped past the
-            # parser's own caps) must not leave the row DISPATCHED for the
-            # orphan-recovery drain to retry identically forever (#2761). The
-            # atomic() block above rolls the claim back to DISPATCHED on any
-            # exception, so a row is always here to flip terminal.
-            if import_request_id:
-                _mark_import_dead(import_request_id, f"Import failed unexpectedly: {exc}")
-            raise
-
-        summary["row_errors"] = [e.as_dict() for e in parsed.row_errors]
-        summary["row_error_count"] = len(parsed.row_errors)
-        summary["error_count"] = parsed.error_count
-        summary["warning_count"] = parsed.warning_count
-        summary["rows_read"] = parsed.total_rows
-        summary["rows_skipped"] = parsed.truncated_rows
-        summary["warnings"] = list(parsed.warnings)
-        summary["filename"] = filename
-        # Rows parked in the Import review branch rather than dropped (#2732).
-        # ``tasks_created`` counts every row written, review branch included, so
-        # the plan count is reported separately — "imported 11 tasks" must not
-        # silently include three placeholders the operator still has to fix.
-        summary["parked_row_count"] = len(parsed.unresolved_rows)
-        summary["review_branch_name"] = REVIEW_BRANCH_NAME if parsed.unresolved_rows else ""
-        summary["plan_tasks_created"] = max(
-            summary.get("tasks_created", 0) - parsed.review_task_count, 0
-        )
+        _finalize_summary(summary, parsed, filename)
 
         if import_request_id:
             _record_summary(import_request_id, summary)
         tracker.set_result(summary)
 
-        # Deliberately `tasks_created`, not the `plan_tasks_created` written just
-        # above: the Import review branch is a committed write that live peers
-        # have to learn about, so this guard counts rows written rather than plan
-        # rows. Reading the plan count here would make an all-parked import
-        # silent again — the exact behavior #2732 exists to end.
-        if summary.get("tasks_created", 0) > 0:
-            # Trigger CPM via the outbox (survives a broker outage at this point)
-            # and emit tasks_restructured so live clients render the imported tree
-            # immediately, ahead of the async recalc's cpm_complete. Both run just
-            # after the import's atomic() has committed (no ambient transaction
-            # remains -> on_commit fires immediately), so peers never see the
-            # event for a rolled-back import.
-            from trueppm_api.apps.scheduling.services import enqueue_recalculate
-            from trueppm_api.apps.sync.broadcast import broadcast_board_event
-
-            enqueue_recalculate(project_id)
-            transaction.on_commit(
-                lambda: broadcast_board_event(project_id, "tasks_restructured", {})
-            )
-
-        # An import can pull the project start back under an imported task
-        # (#867/#873). tasks_restructured does not invalidate the project record,
-        # so without this the boundary moves silently for everyone else on the
-        # project. Outside the tasks_created guard on purpose: the shift is a
-        # separate condition, and the helper is a no-op when nothing moved.
-        broadcast_import_project_record_change(project_id, summary)
+        _emit_import_side_effects(project_id, summary)
 
     return summary
+
+
+def _parse_spreadsheet_or_mark_dead(
+    file_content: bytes,
+    filename: str,
+    column_map: dict[str, str] | None,
+    date_order: str,
+    import_request_id: str | None,
+) -> Any:
+    from django.conf import settings
+
+    from trueppm_api.apps.csvimport.parser import CsvImportError, parse_spreadsheet
+
+    try:
+        return parse_spreadsheet(
+            file_content,
+            filename,
+            column_map=column_map or None,
+            date_order=date_order or "auto",
+            max_rows=settings.CSV_IMPORT_MAX_ROWS,
+            max_uncompressed_bytes=settings.CSV_IMPORT_MAX_UNCOMPRESSED_MB * 1024 * 1024,
+        )
+    except CsvImportError as exc:
+        # Unparseable input is deterministic: retrying the same bytes always
+        # fails. Mark the row DEAD (terminal) so the orphan drain stops, and
+        # record why so the launching Schedule can show it (#2151).
+        if import_request_id:
+            _mark_import_dead(import_request_id, str(exc))
+        raise
+
+
+def _validate_graph_or_mark_dead(parsed: Any, import_request_id: str | None) -> None:
+    """Validate the derived dependency graph BEFORE any write.
+
+    A spreadsheet's predecessor column is hand-maintained and routinely
+    cyclic; persisting an infeasible network would crash the CPM engine on
+    the next recalc. Validated in uid space — a relabeling of the eventual
+    PKs — so nothing is created if the graph is bad.
+    """
+    from trueppm_api.apps.scheduling.graph_guard import InfeasibleGraphError, validate_task_graph
+
+    edges = [
+        (str(link.predecessor_uid), str(task.uid))
+        for task in parsed.project_data.tasks
+        for link in task.predecessor_links
+    ]
+    try:
+        validate_task_graph(edges)
+    except InfeasibleGraphError as exc:
+        if import_request_id:
+            _mark_import_dead(import_request_id, _describe_bad_graph(exc))
+        raise
+
+
+def _import_within_transaction(
+    project_id: str,
+    parsed: Any,
+    tracker: Any,
+    import_request_id: str | None,
+) -> dict[str, Any] | None:
+    """Claim the outbox row and run the bulk import in one transaction.
+
+    Make the additive CSV import idempotent under re-dispatch. import_project
+    defaults to wipe_existing=False, so a second delivery would bulk-create
+    the whole network again. The outbox row is the idempotency token: claim
+    it (DISPATCHED -> DONE) and run the bulk_create in ONE transaction. A
+    duplicate delivery — a drain re-dispatch after a worker-death window, or
+    an acks_late / reject_on_worker_lost redelivery of an already completed
+    message — finds no DISPATCHED row to claim and skips the import. The
+    claim's row lock serializes any concurrent delivery; because claim and
+    import share the transaction, a mid-import failure rolls the claim back
+    too, returning the row to DISPATCHED for a clean retry.
+
+    Returns ``None`` for a skipped duplicate delivery, else the import summary.
+    """
+    from django.db import transaction
+
+    from trueppm_api.apps.msproject.importer import import_project
+    from trueppm_api.apps.projects.models import TaskSource
+
+    summary: dict[str, Any]
+    try:
+        with transaction.atomic():
+            if import_request_id and not _claim_import(import_request_id):
+                logger.info(
+                    "import.csv: request %s already completed — skipping duplicate delivery",
+                    import_request_id,
+                )
+                return None
+            # source_kind is passed explicitly because this path shares
+            # import_project with the MS Project importer (ADR-0786, #2730) — the
+            # default would label spreadsheet rows as an MS Project import, and
+            # the divergence digest would then attribute them to the wrong file.
+            summary = import_project(
+                project_id,
+                parsed.project_data,
+                tracker=tracker,
+                source_kind=TaskSource.CSV_IMPORT,
+                source_id=import_request_id or None,
+            )
+            if import_request_id:
+                # ADR-0810 (#2756): the ⌘Z undo ledger, in the same
+                # transaction as the write it records — the row already
+                # flipped DISPATCHED -> DONE above via _claim_import.
+                from trueppm_api.apps.projects.task_batch_services import (
+                    finalize_import_fix_operation,
+                )
+
+                finalize_import_fix_operation(
+                    import_request_id, project_id, summary.get("created_task_ids") or []
+                )
+    except Exception as exc:
+        # Any unanticipated failure during persistence (e.g. a Postgres
+        # DataError from an oversized ltree path that slipped past the
+        # parser's own caps) must not leave the row DISPATCHED for the
+        # orphan-recovery drain to retry identically forever (#2761). The
+        # atomic() block above rolls the claim back to DISPATCHED on any
+        # exception, so a row is always here to flip terminal.
+        if import_request_id:
+            _mark_import_dead(import_request_id, f"Import failed unexpectedly: {exc}")
+        raise
+    return summary
+
+
+def _finalize_summary(summary: dict[str, Any], parsed: Any, filename: str) -> None:
+    from trueppm_api.apps.csvimport.parser import REVIEW_BRANCH_NAME
+
+    summary["row_errors"] = [e.as_dict() for e in parsed.row_errors]
+    summary["row_error_count"] = len(parsed.row_errors)
+    summary["error_count"] = parsed.error_count
+    summary["warning_count"] = parsed.warning_count
+    summary["rows_read"] = parsed.total_rows
+    summary["rows_skipped"] = parsed.truncated_rows
+    summary["warnings"] = list(parsed.warnings)
+    summary["filename"] = filename
+    # Rows parked in the Import review branch rather than dropped (#2732).
+    # ``tasks_created`` counts every row written, review branch included, so
+    # the plan count is reported separately — "imported 11 tasks" must not
+    # silently include three placeholders the operator still has to fix.
+    summary["parked_row_count"] = len(parsed.unresolved_rows)
+    summary["review_branch_name"] = REVIEW_BRANCH_NAME if parsed.unresolved_rows else ""
+    summary["plan_tasks_created"] = max(
+        summary.get("tasks_created", 0) - parsed.review_task_count, 0
+    )
+
+
+def _emit_import_side_effects(project_id: str, summary: dict[str, Any]) -> None:
+    """CPM recalc/broadcast when plan tasks were written, plus the project-record shift.
+
+    Deliberately keyed on `tasks_created`, not `plan_tasks_created`: the Import
+    review branch is a committed write that live peers have to learn about, so
+    this guard counts rows written rather than plan rows. Reading the plan
+    count here would make an all-parked import silent again — the exact
+    behavior #2732 exists to end.
+    """
+    from django.db import transaction
+
+    from trueppm_api.apps.msproject.importer import broadcast_import_project_record_change
+    from trueppm_api.apps.scheduling.services import enqueue_recalculate
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    if summary.get("tasks_created", 0) > 0:
+        # Trigger CPM via the outbox (survives a broker outage at this point)
+        # and emit tasks_restructured so live clients render the imported tree
+        # immediately, ahead of the async recalc's cpm_complete. Both run just
+        # after the import's atomic() has committed (no ambient transaction
+        # remains -> on_commit fires immediately), so peers never see the
+        # event for a rolled-back import.
+        enqueue_recalculate(project_id)
+        transaction.on_commit(lambda: broadcast_board_event(project_id, "tasks_restructured", {}))
+
+    # An import can pull the project start back under an imported task
+    # (#867/#873). tasks_restructured does not invalidate the project record,
+    # so without this the boundary moves silently for everyone else on the
+    # project. Outside the tasks_created guard on purpose: the shift is a
+    # separate condition, and the helper is a no-op when nothing moved.
+    broadcast_import_project_record_change(project_id, summary)
 
 
 def _claim_import(import_request_id: str) -> bool:
