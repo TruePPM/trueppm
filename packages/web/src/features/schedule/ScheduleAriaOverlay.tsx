@@ -294,6 +294,54 @@ export function rescheduleHint(task: Task, authorable = false): string | null {
   return `${task.name}. Press ${open}, ${reschedule} via keyboard. Arrow keys to navigate rows.`;
 }
 
+/**
+ * The roving-tabindex grid's Enter-key handling (ADR-0909 §1, #2784, #2727).
+ * `e.preventDefault()` is the caller's job — done unconditionally before this
+ * runs, regardless of whether `engine` turns out to be set.
+ */
+function handleEnterKey(
+  e: KeyboardEvent<HTMLDivElement>,
+  taskId: string,
+  row: Task | undefined,
+  engine: GanttEngine | null,
+  authoring: BuildModeApi | null,
+  canEditRow: (task: Task) => boolean,
+): void {
+  if (!engine) return;
+  // Alt+Enter always opens the drawer, in both modes (#2784). This is NOT a
+  // new binding invented here: #2979 established Alt+Enter as "show me the
+  // details of this thing" on `TaskListRow` — the outline sitting a few
+  // inches to the left of this canvas — and `BacklogListRow` carries it too.
+  // Before this change Alt+Enter opened the drawer in the outline and did
+  // nothing on the bar, on one screen.
+  if (e.altKey) {
+    engine.openTask(taskId);
+    return;
+  }
+  // Gated per ROW on `canEditRow`, not on `authoring != null`: the provider
+  // is mounted for viewers too, so the latter is not an entitlement check
+  // (see the prop's docstring).
+  const rowAuthoring = row && canEditRow(row) ? authoring : null;
+  if (rowAuthoring) {
+    // The same trio as an outline row, in the same order (#2727, ADR-0776
+    // §7 — the parity this closes). The insert focuses the new row's Name
+    // cell in the outline, which is where you type, so Enter on a bar hands
+    // you straight into naming it.
+    if (e.metaKey || e.ctrlKey) rowAuthoring.insertChild(taskId);
+    else if (e.shiftKey) rowAuthoring.insertAbove(taskId);
+    else rowAuthoring.insertBelow(taskId);
+    return;
+  }
+  // Not authorable — nothing about #2205 changes. Enter opens; Shift selects
+  // so the document-level useKeyboardReschedule listener, which fires after
+  // this React handler in bubble order, sees the selection and starts the
+  // reschedule on this same press (covered by
+  // ScheduleAriaOverlay.keyboard.test.tsx; keep that interplay in mind
+  // before reordering listeners or making selection async).
+  if (e.shiftKey) engine.selectTask(taskId);
+  else engine.openTask(taskId);
+}
+
 export function ScheduleAriaOverlay({
   engine,
   tasks,
@@ -471,46 +519,10 @@ export function ScheduleAriaOverlay({
           e.preventDefault();
           moveTo(tasks[tasks.length - 1]);
           break;
-        case 'Enter': {
+        case 'Enter':
           e.preventDefault();
-          if (!engine) break;
-          // Alt+Enter always opens the drawer, in both modes (#2784). This is
-          // NOT a new binding invented here: #2979 established Alt+Enter as
-          // "show me the details of this thing" on `TaskListRow` — the outline
-          // sitting a few inches to the left of this canvas — and
-          // `BacklogListRow` carries it too. Before this change Alt+Enter opened
-          // the drawer in the outline and did nothing on the bar, on one screen.
-          if (e.altKey) {
-            engine.openTask(taskId);
-            break;
-          }
-          // ADR-0909 §1 — the full key table, and why nothing changes outside
-          // build mode.
-          const row = tasks[idx];
-          // Gated per ROW on `canEditRow`, not on `authoring != null`: the
-          // provider is mounted for viewers too, so the latter is not an
-          // entitlement check (see the prop's docstring).
-          const rowAuthoring = row && canEditRow(row) ? authoring : null;
-          if (rowAuthoring) {
-            // The same trio as an outline row, in the same order (#2727,
-            // ADR-0776 §7 — the parity this closes). The insert focuses the new
-            // row's Name cell in the outline, which is where you type, so Enter
-            // on a bar hands you straight into naming it.
-            if (e.metaKey || e.ctrlKey) rowAuthoring.insertChild(taskId);
-            else if (e.shiftKey) rowAuthoring.insertAbove(taskId);
-            else rowAuthoring.insertBelow(taskId);
-            break;
-          }
-          // Not authorable — nothing about #2205 changes. Enter opens; Shift
-          // selects so the document-level useKeyboardReschedule listener, which
-          // fires after this React handler in bubble order, sees the selection
-          // and starts the reschedule on this same press (covered by
-          // ScheduleAriaOverlay.keyboard.test.tsx; keep that interplay in mind
-          // before reordering listeners or making selection async).
-          if (e.shiftKey) engine.selectTask(taskId);
-          else engine.openTask(taskId);
+          handleEnterKey(e, taskId, tasks[idx], engine, authoring, canEditRow);
           break;
-        }
         case 'r':
         case 'R':
           // 'r' starts a keyboard reschedule, unconditionally and in both modes.

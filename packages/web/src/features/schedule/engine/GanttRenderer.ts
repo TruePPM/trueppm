@@ -589,11 +589,7 @@ const LINK_HANDLE_RADIUS = 3.5;
  * rather than a status dot. In forced-colors mode the palette resolves to Highlight,
  * which keeps it visible where the decorative hover wash is suppressed.
  */
-export function drawLinkHandle(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  cy: number,
-): void {
+export function drawLinkHandle(ctx: CanvasRenderingContext2D, cx: number, cy: number): void {
   ctx.save();
   ctx.beginPath();
   ctx.arc(cx, cy, LINK_HANDLE_RADIUS, 0, Math.PI * 2);
@@ -656,7 +652,12 @@ export function drawGridLines(
       if (isWeekend(date)) {
         const dayWidth = dayMs * scales.pxPerMs;
         ctx.fillStyle = _palette.weekend;
-        ctx.fillRect(x, CHART_HEADER_HEIGHT, dayWidth, canvasHeight + scrollTop - CHART_HEADER_HEIGHT);
+        ctx.fillRect(
+          x,
+          CHART_HEADER_HEIGHT,
+          dayWidth,
+          canvasHeight + scrollTop - CHART_HEADER_HEIGHT,
+        );
       }
       ctx.moveTo(x + 0.5, CHART_HEADER_HEIGHT);
       ctx.lineTo(x + 0.5, canvasHeight + scrollTop);
@@ -717,7 +718,6 @@ export function drawTodayLine(
  * family is the vocabulary, the pitch is a function of the area.
  */
 const SPRINT_BAND_HATCH_PITCH = 10;
-
 
 /**
  * Dash pattern for the band's two window rules.
@@ -827,6 +827,100 @@ function bandRect(
  * `alpha` multiplies the whole band so the engine can fade it in; pass 1 for a
  * static paint. Bands are skipped entirely at alpha 0.
  */
+/**
+ * The wash + 45° hatch inside one band's on-screen rect, clipped to it.
+ *
+ * Under forced-colors the wash is NOT painted at all. The palette entry
+ * collapses to the opaque system `Canvas`, and this fill runs AFTER
+ * drawGridLines — so painting it would erase every day tick and row
+ * separator inside the band, which is the one cue a high-contrast user needs
+ * most on a wide chart. The hatch and the edge rules carry the window there
+ * instead (rule 295).
+ */
+function drawSprintBandWash(
+  ctx: CanvasRenderingContext2D,
+  clipLeft: number,
+  top: number,
+  bottom: number,
+  width: number,
+  height: number,
+  alpha: number,
+): void {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.beginPath();
+  ctx.rect(clipLeft, top, width, height);
+  ctx.clip();
+
+  if (!_forcedColors) {
+    ctx.fillStyle = _palette.sprintBandFill;
+    ctx.fillRect(clipLeft, top, width, height);
+  }
+
+  // Same 45° bottom-left → top-right direction as the scrum bar hatch, so the
+  // band and the bars inside it read as one texture family (WCAG 1.4.1: the
+  // window survives a color-vision deficiency and a monochrome print).
+  ctx.strokeStyle = _palette.sprintBandTexture;
+  ctx.lineWidth = 1;
+  for (let hx = clipLeft - height; hx < clipLeft + width; hx += SPRINT_BAND_HATCH_PITCH) {
+    ctx.beginPath();
+    ctx.moveTo(hx, bottom);
+    ctx.lineTo(hx + height, top);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+/**
+ * The band's bracket: two vertical edge rules plus top/bottom hairlines,
+ * drawn OUTSIDE the wash's clip — a 2px stroke centered on the boundary
+ * would lose half its width to a clip that ends exactly there. Only drawn
+ * where the real edge is on screen; a clamped edge is the viewport, not the
+ * subtree boundary, and ruling it would lie.
+ */
+function drawSprintBandEdges(
+  ctx: CanvasRenderingContext2D,
+  rect: BandRect,
+  clipLeft: number,
+  clipRight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  alpha: number,
+): void {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = _palette.sprintBandEdge;
+  ctx.lineWidth = 2;
+  ctx.setLineDash(SPRINT_BAND_EDGE_DASH);
+  ctx.beginPath();
+  if (rect.left >= 0 && rect.left <= viewportWidth) {
+    ctx.moveTo(rect.left, rect.top);
+    ctx.lineTo(rect.left, rect.bottom);
+  }
+  if (rect.right >= 0 && rect.right <= viewportWidth) {
+    ctx.moveTo(rect.right, rect.top);
+    ctx.lineTo(rect.right, rect.bottom);
+  }
+  ctx.stroke();
+
+  // Top and bottom hairlines close the bracket, so the band reads as a region
+  // bounded on all four sides rather than as two unrelated vertical rules.
+  ctx.lineWidth = 1;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  if (rect.anchorTop >= CHART_HEADER_HEIGHT) {
+    ctx.moveTo(clipLeft, rect.anchorTop + 0.5);
+    ctx.lineTo(clipRight, rect.anchorTop + 0.5);
+  }
+  if (rect.bottom < viewportHeight) {
+    ctx.moveTo(clipLeft, rect.bottom - 0.5);
+    ctx.lineTo(clipRight, rect.bottom - 0.5);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
 export function drawSprintBands(
   ctx: CanvasRenderingContext2D,
   bands: readonly SprintBand[],
@@ -852,77 +946,8 @@ export function drawSprintBands(
     const height = rect.bottom - rect.top;
     if (width <= 0 || height <= 0) continue;
 
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.beginPath();
-    ctx.rect(clipLeft, rect.top, width, height);
-    ctx.clip();
-
-    // Under forced-colors the wash is NOT painted at all. The palette entry
-    // collapses to the opaque system `Canvas`, and this fill runs AFTER
-    // drawGridLines — so painting it would erase every day tick and row
-    // separator inside the band, which is the one cue a high-contrast user needs
-    // most on a wide chart. The hatch and the edge rules carry the window there
-    // instead (rule 295).
-    if (!_forcedColors) {
-      ctx.fillStyle = _palette.sprintBandFill;
-      ctx.fillRect(clipLeft, rect.top, width, height);
-    }
-
-    // Same 45° bottom-left → top-right direction as the scrum bar hatch, so the
-    // band and the bars inside it read as one texture family (WCAG 1.4.1: the
-    // window survives a color-vision deficiency and a monochrome print).
-    ctx.strokeStyle = _palette.sprintBandTexture;
-    ctx.lineWidth = 1;
-    for (
-      let hx = clipLeft - height;
-      hx < clipLeft + width;
-      hx += SPRINT_BAND_HATCH_PITCH
-    ) {
-      ctx.beginPath();
-      ctx.moveTo(hx, rect.bottom);
-      ctx.lineTo(hx + height, rect.top);
-      ctx.stroke();
-    }
-
-    ctx.restore();
-
-    // Edges drawn OUTSIDE the clip: the two vertical rules are the window, and
-    // a 2px stroke centered on the boundary would lose half its width to a clip
-    // that ends exactly there.
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = _palette.sprintBandEdge;
-    ctx.lineWidth = 2;
-    ctx.setLineDash(SPRINT_BAND_EDGE_DASH);
-    ctx.beginPath();
-    if (rect.left >= 0 && rect.left <= viewportWidth) {
-      ctx.moveTo(rect.left, rect.top);
-      ctx.lineTo(rect.left, rect.bottom);
-    }
-    if (rect.right >= 0 && rect.right <= viewportWidth) {
-      ctx.moveTo(rect.right, rect.top);
-      ctx.lineTo(rect.right, rect.bottom);
-    }
-    ctx.stroke();
-
-    // Top and bottom hairlines close the bracket, so the band reads as a region
-    // bounded on all four sides rather than as two unrelated vertical rules.
-    // Only drawn where the band's real edge is on screen — a clamped edge is the
-    // viewport, not the subtree boundary, and ruling it would lie.
-    ctx.lineWidth = 1;
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    if (rect.anchorTop >= CHART_HEADER_HEIGHT) {
-      ctx.moveTo(clipLeft, rect.anchorTop + 0.5);
-      ctx.lineTo(clipRight, rect.anchorTop + 0.5);
-    }
-    if (rect.bottom < viewportHeight) {
-      ctx.moveTo(clipLeft, rect.bottom - 0.5);
-      ctx.lineTo(clipRight, rect.bottom - 0.5);
-    }
-    ctx.stroke();
-    ctx.restore();
+    drawSprintBandWash(ctx, clipLeft, rect.top, rect.bottom, width, height, alpha);
+    drawSprintBandEdges(ctx, rect, clipLeft, clipRight, viewportWidth, viewportHeight, alpha);
   }
 }
 
@@ -1233,7 +1258,6 @@ export function drawTimelineHeader(
   }
 }
 
-
 /** Horizontal breathing room between a rail cell's edge and its label. */
 const CADENCE_LABEL_PAD_X = 4;
 
@@ -1316,62 +1340,91 @@ export function drawCadenceRail(
     const clipLeft = Math.max(left, 0);
     const clipRight = Math.min(right, canvasWidth);
 
-    if (segment.active) {
-      // The live sprint is the one thing on this rail a planner looks for
-      // first, so it is the only cell that is filled rather than outlined.
-      ctx.fillStyle = _palette.sprintBandEdge;
-      ctx.fillRect(clipLeft, top, clipRight - clipLeft, CADENCE_RAIL_HEIGHT);
-    }
-
-    // Bottom rule: 2px for the active window, a hairline for the rest. Drawn
-    // per-cell rather than as one rule across the rail, so a stretch of axis
-    // that no sprint covers stays visibly uncovered.
-    ctx.strokeStyle = _palette.sprintBandEdge;
-    ctx.lineWidth = segment.active ? 2 : 1;
-    ctx.beginPath();
-    const ruleY = segment.active ? bottom - 1 : bottom - 0.5;
-    ctx.moveTo(clipLeft, ruleY);
-    ctx.lineTo(clipRight, ruleY);
-    ctx.stroke();
-
-    // Left rule — the window's start date. Only when the real edge is on
-    // screen: a clamped edge is the viewport, not a boundary, and ruling it
-    // would invent a sprint start wherever the user happens to have scrolled.
-    if (left >= 0 && left <= canvasWidth) {
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(left + 0.5, top);
-      ctx.lineTo(left + 0.5, bottom);
-      ctx.stroke();
-    }
+    drawCadenceSegmentCell(ctx, segment, clipLeft, clipRight, left, top, bottom, canvasWidth);
 
     if (width < CADENCE_LABEL_MIN_WIDTH) continue;
-
-    const label = truncateToWidth(ctx, segment.label, width - CADENCE_LABEL_PAD_X * 2);
-    const textWidth = ctx.measureText(label).width;
-    // Centered in the window, then slid back inside the viewport if the window
-    // runs off either edge — the truncation is measured against the window's
-    // FULL width, so panning through a long sprint moves the name without
-    // rewriting it. Without this a sprint wider than the viewport would be
-    // anonymous for most of its own extent, which is one of the three failures
-    // that made the row-anchored pill insufficient.
-    let x = left + (width - textWidth) / 2;
-    const lo = Math.max(left + CADENCE_LABEL_PAD_X, CADENCE_LABEL_PAD_X);
-    const hi = Math.min(
-      right - CADENCE_LABEL_PAD_X - textWidth,
-      canvasWidth - CADENCE_LABEL_PAD_X - textWidth,
-    );
-    if (hi >= lo) x = Math.min(Math.max(x, lo), hi);
-
-    // Paired with whatever the cell actually painted: `chipTextOnHighlight` is
-    // the guaranteed partner of the filled active cell (`Highlight` under
-    // forced-colors, whose partner is `HighlightText` and NOT `Canvas`), and
-    // `textSecondary` is the ink for an outlined cell sitting on the surface.
-    ctx.fillStyle = segment.active ? _palette.chipTextOnHighlight : _palette.textSecondary;
-    ctx.fillText(label, x, top + CADENCE_RAIL_HEIGHT / 2);
+    drawCadenceSegmentLabel(ctx, segment, left, right, width, top, canvasWidth);
   }
 
   ctx.restore();
+}
+
+/** One cadence-rail cell's fill (active segment only) and its bottom/left rules. */
+function drawCadenceSegmentCell(
+  ctx: CanvasRenderingContext2D,
+  segment: CadenceSegment,
+  clipLeft: number,
+  clipRight: number,
+  left: number,
+  top: number,
+  bottom: number,
+  canvasWidth: number,
+): void {
+  if (segment.active) {
+    // The live sprint is the one thing on this rail a planner looks for
+    // first, so it is the only cell that is filled rather than outlined.
+    ctx.fillStyle = _palette.sprintBandEdge;
+    ctx.fillRect(clipLeft, top, clipRight - clipLeft, CADENCE_RAIL_HEIGHT);
+  }
+
+  // Bottom rule: 2px for the active window, a hairline for the rest. Drawn
+  // per-cell rather than as one rule across the rail, so a stretch of axis
+  // that no sprint covers stays visibly uncovered.
+  ctx.strokeStyle = _palette.sprintBandEdge;
+  ctx.lineWidth = segment.active ? 2 : 1;
+  ctx.beginPath();
+  const ruleY = segment.active ? bottom - 1 : bottom - 0.5;
+  ctx.moveTo(clipLeft, ruleY);
+  ctx.lineTo(clipRight, ruleY);
+  ctx.stroke();
+
+  // Left rule — the window's start date. Only when the real edge is on
+  // screen: a clamped edge is the viewport, not a boundary, and ruling it
+  // would invent a sprint start wherever the user happens to have scrolled.
+  if (left >= 0 && left <= canvasWidth) {
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(left + 0.5, top);
+    ctx.lineTo(left + 0.5, bottom);
+    ctx.stroke();
+  }
+}
+
+/**
+ * One cadence-rail cell's centered, edge-clamped label.
+ *
+ * Centered in the window, then slid back inside the viewport if the window
+ * runs off either edge — the truncation is measured against the window's
+ * FULL width, so panning through a long sprint moves the name without
+ * rewriting it. Without this a sprint wider than the viewport would be
+ * anonymous for most of its own extent, which is one of the three failures
+ * that made the row-anchored pill insufficient.
+ */
+function drawCadenceSegmentLabel(
+  ctx: CanvasRenderingContext2D,
+  segment: CadenceSegment,
+  left: number,
+  right: number,
+  width: number,
+  top: number,
+  canvasWidth: number,
+): void {
+  const label = truncateToWidth(ctx, segment.label, width - CADENCE_LABEL_PAD_X * 2);
+  const textWidth = ctx.measureText(label).width;
+  let x = left + (width - textWidth) / 2;
+  const lo = Math.max(left + CADENCE_LABEL_PAD_X, CADENCE_LABEL_PAD_X);
+  const hi = Math.min(
+    right - CADENCE_LABEL_PAD_X - textWidth,
+    canvasWidth - CADENCE_LABEL_PAD_X - textWidth,
+  );
+  if (hi >= lo) x = Math.min(Math.max(x, lo), hi);
+
+  // Paired with whatever the cell actually painted: `chipTextOnHighlight` is
+  // the guaranteed partner of the filled active cell (`Highlight` under
+  // forced-colors, whose partner is `HighlightText` and NOT `Canvas`), and
+  // `textSecondary` is the ink for an outlined cell sitting on the surface.
+  ctx.fillStyle = segment.active ? _palette.chipTextOnHighlight : _palette.textSecondary;
+  ctx.fillText(label, x, top + CADENCE_RAIL_HEIGHT / 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -1759,20 +1812,7 @@ function drawDeliveryModeMark(
       // 'milestone' delivery mode landing on an actual bar rather than a
       // diamond — cross-hatch, the most visually distinct pattern, reserved
       // for this rare edge case.
-      ctx.strokeStyle = _palette.deliveryTexture;
-      ctx.lineWidth = 1;
-      for (let hx = barLeft - barHeight; hx < barLeft + barWidth; hx += 6) {
-        ctx.beginPath();
-        ctx.moveTo(hx, barTop + barHeight);
-        ctx.lineTo(hx + barHeight, barTop);
-        ctx.stroke();
-      }
-      for (let hx = barLeft; hx < barLeft + barWidth + barHeight; hx += 6) {
-        ctx.beginPath();
-        ctx.moveTo(hx, barTop);
-        ctx.lineTo(hx - barHeight, barTop + barHeight);
-        ctx.stroke();
-      }
+      drawMilestoneModeHatch(ctx, barLeft, barTop, barWidth, barHeight);
     }
     ctx.restore();
     return;
@@ -1797,11 +1837,46 @@ function drawDeliveryModeMark(
     ctx.restore();
     return;
   }
-  const textureMode = mode.kind;
-
   // Texture: low-alpha pattern across the bar body, independent of the
   // gutter hue — a wider 6px pitch than drawExternalRedaction's 5px hatch so
   // the two patterns read as visually distinct from each other.
+  drawModeBodyTexture(ctx, mode.kind, barLeft, barTop, barWidth, barHeight);
+  ctx.restore();
+}
+
+/** The cross-hatch marking 'milestone' delivery mode landing on an actual bar. */
+function drawMilestoneModeHatch(
+  ctx: CanvasRenderingContext2D,
+  barLeft: number,
+  barTop: number,
+  barWidth: number,
+  barHeight: number,
+): void {
+  ctx.strokeStyle = _palette.deliveryTexture;
+  ctx.lineWidth = 1;
+  for (let hx = barLeft - barHeight; hx < barLeft + barWidth; hx += 6) {
+    ctx.beginPath();
+    ctx.moveTo(hx, barTop + barHeight);
+    ctx.lineTo(hx + barHeight, barTop);
+    ctx.stroke();
+  }
+  for (let hx = barLeft; hx < barLeft + barWidth + barHeight; hx += 6) {
+    ctx.beginPath();
+    ctx.moveTo(hx, barTop);
+    ctx.lineTo(hx - barHeight, barTop + barHeight);
+    ctx.stroke();
+  }
+}
+
+/** The bar-body texture for a single-mode (scrum/kanban) bar's delivery mark. */
+function drawModeBodyTexture(
+  ctx: CanvasRenderingContext2D,
+  textureMode: 'scrum' | 'kanban',
+  barLeft: number,
+  barTop: number,
+  barWidth: number,
+  barHeight: number,
+): void {
   ctx.strokeStyle = _palette.deliveryTexture;
   ctx.lineWidth = 1;
   if (textureMode === 'scrum') {
@@ -1811,17 +1886,16 @@ function drawDeliveryModeMark(
       ctx.lineTo(hx + barHeight, barTop);
       ctx.stroke();
     }
-  } else {
-    ctx.fillStyle = _palette.deliveryTexture;
-    for (let dx = barLeft + 3; dx < barLeft + barWidth; dx += 6) {
-      for (let dy = barTop + 3; dy < barTop + barHeight; dy += 6) {
-        ctx.beginPath();
-        ctx.arc(dx, dy, 1, 0, Math.PI * 2);
-        ctx.fill();
-      }
+    return;
+  }
+  ctx.fillStyle = _palette.deliveryTexture;
+  for (let dx = barLeft + 3; dx < barLeft + barWidth; dx += 6) {
+    for (let dy = barTop + 3; dy < barTop + barHeight; dy += 6) {
+      ctx.beginPath();
+      ctx.arc(dx, dy, 1, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
-  ctx.restore();
 }
 
 /** Diagonal hatch marking a redacted external task (ADR-0120 D5 / ADR-0182) — a
@@ -1873,9 +1947,13 @@ function drawProgressOverlay(
   ctx.globalAlpha = 0.3;
   ctx.fillStyle = '#000000';
   ctx.beginPath();
-  ctx.roundRect(barLeft + progressWidth, barTop, barWidth - progressWidth, BAR_HEIGHT, [
-    0, 3, 3, 0,
-  ]);
+  ctx.roundRect(
+    barLeft + progressWidth,
+    barTop,
+    barWidth - progressWidth,
+    BAR_HEIGHT,
+    [0, 3, 3, 0],
+  );
   ctx.fill();
   ctx.globalAlpha = 1;
 }
@@ -1941,10 +2019,7 @@ function drawAssigneeInitials(
  * a second, non-color-dependent cue alongside the surrounding rows' dimming
  * (rule 6 / WCAG 1.4.1) — dimming alone would encode the state in contrast only.
  */
-export function drawFilterMatchMarker(
-  ctx: CanvasRenderingContext2D,
-  rowIndex: number,
-): void {
+export function drawFilterMatchMarker(ctx: CanvasRenderingContext2D, rowIndex: number): void {
   const top = rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT + BAR_TOP_OFFSET;
   ctx.save();
   // Full opacity regardless of any ambient alpha: the marker is the signal that
@@ -2944,8 +3019,7 @@ function ancestorIdsOf(nodes: Map<string, DepNode>, id: string): ReadonlySet<str
   return ancestors;
 }
 
-const isFsLink = (l: TaskLink): boolean =>
-  l.type !== 'SS' && l.type !== 'FF' && l.type !== 'SF';
+const isFsLink = (l: TaskLink): boolean => l.type !== 'SS' && l.type !== 'FF' && l.type !== 'SF';
 
 /**
  * Arrow-endpoint anchors, canvas-origin.
@@ -3308,8 +3382,7 @@ function pushSingleFS(
   const tgtY = pc.rowY(tgt.rowIndex);
   if (offScreen(src.barRight, tgt.barLeft, srcY, tgtY, pc.cpWidth, pc.cpHeight)) return;
 
-  const isSelected =
-    pc.selectedTaskIds.has(link.sourceId) || pc.selectedTaskIds.has(link.targetId);
+  const isSelected = pc.selectedTaskIds.has(link.sourceId) || pc.selectedTaskIds.has(link.targetId);
   const role = arrowRole(link.sourceId, link.targetId, pc.hoverChain);
   const { stroke, lineWidth, alpha } = arrowPen(isSelected, role, pc.effectiveDriving(link));
   const arrowSize = 9;

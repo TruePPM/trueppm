@@ -120,6 +120,56 @@ function collectLeaves(id: string, childrenByParent: Map<string, string[]>): str
  *    summary is fully expanded, so a stale summary-anchored constraint can
  *    never block the pull-in that mechanism 1 now performs.
  */
+type LinkDisposition = 'keep' | 'drop' | 'expand';
+
+/**
+ * Which of the three summary-expansion outcomes `link` takes — see the
+ * docstring above for why each rule exists.
+ */
+function classifyLink(
+  link: TaskLink,
+  isSummary: (id: string) => boolean,
+  startTaskId: string,
+): LinkDisposition {
+  const sourceIsSummary = isSummary(link.sourceId);
+  const targetIsSummary = isSummary(link.targetId);
+
+  if (!sourceIsSummary && !targetIsSummary) return 'keep';
+  if (sourceIsSummary && link.sourceId === startTaskId) {
+    // The drag root is ITSELF the summary — see the docstring's second
+    // deviation. Deliberately not "the root is this link's source": a leaf
+    // root linked INTO a phase (`A -> S`) must still expand, or the drag
+    // reaches the summary node and stops, which is the very absence #3535 is
+    // about.
+    return 'keep';
+  }
+  if (sourceIsSummary && (link.type === 'SS' || link.type === 'SF')) {
+    return 'drop'; // ADR-0370: the server refuses to schedule this link at all.
+  }
+  return 'expand';
+}
+
+/** The leaf-level cross product of `link`'s endpoints, deduped against `seen`. */
+function crossProductEdges(
+  link: TaskLink,
+  leaves: (id: string) => string[],
+  seen: Set<string>,
+): TaskLink[] {
+  const edges: TaskLink[] = [];
+  for (const source of leaves(link.sourceId)) {
+    for (const target of leaves(link.targetId)) {
+      // A summary→summary link inside one phase expands onto pairs of its own
+      // leaves; a self-edge is not a dependency and would deadlock the sort.
+      if (source === target) continue;
+      const key = `${source}\u0000${target}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      edges.push({ ...link, sourceId: source, targetId: target });
+    }
+  }
+  return edges;
+}
+
 function expandSummaryLinks(
   links: TaskLink[],
   childrenByParent: Map<string, string[]>,
@@ -144,37 +194,13 @@ function expandSummaryLinks(
   const seen = new Set<string>();
 
   for (const link of links) {
-    const sourceIsSummary = isSummary(link.sourceId);
-    const targetIsSummary = isSummary(link.targetId);
-
-    if (!sourceIsSummary && !targetIsSummary) {
+    const disposition = classifyLink(link, isSummary, startTaskId);
+    if (disposition === 'drop') continue;
+    if (disposition === 'keep') {
       expanded.push(link);
       continue;
     }
-    if (sourceIsSummary && link.sourceId === startTaskId) {
-      // The drag root is ITSELF the summary — see the docstring's second
-      // deviation. Deliberately not "the root is this link's source": a leaf
-      // root linked INTO a phase (`A -> S`) must still expand, or the drag
-      // reaches the summary node and stops, which is the very absence #3535 is
-      // about.
-      expanded.push(link);
-      continue;
-    }
-    if (sourceIsSummary && (link.type === 'SS' || link.type === 'SF')) {
-      continue; // ADR-0370: the server refuses to schedule this link at all.
-    }
-
-    for (const source of leaves(link.sourceId)) {
-      for (const target of leaves(link.targetId)) {
-        // A summary→summary link inside one phase expands onto pairs of its own
-        // leaves; a self-edge is not a dependency and would deadlock the sort.
-        if (source === target) continue;
-        const key = `${source}\u0000${target}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        expanded.push({ ...link, sourceId: source, targetId: target });
-      }
-    }
+    expanded.push(...crossProductEdges(link, leaves, seen));
   }
   return expanded;
 }
