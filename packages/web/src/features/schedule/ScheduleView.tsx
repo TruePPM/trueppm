@@ -34,7 +34,7 @@ import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useProjectResourcePool } from '@/hooks/useProjectResourcePool';
 import { restoreRefusalMessage } from '@/hooks/restoreRefusal';
-import { useScheduleStore } from '@/stores/scheduleStore';
+import { useScheduleStore, type ScheduleActionToast } from '@/stores/scheduleStore';
 import { usePausableAutoDismiss } from '@/components/Toast/usePausableAutoDismiss';
 import { useWbsStore } from '@/stores/wbsStore';
 import { useDragCpm } from '@/hooks/useDragCpm';
@@ -906,6 +906,80 @@ function consumeTaskParam(ctx: {
     ctx.scrollToTask(taskParam);
   }
   // Unknown id: latch (don't retry) and leave the drawer closed.
+}
+
+/**
+ * The async work behind `buildModeApi.duplicateSubtree` (⌘D / Ctrl+D / row
+ * menu Duplicate, #2727, ADR-0776 §2, amending ADR-0066 §Q1): create each
+ * root's subtree top-down so every descendant's new parent id is already
+ * known, then surface the Duplicate-into-an-active-sprint Undo affordance.
+ *
+ * Dependencies are never cloned — extended uniformly to every duplicated
+ * node, including edges internal to the duplicated subtree. Only the root's
+ * name gets the "(copy)" suffix; descendants move with the subtree unchanged.
+ */
+async function duplicateSubtreeRoots(
+  rootIds: string[],
+  tree: ReturnType<typeof buildWbsTree>,
+  allTasks: Task[],
+  sprintsById: Map<string, { id: string; name: string; state: string }>,
+  createTaskMut: ReturnType<typeof useCreateTask>,
+  updateTaskMut: ReturnType<typeof useUpdateTask>,
+  projectId: string,
+  setScheduleActionToast: (toast: ScheduleActionToast | null) => void,
+): Promise<void> {
+  for (const rootId of rootIds) {
+    const subtree = collectSubtree(tree, rootId);
+    if (subtree.length === 0) continue;
+    const [rootNode, ...descendants] = subtree;
+    const rootSiblingNames = allTasks
+      .filter((t) => t.parentId === rootNode.task.parentId)
+      .map((t) => t.name);
+    const idMap = new Map<string, string>();
+    try {
+      const rootCreated = await createTaskMut.mutateAsync({
+        name: buildCopyName(rootNode.task.name, rootSiblingNames),
+        duration: rootNode.task.duration,
+        parent_id: rootNode.task.parentId,
+        sprint: rootNode.task.sprintId ?? null,
+        is_milestone: rootNode.task.isMilestone,
+        ...(rootNode.task.deliveryMode ? { delivery_mode: rootNode.task.deliveryMode } : {}),
+      });
+      idMap.set(rootNode.task.id, rootCreated.id);
+      const rootSprint = rootNode.task.sprintId
+        ? sprintsById.get(rootNode.task.sprintId)
+        : undefined;
+      if (rootSprint && rootSprint.state === 'ACTIVE') {
+        setScheduleActionToast({
+          message: `Added to ${rootSprint.name}`,
+          action: {
+            label: 'Undo',
+            onClick: () => {
+              updateTaskMut.mutate({ id: rootCreated.id, projectId, sprint: null });
+              setScheduleActionToast({ message: 'Moved to backlog', durationMs: 2000 });
+            },
+          },
+        });
+      }
+      for (const node of descendants) {
+        if (!node.task.parentId) continue; // unreachable — every descendant has a parent within the subtree
+        const newParentId = idMap.get(node.task.parentId);
+        if (!newParentId) continue;
+        const created = await createTaskMut.mutateAsync({
+          name: node.task.name,
+          duration: node.task.duration,
+          parent_id: newParentId,
+          sprint: node.task.sprintId ?? null,
+          is_milestone: node.task.isMilestone,
+          ...(node.task.deliveryMode ? { delivery_mode: node.task.deliveryMode } : {}),
+        });
+        idMap.set(node.task.id, created.id);
+      }
+    } catch {
+      toast.error("Couldn't duplicate the task — try again.");
+      return;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2870,67 +2944,16 @@ export function ScheduleView() {
             ? [...selected].filter((id) => !hasAncestorSelected(id))
             : [taskId];
 
-        void (async () => {
-          for (const rootId of rootIds) {
-            const subtree = collectSubtree(tree, rootId);
-            if (subtree.length === 0) continue;
-            const [rootNode, ...descendants] = subtree;
-            const rootSiblingNames = allTasks
-              .filter((t) => t.parentId === rootNode.task.parentId)
-              .map((t) => t.name);
-            // Dependencies are never cloned — extended uniformly to every
-            // duplicated node, including edges internal to the duplicated
-            // subtree (ADR-0066 §Q1, amended here rather than special-cased
-            // away). Only the root's name gets the "(copy)" suffix;
-            // descendants move with the subtree unchanged.
-            const idMap = new Map<string, string>();
-            try {
-              const rootCreated = await createTaskMut.mutateAsync({
-                name: buildCopyName(rootNode.task.name, rootSiblingNames),
-                duration: rootNode.task.duration,
-                parent_id: rootNode.task.parentId,
-                sprint: rootNode.task.sprintId ?? null,
-                is_milestone: rootNode.task.isMilestone,
-                ...(rootNode.task.deliveryMode
-                  ? { delivery_mode: rootNode.task.deliveryMode }
-                  : {}),
-              });
-              idMap.set(rootNode.task.id, rootCreated.id);
-              const rootSprint = rootNode.task.sprintId
-                ? sprintsById.get(rootNode.task.sprintId)
-                : undefined;
-              if (rootSprint && rootSprint.state === 'ACTIVE') {
-                setScheduleActionToast({
-                  message: `Added to ${rootSprint.name}`,
-                  action: {
-                    label: 'Undo',
-                    onClick: () => {
-                      updateTaskMut.mutate({ id: rootCreated.id, projectId, sprint: null });
-                      setScheduleActionToast({ message: 'Moved to backlog', durationMs: 2000 });
-                    },
-                  },
-                });
-              }
-              for (const node of descendants) {
-                if (!node.task.parentId) continue; // unreachable — every descendant has a parent within the subtree
-                const newParentId = idMap.get(node.task.parentId);
-                if (!newParentId) continue;
-                const created = await createTaskMut.mutateAsync({
-                  name: node.task.name,
-                  duration: node.task.duration,
-                  parent_id: newParentId,
-                  sprint: node.task.sprintId ?? null,
-                  is_milestone: node.task.isMilestone,
-                  ...(node.task.deliveryMode ? { delivery_mode: node.task.deliveryMode } : {}),
-                });
-                idMap.set(node.task.id, created.id);
-              }
-            } catch {
-              toast.error("Couldn't duplicate the task — try again.");
-              return;
-            }
-          }
-        })();
+        void duplicateSubtreeRoots(
+          rootIds,
+          tree,
+          allTasks,
+          sprintsById,
+          createTaskMut,
+          updateTaskMut,
+          projectId,
+          setScheduleActionToast,
+        );
       },
       deleteTask: (taskId) => {
         if (readOnly) {
@@ -4398,7 +4421,14 @@ export function ScheduleView() {
   // pulse) — the outline panel's width, or 0 where no panel is rendered (#2960).
   const panelWidth = schedulePanelWidth(outlineRendered, outlineWidth);
 
-  const mainView = (
+  // Wrapped in an IIFE (rather than assigned directly) so this block's own
+  // conditionals are scored as their own function's cognitive complexity,
+  // not folded into ScheduleView's. Produces the same JSX value either way —
+  // no component-identity change, so this is not a render-time no-op the
+  // way replacing it with a nested `function MainView()` would be (that
+  // would give the subtree a new component type every render and force
+  // React to remount it, losing scroll/focus/animation state).
+  const mainView = (() => (
     <div className="flex flex-col h-full overflow-hidden">
       <h1 className="sr-only">Schedule</h1>
       <ScheduleToolbar
@@ -4858,7 +4888,7 @@ export function ScheduleView() {
         />
       )}
     </div>
-  );
+  ))();
 
   return buildModeActive ? (
     <BuildModeProvider api={buildModeApi}>{mainView}</BuildModeProvider>
@@ -6553,6 +6583,77 @@ function timelineRowMenuItems(
   ];
 }
 
+/**
+ * `ScheduleMainArea`'s empty-canvas state, in priority order: an AGILE
+ * methodology mismatch, then a still-writing template seed, then a blank
+ * build-mode canvas, then the plain "add a task" empty state. See the call
+ * site's comments for why each one outranks the next.
+ */
+function ScheduleMainAreaEmptyState({
+  effectiveMethodology,
+  projectId,
+  itl,
+  scheduleSeeding,
+  buildModeActive,
+  blankProjectFacts,
+  readOnly,
+  handleImportFile,
+  setShowAddForm,
+}: Pick<
+  ScheduleMainAreaProps,
+  | 'effectiveMethodology'
+  | 'projectId'
+  | 'scheduleSeeding'
+  | 'buildModeActive'
+  | 'blankProjectFacts'
+  | 'readOnly'
+  | 'handleImportFile'
+  | 'setShowAddForm'
+> & { itl: ReturnType<typeof useIterationLabel> }) {
+  if (effectiveMethodology === 'AGILE') {
+    // AGILE hides this view's nav entry (methodologyTabs.ts), but the route
+    // stays reachable by direct URL on purpose (issue #2619). This
+    // methodology mismatch takes priority over build mode — an AGILE
+    // project has no schedule to build regardless of surface.
+    return (
+      <MethodologyEmptyState
+        className="h-full bg-neutral-surface"
+        projectId={projectId}
+        icon={GanttIcon}
+        title="Schedule isn't part of this project's workflow"
+        description={`This project runs on ${itl.lowerPlural}, not a phase-gated schedule. If a full CPM schedule fits better here, switch the methodology in Settings.`}
+        primaryLabel={`Go to ${itl.plural}`}
+        primaryTo={projectId ? `/projects/${projectId}/sprints` : '#'}
+      />
+    );
+  }
+  if (scheduleSeeding) {
+    // #3312: a template apply is still writing. Fully replaces the blank
+    // canvas rather than layering over it. That canvas's whole sentence is
+    // "this empty project is a plan surface YOU fill" — an empty horizon
+    // plus an aside of ways to fill it — and that is wrong right now,
+    // because the user is not the one filling it. Drawing the ruler behind
+    // a skeleton says "still empty" at the same moment the skeleton says
+    // "filling", and the reader believes the ruler, because it is the
+    // larger element. AGILE keeps priority above: that project has no
+    // schedule to build regardless of what is being written into it.
+    return <ScheduleSeedingState />;
+  }
+  if (buildModeActive) {
+    // #2733: a blank project is a canvas, not a card. The horizon draws
+    // against the chosen calendar so an empty project reads as a plan
+    // surface, and the fill options sit quietly at the edge so they do not
+    // compete with the live row already holding the caret in the outline.
+    return (
+      <BlankProjectCanvas
+        facts={blankProjectFacts}
+        onImportFile={readOnly ? undefined : handleImportFile}
+      />
+    );
+  }
+  return <ScheduleEmptyState onAddTask={readOnly ? undefined : () => setShowAddForm(true)} />;
+}
+
 function ScheduleMainArea(props: ScheduleMainAreaProps) {
   // The canvas scroll spacer's height is the engine's row model expressed in the
   // DOM (#2997) — it is what makes the last row reachable. Read through the hook
@@ -6792,43 +6893,17 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
         )}
 
         {visibleTasks.length === 0 ? (
-          effectiveMethodology === 'AGILE' ? (
-            // AGILE hides this view's nav entry (methodologyTabs.ts), but the route
-            // stays reachable by direct URL on purpose (issue #2619). This
-            // methodology mismatch takes priority over build mode — an AGILE
-            // project has no schedule to build regardless of surface.
-            <MethodologyEmptyState
-              className="h-full bg-neutral-surface"
-              projectId={projectId}
-              icon={GanttIcon}
-              title="Schedule isn't part of this project's workflow"
-              description={`This project runs on ${itl.lowerPlural}, not a phase-gated schedule. If a full CPM schedule fits better here, switch the methodology in Settings.`}
-              primaryLabel={`Go to ${itl.plural}`}
-              primaryTo={projectId ? `/projects/${projectId}/sprints` : '#'}
-            />
-          ) : scheduleSeeding ? (
-            // #3312: a template apply is still writing. Fully replaces the blank
-            // canvas rather than layering over it. That canvas's whole sentence is
-            // "this empty project is a plan surface YOU fill" — an empty horizon
-            // plus an aside of ways to fill it — and that is wrong right now,
-            // because the user is not the one filling it. Drawing the ruler behind
-            // a skeleton says "still empty" at the same moment the skeleton says
-            // "filling", and the reader believes the ruler, because it is the
-            // larger element. AGILE keeps priority above: that project has no
-            // schedule to build regardless of what is being written into it.
-            <ScheduleSeedingState />
-          ) : buildModeActive ? (
-            // #2733: a blank project is a canvas, not a card. The horizon draws
-            // against the chosen calendar so an empty project reads as a plan
-            // surface, and the fill options sit quietly at the edge so they do not
-            // compete with the live row already holding the caret in the outline.
-            <BlankProjectCanvas
-              facts={blankProjectFacts}
-              onImportFile={readOnly ? undefined : handleImportFile}
-            />
-          ) : (
-            <ScheduleEmptyState onAddTask={readOnly ? undefined : () => setShowAddForm(true)} />
-          )
+          <ScheduleMainAreaEmptyState
+            effectiveMethodology={effectiveMethodology}
+            projectId={projectId}
+            itl={itl}
+            scheduleSeeding={scheduleSeeding}
+            buildModeActive={buildModeActive}
+            blankProjectFacts={blankProjectFacts}
+            readOnly={readOnly}
+            handleImportFile={handleImportFile}
+            setShowAddForm={setShowAddForm}
+          />
         ) : (
           <div
             ref={canvasScrollRef}

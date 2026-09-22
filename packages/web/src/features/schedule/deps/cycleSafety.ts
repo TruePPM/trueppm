@@ -72,13 +72,11 @@ function implicitPredecessors(
  * True when `from` already depends on `to`, directly or through any chain —
  * explicit links and structural edges alike.
  */
-export function dependsOn(
-  from: Task,
-  to: Task,
-  tasks: readonly Task[],
-  links: readonly CycleLink[],
-): boolean {
-  const byId = new Map(tasks.map((t) => [t.id, t]));
+/** Parent/child indexes over `tasks`, shared by explicit and implicit predecessor walks. */
+function buildParentIndex(tasks: readonly Task[]): {
+  byParent: Map<string | null, Task[]>;
+  childCount: Map<string, number>;
+} {
   const byParent = new Map<string | null, Task[]>();
   const childCount = new Map<string, number>();
   for (const t of tasks) {
@@ -87,13 +85,54 @@ export function dependsOn(
     byParent.set(t.parentId, siblings);
     if (t.parentId) childCount.set(t.parentId, (childCount.get(t.parentId) ?? 0) + 1);
   }
+  return { byParent, childCount };
+}
 
+/** Explicit predecessor ids by target, from the raw link list. */
+function buildExplicitPredsIndex(links: readonly CycleLink[]): Map<string, string[]> {
   const explicitPreds = new Map<string, string[]>();
   for (const link of links) {
     const preds = explicitPreds.get(link.targetId) ?? [];
     preds.push(link.sourceId);
     explicitPreds.set(link.targetId, preds);
   }
+  return explicitPreds;
+}
+
+/**
+ * Push `current`'s explicit + implicit predecessors onto `stack` for the walk
+ * in {@link dependsOn}; returns true the moment `to` turns up among them.
+ */
+function pushPredecessors(
+  current: Task,
+  to: Task,
+  explicitPreds: ReadonlyMap<string, string[]>,
+  byId: ReadonlyMap<string, Task>,
+  byParent: ReadonlyMap<string | null, Task[]>,
+  childCount: ReadonlyMap<string, number>,
+  stack: Task[],
+): boolean {
+  for (const predId of explicitPreds.get(current.id) ?? []) {
+    if (predId === to.id) return true;
+    const pred = byId.get(predId);
+    if (pred) stack.push(pred);
+  }
+  for (const pred of implicitPredecessors(current, byParent, childCount)) {
+    if (pred.id === to.id) return true;
+    stack.push(pred);
+  }
+  return false;
+}
+
+export function dependsOn(
+  from: Task,
+  to: Task,
+  tasks: readonly Task[],
+  links: readonly CycleLink[],
+): boolean {
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const { byParent, childCount } = buildParentIndex(tasks);
+  const explicitPreds = buildExplicitPredsIndex(links);
 
   const seen = new Set<string>();
   const stack: Task[] = [from];
@@ -103,14 +142,8 @@ export function dependsOn(
     if (seen.has(current.id)) continue;
     seen.add(current.id);
 
-    for (const predId of explicitPreds.get(current.id) ?? []) {
-      if (predId === to.id) return true;
-      const pred = byId.get(predId);
-      if (pred) stack.push(pred);
-    }
-    for (const pred of implicitPredecessors(current, byParent, childCount)) {
-      if (pred.id === to.id) return true;
-      stack.push(pred);
+    if (pushPredecessors(current, to, explicitPreds, byId, byParent, childCount, stack)) {
+      return true;
     }
   }
   return false;

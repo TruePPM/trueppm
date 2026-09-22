@@ -25,49 +25,40 @@ import { SlidersIcon } from '@/components/Icons';
 import { ROLE_ADMIN } from '@/lib/roles';
 import type { Methodology, Project } from '@/types';
 
-/** Program > Projects settings page — lists projects assigned to this program. */
-export function ProgramProjectsPage() {
-  const { programId } = useParams<{ programId: string }>();
-  const { data: program } = useProgram(programId);
-  const { data: projects, isLoading, error } = useProgramProjects(programId);
-  const { data: ws, isPending: wsPending, isError: wsError } = useWorkspaceSettings();
-  const bulkFields = useBulkProjectFields(programId);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showImport, setShowImport] = useState(false);
-
-  const isNarrow = useBreakpoint() === 'sm';
+/**
+ * Deep-link arrival contract (#3293, D41). The canonical link is
+ * `/programs/{id}/settings?bulk=methodology&only=deviating#projects`, emitted by the
+ * post-save align offer on the General section.
+ *
+ * It is an **effect on the params, not a mount-time read**, and that is not a style
+ * choice: program settings is one consolidated scrolling page (ADR-0146), so this
+ * section is ALREADY MOUNTED when the offer's link is clicked. A `useState`
+ * initializer would run exactly once, before the admin ever saved, and the link would
+ * arm nothing — green in a standalone unit test and dead in the product.
+ *
+ * "Once per arrival" is enforced by the strip: the params are removed with
+ * `replace: true` in the same commit that arms, so a refresh or a Back lands on the
+ * plain page rather than silently re-checking rows the admin has since changed. Note
+ * what that does NOT cover — a URL copied or hand-built *before* the strip arms on a
+ * cold load, which is deliberate and harmless: the contract seeds a filter and a
+ * selection, never a staged value, so the worst a shared link can do is pre-check
+ * rows. Apply still needs a value the recipient chose.
+ *
+ * **It scrolls itself, and must.** `SettingsShell`'s hash effect is guarded
+ * once-per-hash-*value* (`lastHandledHashRef`), and this link's hash is always
+ * `#projects`. Nothing rewrites the hash on scroll, so on a second use — link, wheel
+ * back up to General, save, link again — the shell's effect early-returns and the
+ * viewport never moves while this section silently filters and pre-checks rows
+ * off-screen. See web-rule 402.
+ *
+ * Returns an arrival ordinal (incrementing per arrival, `null` before the first one)
+ * used to key-remount the matrix so an arrival always seeds fresh.
+ */
+function useMethodologyAlignArrival(
+  setMethodologyFilter: (value: MethodologyDeviationFilterValue) => void,
+): number | null {
   const navigate = useNavigate();
   const location = useLocation();
-
-  const [methodologyFilter, setMethodologyFilter] =
-    useState<MethodologyDeviationFilterValue>('ALL');
-
-  /**
-   * Deep-link arrival contract (#3293, D41). The canonical link is
-   * `/programs/{id}/settings?bulk=methodology&only=deviating#projects`, emitted by the
-   * post-save align offer on the General section.
-   *
-   * It is an **effect on the params, not a mount-time read**, and that is not a style
-   * choice: program settings is one consolidated scrolling page (ADR-0146), so this
-   * section is ALREADY MOUNTED when the offer's link is clicked. A `useState`
-   * initializer would run exactly once, before the admin ever saved, and the link would
-   * arm nothing — green in a standalone unit test and dead in the product.
-   *
-   * "Once per arrival" is enforced by the strip: the params are removed with
-   * `replace: true` in the same commit that arms, so a refresh or a Back lands on the
-   * plain page rather than silently re-checking rows the admin has since changed. Note
-   * what that does NOT cover — a URL copied or hand-built *before* the strip arms on a
-   * cold load, which is deliberate and harmless: the contract seeds a filter and a
-   * selection, never a staged value, so the worst a shared link can do is pre-check
-   * rows. Apply still needs a value the recipient chose.
-   *
-   * **It scrolls itself, and must.** `SettingsShell`'s hash effect is guarded
-   * once-per-hash-*value* (`lastHandledHashRef`), and this link's hash is always
-   * `#projects`. Nothing rewrites the hash on scroll, so on a second use — link, wheel
-   * back up to General, save, link again — the shell's effect early-returns and the
-   * viewport never moves while this section silently filters and pre-checks rows
-   * off-screen. See web-rule 402.
-   */
   const [searchParams] = useSearchParams();
   const [arrival, setArrival] = useState<number | null>(null);
   const arrivals = useRef(0);
@@ -110,7 +101,37 @@ export function ProgramProjectsPage() {
       },
       { replace: true },
     );
-  }, [searchParams, navigate, location.pathname, location.hash]);
+  }, [searchParams, navigate, location.pathname, location.hash, setMethodologyFilter]);
+  return arrival;
+}
+
+/** The label the filter toolbar's "N of M shown" scope note prints, or none for ALL. */
+function methodologyActiveFilterLabel(
+  filter: MethodologyDeviationFilterValue,
+  deviationLabel: string,
+): string | null {
+  if (filter === DEVIATES) return deviationLabel;
+  if (filter === 'ALL') return null;
+  return METHODOLOGY_LABEL[filter];
+}
+
+/** Program > Projects settings page — lists projects assigned to this program. */
+export function ProgramProjectsPage() {
+  const { programId } = useParams<{ programId: string }>();
+  const { data: program } = useProgram(programId);
+  const { data: projects, isLoading, error } = useProgramProjects(programId);
+  const { data: ws, isPending: wsPending, isError: wsError } = useWorkspaceSettings();
+  const bulkFields = useBulkProjectFields(programId);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+
+  const isNarrow = useBreakpoint() === 'sm';
+  const navigate = useNavigate();
+
+  const [methodologyFilter, setMethodologyFilter] =
+    useState<MethodologyDeviationFilterValue>('ALL');
+
+  const arrival = useMethodologyAlignArrival(setMethodologyFilter);
 
   // Admin/Owner can manage program membership (ADR-0072 role ordinals). Gates
   // "+ Add project" / "Import" — assigning a project to a program is a project-
@@ -265,8 +286,7 @@ export function ProgramProjectsPage() {
   // facets collapse) or by a refetch that drops the inherited value (the fifth option
   // goes). Fall back to the unnarrowed cohort so the control and the rows agree.
   const facetOffered =
-    methodologyFilter === 'ALL' ||
-    (methodologyFilter === DEVIATES ? anyComparable : !isNarrow);
+    methodologyFilter === 'ALL' || (methodologyFilter === DEVIATES ? anyComparable : !isNarrow);
   useEffect(() => {
     if (!facetOffered) setMethodologyFilter('ALL');
   }, [facetOffered]);
@@ -293,19 +313,12 @@ export function ProgramProjectsPage() {
     ? `Showing the ${visibleProjects.length} of ${projectCount} projects that differ from the program methodology. Bulk edits need a wider screen.`
     : `Methodology selected for ${armedCount} of ${projectCount} projects. Choose a methodology, then Apply.`;
 
-  const deviationLabel = methodologyLocked
-    ? 'Deviates from workspace'
-    : 'Deviates from default';
+  const deviationLabel = methodologyLocked ? 'Deviates from workspace' : 'Deviates from default';
   // Stable identity — the filter memoizes its option list on this prop.
   const deviationOption = anyComparable
     ? { label: deviationLabel, count: deviatingCount }
     : undefined;
-  const activeFilterLabel =
-    methodologyFilter === DEVIATES
-      ? deviationLabel
-      : methodologyFilter === 'ALL'
-        ? null
-        : METHODOLOGY_LABEL[methodologyFilter];
+  const activeFilterLabel = methodologyActiveFilterLabel(methodologyFilter, deviationLabel);
 
   return (
     <div>
@@ -441,8 +454,7 @@ export function ProgramProjectsPage() {
                   activeFilterLabel ? (
                     <>
                       <span className="tppm-mono">{visibleProjects.length}</span> of{' '}
-                      <span className="tppm-mono">{projectCount}</span> shown ·{' '}
-                      {activeFilterLabel}
+                      <span className="tppm-mono">{projectCount}</span> shown · {activeFilterLabel}
                     </>
                   ) : undefined
                 }

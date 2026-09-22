@@ -29,7 +29,7 @@ import { Link } from 'react-router';
 import { useProgramProjects } from '@/hooks/useProgramProjects';
 import { BULK_FIELDS_MAX_ROWS } from '../components/BulkFieldsMatrix';
 import { METHODOLOGY_LABEL } from '@/features/programs/MethodologyFilter';
-import type { Methodology } from '@/types';
+import type { Methodology, Project } from '@/types';
 
 /**
  * Canonical arrival contract for the bulk matrix (D41). The Projects settings section
@@ -101,20 +101,7 @@ export function MethodologyAlignOffer({ programId, methodology, id, onAnnounce }
     return { total: projects.length, differing, matching: projects.length - differing.length };
   }, [projects, methodology]);
 
-  const body = isError
-    ? { kind: 'error' as const }
-    : resolving || !partition
-      ? { kind: 'resolving' as const }
-      : partition.total === 0
-        ? { kind: 'empty' as const }
-        : partition.differing.length === 0
-          ? { kind: 'match' as const, total: partition.total }
-          : {
-              kind: 'differs' as const,
-              total: partition.total,
-              matching: partition.matching,
-              differing: partition.differing.map((p) => ({ id: p.id, name: p.name })),
-            };
+  const body = resolveOfferBody(isError, resolving, partition);
 
   // Announce only the settled outcomes. "Checking…" is chrome for a state that resolves
   // on its own; speaking it would put a placeholder ahead of the answer.
@@ -159,6 +146,30 @@ type OfferBody =
   | { kind: 'empty' }
   | { kind: 'match'; total: number }
   | { kind: 'differs'; total: number; matching: number; differing: { id: string; name: string }[] };
+
+interface Partition {
+  total: number;
+  matching: number;
+  differing: Project[];
+}
+
+/** Settle the panel's render state from the roster query + fetch flags. */
+function resolveOfferBody(
+  isError: boolean,
+  resolving: boolean,
+  partition: Partition | null,
+): OfferBody {
+  if (isError) return { kind: 'error' };
+  if (resolving || !partition) return { kind: 'resolving' };
+  if (partition.total === 0) return { kind: 'empty' };
+  if (partition.differing.length === 0) return { kind: 'match', total: partition.total };
+  return {
+    kind: 'differs',
+    total: partition.total,
+    matching: partition.matching,
+    differing: partition.differing.map((p) => ({ id: p.id, name: p.name })),
+  };
+}
 
 /**
  * The spoken form of each settled state — a full sentence, not the visual fragments.
@@ -239,13 +250,10 @@ function DiffersBody({
     <>
       <span>
         {/* Literal numerals, never a bar/dot/ring — the count is the claim (1.4.1). */}
-        <Num>{matching}</Num> of <Num>{total}</Num>{' '}
-        {total === 1 ? 'project' : 'projects'} in this program{' '}
-        {total === 1 ? 'runs' : 'run'} as {label};{' '}
+        <Num>{matching}</Num> of <Num>{total}</Num> {total === 1 ? 'project' : 'projects'} in this
+        program {total === 1 ? 'runs' : 'run'} as {label};{' '}
         {single ? (
-          <>
-            {single.name} does not.
-          </>
+          <>{single.name} does not.</>
         ) : (
           <>
             <Num>{n}</Num> do not.
@@ -282,8 +290,8 @@ function ErrorBody({
   return (
     <>
       <span>
-        This save changed the program default only — existing projects keep their own
-        methodology. We couldn&apos;t check which of them differ.
+        This save changed the program default only — existing projects keep their own methodology.
+        We couldn&apos;t check which of them differ.
       </span>{' '}
       <button
         type="button"
