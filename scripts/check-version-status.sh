@@ -14,6 +14,9 @@
 # Every "### 0.X" header under "## Shipped" (and above "## Underway") is a
 # shipped version. Anything else (Underway / Planned) is unshipped.
 #
+# Scope is the docs tree plus the repo-root files named in EXTRA_SCAN_DEFAULT
+# below — today that is README.md alone (#3996).
+#
 # Exemptions (per the CLAUDE.md "Version-status tense" rule):
 #   - overview/roadmap.md itself — it is the source and legitimately describes
 #     Underway / Planned versions.
@@ -46,6 +49,29 @@ ROADMAP_DEFAULT="packages/website/src/content/docs/overview/roadmap.md"
 DOCS_ROOT_DEFAULT="packages/website/src/content/docs"
 BASELINE_DEFAULT="packages/website/docs-declaration-baseline.txt"
 SIDEBAR_DEFAULT="packages/website/astro.config.mjs"
+
+# Files outside docs_root that the tense and stale-currency scans must still
+# reach, relative to REPO_ROOT (#3996).
+#
+# The CLAUDE.md rule has always said the version-status discipline applies to
+# "any file under packages/website/src/content/docs/ (and README.md)", but this
+# script only ever walked the docs tree — so README was in scope by policy and
+# out of scope by implementation. `remove-ships-in-callouts.sh` already knew
+# that, and lists every README line naming the release for the release
+# operator to rewrite by hand — but a warning printed at release time is not a
+# gate. #3996 is what the gap cost: multi-arch moved from 0.5 into 0.4, four
+# docs pages were corrected in the same window, and README kept saying arm64
+# was deferred to 0.5 on a green pipeline.
+#
+# Only the tense, pairing and stale-currency scans apply to these files. The
+# declaration-coverage ratchet and the sidebar-badge pairing are Starlight
+# mechanisms — front matter and astro.config.mjs entries — and a repo-root
+# markdown file has neither; demanding `documentedFor` on README would be
+# ceremony, not a question anyone can answer.
+#
+# A listed file that does not exist is skipped silently, so this stays a list
+# of opt-ins rather than a hard dependency on any one path.
+EXTRA_SCAN_DEFAULT="README.md"
 
 # Directories whose pages describe *user-visible product behavior*, and are
 # therefore the ones a self-hoster reads as "what my install does". These are
@@ -441,11 +467,11 @@ badge_check() { # badge_check <sidebar_file> <docs_root> <highest_shipped>
   return 0
 }
 
-# Run the scan. Args: <roadmap> <docs_root> [baseline] [sidebar].
-# Returns 1 on violations. Both optional args are opt-in so the tense/pairing
+# Run the scan. Args: <roadmap> <docs_root> [baseline] [sidebar] [extra_files].
+# Returns 1 on violations. Every optional arg is opt-in so the tense/pairing
 # fixtures in self_test keep exercising exactly what they were written for.
 run_scan() {
-  local roadmap="$1" docs_root="$2" baseline="${3:-}" sidebar="${4:-}"
+  local roadmap="$1" docs_root="$2" baseline="${3:-}" sidebar="${4:-}" extra_files="${5:-}"
 
   if [ ! -f "$roadmap" ]; then
     echo "ERROR: roadmap source of truth not found at: $roadmap" >&2
@@ -493,6 +519,17 @@ run_scan() {
   local files
   files="$(find "$docs_root" -type f \( -name '*.md' -o -name '*.mdx' \) \
     ! -path "$roadmap" 2>/dev/null | drop_ignored_lines | sort)"
+
+  # Plus the opt-in files outside docs_root (#3996). Appended to the same list
+  # the three scans below iterate, so they get the tense, pairing and
+  # stale-currency checks and nothing else — the ratchet and the badge check
+  # build their own lists from docs_root and never see these.
+  local extra
+  for extra in $extra_files; do
+    [ -f "$extra" ] || continue
+    files="$files
+$extra"
+  done
 
   local violations=0
   local f hits lineno line ver
@@ -1001,6 +1038,86 @@ This page documents functionality added in **TruePPM 0.2**.
   fm_case "latest-release-paren-form-current" expect-pass \
     'On `v0.2.0-alpha.1` (the latest release) only the username is matched.' || return 1
 
+  # -- Files outside docs_root (#3996) ---------------------------------------
+  # README.md is named by the CLAUDE.md rule and was never walked by the scan.
+  # These cases pin the three properties the extension has to hold: an extra
+  # file IS scanned, a missing one is a silent no-op rather than a crash, and
+  # it is exempt from the declaration ratchet (it has no front matter and no
+  # sidebar entry, so demanding `documentedFor` on it would be ceremony).
+  extra_case() { # extra_case <name> <expect-pass|expect-fail> <body> [extra-arg-override]
+    local name="$1" expect="$2" body="$3"
+    local dir="$tmp/xf-$name"
+    # README sits OUTSIDE docs_root — that is the whole point. Nesting it
+    # inside would let the ordinary directory walk find it and every verdict
+    # below would be about the walk, not about the extra-file wiring.
+    mkdir -p "$dir/docs"
+    cp "$docs/overview/roadmap.md" "$dir/docs/"
+    printf '%s\n' "$body" > "$dir/README.md"
+    local extra="${4-$dir/README.md}"
+    # Empty baseline and sidebar paths keep the ratchet and badge check out of
+    # it; docs_root holds only the roadmap, so any verdict here comes from the
+    # extra file alone.
+    if run_scan "$dir/docs/roadmap.md" "$dir/docs" "" "" "$extra" >/dev/null 2>&1; then
+      if [ "$expect" = "expect-pass" ]; then
+        echo "SELF-TEST OK: extra-file $name accepted."
+      else
+        echo "SELF-TEST FAILED: extra-file $name was accepted and should not be." >&2
+        return 1
+      fi
+    else
+      if [ "$expect" = "expect-fail" ]; then
+        echo "SELF-TEST OK: extra-file $name correctly rejected."
+      else
+        echo "SELF-TEST FAILED: extra-file $name was rejected and should not be." >&2
+        return 1
+      fi
+    fi
+  }
+
+  # The scan reaches it at all: an unshipped past-tense claim in README fails.
+  extra_case "readme-unshipped-past-tense" expect-fail \
+    'Multi-arch images shipped in 0.3.' || return 1
+
+  # ...and the stale-currency scan reaches it too — the phrasing that survives
+  # a tag. This is the branch a release actually produces on README.
+  extra_case "readme-stale-ships-in" expect-fail \
+    'A hosted public demo ships in 0.2 alongside the beta.' || return 1
+
+  # Correct content in the same file must stay green, or the gate is useless.
+  extra_case "readme-correct-tense" expect-pass \
+    'Multi-arch images shipped in 0.2; the hosted demo ships in 0.3.' || return 1
+
+  # Without the extra argument the same bad README is invisible — the state
+  # this gate was in before #3996, asserted so the wiring cannot silently
+  # regress to it.
+  extra_case "readme-not-passed-is-unscanned" expect-pass \
+    'Multi-arch images shipped in 0.3.' '' || return 1
+
+  # A listed path that does not exist is a no-op, not a setup error — the scan
+  # must not exit 2 just because an opt-in file was renamed.
+  extra_case "readme-missing-path-is-noop" expect-pass \
+    'Multi-arch images shipped in 0.3.' "$tmp/no-such-README.md" || return 1
+
+  # An extra file is NOT subject to the declaration ratchet. It has no front
+  # matter and no sidebar entry, so demanding `documentedFor` on it would be a
+  # question nobody can answer — and the ratchet's orphan-entry branch walks
+  # the baseline, so a README silently dragged into either list would red the
+  # gate permanently. Run with a real (empty) baseline so the ratchet is armed.
+  local rx_dir="$tmp/xf-ratchet-exempt"
+  mkdir -p "$rx_dir/docs/features"
+  cp "$docs/overview/roadmap.md" "$rx_dir/docs/"
+  printf -- '---\ntitle: Sharing\ndocumentedFor: "0.2"\n---\n\nShare links.\n' \
+    > "$rx_dir/docs/features/page.md"
+  printf 'Multi-arch images shipped in 0.2.\n' > "$rx_dir/README.md"
+  printf '# baseline\n' > "$rx_dir/baseline.txt"
+  if run_scan "$rx_dir/docs/roadmap.md" "$rx_dir/docs" "$rx_dir/baseline.txt" "" \
+      "$rx_dir/README.md" >/dev/null 2>&1; then
+    echo "SELF-TEST OK: extra-file is exempt from the declaration ratchet."
+  else
+    echo "SELF-TEST FAILED: the ratchet demanded a declaration for an extra file." >&2
+    return 1
+  fi
+
   # -- Declaration coverage ratchet (#2846) ----------------------------------
   # The hole the two checks above cannot see: a page that documents unreleased
   # behavior in plain present tense and declares NOTHING. Three occurrences so
@@ -1285,11 +1402,12 @@ main() {
   local docs_root="${DOCS_ROOT_OVERRIDE:-$DOCS_ROOT_DEFAULT}"
   local baseline="${BASELINE_OVERRIDE:-$BASELINE_DEFAULT}"
   local sidebar="${SIDEBAR_OVERRIDE:-$SIDEBAR_DEFAULT}"
+  local extra="${EXTRA_SCAN_OVERRIDE-$EXTRA_SCAN_DEFAULT}"
   if [ "${1:-}" = "--update-baseline" ]; then
     update_baseline "$docs_root" "$baseline"
     return $?
   fi
-  run_scan "$roadmap" "$docs_root" "$baseline" "$sidebar"
+  run_scan "$roadmap" "$docs_root" "$baseline" "$sidebar" "$extra"
 }
 
 main "$@"

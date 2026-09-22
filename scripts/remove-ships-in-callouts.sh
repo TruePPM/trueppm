@@ -282,17 +282,17 @@ def main():
                 fh.write("\n".join(new_lines))
 
     # ── README.md — always flagged, never touched (#2818) ────────────────
-    # The version-status gate scans packages/website/src/content/docs only,
-    # so README.md's future-tense version claims ("a hosted public demo ships
-    # with the 0.4 beta", "single sign-on ... lands in 0.4") are checked by
-    # nothing and go stale at the tag with no signal at all. Wiring README
-    # into that gate would mean teaching it a second content root and a
-    # second front-matter convention it does not have; reporting the file
-    # here instead reuses the mechanism try-it.md already relies on — the
-    # release operator sees it in the same report and rewrites it by hand.
-    # Every mention of the version is listed rather than only future-tense
-    # ones: this list is read by a human, so over-reporting in a file that is
-    # never auto-edited costs a glance, and under-reporting costs a release.
+    # README.md is no longer unchecked: since #3996 it is in
+    # check-version-status.sh's scan via EXTRA_SCAN_DEFAULT, so its
+    # tense-anchored and stale-currency claims ("shipped in 0.X", "ships in
+    # 0.X" once 0.X ships) now red the pipeline like any docs page. What that
+    # gate cannot see is a claim carrying no tense anchor at all — #3996's own
+    # sentence, "Multi-arch is deferred to 0.5; 0.4 publishes amd64 only",
+    # matched none of its patterns and was simply false. So the flagging here
+    # stays: it lists EVERY line mentioning the version, not just the
+    # future-tense ones, and a human decides. This list is read by a person,
+    # so over-reporting in a file that is never auto-edited costs a glance,
+    # and under-reporting costs a release.
     if readme_path and os.path.isfile(readme_path):
         with open(readme_path, encoding="utf-8") as fh:
             readme_lines = fh.read().split("\n")
@@ -307,9 +307,9 @@ def main():
                 snippet = text if len(text) <= 90 else text[:87] + "..."
                 print(f"  FLAG    line {line_no}  {snippet}")
                 print(
-                    f"          -> outside the docs scan root and outside the "
-                    f"version-status gate — rewrite any future-tense {version} "
-                    "claim by hand"
+                    f"          -> outside the docs scan root; the version-status "
+                    f"gate covers README's tense anchors but not an untensed "
+                    f"{version} claim — rewrite by hand"
                 )
             files_with_ambiguous += 1
             total_ambiguous += len(hits)

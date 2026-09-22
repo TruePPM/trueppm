@@ -1198,6 +1198,13 @@ docs:version-accuracy:
   # itself and docs/adr/** are exempt (forward-tense is correct there). See the
   # CLAUDE.md "Version-status tense" rule. ~2s.
   #
+  # Scope is the docs tree plus README.md (#3996). The CLAUDE.md rule has always
+  # said "any file under packages/website/src/content/docs/ (and README.md)",
+  # but the scan only ever walked the docs tree — in scope by policy, out of
+  # scope by implementation. That gap shipped a README claiming arm64 was
+  # deferred to 0.5 for two days after multi-arch landed in 0.4, while the four
+  # docs pages making the same claim were corrected in the same window.
+  #
   # Also self-tests scripts/remove-ships-in-callouts.sh (#2818), the other half
   # of the same discipline: this gate flags a banner that outlived its release,
   # and that script deletes them at the tag. Its only other invocation is
