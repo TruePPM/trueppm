@@ -401,6 +401,10 @@
         "ingressControllerSelector": {
           "description": "NetworkPolicyPeer selecting the ingress controller ({namespaceSelector, podSelector}), rendered verbatim into the api/web ingress-allow policies. Open: the valid keys are Kubernetes', not this chart's.",
           "type": "object"
+        },
+        "dnsSelector": {
+          "description": "NetworkPolicyPeer selecting the cluster's DNS resolver ({namespaceSelector, podSelector}), rendered verbatim into the demo.interactive egress-deny policies (ADR-1197 D7). Open: the valid keys are Kubernetes', not this chart's.",
+          "type": "object"
         }
       }
     },
@@ -1266,6 +1270,22 @@
             },
             "password": {
               "type": "string"
+            }
+          }
+        },
+        "throttle": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "loginAccountRate": {
+              "type": "string"
+            },
+            "userRate": {
+              "type": "string"
+            },
+            "maxPersonalAccessTokens": {
+              "type": "integer",
+              "minimum": 1
             }
           }
         },

@@ -1571,6 +1571,76 @@ for a in TruePPMDemoResetFailed TruePPMDemoResetStale TruePPMDemoResetNeverSucce
   fi
 done
 
+# N+7.f. Interactive demo edge hardening (ADR-1197 D1/D6/D7, #3925 MR 2): the third
+#        nginx server block, the api/celery-worker egress-deny NetworkPolicy, the
+#        throttle re-aims, and the no-writable-media-path guard. The share-link demo's
+#        render must stay byte-identical, which is the whole point of D1's "a third
+#        block, never a widened allowlist" — asserted here, not just claimed in prose.
+interactive_args=(--set image.tag=latest --set demo.interactive=true
+  --set demo.loginHint.username=struct-visitor --set demo.loginHint.password=StructCheck1Pw)
+cm() { helm template trueppm "$CHART" "$@" --show-only templates/web/configmap.yaml; }
+
+cm_default="$(cm --set image.tag=latest)"
+cm_interactive="$(cm "${interactive_args[@]}")"
+cm_sharelink="$(cm --set image.tag=latest --set demo.enabled=true \
+  --set demo.baseUrl=https://demo.example.com \
+  --set demo.shareToken.schedule=struct-schedule --set demo.shareToken.board=struct-board)"
+
+grep -q 'limit_except GET HEAD OPTIONS' <<<"$cm_interactive" \
+  || fail "demo.interactive=true did not render the method fence (limit_except GET HEAD OPTIONS) in the web ConfigMap"
+if grep -q 'limit_except' <<<"$cm_default"; then
+  fail "a DEFAULT render (demo.interactive=false) contains limit_except — the method fence must not leak into the production block"
+fi
+if grep -q 'limit_except' <<<"$cm_sharelink"; then
+  fail "demo.enabled=true (WITHOUT demo.interactive) rendered the method fence — the two switches must stay independent, and the share-link demo's block must render exactly as it always did"
+fi
+for auth_path in '/api/v1/auth/token/' '/api/v1/auth/token/refresh/' '/api/v1/auth/logout/'; do
+  grep -q "location = $auth_path" <<<"$cm_interactive" \
+    || fail "demo.interactive=true's method fence has no exact-match carve-out for $auth_path — sign-in would be refused by the edge before it ever reaches DemoReadOnlyMiddleware"
+done
+# `grep -A2 ... | grep -q` would SIGPIPE the first grep under pipefail (#3942) —
+# capture into a variable first, then grep the here-string.
+admin_block="$(grep -A2 'location /admin/ {' <<<"$cm_interactive")"
+[ -n "$admin_block" ] && grep -q 'return 404' <<<"$admin_block" \
+  || fail "demo.interactive=true does not 404 /admin/ at the edge"
+ws_block="$(grep -A2 'location /ws/ {' <<<"$cm_interactive")"
+[ -n "$ws_block" ] && grep -q 'return 404' <<<"$ws_block" \
+  || fail "demo.interactive=true does not 404 /ws/ at the edge — this mode's only broadcasts are the scheduled reset's"
+
+# The share-link demo's own rendered block must be BYTE-IDENTICAL whether or not
+# this MR's changes exist — D1's stated reason for a third block, not a patch.
+cm_sharelink_default_switch="$(cm --set image.tag=latest --set demo.enabled=true \
+  --set demo.baseUrl=https://demo.example.com \
+  --set demo.shareToken.schedule=struct-schedule --set demo.shareToken.board=struct-board \
+  --set demo.interactive=false)"
+[ "$cm_sharelink" = "$cm_sharelink_default_switch" ] \
+  || fail "the share-link demo's rendered ConfigMap changed depending on demo.interactive's value while demo.interactive is false in both cases — it must be inert"
+
+np_default="$(helm template trueppm "$CHART" --set image.tag=latest --show-only templates/networkpolicy.yaml)"
+np_interactive="$(helm template trueppm "$CHART" "${interactive_args[@]}" --show-only templates/networkpolicy.yaml)"
+if grep -qE 'egress-demo' <<<"$np_default"; then
+  fail "a DEFAULT render produced a demo egress NetworkPolicy — it must not exist unless demo.interactive is true"
+fi
+for kind_name in "trueppm-api-egress-demo" "trueppm-celery-worker-egress-demo"; do
+  grep -q "name: $kind_name" <<<"$np_interactive" \
+    || fail "demo.interactive=true did not render NetworkPolicy '$kind_name'"
+done
+np_api_egress="$(yq 'select(.kind=="NetworkPolicy" and .metadata.name=="trueppm-api-egress-demo")' <<<"$np_interactive")"
+[ "$(yq '.spec.podSelector.matchLabels."app.kubernetes.io/component"' <<<"$np_api_egress")" = "api" ] \
+  || fail "trueppm-api-egress-demo does not select component=api"
+egress_ports="$(yq '[.spec.egress[].ports[]? | .port] | join(",")' <<<"$np_api_egress")"
+grep -q '53' <<<"$egress_ports" || fail "the demo api egress policy has no DNS (53) rule — Service names would stop resolving"
+grep -q '5432' <<<"$egress_ports" || fail "the demo api egress policy has no PostgreSQL (5432) rule"
+grep -q '6379' <<<"$egress_ports" || fail "the demo api egress policy has no Valkey (6379) rule"
+
+# Guards: refuse to render rather than silently misconfigure (trueppm.demoGuards).
+if helm template trueppm "$CHART" "${interactive_args[@]}" --set persistence.media.enabled=true >/dev/null 2>&1; then
+  fail "demo.interactive=true rendered successfully with persistence.media.enabled=true — this mode must give the api pod NO writable media path"
+fi
+if helm template trueppm "$CHART" "${interactive_args[@]}" --set postgresql.enabled=false >/dev/null 2>&1; then
+  fail "demo.interactive=true rendered successfully with postgresql.enabled=false and networkPolicy.enabled left at its true default — the demo egress policy has no rule for a managed datastore and would cut the api/worker pods off from it"
+fi
+
 # N+8. Every workload carries the pod-level fsGroup that makes a PVC writable (#3935).
 #      persistence.media and backup.persistence are real CSI volumes, and most
 #      dynamic provisioners hand back root:root 0755 — uid 1000 with no fsGroup gets
@@ -1757,6 +1827,7 @@ echo "  - placement: $place_checked previously-rejected keys accepted; $place_wo
 echo "  - celery probes: worker liveness ${cp_live_i}/${cp_live_p}x${cp_live_f} (detection ${cp_detect}s >= ${cp_grace}s grace, still 'inspect ping') and readiness ${cp_ready_i}/${cp_ready_p} (heartbeat-file freshness, #3346) are tuned apart; startup is the heartbeat-file existence check; kubelet timeout scales with the ping budget on liveness; flat keys still drive all three probes; beat is liveness-only"
 echo "  - api.workers=1 by default (image CMD behavior preserved), api.workers=4 renders --workers 4 without disturbing --host/--port, and 0 is refused (#3833)"
 echo "  - demo reset: CronJob absent unless demo.enabled AND demo.reset.enabled; Forbid + deadlines + demo-seed label; same command and env as the install hook; schedule validated; three alerts follow the switch"
+echo "  - interactive demo edge hardening: method fence + auth carve-outs + /admin/ /ws/ 404 only under demo.interactive; share-link demo's block stays byte-identical; api/celery-worker egress-demo NetworkPolicy scoped to DNS+datastores only; media-path and managed-datastore guards refuse to render"
 echo "  - podSecurityContext.fsGroup=1000 on all $fsg_checked workloads plus the helm test pod (PVC writable under a root:root CSI volume); fsGroup: null still removes it for OpenShift"
 echo "  - no Deployment/Job/CronJob container invokes bare 'manage.py migrate' — every migrate call goes through migrate_locked (#3188, #3933)"
 echo "  - valkey has a PDB (maxUnavailable: 0, gated by valkey.podDisruptionBudget.enabled) and priorityClassName/terminationGracePeriodSeconds reach its StatefulSet, matching postgresql (#3934)"

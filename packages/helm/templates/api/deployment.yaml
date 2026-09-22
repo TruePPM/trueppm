@@ -204,10 +204,12 @@ spec:
               value: "true"
             {{- end }}
             {{- if .Values.demo.interactive }}
-            # Read path for both of these lands in #3926 — Django settings, two
-            # fields on the public GET /api/v1/edition/ response, and the login-page
-            # hook. Between this MR and that one they are RENDERED BUT UNREAD, which
-            # is stated here so the next reader does not diagnose a dead control.
+            # TRUEPPM_DEMO_LOGIN_HINT is read: #3926 (merged) surfaces it as
+            # `demo_login_hint` on the public GET /api/v1/edition/ response,
+            # gated on demo_read_only being true (packages/api/src/trueppm_api/
+            # urls.py). TRUEPPM_DEMO_RESET_SCHEDULE below has no reader yet —
+            # ADR-1197 D9 says the login page should state the cadence from it,
+            # but #3926 did not wire that up; still RENDERED BUT UNREAD.
             #
             # The displayed credential, assembled from demo.loginHint and from
             # nothing else. Never from $TRUEPPM_DEMO_PASSWORD: see trueppm.demoGuards.
@@ -219,6 +221,37 @@ spec:
             # nothing about refreshes rather than imply a schedule that does not run.
             - name: TRUEPPM_DEMO_RESET_SCHEDULE
               value: {{ (and .Values.demo.enabled .Values.demo.reset.enabled) | ternary (.Values.demo.reset.schedule | toString) "" | quote }}
+            {{- /*
+              ADR-1197 D6, throttle re-aim. Per-account throttles are the wrong
+              axis for ONE identity every visitor shares: #1717's login_account
+              control protects a SECRET, and this credential is published, so
+              there is nothing left for it to protect. Re-aimed for CONCURRENCY,
+              never for credential-stuffing resistance — the per-IP `login`
+              scope and the `anon` scope (both untouched here) become the real
+              limiters. Each yields to an operator's own env.TRUEPPM_* entry,
+              same pattern as trueppm.mediaEnv, so a values.yaml default here
+              never fights an explicit override.
+            */ -}}
+            {{- if not (hasKey .Values.env "TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE") }}
+            - name: TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE
+              value: {{ .Values.demo.throttle.loginAccountRate | quote }}
+            {{- end }}
+            {{- if not (hasKey .Values.env "TRUEPPM_THROTTLE_USER_RATE") }}
+            - name: TRUEPPM_THROTTLE_USER_RATE
+              value: {{ .Values.demo.throttle.userRate | quote }}
+            {{- end }}
+            {{- /*
+              MAX_PERSONAL_ACCESS_TOKENS is per-account and therefore
+              shared-fate too, but D2's ALLOWED_WRITES does not list any
+              api-tokens create path, so token creation is refused before this
+              cap is ever consulted — it is ACCEPTED at its default, not
+              re-aimed, and rendered anyway so the decision is explicit rather
+              than silently absent (ADR-1197 D6).
+            */ -}}
+            {{- if not (hasKey .Values.env "TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS") }}
+            - name: TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS
+              value: {{ .Values.demo.throttle.maxPersonalAccessTokens | quote }}
+            {{- end }}
             {{- end }}
           volumeMounts:
             - name: admin-password

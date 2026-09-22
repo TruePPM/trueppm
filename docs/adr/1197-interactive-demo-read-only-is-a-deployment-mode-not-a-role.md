@@ -2,16 +2,17 @@
 
 ## Status
 
-Accepted — status corrected 2026-09-21 as the D3/D4 slice (#3926) landed on top of #3925
-MR 1, matching the convention established by the #2539 audit (verified: D2's middleware
-merged as `trueppm_api.core.demo_read_only` in #3924, and `load_sample_project` now cites
-D5 by name). Proposed 2026-09-19; amended 2026-09-20 and 2026-09-21 — see **Amendment
-2026-09-20** and the dated notes on D9 below. Resolves #3912. Amends ADR-0658 — which
-continues to govern the share-link demo **unchanged** — for one new mode only.
+Accepted — status corrected 2026-09-21 as the D1/D6/D7 slice (#3925 MR 2) landed on top of
+D3/D4 (#3926) and #3925 MR 1, matching the convention established by the #2539 audit
+(verified: D2's middleware merged as `trueppm_api.core.demo_read_only` in #3924, and
+`load_sample_project` now cites D5 by name). Proposed 2026-09-19; amended 2026-09-20 and
+2026-09-21 — see **Amendment 2026-09-20** and the dated notes on D9 below. Resolves #3912.
+Amends ADR-0658 — which continues to govern the share-link demo **unchanged** — for one new
+mode only.
 
-> **Implementation status (2026-09-21).** The 2026-09-19 note below said "no code ships
-> with this ADR", and that has stopped being true — which is why the status moved. What
-> exists now:
+> **Implementation status (2026-09-21, updated for #3925 MR 2).** The 2026-09-19 note below
+> said "no code ships with this ADR", and that has stopped being true — which is why the
+> status moved. What exists now:
 >
 > - **D2 — shipped** (#3924): `DemoReadOnlyMiddleware` refuses every unsafe method under
 >   `/api/` except sign-in, token refresh and sign-out, keyed on the deployment.
@@ -22,11 +23,25 @@ continues to govern the share-link demo **unchanged** — for one new mode only.
 > - **D3, D4 — shipped** (#3926): the refusal affordance, the preview overlay, the login
 >   and shell announcements, and the `demo_read_only` / `demo_login_hint` fields on
 >   `GET /api/v1/edition/`.
-> - **D1 — NOT shipped.** `packages/helm/templates/web/configmap.yaml` still renders two
->   server blocks, not three, so the method fence at the edge does not exist and the
->   interactive login is not reachable through the chart's own web tier. That block, the
->   egress NetworkPolicy and the T2 throttle re-aim are #3925 MR 2, and until they land
->   **an interactive demo must not be exposed publicly.**
+> - **D1, D6, D7 — shipped** (#3925 MR 2). `templates/web/configmap.yaml` now renders a
+>   THIRD server block under `demo.interactive`: a method fence (`limit_except GET HEAD
+>   OPTIONS` over `/api/`, with the three D2 auth POSTs exact-matched around it), `/admin/`
+>   and `/ws/` still 404. `templates/networkpolicy.yaml` renders an egress-deny
+>   NetworkPolicy for the api and celery-worker pods, DNS and the bundled datastores only,
+>   guarded so it refuses to render against a managed (non-bundled) datastore. The api
+>   Deployment renders `TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE` and `TRUEPPM_THROTTLE_USER_RATE`
+>   re-aimed for concurrency, and records `TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS` as accepted at
+>   its default (D2 already refuses token creation, so the cap is unreachable here).
+>   `trueppm.demoGuards` also now refuses `demo.interactive=true` alongside
+>   `persistence.media.enabled=true` — no writable media path for the api pod in this mode.
+>   Correction on the way in: #3926 shipped its runtime mode signal as
+>   `GET /api/v1/edition/`, an existing `AllowAny` route, not a new one — so the method
+>   fence needed no route-allowlist decision, only a method restriction, confirming the D1
+>   amendment below independently rather than depending on it.
+>
+>   **What this does NOT close.** D8 (Cloudflare Access is bot reduction and an email list,
+>   never a security control) and D10 (host isolation from CI runners) are unchanged —
+>   neither is a chart flag. A public launch still needs both addressed by the operator.
 >
 > The original note, kept because it is the baseline the above is measured against:
 > verified 2026-09-19 against `f502f488c` (0.4.0-beta.3, this branch's base): there was no

@@ -1177,6 +1177,31 @@ happy path — every branch either fails the render or produces no output.
 {{- if (.Values.env | default dict).TRUEPPM_DEMO_PASSWORD -}}
 {{- fail "demo.interactive is true and env.TRUEPPM_DEMO_PASSWORD is set. That variable is the persona-login password: load_sample_project --with-personas gives it to EVERY persona in the sample and refuses only staff/superuser rows, so personas holding OWNER/ADMIN receive it as well. A published demo credential must open exactly one unprivileged account — use demo.loginHint, and remove env.TRUEPPM_DEMO_PASSWORD (ADR-1197 D5)." -}}
 {{- end -}}
+{{- /*
+  ADR-1197 D2 already refuses the upload (TaskAttachmentViewSet's create is a
+  POST, not in ALLOWED_WRITES). This is defence in depth for a hypothetical D2
+  hole: the api pod gets no writable media path in this mode at all, so an
+  upload that somehow got past the fence has nowhere to land. Fail the render
+  rather than let the two flags silently coexist — persistence.media.enabled
+  mounts a PersistentVolumeClaim at trueppm.mediaVolumeMount, which every
+  container importing Django settings gets (see the comment above
+  trueppm.mediaClaimName), so this checks the one values key that controls it.
+*/ -}}
+{{- if .Values.persistence.media.enabled -}}
+{{- fail "demo.interactive is true and persistence.media.enabled is true. This mode must give the api pod NO writable media path (ADR-1197 D2 defence in depth) — set persistence.media.enabled=false. Durable attachments are not needed here: the bundled Atlas seed's TaskAttachment rows are external_url-only, not uploaded files." -}}
+{{- end -}}
+{{- /*
+  ADR-1197 D7's egress NetworkPolicy (templates/networkpolicy.yaml) allows only
+  DNS and the IN-CLUSTER datastores — it has no rule for a managed/external
+  Postgres or Valkey, because the chart cannot know that endpoint at render
+  time. Rendering it against a managed datastore would silently cut the api and
+  worker pods off from their own database. Only checked when networkPolicy is
+  actually enabled; an operator who has turned that off has already opted out
+  of chart-rendered egress control and restricts it at the platform layer instead.
+*/ -}}
+{{- if and .Values.networkPolicy.enabled (or (not .Values.postgresql.enabled) (not .Values.valkey.enabled)) -}}
+{{- fail "demo.interactive and networkPolicy.enabled are both true, but postgresql.enabled and/or valkey.enabled is false. ADR-1197 D7's egress policy for this mode allows only DNS and the chart's OWN bundled datastore pods — it has no rule for a managed/external database, so rendering it here would cut the api and worker pods off from their own datastore. Either enable the bundled postgresql/valkey subcharts, or set networkPolicy.enabled=false and restrict egress at the platform layer instead." -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 

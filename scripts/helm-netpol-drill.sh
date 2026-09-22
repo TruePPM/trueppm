@@ -501,6 +501,87 @@ for ds in postgresql valkey; do
   log "OK [DENIED] ${ds} egress blocked"
 done
 
+# ---- 9b. DEMO INTERACTIVE MODE: api/celery-worker egress-deny (ADR-1197 D7,
+#          #3925 MR 2) --------------------------------------------------------
+# Every other deployment shape leaves api/celery-worker egress open (step 9 above
+# tests only the DATASTORE pods). demo.interactive is the one shape that closes
+# it: DNS and the chart's own bundled Postgres/Valkey only. Re-uses this same
+# cluster and release rather than standing up a second harness, per the issue.
+#
+# persistence.media.enabled=false here on purpose: the earlier install in this
+# script turns it ON to exercise the RWO attachment-storage path, but
+# trueppm.demoGuards refuses to render demo.interactive=true alongside it
+# (ADR-1197 D2 defence in depth — this mode must have no writable media path at
+# all), so the upgrade below has to turn it back off to render at all. That
+# refusal is itself asserted at render time by scripts/helm-structure-check.sh
+# and helm:template, not by this drill, which is enforcement-only.
+log "upgrading release with demo.interactive=true to render the demo egress policies"
+helm upgrade "$RELEASE" "$CHART" \
+  --reuse-values \
+  --set demo.interactive=true \
+  --set persistence.media.enabled=false \
+  --set demo.loginHint.username=netpol-drill-visitor \
+  --set demo.loginHint.password="NetpolDrill1Pw" \
+  --wait --timeout "$INSTALL_TIMEOUT"
+
+kubectl get networkpolicy "${RELEASE}-api-egress-demo" >/dev/null 2>&1 \
+  || fail "NetworkPolicy ${RELEASE}-api-egress-demo absent after demo.interactive=true upgrade"
+kubectl get networkpolicy "${RELEASE}-celery-worker-egress-demo" >/dev/null 2>&1 \
+  || fail "NetworkPolicy ${RELEASE}-celery-worker-egress-demo absent after demo.interactive=true upgrade"
+
+api_pod="$(kubectl get pod -l app.kubernetes.io/component=api -o jsonpath='{.items[0].metadata.name}')"
+worker_pod="$(kubectl get pod -l app.kubernetes.io/component=celery-worker -o jsonpath='{.items[0].metadata.name}')"
+
+log "positive: api pod still reaches the bundled datastores under the demo egress policy"
+for target in "${PG_SVC} 5432" "${VK_SVC} 6379"; do
+  # shellcheck disable=SC2086
+  set -- $target
+  host="$1"; port="$2"
+  attempt=1
+  until kubectl exec "$api_pod" -c api -- python -c "
+import socket
+socket.create_connection(('${host}', ${port}), timeout=${PROBE_TIMEOUT}).close()
+" >/dev/null 2>&1; do
+    if [ "$attempt" -ge "$PROBE_ALLOW_ATTEMPTS" ]; then
+      fail "api pod could NOT reach ${host}:${port} under the demo egress policy in ${PROBE_ALLOW_ATTEMPTS} attempts — the policy is over-restrictive"
+    fi
+    log "  api pod -> ${host}:${port} silent for ${PROBE_TIMEOUT}s (attempt ${attempt}/${PROBE_ALLOW_ATTEMPTS}) — retrying in ${PROBE_RETRY_DELAY}s"
+    sleep "$PROBE_RETRY_DELAY"
+    attempt=$((attempt + 1))
+  done
+  log "OK [ALLOWED] api pod -> ${host}:${port} (demo egress policy)"
+done
+
+log "positive: api pod still resolves cluster DNS under the demo egress policy"
+attempt=1
+until kubectl exec "$api_pod" -c api -- python -c "
+import socket
+socket.getaddrinfo('${PG_SVC}', 5432)
+" >/dev/null 2>&1; do
+  if [ "$attempt" -ge "$PROBE_ALLOW_ATTEMPTS" ]; then
+    fail "api pod could NOT resolve DNS for ${PG_SVC} under the demo egress policy in ${PROBE_ALLOW_ATTEMPTS} attempts"
+  fi
+  log "  api pod DNS lookup silent for ${PROBE_TIMEOUT}s (attempt ${attempt}/${PROBE_ALLOW_ATTEMPTS}) — retrying in ${PROBE_RETRY_DELAY}s"
+  sleep "$PROBE_RETRY_DELAY"
+  attempt=$((attempt + 1))
+done
+log "OK [ALLOWED] api pod DNS resolution (demo egress policy)"
+
+log "negative: api and celery-worker pods denied egress to an arbitrary in-cluster target"
+for pod_var in "api:${api_pod}:api" "celery-worker:${worker_pod}:celery-worker"; do
+  component="${pod_var%%:*}"
+  rest="${pod_var#*:}"
+  pod="${rest%%:*}"
+  container="${rest#*:}"
+  if kubectl exec "$pod" -c "$container" -- python -c "
+import socket
+socket.create_connection(('netpol-canary-svc', 8080), timeout=${PROBE_TIMEOUT}).close()
+" >/dev/null 2>&1; then
+    fail "${component} pod (${pod}) reached netpol-canary-svc:8080 — demo egress policy is not enforced"
+  fi
+  log "OK [DENIED] ${component} pod egress to netpol-canary-svc (demo egress policy)"
+done
+
 # ---- 10. CONTROL: removing the policy restores access ---------------------
 # The strongest evidence that the DENIED results above were caused by the policy
 # and not by an unrelated CNI/DNS quirk: delete it, and the same probe passes.

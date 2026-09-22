@@ -24,7 +24,139 @@ metadata:
     {{- include "trueppm.labels" . | nindent 4 }}
     app.kubernetes.io/component: web
 data:
-{{- if .Values.demo.enabled }}
+{{- if .Values.demo.interactive }}
+{{/*
+  INTERACTIVE DEMO server block (ADR-1197, #3925 MR 2) — a METHOD FENCE, not a
+  route list.
+
+  This is the third and newest of this ConfigMap's server blocks, deliberately
+  its OWN block rather than a patch onto either of the other two — same
+  reasoning the share-link block below draws from D7a, with more force here:
+  the difference that matters is which routes exist, and a patch-style diff
+  makes it far too easy to reintroduce a blanket proxy later.
+
+  ADR-1197 D1 as originally written reused D7a's narrow route allowlist.
+  Amended 2026-09-20: a demo that tours the FULL app (schedule, board,
+  resources, reports, programs) reads from essentially every GET under
+  /api/v1/, so an allowlist wide enough for that IS a proxy of /api/ with a
+  method restriction — there is no narrower route list left to write. So this
+  block is a METHOD FENCE instead: `limit_except GET HEAD OPTIONS` denies every
+  unsafe method under /api/, with three exact-match carve-outs for the paths
+  DemoReadOnlyMiddleware itself allows (sign-in, token refresh, sign-out) —
+  mirroring D2 at the edge rather than replacing it. D2, not this block, is the
+  real control; this is defense in depth so a refused request never has to
+  reach Django to be refused.
+
+  /admin/ stays 404 here too (belt-and-braces over #3557's application-level
+  default, DJANGO_ADMIN_ENABLED=false). /ws/ is CLOSED: in a read-only
+  instance the only broadcasts are the scheduled reset's, so the socket
+  carries nothing a visitor would see — real-time collaboration needs
+  mutually-isolated writable sessions, which is #1672.
+
+  The CSP is the share-link block's, unchanged: `connect-src 'self'` with no
+  ws:/wss:, correct here for the same reason — this mode opens no live
+  WebSocket subscription either, even though the socket endpoint itself is
+  reachable-but-404 rather than proxied away.
+*/}}
+  default.conf: |
+    server {
+        listen {{ .Values.web.containerPort | default 8080 }};
+        server_name _;
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # Keep the public demo out of every search index.
+        add_header X-Robots-Tag           "noindex, nofollow, noarchive" always;
+        # Literals, not web.securityHeaders knobs — same reasoning as the
+        # share-link block: this is a public host under our own DNS (a login
+        # page until a visitor signs in) and an operator has no legitimate
+        # reason to relax these.
+        add_header X-Frame-Options        "DENY" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+
+        # No writable media path in this mode (D2 already refuses the upload;
+        # see _helpers.tpl's trueppm.demoGuards for the render-time assertion
+        # that persistence.media stays off) and no import surface either.
+        client_max_body_size 1M;
+
+        location = /robots.txt {
+            default_type text/plain;
+            return 200 "User-agent: *\nDisallow: /\n";
+        }
+
+        # Unlike the share-link block below, `/` is NOT redirected here — this
+        # mode's whole point is a visitor who lands on the login page and signs
+        # in, so the SPA fallback serves it directly.
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        # ── Method fence ─────────────────────────────────────────────────────
+        # Ordering note: an exact `=` match outranks the plain `/api/` prefix
+        # below regardless of file order, so these three reach Django on ANY
+        # method unconditionally — they must, since login and refresh ARE the
+        # POSTs D2 allows — while everything else under /api/ is bounded by
+        # limit_except.
+        location = /api/v1/auth/token/ {
+            proxy_pass         http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+        }
+        location = /api/v1/auth/token/refresh/ {
+            proxy_pass         http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+        }
+        location = /api/v1/auth/logout/ {
+            proxy_pass         http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+        }
+
+        # Everything else under /api/: GET/HEAD/OPTIONS pass through — this is
+        # essentially the whole app's read surface, including
+        # GET /api/v1/edition/, which #3926 reads for the login page's runtime
+        # mode signal and needs no special case here because it is already a
+        # GET. Any other method is refused by nginx itself, before the request
+        # ever reaches Django or DemoReadOnlyMiddleware.
+        location /api/ {
+            limit_except GET HEAD OPTIONS {
+                deny all;
+            }
+            proxy_pass         http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
+            proxy_set_header   Host              $host;
+            proxy_set_header   X-Real-IP         $remote_addr;
+            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_read_timeout 30s;
+        }
+
+        # No live-collaboration WebSocket (D1): the only broadcasts in a
+        # read-only instance are the scheduled reset's, which a visitor should
+        # not see mid-tour.
+        location /ws/ {
+            return 404;
+        }
+
+        # Django admin is not published. Reach it with kubectl port-forward.
+        location /admin/ {
+            return 404;
+        }
+
+        location /static/ {
+            proxy_pass       http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
+            proxy_set_header Host $host;
+        }
+    }
+{{- else if .Values.demo.enabled }}
 {{/*
   DEMO server block (#2440, ADR-0658) — an ALLOWLIST, not the production proxy.
 
