@@ -101,15 +101,28 @@ CI_YML="$REPO_ROOT/.gitlab-ci.yml"
 
 # Every path release.sh rewrites a version into must appear in the git-add block,
 # or the bump is left unstaged and the tag points at the pre-bump tree.
+# packages/mcp/src/trueppm_mcp/__init__.py is deliberately absent: it reads its
+# version from importlib.metadata at import time (#3878) and release.sh no
+# longer bumps it — see the comment above the mcp bump_manifest calls.
 for path in \
   packages/mcp/pyproject.toml \
   packages/mcp/uv.lock \
-  packages/mcp/server.json \
-  packages/mcp/src/trueppm_mcp/__init__.py
+  packages/mcp/server.json
 do
   if grep -qF "$path" <<<"$ADD_BLOCK"; then r=0; else r=1; fi
   check "git add block includes $path" "$r"
 done
+
+# And the inverse: release.sh must NOT still try to bump the now-dynamic
+# __init__.py. A stale bump_manifest call here would `die` on every release —
+# the sed pattern can never match a file with no `__version__ = "…"` literal —
+# and report it as manifest drift, which is not what actually happened (#3878).
+if grep -qE '^bump_manifest packages/mcp/src/trueppm_mcp/__init__\.py' "$RELEASE_SH"; then
+  r=1
+else
+  r=0
+fi
+check "release.sh does not bump_manifest the dynamic mcp __init__.py" "$r"
 
 # release.sh must re-lock packages/mcp: mcp:publish materializes its SBOM with
 # `uv sync --frozen`, which hard-fails on a lock whose self-entry still claims

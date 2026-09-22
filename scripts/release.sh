@@ -543,17 +543,22 @@ bump_manifest packages/scheduler/pyproject.toml \
   "version = \"${NEW_PEP440}\""
 
 # The MCP server is the second PyPI package (#2809) and takes the PEP 440 form,
-# same as the scheduler. Its version lives in four places that must move
-# together: the manifest, the package's own __version__ (exported in __all__ and
-# reported to MCP clients), and BOTH version fields in server.json. The uv.lock
+# same as the scheduler. Its version lives in three places that must move
+# together: the manifest and BOTH version fields in server.json. The uv.lock
 # self-entry is refreshed by the `uv lock` below.
+#
+# packages/mcp/src/trueppm_mcp/__init__.py is DELIBERATELY NOT bumped here.
+# Before #3878's audit it was — but 4d688251d switched __version__ to read
+# importlib.metadata.version("trueppm-mcp") at import time (matching
+# trueppm_scheduler's and trueppm_api's own __init__.py, neither of which is
+# in this list either), so the file no longer contains a `__version__ = "…"`
+# literal for the sed below to match. A bump_manifest call left in place here
+# would `die` on every release with a "manifests have drifted out of lockstep"
+# message that has nothing to do with drift — the file is correct precisely
+# because it does NOT change.
 bump_manifest packages/mcp/pyproject.toml \
   "s/^version = \"${CURRENT_PEP440_ESCAPED}\"/version = \"${NEW_PEP440}\"/" \
   "version = \"${NEW_PEP440}\""
-
-bump_manifest packages/mcp/src/trueppm_mcp/__init__.py \
-  "s/^__version__ = \"${CURRENT_PEP440_ESCAPED}\"/__version__ = \"${NEW_PEP440}\"/" \
-  "__version__ = \"${NEW_PEP440}\""
 
 # server.json's top-level "version" is the registry manifest's own semver
 # version; the nested packages[].version is the PyPI (PEP 440) one. Both are
@@ -840,7 +845,6 @@ git add \
   packages/mcp/pyproject.toml \
   packages/mcp/uv.lock \
   packages/mcp/server.json \
-  packages/mcp/src/trueppm_mcp/__init__.py \
   packages/api/pyproject.toml \
   packages/api/uv.lock \
   packages/web/package.json \
