@@ -1568,6 +1568,38 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
                 {"detail": "Cannot remove or demote the last Owner of a program."}
             )
 
+    def _authorize_program_role_change(
+        self,
+        locked_rows: list[ProgramMembership],
+        request: Request,
+        required_role: Role,
+        new_role: Role | None,
+        instance: ProgramMembership,
+        program: Program,
+    ) -> None:
+        """Raise unless the actor may make this change; run the last-owner guard if needed.
+
+        `locked_rows` must come from the SAME SELECT FOR UPDATE statement
+        `partial_update` issues — see its lock-acquisition-order comment for why
+        this cannot re-query.
+        """
+        actor_membership = next(
+            (m for m in locked_rows if m.user_id == request.user.pk and not m.is_deleted),
+            None,
+        )
+        if actor_membership is None:
+            raise PermissionDenied(_NOT_PROGRAM_MEMBER_DETAIL) from None
+
+        actor_role = actor_membership.role
+        if actor_role < required_role:
+            raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
+
+        if new_role is not None:
+            if new_role >= actor_role:
+                raise drf_serializers.ValidationError({"role": _ROLE_NOT_BELOW_OWN_ERROR})
+            if instance.role == Role.OWNER and new_role < Role.OWNER:
+                self._check_last_owner_guard(program.pk, exclude_pk=instance.pk)
+
     # -----------------------------------------------------------------------
     # Actions
     # -----------------------------------------------------------------------
@@ -1834,22 +1866,9 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
             locked_rows = list(
                 ProgramMembership.objects.select_for_update().filter(lock_filter).order_by("pk")
             )
-            actor_membership = next(
-                (m for m in locked_rows if m.user_id == request.user.pk and not m.is_deleted),
-                None,
+            self._authorize_program_role_change(
+                locked_rows, request, required_role, new_role, instance, program
             )
-            if actor_membership is None:
-                raise PermissionDenied(_NOT_PROGRAM_MEMBER_DETAIL) from None
-
-            actor_role = actor_membership.role
-            if actor_role < required_role:
-                raise PermissionDenied(_PERMISSION_DENIED_DETAIL)
-
-            if new_role is not None:
-                if new_role >= actor_role:
-                    raise drf_serializers.ValidationError({"role": _ROLE_NOT_BELOW_OWN_ERROR})
-                if instance.role == Role.OWNER and new_role < Role.OWNER:
-                    self._check_last_owner_guard(program.pk, exclude_pk=instance.pk)
 
             # Stamp role_changed_at only on an actual role change (#878) so a
             # no-op PATCH that re-sends the same role does not falsely advance

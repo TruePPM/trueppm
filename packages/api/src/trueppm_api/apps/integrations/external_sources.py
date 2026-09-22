@@ -250,6 +250,50 @@ class JqlNotWellFormed(ValueError):
     """
 
 
+def _advance_in_quote(jql: str, index: int, quote: str) -> tuple[int, str | None]:
+    """Advance past one character while inside a quoted JQL string.
+
+    Returns the next index and the still-open quote char, or ``None`` once the
+    closing quote (unescaped) is consumed.
+    """
+    char = jql[index]
+    # JQL escapes a quote inside a string with a backslash; skip the pair
+    # so an escaped quote does not look like the end of the string.
+    if char == "\\":
+        return index + 2, quote
+    if char == quote:
+        return index + 1, None
+    return index + 1, quote
+
+
+def _advance_paren(char: str, depth: int, index: int) -> tuple[int, int]:
+    """Advance past a ``(`` or ``)`` character, updating paren depth.
+
+    Raises:
+        JqlNotWellFormed: a ``)`` takes depth below zero.
+    """
+    if char == "(":
+        return depth + 1, index + 1
+    depth -= 1
+    if depth < 0:
+        raise JqlNotWellFormed("unbalanced ')' in JQL")
+    return depth, index + 1
+
+
+def _match_top_level_order_by(jql: str, index: int, depth: int) -> tuple[int, int] | None:
+    """``(split_at, next_index)`` if a top-level ``ORDER BY`` starts at `index`.
+
+    ORDER BY is only the sort clause at the top level; inside a group it
+    cannot legally appear, so ignoring it there keeps the split honest.
+    """
+    if depth != 0:
+        return None
+    match = _ORDER_BY_RE.match(jql, index)
+    if not match:
+        return None
+    return index, match.end()
+
+
 def scan_jql(jql: str) -> tuple[str, str]:
     """Split a JQL string into ``(where_part, order_by_clause)``, validating structure.
 
@@ -285,37 +329,19 @@ def scan_jql(jql: str) -> tuple[str, str]:
     while index < length:
         char = jql[index]
         if in_quote is not None:
-            # JQL escapes a quote inside a string with a backslash; skip the pair
-            # so an escaped quote does not look like the end of the string.
-            if char == "\\":
-                index += 2
-                continue
-            if char == in_quote:
-                in_quote = None
-            index += 1
+            index, in_quote = _advance_in_quote(jql, index, in_quote)
             continue
         if char in ('"', "'"):
             in_quote = char
             index += 1
             continue
-        if char == "(":
-            depth += 1
-            index += 1
+        if char in ("(", ")"):
+            depth, index = _advance_paren(char, depth, index)
             continue
-        if char == ")":
-            depth -= 1
-            if depth < 0:
-                raise JqlNotWellFormed("unbalanced ')' in JQL")
-            index += 1
+        order_by = _match_top_level_order_by(jql, index, depth)
+        if order_by is not None:
+            split_at, index = order_by
             continue
-        # ORDER BY is only the sort clause at the top level; inside a group it
-        # cannot legally appear, so ignoring it there keeps the split honest.
-        if depth == 0:
-            match = _ORDER_BY_RE.match(jql, index)
-            if match:
-                split_at = index
-                index = match.end()
-                continue
         index += 1
 
     if in_quote is not None:

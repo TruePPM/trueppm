@@ -80,91 +80,99 @@ class Command(BaseCommand):
             help="Skip the interactive confirmation (for use in a runbook script).",
         )
 
-    def handle(self, *args: Any, **options: Any) -> None:
-        from trueppm_api.apps.projects.models import (
-            ApiToken,
-            ApiTokenAuditAction,
-            ApiTokenAuditEntry,
-        )
+    def _resolve_target_user(self, options: dict[str, Any]) -> Any | None:
+        """The single account ``--user`` names, or None if ``--user`` was not given.
 
-        target_user = None
-        if options["user"]:
-            User = get_user_model()
-            identifier = str(options["user"]).strip()
-            # Accept either handle so a runbook does not have to know which the operator
-            # has to hand during an incident.
-            #
-            # FAIL CLOSED on ambiguity. Django's stock ``auth.User`` puts **no**
-            # uniqueness constraint on ``email`` at all, and ``username`` uniqueness is
-            # case-*sensitive*, so ``__iexact`` can match several rows two ways. A
-            # ``.first()`` here would silently pick the lowest pk — during an incident,
-            # while reporting success — so the leaked token stays live and an uninvolved
-            # account's automations break instead. ``apps/sso/services.py`` and
-            # ``core/password_reset.py`` already treat this lookup as hazardous; this is
-            # the third caller and it must not be the one that guesses.
-            candidates = list(
-                User.objects.filter(
-                    Q(username__iexact=identifier) | Q(email__iexact=identifier)
-                ).order_by("pk")[:3]
+        Accepts either username or email so a runbook does not have to know which
+        the operator has to hand during an incident.
+
+        FAILS CLOSED on ambiguity. Django's stock ``auth.User`` puts **no**
+        uniqueness constraint on ``email`` at all, and ``username`` uniqueness is
+        case-*sensitive*, so ``__iexact`` can match several rows two ways. A
+        ``.first()`` here would silently pick the lowest pk — during an incident,
+        while reporting success — so the leaked token stays live and an uninvolved
+        account's automations break instead. ``apps/sso/services.py`` and
+        ``core/password_reset.py`` already treat this lookup as hazardous; this is
+        the third caller and it must not be the one that guesses.
+        """
+        if not options["user"]:
+            return None
+        User = get_user_model()
+        identifier = str(options["user"]).strip()
+        candidates = list(
+            User.objects.filter(
+                Q(username__iexact=identifier) | Q(email__iexact=identifier)
+            ).order_by("pk")[:3]
+        )
+        if not candidates:
+            raise CommandError(f"No account matches {identifier!r} by username or email.")
+        if len(candidates) > 1:
+            listed = ", ".join(f"pk={u.pk} username={u.username!r}" for u in candidates)
+            raise CommandError(
+                f"{identifier!r} matches more than one account ({listed}). Re-run with "
+                "an unambiguous username so the sweep cannot contain the wrong "
+                "account."
             )
-            if not candidates:
-                raise CommandError(f"No account matches {identifier!r} by username or email.")
-            if len(candidates) > 1:
-                listed = ", ".join(f"pk={u.pk} username={u.username!r}" for u in candidates)
-                raise CommandError(
-                    f"{identifier!r} matches more than one account ({listed}). Re-run with "
-                    "an unambiguous username so the sweep cannot contain the wrong "
-                    "account."
-                )
-            target_user = candidates[0]
+        return candidates[0]
+
+    def _resolve_scope(self, options: dict[str, Any], target_user: Any | None) -> tuple[Any, str]:
+        from trueppm_api.apps.projects.models import ApiToken
 
         active = ApiToken.objects.filter(is_deleted=False, revoked_at__isnull=True)
         if target_user is not None:
-            queryset = active.filter(owner=target_user)
-            scope_label = f"personal tokens owned by {target_user.username}"
-        elif options["all_personal"]:
-            queryset = active.filter(owner__isnull=False)
-            scope_label = "all personal access tokens on this instance"
-        else:
-            queryset = active
-            scope_label = "ALL API tokens on this instance (including integration tokens)"
+            label = f"personal tokens owned by {target_user.username}"
+            return active.filter(owner=target_user), label
+        if options["all_personal"]:
+            return active.filter(owner__isnull=False), "all personal access tokens on this instance"
+        return active, "ALL API tokens on this instance (including integration tokens)"
 
-        doomed = list(queryset.only("pk", "token_prefix", "name", "owner", "project", "program"))
+    def _report_matched_tokens(self, doomed: list[Any], scope_label: str) -> None:
         self.stdout.write(f"Scope: {scope_label}")
         self.stdout.write(f"Active tokens matched: {len(doomed)}")
         for token in doomed:
             kind = "personal" if token.owner_id else ("project" if token.project_id else "program")
             self.stdout.write(f"  {token.token_prefix}… ({kind}) {token.name}")
 
-        # --all is the full-compromise lever: also sweep the two non-token durable
-        # grants a leaked token (or a compromised session) can mint (#2939). Counted
-        # ahead of --commit so a dry run reports the whole blast radius, not just
-        # the token count.
+    def _count_durable_grants(self, options: dict[str, Any]) -> tuple[int, int]:
+        """(links_matched, secrets_matched) for ``--all``'s blast-radius report.
+
+        --all is the full-compromise lever: also sweep the two non-token durable
+        grants a leaked token (or a compromised session) can mint (#2939). Counted
+        ahead of --commit so a dry run reports the whole blast radius, not just
+        the token count.
+        """
+        if not options["all"]:
+            return 0, 0
         from trueppm_api.apps.integrations.models import BoardAutomation
         from trueppm_api.apps.projects.models import ShareLink
 
-        links_matched = secrets_matched = 0
-        if options["all"]:
-            links_matched = ShareLink.objects.filter(revoked_at__isnull=True).count()
-            secrets_matched = BoardAutomation.objects.exclude(secret_ciphertext=b"").count()
-            self.stdout.write(f"Active share links matched: {links_matched}")
-            self.stdout.write(f"Configured git-automation secrets matched: {secrets_matched}")
+        links_matched = ShareLink.objects.filter(revoked_at__isnull=True).count()
+        secrets_matched = BoardAutomation.objects.exclude(secret_ciphertext=b"").count()
+        self.stdout.write(f"Active share links matched: {links_matched}")
+        self.stdout.write(f"Configured git-automation secrets matched: {secrets_matched}")
+        return links_matched, secrets_matched
 
-        if not doomed and not links_matched and not secrets_matched:
-            self.stdout.write(self.style.SUCCESS("Nothing to revoke."))
+    def _confirm(self, options: dict[str, Any], total: int) -> None:
+        if options["yes"]:
             return
+        answer = input(f"Revoke {total} grant(s)? This cannot be undone. [y/N] ")
+        if answer.strip().lower() not in ("y", "yes"):
+            raise CommandError("Aborted.")
 
-        if not options["commit"]:
-            self.stdout.write(
-                self.style.WARNING("Dry run — nothing revoked. Re-run with --commit to apply.")
-            )
-            return
+    def _commit_revocation(
+        self, doomed: list[Any], options: dict[str, Any]
+    ) -> tuple[int, int, int]:
+        """Revoke `doomed`, audit each one, and (under ``--all``) sweep durable grants.
 
-        if not options["yes"]:
-            total = len(doomed) + links_matched + secrets_matched
-            answer = input(f"Revoke {total} grant(s)? This cannot be undone. [y/N] ")
-            if answer.strip().lower() not in ("y", "yes"):
-                raise CommandError("Aborted.")
+        Returns (tokens revoked, share links revoked, git-automation secrets
+        cleared) — all in one transaction so the sweep and its audit trail commit
+        together.
+        """
+        from trueppm_api.apps.projects.models import (
+            ApiToken,
+            ApiTokenAuditAction,
+            ApiTokenAuditEntry,
+        )
 
         now = timezone.now()
         with transaction.atomic():
@@ -194,6 +202,27 @@ class Command(BaseCommand):
                 from trueppm_api.apps.access.services import revoke_personal_durable_grants
 
                 links_revoked, secrets_cleared = revoke_personal_durable_grants(actor=None)
+        return revoked, links_revoked, secrets_cleared
+
+    def handle(self, *args: Any, **options: Any) -> None:
+        target_user = self._resolve_target_user(options)
+        queryset, scope_label = self._resolve_scope(options, target_user)
+        doomed = list(queryset.only("pk", "token_prefix", "name", "owner", "project", "program"))
+        self._report_matched_tokens(doomed, scope_label)
+        links_matched, secrets_matched = self._count_durable_grants(options)
+
+        if not doomed and not links_matched and not secrets_matched:
+            self.stdout.write(self.style.SUCCESS("Nothing to revoke."))
+            return
+
+        if not options["commit"]:
+            self.stdout.write(
+                self.style.WARNING("Dry run — nothing revoked. Re-run with --commit to apply.")
+            )
+            return
+
+        self._confirm(options, len(doomed) + links_matched + secrets_matched)
+        revoked, links_revoked, secrets_cleared = self._commit_revocation(doomed, options)
 
         self.stdout.write(self.style.SUCCESS(f"Revoked {revoked} token(s)."))
         if options["all"]:
