@@ -389,6 +389,21 @@ networkPolicy:
         kubernetes.io/metadata.name: ingress-nginx
     podSelector: {}
 
+  # DNS resolver target for the demo.interactive egress-deny policies (ADR-1197
+  # D7, #3925 MR 2). Only rendered while demo.interactive is true — every other
+  # deployment shape keeps api/celery-worker egress unrestricted (see above).
+  # Same reasoning as ingressControllerSelector: cluster/distribution-specific,
+  # so it is a value, not a hardcoded selector. The default matches the whole
+  # kube-system namespace rather than a specific CoreDNS pod label, because
+  # `k8s-app: kube-dns` is the conventional label but not a guaranteed one
+  # across every distribution — matching the namespace is looser but does not
+  # silently blackhole DNS on a cluster that labels its resolver differently.
+  dnsSelector:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: kube-system
+    podSelector: {}
+
 # Pod-level and container-level security hardening applied to the API and Celery
 # worker pods. Defaults follow the restricted Pod Security Standard.
 # Image for the `helm test` connection hook (templates/tests/api-connection.yaml).
@@ -1594,12 +1609,14 @@ demo:
   # sign-in, token refresh and sign-out — regardless of the caller's role. THAT is
   # the guarantee. The seeded account's role is not, and must never be cited as one.
   #
-  # DO NOT EXPOSE AN INTERACTIVE DEMO PUBLICLY YET. Two edge-layer controls are not
-  # built (#3925 MR 2): the nginx method fence on the third server block, and the
-  # egress NetworkPolicy. Without the former, `login_account` throttles on the
-  # submitted USERNAME at 5/min across all source IPs (settings/base.py), so one
-  # shared username gives the whole internet a 5/min login budget — threat-model T2,
-  # which fires with no attacker at all. Run it behind an access control until then.
+  # The edge-layer hardening (#3925 MR 2, ADR-1197 D1/D6/D7) is now in this chart:
+  # the nginx method fence on the third server block, the throttle re-aims below,
+  # and the egress NetworkPolicy (templates/networkpolicy.yaml). None of that makes
+  # Cloudflare Access — or an equivalent hostname gate — a security control (D8);
+  # it stays bot reduction and an email list. And D10's host isolation from CI
+  # runners is a deployment precondition no CI job can verify — a human owner, not
+  # something a chart flag closes. Treat both as still required before a public
+  # launch.
   #
   # In practice this is used together with `enabled`, because the demo account and
   # its data come from the demo seed hook, which renders under `enabled`. Left on
@@ -1626,14 +1643,60 @@ demo:
   # it — D2 refuses by request METHOD regardless of role. The cost is purely UX: more
   # surfaces end in a refusal, which #3926 handles by disabling them up front.
   #
-  # The chart renders this as TRUEPPM_DEMO_LOGIN_HINT ("<username> / <password>") on
-  # the api Deployment, and as the seed workloads' TRUEPPM_DEMO_LOGIN_USERNAME /
-  # TRUEPPM_DEMO_LOGIN_PASSWORD. Setting it while read-only mode is OFF fails the
-  # render: that combination publishes a working login to a WRITABLE instance, which
-  # is strictly worse than publishing nothing.
+  # The chart renders this as TRUEPPM_DEMO_LOGIN_HINT ("<username>:<password>",
+  # required by parse_demo_login_hint) on the api Deployment, and as the seed
+  # workloads' TRUEPPM_DEMO_LOGIN_USERNAME / TRUEPPM_DEMO_LOGIN_PASSWORD. Setting it
+  # while read-only mode is OFF fails the render: that combination publishes a
+  # working login to a WRITABLE instance, which is strictly worse than publishing
+  # nothing.
   loginHint:
     username: ""
     password: ""
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Per-account throttle re-aims (ADR-1197 D6, #3925 MR 2). Only rendered while
+  # demo.interactive is true.
+  #
+  # Every visitor to this mode authenticates as the SAME shared account, so any
+  # throttle keyed on the account (rather than the caller's IP) bounds the whole
+  # crowd together instead of bounding one caller. A default tuned for "protect a
+  # secret from credential-stuffing" becomes, under a shared and PUBLISHED
+  # credential, a denial-of-service knob pointed at legitimate traffic — #1717's
+  # login_account control is the sharpest case: there is no secret left for it to
+  # protect, since the credential is printed on the login page. The per-IP `login`
+  # scope (settings/base.py, unchanged at 10/min) and the `anon` scope stay the
+  # real limiters ONLY for the sign-in request itself — DRF's stock AnonRateThrottle
+  # skips throttling once request.user.is_authenticated, so neither scope touches a
+  # signed-in visitor's ordinary reads. security-review (#3925 MR 2) flagged this:
+  # once authenticated, every visitor's traffic shares a SINGLE per-account budget
+  # (userRate below) with no independent per-IP ceiling of its own — one greedy
+  # client sharing the credential can still consume the whole account's budget.
+  # userRate is sized generously for that reason, and per-visitor fairness on
+  # ongoing read traffic is NOT something this chart's throttle re-aim provides —
+  # it depends on whatever edge/CDN sits in front of the host (Cloudflare or
+  # equivalent), consistent with D8's framing of Access as a bot-reduction layer,
+  # not a substitute for that gap.
+  throttle:
+    # TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE. Default is 5/min across ALL source
+    # IPs for the submitted username — with one published username that is a
+    # global 5-login/min budget for the entire internet (threat-model T2: it
+    # fires with NO attacker, just a few genuine visitors signing in within the
+    # same minute). Raised for concurrency, not credential-stuffing resistance.
+    # Governs only the login request; see the note above for what it does not.
+    loginAccountRate: "120/min"
+    # TRUEPPM_THROTTLE_USER_RATE (DRF's "user" scope). Default is 1000/min PER
+    # ACCOUNT — under this mode every visitor's reads (schedule, board,
+    # resources, reports) count against the SAME account's budget at once, and
+    # it is the ONLY throttle bounding that traffic once signed in (see above).
+    # Raised so a modest crowd browsing concurrently does not throttle itself;
+    # it is not, and is not meant to be, a per-visitor fairness control.
+    userRate: "6000/min"
+    # TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS is per-account and shared-fate too,
+    # but is ACCEPTED at its ordinary default rather than re-aimed: D2's
+    # ALLOWED_WRITES does not allow-list any /api/v1/**/api-tokens/ path, so
+    # token creation is refused before this cap is ever consulted. Recorded
+    # explicitly, per D6, so this isn't silently re-derived by a future reader.
+    maxPersonalAccessTokens: 10
 
   # Public origin serving this instance, e.g. https://demo.example.com — no trailing
   # slash. Used to print the share URLs; it cannot be inferred from inside the

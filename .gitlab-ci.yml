@@ -2578,17 +2578,22 @@ helm:template:
         exit 1
       fi
     # DemoReadOnlyMiddleware's fence (#3924) has to reach the api container and
-    # both seed workloads (#3932) — nothing rendered it before this MR. Scoped to
-    # api/demo-seed/demo-reset only, not celery-worker/celery-beat: those are the
-    # three places the fix issue names, and the middleware only ever runs in the
-    # ASGI api process anyway. Checked against a literal "true", not mere presence
-    # — the settings-layer parser (parse_demo_read_only) is strict about which
-    # words it accepts, so a wrong-but-present value must fail exactly like a
-    # missing one.
+    # both seed workloads (#3932). Widened to celery-worker/celery-beat and to
+    # the api Deployment's init containers (#3925): this originally scoped
+    # api/demo-seed/demo-reset only, on the (then-true) reasoning that the
+    # middleware only ever runs in the ASGI api process — but #3925 gave
+    # TRUEPPM_DEMO_READ_ONLY a SECOND reader, settings.prod's attachment-storage
+    # boot guard (writes_disabled=DEMO_READ_ONLY), which every process that
+    # imports settings.prod evaluates at boot regardless of whether it ever
+    # serves HTTP. Scoped like the MEDIA_ROOT check above now, for the same
+    # reason. Checked against a literal "true", not mere presence — the
+    # settings-layer parser (parse_demo_read_only) is strict about which words
+    # it accepts, so a wrong-but-present value must fail exactly like a missing
+    # one.
     - |
-      offenders="$(yq 'select((.kind=="Deployment" or .kind=="Job" or .kind=="CronJob") and (.metadata.name | test("-(api|demo-seed|demo-reset)$"))) | .metadata.name as $w | (.spec.template.spec // .spec.jobTemplate.spec.template.spec) | .containers[] | select(.name=="api" or .name=="demo-seed" or .name=="demo-reset") | .name as $c | ((.env[]? | select(.name=="TRUEPPM_DEMO_READ_ONLY") | .value) // "MISSING") as $v | select($v != "true") | [$w, $c, $v] | join("/")' /tmp/rendered-demo.yaml | grep -vE '^(---)?$' || true)"
+      offenders="$(yq 'select((.kind=="Deployment" or .kind=="Job" or .kind=="CronJob") and (.metadata.name | test("-(api|celery-worker|celery-beat|demo-seed|demo-reset)$"))) | .metadata.name as $w | (.spec.template.spec // .spec.jobTemplate.spec.template.spec) | ([.initContainers[]?] + [.containers[]?])[] | .name as $c | ((.env[]? | select(.name=="TRUEPPM_DEMO_READ_ONLY") | .value) // "MISSING") as $v | select($v != "true") | [$w, $c, $v] | join("/")' /tmp/rendered-demo.yaml | grep -vE '^(---)?$' || true)"
       if [ -n "$offenders" ]; then
-        echo "DEMO REGRESSION: TRUEPPM_DEMO_READ_ONLY is missing, or not the literal \"true\", on these containers (workload/container/value) (#3932):"
+        echo "DEMO REGRESSION: TRUEPPM_DEMO_READ_ONLY is missing, or not the literal \"true\", on these containers (workload/container/value) (#3932, #3925):"
         echo "$offenders"
         exit 1
       fi
@@ -2744,7 +2749,7 @@ helm:template:
         --set demo.loginHint.password=ci-visitor-password > /tmp/rendered-demo-interactive.yaml
       kubeconform -strict -summary -ignore-missing-schemas /tmp/rendered-demo-interactive.yaml
       api_env="$(yq ea 'select(.kind == "Deployment" and (.metadata.name | test("-api$"))) | .spec.template.spec.containers[] | select(.name == "api") | .env[] | .name + "=" + (.value // "")' /tmp/rendered-demo-interactive.yaml)"
-      for want in 'TRUEPPM_DEMO_READ_ONLY=true' 'TRUEPPM_DEMO_LOGIN_HINT=atlas-visitor / ci-visitor-password' 'TRUEPPM_DEMO_RESET_SCHEDULE=0 */6 * * *'; do
+      for want in 'TRUEPPM_DEMO_READ_ONLY=true' 'TRUEPPM_DEMO_LOGIN_HINT=atlas-visitor:ci-visitor-password' 'TRUEPPM_DEMO_RESET_SCHEDULE=0 */6 * * *'; do
         printf '%s\n' "$api_env" | grep -qxF -- "$want" \
           || { echo "DEMO REGRESSION: the api Deployment does not carry '$want' in interactive mode (#3925)"; printf '%s\n' "$api_env"; exit 1; }
       done
