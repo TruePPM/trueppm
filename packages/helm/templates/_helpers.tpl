@@ -340,6 +340,7 @@ topologySpreadConstraints:
 {{ include "trueppm.mediaEnv" . }}
 {{ include "trueppm.observabilityEnv" . }}
 {{ include "trueppm.loggingEnv" . }}
+{{ include "trueppm.demoReadOnlyEnv" . }}
 {{- end -}}
 
 {{/*
@@ -1121,6 +1122,33 @@ good enough.
 {{- end -}}
 
 {{/*
+TRUEPPM_DEMO_READ_ONLY env entry (#3925).
+
+Must reach EVERY container and initContainer that imports settings.prod, not just
+the api container that serves HTTP through DemoReadOnlyMiddleware — same reasoning
+as trueppm.mediaEnv below (#3184), and the exact bug #3932 shipped once already:
+"a chart that rendered demo mode correctly and set the variable nowhere"
+(templates/tests/demo-read-only.yaml). The attachment-storage boot guard (#775)
+now accepts writes_disabled=DEMO_READ_ONLY as proof no request can reach storage
+(security_checks.validate_attachment_storage); every process that imports
+settings.prod evaluates that guard at import time regardless of whether it ever
+serves HTTP, so migrate/bootstrap/collectstatic/celery-worker/celery-beat each need
+this env var just as much as the api container does, or they crash-loop on
+"Refusing to start: Task attachments use local filesystem storage" before
+DemoReadOnlyMiddleware is ever relevant to them.
+
+Included from trueppm.appEnv (api container + celery-worker + celery-beat); the
+three api/deployment.yaml initContainers include it directly, matching how they
+already include trueppm.mediaEnv directly instead of the full appEnv bundle.
+*/}}
+{{- define "trueppm.demoReadOnlyEnv" -}}
+{{- if include "trueppm.demoReadOnly" . }}
+- name: TRUEPPM_DEMO_READ_ONLY
+  value: "true"
+{{- end -}}
+{{- end -}}
+
+{{/*
 Render-time guards for the interactive demo (ADR-1197 D5/D6, #3925).
 
 Included from templates/api/deployment.yaml, which renders on every install, so the
@@ -1148,6 +1176,39 @@ happy path — every branch either fails the render or produces no output.
 */ -}}
 {{- if and $hintSet (not .Values.demo.interactive) -}}
 {{- fail "demo.loginHint is set but demo.interactive is false, so nothing reads it: the seed enables no account and the login page is shown no credential. demo.enabled alone is the SHARE-LINK demo, which publishes no login. Set demo.interactive=true, or clear demo.loginHint." -}}
+{{- end -}}
+{{- /*
+  The external access gate's disclosure (#3969, ADR-1197 D8 resolution).
+
+  Same shape of failure as the loginHint guards above, for the same reason: a value
+  that nothing reads is a disclosure the operator BELIEVES they made and did not. The
+  api Deployment renders these only inside the demoReadOnly branch, and the edition
+  endpoint emits the field only while demo_read_only is true, so a provider declared
+  with the fence off is silently inert — and a silently inert privacy disclosure is
+  worse than an absent one, because the operator has stopped looking.
+*/ -}}
+{{- $gate := .Values.demo.accessGate | default dict -}}
+{{- $gateProvider := $gate.provider | default "" | toString -}}
+{{- $gatePrivacyUrl := $gate.privacyUrl | default "" | toString -}}
+{{- if and $gateProvider (not (include "trueppm.demoReadOnly" .)) -}}
+{{- fail "demo.accessGate.provider is set but neither demo.enabled nor demo.interactive is true, so TRUEPPM_DEMO_ACCESS_GATE_PROVIDER is not rendered and GET /api/v1/edition/ emits no disclosure. The notice you think you published does not exist. Turn the demo on, or clear demo.accessGate.provider." -}}
+{{- end -}}
+{{- if and $gatePrivacyUrl (not $gateProvider) -}}
+{{- fail "demo.accessGate.privacyUrl is set but demo.accessGate.provider is empty. The link is an attribute of a declared gate, not a disclosure on its own — nothing renders it without a provider to name. Set demo.accessGate.provider, or clear privacyUrl." -}}
+{{- end -}}
+{{- if $gateProvider -}}
+{{- /*
+  The provider name is published copy rendered into a pre-auth page, and the URL
+  becomes an href there. Constrain both at RENDER time rather than sanitizing at use
+  — the same line demo.loginHint and demo.shareToken draw. The API refuses a
+  non-http(s) URL at boot as well; this is the earlier and louder of the two.
+*/ -}}
+{{- if not (regexMatch "^[A-Za-z0-9 .,'()&/_-]{1,60}$" $gateProvider) -}}
+{{- fail "demo.accessGate.provider may contain only letters, digits, spaces and . , ' ( ) & / _ - (max 60 chars). It is published as-is on the login page — e.g. \"Cloudflare Access\"." -}}
+{{- end -}}
+{{- if and $gatePrivacyUrl (not (regexMatch "^https?://[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]{1,500}$" $gatePrivacyUrl)) -}}
+{{- fail "demo.accessGate.privacyUrl must be an http:// or https:// URL (max 500 chars). It is rendered as a link on the pre-auth login page, so any other scheme is refused rather than escaped at use." -}}
+{{- end -}}
 {{- end -}}
 {{- if .Values.demo.interactive -}}
 {{- if not (and ($hint.username | default "") ($hint.password | default "")) -}}
@@ -1177,18 +1238,51 @@ happy path — every branch either fails the render or produces no output.
 {{- if (.Values.env | default dict).TRUEPPM_DEMO_PASSWORD -}}
 {{- fail "demo.interactive is true and env.TRUEPPM_DEMO_PASSWORD is set. That variable is the persona-login password: load_sample_project --with-personas gives it to EVERY persona in the sample and refuses only staff/superuser rows, so personas holding OWNER/ADMIN receive it as well. A published demo credential must open exactly one unprivileged account — use demo.loginHint, and remove env.TRUEPPM_DEMO_PASSWORD (ADR-1197 D5)." -}}
 {{- end -}}
+{{- /*
+  ADR-1197 D2 already refuses the upload (TaskAttachmentViewSet's create is a
+  POST, not in ALLOWED_WRITES). This is defence in depth for a hypothetical D2
+  hole: the api pod gets no writable media path in this mode at all, so an
+  upload that somehow got past the fence has nowhere to land. Fail the render
+  rather than let the two flags silently coexist — persistence.media.enabled
+  mounts a PersistentVolumeClaim at trueppm.mediaVolumeMount, which every
+  container importing Django settings gets (see the comment above
+  trueppm.mediaClaimName), so this checks the one values key that controls it.
+*/ -}}
+{{- if .Values.persistence.media.enabled -}}
+{{- fail "demo.interactive is true and persistence.media.enabled is true. This mode must give the api pod NO writable media path (ADR-1197 D2 defence in depth) — set persistence.media.enabled=false. Durable attachments are not needed here: the bundled Atlas seed's TaskAttachment rows are external_url-only, not uploaded files." -}}
+{{- end -}}
+{{- /*
+  ADR-1197 D7's egress NetworkPolicy (templates/networkpolicy.yaml) allows only
+  DNS and the IN-CLUSTER datastores — it has no rule for a managed/external
+  Postgres or Valkey, because the chart cannot know that endpoint at render
+  time. Rendering it against a managed datastore would silently cut the api and
+  worker pods off from their own database. Only checked when networkPolicy is
+  actually enabled; an operator who has turned that off has already opted out
+  of chart-rendered egress control and restricts it at the platform layer instead.
+*/ -}}
+{{- if and .Values.networkPolicy.enabled (or (not .Values.postgresql.enabled) (not .Values.valkey.enabled)) -}}
+{{- fail "demo.interactive and networkPolicy.enabled are both true, but postgresql.enabled and/or valkey.enabled is false. ADR-1197 D7's egress policy for this mode allows only DNS and the chart's OWN bundled datastore pods — it has no rule for a managed/external database, so rendering it here would cut the api and worker pods off from their own datastore. Either enable the bundled postgresql/valkey subcharts, or set networkPolicy.enabled=false and restrict egress at the platform layer instead." -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 
 {{/*
-The credential text the login page displays (#3925, read by #3926).
+TRUEPPM_DEMO_LOGIN_HINT (#3925, read by #3926).
 
-One string, assembled here so the chart owns the format and the client owns none of
-it. Empty unless the interactive mode is on, so a share-link-only demo renders no
-TRUEPPM_DEMO_LOGIN_HINT at all.
+MUST be `username:password` — parse_demo_login_hint (core/demo_read_only.py) splits
+on the FIRST colon and raises ImproperlyConfigured on anything else, refusing to
+boot. #3926 parses this at settings-import time into DEMO_LOGIN_HINT (a
+{"username", "password"} dict), which urls.py then re-serializes as the structured
+`demo_login_hint` field on GET /api/v1/edition/ — the web app builds its own display
+text from those two fields; nothing reads this env var as display text directly, so
+the chart does not own that format and must not assemble one here. A prior version
+of this define rendered "%s / %s" on exactly that (stale) assumption, which meant
+demo.interactive could never actually boot with a login hint set — it always hit
+this guard's refusal, just never surfaced until #3925's own boot-guard fixes let the
+pod get far enough to reach it.
 */}}
 {{- define "trueppm.demoLoginHint" -}}
-{{- printf "%s / %s" (include "trueppm.demoLoginUsername" .) (include "trueppm.demoLoginPassword" .) -}}
+{{- printf "%s:%s" (include "trueppm.demoLoginUsername" .) (include "trueppm.demoLoginPassword" .) -}}
 {{- end -}}
 
 {{/*

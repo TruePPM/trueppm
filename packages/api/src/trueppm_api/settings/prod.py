@@ -11,6 +11,7 @@ from trueppm_api.apps.observability.logging import build_logging_config
 from trueppm_api.core.security_checks import (
     validate_allowed_hosts,
     validate_attachment_storage,
+    validate_demo_read_only_enforcement,
     validate_integration_encryption_key,
     validate_project_soft_delete_retention,
     validate_secret_key,
@@ -24,9 +25,11 @@ from .base import (
     ALLOW_UNENCRYPTED_DB,
     ALLOW_WILDCARD_ALLOWED_HOSTS,
     DATABASES,
+    DEMO_READ_ONLY,
     DJANGO_LOG_LEVEL,
     INTEGRATION_ENCRYPTION_KEY,
     MEDIA_ROOT,
+    MIDDLEWARE,
     REDIS_URL,
     SIMPLE_JWT,
     STORAGES,
@@ -145,18 +148,35 @@ SECURE_REFERRER_POLICY = "same-origin"
 SECURE_SSL_REDIRECT = env.bool("TRUEPPM_SECURE_SSL_REDIRECT", default=False)
 SECURE_REDIRECT_EXEMPT = [r"^api/v1/health/$", r"^api/v1/readyz$", r"^api/v1/edition/$"]
 
+# Trip-wire for the writes_disabled escape below (#3925, ADR-1197): refuse to
+# boot if TRUEPPM_DEMO_READ_ONLY claims every unsafe request is refused but
+# DemoReadOnlyMiddleware — the thing that actually refuses them — is not in
+# MIDDLEWARE. Runs BEFORE the attachment-storage guard trusts that claim, so a
+# future refactor that drops the middleware while the env var lingers fails
+# loudly here instead of silently reopening #775. A normal, non-demo chart
+# never sets TRUEPPM_DEMO_READ_ONLY, so this never fires there.
+_demo_enforcement_errors = validate_demo_read_only_enforcement(
+    demo_read_only=DEMO_READ_ONLY, middleware=MIDDLEWARE
+)
+if _demo_enforcement_errors:
+    raise RuntimeError(_REFUSING_TO_START + "; ".join(str(e.msg) for e in _demo_enforcement_errors))
+
 # Refuse to boot when task attachments would land on ephemeral local disk in a
 # containerized deploy (#775) — same import-time enforcement as the SECRET_KEY
 # guard, since gunicorn/asgi workers never run `manage.py check`. Passing
 # MEDIA_ROOT extends the guard to the opted-in case (#3184): before this the
 # opt-in was an unverified claim, and the deployment it described — no MEDIA_ROOT
 # at all, on a read-only root filesystem — booted clean and then EROFS'd on the
-# first upload.
+# first upload. writes_disabled is the ADR-1197 escape: the interactive/share-link
+# demo modes have neither a writable media path nor storage credentials on
+# purpose, and DemoReadOnlyMiddleware — just PROVEN present above, not merely
+# assumed — already refuses every upload before it can reach storage.
 _storage_errors = validate_attachment_storage(
     STORAGES["default"]["BACKEND"],
     debug=DEBUG,
     allow_local=ALLOW_LOCAL_ATTACHMENT_STORAGE,
     media_root=MEDIA_ROOT,
+    writes_disabled=DEMO_READ_ONLY,
 )
 if _storage_errors:
     raise RuntimeError(_REFUSING_TO_START + "; ".join(str(e.msg) for e in _storage_errors))

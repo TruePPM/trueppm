@@ -79,6 +79,8 @@ def _load_prod(
     media_root: str | Path | None = None,
     allowed_hosts: str = "prod.example.com",
     allow_wildcard_hosts: bool = False,
+    demo_read_only: bool = False,
+    middleware: list[str] | None = None,
 ) -> ModuleType:
     """Import (or re-import) settings/prod.py with controlled storage + env.
 
@@ -98,6 +100,13 @@ def _load_prod(
     local-storage opt-in. It defaults to a writable temp directory so a test
     asserting "the opt-in boots" is asserting the opt-in and not the test host's
     /var/lib permissions; pass an unwritable path to exercise the refusal.
+
+    ``demo_read_only`` feeds the ADR-1197 writes_disabled escape on the
+    attachment-storage guard (#3925); defaults to False so every existing caller
+    is unaffected. ``middleware`` feeds the trip-wire that verifies
+    DemoReadOnlyMiddleware is actually installed before that escape is trusted;
+    defaults to the real base.MIDDLEWARE (which always includes it) so a test
+    only needs to pass it when deliberately exercising the drift case.
     """
     storages = {
         "default": {"BACKEND": backend},
@@ -121,6 +130,10 @@ def _load_prod(
         mock.patch.object(base, "DATABASES", {"default": {"PASSWORD": db_password}}),
         mock.patch.object(base, "REDIS_URL", redis_url),
         mock.patch.object(base, "MEDIA_ROOT", Path(media_root or _WRITABLE_MEDIA_ROOT)),
+        mock.patch.object(base, "DEMO_READ_ONLY", demo_read_only),
+        mock.patch.object(
+            base, "MIDDLEWARE", middleware if middleware is not None else base.MIDDLEWARE
+        ),
     ):
         # Ensure a stale JWT_SIGNING_KEY from a prior test's patched env never
         # bleeds in when this call means to test the inherit-SECRET_KEY default.
@@ -231,6 +244,35 @@ def test_prod_boots_on_local_storage_when_opted_in() -> None:
     """TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE lets local storage through."""
     prod = _load_prod(backend=_LOCAL, allow_local=True)
     assert prod.STORAGES["default"]["BACKEND"] == _LOCAL
+
+
+def test_prod_boots_on_bare_local_storage_under_demo_read_only() -> None:
+    """ADR-1197: demo.interactive has no media path and no opt-in, on purpose.
+
+    DemoReadOnlyMiddleware (armed by the same TRUEPPM_DEMO_READ_ONLY) refuses
+    every attachment upload before a request can reach storage, so the local
+    backend with neither the opt-in nor a media_root must not stop the boot.
+    """
+    prod = _load_prod(backend=_LOCAL, allow_local=False, demo_read_only=True)
+    assert prod.STORAGES["default"]["BACKEND"] == _LOCAL
+
+
+def test_prod_refuses_demo_read_only_without_its_middleware() -> None:
+    """The trip-wire (#3925): DEMO_READ_ONLY without DemoReadOnlyMiddleware stops
+    the boot, rather than silently trusting writes_disabled on a bare flag.
+
+    A future refactor that trims MIDDLEWARE and drops the demo-read-only entry,
+    while TRUEPPM_DEMO_READ_ONLY=true lingers somewhere, must fail HERE — not
+    boot clean into a chart that no longer blocks any write but still tells the
+    attachment-storage guard that it does.
+    """
+    with pytest.raises(RuntimeError, match="TRUEPPM_DEMO_READ_ONLY"):
+        _load_prod(
+            backend=_LOCAL,
+            allow_local=False,
+            demo_read_only=True,
+            middleware=["django.middleware.security.SecurityMiddleware"],
+        )
 
 
 @_requires_non_root

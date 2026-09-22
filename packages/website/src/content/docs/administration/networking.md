@@ -708,6 +708,11 @@ That work is yours to do at the platform layer, and this is the list to do it
 from. See [Datastore network isolation](/administration/security/#datastore-network-isolation)
 for what the chart already covers.
 
+**One exception:** with `demo.interactive: true`, the chart *does* restrict the
+`api` and `celery-worker` pods' egress, to DNS and the bundled datastores only —
+this deployment shape needs no other outbound access at all. See
+[Interactive demo mode](/administration/security/#interactive-demo-mode).
+
 ### Inbound
 
 | Source | Destination | Port / protocol | Required? | Why |
