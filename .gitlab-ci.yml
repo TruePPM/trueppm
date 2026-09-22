@@ -7073,17 +7073,7 @@ ci:arm64-smoke:
       set -euo pipefail
       GL_API="${CI_REGISTRY_IMAGE}/api"
       echo "--- api: arm64 build (root context, matching api:publish) ---"
-      # --provenance=false is load-bearing, not tidiness (#3994). Docker
-      # Desktop on this runner defaults to attaching a BuildKit provenance
-      # attestation, which makes `docker build` emit an OCI *index* rather
-      # than a single-platform manifest. `docker manifest create` in
-      # *:publish:manifest then refuses it — "is a manifest list" — because a
-      # manifest list cannot nest another one. The amd64 leg's docker:27 dind
-      # builder does not do this, so the two legs were asymmetric and only the
-      # arm64 side broke assembly. Removing it costs nothing here: the
-      # pipeline's supply-chain evidence is the syft CycloneDX SBOM and the
-      # Cosign attestation, not BuildKit provenance.
-      docker build --provenance=false -f packages/api/Dockerfile -t "${GL_API}:arm64-smoke" .
+      docker build -f packages/api/Dockerfile -t "${GL_API}:arm64-smoke" .
       ARCH="$(docker image inspect "${GL_API}:arm64-smoke" --format '{{.Architecture}}')"
       echo "api image architecture: ${ARCH}"
       [ "$ARCH" = "arm64" ] || { echo "ERROR: expected arm64, got ${ARCH}"; exit 1; }
@@ -7101,7 +7091,7 @@ ci:arm64-smoke:
       # root, so a root-context build fails on a missing /nginx.conf.
       echo "--- web: arm64 build (packages/web context, matching web:publish) ---"
       cd packages/web
-      docker build --provenance=false -t "${GL_WEB}:arm64-smoke" .
+      docker build -t "${GL_WEB}:arm64-smoke" .
       cd "$CI_PROJECT_DIR"
       ARCH="$(docker image inspect "${GL_WEB}:arm64-smoke" --format '{{.Architecture}}')"
       echo "web image architecture: ${ARCH}"
@@ -7236,17 +7226,23 @@ ci:manifest-probe:
       set -euo pipefail
       # Mirrors api:publish:manifest's two create/push pairs, on both
       # registries, under scratch names.
+      # `docker buildx imagetools create` rather than `docker manifest
+      # create` (#3994). The legacy command refuses any source that is itself
+      # a manifest list — "is a manifest list" — and Docker Desktop on the
+      # arm64 runner emits exactly that, because it attaches a BuildKit
+      # provenance attestation and attestations live as extra manifests
+      # inside an OCI index. imagetools understands indexes, merges them, and
+      # carries the attestations through, so the build keeps its provenance
+      # and assembly still works. It also creates and pushes in one step.
       for pkg in api web; do
         GL="${CI_REGISTRY_IMAGE}/${pkg}"
         GH="ghcr.io/${GHCR_USER}/${pkg}"
         for reg in "$GL" "$GH"; do
-          docker manifest create "${reg}:multiarch-smoke" \
+          docker buildx imagetools create -t "${reg}:multiarch-smoke" \
             "${reg}:amd64-smoke" "${reg}:arm64-smoke"
-          docker manifest push "${reg}:multiarch-smoke"
           # Stands in for the `:latest` pair without writing `:latest`.
-          docker manifest create "${reg}:latest-smoke" \
+          docker buildx imagetools create -t "${reg}:latest-smoke" \
             "${reg}:amd64-smoke" "${reg}:arm64-smoke"
-          docker manifest push "${reg}:latest-smoke"
           echo "assembled ${reg}:multiarch-smoke and ${reg}:latest-smoke"
         done
       done
@@ -7345,17 +7341,7 @@ api:publish:arm64:
     - |
       VERSION="${CI_COMMIT_TAG#v}"
       GL_IMAGE="${CI_REGISTRY_IMAGE}/api"
-      # --provenance=false is load-bearing, not tidiness (#3994). Docker
-      # Desktop on this runner defaults to attaching a BuildKit provenance
-      # attestation, which makes `docker build` emit an OCI *index* rather
-      # than a single-platform manifest. `docker manifest create` in
-      # *:publish:manifest then refuses it — "is a manifest list" — because a
-      # manifest list cannot nest another one. The amd64 leg's docker:27 dind
-      # builder does not do this, so the two legs were asymmetric and only the
-      # arm64 side broke assembly. Removing it costs nothing here: the
-      # pipeline's supply-chain evidence is the syft CycloneDX SBOM and the
-      # Cosign attestation, not BuildKit provenance.
-      docker build --provenance=false -f packages/api/Dockerfile \
+      docker build -f packages/api/Dockerfile \
         -t "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" \
         .
       docker save "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" -o /tmp/api-image-arm64.tar
@@ -7410,12 +7396,14 @@ api:publish:manifest:
       # Internal GitLab Container Registry mirror — unsigned, matching the
       # existing internal-mirror behavior (only the public GHCR release is
       # Cosign-signed).
-      docker manifest create "${GL_IMAGE}:${CI_COMMIT_TAG}" \
+      # imagetools, not `docker manifest create`: the latter refuses a source
+      # that is itself an index, which is what the arm64 leg produces once
+      # BuildKit attaches a provenance attestation (#3994). imagetools merges
+      # indexes, preserves the attestations, and pushes in one step.
+      docker buildx imagetools create -t "${GL_IMAGE}:${CI_COMMIT_TAG}" \
         "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64"
-      docker manifest push "${GL_IMAGE}:${CI_COMMIT_TAG}"
-      docker manifest create "${GL_IMAGE}:latest" \
+      docker buildx imagetools create -t "${GL_IMAGE}:latest" \
         "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64"
-      docker manifest push "${GL_IMAGE}:latest"
       # Public GHCR release — REQUIRED on a release tag (#939). Fail loudly
       # with an actionable message if the maintainer-configured credentials
       # are missing, rather than silently shipping GitLab-registry-only.
@@ -7430,12 +7418,10 @@ api:publish:manifest:
       fi
       echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
       GH_IMAGE="ghcr.io/${GHCR_USER}/api"
-      docker manifest create "${GH_IMAGE}:${VERSION}" \
+      docker buildx imagetools create -t "${GH_IMAGE}:${VERSION}" \
         "${GH_IMAGE}:${VERSION}-amd64" "${GH_IMAGE}:${VERSION}-arm64"
-      docker manifest push "${GH_IMAGE}:${VERSION}"
-      docker manifest create "${GH_IMAGE}:latest" \
+      docker buildx imagetools create -t "${GH_IMAGE}:latest" \
         "${GH_IMAGE}:${VERSION}-amd64" "${GH_IMAGE}:${VERSION}-arm64"
-      docker manifest push "${GH_IMAGE}:latest"
       cosign sign --yes "${GH_IMAGE}:${VERSION}"
       cosign attest --yes --type cyclonedx --predicate "sbom/api-${VERSION}-amd64.cdx.json" "${GH_IMAGE}:${VERSION}"
   artifacts:
@@ -7498,9 +7484,7 @@ web:publish:arm64:
       VERSION="${CI_COMMIT_TAG#v}"
       GL_IMAGE="${CI_REGISTRY_IMAGE}/web"
       cd packages/web
-      # --provenance=false: see the api arm64 leg. Without it Docker Desktop
-      # emits an OCI index and web:publish:manifest cannot assemble it.
-      docker build --provenance=false \
+      docker build \
         -t "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" \
         .
       docker save "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" -o /tmp/web-image-arm64.tar
@@ -7541,12 +7525,14 @@ web:publish:manifest:
     - |
       VERSION="${CI_COMMIT_TAG#v}"
       GL_IMAGE="${CI_REGISTRY_IMAGE}/web"
-      docker manifest create "${GL_IMAGE}:${CI_COMMIT_TAG}" \
+      # imagetools, not `docker manifest create`: the latter refuses a source
+      # that is itself an index, which is what the arm64 leg produces once
+      # BuildKit attaches a provenance attestation (#3994). imagetools merges
+      # indexes, preserves the attestations, and pushes in one step.
+      docker buildx imagetools create -t "${GL_IMAGE}:${CI_COMMIT_TAG}" \
         "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64"
-      docker manifest push "${GL_IMAGE}:${CI_COMMIT_TAG}"
-      docker manifest create "${GL_IMAGE}:latest" \
+      docker buildx imagetools create -t "${GL_IMAGE}:latest" \
         "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64"
-      docker manifest push "${GL_IMAGE}:latest"
       if [ -z "${GHCR_USER}" ] || [ -z "${GHCR_TOKEN}" ]; then
         echo "ERROR: GHCR_USER/GHCR_TOKEN not set — cannot publish the public 0.4 multi-arch manifest."
         echo "Configure both under Settings → CI/CD → Variables (Masked + Protected)."
@@ -7554,12 +7540,10 @@ web:publish:manifest:
       fi
       echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
       GH_IMAGE="ghcr.io/${GHCR_USER}/web"
-      docker manifest create "${GH_IMAGE}:${VERSION}" \
+      docker buildx imagetools create -t "${GH_IMAGE}:${VERSION}" \
         "${GH_IMAGE}:${VERSION}-amd64" "${GH_IMAGE}:${VERSION}-arm64"
-      docker manifest push "${GH_IMAGE}:${VERSION}"
-      docker manifest create "${GH_IMAGE}:latest" \
+      docker buildx imagetools create -t "${GH_IMAGE}:latest" \
         "${GH_IMAGE}:${VERSION}-amd64" "${GH_IMAGE}:${VERSION}-arm64"
-      docker manifest push "${GH_IMAGE}:latest"
       cosign sign --yes "${GH_IMAGE}:${VERSION}"
       cosign attest --yes --type cyclonedx --predicate "sbom/web-${VERSION}-amd64.cdx.json" "${GH_IMAGE}:${VERSION}"
   artifacts:
