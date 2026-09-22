@@ -125,7 +125,7 @@ test.describe('Read-only demo — login announcement (ADR-1197 D3)', () => {
     await expect(page.getByText(/^◆\s*Read-only demo$/)).toBeVisible();
     await expect(
       page.getByText(
-        'Drag a task on the Schedule and watch the critical path recompute in your browser. Nothing you do here is saved.',
+        'The Schedule is the only interactive part of this demo — drag a task and watch the critical path recompute live in your browser. Nothing you do here is saved.',
       ),
     ).toBeVisible();
 
