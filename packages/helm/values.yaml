@@ -1701,6 +1701,10 @@ demo:
     # pod's own capacity and per-IP rate limiting at the edge in front of the
     # host. The login page says so to visitors, so a lifted demo limit is not
     # mistaken for a product without throttling.
+    #
+    # In this mode THIS key owns TRUEPPM_THROTTLE_USER_RATE; env.TRUEPPM_THROTTLE_USER_RATE
+    # is dropped. Until #3998 the reverse held by accident — the env block's chart
+    # default always won, so the demo silently ran at 1000/min.
     userRate: "60000/min"
     # TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS is per-account and shared-fate too,
     # but is ACCEPTED at its ordinary default rather than re-aimed: D2's

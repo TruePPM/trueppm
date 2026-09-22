@@ -1696,6 +1696,25 @@ login_hint_val="$(yq '.spec.template.spec.containers[0].env[] | select(.name == 
 [ "$login_hint_val" = "struct-visitor:StructCheck1Pw" ] \
   || fail "TRUEPPM_DEMO_LOGIN_HINT rendered '$login_hint_val', expected 'struct-visitor:StructCheck1Pw' — parse_demo_login_hint requires exactly username:password and refuses to boot on anything else (#3925)"
 
+# demo.throttle.userRate must be what the api container actually gets (#3998).
+# values.yaml's env block ALSO sets TRUEPPM_THROTTLE_USER_RATE as a chart default,
+# and the demo value used to sit behind `not (hasKey .Values.env ...)` — always
+# false — so it never rendered and the demo ran at the ordinary 1000/min while the
+# values file and docs described a raised limit. Assert exactly one entry, with the
+# demo value, on every container of the api Deployment.
+demo_user_rate="$(yq '.demo.throttle.userRate' "$CHART/values.yaml")"
+api_user_rates="$(yq eval-all 'select(.kind == "Deployment" and .metadata.name == "trueppm-api")
+  | .spec.template.spec.containers[]
+  | "rates=" + ([.env[]? | select(.name == "TRUEPPM_THROTTLE_USER_RATE") | .value] | join(","))' - <<<"$DEMO_RO_RENDER" \
+  | grep '^rates=' | sed 's/^rates=//')"
+grep -q . <<<"$api_user_rates" || fail "no api container found in the demo.interactive render (#3998)"
+while IFS= read -r rates; do
+  [ "$rates" = "$demo_user_rate" ] \
+    || fail "api container TRUEPPM_THROTTLE_USER_RATE rendered '$rates' under demo.interactive=true, expected exactly one entry '$demo_user_rate' from demo.throttle.userRate (#3998)"
+done <<EOF
+$api_user_rates
+EOF
+
 # Guards: refuse to render rather than silently misconfigure (trueppm.demoGuards).
 if helm template trueppm "$CHART" "${interactive_args[@]}" --set persistence.media.enabled=true >/dev/null 2>&1; then
   fail "demo.interactive=true rendered successfully with persistence.media.enabled=true — this mode must give the api pod NO writable media path"
