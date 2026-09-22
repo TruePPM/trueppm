@@ -153,6 +153,23 @@ workflow:
     - if: '$CI_COMMIT_TAG =~ /^mcp-v\d+/'
       auto_cancel:
         on_new_commit: none
+    # A deliberate, variable-gated probe run must survive the duplicate-pipeline
+    # suppression below. These runs execute a job set DISJOINT from any MR
+    # pipeline (the probes are gated on these same variables and nothing else
+    # is), so they are not duplicates — and an MR pipeline has no way to carry
+    # a one-off variable, so a branch pipeline is the only way to start them.
+    #
+    # Without this, opening the MR silently disables the very jobs the MR
+    # exists to add: `glab ci run -b <branch> --variables MANIFEST_PROBE=1`
+    # fails with "The pipeline did not run. Review the workflow:rules
+    # configuration", which names the rules and not the MR, so it reads as a
+    # bad command rather than a policy. The workaround was close-MR, run,
+    # reopen — done three times in one session before this rule existed.
+    #
+    # Pass these per-run. Setting one as a PROJECT variable would re-enable
+    # branch pipelines for every MR branch and produce the duplicates the
+    # suppression exists to prevent.
+    - if: '$ARM64_SMOKE == "1" || $MANIFEST_PROBE == "1" || $PYPI_PROBE == "1"'
     - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
       when: never
     - if: '$CI_COMMIT_BRANCH'
@@ -7310,11 +7327,20 @@ ci:manifest-probe:
             --certificate-identity "${IDENTITY}" \
             --certificate-oidc-issuer "https://gitlab.com" \
             "${GH}@${ARCH_DIGEST}" > "/tmp/att-${pkg}-${arch}.json"
-          FOUND=$(jq -r '.payload' "/tmp/att-${pkg}-${arch}.json" | base64 -d \
-            | jq -r '.predicate.metadata.component.version')
-          echo "${pkg} ${arch} attestation reports source-version: ${FOUND}"
+          # A digest can carry SEVERAL attestations — re-running the probe
+          # attests the same digest again, since identical content yields an
+          # identical digest — so verify-attestation emits one JSON document
+          # per attestation. Decode every one and assert the SET of
+          # architectures they report is exactly this architecture. That is
+          # strictly stronger than reading the first: it fails if ANY
+          # attestation on this digest describes the wrong image.
+          FOUND=$(jq -r '.payload' "/tmp/att-${pkg}-${arch}.json" \
+            | while IFS= read -r P; do
+                echo "$P" | base64 -d | jq -r '.predicate.metadata.component.version'
+              done | sort -u | paste -sd, -)
+          echo "${pkg} ${arch} attestation(s) report source-version: ${FOUND}"
           [ "$FOUND" = "smoke-${arch}" ] || {
-            echo "ERROR: ${pkg} ${arch} digest carries an SBOM for '${FOUND}' — wrong architecture."
+            echo "ERROR: ${pkg} ${arch} digest carries SBOM(s) for '${FOUND}' — expected only smoke-${arch}."
             exit 1
           }
         done
