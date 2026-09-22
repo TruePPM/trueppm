@@ -7062,6 +7062,9 @@ ci:arm64-smoke:
   extends: .docker-publish-arm64-base
   rules:
     - if: '$ARM64_SMOKE == "1"'
+    # ci:manifest-probe (#3994) consumes this job's :arm64-smoke tags, so a
+    # manifest probe run needs the arm64 leg too.
+    - if: '$MANIFEST_PROBE == "1"'
   # Start immediately instead of queueing behind every earlier stage — this
   # job validates the runner, not the code.
   needs: []
@@ -7130,6 +7133,144 @@ ci:arm64-smoke:
     paths:
       - sbom/
     expire_in: 1 week
+
+ci:amd64-smoke:
+  # The amd64 counterpart to ci:arm64-smoke, so ci:manifest-probe has two
+  # arch legs to assemble (#3994). Runs on the ordinary disposable docker
+  # executor — nothing about amd64 is in doubt, this job exists only to
+  # produce the other half of the manifest list.
+  extends: .docker-publish-base
+  rules:
+    - if: '$MANIFEST_PROBE == "1"'
+  needs: []
+  script:
+    - |
+      set -euo pipefail
+      . "$CI_PROJECT_DIR/scripts/docker-push-retry.sh"
+      GL_API="${CI_REGISTRY_IMAGE}/api"
+      docker build -f packages/api/Dockerfile -t "${GL_API}:amd64-smoke" .
+      ARCH="$(docker image inspect "${GL_API}:amd64-smoke" --format '{{.Architecture}}')"
+      echo "api image architecture: ${ARCH}"
+      [ "$ARCH" = "amd64" ] || { echo "ERROR: expected amd64, got ${ARCH}"; exit 1; }
+      # The real api:publish:manifest attests with the SBOM the amd64 leg
+      # produced, so the probe must produce one at a matching path.
+      mkdir -p sbom
+      docker save "${GL_API}:amd64-smoke" -o /tmp/api-amd64-smoke.tar
+      syft "docker-archive:/tmp/api-amd64-smoke.tar" -o "cyclonedx-json=sbom/api-smoke-amd64.cdx.json"
+      push_with_retry "${GL_API}:amd64-smoke"
+    - |
+      set -euo pipefail
+      . "$CI_PROJECT_DIR/scripts/docker-push-retry.sh"
+      GL_WEB="${CI_REGISTRY_IMAGE}/web"
+      cd packages/web
+      docker build -t "${GL_WEB}:amd64-smoke" .
+      cd "$CI_PROJECT_DIR"
+      ARCH="$(docker image inspect "${GL_WEB}:amd64-smoke" --format '{{.Architecture}}')"
+      echo "web image architecture: ${ARCH}"
+      [ "$ARCH" = "amd64" ] || { echo "ERROR: expected amd64, got ${ARCH}"; exit 1; }
+      push_with_retry "${GL_WEB}:amd64-smoke"
+    - |
+      set -euo pipefail
+      . "$CI_PROJECT_DIR/scripts/docker-push-retry.sh"
+      if [ -z "${GHCR_USER:-}" ] || [ -z "${GHCR_TOKEN:-}" ]; then
+        echo "ERROR: GHCR_USER/GHCR_TOKEN absent — ci:manifest-probe needs the GHCR"
+        echo "arch legs to assemble against, and cosign signs the GHCR index only."
+        echo "They are Masked + Protected: run this on a PROTECTED ref."
+        exit 1
+      fi
+      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      for pkg in api web; do
+        docker tag "${CI_REGISTRY_IMAGE}/${pkg}:amd64-smoke" "ghcr.io/${GHCR_USER}/${pkg}:amd64-smoke"
+        push_with_retry "ghcr.io/${GHCR_USER}/${pkg}:amd64-smoke"
+      done
+  artifacts:
+    name: "amd64-smoke-sbom"
+    paths:
+      - sbom/
+    expire_in: 1 week
+
+ci:manifest-probe:
+  # Exercises api:publish:manifest / web:publish:manifest WITHOUT a release
+  # tag (#3994). Those two jobs are the last never-executed publish surface,
+  # and they own the real release tag, `:latest`, and Cosign signing — so a
+  # first-run failure loses the amd64 publish that works today, not just
+  # arm64.
+  #
+  # Their script is pure tag arithmetic, so substituting scratch tags
+  # exercises the identical mechanics. BOTH create/push pairs are covered:
+  # the version-tag pair as `:multiarch-smoke`, and the `:latest` pair as
+  # `:latest-smoke`. The literal `:latest` is never written — it is the
+  # public default pull target and a probe must not touch it.
+  #
+  # This probe additionally VERIFIES the signature. The real jobs sign and
+  # attest but never verify, so the property they exist to guarantee — that a
+  # puller resolving either platform can verify the index — is currently
+  # unchecked. If this passes, the same two lines belong in the real jobs.
+  extends: .docker-publish-base
+  rules:
+    - if: '$MANIFEST_PROBE == "1"'
+  needs:
+    - job: ci:arm64-smoke
+      artifacts: true
+    - job: ci:amd64-smoke
+      artifacts: true
+  script:
+    - |
+      set -euo pipefail
+      if [ -z "${GHCR_USER:-}" ] || [ -z "${GHCR_TOKEN:-}" ]; then
+        echo "ERROR: GHCR_USER/GHCR_TOKEN absent — run this on a PROTECTED ref."
+        exit 1
+      fi
+      echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+    - |
+      set -euo pipefail
+      # Mirrors api:publish:manifest's two create/push pairs, on both
+      # registries, under scratch names.
+      for pkg in api web; do
+        GL="${CI_REGISTRY_IMAGE}/${pkg}"
+        GH="ghcr.io/${GHCR_USER}/${pkg}"
+        for reg in "$GL" "$GH"; do
+          docker manifest create "${reg}:multiarch-smoke" \
+            "${reg}:amd64-smoke" "${reg}:arm64-smoke"
+          docker manifest push "${reg}:multiarch-smoke"
+          # Stands in for the `:latest` pair without writing `:latest`.
+          docker manifest create "${reg}:latest-smoke" \
+            "${reg}:amd64-smoke" "${reg}:arm64-smoke"
+          docker manifest push "${reg}:latest-smoke"
+          echo "assembled ${reg}:multiarch-smoke and ${reg}:latest-smoke"
+        done
+      done
+    - |
+      set -euo pipefail
+      # Sign + attest ONLY the multi-arch index, exactly as the real jobs do.
+      GH_API="ghcr.io/${GHCR_USER}/api"
+      cosign sign --yes "${GH_API}:multiarch-smoke"
+      cosign attest --yes --type cyclonedx \
+        --predicate "sbom/api-smoke-amd64.cdx.json" "${GH_API}:multiarch-smoke"
+      echo "signed and attested ${GH_API}:multiarch-smoke"
+    - |
+      set -euo pipefail
+      # THE CHECK THE REAL JOBS DO NOT DO. A signature nothing validates is a
+      # false assurance; this is what proves the index signing actually works
+      # for a puller on either platform.
+      GH_API="ghcr.io/${GHCR_USER}/api"
+      IDENTITY="https://gitlab.com/${CI_PROJECT_PATH}//.gitlab-ci.yml@refs/heads/${CI_COMMIT_REF_NAME}"
+      echo "verifying against identity: ${IDENTITY}"
+      cosign verify \
+        --certificate-identity "${IDENTITY}" \
+        --certificate-oidc-issuer "https://gitlab.com" \
+        "${GH_API}:multiarch-smoke"
+      cosign verify-attestation --type cyclonedx \
+        --certificate-identity "${IDENTITY}" \
+        --certificate-oidc-issuer "https://gitlab.com" \
+        "${GH_API}:multiarch-smoke"
+      echo "VERIFIED: index signature and CycloneDX attestation both validate."
+    - |
+      set -euo pipefail
+      # Prove the assembled list really carries both platforms.
+      docker manifest inspect "ghcr.io/${GHCR_USER}/api:multiarch-smoke" \
+        | grep -E '"architecture"' | sort -u
+      echo "MANIFEST PROBE COMPLETE — :latest was NOT touched."
 
 api:publish:
   # amd64 leg of the multi-arch publish (#3407). Pushes ONLY the
