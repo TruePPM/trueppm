@@ -2,16 +2,17 @@
 
 ## Status
 
-Accepted — status corrected 2026-09-21 as the D3/D4 slice (#3926) landed on top of #3925
-MR 1, matching the convention established by the #2539 audit (verified: D2's middleware
-merged as `trueppm_api.core.demo_read_only` in #3924, and `load_sample_project` now cites
-D5 by name). Proposed 2026-09-19; amended 2026-09-20 and 2026-09-21 — see **Amendment
-2026-09-20** and the dated notes on D9 below. Resolves #3912. Amends ADR-0658 — which
-continues to govern the share-link demo **unchanged** — for one new mode only.
+Accepted — status corrected 2026-09-21 as the D1/D6/D7 slice (#3925 MR 2) landed on top of
+D3/D4 (#3926) and #3925 MR 1, matching the convention established by the #2539 audit
+(verified: D2's middleware merged as `trueppm_api.core.demo_read_only` in #3924, and
+`load_sample_project` now cites D5 by name). Proposed 2026-09-19; amended 2026-09-20 and
+2026-09-21 — see **Amendment 2026-09-20** and the dated notes on D9 below. Resolves #3912.
+Amends ADR-0658 — which continues to govern the share-link demo **unchanged** — for one new
+mode only.
 
-> **Implementation status (2026-09-21).** The 2026-09-19 note below said "no code ships
-> with this ADR", and that has stopped being true — which is why the status moved. What
-> exists now:
+> **Implementation status (2026-09-21, updated for #3925 MR 2).** The 2026-09-19 note below
+> said "no code ships with this ADR", and that has stopped being true — which is why the
+> status moved. What exists now:
 >
 > - **D2 — shipped** (#3924): `DemoReadOnlyMiddleware` refuses every unsafe method under
 >   `/api/` except sign-in, token refresh and sign-out, keyed on the deployment.
@@ -22,17 +23,30 @@ continues to govern the share-link demo **unchanged** — for one new mode only.
 > - **D3, D4 — shipped** (#3926): the refusal affordance, the preview overlay, the login
 >   and shell announcements, and the `demo_read_only` / `demo_login_hint` fields on
 >   `GET /api/v1/edition/`.
+> - **D1, D6, D7 — shipped** (#3925 MR 2). `templates/web/configmap.yaml` now renders a
+>   THIRD server block under `demo.interactive`: a method fence (`limit_except GET HEAD
+>   OPTIONS` over `/api/`, with the three D2 auth POSTs exact-matched around it), `/admin/`
+>   and `/ws/` still 404. `templates/networkpolicy.yaml` renders an egress-deny
+>   NetworkPolicy for the api and celery-worker pods, DNS and the bundled datastores only,
+>   guarded so it refuses to render against a managed (non-bundled) datastore. The api
+>   Deployment renders `TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE` and `TRUEPPM_THROTTLE_USER_RATE`
+>   re-aimed for concurrency, and records `TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS` as accepted at
+>   its default (D2 already refuses token creation, so the cap is unreachable here).
+>   `trueppm.demoGuards` also now refuses `demo.interactive=true` alongside
+>   `persistence.media.enabled=true` — no writable media path for the api pod in this mode.
+>   Correction on the way in: #3926 shipped its runtime mode signal as
+>   `GET /api/v1/edition/`, an existing `AllowAny` route, not a new one — so the method
+>   fence needed no route-allowlist decision, only a method restriction, confirming the D1
+>   amendment below independently rather than depending on it.
 > - **D8 — the open question is resolved and its disclosure shipped** (#3969): the owner
 >   decided 2026-09-21 to keep Cloudflare Access on the hosted demo and disclose it. The
 >   `demo.accessGate` values block, the `demo_access_gate` field on
 >   `GET /api/v1/edition/`, the conditional login-screen notice and the pre-capture
 >   notice on `getting-started/try-it` are on `main`. D8's security statement is
 >   unchanged — Access remains a non-control. See the dated resolution on D8 below.
-> - **D1 — NOT shipped.** `packages/helm/templates/web/configmap.yaml` still renders two
->   server blocks, not three, so the method fence at the edge does not exist and the
->   interactive login is not reachable through the chart's own web tier. That block, the
->   egress NetworkPolicy and the T2 throttle re-aim are #3925 MR 2, and until they land
->   **an interactive demo must not be exposed publicly.**
+>
+>   **What this does NOT close.** D10 (host isolation from CI runners) is unchanged — it is
+>   not a chart flag. A public launch still needs it addressed by the operator.
 >
 > The original note, kept because it is the baseline the above is measured against:
 > verified 2026-09-19 against `f502f488c` (0.4.0-beta.3, this branch's base): there was no
@@ -228,6 +242,20 @@ per-account, and under one shared identity they are shared-fate. They are re-aim
 accepted explicitly, never left at a default that happens to mean something different
 here than everywhere else.
 
+> **Correction (2026-09-21, #3925 MR 2 security-review).** "The per-IP `login` scope and
+> `anon` scope … become the real limiters" is only true of the sign-in request itself.
+> DRF's stock `AnonRateThrottle` skips throttling once `request.user.is_authenticated`,
+> and `login`/`login_account` are wired only to the token-obtain view — so neither
+> scope bounds a signed-in visitor's ordinary reads. Once authenticated, the shared
+> `"user"` scope is the *only* throttle in play, with no independent per-IP ceiling: a
+> single client holding the published credential can consume the whole account-wide
+> budget alone. `demo.throttle.userRate` is raised generously as a **shared-fate
+> resource ceiling**, not a per-visitor fairness control — closing that gap depends on
+> whatever sits in front of the host (Cloudflare or equivalent), which is what "alongside
+> Cloudflare" above was gesturing at without saying so precisely. Recorded here rather
+> than silently correcting the sentence above, per the memory-discipline convention this
+> project already follows for a stale belief.
+
 ### D7 — Egress is denied at the pod, not only in Python
 
 `assert_url_allowed` (`apps/webhooks/serializers.py:212`) is a good control and stays.
@@ -399,7 +427,12 @@ were not run in a browser.
      method-override test (#3924).
    - **Attachments are off in this mode.** D2 already refuses the upload. The chart also
      gives the api pod no writable media path and no storage write credentials, so a
-     hypothetical D2 hole has nowhere to save a file (#3925).
+     hypothetical D2 hole has nowhere to save a file (#3925). This combination would
+     otherwise trip `validate_attachment_storage`'s own #775 boot guard — no opt-in and no
+     writable path is exactly the misconfiguration it exists to refuse — so the guard
+     takes a `writes_disabled` escape keyed off the same `TRUEPPM_DEMO_READ_ONLY` that
+     arms D2, not a second independently-settable flag: the guard's durability question
+     only applies to a backend a request can actually reach.
    - **The comment composer and attachment dropzone are disabled up front** with a reason,
      and any form that is refused keeps the visitor's typed text (#3926).
    - Alternative B (enforce read-only through the seeded role) stays rejected for the

@@ -225,4 +225,132 @@ spec:
     - Ingress
   # No `ingress:` rules → default-deny, same reasoning as celery-worker above:
   # beat has no Service and only ever dials out.
+{{/*
+Demo interactive mode: egress-deny for api and celery-worker (ADR-1197 D7, #3925
+MR 2).
+
+Every OTHER deployment shape leaves api/celery-worker egress unrestricted (see the
+prose at the top of this file) because their outbound destinations — the
+operator's own IdP, SMTP relay, object storage, OTLP collector — are deployment-
+specific and a chart-imposed allowlist would break real installs. A published
+login changes that calculus: this mode needs NONE of those. No IdP (the seeded
+account signs in with a password, not SSO), no SMTP (this deployment shape has no
+legitimate reason to send mail — see below), no object storage (persistence.media
+is refused by trueppm.demoGuards in this mode), no OTLP (an operator running this
+mode is not expected to also wire telemetry to it).
+
+Scope is deliberately narrow: DNS (so Service names still resolve) plus the
+chart's OWN bundled PostgreSQL/Valkey pods. trueppm.demoGuards fails the render if
+demo.interactive and networkPolicy.enabled are both true while either bundled
+datastore is disabled, so by the time this renders, both are guaranteed enabled.
+
+Outbound EFFECTS of comments and webhooks are covered too, not just the obvious
+integration-hub path: `assert_url_allowed` (apps/webhooks/serializers.py) is a
+Python allowlist on ONE call site, and a task-comment mention email is a write
+this deployment shape has no legitimate reason to send at all. Denying egress at
+the pod closes both without auditing every call site that could someday open a
+socket — the same "deny by default, allow-list the exception" shape as D2's
+request-method fence, one layer down the stack.
+
+Celery BEAT is deliberately excluded: it only ever dials the broker (Valkey), and
+its own ingress-deny policy above already documents that beat opens no other
+connection. Restricting an egress path it does not use would add a policy with
+nothing to assert.
+
+CI: scripts/helm-netpol-drill.sh extends its existing probe suite with cases for
+this policy rather than standing up a second harness.
+*/}}
+{{- if .Values.demo.interactive }}
+{{- $dnsFrom := .Values.networkPolicy.dnsSelector | default dict }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "trueppm.fullname" . }}-api-egress-demo
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "trueppm.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            {{- toYaml ($dnsFrom.namespaceSelector | default dict) | nindent 12 }}
+          podSelector:
+            {{- toYaml ($dnsFrom.podSelector | default dict) | nindent 12 }}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- if .Values.postgresql.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    {{- end }}
+    {{- if .Values.valkey.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: valkey
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 6379
+    {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "trueppm.fullname" . }}-celery-worker-egress-demo
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "trueppm.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: celery-worker
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            {{- toYaml ($dnsFrom.namespaceSelector | default dict) | nindent 12 }}
+          podSelector:
+            {{- toYaml ($dnsFrom.podSelector | default dict) | nindent 12 }}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- if .Values.postgresql.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 5432
+    {{- end }}
+    {{- if .Values.valkey.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: valkey
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: 6379
+    {{- end }}
+{{- end }}
 {{- end }}
