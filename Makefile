@@ -445,7 +445,8 @@ version-status-check: ## Run the docs:version-accuracy CI job locally (#2941)
 	@# Past/present-tense claims about unshipped versions, plus the
 	@# declaration-coverage ratchet over features/, administration/ and
 	@# getting-started/. Editing a non-declaring page breaks its baseline hash, so
-	@# any docs branch can trip this. ~3s, no network.
+	@# any docs branch can trip this. Scope includes README.md since #3996 — the
+	@# CLAUDE.md rule always named it, the scan never walked it. ~3s, no network.
 	@bash scripts/check-version-status.sh
 	@# The early-promotion guard (#2824) refuses an alpha cut against a version
 	@# already promoted to the roadmap's "## Shipped" section while its "Ships in

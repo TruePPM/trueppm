@@ -337,8 +337,12 @@ See `CLAUDE.md` for coding conventions, two-repo rules, and the complete develop
 
 Release tags publish Docker images to the **GitLab Container Registry** and, as of
 the 0.4 beta (#939), to the public **GHCR** mirror — every image and the Helm OCI
-chart are Trivy-scanned, SBOM-attached, and Cosign-signed keyless. Multi-arch
-(`linux/arm64`) is deferred to 0.5; 0.4 publishes `linux/amd64` only.
+chart are Trivy-scanned, SBOM-attached, and Cosign-signed keyless. From
+`v0.4.0-beta.4` on, every published `api` and `web` image is a multi-arch
+manifest covering both `linux/amd64` and `linux/arm64` (#3407) — Docker and
+Kubernetes pull the matching platform automatically on Apple Silicon, AWS
+Graviton, or Raspberry Pi, with no `platform:` or `nodeSelector` override.
+Tags before `v0.4.0-beta.4` (`v0.4.0-beta.1`–`.3`) are `linux/amd64` only.
 
 | Artifact | Where it publishes |
 |----------|---------------------|
