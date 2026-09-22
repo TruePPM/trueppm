@@ -7657,11 +7657,127 @@ helm:publish:
 # setup comment below the job.
 # ---------------------------------------------------------------------------
 
+ci:pypi-mint-probe:
+  # Proves api:publish:pypi's Trusted Publishing configuration WITHOUT
+  # publishing anything (#3992).
+  #
+  # api:publish:pypi switched from a static PYPI_TOKEN to OIDC Trusted
+  # Publishing in the beta.3->stable window and is gated on rules-release-tag,
+  # so it has never run in its new form. It is the one publish job whose
+  # failure is unrecoverable: a PyPI upload is permanent and a version can
+  # never be re-uploaded, so a misconfiguration there burns a version number
+  # rather than costing a re-cut.
+  #
+  # The real job is five steps — version check, build, sign attestations, mint
+  # a token, upload. ONLY THE UPLOAD IS DESTRUCTIVE. A successful mint proves
+  # the whole trust configuration end to end: that GitLab issues an OIDC token
+  # with aud: pypi, and that PyPI holds a Trusted Publisher for trueppm-api
+  # whose claims match — namespace, project, workflow path, and the non-blank
+  # environment name. This job runs the first four steps and stops.
+  #
+  # The `image`, `id_tokens:` and `environment:` blocks below are copied from
+  # api:publish:pypi deliberately and MUST stay in lockstep with it: the OIDC
+  # claims PyPI matches against are derived from them, so a probe that differs
+  # from the real job proves nothing about the real job.
+  stage: publish
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  rules:
+    - if: '$PYPI_PROBE == "1"'
+  needs: []
+  environment:
+    name: pypi-api
+    url: https://pypi.org/project/trueppm-api/
+  id_tokens:
+    PYPI_ID_TOKEN:
+      aud: pypi
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  variables:
+    PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+  before_script:
+    - pip install build "twine>=6.1" pypi-attestations==0.0.28 --quiet
+  script:
+    - |
+      set -euo pipefail
+      # The real job compares pyproject.toml's version against $CI_COMMIT_TAG.
+      # A probe has no tag, so assert the version parses and report it — the
+      # comparison itself is trivial shell and is not what is unproven here.
+      PKG_VERSION=$(python -c "
+      import tomllib
+      with open('packages/api/pyproject.toml', 'rb') as f:
+          print(tomllib.load(f)['project']['version'])
+      ")
+      if [ -z "$PKG_VERSION" ]; then
+        echo "ERROR: could not read a version from packages/api/pyproject.toml"
+        exit 1
+      fi
+      echo "packages/api/pyproject.toml version: ${PKG_VERSION}"
+    - cd packages/api
+    - python -m build
+    - |
+      set -euo pipefail
+      # PEP 740 attestation signing via the ambient SIGSTORE_ID_TOKEN. Builds
+      # and signs real artifacts; uploads none.
+      python -m pypi_attestations sign dist/*.tar.gz dist/*.whl
+      ls -1 dist/*.publish.attestation
+    - |
+      set -euo pipefail
+      # THE STEP THIS JOB EXISTS FOR. Identical exchange to api:publish:pypi's,
+      # including surfacing PyPI's own explanation on failure rather than a
+      # bare HTTP error.
+      #
+      # The minted token is a real, short-lived, project-scoped PyPI upload
+      # credential. It is never echoed, never exported, and never used: the
+      # job asserts its shape and exits.
+      python - <<'PY'
+      import json, os, sys, urllib.request, urllib.error
+
+      req = urllib.request.Request(
+          "https://pypi.org/_/oidc/mint-token",
+          data=json.dumps({"token": os.environ["PYPI_ID_TOKEN"]}).encode(),
+          headers={"Content-Type": "application/json"},
+      )
+      try:
+          resp = urllib.request.urlopen(req)
+      except urllib.error.HTTPError as e:
+          sys.stderr.write("PyPI mint-token FAILED: HTTP %s %s\n" % (e.code, e.reason))
+          sys.stderr.write(e.read().decode("utf-8", "replace") + "\n")
+          sys.stderr.write(
+              "\nThis is the configuration api:publish:pypi depends on. PyPI states\n"
+              "the exact mismatch above — most often no Trusted Publisher matches\n"
+              "the pipeline's OIDC claims, or the environment name does not match\n"
+              "the 'Environment name' field on pypi.org (this job and the real one\n"
+              "both declare environment: pypi-api).\n"
+          )
+          sys.exit(1)
+
+      token = json.load(resp)["token"]
+      # Assert the shape without disclosing the value.
+      if not token or not token.startswith("pypi-"):
+          sys.stderr.write("ERROR: mint succeeded but returned an unexpected token shape\n")
+          sys.exit(1)
+      print("PyPI mint-token OK: received a project-scoped token (%d chars, 'pypi-' prefix)." % len(token))
+      print("Trusted Publisher configuration for trueppm-api is valid for this pipeline.")
+      PY
+    # Phrased to avoid the literal upload command string, so a grep-based
+    # audit of this file cannot mistake this job for one that publishes.
+    - echo "PROBE COMPLETE — stopping deliberately before the upload step. Nothing was published."
+  artifacts:
+    name: "pypi-probe-dist"
+    paths:
+      - packages/api/dist/
+    expire_in: 1 week
+
 api:publish:pypi:
   # trueppm-api → PyPI sdist + wheel. Mirrors scheduler:publish / mcp:publish:
   # PyPI Trusted Publishing (OIDC) + PEP 740 attestations, no static token
   # (#3943). Distinct from api:publish, which ships the Docker image to the
   # container registry.
+  #
+  # Its Trusted Publishing configuration is probed without publishing by
+  # ci:pypi-mint-probe (#3992) — keep that job's image, id_tokens and
+  # environment in lockstep with this one, or the probe stops proving anything
+  # about this job.
   stage: publish
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   <<: *rules-release-tag
