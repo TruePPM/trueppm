@@ -1269,6 +1269,18 @@
             }
           }
         },
+        "accessGate": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "provider": {
+              "type": "string"
+            },
+            "privacyUrl": {
+              "type": "string"
+            }
+          }
+        },
         "baseUrl": {
           "type": "string"
         },

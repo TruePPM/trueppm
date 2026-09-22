@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 from rest_framework.test import APIClient
 
-from trueppm_api.core.demo_read_only import parse_demo_login_hint
+from trueppm_api.core.demo_read_only import parse_demo_access_gate, parse_demo_login_hint
 
 
 @pytest.mark.django_db
@@ -92,6 +94,102 @@ class TestEditionDemoFields:
             r = APIClient().get("/api/v1/edition/")
         assert r.data["demo_read_only"] is True
         assert r.data["demo_login_hint"] is None
+
+
+@pytest.mark.django_db
+class TestEditionDemoAccessGate:
+    """The external email-capture gate's disclosure (ADR-1197 D8 resolution, #3969)."""
+
+    GATE: ClassVar[dict[str, str]] = {
+        "provider": "Cloudflare Access",
+        "privacy_url": "https://example.com/privacy",
+    }
+
+    def test_absent_by_default(self) -> None:
+        """A normal install discloses nothing — the field is null, not omitted.
+
+        The whole point of the mechanism is that it is conditional: an instance with
+        no gate must never carry a claim that it collects email addresses.
+        """
+        r = APIClient().get("/api/v1/edition/")
+        assert r.status_code == 200
+        assert r.data["demo_access_gate"] is None
+
+    def test_emitted_in_demo_mode_when_declared(self) -> None:
+        with override_settings(DEMO_READ_ONLY=True, DEMO_ACCESS_GATE=self.GATE):
+            r = APIClient().get("/api/v1/edition/")
+        assert r.data["demo_access_gate"] == self.GATE
+
+    def test_demo_mode_with_no_gate_declared(self) -> None:
+        """Demo mode alone must not imply a gate. This is the false-claim case."""
+        with override_settings(DEMO_READ_ONLY=True, DEMO_ACCESS_GATE=None):
+            r = APIClient().get("/api/v1/edition/")
+        assert r.data["demo_read_only"] is True
+        assert r.data["demo_access_gate"] is None
+
+    def test_withheld_when_demo_mode_is_off(self) -> None:
+        """A stale declaration on a live install must not be broadcast.
+
+        Same gate as `demo_login_hint`, plus one of its own: on a normal install this
+        would hand any unauthenticated caller the edge topology for free.
+        """
+        with override_settings(DEMO_READ_ONLY=False, DEMO_ACCESS_GATE=self.GATE):
+            r = APIClient().get("/api/v1/edition/")
+        assert r.data["demo_access_gate"] is None
+
+    def test_no_authentication_required_to_read_the_disclosure(self) -> None:
+        """The disclosure is owed to a visitor who has not signed in — that is the point."""
+        with override_settings(DEMO_READ_ONLY=True, DEMO_ACCESS_GATE=self.GATE):
+            r = APIClient().get("/api/v1/edition/")
+        assert r.status_code == 200
+        assert r.data["demo_access_gate"]["provider"] == "Cloudflare Access"
+
+
+class TestParseDemoAccessGate:
+    """`TRUEPPM_DEMO_ACCESS_GATE_*` parsing (#3969)."""
+
+    @pytest.mark.parametrize("raw", [None, "", "   "])
+    def test_no_provider_is_none(self, raw: str | None) -> None:
+        assert parse_demo_access_gate(raw, None) is None
+
+    def test_privacy_url_without_provider_is_none(self) -> None:
+        """The link is an attribute of a declared gate, never a disclosure alone."""
+        assert parse_demo_access_gate(None, "https://example.com/privacy") is None
+
+    def test_provider_alone_yields_null_privacy_url(self) -> None:
+        assert parse_demo_access_gate("Authelia", None) == {
+            "provider": "Authelia",
+            "privacy_url": None,
+        }
+
+    def test_provider_is_operator_text_not_a_fixed_vendor(self) -> None:
+        """A demo behind Authelia must not publish a notice naming Cloudflare."""
+        gate = parse_demo_access_gate("Authelia", "http://auth.example.internal/privacy")
+        assert gate == {
+            "provider": "Authelia",
+            "privacy_url": "http://auth.example.internal/privacy",
+        }
+
+    def test_strips_surrounding_whitespace(self) -> None:
+        assert parse_demo_access_gate("  Cloudflare Access  ", "  https://x.test/p  ") == {
+            "provider": "Cloudflare Access",
+            "privacy_url": "https://x.test/p",
+        }
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "javascript:alert(1)",
+            "JavaScript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "/relative/path",
+            "example.com/privacy",
+        ],
+    )
+    def test_non_http_privacy_url_refuses_to_boot(self, url: str) -> None:
+        """The value becomes an href on a pre-auth page — refuse, never sanitize at use."""
+        with pytest.raises(ImproperlyConfigured):
+            parse_demo_access_gate("Cloudflare Access", url)
 
 
 class TestParseDemoLoginHint:

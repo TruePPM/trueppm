@@ -22,6 +22,12 @@ continues to govern the share-link demo **unchanged** — for one new mode only.
 > - **D3, D4 — shipped** (#3926): the refusal affordance, the preview overlay, the login
 >   and shell announcements, and the `demo_read_only` / `demo_login_hint` fields on
 >   `GET /api/v1/edition/`.
+> - **D8 — the open question is resolved and its disclosure shipped** (#3969): the owner
+>   decided 2026-09-21 to keep Cloudflare Access on the hosted demo and disclose it. The
+>   `demo.accessGate` values block, the `demo_access_gate` field on
+>   `GET /api/v1/edition/`, the conditional login-screen notice and the pre-capture
+>   notice on `getting-started/try-it` are on `main`. D8's security statement is
+>   unchanged — Access remains a non-control. See the dated resolution on D8 below.
 > - **D1 — NOT shipped.** `packages/helm/templates/web/configmap.yaml` still renders two
 >   server blocks, not three, so the method fence at the edge does not exist and the
 >   interactive login is not reachable through the chart's own web tier. That block, the
@@ -259,6 +265,61 @@ precisely the person who would deploy this. That is an owner's product call, not
 architectural one, and this ADR does not settle it. It only insists the trade be made
 knowingly and that D8's first paragraph hold either way: **nothing in the security design
 may depend on Access being present.**
+
+> **Resolved 2026-09-21 (owner decision, implemented by #3969).** The question this
+> section left open — keep the gate and its email collection, or drop it — is decided:
+> **keep Cloudflare Access on the primary hosted demo, and disclose it.** The trade is
+> made knowingly, which is what D8 asked for. D8's first paragraph is unchanged and
+> still governs: Access mitigates none of T1–T7, and nothing in the security design may
+> depend on it.
+>
+> The disclosure is **conditional, never a blanket statement**, and that is the whole
+> mechanism. A new `demo.accessGate.{provider,privacyUrl}` values block renders
+> `TRUEPPM_DEMO_ACCESS_GATE_PROVIDER` / `…_PRIVACY_URL` onto the api Deployment, parsed
+> into `DEMO_ACCESS_GATE` by `parse_demo_access_gate`, and surfaced as a third
+> `demo_access_gate` field on the existing unauthenticated `GET /api/v1/edition/` —
+> riding the `['edition']` query for the same reason D3/D4 do, not a new discovery
+> route. Left empty (the default, and every normal install) the field is `null` and the
+> app says nothing. A self-hoster running this same demo mode without a gate therefore
+> cannot be made to publish a false claim that they are collecting addresses, and one
+> running it behind Authelia names Authelia: `provider` is operator text, not a
+> hardcoded vendor.
+>
+> Two limits, both deliberate and neither closed by this change:
+>
+> 1. **It is an assertion that nothing verifies.** The gate lives in a provider's
+>    dashboard outside the cluster. Setting the value arms nothing; clearing the gate
+>    there leaves the value untouched. A stale value over-discloses and an unset one
+>    under-discloses. Header corroboration (`Cf-Access-Jwt-Assertion`) was considered
+>    and **rejected**: the chart's own web tier would strip it, so the disclosure would
+>    fail *closed* — the dangerous direction. Declaration fails open. The chart fails
+>    the render if a provider is declared while the demo fence is off, so the one
+>    failure it *can* catch — a notice the operator believes they published and that
+>    nothing emits — is caught at install time.
+> 2. **The in-app notice is necessarily post-hoc.** Access intercepts in front of the
+>    app: the visitor meets the email prompt before any TruePPM code runs, so nothing
+>    rendered by this codebase can satisfy "before the email-capture step" on its own.
+>    The pre-capture half is therefore a notice on the page that *links* to the demo
+>    (`getting-started/try-it`), and the in-app field is confirmation of what already
+>    happened. Both halves ship together; shipping only the in-app half would not meet
+>    the bar and must not be described as if it did.
+>
+> On #3760: the positioning claim is **not** narrowed, because it is not falsified. Its
+> subject is the software — "the community edition is Apache 2.0 with no seat count, no
+> feature flags, and no telemetry" — and Access runs on one host the project operates,
+> not on anyone's install. `administration/observability` already backs the software
+> claim exactly. What #3760 requires is that demo-side collection stay confined to the
+> demo host and be visible, which is what the two disclosures above deliver.
+>
+> A correction to the record, because it misled the issue that opened this: **Cloudflare
+> Access was never wired into this repository.** #3969's premise cited
+> `values-demo.yaml`, `templates/ingress.yaml` and `templates/api/service.yaml` as
+> evidence that Access was deployed infrastructure; those three files reference
+> Cloudflare **Tunnel** (`cloudflared`, ADR-0658 D9), an outbound connector that gates
+> no identity and collects no email. Before #3969 the string "Cloudflare Access"
+> appeared nowhere in the tree except this ADR. The gate is real on the hosted demo, but
+> it is configured outside the repo — which is precisely why the declaration above has
+> to exist at all, and why it can only ever be an assertion.
 
 ### D9 — A scheduled reset bounds contamination; it prevents nothing
 

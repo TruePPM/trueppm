@@ -15,6 +15,25 @@ schedule:
 
 **→ [try.trueppm.com](https://try.trueppm.com)**
 
+:::caution[Before you click: that host asks for your email]
+`try.trueppm.com` sits behind **Cloudflare Access**, which we run for bot
+reduction. It will ask for an email address and mail you a one-time code before
+you reach TruePPM at all. Read this first, because by the time the app can tell
+you, you have already given it.
+
+- **Cloudflare holds that address, not us.** TruePPM does not store it, and no
+  part of the demo application reads it.
+- **It is not a security control.** It is a hostname gate any working email
+  address passes. The demo's actual read-only guarantee is a server-side method
+  fence, not this.
+- **Nothing you install does this.** A TruePPM instance you run yourself has no
+  such gate unless you put one there, and the software still ships no telemetry
+  of any kind. This is a property of one host we operate, not of the product.
+
+Do not want to hand over an address? **Run the same demo locally instead** — the
+next section is one command, needs no email, and makes no outbound connection.
+:::
+
 It is served through TruePPM's own tokenized, **read-only share link** (the same
 mechanism the product gives you for [sharing a schedule or board](/administration/sharing-and-access/)).
 There is no login and no write path — you are looking at a live instance, not a

@@ -1149,6 +1149,39 @@ happy path — every branch either fails the render or produces no output.
 {{- if and $hintSet (not .Values.demo.interactive) -}}
 {{- fail "demo.loginHint is set but demo.interactive is false, so nothing reads it: the seed enables no account and the login page is shown no credential. demo.enabled alone is the SHARE-LINK demo, which publishes no login. Set demo.interactive=true, or clear demo.loginHint." -}}
 {{- end -}}
+{{- /*
+  The external access gate's disclosure (#3969, ADR-1197 D8 resolution).
+
+  Same shape of failure as the loginHint guards above, for the same reason: a value
+  that nothing reads is a disclosure the operator BELIEVES they made and did not. The
+  api Deployment renders these only inside the demoReadOnly branch, and the edition
+  endpoint emits the field only while demo_read_only is true, so a provider declared
+  with the fence off is silently inert — and a silently inert privacy disclosure is
+  worse than an absent one, because the operator has stopped looking.
+*/ -}}
+{{- $gate := .Values.demo.accessGate | default dict -}}
+{{- $gateProvider := $gate.provider | default "" | toString -}}
+{{- $gatePrivacyUrl := $gate.privacyUrl | default "" | toString -}}
+{{- if and $gateProvider (not (include "trueppm.demoReadOnly" .)) -}}
+{{- fail "demo.accessGate.provider is set but neither demo.enabled nor demo.interactive is true, so TRUEPPM_DEMO_ACCESS_GATE_PROVIDER is not rendered and GET /api/v1/edition/ emits no disclosure. The notice you think you published does not exist. Turn the demo on, or clear demo.accessGate.provider." -}}
+{{- end -}}
+{{- if and $gatePrivacyUrl (not $gateProvider) -}}
+{{- fail "demo.accessGate.privacyUrl is set but demo.accessGate.provider is empty. The link is an attribute of a declared gate, not a disclosure on its own — nothing renders it without a provider to name. Set demo.accessGate.provider, or clear privacyUrl." -}}
+{{- end -}}
+{{- if $gateProvider -}}
+{{- /*
+  The provider name is published copy rendered into a pre-auth page, and the URL
+  becomes an href there. Constrain both at RENDER time rather than sanitizing at use
+  — the same line demo.loginHint and demo.shareToken draw. The API refuses a
+  non-http(s) URL at boot as well; this is the earlier and louder of the two.
+*/ -}}
+{{- if not (regexMatch "^[A-Za-z0-9 .,'()&/_-]{1,60}$" $gateProvider) -}}
+{{- fail "demo.accessGate.provider may contain only letters, digits, spaces and . , ' ( ) & / _ - (max 60 chars). It is published as-is on the login page — e.g. \"Cloudflare Access\"." -}}
+{{- end -}}
+{{- if and $gatePrivacyUrl (not (regexMatch "^https?://[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]{1,500}$" $gatePrivacyUrl)) -}}
+{{- fail "demo.accessGate.privacyUrl must be an http:// or https:// URL (max 500 chars). It is rendered as a link on the pre-auth login page, so any other scheme is refused rather than escaped at use." -}}
+{{- end -}}
+{{- end -}}
 {{- if .Values.demo.interactive -}}
 {{- if not (and ($hint.username | default "") ($hint.password | default "")) -}}
 {{- fail "demo.interactive is true but demo.loginHint.username / demo.loginHint.password are not both set. The interactive demo IS a published login — without one the login page has nothing to show, the seed enables no account, and the demo verification hook fails. Set both to the credential you intend to publish; the username must name an account the loaded sample seeds (atlas-visitor for the bundled Atlas pack)." -}}

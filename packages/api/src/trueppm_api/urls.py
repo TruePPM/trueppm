@@ -49,7 +49,12 @@ def health(_request: Request) -> Response:
         "at startup to decide the post-login redirect target (ADR-0029, ADR-0030).\n\n"
         "Also carries the deployment's read-only demo mode (ADR-1197 D3/D4): "
         "`demo_read_only` is always present, and `demo_login_hint` carries the "
-        "published shared credential when — and only when — that mode is on."
+        "published shared credential when — and only when — that mode is on.\n\n"
+        "`demo_access_gate` names an external identity gate (e.g. Cloudflare Access) "
+        "the operator has declared in front of a demo host, so the app can disclose "
+        "that the visitor's email was collected before they reached it (#3969, "
+        "ADR-1197 D8). It is an operator **assertion** — nothing verifies it — and, "
+        "like the login hint, it is emitted only while `demo_read_only` is on."
     ),
     responses={
         200: inline_serializer(
@@ -64,6 +69,15 @@ def health(_request: Request) -> Response:
                     {
                         "username": serializers.CharField(),
                         "password": serializers.CharField(),
+                    },
+                    allow_null=True,
+                    required=False,
+                ),
+                "demo_access_gate": inline_serializer(
+                    "DemoAccessGate",
+                    {
+                        "provider": serializers.CharField(),
+                        "privacy_url": serializers.CharField(allow_null=True),
                     },
                     allow_null=True,
                     required=False,
@@ -106,6 +120,16 @@ def edition(request: Request) -> Response:
             # turning the demo off must not keep broadcasting it from a live install.
             "demo_login_hint": (
                 getattr(settings, "DEMO_LOGIN_HINT", None) if demo_read_only else None
+            ),
+            # Gated on the MODE for the same reason as the hint above, plus one of its
+            # own: on a normal install this would tell any unauthenticated caller what
+            # sits at the edge, which is free fingerprinting with no visitor benefit —
+            # an employee signing in through their own company's IdP is not owed a
+            # notice about it. The disclosure #3969 asks for is owed to a *demo*
+            # visitor, who had no relationship with this deployment before the gate
+            # took their email.
+            "demo_access_gate": (
+                getattr(settings, "DEMO_ACCESS_GATE", None) if demo_read_only else None
             ),
         }
     )
