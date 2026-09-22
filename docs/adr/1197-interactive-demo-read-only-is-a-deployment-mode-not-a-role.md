@@ -237,6 +237,20 @@ per-account, and under one shared identity they are shared-fate. They are re-aim
 accepted explicitly, never left at a default that happens to mean something different
 here than everywhere else.
 
+> **Correction (2026-09-21, #3925 MR 2 security-review).** "The per-IP `login` scope and
+> `anon` scope … become the real limiters" is only true of the sign-in request itself.
+> DRF's stock `AnonRateThrottle` skips throttling once `request.user.is_authenticated`,
+> and `login`/`login_account` are wired only to the token-obtain view — so neither
+> scope bounds a signed-in visitor's ordinary reads. Once authenticated, the shared
+> `"user"` scope is the *only* throttle in play, with no independent per-IP ceiling: a
+> single client holding the published credential can consume the whole account-wide
+> budget alone. `demo.throttle.userRate` is raised generously as a **shared-fate
+> resource ceiling**, not a per-visitor fairness control — closing that gap depends on
+> whatever sits in front of the host (Cloudflare or equivalent), which is what "alongside
+> Cloudflare" above was gesturing at without saying so precisely. Recorded here rather
+> than silently correcting the sentence above, per the memory-discipline convention this
+> project already follows for a stale belief.
+
 ### D7 — Egress is denied at the pod, not only in Python
 
 `assert_url_allowed` (`apps/webhooks/serializers.py:212`) is a good control and stays.

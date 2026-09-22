@@ -1664,20 +1664,31 @@ demo:
   # login_account control is the sharpest case: there is no secret left for it to
   # protect, since the credential is printed on the login page. The per-IP `login`
   # scope (settings/base.py, unchanged at 10/min) and the `anon` scope stay the
-  # real limiters here, alongside whatever sits in front of the host.
+  # real limiters ONLY for the sign-in request itself — DRF's stock AnonRateThrottle
+  # skips throttling once request.user.is_authenticated, so neither scope touches a
+  # signed-in visitor's ordinary reads. security-review (#3925 MR 2) flagged this:
+  # once authenticated, every visitor's traffic shares a SINGLE per-account budget
+  # (userRate below) with no independent per-IP ceiling of its own — one greedy
+  # client sharing the credential can still consume the whole account's budget.
+  # userRate is sized generously for that reason, and per-visitor fairness on
+  # ongoing read traffic is NOT something this chart's throttle re-aim provides —
+  # it depends on whatever edge/CDN sits in front of the host (Cloudflare or
+  # equivalent), consistent with D8's framing of Access as a bot-reduction layer,
+  # not a substitute for that gap.
   throttle:
     # TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE. Default is 5/min across ALL source
     # IPs for the submitted username — with one published username that is a
     # global 5-login/min budget for the entire internet (threat-model T2: it
     # fires with NO attacker, just a few genuine visitors signing in within the
     # same minute). Raised for concurrency, not credential-stuffing resistance.
+    # Governs only the login request; see the note above for what it does not.
     loginAccountRate: "120/min"
     # TRUEPPM_THROTTLE_USER_RATE (DRF's "user" scope). Default is 1000/min PER
     # ACCOUNT — under this mode every visitor's reads (schedule, board,
-    # resources, reports) count against the SAME account's budget at once, so
-    # a modest crowd browsing concurrently could throttle each other on a
-    # number that was never meant to be shared. Raised well above what a
-    # single account is expected to need on its own.
+    # resources, reports) count against the SAME account's budget at once, and
+    # it is the ONLY throttle bounding that traffic once signed in (see above).
+    # Raised so a modest crowd browsing concurrently does not throttle itself;
+    # it is not, and is not meant to be, a per-visitor fairness control.
     userRate: "6000/min"
     # TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS is per-account and shared-fate too,
     # but is ACCEPTED at its ordinary default rather than re-aimed: D2's

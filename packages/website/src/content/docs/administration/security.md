@@ -654,9 +654,16 @@ for the full design. Four layers combine to make it safe to expose:
    rather than the caller's IP bounds the whole crowd together. The login-lockout
    scope described in [Login rate limiting](#login-rate-limiting-and-per-account-lockout)
    is raised in this mode from its ordinary credential-stuffing posture to one
-   sized for concurrent visitors — the per-IP `login` and `anon` scopes are
-   unchanged and are the real limiters. See the `demo.throttle.*` keys in
-   [Helm values](/administration/helm-values/#public-read-only-demo-mode).
+   sized for concurrent visitors — the per-IP `login` and `anon` scopes stay the
+   real limiters **for the sign-in request itself only**. They do not bound a
+   signed-in visitor's ordinary reads: DRF's stock anonymous throttle skips
+   authenticated requests, so once a visitor is signed in, the shared `"user"`
+   scope (`demo.throttle.userRate`) is the *only* throttle on their traffic, with
+   no independent per-IP ceiling. It is sized generously on purpose — this is a
+   shared-fate resource-consumption tradeoff, not a per-visitor fairness
+   guarantee, and closing that gap depends on whatever edge sits in front of the
+   host (see the Cloudflare Access caveat below). See the `demo.throttle.*` keys
+   in [Helm values](/administration/helm-values/#public-read-only-demo-mode).
 
 None of that makes the following true, and the design is deliberately **not**
 built assuming they are:
