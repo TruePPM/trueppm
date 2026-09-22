@@ -8,3 +8,8 @@
   (was `120/min`). Both are one bucket shared by every visitor, so tripping either
   took the whole demo down at once; the api pod's capacity and per-IP limiting at
   the edge are the real bounds in this mode.
+- **Fixed: `demo.throttle.userRate` never took effect**: the chart's own
+  `env.TRUEPPM_THROTTLE_USER_RATE: "1000/min"` default always satisfied the
+  "operator override wins" check, so interactive-demo installs ran at 1000/min
+  regardless of this key. In interactive mode `demo.throttle.userRate` now owns
+  the variable; tune the demo's rate there, not in `env`.
