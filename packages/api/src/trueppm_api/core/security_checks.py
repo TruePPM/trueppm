@@ -416,6 +416,15 @@ def validate_attachment_storage(
     fence rather than a second, independently-settable one: a standalone
     "attachments disabled" flag could drift out of sync with whether writes are
     actually blocked and reopen the exact hole #775 closed.
+
+    This parameter is intentionally generic — any future caller whose writes are
+    provably blocked before reaching storage may pass ``writes_disabled=True`` —
+    but "provably" is load-bearing: a bare boolean here is only as trustworthy
+    as its wiring. Every value passed in today is DEMO_READ_ONLY, verified at
+    boot by :func:`validate_demo_read_only_enforcement` (settings/prod.py calls
+    it first and raises if DemoReadOnlyMiddleware is not actually installed). A
+    new source must add its own equivalent trip-wire rather than relying on
+    this docstring's promise.
     """
     if debug or writes_disabled:
         return []
@@ -480,6 +489,71 @@ def check_attachment_storage(
         allow_local=bool(getattr(settings, "ALLOW_LOCAL_ATTACHMENT_STORAGE", False)),
         media_root=getattr(settings, "MEDIA_ROOT", None),
         writes_disabled=bool(getattr(settings, "DEMO_READ_ONLY", False)),
+    )
+
+
+# ---------------------------------------------------------------------------
+# writes_disabled trip-wire (#3925, ADR-1197)
+#
+# validate_attachment_storage's writes_disabled parameter is deliberately
+# generic — "no request can reach storage" is a legitimate boot-guard escape
+# for any future read-only deployment mode, not something to special-case by
+# name. But a bare boolean is only as trustworthy as its wiring: EVERY
+# deployment shape we ship today (there is exactly one — DEMO_READ_ONLY /
+# DemoReadOnlyMiddleware) must prove the enforcement it claims is actually
+# installed, not just assert it. Without this, a future refactor that trims or
+# reorders MIDDLEWARE and drops the demo-read-only entry — while
+# TRUEPPM_DEMO_READ_ONLY=true is still set somewhere — would silently leave
+# the attachment-storage guard disabled for a chart that no longer blocks any
+# write, reopening #775 with no failing check anywhere to catch it.
+#
+# A NEW caller that wants its own writes_disabled=True source (a maintenance
+# read-only lock, a DR read replica, ...) must add an equivalent trip-wire for
+# ITS enforcement mechanism — this one only proves DemoReadOnlyMiddleware.
+# ---------------------------------------------------------------------------
+
+_DEMO_READ_ONLY_MIDDLEWARE = "trueppm_api.core.demo_read_only.DemoReadOnlyMiddleware"
+
+
+def validate_demo_read_only_enforcement(
+    *, demo_read_only: bool, middleware: Sequence[str]
+) -> list[CheckMessage]:
+    """Refuse to boot if DEMO_READ_ONLY is set but its middleware is not installed.
+
+    Returns an empty list when ``demo_read_only`` is False — a normal, non-demo
+    chart never sets ``TRUEPPM_DEMO_READ_ONLY``, so this is a no-op for every
+    production deployment and only ever fires on a demo deployment whose
+    MIDDLEWARE has drifted out of sync with its own claim.
+    """
+    if not demo_read_only or _DEMO_READ_ONLY_MIDDLEWARE in middleware:
+        return []
+    return [
+        Error(
+            "TRUEPPM_DEMO_READ_ONLY is set, but "
+            f"{_DEMO_READ_ONLY_MIDDLEWARE} is not in MIDDLEWARE — unsafe "
+            "requests are not actually being refused, and the attachment-"
+            "storage boot guard (#775) has been told they are.",
+            hint=(
+                f"Restore '{_DEMO_READ_ONLY_MIDDLEWARE}' to MIDDLEWARE, or unset "
+                "TRUEPPM_DEMO_READ_ONLY if this deployment is no longer meant "
+                "to be read-only."
+            ),
+            id="trueppm.E013",
+        )
+    ]
+
+
+@register(Tags.security, deploy=True)
+def check_demo_read_only_enforcement(
+    app_configs: Sequence[object] | None = None,
+    **kwargs: object,
+) -> list[CheckMessage]:
+    """Django system check entry point — reads live DEMO_READ_ONLY + MIDDLEWARE."""
+    from django.conf import settings
+
+    return validate_demo_read_only_enforcement(
+        demo_read_only=bool(getattr(settings, "DEMO_READ_ONLY", False)),
+        middleware=getattr(settings, "MIDDLEWARE", []) or [],
     )
 
 
