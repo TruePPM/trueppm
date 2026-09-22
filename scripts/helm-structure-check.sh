@@ -1640,6 +1640,49 @@ grep -q '53' <<<"$egress_ports" || fail "the demo api egress policy has no DNS (
 grep -q '5432' <<<"$egress_ports" || fail "the demo api egress policy has no PostgreSQL (5432) rule"
 grep -q '6379' <<<"$egress_ports" || fail "the demo api egress policy has no Valkey (6379) rule"
 
+# TRUEPPM_DEMO_READ_ONLY lockstep (#3925), same shape as N+2's media-claim check
+# above and for the same reason: settings.prod's attachment-storage boot guard
+# (#775) now accepts writes_disabled=DEMO_READ_ONLY as proof no request can reach
+# storage, and EVERY container that imports settings.prod evaluates that guard at
+# import time — not just the api container that actually serves HTTP through
+# DemoReadOnlyMiddleware. This exact drift happened during the fix: only the api
+# container's main process got the env var; migrate/bootstrap/collectstatic (api
+# Deployment init containers) and celery-worker/celery-beat (which import
+# settings.prod on every boot even though they never serve a request) did not,
+# and the helm:netpol drill's demo.interactive step — not this script — is what
+# caught it, because nothing here asserted per-container propagation.
+#
+# Scoped like the media check: every container/initContainer in the
+# demo.interactive render except */web (nginx imports no Django settings).
+DEMO_RO_RENDER="$(helm template trueppm "$CHART" "${interactive_args[@]}" \
+  --set persistence.media.enabled=false 2>&1)" \
+  || fail "chart failed to render with demo.interactive=true (#3925)"
+demo_ro_report="$(echo "$DEMO_RO_RENDER" | yq eval-all '
+  select(.kind == "Deployment") as $d
+  | $d.metadata.name as $n
+  | ($d.spec.template.spec.initContainers // []) + $d.spec.template.spec.containers
+  | .[]
+  | ($n + "/" + .name)
+    + " env=" + (([.env[]? | select(.name == "TRUEPPM_DEMO_READ_ONLY") | .value] | .[0]) // "-")
+' - | grep ' env=')"
+[ -n "$demo_ro_report" ] || fail "no containers found in the demo.interactive render (#3925)"
+
+demo_ro_checked=0
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  ro_name="${line%% env=*}"
+  ro_env="${line##* env=}"
+  case "$ro_name" in
+    */web) continue ;;   # nginx imports no Django settings and needs neither
+  esac
+  demo_ro_checked=$((demo_ro_checked + 1))
+  [ "$ro_env" = "true" ] \
+    || fail "$ro_name has no TRUEPPM_DEMO_READ_ONLY under demo.interactive=true — it imports settings.prod and will crash-loop on the attachment-storage boot guard's writes_disabled=false path (#775, #3925)"
+done <<EOF
+$demo_ro_report
+EOF
+[ "$demo_ro_checked" -gt 0 ] || fail "TRUEPPM_DEMO_READ_ONLY propagation check inspected no containers (#3925)"
+
 # Guards: refuse to render rather than silently misconfigure (trueppm.demoGuards).
 if helm template trueppm "$CHART" "${interactive_args[@]}" --set persistence.media.enabled=true >/dev/null 2>&1; then
   fail "demo.interactive=true rendered successfully with persistence.media.enabled=true — this mode must give the api pod NO writable media path"
@@ -1834,7 +1877,7 @@ echo "  - placement: $place_checked previously-rejected keys accepted; $place_wo
 echo "  - celery probes: worker liveness ${cp_live_i}/${cp_live_p}x${cp_live_f} (detection ${cp_detect}s >= ${cp_grace}s grace, still 'inspect ping') and readiness ${cp_ready_i}/${cp_ready_p} (heartbeat-file freshness, #3346) are tuned apart; startup is the heartbeat-file existence check; kubelet timeout scales with the ping budget on liveness; flat keys still drive all three probes; beat is liveness-only"
 echo "  - api.workers=1 by default (image CMD behavior preserved), api.workers=4 renders --workers 4 without disturbing --host/--port, and 0 is refused (#3833)"
 echo "  - demo reset: CronJob absent unless demo.enabled AND demo.reset.enabled; Forbid + deadlines + demo-seed label; same command and env as the install hook; schedule validated; three alerts follow the switch"
-echo "  - interactive demo edge hardening: method fence + auth carve-outs + /admin/ /ws/ 404 only under demo.interactive; share-link demo's block stays byte-identical; api/celery-worker egress-demo NetworkPolicy scoped to DNS+datastores only; media-path and managed-datastore guards refuse to render"
+echo "  - interactive demo edge hardening: method fence + auth carve-outs + /admin/ /ws/ 404 only under demo.interactive; share-link demo's block stays byte-identical; api/celery-worker egress-demo NetworkPolicy scoped to DNS+datastores only; media-path and managed-datastore guards refuse to render; TRUEPPM_DEMO_READ_ONLY reaches all $demo_ro_checked settings.prod-importing containers, not just api"
 echo "  - podSecurityContext.fsGroup=1000 on all $fsg_checked workloads plus the helm test pod (PVC writable under a root:root CSI volume); fsGroup: null still removes it for OpenShift"
 echo "  - no Deployment/Job/CronJob container invokes bare 'manage.py migrate' — every migrate call goes through migrate_locked (#3188, #3933)"
 echo "  - valkey has a PDB (maxUnavailable: 0, gated by valkey.podDisruptionBudget.enabled) and priorityClassName/terminationGracePeriodSeconds reach its StatefulSet, matching postgresql (#3934)"

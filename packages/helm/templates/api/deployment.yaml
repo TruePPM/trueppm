@@ -83,6 +83,7 @@ spec:
             {{- include "trueppm.connectionEnv" . | nindent 12 }}
             {{- include "trueppm.datastoreSecurityEnv" . | nindent 12 }}
             {{- include "trueppm.mediaEnv" . | nindent 12 }}
+            {{- include "trueppm.demoReadOnlyEnv" . | nindent 12 }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
@@ -104,6 +105,7 @@ spec:
             {{- include "trueppm.connectionEnv" . | nindent 12 }}
             {{- include "trueppm.datastoreSecurityEnv" . | nindent 12 }}
             {{- include "trueppm.mediaEnv" . | nindent 12 }}
+            {{- include "trueppm.demoReadOnlyEnv" . | nindent 12 }}
             - name: TRUEPPM_ADMIN_PASSWORD_FILE
               value: {{ .Values.admin.passwordFile | quote }}
             {{- if .Values.admin.email }}
@@ -142,6 +144,7 @@ spec:
             {{- include "trueppm.connectionEnv" . | nindent 12 }}
             {{- include "trueppm.datastoreSecurityEnv" . | nindent 12 }}
             {{- include "trueppm.mediaEnv" . | nindent 12 }}
+            {{- include "trueppm.demoReadOnlyEnv" . | nindent 12 }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
@@ -189,20 +192,13 @@ spec:
             - name: TRUEPPM_ADMIN_PASSWORD_FILE
               value: {{ .Values.admin.passwordFile | quote }}
             {{- include "trueppm.demoGuards" . }}
-            {{- if include "trueppm.demoReadOnly" . }}
-            # DemoReadOnlyMiddleware's fence (#3924, #3932, #3925): refuses every
-            # unsafe method under /api/ except sign-in/refresh/sign-out. Hardcoded to
-            # the literal "true" rather than sourced from a values.yaml boolean —
-            # parse_demo_read_only accepts only specific string words, and a bare
-            # Go bool rendered through `| quote` is not guaranteed to match one.
-            #
-            # Armed by demo.enabled (the share-link demo, unchanged) OR by
-            # demo.interactive (the published-login demo, #3925). Two switches, one
-            # fence: the guarantee is a property of the DEPLOYMENT, never of the
-            # visitor's role.
-            - name: TRUEPPM_DEMO_READ_ONLY
-              value: "true"
-            {{- end }}
+            {{- /*
+              TRUEPPM_DEMO_READ_ONLY itself comes from trueppm.appEnv above
+              (trueppm.demoReadOnlyEnv, #3925) — every container/initContainer
+              that imports settings.prod needs it, not just this one, so it is
+              rendered from one shared define rather than duplicated here. See
+              that define's docstring in _helpers.tpl for why.
+            */ -}}
             {{- if .Values.demo.interactive }}
             # TRUEPPM_DEMO_LOGIN_HINT is read: #3926 (merged) surfaces it as
             # `demo_login_hint` on the public GET /api/v1/edition/ response,

@@ -340,6 +340,7 @@ topologySpreadConstraints:
 {{ include "trueppm.mediaEnv" . }}
 {{ include "trueppm.observabilityEnv" . }}
 {{ include "trueppm.loggingEnv" . }}
+{{ include "trueppm.demoReadOnlyEnv" . }}
 {{- end -}}
 
 {{/*
@@ -1118,6 +1119,33 @@ good enough.
 */}}
 {{- define "trueppm.demoReadOnly" -}}
 {{- if or .Values.demo.enabled .Values.demo.interactive -}}true{{- end -}}
+{{- end -}}
+
+{{/*
+TRUEPPM_DEMO_READ_ONLY env entry (#3925).
+
+Must reach EVERY container and initContainer that imports settings.prod, not just
+the api container that serves HTTP through DemoReadOnlyMiddleware — same reasoning
+as trueppm.mediaEnv below (#3184), and the exact bug #3932 shipped once already:
+"a chart that rendered demo mode correctly and set the variable nowhere"
+(templates/tests/demo-read-only.yaml). The attachment-storage boot guard (#775)
+now accepts writes_disabled=DEMO_READ_ONLY as proof no request can reach storage
+(security_checks.validate_attachment_storage); every process that imports
+settings.prod evaluates that guard at import time regardless of whether it ever
+serves HTTP, so migrate/bootstrap/collectstatic/celery-worker/celery-beat each need
+this env var just as much as the api container does, or they crash-loop on
+"Refusing to start: Task attachments use local filesystem storage" before
+DemoReadOnlyMiddleware is ever relevant to them.
+
+Included from trueppm.appEnv (api container + celery-worker + celery-beat); the
+three api/deployment.yaml initContainers include it directly, matching how they
+already include trueppm.mediaEnv directly instead of the full appEnv bundle.
+*/}}
+{{- define "trueppm.demoReadOnlyEnv" -}}
+{{- if include "trueppm.demoReadOnly" . }}
+- name: TRUEPPM_DEMO_READ_ONLY
+  value: "true"
+{{- end -}}
 {{- end -}}
 
 {{/*
