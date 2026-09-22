@@ -265,7 +265,10 @@ export function resolveNumeric(
  * A shortcut, never the only route: the worded select is always there and always
  * correct, so a planner who has never seen this still reaches every operation.
  */
-export function readAmount(raw: string, currentOp: RelativeOp): { op: RelativeOp; value: number | null } {
+export function readAmount(
+  raw: string,
+  currentOp: RelativeOp,
+): { op: RelativeOp; value: number | null } {
   const trimmed = raw.trim();
   if (trimmed === '' || trimmed === '+' || trimmed === '-') return { op: currentOp, value: null };
   const op: RelativeOp = trimmed.startsWith('+')
@@ -463,6 +466,141 @@ const DELIVERY_LABEL: Record<DeliveryMode, string> = {
  * and never `valueByTask`, so a mismatch would be invisible — which is exactly
  * the shape of a trap, not a reason to leave it.
  */
+/** Mutable working state one field's {@link buildFieldProjection} pass writes into. */
+interface ProjectionAccumulator {
+  byTask: Record<string, ExpectedOutcome>;
+  valueByTask: Record<string, unknown>;
+  clampedCount: number;
+  autoPromoteCount: number;
+}
+
+function projectPlannedStart(t: Task, spec: BulkEditSpec, acc: ProjectionAccumulator): string {
+  const target = spec.plannedStart.mode === 'clear' ? null : spec.plannedStart.value;
+  const current = t.plannedStart ?? null;
+  acc.byTask[t.id] = current === target ? 'unchanged' : 'updated';
+  acc.valueByTask[t.id] = target;
+  return dateSentence('Planned start', spec.plannedStart);
+}
+
+function projectPlannedFinish(t: Task, spec: BulkEditSpec, acc: ProjectionAccumulator): string {
+  // The outline never reads `planned_finish` back, so there is no current
+  // value to compare against. Claiming "unchanged" would be a claim this
+  // client cannot support; "updated" is the honest projection, and the
+  // server's own no-op write costs a version bump, not a wrong number.
+  acc.byTask[t.id] = 'updated';
+  acc.valueByTask[t.id] = spec.plannedFinish.mode === 'clear' ? null : spec.plannedFinish.value;
+  return dateSentence('Planned finish', spec.plannedFinish);
+}
+
+function projectDuration(t: Task, spec: BulkEditSpec, acc: ProjectionAccumulator): string {
+  const sentence = numericSentence(spec.duration, 'd');
+  // Σ — a container's estimate rolls up from its children and the server
+  // enforces it (`phase_estimate_rollup_locked`), and a milestone's duration
+  // is zero by definition (#340). Both are EXPECTED non-writes, so they are
+  // left alone rather than sent and refused.
+  if (t.isSummary || t.isMilestone) {
+    acc.byTask[t.id] = 'leftAlone';
+    return sentence;
+  }
+  const r = resolveNumeric(spec.duration, t.duration, DURATION_BOUNDS);
+  acc.byTask[t.id] = r.kind;
+  if (r.clamped) acc.clampedCount += 1;
+  if (r.value !== null) acc.valueByTask[t.id] = r.value;
+  return sentence;
+}
+
+function projectPercentComplete(t: Task, spec: BulkEditSpec, acc: ProjectionAccumulator): string {
+  const sentence = numericSentence(spec.percentComplete, '%');
+  const r = resolveNumeric(spec.percentComplete, t.progress, PERCENT_BOUNDS);
+  acc.byTask[t.id] = r.kind;
+  if (r.clamped) acc.clampedCount += 1;
+  if (r.value !== null) acc.valueByTask[t.id] = r.value;
+  // #2639: writing 100 with no explicit status silently promotes the row. A
+  // single-row edit gets a confirmation dialog; a batch cannot, so the
+  // disclosure moves into the review and is counted rather than dropped.
+  if (r.value === 100 && r.kind === 'updated' && !AUTO_STATUS_EXEMPT.has(t.status)) {
+    acc.autoPromoteCount += 1;
+  }
+  return sentence;
+}
+
+function projectSprint(
+  t: Task,
+  spec: BulkEditSpec,
+  iteration: string,
+  acc: ProjectionAccumulator,
+): string {
+  const target = spec.sprint.mode === 'clear' ? null : spec.sprint.sprintId;
+  const sentence =
+    spec.sprint.mode === 'clear'
+      ? `Take out of its ${iteration}`
+      : `Move into ${spec.sprint.sprintName ?? `the ${iteration}`}`;
+  const current = t.sprintId ?? null;
+  acc.byTask[t.id] = current === target ? 'unchanged' : 'updated';
+  acc.valueByTask[t.id] = target;
+  return sentence;
+}
+
+function projectGovernanceClass(t: Task, spec: BulkEditSpec, acc: ProjectionAccumulator): string {
+  // Non-null by construction: `writtenFields` only yields this id when the
+  // axis is set, which the compiler cannot see through the filter.
+  const target = spec.governanceClass as GovernanceClass;
+  acc.byTask[t.id] = (t.governanceClass ?? null) === target ? 'unchanged' : 'updated';
+  acc.valueByTask[t.id] = target;
+  return `Governed by ${GOVERNANCE_LABEL[target]}`;
+}
+
+function projectDeliveryMode(t: Task, spec: BulkEditSpec, acc: ProjectionAccumulator): string {
+  const target = spec.deliveryMode as DeliveryMode;
+  acc.byTask[t.id] = (t.deliveryMode ?? null) === target ? 'unchanged' : 'updated';
+  acc.valueByTask[t.id] = target;
+  return `Progress from ${DELIVERY_LABEL[target]}`;
+}
+
+function projectOwner(t: Task, spec: BulkEditSpec, acc: ProjectionAccumulator): string {
+  const sentence = `Add ${spec.owner.resourceName ?? 'owner'} (${spec.owner.percent}%)`;
+  // Owner is dropped per ROW, not per batch: the server refuses `owners` on a
+  // summary task, and the 207 contract rejects at row granularity — so
+  // sending it would throw away that row's other changes too.
+  if (t.isSummary) {
+    acc.byTask[t.id] = 'leftAlone';
+    return sentence;
+  }
+  const units = spec.owner.percent / 100;
+  const held = (t.assignees ?? []).find((a) => a.resourceId === spec.owner.resourceId);
+  acc.byTask[t.id] = held && held.units === units ? 'unchanged' : 'updated';
+  acc.valueByTask[t.id] = [{ resource: spec.owner.resourceId as string, units }];
+  return sentence;
+}
+
+/** One task's contribution to one field's projection — dispatches on `id`. */
+function projectTaskField(
+  id: BulkFieldId,
+  t: Task,
+  spec: BulkEditSpec,
+  iteration: string,
+  acc: ProjectionAccumulator,
+): string {
+  switch (id) {
+    case 'plannedStart':
+      return projectPlannedStart(t, spec, acc);
+    case 'plannedFinish':
+      return projectPlannedFinish(t, spec, acc);
+    case 'duration':
+      return projectDuration(t, spec, acc);
+    case 'percentComplete':
+      return projectPercentComplete(t, spec, acc);
+    case 'sprint':
+      return projectSprint(t, spec, iteration, acc);
+    case 'governanceClass':
+      return projectGovernanceClass(t, spec, acc);
+    case 'deliveryMode':
+      return projectDeliveryMode(t, spec, acc);
+    case 'owner':
+      return projectOwner(t, spec, acc);
+  }
+}
+
 export function buildFieldProjection(
   spec: BulkEditSpec,
   tasks: Task[],
@@ -472,115 +610,26 @@ export function buildFieldProjection(
   const iteration = ctx.iterationLower ?? DEFAULT_ITERATION_LOWER;
 
   return writtenFields(spec).map((id): FieldProjection => {
-    const byTask: Record<string, ExpectedOutcome> = {};
-    const valueByTask: Record<string, unknown> = {};
-    let clampedCount = 0;
-    let autoPromoteCount = 0;
+    const acc: ProjectionAccumulator = {
+      byTask: {},
+      valueByTask: {},
+      clampedCount: 0,
+      autoPromoteCount: 0,
+    };
     let sentence = '';
 
     for (const t of tasks) {
-      switch (id) {
-        case 'plannedStart': {
-          sentence = dateSentence('Planned start', spec.plannedStart);
-          const target = spec.plannedStart.mode === 'clear' ? null : spec.plannedStart.value;
-          const current = t.plannedStart ?? null;
-          byTask[t.id] = current === target ? 'unchanged' : 'updated';
-          valueByTask[t.id] = target;
-          break;
-        }
-        case 'plannedFinish': {
-          sentence = dateSentence('Planned finish', spec.plannedFinish);
-          // The outline never reads `planned_finish` back, so there is no current
-          // value to compare against. Claiming "unchanged" would be a claim this
-          // client cannot support; "updated" is the honest projection, and the
-          // server's own no-op write costs a version bump, not a wrong number.
-          byTask[t.id] = 'updated';
-          valueByTask[t.id] = spec.plannedFinish.mode === 'clear' ? null : spec.plannedFinish.value;
-          break;
-        }
-        case 'duration': {
-          sentence = numericSentence(spec.duration, 'd');
-          // Σ — a container's estimate rolls up from its children and the server
-          // enforces it (`phase_estimate_rollup_locked`), and a milestone's
-          // duration is zero by definition (#340). Both are EXPECTED non-writes,
-          // so they are left alone rather than sent and refused.
-          if (t.isSummary || t.isMilestone) {
-            byTask[t.id] = 'leftAlone';
-            break;
-          }
-          const r = resolveNumeric(spec.duration, t.duration, DURATION_BOUNDS);
-          byTask[t.id] = r.kind;
-          if (r.clamped) clampedCount += 1;
-          if (r.value !== null) valueByTask[t.id] = r.value;
-          break;
-        }
-        case 'percentComplete': {
-          sentence = numericSentence(spec.percentComplete, '%');
-          const r = resolveNumeric(spec.percentComplete, t.progress, PERCENT_BOUNDS);
-          byTask[t.id] = r.kind;
-          if (r.clamped) clampedCount += 1;
-          if (r.value !== null) valueByTask[t.id] = r.value;
-          // #2639: writing 100 with no explicit status silently promotes the row.
-          // A single-row edit gets a confirmation dialog; a batch cannot, so the
-          // disclosure moves into the review and is counted rather than dropped.
-          if (r.value === 100 && r.kind === 'updated' && !AUTO_STATUS_EXEMPT.has(t.status)) {
-            autoPromoteCount += 1;
-          }
-          break;
-        }
-        case 'sprint': {
-          const target = spec.sprint.mode === 'clear' ? null : spec.sprint.sprintId;
-          sentence =
-            spec.sprint.mode === 'clear'
-              ? `Take out of its ${iteration}`
-              : `Move into ${spec.sprint.sprintName ?? `the ${iteration}`}`;
-          const current = t.sprintId ?? null;
-          byTask[t.id] = current === target ? 'unchanged' : 'updated';
-          valueByTask[t.id] = target;
-          break;
-        }
-        case 'governanceClass': {
-          // Non-null by construction: `writtenFields` only yields this id when
-          // the axis is set, which the compiler cannot see through the filter.
-          const target = spec.governanceClass as GovernanceClass;
-          sentence = `Governed by ${GOVERNANCE_LABEL[target]}`;
-          byTask[t.id] = (t.governanceClass ?? null) === target ? 'unchanged' : 'updated';
-          valueByTask[t.id] = target;
-          break;
-        }
-        case 'deliveryMode': {
-          const target = spec.deliveryMode as DeliveryMode;
-          sentence = `Progress from ${DELIVERY_LABEL[target]}`;
-          byTask[t.id] = (t.deliveryMode ?? null) === target ? 'unchanged' : 'updated';
-          valueByTask[t.id] = target;
-          break;
-        }
-        case 'owner': {
-          sentence = `Add ${spec.owner.resourceName ?? 'owner'} (${spec.owner.percent}%)`;
-          // Owner is dropped per ROW, not per batch: the server refuses `owners`
-          // on a summary task, and the 207 contract rejects at row granularity —
-          // so sending it would throw away that row's other changes too.
-          if (t.isSummary) {
-            byTask[t.id] = 'leftAlone';
-            break;
-          }
-          const units = spec.owner.percent / 100;
-          const held = (t.assignees ?? []).find((a) => a.resourceId === spec.owner.resourceId);
-          byTask[t.id] = held && held.units === units ? 'unchanged' : 'updated';
-          valueByTask[t.id] = [{ resource: spec.owner.resourceId as string, units }];
-          break;
-        }
-      }
+      sentence = projectTaskField(id, t, spec, iteration, acc);
     }
 
     return {
       id,
       label: BULK_FIELD_LABEL[id],
       denominator,
-      byTask,
-      valueByTask,
-      clampedCount,
-      autoPromoteCount,
+      byTask: acc.byTask,
+      valueByTask: acc.valueByTask,
+      clampedCount: acc.clampedCount,
+      autoPromoteCount: acc.autoPromoteCount,
       sentence,
     };
   });

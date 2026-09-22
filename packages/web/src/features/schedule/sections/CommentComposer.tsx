@@ -102,6 +102,18 @@ function handleSuggestionNav(
   return false;
 }
 
+function resolveCharCounterColor(charCount: number): string {
+  if (charCount >= MAX_BODY_CHARS) return 'text-semantic-critical';
+  if (charCount >= WARN_BODY_CHARS) return 'text-semantic-at-risk';
+  return 'text-neutral-text-secondary';
+}
+
+function resolveCharCounterSuffix(charCount: number): string {
+  if (charCount >= MAX_BODY_CHARS) return ' — limit reached';
+  if (charCount >= WARN_BODY_CHARS) return ' — getting long';
+  return '';
+}
+
 interface Props {
   projectId: string;
   taskId: string;
@@ -149,20 +161,10 @@ export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCa
   }, [activeToken, members, currentRole, hasProgram, mentionGroups]);
 
   const charCount = body.length;
-  const charCounterColor =
-    charCount >= MAX_BODY_CHARS
-      ? 'text-semantic-critical'
-      : charCount >= WARN_BODY_CHARS
-        ? 'text-semantic-at-risk'
-        : 'text-neutral-text-secondary';
+  const charCounterColor = resolveCharCounterColor(charCount);
   // Non-color signal (WCAG 1.4.1): the counter color swap alone doesn't reach
   // colorblind users, so a text suffix carries the same warning at each threshold.
-  const charCounterSuffix =
-    charCount >= MAX_BODY_CHARS
-      ? ' — limit reached'
-      : charCount >= WARN_BODY_CHARS
-        ? ' — getting long'
-        : '';
+  const charCounterSuffix = resolveCharCounterSuffix(charCount);
 
   // ADR-1197 D3: in the read-only demo the composer is disabled UP FRONT rather than
   // refused after the visitor has typed a comment. A control that accepts input it can
