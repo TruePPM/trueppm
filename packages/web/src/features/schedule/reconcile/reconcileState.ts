@@ -200,6 +200,70 @@ export function registerPreview(
  * not a keystroke; it is the event a planner has to defend in a plan review. The
  * full-snapshot path still passes no `previous` and still marks nothing.
  */
+type ReconcileStep =
+  | { action: 'skip' }
+  | { action: 'delete' }
+  | { action: 'set'; entry: ReconcileEntry };
+
+/** No open entry yet. Before #3041 this was the end of it. Now: if the caller
+ *  knows the row MOVED — only the delta path does — open a `cascade` entry. */
+function reconcileNoEntry(obs: ReconcileObservation, nowMs: number): ReconcileStep {
+  if (obs.previous === undefined || obs.previous === null) return { action: 'skip' };
+  if (obs.previous === obs.value) return { action: 'skip' }; // observed, but it did not move
+  return {
+    action: 'set',
+    entry: {
+      taskId: obs.taskId,
+      field: obs.field,
+      // The delta path does not carry a name. `ReforecastPanel` resolves the
+      // name from `tasks` at render time, so an empty string here costs
+      // nothing and avoids threading a task lookup into a pure reducer.
+      taskName: '',
+      status: 'cascade',
+      // `expected` is what was ON SCREEN before the run — the value this
+      // planner was reading. For `diverged` it is what they TYPED. Different
+      // provenance, same slot, and the copy layer says which.
+      expected: obs.previous,
+      actual: obs.value,
+      reason: null,
+      retry: null,
+      since: nowMs,
+    },
+  };
+}
+
+/** A later run moved a `cascade` entry again. Keep the ORIGINAL `expected`,
+ *  matching the §D1 rule for diverged: two cascading runs read as one move
+ *  away from what the planner last saw, not a chain of machine states. */
+function reconcileCascadeEntry(entry: ReconcileEntry, obs: ReconcileObservation): ReconcileStep {
+  if (entry.actual === obs.value) return { action: 'skip' };
+  if (obs.value === entry.expected) return { action: 'delete' }; // came back to where it started
+  return { action: 'set', entry: { ...entry, actual: obs.value } };
+}
+
+/** A `preview`/`diverged` entry observed a value — acked, unchanged, or diverged further. */
+function reconcileOpenEntry(
+  entry: ReconcileEntry,
+  obs: ReconcileObservation,
+  nowMs: number,
+): ReconcileStep {
+  if (obs.value === entry.expected) return { action: 'delete' }; // Acked — evict.
+  if (entry.status === 'diverged' && entry.actual === obs.value) return { action: 'skip' };
+  return {
+    action: 'set',
+    entry: {
+      ...entry,
+      status: 'diverged',
+      // `expected` is retained as authored: `from` is the value the PLANNER
+      // believed, not the previous CPM pass. Two cascading runs must read as one
+      // move away from what they typed, not a chain of machine states they never
+      // saw (ADR-0784 §D1).
+      actual: obs.value,
+      since: entry.status === 'preview' ? nowMs : entry.since,
+    },
+  };
+}
+
 export function reconcile(
   entries: ReconcileEntries,
   observations: readonly ReconcileObservation[],
@@ -216,68 +280,15 @@ export function reconcile(
     if (entry?.status === 'rejected') continue;
     if (obs.value === null) continue;
 
-    if (!entry) {
-      // No open entry. Before #3041 this was the end of it. Now: if the caller
-      // knows the row MOVED — only the delta path does — open a cascade entry.
-      if (obs.previous === undefined || obs.previous === null) continue;
-      if (obs.previous === obs.value) continue; // observed, but it did not move
-      next ??= { ...entries };
-      next[key] = {
-        taskId: obs.taskId,
-        field: obs.field,
-        // The delta path does not carry a name. `ReforecastPanel` resolves the
-        // name from `tasks` at render time, so an empty string here costs
-        // nothing and avoids threading a task lookup into a pure reducer.
-        taskName: '',
-        status: 'cascade',
-        // `expected` is what was ON SCREEN before the run — the value this
-        // planner was reading. For `diverged` it is what they TYPED. Different
-        // provenance, same slot, and the copy layer says which.
-        expected: obs.previous,
-        actual: obs.value,
-        reason: null,
-        retry: null,
-        since: nowMs,
-      };
-      continue;
-    }
+    let step: ReconcileStep;
+    if (!entry) step = reconcileNoEntry(obs, nowMs);
+    else if (entry.status === 'cascade') step = reconcileCascadeEntry(entry, obs);
+    else step = reconcileOpenEntry(entry, obs, nowMs);
 
-    if (entry.status === 'cascade') {
-      // A later run moved it again. Keep the ORIGINAL `expected`, matching the
-      // §D1 rule for diverged: two cascading runs read as one move away from
-      // what the planner last saw, not a chain of machine states.
-      if (entry.actual === obs.value) continue;
-      if (obs.value === entry.expected) {
-        // It came back to where it started. There is nothing to report.
-        next ??= { ...entries };
-        delete next[key];
-        continue;
-      }
-      next ??= { ...entries };
-      next[key] = { ...entry, actual: obs.value };
-      continue;
-    }
-
-    if (obs.value === entry.expected) {
-      // Acked — the server agreed with the preview. Evict.
-      next ??= { ...entries };
-      delete next[key];
-      continue;
-    }
-
-    if (entry.status === 'diverged' && entry.actual === obs.value) continue; // no change
-
+    if (step.action === 'skip') continue;
     next ??= { ...entries };
-    next[key] = {
-      ...entry,
-      status: 'diverged',
-      // `expected` is retained as authored: `from` is the value the PLANNER
-      // believed, not the previous CPM pass. Two cascading runs must read as one
-      // move away from what they typed, not a chain of machine states they never
-      // saw (ADR-0784 §D1).
-      actual: obs.value,
-      since: entry.status === 'preview' ? nowMs : entry.since,
-    };
+    if (step.action === 'delete') delete next[key];
+    else next[key] = step.entry;
   }
 
   return next ?? entries;
@@ -383,9 +394,7 @@ export function divergedEntries(entries: ReconcileEntries): ReconcileEntry[] {
  * to answer there.
  */
 export function movedEntries(entries: ReconcileEntries): ReconcileEntry[] {
-  return Object.values(entries).filter(
-    (e) => e.status === 'diverged' || e.status === 'cascade',
-  );
+  return Object.values(entries).filter((e) => e.status === 'diverged' || e.status === 'cascade');
 }
 
 export function rejectedEntries(entries: ReconcileEntries): ReconcileEntry[] {

@@ -187,6 +187,29 @@ export function matchKindFor(query: string): MatchKind {
 }
 
 /**
+ * How the rows in front of the user were actually selected (see the call
+ * site's docstring). Project scope filters locally, so `matchKindFor` **is**
+ * the filter; program scope's server search never derives a WBS prefix, so
+ * that reason is folded to `'none'` there.
+ */
+function resolveMatchKind(scope: Scope, search: string): MatchKind {
+  if (scope !== 'program') return matchKindFor(search);
+  return matchKindFor(search) === 'none' ? 'none' : 'name-substring';
+}
+
+/** The footer's keybinding legend — the only two axes that vary it. */
+function keyboardHint(inList: boolean, canCrossProject: boolean): string {
+  if (inList) {
+    return canCrossProject
+      ? '←→ scope · ↑↓ move · Space add · Enter add & close · Esc cancel'
+      : '↑↓ move · Space add · Enter add & close · Esc cancel';
+  }
+  return canCrossProject
+    ? '←→ scope · ↓ into list · Enter add & close · Esc cancel'
+    : '↓ into list · Enter add & close · Esc cancel';
+}
+
+/**
  * The `?` beside the relationship field — a reference for all four types.
  *
  * A disclosure rather than always-on copy: four definitions is more vertical
@@ -288,6 +311,57 @@ function LinkTypeHelp() {
         </div>
       )}
     </span>
+  );
+}
+
+/** Project-scope result listbox: the empty state or the matched rows. */
+function ProjectResultsList({
+  listboxId,
+  shownProjectItems,
+  optionId,
+  search,
+  matchKind,
+  activeIdx,
+  setActiveIdx,
+  submit,
+}: {
+  listboxId: string;
+  shownProjectItems: PickItem[];
+  optionId: (idx: number) => string;
+  search: string;
+  matchKind: MatchKind;
+  activeIdx: number;
+  setActiveIdx: (idx: number) => void;
+  submit: (item: PickItem) => void;
+}) {
+  return (
+    <ul
+      id={listboxId}
+      role="listbox" // dropdown-scroll-ok: flex-1 overflow-y-auto inside the picker dialog's own max-h-[480px] flex-col container
+      aria-label="Task results"
+      className="flex-1 overflow-y-auto px-2 pb-2"
+    >
+      {shownProjectItems.length === 0 ? (
+        // `role="presentation"` because a bare listitem is not an allowed
+        // child of a listbox, and this is copy rather than an option.
+        <li role="presentation" className="py-3 px-2 text-[13px] text-neutral-text-secondary">
+          No matching tasks. Try a different search.
+        </li>
+      ) : (
+        shownProjectItems.map((item, i) => (
+          <ResultRow
+            key={item.id}
+            id={optionId(i)}
+            item={item}
+            query={search}
+            matchKind={matchKind}
+            active={i === activeIdx}
+            onHover={() => setActiveIdx(i)}
+            onPick={() => submit(item)}
+          />
+        ))
+      )}
+    </ul>
   );
 }
 
@@ -554,6 +628,96 @@ export function ScheduleDependencyPicker({
   // handled by the focus trap (useFocusTrap above), which stopPropagation's it
   // before it can reach this window-level listener.
   useEffect(() => {
+    // ←/→ switch scope; each returns whether it claimed the key, so `handler`
+    // below can dispatch with a short-circuiting `||` chain instead of a long
+    // if-chain. Nested here (not module-level) because each closes over the
+    // refs/setters/callbacks the effect already depends on.
+    const tryScopeArrow = (e: KeyboardEvent): boolean => {
+      if (e.key === 'ArrowLeft' && canCrossProject) {
+        e.preventDefault();
+        switchScope('project');
+        return true;
+      }
+      if (e.key === 'ArrowRight' && canCrossProject) {
+        e.preventDefault();
+        switchScope('program');
+        return true;
+      }
+      return false;
+    };
+
+    const tryArrowDown = (e: KeyboardEvent): boolean => {
+      if (e.key === 'ArrowDown') {
+        if (itemsRef.current.length === 0) return true;
+        e.preventDefault();
+        // The first ↓ *enters* the list on the row already highlighted — it
+        // does not step past it. Advancing here is what made the shipped
+        // picker skip to the second row on the very first press (#3024).
+        if (!inListRef.current) {
+          setInList(true);
+          return true;
+        }
+        setActiveIdx((i) => Math.min(itemsRef.current.length - 1, i + 1));
+        return true;
+      }
+      return false;
+    };
+
+    const tryArrowUp = (e: KeyboardEvent): boolean => {
+      if (e.key === 'ArrowUp') {
+        if (itemsRef.current.length === 0) return true;
+        e.preventDefault();
+        if (!inListRef.current) {
+          setInList(true);
+          return true;
+        }
+        // ↑ off the first row hands the keyboard back to the search field.
+        // That is the escape hatch that makes Space typable again without
+        // reaching for the mouse — the disambiguation is only fair if it is
+        // reversible.
+        if (activeIdxRef.current === 0) {
+          setInList(false);
+          return true;
+        }
+        setActiveIdx((i) => Math.max(0, i - 1));
+        return true;
+      }
+      return false;
+    };
+
+    const trySpace = (e: KeyboardEvent): boolean => {
+      if (e.key === ' ') {
+        // Space is the multi-add commit ONLY once ↓ has moved the caret into
+        // the list; otherwise it belongs to whatever the user is typing. The
+        // target check keeps a Tabbed-to button's native Space activation
+        // intact — the window listener would otherwise swallow it.
+        if (!inListRef.current || e.target !== inputRef.current) return true;
+        const target = itemsRef.current[activeIdxRef.current];
+        if (!target) return true;
+        e.preventDefault();
+        submitRef.current?.(target, { keepOpen: true });
+        return true;
+      }
+      return false;
+    };
+
+    const tryEnter = (e: KeyboardEvent): boolean => {
+      if (e.key === 'Enter') {
+        // Same target guard as Space, and for a sharper reason: without it, a
+        // user who Tabs to the × button and presses Enter has the native
+        // button activation preventDefault()'d out from under them and gets
+        // a DEPENDENCY CREATED on whatever row is highlighted — then the
+        // dialog closes, so it looks like Close worked. A silent unintended
+        // write on the keyboard path this contract exists to serve.
+        if (e.target !== inputRef.current) return true;
+        e.preventDefault();
+        const target = itemsRef.current[activeIdxRef.current];
+        if (target) submitRef.current?.(target);
+        return true;
+      }
+      return false;
+    };
+
     const handler = (e: KeyboardEvent) => {
       // Every binding below steers the LIST, so each one belongs to the search
       // field and to nothing else. Space and Enter already carried this guard
@@ -564,70 +728,11 @@ export function ScheduleDependencyPicker({
       // lag — both would have been preventDefault()'d into moving the row caret
       // instead, silently, on the surface whose keyboard contract is the point.
       if (e.target !== inputRef.current) return;
-      if (e.key === 'ArrowLeft' && canCrossProject) {
-        e.preventDefault();
-        switchScope('project');
-        return;
-      }
-      if (e.key === 'ArrowRight' && canCrossProject) {
-        e.preventDefault();
-        switchScope('program');
-        return;
-      }
-      if (e.key === 'ArrowDown') {
-        if (itemsRef.current.length === 0) return;
-        e.preventDefault();
-        // The first ↓ *enters* the list on the row already highlighted — it does
-        // not step past it. Advancing here is what made the shipped picker skip
-        // to the second row on the very first press (#3024).
-        if (!inListRef.current) {
-          setInList(true);
-          return;
-        }
-        setActiveIdx((i) => Math.min(itemsRef.current.length - 1, i + 1));
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        if (itemsRef.current.length === 0) return;
-        e.preventDefault();
-        if (!inListRef.current) {
-          setInList(true);
-          return;
-        }
-        // ↑ off the first row hands the keyboard back to the search field. That
-        // is the escape hatch that makes Space typable again without reaching
-        // for the mouse — the disambiguation is only fair if it is reversible.
-        if (activeIdxRef.current === 0) {
-          setInList(false);
-          return;
-        }
-        setActiveIdx((i) => Math.max(0, i - 1));
-        return;
-      }
-      if (e.key === ' ') {
-        // Space is the multi-add commit ONLY once ↓ has moved the caret into the
-        // list; otherwise it belongs to whatever the user is typing. The target
-        // check keeps a Tabbed-to button's native Space activation intact — the
-        // window listener would otherwise swallow it.
-        if (!inListRef.current || e.target !== inputRef.current) return;
-        const target = itemsRef.current[activeIdxRef.current];
-        if (!target) return;
-        e.preventDefault();
-        submitRef.current?.(target, { keepOpen: true });
-        return;
-      }
-      if (e.key === 'Enter') {
-        // Same target guard as Space, and for a sharper reason: without it, a
-        // user who Tabs to the × button and presses Enter has the native button
-        // activation preventDefault()'d out from under them and gets a
-        // DEPENDENCY CREATED on whatever row is highlighted — then the dialog
-        // closes, so it looks like Close worked. A silent unintended write on
-        // the keyboard path this contract exists to serve.
-        if (e.target !== inputRef.current) return;
-        e.preventDefault();
-        const target = itemsRef.current[activeIdxRef.current];
-        if (target) submitRef.current?.(target);
-      }
+      if (tryScopeArrow(e)) return;
+      if (tryArrowDown(e)) return;
+      if (tryArrowUp(e)) return;
+      if (trySpace(e)) return;
+      tryEnter(e);
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -648,12 +753,7 @@ export function ScheduleDependencyPicker({
    * A row matched only on its notes marks nothing, which is honest: the hit is
    * not in the text on screen.
    */
-  const matchKind: MatchKind =
-    scope === 'program'
-      ? matchKindFor(search) === 'none'
-        ? 'none'
-        : 'name-substring'
-      : matchKindFor(search);
+  const matchKind: MatchKind = resolveMatchKind(scope, search);
   const addedCount = addedIds.size;
 
   /**
@@ -789,7 +889,10 @@ export function ScheduleDependencyPicker({
         </div>
 
         <div className="flex items-center gap-2 px-4 pb-1.5">
-          <label htmlFor={typeFieldId} className="text-xs text-neutral-text-secondary shrink-0 w-[92px]">
+          <label
+            htmlFor={typeFieldId}
+            className="text-xs text-neutral-text-secondary shrink-0 w-[92px]"
+          >
             Relationship
           </label>
           <select
@@ -866,33 +969,16 @@ export function ScheduleDependencyPicker({
         )}
 
         {scope === 'project' ? (
-          <ul
-            id={listboxId}
-            role="listbox" // dropdown-scroll-ok: flex-1 overflow-y-auto inside the picker dialog's own max-h-[480px] flex-col container
-            aria-label="Task results"
-            className="flex-1 overflow-y-auto px-2 pb-2"
-          >
-            {shownProjectItems.length === 0 ? (
-              // `role="presentation"` because a bare listitem is not an allowed
-              // child of a listbox, and this is copy rather than an option.
-              <li role="presentation" className="py-3 px-2 text-[13px] text-neutral-text-secondary">
-                No matching tasks. Try a different search.
-              </li>
-            ) : (
-              shownProjectItems.map((item, i) => (
-                <ResultRow
-                  key={item.id}
-                  id={optionId(i)}
-                  item={item}
-                  query={search}
-                  matchKind={matchKind}
-                  active={i === activeIdx}
-                  onHover={() => setActiveIdx(i)}
-                  onPick={() => submit(item)}
-                />
-              ))
-            )}
-          </ul>
+          <ProjectResultsList
+            listboxId={listboxId}
+            shownProjectItems={shownProjectItems}
+            optionId={optionId}
+            search={search}
+            matchKind={matchKind}
+            activeIdx={activeIdx}
+            setActiveIdx={setActiveIdx}
+            submit={submit}
+          />
         ) : (
           <ProgramResults
             listboxId={listboxId}
@@ -925,20 +1011,13 @@ export function ScheduleDependencyPicker({
               caret owns the keys — and nothing else on screen distinguishes the
               two states (the row highlight is honest about Enter, which does
               take row 0 with no keypresses, but says nothing about Space). */}
-          {inList
-            ? canCrossProject
-              ? '←→ scope · ↑↓ move · Space add · Enter add & close · Esc cancel'
-              : '↑↓ move · Space add · Enter add & close · Esc cancel'
-            : canCrossProject
-              ? '←→ scope · ↓ into list · Enter add & close · Esc cancel'
-              : '↓ into list · Enter add & close · Esc cancel'}
+          {keyboardHint(inList, canCrossProject)}
         </div>
       </div>
     </div>,
     document.body,
   );
 }
-
 
 /** Program-scope result body: grouped rows, plus loading / empty / error states. */
 function ProgramResults({
