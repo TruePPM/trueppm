@@ -163,6 +163,52 @@ def _first_working_day_in(
     return None
 
 
+def _partition_allocations(
+    allocations: Sequence[Allocation],
+) -> tuple[Decimal, list[tuple[Decimal, datetime.date, datetime.date]]]:
+    """Split `allocations` into the undated baseline sum and the dated spans.
+
+    (units, span_start, span_end) tuples are narrowed to non-null dates so the
+    sweep in :func:`peak_concurrent_units` needs no per-element None handling.
+    """
+    baseline = Decimal("0")
+    dated: list[tuple[Decimal, datetime.date, datetime.date]] = []
+    for alloc in allocations:
+        if alloc.start is None or alloc.end is None or alloc.end < alloc.start:
+            baseline += alloc.units
+        else:
+            dated.append((alloc.units, alloc.start, alloc.end))
+    return baseline, dated
+
+
+def _peak_candidate_days(
+    dated: list[tuple[Decimal, datetime.date, datetime.date]],
+    working_days_mask: int,
+    exception_ranges: list[tuple[datetime.date, datetime.date]],
+) -> list[datetime.date]:
+    """One candidate peak-day per dated span — see :func:`peak_concurrent_units`.
+
+    The peak of a sum of boxcars is always attained on the first working day of
+    some allocation's span: if day D is a working-day maximum, let S be the
+    allocations covering D and s the latest start among them. Every member of S
+    spans [s, D], so the first working day at or after s is <= D, lies inside
+    every member of S, and therefore carries at least as much load as D. That
+    makes one candidate per allocation sufficient — no day-by-day walk of the
+    union span, which could be years wide with no window to clamp it to.
+    """
+    candidates: list[datetime.date] = []
+    for _units, span_start, span_end in dated:
+        day = _first_working_day_in(working_days_mask, exception_ranges, span_start, span_end)
+        if day is not None:
+            candidates.append(day)
+    if candidates:
+        return candidates
+    # Degenerate calendar: no span contains a working day at all. Falling back
+    # to raw span starts keeps a genuine overlap detectable rather than
+    # silently reporting the undated baseline as the peak.
+    return [span_start for _units, span_start, _span_end in dated]
+
+
 def peak_concurrent_units(
     allocations: Sequence[Allocation],
     working_days_mask: int,
@@ -200,36 +246,11 @@ def peak_concurrent_units(
         ``(peak, day)`` where ``day`` is ``None`` if the peak is the undated
         baseline rather than a dated overlap.
     """
-    baseline = Decimal("0")
-    # (units, span_start, span_end) — narrowed to non-null dates so the sweep below
-    # needs no per-element None handling.
-    dated: list[tuple[Decimal, datetime.date, datetime.date]] = []
-    for alloc in allocations:
-        if alloc.start is None or alloc.end is None or alloc.end < alloc.start:
-            baseline += alloc.units
-        else:
-            dated.append((alloc.units, alloc.start, alloc.end))
-
+    baseline, dated = _partition_allocations(allocations)
     if not dated:
         return baseline, None
 
-    # The peak of a sum of boxcars is always attained on the first working day of
-    # some allocation's span: if day D is a working-day maximum, let S be the
-    # allocations covering D and s the latest start among them. Every member of S
-    # spans [s, D], so the first working day at or after s is <= D, lies inside
-    # every member of S, and therefore carries at least as much load as D. That
-    # makes one candidate per allocation sufficient — no day-by-day walk of the
-    # union span, which could be years wide with no window to clamp it to.
-    candidates: list[datetime.date] = []
-    for _units, span_start, span_end in dated:
-        day = _first_working_day_in(working_days_mask, exception_ranges, span_start, span_end)
-        if day is not None:
-            candidates.append(day)
-    if not candidates:
-        # Degenerate calendar: no span contains a working day at all. Falling back
-        # to raw span starts keeps a genuine overlap detectable rather than
-        # silently reporting the undated baseline as the peak.
-        candidates = [span_start for _units, span_start, _span_end in dated]
+    candidates = _peak_candidate_days(dated, working_days_mask, exception_ranges)
 
     # Sweep the candidate days in order, opening and closing spans as they are
     # reached. O(n log n) rather than re-scanning every span per candidate: one
