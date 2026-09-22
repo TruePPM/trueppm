@@ -7080,7 +7080,9 @@ ci:arm64-smoke:
       docker save "${GL_API}:arm64-smoke" -o /tmp/api-arm64-smoke.tar
       trivy image --input /tmp/api-arm64-smoke.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
       mkdir -p sbom
-      syft "docker-archive:/tmp/api-arm64-smoke.tar" -o "cyclonedx-json=sbom/api-arm64-smoke.cdx.json"
+      syft "docker-archive:/tmp/api-arm64-smoke.tar" \
+        --source-name "ghcr.io/${GHCR_USER}/api" --source-version "smoke-arm64" \
+        -o "cyclonedx-json=sbom/api-smoke-arm64.cdx.json"
       . "$CI_PROJECT_DIR/scripts/docker-push-retry.sh"
       push_with_retry "${GL_API}:arm64-smoke"
     - |
@@ -7156,7 +7158,9 @@ ci:amd64-smoke:
       # produced, so the probe must produce one at a matching path.
       mkdir -p sbom
       docker save "${GL_API}:amd64-smoke" -o /tmp/api-amd64-smoke.tar
-      syft "docker-archive:/tmp/api-amd64-smoke.tar" -o "cyclonedx-json=sbom/api-smoke-amd64.cdx.json"
+      syft "docker-archive:/tmp/api-amd64-smoke.tar" \
+        --source-name "ghcr.io/${GHCR_USER}/api" --source-version "smoke-amd64" \
+        -o "cyclonedx-json=sbom/api-smoke-amd64.cdx.json"
       push_with_retry "${GL_API}:amd64-smoke"
     - |
       set -euo pipefail
@@ -7250,10 +7254,24 @@ ci:manifest-probe:
       set -euo pipefail
       # Sign + attest ONLY the multi-arch index, exactly as the real jobs do.
       GH_API="ghcr.io/${GHCR_USER}/api"
+      # Mirrors the real jobs (#3995): SIGN the index — publisher identity for
+      # whatever a consumer pulls by tag — but ATTEST each architecture's SBOM
+      # to that architecture's own manifest digest. An index has no filesystem
+      # and no packages, so one arch's SBOM attached to it verifies
+      # successfully while describing the wrong image.
       cosign sign --yes "${GH_API}:multiarch-smoke"
-      cosign attest --yes --type cyclonedx \
-        --predicate "sbom/api-smoke-amd64.cdx.json" "${GH_API}:multiarch-smoke"
-      echo "signed and attested ${GH_API}:multiarch-smoke"
+      apk add --no-cache jq
+      RAW=$(docker buildx imagetools inspect "${GH_API}:multiarch-smoke" --raw)
+      for arch in amd64 arm64; do
+        ARCH_DIGEST=$(echo "$RAW" | jq -r --arg a "$arch" \
+          '.manifests[] | select(.platform.architecture==$a and .platform.os=="linux") | .digest')
+        if [ -z "$ARCH_DIGEST" ] || [ "$ARCH_DIGEST" = "null" ]; then
+          echo "ERROR: no linux/${arch} manifest in the index"; exit 1
+        fi
+        cosign attest --yes --type cyclonedx \
+          --predicate "sbom/api-smoke-${arch}.cdx.json" "${GH_API}@${ARCH_DIGEST}"
+        echo "attested ${arch} SBOM to ${GH_API}@${ARCH_DIGEST}"
+      done
     - |
       set -euo pipefail
       # THE CHECK THE REAL JOBS DO NOT DO. A signature nothing validates is a
@@ -7266,11 +7284,27 @@ ci:manifest-probe:
         --certificate-identity "${IDENTITY}" \
         --certificate-oidc-issuer "https://gitlab.com" \
         "${GH_API}:multiarch-smoke"
-      cosign verify-attestation --type cyclonedx \
-        --certificate-identity "${IDENTITY}" \
-        --certificate-oidc-issuer "https://gitlab.com" \
-        "${GH_API}:multiarch-smoke"
-      echo "VERIFIED: index signature and CycloneDX attestation both validate."
+      # Verify each platform's attestation at its own digest, the way a
+      # consumer on that platform would, and prove the SBOM it gets back names
+      # its own architecture rather than the other one (#3995).
+      apk add --no-cache jq
+      RAW=$(docker buildx imagetools inspect "${GH_API}:multiarch-smoke" --raw)
+      for arch in amd64 arm64; do
+        ARCH_DIGEST=$(echo "$RAW" | jq -r --arg a "$arch" \
+          '.manifests[] | select(.platform.architecture==$a and .platform.os=="linux") | .digest')
+        cosign verify-attestation --type cyclonedx \
+          --certificate-identity "${IDENTITY}" \
+          --certificate-oidc-issuer "https://gitlab.com" \
+          "${GH_API}@${ARCH_DIGEST}" > "/tmp/att-${arch}.json"
+        FOUND=$(jq -r '.payload' "/tmp/att-${arch}.json" | base64 -d \
+          | jq -r '.predicate.metadata.component.version')
+        echo "${arch} attestation reports source-version: ${FOUND}"
+        [ "$FOUND" = "smoke-${arch}" ] || {
+          echo "ERROR: ${arch} digest carries an SBOM for '${FOUND}' — wrong architecture."
+          exit 1
+        }
+      done
+      echo "VERIFIED: index signature valid, and each platform digest carries ITS OWN SBOM."
     - |
       set -euo pipefail
       # Prove the assembled list really carries both platforms.
@@ -7290,6 +7324,12 @@ api:publish:
     - |
       VERSION="${CI_COMMIT_TAG#v}"
       GL_IMAGE="${CI_REGISTRY_IMAGE}/api"
+      # Names the SBOM after the image it describes, not the temp tarball
+      # syft is pointed at (#3995). Without it metadata.component.name is
+      # "/tmp/...tar" and its version is the tarball digest, which resolves
+      # to nothing in any registry — leaving the document unable to say what
+      # it is an SBOM OF.
+      GH_IMAGE_NAME="ghcr.io/${GHCR_USER}/api"
       docker build -f packages/api/Dockerfile \
         -t "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" \
         .
@@ -7303,7 +7343,9 @@ api:publish:
       # a non-expiring job artifact AND attached to the signed multi-arch
       # manifest as a Cosign CycloneDX attestation by api:publish:manifest.
       mkdir -p sbom
-      syft "docker-archive:/tmp/api-image-amd64.tar" -o "cyclonedx-json=sbom/api-${VERSION}-amd64.cdx.json"
+      syft "docker-archive:/tmp/api-image-amd64.tar" \
+        --source-name "${GH_IMAGE_NAME}" --source-version "${VERSION}-amd64" \
+        -o "cyclonedx-json=sbom/api-${VERSION}-amd64.cdx.json"
       # Internal GitLab Container Registry mirror (always available).
       docker push "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64"
       # Public GHCR release — REQUIRED on a release tag (#939). Fail loudly with
@@ -7341,13 +7383,21 @@ api:publish:arm64:
     - |
       VERSION="${CI_COMMIT_TAG#v}"
       GL_IMAGE="${CI_REGISTRY_IMAGE}/api"
+      # Names the SBOM after the image it describes, not the temp tarball
+      # syft is pointed at (#3995). Without it metadata.component.name is
+      # "/tmp/...tar" and its version is the tarball digest, which resolves
+      # to nothing in any registry — leaving the document unable to say what
+      # it is an SBOM OF.
+      GH_IMAGE_NAME="ghcr.io/${GHCR_USER}/api"
       docker build -f packages/api/Dockerfile \
         -t "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" \
         .
       docker save "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" -o /tmp/api-image-arm64.tar
       trivy image --input /tmp/api-image-arm64.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
       mkdir -p sbom
-      syft "docker-archive:/tmp/api-image-arm64.tar" -o "cyclonedx-json=sbom/api-${VERSION}-arm64.cdx.json"
+      syft "docker-archive:/tmp/api-image-arm64.tar" \
+        --source-name "${GH_IMAGE_NAME}" --source-version "${VERSION}-arm64" \
+        -o "cyclonedx-json=sbom/api-${VERSION}-arm64.cdx.json"
       # Retry the push: this runner is a persistent shell executor, so its
       # daemon can try a cross-repo blob mount the registry then cannot
       # resolve ("blob unknown to registry"). The amd64 leg is immune — it
@@ -7422,8 +7472,31 @@ api:publish:manifest:
         "${GH_IMAGE}:${VERSION}-amd64" "${GH_IMAGE}:${VERSION}-arm64"
       docker buildx imagetools create -t "${GH_IMAGE}:latest" \
         "${GH_IMAGE}:${VERSION}-amd64" "${GH_IMAGE}:${VERSION}-arm64"
+      # Sign the INDEX: this establishes publisher identity and integrity for
+      # the artifact a consumer pulls by tag, on either platform.
       cosign sign --yes "${GH_IMAGE}:${VERSION}"
-      cosign attest --yes --type cyclonedx --predicate "sbom/api-${VERSION}-amd64.cdx.json" "${GH_IMAGE}:${VERSION}"
+      # Attest each architecture's SBOM to THAT architecture's manifest digest,
+      # not to the index (#3995). An index is a pointer list — it has no
+      # filesystem and therefore no packages — so attaching one architecture's
+      # SBOM to it made the attestation silently WRONG for the other: an arm64
+      # consumer verified successfully and received the amd64 package list.
+      # in-toto/SLSA bind an attestation to the digest of the artifact it
+      # describes, which is what this does. A consumer resolves the digest for
+      # the platform it runs and verifies the SBOM for the image it pulled.
+      apk add --no-cache jq
+      RAW=$(docker buildx imagetools inspect "${GH_IMAGE}:${VERSION}" --raw)
+      for arch in amd64 arm64; do
+        ARCH_DIGEST=$(echo "$RAW" | jq -r --arg a "$arch" \
+          '.manifests[] | select(.platform.architecture==$a and .platform.os=="linux") | .digest')
+        if [ -z "$ARCH_DIGEST" ] || [ "$ARCH_DIGEST" = "null" ]; then
+          echo "ERROR: no linux/${arch} manifest in ${GH_IMAGE}:${VERSION} — cannot attest its SBOM."
+          exit 1
+        fi
+        cosign attest --yes --type cyclonedx \
+          --predicate "sbom/api-${VERSION}-${arch}.cdx.json" \
+          "${GH_IMAGE}@${ARCH_DIGEST}"
+        echo "attested ${arch} SBOM to ${GH_IMAGE}@${ARCH_DIGEST}"
+      done
   artifacts:
     name: "api-sbom-${CI_COMMIT_TAG}"
     paths:
@@ -7441,6 +7514,12 @@ web:publish:
     - |
       VERSION="${CI_COMMIT_TAG#v}"
       GL_IMAGE="${CI_REGISTRY_IMAGE}/web"
+      # Names the SBOM after the image it describes, not the temp tarball
+      # syft is pointed at (#3995). Without it metadata.component.name is
+      # "/tmp/...tar" and its version is the tarball digest, which resolves
+      # to nothing in any registry — leaving the document unable to say what
+      # it is an SBOM OF.
+      GH_IMAGE_NAME="ghcr.io/${GHCR_USER}/web"
       cd packages/web
       docker build \
         -t "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" \
@@ -7450,7 +7529,9 @@ web:publish:
       trivy image --input /tmp/web-image-amd64.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
       # CycloneDX SBOM from the image tarball (see api:publish for rationale).
       mkdir -p sbom
-      syft "docker-archive:/tmp/web-image-amd64.tar" -o "cyclonedx-json=sbom/web-${VERSION}-amd64.cdx.json"
+      syft "docker-archive:/tmp/web-image-amd64.tar" \
+        --source-name "${GH_IMAGE_NAME}" --source-version "${VERSION}-amd64" \
+        -o "cyclonedx-json=sbom/web-${VERSION}-amd64.cdx.json"
       # Internal GitLab Container Registry mirror (always available).
       docker push "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64"
       # Public GHCR release — REQUIRED on a release tag (see api:publish).
@@ -7483,6 +7564,12 @@ web:publish:arm64:
     - |
       VERSION="${CI_COMMIT_TAG#v}"
       GL_IMAGE="${CI_REGISTRY_IMAGE}/web"
+      # Names the SBOM after the image it describes, not the temp tarball
+      # syft is pointed at (#3995). Without it metadata.component.name is
+      # "/tmp/...tar" and its version is the tarball digest, which resolves
+      # to nothing in any registry — leaving the document unable to say what
+      # it is an SBOM OF.
+      GH_IMAGE_NAME="ghcr.io/${GHCR_USER}/web"
       cd packages/web
       docker build \
         -t "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" \
@@ -7490,7 +7577,9 @@ web:publish:arm64:
       docker save "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" -o /tmp/web-image-arm64.tar
       trivy image --input /tmp/web-image-arm64.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
       mkdir -p sbom
-      syft "docker-archive:/tmp/web-image-arm64.tar" -o "cyclonedx-json=sbom/web-${VERSION}-arm64.cdx.json"
+      syft "docker-archive:/tmp/web-image-arm64.tar" \
+        --source-name "${GH_IMAGE_NAME}" --source-version "${VERSION}-arm64" \
+        -o "cyclonedx-json=sbom/web-${VERSION}-arm64.cdx.json"
       # See the api arm64 leg and scripts/docker-push-retry.sh (#3990). This is
       # the exact push that failed on job 16659791908 with a cross-repo mount.
       . "$CI_PROJECT_DIR/scripts/docker-push-retry.sh"
@@ -7544,8 +7633,31 @@ web:publish:manifest:
         "${GH_IMAGE}:${VERSION}-amd64" "${GH_IMAGE}:${VERSION}-arm64"
       docker buildx imagetools create -t "${GH_IMAGE}:latest" \
         "${GH_IMAGE}:${VERSION}-amd64" "${GH_IMAGE}:${VERSION}-arm64"
+      # Sign the INDEX: this establishes publisher identity and integrity for
+      # the artifact a consumer pulls by tag, on either platform.
       cosign sign --yes "${GH_IMAGE}:${VERSION}"
-      cosign attest --yes --type cyclonedx --predicate "sbom/web-${VERSION}-amd64.cdx.json" "${GH_IMAGE}:${VERSION}"
+      # Attest each architecture's SBOM to THAT architecture's manifest digest,
+      # not to the index (#3995). An index is a pointer list — it has no
+      # filesystem and therefore no packages — so attaching one architecture's
+      # SBOM to it made the attestation silently WRONG for the other: an arm64
+      # consumer verified successfully and received the amd64 package list.
+      # in-toto/SLSA bind an attestation to the digest of the artifact it
+      # describes, which is what this does. A consumer resolves the digest for
+      # the platform it runs and verifies the SBOM for the image it pulled.
+      apk add --no-cache jq
+      RAW=$(docker buildx imagetools inspect "${GH_IMAGE}:${VERSION}" --raw)
+      for arch in amd64 arm64; do
+        ARCH_DIGEST=$(echo "$RAW" | jq -r --arg a "$arch" \
+          '.manifests[] | select(.platform.architecture==$a and .platform.os=="linux") | .digest')
+        if [ -z "$ARCH_DIGEST" ] || [ "$ARCH_DIGEST" = "null" ]; then
+          echo "ERROR: no linux/${arch} manifest in ${GH_IMAGE}:${VERSION} — cannot attest its SBOM."
+          exit 1
+        fi
+        cosign attest --yes --type cyclonedx \
+          --predicate "sbom/web-${VERSION}-${arch}.cdx.json" \
+          "${GH_IMAGE}@${ARCH_DIGEST}"
+        echo "attested ${arch} SBOM to ${GH_IMAGE}@${ARCH_DIGEST}"
+      done
   artifacts:
     name: "web-sbom-${CI_COMMIT_TAG}"
     paths:
