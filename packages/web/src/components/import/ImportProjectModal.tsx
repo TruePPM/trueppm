@@ -64,6 +64,228 @@ function msProjectErrorMessage(error: unknown): string {
 }
 
 /**
+ * The failure lines to show for the current import attempt.
+ *
+ * The native seed importer returns a line-level validation report (a list);
+ * MS Project returns a single message. Normalized to a string[]. A failed
+ * background job carries its own reason and stands in for the request error,
+ * which by then has already resolved 202.
+ */
+function resolveErrorLines(
+  isTruePpm: boolean,
+  jobError: string | null,
+  seedError: unknown,
+  msError: unknown,
+): string[] {
+  if (!isTruePpm) return [msProjectErrorMessage(msError)];
+  if (jobError) return [jobError];
+  const lines = seedImportErrors(seedError);
+  return lines.length > 0 ? lines : [SEED_GENERIC_FAILURE];
+}
+
+/**
+ * The dialog's main panel content, in priority order: the error report, the
+ * uploading spinner, the program-building spinner, or the format/dropzone
+ * form. Pulled out of `ImportProjectModal`'s own render so this block's
+ * conditionals are scored as their own function's cognitive complexity
+ * rather than folded into the modal component's.
+ */
+function ImportModalBody({
+  showError,
+  errorLines,
+  onClose,
+  onTryDifferentFile,
+  isUploading,
+  fileName,
+  building,
+  format,
+  onSelectFormat,
+  truePpmEnabled,
+  guidanceOpen,
+  onToggleGuidance,
+  isTruePpm,
+  file,
+  onSelect,
+  onClear,
+  onReject,
+  rejectMsg,
+  programId,
+  programName,
+  programMethodology,
+  onImport,
+}: {
+  showError: boolean;
+  errorLines: string[];
+  onClose: () => void;
+  onTryDifferentFile: () => void;
+  isUploading: boolean;
+  fileName: string | undefined;
+  building: boolean;
+  format: ImportFormat;
+  onSelectFormat: (next: ImportFormat) => void;
+  truePpmEnabled: boolean;
+  guidanceOpen: boolean;
+  onToggleGuidance: () => void;
+  isTruePpm: boolean;
+  file: File | null;
+  onSelect: (picked: File) => void;
+  onClear: () => void;
+  onReject: (message: string, reason: ImportRejectReason) => void;
+  rejectMsg: string | null;
+  programId: string | undefined;
+  programName: string | undefined;
+  programMethodology: Methodology | undefined;
+  onImport: () => void;
+}) {
+  if (showError) {
+    return (
+      <div role="alert" className="flex flex-col gap-3">
+        {errorLines.length === 1 ? (
+          <p className="text-sm text-neutral-text-primary">
+            <XMarkIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
+            {errorLines[0]}
+          </p>
+        ) : (
+          <div>
+            <p className="text-sm font-medium text-neutral-text-primary">
+              <XMarkIcon
+                className="inline-block h-3 w-3 align-[-0.125em] mr-1"
+                aria-hidden="true"
+              />
+              Couldn&apos;t import this file:
+            </p>
+            <ul className="mt-1 list-disc pl-5 text-xs text-neutral-text-secondary">
+              {errorLines.slice(0, 8).map((message) => (
+                <li key={message}>{message}</li>
+              ))}
+              {errorLines.length > 8 && <li>…and {errorLines.length - 8} more.</li>}
+            </ul>
+          </div>
+        )}
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-9 rounded-control border border-neutral-border px-4 text-sm font-medium
+              text-neutral-text-secondary hover:text-neutral-text-primary
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+          >
+            Close
+          </button>
+          <button
+            type="button"
+            onClick={onTryDifferentFile}
+            className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-neutral-text-inverse
+              hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2
+              focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
+          >
+            Try a different file
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (isUploading) {
+    return (
+      <div role="status" className="flex flex-col gap-3">
+        <p className="text-sm text-neutral-text-primary">Uploading {fileName}…</p>
+        <div
+          className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-surface-raised"
+          role="progressbar"
+          aria-label="Uploading file"
+        >
+          <div className="h-full w-1/3 motion-safe:animate-pulse rounded-full bg-brand-primary" />
+        </div>
+      </div>
+    );
+  }
+  if (building) {
+    // The program shell already exists; only its projects and tasks are
+    // still being built (ADR-0726 §6).
+    return (
+      <div role="status" className="flex flex-col gap-3">
+        <p className="text-sm text-neutral-text-primary">Building the imported program…</p>
+        <div
+          className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-surface-raised"
+          role="progressbar"
+          aria-label="Building the imported program"
+        >
+          <div className="h-full w-1/2 motion-safe:animate-pulse rounded-full bg-brand-primary" />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-4">
+      <FormatPicker
+        format={format}
+        onSelectFormat={onSelectFormat}
+        truePpmEnabled={truePpmEnabled}
+        guidanceOpen={guidanceOpen}
+        onToggleGuidance={onToggleGuidance}
+      />
+
+      <ImportDropzone
+        accept={isTruePpm ? JSON_ONLY : XML_ONLY}
+        maxSizeMb={isTruePpm ? SEED_MAX_UPLOAD_MB : MS_PROJECT_MAX_UPLOAD_MB}
+        file={file}
+        onSelect={onSelect}
+        onClear={onClear}
+        onReject={onReject}
+      />
+
+      {rejectMsg && (
+        <p role="alert" className="text-xs text-semantic-critical">
+          {rejectMsg}
+        </p>
+      )}
+
+      {!isTruePpm && programId && programName && (
+        <p className="text-xs text-neutral-text-secondary">
+          Will be added to the <strong>{programName}</strong> program
+          {programMethodology ? (
+            // Stated here because this is the one moment the importer is
+            // looking: the server seeds the project with the program's
+            // methodology (#3432), and a settings hint they never read is
+            // the wrong place to learn what they just got.
+            <>
+              {' '}
+              and start with its <strong>{METHODOLOGY_LABEL[programMethodology]}</strong>{' '}
+              methodology.
+            </>
+          ) : (
+            '.'
+          )}
+        </p>
+      )}
+
+      <div className="flex items-center justify-end gap-2 pt-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="h-9 rounded-control border border-neutral-border px-4 text-sm font-medium
+            text-neutral-text-secondary hover:text-neutral-text-primary
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onImport}
+          disabled={!file}
+          className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-neutral-text-inverse
+            hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:opacity-50
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
+            focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
+        >
+          Import
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Create-a-project-from-a-file modal (ADR-0092, ADR-0222, #797, #1611).
  *
  * Distinct from {@link ImportModal} (which imports into an existing project):
@@ -247,14 +469,12 @@ export function ImportProjectModal({
   // MS Project returns a single message. Normalize both to a string[]. A failed
   // background job carries its own reason and stands in for the request error,
   // which by then has already resolved 202.
-  const errorLines: string[] = isTruePpm
-    ? jobError
-      ? [jobError]
-      : (() => {
-          const lines = seedImportErrors(seedMut.error);
-          return lines.length > 0 ? lines : [SEED_GENERIC_FAILURE];
-        })()
-    : [msProjectErrorMessage(createMut.error)];
+  const errorLines: string[] = resolveErrorLines(
+    isTruePpm,
+    jobError,
+    seedMut.error,
+    createMut.error,
+  );
 
   // A 409 is displayed as the confirmation dialog, so the mutation's error state
   // must not also paint the error branch behind it.
@@ -288,149 +508,37 @@ export function ImportProjectModal({
           </h2>
           <p className="mb-5 text-xs text-neutral-text-secondary">{subtitle}</p>
 
-          {showError ? (
-            <div role="alert" className="flex flex-col gap-3">
-              {errorLines.length === 1 ? (
-                <p className="text-sm text-neutral-text-primary">
-                  <XMarkIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
-                  {errorLines[0]}
-                </p>
-              ) : (
-                <div>
-                  <p className="text-sm font-medium text-neutral-text-primary">
-                    <XMarkIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
-                    Couldn&apos;t import this file:
-                  </p>
-                  <ul className="mt-1 list-disc pl-5 text-xs text-neutral-text-secondary">
-                    {errorLines.slice(0, 8).map((message) => (
-                      <li key={message}>{message}</li>
-                    ))}
-                    {errorLines.length > 8 && <li>…and {errorLines.length - 8} more.</li>}
-                  </ul>
-                </div>
-              )}
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="h-9 rounded-control border border-neutral-border px-4 text-sm font-medium
-                    text-neutral-text-secondary hover:text-neutral-text-primary
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-                >
-                  Close
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFile(null);
-                    resetMutations();
-                  }}
-                  className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-neutral-text-inverse
-                    hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2
-                    focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
-                >
-                  Try a different file
-                </button>
-              </div>
-            </div>
-          ) : activeMut.isPending ? (
-            <div role="status" className="flex flex-col gap-3">
-              <p className="text-sm text-neutral-text-primary">Uploading {file?.name}…</p>
-              <div
-                className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-surface-raised"
-                role="progressbar"
-                aria-label="Uploading file"
-              >
-                <div className="h-full w-1/3 motion-safe:animate-pulse rounded-full bg-brand-primary" />
-              </div>
-            </div>
-          ) : building ? (
-            // The program shell already exists; only its projects and tasks are
-            // still being built (ADR-0726 §6).
-            <div role="status" className="flex flex-col gap-3">
-              <p className="text-sm text-neutral-text-primary">Building the imported program…</p>
-              <div
-                className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-surface-raised"
-                role="progressbar"
-                aria-label="Building the imported program"
-              >
-                <div className="h-full w-1/2 motion-safe:animate-pulse rounded-full bg-brand-primary" />
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-4">
-              <FormatPicker
-                format={format}
-                onSelectFormat={handleFormatChange}
-                truePpmEnabled={truePpmEnabled}
-                guidanceOpen={guidanceOpen}
-                onToggleGuidance={() => setGuidanceOpen((o) => !o)}
-              />
-
-              <ImportDropzone
-                accept={isTruePpm ? JSON_ONLY : XML_ONLY}
-                maxSizeMb={isTruePpm ? SEED_MAX_UPLOAD_MB : MS_PROJECT_MAX_UPLOAD_MB}
-                file={file}
-                onSelect={handleSelect}
-                onClear={() => {
-                  setFile(null);
-                  setRejectMsg(null);
-                  resetMutations();
-                }}
-                onReject={handleReject}
-              />
-
-              {rejectMsg && (
-                <p role="alert" className="text-xs text-semantic-critical">
-                  {rejectMsg}
-                </p>
-              )}
-
-              {!isTruePpm && programId && programName && (
-                <p className="text-xs text-neutral-text-secondary">
-                  Will be added to the <strong>{programName}</strong> program
-                  {programMethodology ? (
-                    // Stated here because this is the one moment the importer is
-                    // looking: the server seeds the project with the program's
-                    // methodology (#3432), and a settings hint they never read is
-                    // the wrong place to learn what they just got.
-                    <>
-                      {' '}
-                      and start with its <strong>
-                        {METHODOLOGY_LABEL[programMethodology]}
-                      </strong>{' '}
-                      methodology.
-                    </>
-                  ) : (
-                    '.'
-                  )}
-                </p>
-              )}
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="h-9 rounded-control border border-neutral-border px-4 text-sm font-medium
-                    text-neutral-text-secondary hover:text-neutral-text-primary
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleImport}
-                  disabled={!file}
-                  className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-neutral-text-inverse
-                    hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:opacity-50
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
-                    focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
-                >
-                  Import
-                </button>
-              </div>
-            </div>
-          )}
+          <ImportModalBody
+            showError={showError}
+            errorLines={errorLines}
+            onClose={onClose}
+            onTryDifferentFile={() => {
+              setFile(null);
+              resetMutations();
+            }}
+            isUploading={activeMut.isPending}
+            fileName={file?.name}
+            building={building}
+            format={format}
+            onSelectFormat={handleFormatChange}
+            truePpmEnabled={truePpmEnabled}
+            guidanceOpen={guidanceOpen}
+            onToggleGuidance={() => setGuidanceOpen((o) => !o)}
+            isTruePpm={isTruePpm}
+            file={file}
+            onSelect={handleSelect}
+            onClear={() => {
+              setFile(null);
+              setRejectMsg(null);
+              resetMutations();
+            }}
+            onReject={handleReject}
+            rejectMsg={rejectMsg}
+            programId={programId}
+            programName={programName}
+            programMethodology={programMethodology}
+            onImport={handleImport}
+          />
         </div>
       </div>
       {conflict && (

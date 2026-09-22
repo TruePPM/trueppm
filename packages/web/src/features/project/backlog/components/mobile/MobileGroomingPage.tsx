@@ -19,9 +19,10 @@ import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useCanManageBacklog } from '@/hooks/useMyFacets';
 import { MethodologyEmptyState } from '@/features/shell/MethodologyEmptyState';
 import { MethodologyMismatchBanner } from '@/features/shell/MethodologyMismatchBanner';
-import type { Task } from '@/types';
+import type { Methodology, Task } from '@/types';
+import type { ProductBacklog } from '../../types';
 import { filterBacklog } from '../../filter';
-import { useGroomingFilters } from '../../hooks/useGroomingFilters';
+import { useGroomingFilters, type GroomingFilterControls } from '../../hooks/useGroomingFilters';
 import { useProductBacklog, useQuickAddStory, useSetDor } from '../../hooks/useProductBacklog';
 import { DOR_FILTER_ORDER, DorFilterChip, ToggleChip } from '../GroomingFilterChips';
 import { GroomingSearchInput } from '../GroomingSearchInput';
@@ -41,6 +42,171 @@ function HealthStat({ value, label, tone }: { value: string; label: string; tone
       </span>
       <span className="whitespace-nowrap text-xs text-neutral-text-secondary">{label}</span>
     </div>
+  );
+}
+
+/**
+ * The page body below the header/banner: the WATERFALL-mismatch empty state,
+ * the plain "backlog is empty" state, or the populated health/filter/card-list
+ * view (itself gated on the filtered-to-nothing empty state) — in that
+ * priority order, mirroring `ScheduleMainAreaEmptyState`'s shape.
+ */
+function MobileGroomingBody({
+  allEmpty,
+  effectiveMethodology,
+  projectId,
+  health,
+  dorTone,
+  itlLower,
+  filterCtl,
+  matchCount,
+  totalCount,
+  filterActive,
+  filtered,
+  onOpenStory,
+  onToggleDor,
+}: {
+  allEmpty: boolean;
+  effectiveMethodology: Methodology;
+  projectId: string | undefined;
+  health: ProductBacklog['health'];
+  dorTone: string;
+  itlLower: string;
+  filterCtl: GroomingFilterControls;
+  matchCount: number;
+  totalCount: number;
+  filterActive: boolean;
+  filtered: ReturnType<typeof filterBacklog>;
+  onOpenStory: (id: string) => void;
+  onToggleDor: (story: Task) => void;
+}) {
+  if (allEmpty && effectiveMethodology === 'WATERFALL') {
+    // WATERFALL hides this view's nav entry (methodologyTabs.ts), but the
+    // route stays reachable by direct URL on purpose (issue #2619).
+    return (
+      <MethodologyEmptyState
+        projectId={projectId}
+        icon={ListIcon}
+        title="Backlog isn't part of this project's workflow"
+        description="This project runs on phases and gates, not a product backlog. If backlog grooming fits better here, switch the methodology in Settings."
+        primaryLabel="Go to Schedule"
+        primaryTo={projectId ? `/projects/${projectId}/schedule` : '#'}
+      />
+    );
+  }
+  if (allEmpty) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+        <h2 className="text-base font-semibold text-neutral-text-primary">
+          The product backlog is empty
+        </h2>
+        <p className="mt-2 max-w-[300px] text-xs text-neutral-text-secondary">
+          Add a story to start grooming, or pull items from the program backlog.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <>
+      {/* Condensed health summary */}
+      <div className="flex gap-5 overflow-x-auto border-b border-neutral-border px-4 py-2">
+        <HealthStat value={`${health.dorPct}%`} label="Ready (DoR)" tone={dorTone} />
+        <HealthStat
+          value={`${health.readyPoints}${health.capacityPoints != null ? `/${health.capacityPoints}` : ''}`}
+          label={`Ready ${itlLower} pts`}
+        />
+        <HealthStat value={`${health.unestimated}`} label="Unestimated" />
+      </div>
+
+      {/* Filter toolbar */}
+      <div className="space-y-2 border-b border-neutral-border px-4 py-2.5">
+        <GroomingSearchInput
+          value={filterCtl.filters.query}
+          onChange={filterCtl.setQuery}
+          resultCount={matchCount}
+          totalCount={totalCount}
+          fullWidth
+        />
+        <div
+          role="group"
+          aria-label="Filter by readiness"
+          className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-0.5"
+        >
+          {DOR_FILTER_ORDER.map((dor) => (
+            <DorFilterChip
+              key={dor}
+              dor={dor}
+              size="md"
+              active={filterCtl.filters.dorStates.includes(dor)}
+              onClick={() => filterCtl.toggleDor(dor)}
+            />
+          ))}
+          <ToggleChip
+            label="Unestimated"
+            size="md"
+            active={filterCtl.filters.unestimatedOnly}
+            onClick={() => filterCtl.setUnestimatedOnly(!filterCtl.filters.unestimatedOnly)}
+          />
+        </div>
+      </div>
+
+      {/* Card list */}
+      <div className="flex-1 space-y-4 overflow-y-auto px-3 py-3">
+        {filterActive && matchCount === 0 ? (
+          <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
+            <p className="text-sm text-neutral-text-secondary">No stories match your filters.</p>
+            <Button variant="secondary" size="sm" onClick={filterCtl.reset}>
+              Clear filters
+            </Button>
+          </div>
+        ) : (
+          <>
+            {filtered.epics.map((group) => (
+              <section key={group.epic.id} aria-label={group.epic.name}>
+                <div className="flex items-center justify-between px-1 py-1">
+                  <h2 className="truncate text-xs font-bold uppercase tracking-wide text-neutral-text-secondary">
+                    {group.epic.name}
+                  </h2>
+                  <span className="shrink-0 font-mono text-xs text-neutral-text-secondary">
+                    {group.stories.length} · {group.rollup.pointsTotal} pts
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {group.stories.map((s) => (
+                    <MobileGroomingCard
+                      key={s.id}
+                      story={s}
+                      onOpen={() => onOpenStory(s.id)}
+                      onToggleDor={() => onToggleDor(s)}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))}
+
+            {filtered.ungrouped.length > 0 && (
+              <section aria-label="No epic">
+                <div className="flex items-center px-1 py-1">
+                  <h2 className="text-xs font-bold uppercase tracking-wide text-neutral-text-secondary">
+                    No epic
+                  </h2>
+                </div>
+                <div className="space-y-2">
+                  {filtered.ungrouped.map((s) => (
+                    <MobileGroomingCard
+                      key={s.id}
+                      story={s}
+                      onOpen={() => onOpenStory(s.id)}
+                      onToggleDor={() => onToggleDor(s)}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+          </>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -171,130 +337,21 @@ export function MobileGroomingPage() {
         />
       )}
 
-      {allEmpty && effectiveMethodology === 'WATERFALL' ? (
-        // WATERFALL hides this view's nav entry (methodologyTabs.ts), but the
-        // route stays reachable by direct URL on purpose (issue #2619).
-        <MethodologyEmptyState
-          projectId={projectId}
-          icon={ListIcon}
-          title="Backlog isn't part of this project's workflow"
-          description="This project runs on phases and gates, not a product backlog. If backlog grooming fits better here, switch the methodology in Settings."
-          primaryLabel="Go to Schedule"
-          primaryTo={projectId ? `/projects/${projectId}/schedule` : '#'}
-        />
-      ) : allEmpty ? (
-        <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-          <h2 className="text-base font-semibold text-neutral-text-primary">
-            The product backlog is empty
-          </h2>
-          <p className="mt-2 max-w-[300px] text-xs text-neutral-text-secondary">
-            Add a story to start grooming, or pull items from the program backlog.
-          </p>
-        </div>
-      ) : (
-        <>
-          {/* Condensed health summary */}
-          <div className="flex gap-5 overflow-x-auto border-b border-neutral-border px-4 py-2">
-            <HealthStat value={`${health.dorPct}%`} label="Ready (DoR)" tone={dorTone} />
-            <HealthStat
-              value={`${health.readyPoints}${health.capacityPoints != null ? `/${health.capacityPoints}` : ''}`}
-              label={`Ready ${itl.lower} pts`}
-            />
-            <HealthStat value={`${health.unestimated}`} label="Unestimated" />
-          </div>
-
-          {/* Filter toolbar */}
-          <div className="space-y-2 border-b border-neutral-border px-4 py-2.5">
-            <GroomingSearchInput
-              value={filterCtl.filters.query}
-              onChange={filterCtl.setQuery}
-              resultCount={matchCount}
-              totalCount={totalCount}
-              fullWidth
-            />
-            <div
-              role="group"
-              aria-label="Filter by readiness"
-              className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-0.5"
-            >
-              {DOR_FILTER_ORDER.map((dor) => (
-                <DorFilterChip
-                  key={dor}
-                  dor={dor}
-                  size="md"
-                  active={filterCtl.filters.dorStates.includes(dor)}
-                  onClick={() => filterCtl.toggleDor(dor)}
-                />
-              ))}
-              <ToggleChip
-                label="Unestimated"
-                size="md"
-                active={filterCtl.filters.unestimatedOnly}
-                onClick={() => filterCtl.setUnestimatedOnly(!filterCtl.filters.unestimatedOnly)}
-              />
-            </div>
-          </div>
-
-          {/* Card list */}
-          <div className="flex-1 space-y-4 overflow-y-auto px-3 py-3">
-            {filterActive && matchCount === 0 ? (
-              <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
-                <p className="text-sm text-neutral-text-secondary">
-                  No stories match your filters.
-                </p>
-                <Button variant="secondary" size="sm" onClick={filterCtl.reset}>
-                  Clear filters
-                </Button>
-              </div>
-            ) : (
-              <>
-                {filtered.epics.map((group) => (
-                  <section key={group.epic.id} aria-label={group.epic.name}>
-                    <div className="flex items-center justify-between px-1 py-1">
-                      <h2 className="truncate text-xs font-bold uppercase tracking-wide text-neutral-text-secondary">
-                        {group.epic.name}
-                      </h2>
-                      <span className="shrink-0 font-mono text-xs text-neutral-text-secondary">
-                        {group.stories.length} · {group.rollup.pointsTotal} pts
-                      </span>
-                    </div>
-                    <div className="space-y-2">
-                      {group.stories.map((s) => (
-                        <MobileGroomingCard
-                          key={s.id}
-                          story={s}
-                          onOpen={() => setSelectedId(s.id)}
-                          onToggleDor={() => toggleDor(s)}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                ))}
-
-                {filtered.ungrouped.length > 0 && (
-                  <section aria-label="No epic">
-                    <div className="flex items-center px-1 py-1">
-                      <h2 className="text-xs font-bold uppercase tracking-wide text-neutral-text-secondary">
-                        No epic
-                      </h2>
-                    </div>
-                    <div className="space-y-2">
-                      {filtered.ungrouped.map((s) => (
-                        <MobileGroomingCard
-                          key={s.id}
-                          story={s}
-                          onOpen={() => setSelectedId(s.id)}
-                          onToggleDor={() => toggleDor(s)}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                )}
-              </>
-            )}
-          </div>
-        </>
-      )}
+      <MobileGroomingBody
+        allEmpty={allEmpty}
+        effectiveMethodology={effectiveMethodology}
+        projectId={projectId}
+        health={health}
+        dorTone={dorTone}
+        itlLower={itl.lower}
+        filterCtl={filterCtl}
+        matchCount={matchCount}
+        totalCount={totalCount}
+        filterActive={filterActive}
+        filtered={filtered}
+        onOpenStory={setSelectedId}
+        onToggleDor={toggleDor}
+      />
 
       {/* Quick-add sheet */}
       <BottomSheet

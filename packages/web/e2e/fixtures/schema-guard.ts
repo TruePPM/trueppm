@@ -140,6 +140,83 @@ function typeMatches(declared: string, value: unknown): boolean {
   }
 }
 
+/**
+ * The `oneOf`/`anyOf` branch of {@link validate} — true when the schema
+ * declared one (so the caller should stop), regardless of whether a branch
+ * matched.
+ */
+function validateOneOfAnyOf(
+  value: unknown,
+  schema: SchemaNode,
+  at: string,
+  out: Violation[],
+): boolean {
+  if (!(schema.oneOf?.length || schema.anyOf?.length)) return false;
+  const branches = schema.oneOf ?? schema.anyOf ?? [];
+  const anyMatched = branches.some((branch) => {
+    const probe: Violation[] = [];
+    validate(value, branch, at, probe);
+    return probe.length === 0;
+  });
+  if (!anyMatched) {
+    out.push({
+      rule: 'type',
+      at,
+      message: `matches none of the ${branches.length} declared variants`,
+    });
+  }
+  return true;
+}
+
+/** The array-items branch of {@link validate}. */
+function validateArrayItems(
+  value: unknown[],
+  schema: SchemaNode,
+  at: string,
+  out: Violation[],
+): void {
+  if (!schema.items) return;
+  const items = schema.items;
+  value.forEach((item, index) => validate(item, items, `${at}[${index}]`, out));
+}
+
+/** The object-properties branch of {@link validate}: known-property recursion,
+ *  unknown-property reporting, and the (measured-only) missing-required pass. */
+function validateObjectProperties(
+  value: Record<string, unknown>,
+  schema: SchemaNode,
+  at: string,
+  out: Violation[],
+): void {
+  const properties = schema.properties;
+  if (!properties) return;
+  const additional = schema.additionalProperties;
+  for (const [key, child] of Object.entries(value)) {
+    const declared = properties[key];
+    if (declared) {
+      validate(child, declared, at ? `${at}.${key}` : key, out);
+      continue;
+    }
+    if (additional === true || (additional && typeof additional === 'object')) continue;
+    out.push({
+      rule: 'unknown-property',
+      at: at ? `${at}.${key}` : key,
+      message: `the server never sends this property (declared: ${
+        Object.keys(properties).slice(0, 12).join(', ') || 'none'
+      }${Object.keys(properties).length > 12 ? ', …' : ''})`,
+    });
+  }
+  for (const key of schema.required ?? []) {
+    if (!(key in value)) {
+      out.push({
+        rule: 'missing-required',
+        at: at ? `${at}.${key}` : key,
+        message: `the server always sends this property; the mock omits it`,
+      });
+    }
+  }
+}
+
 function validate(value: unknown, rawSchema: SchemaNode, at: string, out: Violation[]): void {
   const schema = effectiveSchema(rawSchema);
 
@@ -156,22 +233,7 @@ function validate(value: unknown, rawSchema: SchemaNode, at: string, out: Violat
     return;
   }
 
-  if (schema.oneOf?.length || schema.anyOf?.length) {
-    const branches = schema.oneOf ?? schema.anyOf ?? [];
-    const anyMatched = branches.some((branch) => {
-      const probe: Violation[] = [];
-      validate(value, branch, at, probe);
-      return probe.length === 0;
-    });
-    if (!anyMatched) {
-      out.push({
-        rule: 'type',
-        at,
-        message: `matches none of the ${branches.length} declared variants`,
-      });
-    }
-    return;
-  }
+  if (validateOneOfAnyOf(value, schema, at, out)) return;
 
   if (typeof schema.type === 'string' && !typeMatches(schema.type, value)) {
     out.push({
@@ -192,40 +254,12 @@ function validate(value: unknown, rawSchema: SchemaNode, at: string, out: Violat
   }
 
   if (Array.isArray(value)) {
-    if (schema.items) {
-      const items = schema.items;
-      value.forEach((item, index) => validate(item, items, `${at}[${index}]`, out));
-    }
+    validateArrayItems(value, schema, at, out);
     return;
   }
 
   if (typeof value === 'object' && schema.properties) {
-    const properties = schema.properties;
-    const additional = schema.additionalProperties;
-    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-      const declared = properties[key];
-      if (declared) {
-        validate(child, declared, at ? `${at}.${key}` : key, out);
-        continue;
-      }
-      if (additional === true || (additional && typeof additional === 'object')) continue;
-      out.push({
-        rule: 'unknown-property',
-        at: at ? `${at}.${key}` : key,
-        message: `the server never sends this property (declared: ${
-          Object.keys(properties).slice(0, 12).join(', ') || 'none'
-        }${Object.keys(properties).length > 12 ? ', …' : ''})`,
-      });
-    }
-    for (const key of schema.required ?? []) {
-      if (!(key in (value as Record<string, unknown>))) {
-        out.push({
-          rule: 'missing-required',
-          at: at ? `${at}.${key}` : key,
-          message: `the server always sends this property; the mock omits it`,
-        });
-      }
-    }
+    validateObjectProperties(value as Record<string, unknown>, schema, at, out);
   }
 }
 

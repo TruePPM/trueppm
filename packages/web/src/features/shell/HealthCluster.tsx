@@ -1,4 +1,12 @@
-import { useState, useRef, useEffect, useCallback, useLayoutEffect, type ReactNode } from 'react';
+import {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useLayoutEffect,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useMatch, useLocation } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -118,6 +126,38 @@ function deriveChipState(band: HealthBand): ChipState {
     wordClass: CHIP_WORD_CLASS[band],
     dotClass: CHIP_DOT_CLASS[band],
   };
+}
+
+/**
+ * The chip button's `aria-label` (see the call site — this is the ONLY health
+ * reading a screen-reader user gets on Board/Schedule, so every clause the
+ * chip visually carries has to land here too).
+ */
+function buildChipAria(
+  chip: ChipState | null,
+  healthBandSource: HealthBandSource | undefined,
+  forecastSeg: Extract<HealthSegment, { kind: 'forecast' }> | undefined,
+  addedTime: AddedTimePresentation | null,
+): string {
+  if (!chip) return HEALTH_UNAVAILABLE_ARIA;
+  let chipAria = `Project health: ${chip.word}`;
+  // Immediately after the word, before the forecast: it QUALIFIES the word, and
+  // on Board and Schedule this label is the only health reading a screen-reader
+  // user gets — the provenance row in the popover is not reachable from it
+  // (rule 403(b)).
+  if (healthBandSource === 'reported') {
+    chipAria += ', reported by the project manager';
+  }
+  if (forecastSeg) {
+    chipAria +=
+      forecastSeg.p80 != null
+        ? `, forecast P80 ${formatForecastDate(forecastSeg.p80)}`
+        : ', forecast not run';
+  }
+  // The clause tracks the *popover row*, not the CSS-hidden fragment: the value
+  // is available at every width, exactly as the P80 clause already is.
+  chipAria += addedTimeAriaClause(addedTime);
+  return chipAria;
 }
 
 // ---------------------------------------------------------------------------
@@ -917,6 +957,115 @@ function HealthErrorBody({ onRetry }: { onRetry: () => void }): ReactNode {
 }
 
 /**
+ * The portaled popover's content — the provenance header, then either the
+ * error body or the segment rows. Pulled out of `HealthCluster`'s own render
+ * so this block's conditionals (header/error/rows) are scored as their own
+ * function's cognitive complexity rather than folded into the chip
+ * component's — mirroring `ScheduleMainAreaEmptyState`'s reasoning.
+ */
+function HealthPopoverPanel({
+  dialogRef,
+  unavailable,
+  pos,
+  chip,
+  healthBandSource,
+  onGoToOverview,
+  onRetry,
+  segments,
+  iterationSingular,
+  iterationLower,
+  canOpenForecast,
+  onOpenForecast,
+  onGoToSprints,
+  onTaskNavigate,
+  inContextBoardPath,
+  crossTeamTargets,
+  onJumpToBoard,
+}: {
+  dialogRef: RefObject<HTMLDivElement | null>;
+  unavailable: boolean;
+  pos: { top: number; left: number } | null;
+  chip: ChipState | null;
+  healthBandSource: HealthBandSource | undefined;
+  onGoToOverview: () => void;
+  onRetry: () => void;
+  segments: HealthSegment[];
+} & Omit<SegmentRowsProps, 'segment'>) {
+  return (
+    <div
+      ref={dialogRef}
+      role="dialog"
+      aria-label="Project health"
+      // Bound only in the failure state, where it makes the message read
+      // WITH the dialog focus is moved into — which works whether or not
+      // the live region fires (rule 335(a)). A dangling reference in the
+      // healthy state would be worse than none.
+      aria-describedby={unavailable ? HEALTH_ERROR_MSG_ID : undefined}
+      tabIndex={-1}
+      style={{ position: 'fixed', top: pos?.top ?? 0, left: pos?.left ?? 0 }}
+      className={`z-50 min-w-[260px] max-w-[calc(100vw-1rem)] max-h-[calc(100vh-4.5rem)] overflow-y-auto rounded-card shadow-pop border border-neutral-border bg-neutral-surface p-1.5 focus:outline-none ${
+        pos ? 'opacity-100' : 'opacity-0 pointer-events-none'
+      }`}
+    >
+      {/* Header block — the band dot + word, and (only when the server says
+          the word came from a person rather than from the plan) the line
+          that explains it.
+
+          The two share ONE bordered block on purpose. Provenance is a
+          statement about the WORD, not about the evidence rows below it, so
+          a separately-fenced row would read as a fourth methodology segment
+          — and it sits here, above `segments.map` and unconditional on
+          methodology, because `healthClusterModel` emits no at-risk or
+          critical segment at all for AGILE. A provenance segment threaded
+          through that model would be invisible on exactly the methodology
+          where a Critical chip has no drill-through of any kind, which is
+          the worst case in #3525 rather than an edge of it.
+
+          The header is not necessarily the worst state in the rows beneath
+          it: a manual report outranks the counts, so a Critical header can
+          sit over "0 tasks" rows. That is now explained rather than left to
+          read as a broken tool. */}
+      {chip && (
+        <div className="mb-1 border-b border-neutral-border">
+          <div className="flex items-center gap-2 px-2 py-1.5">
+            <span
+              aria-hidden="true"
+              className={`inline-block w-2 h-2 rounded-full ${chip.dotClass}`}
+            />
+            <span className={`text-xs font-medium ${chip.wordClass}`}>{chip.word}</span>
+          </div>
+          {healthBandSource === 'reported' && <ProvenanceRow onGoToOverview={onGoToOverview} />}
+        </div>
+      )}
+
+      {unavailable && <HealthErrorBody onRetry={onRetry} />}
+
+      {!unavailable &&
+        segments.map((segment) => (
+          <SegmentRows
+            // Keyed on `kind` alone, not on the index: a cluster never carries
+            // two segments of the same kind, and the added-time segment is
+            // spliced in mid-list once the forecast query resolves — an index
+            // key would renumber every row after it and remount them, dropping
+            // keyboard focus if the popover happened to be open.
+            key={segment.kind}
+            segment={segment}
+            iterationSingular={iterationSingular}
+            iterationLower={iterationLower}
+            canOpenForecast={canOpenForecast}
+            onOpenForecast={onOpenForecast}
+            onGoToSprints={onGoToSprints}
+            onTaskNavigate={onTaskNavigate}
+            inContextBoardPath={inContextBoardPath}
+            crossTeamTargets={crossTeamTargets}
+            onJumpToBoard={onJumpToBoard}
+          />
+        ))}
+    </div>
+  );
+}
+
+/**
  * v2 methodology-adaptive project health surface (ADR-0128 §B, progressive
  * disclosure — issue 1644). A single all-width **status chip** shows the
  * project's band word (On track / At risk / Critical — the one health
@@ -1188,26 +1337,7 @@ export function HealthCluster({ onTaskNavigate }: Props) {
   // That is why every clause below lives here rather than only in the popover, and
   // why the unavailable state gets its own sentence instead of inheriting a word
   // the chip no longer prints.
-  let chipAria = HEALTH_UNAVAILABLE_ARIA;
-  if (chip) {
-    chipAria = `Project health: ${chip.word}`;
-    // Immediately after the word, before the forecast: it QUALIFIES the word, and
-    // on Board and Schedule this label is the only health reading a screen-reader
-    // user gets — the provenance row in the popover is not reachable from it
-    // (rule 403(b)).
-    if (healthBandSource === 'reported') {
-      chipAria += ', reported by the project manager';
-    }
-    if (forecastSeg) {
-      chipAria +=
-        forecastSeg.p80 != null
-          ? `, forecast P80 ${formatForecastDate(forecastSeg.p80)}`
-          : ', forecast not run';
-    }
-    // The clause tracks the *popover row*, not the CSS-hidden fragment: the value
-    // is available at every width, exactly as the P80 clause already is.
-    chipAria += addedTimeAriaClause(addedTime);
-  }
+  const chipAria = buildChipAria(chip, healthBandSource, forecastSeg, addedTime);
 
   // The inline fragment. Held to the methodologies whose cluster carries a forecast at
   // all — an added-time read is a forecast derivative, so a chip with no forecast must
@@ -1390,76 +1520,25 @@ export function HealthCluster({ onTaskNavigate }: Props) {
           its width; the measure→place is pre-paint, so it never flashes. */}
       {open &&
         createPortal(
-          <div
-            ref={dialogRef}
-            role="dialog"
-            aria-label="Project health"
-            // Bound only in the failure state, where it makes the message read
-            // WITH the dialog focus is moved into — which works whether or not
-            // the live region fires (rule 335(a)). A dangling reference in the
-            // healthy state would be worse than none.
-            aria-describedby={unavailable ? HEALTH_ERROR_MSG_ID : undefined}
-            tabIndex={-1}
-            style={{ position: 'fixed', top: pos?.top ?? 0, left: pos?.left ?? 0 }}
-            className={`z-50 min-w-[260px] max-w-[calc(100vw-1rem)] max-h-[calc(100vh-4.5rem)] overflow-y-auto rounded-card shadow-pop border border-neutral-border bg-neutral-surface p-1.5 focus:outline-none ${
-              pos ? 'opacity-100' : 'opacity-0 pointer-events-none'
-            }`}
-          >
-            {/* Header block — the band dot + word, and (only when the server says
-                the word came from a person rather than from the plan) the line
-                that explains it.
-                
-                The two share ONE bordered block on purpose. Provenance is a
-                statement about the WORD, not about the evidence rows below it, so
-                a separately-fenced row would read as a fourth methodology segment
-                — and it sits here, above `segments.map` and unconditional on
-                methodology, because `healthClusterModel` emits no at-risk or
-                critical segment at all for AGILE. A provenance segment threaded
-                through that model would be invisible on exactly the methodology
-                where a Critical chip has no drill-through of any kind, which is
-                the worst case in #3525 rather than an edge of it.
-                
-                The header is not necessarily the worst state in the rows beneath
-                it: a manual report outranks the counts, so a Critical header can
-                sit over "0 tasks" rows. That is now explained rather than left to
-                read as a broken tool. */}
-            {chip && (
-              <div className="mb-1 border-b border-neutral-border">
-                <div className="flex items-center gap-2 px-2 py-1.5">
-                  <span
-                    aria-hidden="true"
-                    className={`inline-block w-2 h-2 rounded-full ${chip.dotClass}`}
-                  />
-                  <span className={`text-xs font-medium ${chip.wordClass}`}>{chip.word}</span>
-                </div>
-                {healthBandSource === 'reported' && <ProvenanceRow onGoToOverview={goToOverview} />}
-              </div>
-            )}
-
-            {unavailable && <HealthErrorBody onRetry={refetchStats} />}
-
-            {!unavailable &&
-              segments.map((segment) => (
-                <SegmentRows
-                  // Keyed on `kind` alone, not on the index: a cluster never carries
-                  // two segments of the same kind, and the added-time segment is
-                  // spliced in mid-list once the forecast query resolves — an index
-                  // key would renumber every row after it and remount them, dropping
-                  // keyboard focus if the popover happened to be open.
-                  key={segment.kind}
-                  segment={segment}
-                  iterationSingular={iteration.singular}
-                  iterationLower={iteration.lower}
-                  canOpenForecast={Boolean(mcResult)}
-                  onOpenForecast={openForecast}
-                  onGoToSprints={goToSprints}
-                  onTaskNavigate={drillTask}
-                  inContextBoardPath={inContextBoardPath}
-                  crossTeamTargets={crossTeamTargets}
-                  onJumpToBoard={jumpToBoard}
-                />
-              ))}
-          </div>,
+          <HealthPopoverPanel
+            dialogRef={dialogRef}
+            unavailable={unavailable}
+            pos={pos}
+            chip={chip}
+            healthBandSource={healthBandSource}
+            onGoToOverview={goToOverview}
+            onRetry={refetchStats}
+            segments={segments}
+            iterationSingular={iteration.singular}
+            iterationLower={iteration.lower}
+            canOpenForecast={Boolean(mcResult)}
+            onOpenForecast={openForecast}
+            onGoToSprints={goToSprints}
+            onTaskNavigate={drillTask}
+            inContextBoardPath={inContextBoardPath}
+            crossTeamTargets={crossTeamTargets}
+            onJumpToBoard={jumpToBoard}
+          />,
           document.body,
         )}
 

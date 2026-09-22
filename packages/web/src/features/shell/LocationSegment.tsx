@@ -108,6 +108,81 @@ function CheckIcon() {
  * `LocationSwitcher` for why the program segment opts in and the project segment
  * does not.
  */
+/**
+ * The identity row rendered when there's nothing to *switch* to (< 2 options,
+ * not placeholder mode) — plain text, or a direct `Link` to `currentTo` when
+ * #2669's `linkToCurrent` resolved one (see the call site's docstring).
+ */
+function StaticLocationRow({
+  noun,
+  currentName,
+  currentTo,
+  leading,
+}: {
+  noun: string;
+  currentName: string | undefined;
+  currentTo: string | undefined;
+  leading: ReactNode;
+}) {
+  if (currentTo !== undefined) {
+    return (
+      <Link
+        to={currentTo}
+        aria-label={`Current ${noun}: ${currentName}. Open ${noun}.`}
+        className="inline-flex min-w-0 items-center gap-1.5 h-8 -mx-2 px-2 rounded-control text-sm font-medium text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
+      >
+        {leading}
+        {currentName && <span className="hidden truncate lg:inline">{currentName}</span>}
+      </Link>
+    );
+  }
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1.5 text-sm font-medium text-chrome-text-secondary">
+      {leading}
+      {currentName && <span className="hidden truncate lg:inline">{currentName}</span>}
+    </span>
+  );
+}
+
+/** The trigger button's accessible name — see the call site for the three states. */
+function triggerAriaLabel(
+  canLinkToCurrent: boolean,
+  noun: string,
+  currentName: string | undefined,
+  pickerAriaLabel: string,
+): string {
+  if (canLinkToCurrent) return `Switch ${noun}`;
+  if (currentName) return `Current ${noun}: ${currentName}. Switch ${noun}.`;
+  return pickerAriaLabel;
+}
+
+/** The trigger button's visible content when it is not sharing the row with a
+ *  separate `StaticLocationRow`-style link (i.e. `!canLinkToCurrent`). */
+function TriggerLabel({
+  leading,
+  currentName,
+  isPlaceholder,
+  placeholder,
+}: {
+  leading: ReactNode;
+  currentName: string | undefined;
+  isPlaceholder: boolean;
+  placeholder: string | undefined;
+}) {
+  return (
+    <>
+      {leading}
+      {currentName ? (
+        <span className="hidden truncate lg:inline">{currentName}</span>
+      ) : (
+        // The placeholder is the segment's only label, so unlike a current name
+        // it never hides below lg — a bare chevron would be unguessable.
+        isPlaceholder && placeholder && <span className="truncate">{placeholder}</span>
+      )}
+    </>
+  );
+}
+
 export function LocationSegment({
   noun,
   options,
@@ -247,23 +322,13 @@ export function LocationSegment({
   // segment's whole job there is jumping, and a static placeholder that opens
   // nothing would be the dead affordance rule 124 forbids.
   if (options.length < 2 && !isPlaceholder) {
-    if (canLinkToCurrent) {
-      return (
-        <Link
-          to={currentTo!}
-          aria-label={`Current ${noun}: ${currentName}. Open ${noun}.`}
-          className="inline-flex min-w-0 items-center gap-1.5 h-8 -mx-2 px-2 rounded-control text-sm font-medium text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
-        >
-          {leading}
-          {currentName && <span className="hidden truncate lg:inline">{currentName}</span>}
-        </Link>
-      );
-    }
     return (
-      <span className="inline-flex min-w-0 items-center gap-1.5 text-sm font-medium text-chrome-text-secondary">
-        {leading}
-        {currentName && <span className="hidden truncate lg:inline">{currentName}</span>}
-      </span>
+      <StaticLocationRow
+        noun={noun}
+        currentName={currentName}
+        currentTo={canLinkToCurrent ? currentTo : undefined}
+        leading={leading}
+      />
     );
   }
 
@@ -289,25 +354,18 @@ export function LocationSegment({
         type="button"
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={
-          canLinkToCurrent
-            ? `Switch ${noun}`
-            : currentName
-              ? `Current ${noun}: ${currentName}. Switch ${noun}.`
-              : pickerAriaLabel
-        }
+        aria-label={triggerAriaLabel(canLinkToCurrent, noun, currentName, pickerAriaLabel)}
         onClick={() => setOpen((v) => !v)}
         className={`inline-flex items-center gap-1.5 h-8 rounded-control text-sm font-medium text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface ${canLinkToCurrent ? 'shrink-0 pl-0.5 pr-2' : 'max-w-[11rem] px-2'}`}
       >
-        {!canLinkToCurrent && leading}
-        {!canLinkToCurrent &&
-          (currentName ? (
-            <span className="hidden truncate lg:inline">{currentName}</span>
-          ) : (
-            // The placeholder is the segment's only label, so unlike a current name
-            // it never hides below lg — a bare chevron would be unguessable.
-            isPlaceholder && placeholder && <span className="truncate">{placeholder}</span>
-          ))}
+        {!canLinkToCurrent && (
+          <TriggerLabel
+            leading={leading}
+            currentName={currentName}
+            isPlaceholder={isPlaceholder}
+            placeholder={placeholder}
+          />
+        )}
         <svg
           width="10"
           height="10"
