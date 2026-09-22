@@ -1649,7 +1649,18 @@ export function BoardView() {
   const [shareOpen, setShareOpen] = useState(false);
   const { columns: rawColumns, save: saveBoardConfig } = useBoardConfig(projectIdOrNull);
   const { tasks, isLoading, error } = useScheduleTasks();
-  const updateStatus = useUpdateTaskStatus();
+  // Board-local transient notices (web rule 183). Two writers, both ephemeral and
+  // both about the drop that just happened: the scope-injection notice (#1140 — a
+  // drop into the ACTIVE sprint creates a pending scope-change) and the read-only
+  // demo's refusal (ADR-1198 — the card kept its new column and nothing was saved).
+  // Declared above `useUpdateTaskStatus` because the hook takes the setter.
+  const [dropNotice, setDropNotice] = useState<{ key: number; text: string } | null>(null);
+  const showDropNotice = useCallback((text: string) => {
+    // A fresh `key` on every call so two identical drops still re-trigger the notice
+    // and reset its dismiss timer — `BoardDropNotice`'s documented contract.
+    setDropNotice({ key: Date.now(), text });
+  }, []);
+  const updateStatus = useUpdateTaskStatus({ onDemoRefusal: showDropNotice });
   // Board offline (ADR-0220): hydrate the offline card-status queue, seed the
   // board from the last cached fetch when opened offline, and flush queued moves
   // on reconnect. Scoped to card-status moves; all other writes keep ADR-0205.
@@ -1715,9 +1726,6 @@ export function BoardView() {
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overCell, setOverCell] = useState<string | null>(null); // `${phaseId}:${status}`
-  // Scope-injection drop toast (#1140) — set when a drop into the ACTIVE sprint
-  // creates a pending scope-change; `BoardDropNotice` auto-dismisses it.
-  const [dropNotice, setDropNotice] = useState<{ key: number; text: string } | null>(null);
   const [sort, setSort] = useState<BoardSortKey>('priority');
   const [showWip, setShowWip] = useState(true);
   const [showColTints, setShowColTints] = useState(true);

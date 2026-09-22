@@ -8,9 +8,7 @@ import {
   rejectSchedulePreview,
   scheduleDatesFromUpdatePayload,
 } from '@/features/schedule/reconcile/fromMutation';
-import { isDemoReadOnlyRefusal } from '@/lib/demoReadOnly';
-import { isDemoReadOnlySync } from '@/hooks/useDemoMode';
-import { useDemoOverlayStore, type DemoOverlayEntry } from '@/stores/demoOverlayStore';
+import { captureDemoOverlayEntry, type DemoOverlayEntry } from '@/stores/demoOverlayStore';
 import type { Task, TaskType, GovernanceClass, DeliveryMode } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -374,30 +372,28 @@ export interface RescheduleTaskPayload {
 }
 
 /**
- * Route a refused write to the demo's preview overlay instead of the rejection strip.
- *
- * Gated on **both** facts, never on the refusal code alone: `isDemoReadOnlySync()`
- * says this deployment really is the demo, and `isDemoReadOnlyRefusal(err)` says this
- * particular 403 is the mode's own. Without the first, a mislabeled 403 on a real
- * install could fabricate a schedule the server does not hold.
+ * Route a refused *date* write to the demo's preview overlay instead of the rejection
+ * strip. The both-facts gate itself lives on the store
+ * ({@link captureDemoOverlayEntry}) and is shared with the board's status capture, so
+ * there is exactly one place that decides whether a 403 may write a preview.
  *
  * Returns true when it handled the refusal, so the caller skips
  * `rejectSchedulePreview` — leaving that wired would put a red "server refused" strip
  * with a Retry that can never succeed next to a popover saying the change was
  * deliberately not saved.
  *
- * **Named asymmetry (ADR-1197 D4):** only dates and duration persist this way. A
- * refused rename, status or percent edit rolls back and gets the global toast. Dates
- * are the demo's whole pitch — the visitor is watching the bar they just dropped —
- * and a snap-back there reads as a bug rather than as a refusal.
+ * **Named asymmetry (ADR-1197 D4, amended by ADR-1198):** dates and duration persist
+ * this way *from here*, and board status persists from `useBoardTasks`. A refused
+ * rename or percent edit still rolls back and gets the global toast. What the two
+ * surviving cases share is that the visitor is watching the thing they just moved — a
+ * bar, a card — and a snap-back there reads as a bug rather than as a refusal.
  */
 function captureDemoOverlay(err: unknown, taskId: string, dates: DemoOverlayEntry): boolean {
-  if (!isDemoReadOnlySync() || !isDemoReadOnlyRefusal(err)) return false;
-  if (dates.start === undefined && dates.finish === undefined && dates.duration === undefined) {
-    return false;
-  }
-  useDemoOverlayStore.getState().set(taskId, dates);
-  return true;
+  return captureDemoOverlayEntry(err, taskId, {
+    start: dates.start,
+    finish: dates.finish,
+    duration: dates.duration,
+  });
 }
 
 /**

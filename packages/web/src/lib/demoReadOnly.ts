@@ -20,6 +20,27 @@ export const DEMO_READ_ONLY_CODE = 'demo_read_only';
 /** The global toast raised for any refused write with no anchored surface of its own. */
 export const DEMO_REFUSAL_TOAST = "Read-only demo — that change wasn't saved.";
 
+/**
+ * The board's own refusal sentence (ADR-1198, #3967), rendered in `BoardDropNotice`.
+ *
+ * Board-local and therefore **not** a global toast — web rule 183 puts board-local
+ * transient notices in `BoardDropNotice`, and routing this one to `toast()` would be the
+ * app-wide surface reporting a board-local fact.
+ *
+ * Three things the wording has to get right, each of which was wrong before it:
+ *  - it never says *try again*. The move it describes will be refused every time, and
+ *    the red `toast.error("Couldn't move the card — try again.")` it replaces was the
+ *    demo instructing a visitor to retry the impossible — D3's failure mode, produced by
+ *    the demo's own code;
+ *  - it says the card **kept its new column**, so the thing the visitor is looking at
+ *    reads as deliberate rather than as a write that half-landed;
+ *  - it scopes the recompute to **the board counts**. The sprint burndown and velocity
+ *    are server-computed snapshot series and deliberately do not react (ADR-1198), so
+ *    copy implying "watch the forecast move" would be a promise the screen breaks.
+ */
+export const DEMO_REFUSAL_BOARD_NOTICE =
+  'Read-only demo — the card kept its new column and the board counts updated. Nothing was saved.';
+
 /** Shown on a control the demo disables up front, rather than refusing after the fact. */
 export const DEMO_DISABLED_NOTE = 'Not available in the read-only demo.';
 
