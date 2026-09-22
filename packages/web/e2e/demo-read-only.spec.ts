@@ -128,6 +128,12 @@ test.describe('Read-only demo — login announcement (ADR-1197 D3)', () => {
         'The Schedule is the only interactive part of this demo — drag a task and watch the critical path recompute live in your browser. Nothing you do here is saved.',
       ),
     ).toBeVisible();
+    // One shared login, so no collaboration to see — and where to go instead (#3998).
+    await expect(page.getByText(/Everyone shares this one login/)).toBeVisible();
+    await expect(
+      page.getByRole('link', { name: 'Installation guide (opens in a new tab)' }),
+    ).toHaveAttribute('href', 'https://docs.trueppm.com/getting-started/installation/');
+    await expect(page.getByText(/Rate limits are lifted for this demo account/)).toBeVisible();
 
     // The credential block inside the form.
     await expect(

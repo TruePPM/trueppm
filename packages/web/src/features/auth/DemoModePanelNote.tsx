@@ -12,6 +12,16 @@
  * rather than an informed choice (#3970) — which is itself a milder version of the
  * "product is broken" failure D3's refusal copy exists to prevent.
  *
+ * The last three paragraphs head off two conclusions the demo's own shape invites
+ * (#3998). Every visitor signs in as one shared account with `/ws/` closed, so the
+ * demo cannot show presence or live edits — without saying so, a visitor reads the
+ * absence as "TruePPM has no collaboration" rather than "this demo can't show it",
+ * and the fix is to point them at a local install where it works. And the demo
+ * account's throttles are lifted (ADR-1197 D6: a per-account bucket shared by every
+ * visitor only decides when the whole demo fails at once), so the note says the
+ * product throttles normally — otherwise a security-minded evaluator infers there
+ * is no rate limiting at all.
+ *
  * `relative` is required: the panel's decorative grid `<svg>` is `absolute inset-0`,
  * and both existing children carry it for the same reason.
  */
@@ -25,13 +35,31 @@ export function DemoModePanelNote() {
         <span aria-hidden="true">◆</span> Read-only demo
       </h2>
       <p className="text-xs leading-relaxed text-chrome-text-secondary">
-        The Schedule is the only interactive part of this demo — drag a task and watch the
-        critical path recompute live in your browser. Nothing you do here is saved.
+        The Schedule is the only interactive part of this demo — drag a task and watch the critical
+        path recompute live in your browser. Nothing you do here is saved.
       </p>
       <p className="text-xs leading-relaxed text-chrome-text-secondary">
         Everything else — boards, backlogs, sprints and resource plans — is real sample data to
         browse, not to try changes on. You can look, but nothing outside the Schedule responds to
         what you do.
+      </p>
+      <p className="text-xs leading-relaxed text-chrome-text-secondary">
+        Everyone shares this one login, so you won&apos;t see other people online or their live
+        edits — this demo shows the interface, not collaboration. To try that, we strongly recommend
+        installing TruePPM yourself with Docker Compose or the Helm chart.{' '}
+        <a
+          href="https://docs.trueppm.com/getting-started/installation/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-semibold text-chrome-text-primary underline underline-offset-2 hover:no-underline rounded
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        >
+          Installation guide <span className="sr-only">(opens in a new tab)</span>
+        </a>
+      </p>
+      <p className="text-xs leading-relaxed text-chrome-text-secondary">
+        Rate limits are lifted for this demo account only. Throttling is built into TruePPM and on
+        by default in every regular install.
       </p>
     </div>
   );

@@ -659,10 +659,13 @@ for the full design. Four layers combine to make it safe to expose:
    signed-in visitor's ordinary reads: DRF's stock anonymous throttle skips
    authenticated requests, so once a visitor is signed in, the shared `"user"`
    scope (`demo.throttle.userRate`) is the *only* throttle on their traffic, with
-   no independent per-IP ceiling. It is sized generously on purpose — this is a
-   shared-fate resource-consumption tradeoff, not a per-visitor fairness
-   guarantee, and closing that gap depends on whatever edge sits in front of the
-   host (see the Cloudflare Access caveat below). See the `demo.throttle.*` keys
+   no independent per-IP ceiling. It is set high enough to be effectively
+   lifted — a bucket shared by every visitor fails all of them at once when it
+   trips, so it cannot protect any one of them. This is a shared-fate
+   resource-consumption tradeoff, not a per-visitor fairness guarantee: the real
+   bounds are the api pod's capacity and whatever edge sits in front of the host
+   (see the Cloudflare Access caveat below). The demo's login page tells
+   visitors the limits are lifted for the demo account only. See the `demo.throttle.*` keys
    in [Helm values](/administration/helm-values/#public-read-only-demo-mode).
 
 None of that makes the following true, and the design is deliberately **not**

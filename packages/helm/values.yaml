@@ -1683,14 +1683,25 @@ demo:
     # fires with NO attacker, just a few genuine visitors signing in within the
     # same minute). Raised for concurrency, not credential-stuffing resistance.
     # Governs only the login request; see the note above for what it does not.
-    loginAccountRate: "120/min"
+    # Sized well past a launch-day burst (#3998): the published credential needs
+    # no protecting, so this limit could only ever refuse genuine visitors.
+    loginAccountRate: "1000/min"
     # TRUEPPM_THROTTLE_USER_RATE (DRF's "user" scope). Default is 1000/min PER
     # ACCOUNT — under this mode every visitor's reads (schedule, board,
     # resources, reports) count against the SAME account's budget at once, and
     # it is the ONLY throttle bounding that traffic once signed in (see above).
-    # Raised so a modest crowd browsing concurrently does not throttle itself;
-    # it is not, and is not meant to be, a per-visitor fairness control.
-    userRate: "6000/min"
+    # It is not, and is not meant to be, a per-visitor fairness control.
+    #
+    # Effectively LIFTED, not merely raised (#3998). One bucket shared by every
+    # visitor fails all of them at the same moment, so it protects nothing — it
+    # only picks when the whole demo 429s. And with /ws/ closed the SPA falls back
+    # to 30 s polling, so each visitor costs more reads than on a normal install:
+    # the old 6000/min plausibly ran out at a few dozen concurrent visitors (an
+    # estimate, not a measurement). The real bounds in this mode are the api
+    # pod's own capacity and per-IP rate limiting at the edge in front of the
+    # host. The login page says so to visitors, so a lifted demo limit is not
+    # mistaken for a product without throttling.
+    userRate: "60000/min"
     # TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS is per-account and shared-fate too,
     # but is ACCEPTED at its ordinary default rather than re-aimed: D2's
     # ALLOWED_WRITES does not allow-list any /api/v1/**/api-tokens/ path, so
