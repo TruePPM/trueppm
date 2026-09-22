@@ -1625,10 +1625,17 @@ for kind_name in "trueppm-api-egress-demo" "trueppm-celery-worker-egress-demo"; 
   grep -q "name: $kind_name" <<<"$np_interactive" \
     || fail "demo.interactive=true did not render NetworkPolicy '$kind_name'"
 done
-np_api_egress="$(yq 'select(.kind=="NetworkPolicy" and .metadata.name=="trueppm-api-egress-demo")' <<<"$np_interactive")"
-[ "$(yq '.spec.podSelector.matchLabels."app.kubernetes.io/component"' <<<"$np_api_egress")" = "api" ] \
+# Select and extract in ONE yq call, same as np_components above and for the
+# same reason (#3147): piping select()'s output into a SECOND yq invocation
+# re-parses a stream that may carry a blank-line-or-'---' artifact per skipped
+# document, and a bare `[ "$x" = "api" ]` against that multi-line result fails
+# even though the chart is correct. Strip whatever separator style survives.
+np_api_egress_component="$(yq 'select(.kind=="NetworkPolicy" and .metadata.name=="trueppm-api-egress-demo") | .spec.podSelector.matchLabels."app.kubernetes.io/component"' <<<"$np_interactive" \
+  | awk '{ gsub(/[[:space:]]/, "", $0); if ($0 != "" && $0 != "---") print }')"
+[ "$np_api_egress_component" = "api" ] \
   || fail "trueppm-api-egress-demo does not select component=api"
-egress_ports="$(yq '[.spec.egress[].ports[]? | .port] | join(",")' <<<"$np_api_egress")"
+egress_ports="$(yq 'select(.kind=="NetworkPolicy" and .metadata.name=="trueppm-api-egress-demo") | [.spec.egress[].ports[]? | .port] | join(",")' <<<"$np_interactive" \
+  | awk '{ gsub(/[[:space:]]/, "", $0); if ($0 != "" && $0 != "---") print }')"
 grep -q '53' <<<"$egress_ports" || fail "the demo api egress policy has no DNS (53) rule — Service names would stop resolving"
 grep -q '5432' <<<"$egress_ports" || fail "the demo api egress policy has no PostgreSQL (5432) rule"
 grep -q '6379' <<<"$egress_ports" || fail "the demo api egress policy has no Valkey (6379) rule"
