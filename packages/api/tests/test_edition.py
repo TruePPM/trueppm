@@ -164,10 +164,10 @@ class TestParseDemoAccessGate:
 
     def test_provider_is_operator_text_not_a_fixed_vendor(self) -> None:
         """A demo behind Authelia must not publish a notice naming Cloudflare."""
-        gate = parse_demo_access_gate("Authelia", "http://auth.example.internal/privacy")
+        gate = parse_demo_access_gate("Authelia", "https://auth.example.internal/privacy")
         assert gate == {
             "provider": "Authelia",
-            "privacy_url": "http://auth.example.internal/privacy",
+            "privacy_url": "https://auth.example.internal/privacy",
         }
 
     def test_strips_surrounding_whitespace(self) -> None:
@@ -184,10 +184,17 @@ class TestParseDemoAccessGate:
             "data:text/html,<script>alert(1)</script>",
             "/relative/path",
             "example.com/privacy",
+            "http://auth.example.internal/privacy",
+            "HTTP://auth.example.internal/privacy",
         ],
     )
-    def test_non_http_privacy_url_refuses_to_boot(self, url: str) -> None:
-        """The value becomes an href on a pre-auth page — refuse, never sanitize at use."""
+    def test_non_https_privacy_url_refuses_to_boot(self, url: str) -> None:
+        """The value becomes an href on a pre-auth page — refuse, never sanitize at use.
+
+        Plain ``http://`` is refused, not just non-http(s) schemes (#3997): the link
+        is rendered on a public unauthenticated page and is held to the same bar as
+        any other link a visitor is handed there.
+        """
         with pytest.raises(ImproperlyConfigured):
             parse_demo_access_gate("Cloudflare Access", url)
 

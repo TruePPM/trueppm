@@ -149,10 +149,13 @@ def parse_demo_login_hint(raw: str | None) -> dict[str, str] | None:
 
 
 #: URL schemes the access-gate privacy link may use. The value is rendered as an
-#: ``href`` on a pre-auth page, so ``javascript:`` and ``data:`` must be unreachable
-#: even though the value comes from the operator rather than a visitor -- a chart
-#: value copied between deployments is not a trusted input.
-_ALLOWED_PRIVACY_URL_SCHEMES = ("https://", "http://")
+#: ``href`` on a public pre-auth page, so it is held to the same bar as any other
+#: link an unauthenticated visitor is handed -- ``https://`` only. ``javascript:``
+#: and ``data:`` must be unreachable even though the value comes from the operator
+#: rather than a visitor -- a chart value copied between deployments is not a
+#: trusted input -- and ``http://`` is refused too rather than rendering a plaintext
+#: link on an otherwise-TLS page (#3997).
+_ALLOWED_PRIVACY_URL_SCHEMES = ("https://",)
 
 
 def parse_demo_access_gate(
@@ -194,7 +197,7 @@ def parse_demo_access_gate(
         attribute of a declared gate, not a disclosure on its own.
 
     Raises:
-        ImproperlyConfigured: If the privacy URL is not http(s). Refusing to boot
+        ImproperlyConfigured: If the privacy URL is not https. Refusing to boot
             follows the same trade-off as the parsers above -- a disclosure carrying a
             dead or hostile link is worse than a deployment that will not start, and
             the operator finds out now rather than from a visitor.
@@ -206,8 +209,9 @@ def parse_demo_access_gate(
     if privacy_url and not privacy_url.lower().startswith(_ALLOWED_PRIVACY_URL_SCHEMES):
         raise ImproperlyConfigured(
             f"TRUEPPM_DEMO_ACCESS_GATE_PRIVACY_URL={raw_privacy_url!r} must start with "
-            "https:// or http://. It is rendered as a link on the pre-auth login page, "
-            "so any other scheme is refused rather than sanitized at use."
+            "https://. It is rendered as a link on the pre-auth login page, so any "
+            "other scheme -- including plain http:// -- is refused rather than "
+            "sanitized at use."
         )
     return {"provider": provider, "privacy_url": privacy_url or None}
 

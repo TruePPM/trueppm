@@ -1750,7 +1750,7 @@ demo:
     # Display name of the gate, e.g. "Cloudflare Access". Empty = no gate declared,
     # no disclosure rendered. Letters, digits, spaces and . , ' ( ) & / _ - (max 60).
     provider: ""
-    # Optional http(s) link to the privacy statement covering what that gate
+    # Optional https:// link to the privacy statement covering what that gate
     # collects and how long it is kept. ADR-1197 D8 names the retention statement as
     # part of the gap; this is where it is answered. Requires `provider`.
     privacyUrl: ""
