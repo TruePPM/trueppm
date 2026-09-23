@@ -19,6 +19,8 @@ from rest_framework.exceptions import APIException
 from trueppm_scheduler import InvalidScheduleInput, find_cycle
 
 if TYPE_CHECKING:
+    from rest_framework.views import APIView
+
     from trueppm_api.apps.workspace.models import Workspace
 
 from trueppm_api.apps.access.models import ProjectMembership, Role, program_role_label
@@ -7460,21 +7462,48 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
     def _authorize_same_project_edge(
         self, predecessor: Task | None, successor: Task | None
     ) -> None:
-        """Check Scheduler+ on both endpoints of a same-project edge.
+        """Check Scheduler+ (and not-archived) on both endpoints of a same-project edge.
 
         The object-permission check runs for *both* endpoints before any
         branching, so a non-member submitting a foreign UUID always gets 403
         regardless of whether the two UUIDs share a project — preventing
         membership inference from the error code (ADR-0055 / #359 hardening).
+
+        Checks ``IsProjectScheduler``/``IsProjectNotArchived`` directly against
+        ``request`` rather than through ``view.check_object_permissions`` (#4011).
+        Both classes' ``has_object_permission`` only dereference ``request`` and
+        the object — never ``view`` — so this is equivalent for a real DRF
+        request and, unlike the old ``view``-gated call, also runs for a caller
+        that supplies a ``request`` with no ``view`` in context. That is exactly
+        the bulk-endpoint shape: ``POST /tasks/bulk/`` builds this serializer
+        with ``request`` but no ``view``, and the previous "return if either is
+        missing" no-op skipped authorization entirely for a same-project edge
+        submitted through it — letting a caller with Scheduler+ on ONE project
+        author dependency edges inside a different, foreign project they are
+        not a member of. A fully request-less construction (no caller identity
+        at all — internal/test-only serializer use) still no-ops: there is no
+        identity to authorize against.
         """
+        from rest_framework.exceptions import PermissionDenied
+
+        from trueppm_api.apps.access.permissions import IsProjectNotArchived, IsProjectScheduler
+
         request = self.context.get("request")
-        view = self.context.get("view")
-        if request is None or view is None:
+        if request is None:
             return
-        if predecessor:
-            view.check_object_permissions(request, predecessor)
-        if successor:
-            view.check_object_permissions(request, successor)
+        # Neither class's has_object_permission dereferences `view` — verified
+        # above — so a `None` stand-in is safe at runtime; the cast only
+        # satisfies the (real DRF view) parameter type.
+        no_view = cast("APIView", None)
+        is_scheduler = IsProjectScheduler()
+        not_archived = IsProjectNotArchived()
+        for task in (predecessor, successor):
+            if task is None:
+                continue
+            if not is_scheduler.has_object_permission(request, no_view, task):
+                raise PermissionDenied(is_scheduler.message)
+            if not not_archived.has_object_permission(request, no_view, task):
+                raise PermissionDenied(not_archived.message)
 
     def _endpoints_repointed(self, predecessor: Task, successor: Task) -> bool:
         """Whether this write creates or moves the edge, rather than editing it.
