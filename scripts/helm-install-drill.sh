@@ -718,6 +718,18 @@ check_beat_health() {
 dump_diagnostics() {
   echo "======== DIAGNOSTICS (deploy did not reach a healthy state) ========" >&2
   kubectl get pods -A -o wide 2>&1 | sed "$INDENT_SED" >&2 || true
+  # TEMPORARY (#4027 walkthrough-leg triage): PVC/PV binding state and node
+  # capacity, neither previously captured — a pod stuck Pending gives no
+  # other signal to tell "PVC unbindable on this StorageClass" apart from
+  # "node has insufficient CPU/memory to schedule everything at once".
+  echo "---- PersistentVolumeClaims (all namespaces) ----" >&2
+  kubectl get pvc -A -o wide 2>&1 | sed "$INDENT_SED" >&2 || true
+  echo "---- PersistentVolumes ----" >&2
+  kubectl get pv -o wide 2>&1 | sed "$INDENT_SED" >&2 || true
+  echo "---- StorageClasses ----" >&2
+  kubectl get storageclass 2>&1 | sed "$INDENT_SED" >&2 || true
+  echo "---- node describe (capacity/allocatable/conditions) ----" >&2
+  kubectl describe nodes 2>&1 | sed "$INDENT_SED" >&2 || true
   echo "---- not-Ready pods: describe + logs ----" >&2
   # Filter on the Ready CONDITION, not pod phase: a CrashLoopBackOff container and
   # an up-but-failing-readiness container both keep the pod in phase "Running", so
