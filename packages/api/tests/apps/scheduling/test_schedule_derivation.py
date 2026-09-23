@@ -11,6 +11,10 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
+from trueppm_api.apps.scheduling.serializers import (
+    ScheduleCpmDerivationSerializer,
+    ScheduleMonteCarloDerivationSerializer,
+)
 
 User = get_user_model()
 
@@ -244,3 +248,59 @@ class TestScheduleDerivationMonteCarlo:
         assert "cpm_finish" in data
         assert "delta_vs_cpm_days" in data
         assert "drivers" in data
+
+
+@pytest.mark.django_db
+class TestScheduleDerivationResponseSchema:
+    """The declared `responses=` schema (#4032) must match what the view actually
+    returns, not the prose-only `OpenApiResponse` it replaces. Each test asserts the
+    live payload's keys equal the declared serializer's field set exactly — for the
+    top-level shape and for the nested `contributions[]`/`binding` item shape — so a
+    future field added to one side without the other fails a test, not just a
+    manual read of `docs/api/openapi.json`.
+    """
+
+    def test_cpm_response_matches_declared_schema(
+        self, member_client: APIClient, project: Project, chain: dict[str, Task]
+    ) -> None:
+        res = member_client.get(
+            url(project.pk),
+            {"task_id": str(chain["B"].id), "quantity": "early_start"},
+        )
+        assert res.status_code == 200
+        data = res.json()
+
+        declared = set(ScheduleCpmDerivationSerializer().fields)
+        assert set(data.keys()) == declared
+
+        contribution_fields = set(
+            ScheduleCpmDerivationSerializer().fields["contributions"].child.fields
+        )
+        assert data["contributions"], "expected at least one candidate contribution"
+        for contribution in data["contributions"]:
+            assert set(contribution.keys()) == contribution_fields
+        assert data["binding"] is not None
+        assert set(data["binding"].keys()) == contribution_fields
+
+    def test_percentile_response_matches_declared_schema(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        # A PERT task gives Monte Carlo a real band to derive against.
+        Task.objects.create(
+            project=project,
+            name="Estimate",
+            duration=5,
+            optimistic_duration=3,
+            most_likely_duration=5,
+            pessimistic_duration=10,
+        )
+        mc_url = f"/api/v1/projects/{project.pk}/monte-carlo/"
+        run = member_client.post(mc_url, {"n_simulations": 100}, format="json")
+        assert run.status_code == 200
+
+        res = member_client.get(url(project.pk), {"quantity": "p80"})
+        assert res.status_code == 200
+        data = res.json()
+
+        declared = set(ScheduleMonteCarloDerivationSerializer().fields)
+        assert set(data.keys()) == declared

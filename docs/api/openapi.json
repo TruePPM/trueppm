@@ -22344,7 +22344,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "The derivation of the requested value. The Monte Carlo quantities (p50/p80/p95) additionally carry forecast_staleness (current|project_changed|aged|unknown), plan_version and plan_version_current (#3140), so a cited percentile states whether the run it comes from still describes the current plan rather than presenting a superseded value with full derivation confidence. `project_changed` means the project was written to (or its CPM output recomputed) since the run — grounds for rerunning, NOT evidence that a schedule date changed."
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ScheduleDerivationResponse"
+                                }
+                            }
+                        },
+                        "description": "The derivation of the requested value. A CPM quantity returns ScheduleCpmDerivationResponse; a Monte Carlo percentile (p50/p80/p95) returns ScheduleMonteCarloDerivationResponse, which additionally carries forecast_staleness (current|project_changed|aged|unknown), plan_version and plan_version_current (#3140), so a cited percentile states whether the run it comes from still describes the current plan rather than presenting a superseded value with full derivation confidence. `project_changed` means the project was written to (or its CPM output recomputed) since the run — grounds for rerunning, NOT evidence that a schedule date changed."
                     },
                     "400": {
                         "description": "Missing/unknown quantity, or invalid schedule input."
@@ -70555,6 +70562,146 @@
                     "title"
                 ]
             },
+            "ScheduleCpmDerivation": {
+                "type": "object",
+                "description": "CPM-quantity derivation payload — the *why* behind one computed value (ADR-0218).\n\nMirrors :meth:`trueppm_scheduler.derive.Derivation.to_dict`. Returned for a CPM\n``quantity`` (``early_start``/``early_finish``/``late_start``/``late_finish``/\n``total_float``/``free_float``/``scheduled_start``); see\n:class:`ScheduleMonteCarloDerivationSerializer` for the percentile shape returned\nfor ``p50``/``p80``/``p95``.",
+                "properties": {
+                    "task_id": {
+                        "type": "string"
+                    },
+                    "task_name": {
+                        "type": "string"
+                    },
+                    "quantity": {
+                        "$ref": "#/components/schemas/ScheduleCpmDerivationQuantityEnum"
+                    },
+                    "value": {
+                        "oneOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "integer"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "is_critical": {
+                        "type": "boolean"
+                    },
+                    "binding": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ScheduleDerivationContribution"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "contributions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ScheduleDerivationContribution"
+                        }
+                    },
+                    "pass": {
+                        "$ref": "#/components/schemas/ScheduleCpmDerivationPassEnum"
+                    }
+                },
+                "required": [
+                    "binding",
+                    "contributions",
+                    "is_critical",
+                    "pass",
+                    "quantity",
+                    "task_id",
+                    "task_name",
+                    "value"
+                ]
+            },
+            "ScheduleCpmDerivationPassEnum": {
+                "enum": [
+                    "forward",
+                    "backward",
+                    "float"
+                ],
+                "type": "string",
+                "description": "* `forward` - forward\n* `backward` - backward\n* `float` - float"
+            },
+            "ScheduleCpmDerivationQuantityEnum": {
+                "enum": [
+                    "early_start",
+                    "early_finish",
+                    "late_start",
+                    "late_finish",
+                    "total_float",
+                    "free_float",
+                    "scheduled_start"
+                ],
+                "type": "string",
+                "description": "* `early_start` - early_start\n* `early_finish` - early_finish\n* `late_start` - late_start\n* `late_finish` - late_finish\n* `total_float` - total_float\n* `free_float` - free_float\n* `scheduled_start` - scheduled_start"
+            },
+            "ScheduleDerivationContribution": {
+                "type": "object",
+                "description": "One candidate constraint the CPM engine weighed for a derived value (ADR-0218).\n\nMirrors :meth:`trueppm_scheduler.derive.DerivationContribution.to_dict`. Exactly\none contribution in a given derivation's ``contributions`` list carries\n``is_binding=True`` — the term the engine's ``max``/``min`` actually selected.",
+                "properties": {
+                    "kind": {
+                        "type": "string"
+                    },
+                    "source_task_id": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "source_task_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "dep_type": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "lag_days": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "imposed_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "calendar_days_added": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "slack_days": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "is_binding": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "calendar_days_added",
+                    "dep_type",
+                    "imposed_date",
+                    "is_binding",
+                    "kind",
+                    "lag_days",
+                    "slack_days",
+                    "source_task_id",
+                    "source_task_name"
+                ]
+            },
+            "ScheduleDerivationResponse": {
+                "oneOf": [
+                    {
+                        "$ref": "#/components/schemas/ScheduleCpmDerivation"
+                    },
+                    {
+                        "$ref": "#/components/schemas/ScheduleMonteCarloDerivation"
+                    }
+                ]
+            },
             "ScheduleHealthEnum": {
                 "enum": [
                     "on_track",
@@ -70564,6 +70711,85 @@
                 ],
                 "type": "string",
                 "description": "* `on_track` - on_track\n* `at_risk` - at_risk\n* `critical` - critical\n* `unknown` - unknown"
+            },
+            "ScheduleMonteCarloDerivation": {
+                "type": "object",
+                "description": "Monte Carlo percentile derivation payload (ADR-0218, #987, #3140).\n\nMirrors the dict built by ``ScheduleDerivationView._monte_carlo_derivation`` —\nshared verbatim by its cache-hit and persisted-run-fallback branches. Returned for\na percentile ``quantity`` (``p50``/``p80``/``p95``); see\n:class:`ScheduleCpmDerivationSerializer` for the CPM shape.",
+                "properties": {
+                    "forecast_staleness": {
+                        "$ref": "#/components/schemas/ForecastStalenessEnum"
+                    },
+                    "plan_version": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "plan_version_current": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "quantity": {
+                        "$ref": "#/components/schemas/ScheduleMonteCarloDerivationQuantityEnum"
+                    },
+                    "value": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "cpm_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "delta_vs_cpm_days": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "drivers": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MonteCarloSensitivity"
+                        }
+                    },
+                    "runs": {
+                        "type": "integer"
+                    },
+                    "last_run_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "pass": {
+                        "$ref": "#/components/schemas/ScheduleMonteCarloDerivationPassEnum"
+                    }
+                },
+                "required": [
+                    "cpm_finish",
+                    "delta_vs_cpm_days",
+                    "drivers",
+                    "forecast_staleness",
+                    "last_run_at",
+                    "pass",
+                    "plan_version",
+                    "plan_version_current",
+                    "quantity",
+                    "runs",
+                    "value"
+                ]
+            },
+            "ScheduleMonteCarloDerivationPassEnum": {
+                "enum": [
+                    "monte_carlo"
+                ],
+                "type": "string",
+                "description": "* `monte_carlo` - monte_carlo"
+            },
+            "ScheduleMonteCarloDerivationQuantityEnum": {
+                "enum": [
+                    "p50",
+                    "p80",
+                    "p95"
+                ],
+                "type": "string",
+                "description": "* `p50` - p50\n* `p80` - p80\n* `p95` - p95"
             },
             "ScheduleTriggerResult": {
                 "type": "object",
