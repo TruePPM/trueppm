@@ -50,6 +50,29 @@
 #     `helm:upgrade` CI job runs this leg on MRs and main pushes that touch
 #     the chart or this script, and nightly (see .gitlab-ci.yml's
 #     `helm:upgrade` job comment for why MRs pay for it, #4000).
+#   walkthrough (#4027) — drills administration/deployment.md's "Production
+#     install walkthrough" step for step, the path `helm:install`/`helm:upgrade`/
+#     `helm:demo` never touch: a NAMED namespace (`trueppm`, not `default`),
+#     `values-prod.yaml` as the base overlay (bundled postgresql/valkey
+#     disabled), and managed datastores reached the documented way —
+#     `env.DATABASE_URL`/`env.REDIS_URL` as `secretKeyRef` maps pointing at
+#     operator-owned Secrets, never a chart-built connection string. "Managed"
+#     here means a second, unrelated Postgres + Valkey stood up by THIS drill
+#     in their own namespace, outside the chart's own release — never the
+#     bundled postgresql/valkey subcharts, which values-prod.yaml turns off.
+#     The managed Postgres runs with TLS on and a self-signed certificate
+#     specifically so `sslmode=require` in the operator-supplied DATABASE_URL
+#     is a REAL negotiated TLS handshake, not just a substring settings.prod's
+#     boot guard happens to see — a plaintext "managed" database would prove
+#     nothing about that guard. The commands this leg runs (namespace, both
+#     `kubectl create secret` invocations, the `my-values.yaml` shape, and the
+#     admin-password retrieval) are asserted to match deployment.md's own
+#     fenced code blocks by scripts/check-helm-walkthrough-drift.py, so the
+#     drill and the doc cannot silently diverge again the way #4025's two bugs
+#     (Secret created before its namespace existed; DATABASE_URL supplied in a
+#     shape the chart's render rejects) did. The `helm:walkthrough` CI job
+#     runs this leg on MRs and main pushes that touch the chart, this script,
+#     or deployment.md, and on the nightly schedule.
 #
 # The api/web images are built per-commit by ci:build-deploy-images (#2284) and
 # tagged $CI_COMMIT_SHA, so this drills the HEAD chart against the SAME commit's
@@ -94,6 +117,18 @@ CHART_GHCR_HOST="${CHART_GHCR_HOST:-ghcr.io}"
 CHART_OCI_REPO="${CHART_OCI_REPO:-trueppm/charts/trueppm}"
 # Two-space indent for nesting diagnostic output under its section header.
 INDENT_SED='s/^/  /'
+
+# ---- WALKTHROUGH-LEG-ONLY namespace + managed-datastore names (#4027) ------
+# deployment.md's walkthrough uses the literal namespace "trueppm" throughout
+# (its own kubectl commands hardcode --namespace trueppm), so that is the
+# default here too — overridable only so a test can point it elsewhere without
+# colliding with a real "trueppm" namespace. The managed-datastore namespace is
+# this drill's OWN invention (the doc has no namespace for "your managed
+# database" — it is, by definition, somewhere outside this cluster); any name
+# works as long as it differs from WALKTHROUGH_NAMESPACE, which the render/
+# runtime never see or care about.
+WALKTHROUGH_NAMESPACE="${WALKTHROUGH_NAMESPACE:-trueppm}"
+WALKTHROUGH_MANAGED_NAMESPACE="${WALKTHROUGH_MANAGED_NAMESPACE:-trueppm-managed}"
 
 # ---- DRILL-SPECIFIC celery probe settings (#3218) --------------------------
 # The chart's probe defaults are NOT changed — packages/helm is byte-identical
@@ -365,6 +400,320 @@ resolve_previous_chart_version() {
   log "upgrade leg: previous released chart = ${PREV_CHART_VERSION}, HEAD chart = ${head_version}"
 }
 
+# ---- walkthrough-leg-only: named namespace + managed datastores (#4027) ----
+# Everything this function creates is the RUNTIME half of
+# administration/deployment.md's "Production install walkthrough" — the
+# commands below are asserted against that page's own fenced code blocks by
+# scripts/check-helm-walkthrough-drift.py, so editing one without the other
+# fails a cheap lint rather than silently drifting the way #4025's two bugs
+# did (Secret created before its namespace existed; DATABASE_URL supplied in
+# a shape the chart's render rejects).
+setup_walkthrough_datastores() {
+  log "walkthrough leg (#4027): creating the documented namespace and Secret, in the order deployment.md shows"
+  kubectl create namespace "$WALKTHROUGH_NAMESPACE"
+  # Every bare kubectl/helm call from here on targets the CURRENT kube
+  # context's default namespace, so pointing it at the walkthrough namespace
+  # ONCE here is what lets every later shared assertion (helm test, admin
+  # password, negative probe, admin-denied-at-edge, worker/beat health) run
+  # against "trueppm" with no further -n/--namespace plumbing — the same way
+  # they already run against "default" for the other three legs.
+  kubectl config set-context --current --namespace="$WALKTHROUGH_NAMESPACE"
+
+  # The Deployment name deployment.md's own admin-password command hardcodes
+  # (`deployment/trueppm-api`) — derived from the render rather than assumed,
+  # since `trueppm.fullname` only collapses to the bare release name when the
+  # release name already contains the chart name (see the api_svc comment in
+  # section 3 above).
+  WALKTHROUGH_API_NAME="$(helm template "$RELEASE" "$CHART" --set image.tag="$RELEASE_IMAGE_TAG" \
+    --show-only templates/api/deployment.yaml \
+    | awk '/^  name:/{print $2; exit}')"
+  [ -n "$WALKTHROUGH_API_NAME" ] || fail "could not resolve the api Deployment name from the render (#4027)"
+
+  # ---- the documented application Secret ("Create the application Secret"),
+  # reproduced byte-for-byte. openssl and python3 are installed by this job's
+  # before_script specifically so this command needs no substitute.
+  log "creating trueppm-env Secret (documented form)"
+  kubectl create secret generic trueppm-env --namespace "$WALKTHROUGH_NAMESPACE" \
+    --from-literal=SECRET_KEY="$(openssl rand -base64 48)" \
+    --from-literal=ALLOWED_HOSTS=trueppm.example.com,trueppm-api,localhost,127.0.0.1 \
+    --from-literal=INTEGRATION_ENCRYPTION_KEY="$(python3 -c \
+      'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')" \
+    --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
+
+  # ---- a "managed" PostgreSQL + Valkey, stood up by THIS drill OUTSIDE the
+  # chart's own release, in their own namespace — simulating the managed
+  # services values-prod.yaml's comments tell an operator to point at. The
+  # bundled subcharts stay OFF throughout (values-prod.yaml's
+  # postgresql.enabled/valkey.enabled: false) — that is the whole point of
+  # this leg, and the other three legs already cover the bundled path.
+  log "creating ${WALKTHROUGH_MANAGED_NAMESPACE} namespace for the managed-datastore stand-in"
+  kubectl create namespace "$WALKTHROUGH_MANAGED_NAMESPACE"
+
+  local pg_password valkey_password pg_repo pg_tag valkey_repo valkey_tag
+  pg_password="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-32)"
+  valkey_password="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-32)"
+
+  # Reuse the SAME pinned images the chart's own bundled subcharts vendor
+  # (packages/helm/charts/{postgresql,valkey}/values.yaml) rather than a
+  # second, independently-drifting image pin — a dependency bump there
+  # updates this drill's "managed" stand-in for free.
+  pg_repo="$(awk '/^image:/{f=1} f && /^  repository:/{print $2; exit}' "${CHART}/charts/postgresql/values.yaml" | tr -d '"')"
+  pg_tag="$(awk '/^image:/{f=1} f && /^  tag:/{print $2; exit}' "${CHART}/charts/postgresql/values.yaml" | tr -d '"')"
+  valkey_repo="$(awk '/^image:/{f=1} f && /^  repository:/{print $2; exit}' "${CHART}/charts/valkey/values.yaml" | tr -d '"')"
+  valkey_tag="$(awk '/^image:/{f=1} f && /^  tag:/{print $2; exit}' "${CHART}/charts/valkey/values.yaml" | tr -d '"')"
+  [ -n "$pg_repo" ] && [ -n "$pg_tag" ] || fail "could not resolve the postgresql subchart's image from ${CHART}/charts/postgresql/values.yaml"
+  [ -n "$valkey_repo" ] && [ -n "$valkey_tag" ] || fail "could not resolve the valkey subchart's image from ${CHART}/charts/valkey/values.yaml"
+  local managed_postgres_image="${pg_repo}:${pg_tag}"
+  local managed_valkey_image="${valkey_repo}:${valkey_tag}"
+
+  # ---- self-signed TLS material for the managed Postgres, minted HOST-SIDE
+  # (openssl is in this job's image) rather than inside the cluster, so the
+  # in-cluster side needs no openssl binary at all — only `cp`/`chown`/`chmod`
+  # (see the init container below), which every image ships.
+  local tls_dir=/tmp/managed-postgres-tls
+  mkdir -p "$tls_dir"
+  openssl req -x509 -newkey rsa:2048 -sha256 -days 2 -nodes \
+    -keyout "${tls_dir}/tls.key" -out "${tls_dir}/tls.crt" \
+    -subj "/CN=managed-postgres.${WALKTHROUGH_MANAGED_NAMESPACE}.svc.cluster.local" \
+    2>/dev/null \
+    || fail "could not mint the managed-postgres self-signed TLS certificate"
+  kubectl create secret tls managed-postgres-tls --namespace "$WALKTHROUGH_MANAGED_NAMESPACE" \
+    --cert="${tls_dir}/tls.crt" --key="${tls_dir}/tls.key"
+
+  log "standing up the managed PostgreSQL (TLS on) + Valkey in ${WALKTHROUGH_MANAGED_NAMESPACE} (outside the chart)"
+  cat <<EOF | kubectl apply --namespace "$WALKTHROUGH_MANAGED_NAMESPACE" -f -
+apiVersion: v1
+kind: Secret
+metadata:
+  name: managed-postgres-auth
+type: Opaque
+stringData:
+  POSTGRES_USER: trueppm
+  POSTGRES_DB: trueppm
+  POSTGRES_PASSWORD: "${pg_password}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: managed-postgres
+  labels:
+    app: managed-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: managed-postgres
+  template:
+    metadata:
+      labels:
+        app: managed-postgres
+    spec:
+      # A permission-fixup init container, not a chart pattern to imitate: it
+      # copies the read-only Secret-mounted cert/key into a writable emptyDir
+      # owned by the SAME image's own "postgres" user (queried with \`id\`
+      # rather than hardcoded, since the exact UID is an implementation
+      # detail of the upstream image) at mode 600 — the permission
+      # PostgreSQL's own ssl_key_file check requires. A Secret volume's
+      # defaultMode only sets permission bits, not ownership, and it is the
+      # main container's postgres SERVER process (not its root entrypoint)
+      # that actually opens the file, so ownership has to be fixed too.
+      initContainers:
+        - name: fix-tls-perms
+          image: "${managed_postgres_image}"
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              cp /tls-source/tls.crt /tls-source/tls.key /tls/
+              chown "\$(id -u postgres)":"\$(id -g postgres)" /tls/tls.crt /tls/tls.key
+              chmod 644 /tls/tls.crt
+              chmod 600 /tls/tls.key
+          volumeMounts:
+            - name: tls-source
+              mountPath: /tls-source
+              readOnly: true
+            - name: tls
+              mountPath: /tls
+      containers:
+        - name: postgres
+          image: "${managed_postgres_image}"
+          args:
+            - -c
+            - ssl=on
+            - -c
+            - ssl_cert_file=/tls/tls.crt
+            - -c
+            - ssl_key_file=/tls/tls.key
+          envFrom:
+            - secretRef:
+                name: managed-postgres-auth
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: tls
+              mountPath: /tls
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "trueppm"]
+            initialDelaySeconds: 5
+            periodSeconds: 3
+            failureThreshold: 30
+      volumes:
+        - name: tls-source
+          secret:
+            secretName: managed-postgres-tls
+        - name: tls
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: managed-postgres
+spec:
+  selector:
+    app: managed-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: managed-valkey
+  labels:
+    app: managed-valkey
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: managed-valkey
+  template:
+    metadata:
+      labels:
+        app: managed-valkey
+    spec:
+      containers:
+        - name: valkey
+          image: "${managed_valkey_image}"
+          command: ["valkey-server", "--requirepass", "${valkey_password}"]
+          ports:
+            - containerPort: 6379
+          # A bare TCP check rather than an authenticated PING: this probe
+          # only has to answer "is the process up yet", and quoting a
+          # generated password safely inside a probe's exec argv is not worth
+          # the fragility — the real proof that auth actually works is the
+          # chart's own /readyz deep check succeeding after install.
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 3
+            periodSeconds: 3
+            failureThreshold: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: managed-valkey
+spec:
+  selector:
+    app: managed-valkey
+  ports:
+    - port: 6379
+      targetPort: 6379
+EOF
+
+  kubectl rollout status deployment/managed-postgres --namespace "$WALKTHROUGH_MANAGED_NAMESPACE" --timeout=180s \
+    || fail "managed PostgreSQL (outside the chart) never became Ready — see its pod's describe/logs above"
+  kubectl rollout status deployment/managed-valkey --namespace "$WALKTHROUGH_MANAGED_NAMESPACE" --timeout=120s \
+    || fail "managed Valkey (outside the chart) never became Ready — see its pod's describe/logs above"
+
+  # ---- the documented datastore Secrets ("values-prod.yaml already disables
+  # the bundled datastores..."), pointing at the managed stand-in above via
+  # its in-cluster Service DNS. sslmode=require here is a REAL negotiated TLS
+  # handshake against a server that actually speaks TLS (see the init
+  # container above) — not just a substring settings.prod's boot guard
+  # happens to see, which a plaintext "managed" database would leave untested.
+  log "creating trueppm-db / trueppm-cache Secrets (documented form)"
+  kubectl create secret generic trueppm-db --namespace "$WALKTHROUGH_NAMESPACE" \
+    --from-literal=url="postgres://trueppm:${pg_password}@managed-postgres.${WALKTHROUGH_MANAGED_NAMESPACE}.svc.cluster.local:5432/trueppm?sslmode=require"
+  kubectl create secret generic trueppm-cache --namespace "$WALKTHROUGH_NAMESPACE" \
+    --from-literal=url="redis://:${valkey_password}@managed-valkey.${WALKTHROUGH_MANAGED_NAMESPACE}.svc.cluster.local:6379"
+
+  # ---- the documented my-values.yaml, reproduced verbatim from
+  # deployment.md's own fenced block. scripts/check-helm-walkthrough-drift.py
+  # asserts this stays byte-for-byte aligned with that block; the ingress
+  # host override this kind-in-dind environment needs is passed separately as
+  # a --set on the `helm install` call below, precisely so this file can stay
+  # identical to what an operator would actually write.
+  WALKTHROUGH_VALUES_FILE=/tmp/walkthrough-my-values.yaml
+  cat >"$WALKTHROUGH_VALUES_FILE" <<'EOF'
+# my-values.yaml (layered on top of values-prod.yaml at install time)
+# Point the chart at the Secret created above. This reaches the API, the Celery
+# worker, AND the migrate/bootstrap init containers — all of which import the
+# same settings module and so hit the same startup checks.
+envFrom:
+  - secretRef:
+      name: trueppm-env
+
+# The managed datastores. These MUST be set under env: in the secretKeyRef
+# form shown here (or as plain URL strings). The chart checks for them at render
+# time and does not read the envFrom Secret above.
+env:
+  DATABASE_URL:
+    secretKeyRef:
+      name: trueppm-db
+      key: url
+  REDIS_URL:
+    secretKeyRef:
+      name: trueppm-cache
+      key: url
+
+# Required when the Secret sets TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true.
+# Omit it if you configured S3 storage instead.
+persistence:
+  media:
+    enabled: true
+EOF
+}
+
+# ---- the documented admin-password command, run verbatim (#4027) -----------
+# deployment.md's "Post-install" step names an exact command
+# (`kubectl exec -n trueppm deployment/trueppm-api -- cat
+# /run/trueppm/admin_password`) rather than a dynamic pod lookup. This proves
+# THAT command works, which check_admin_password()'s label-based lookup (used
+# by the other legs) does not.
+check_admin_password_documented() {
+  local admin_pw pw_file
+  pw_file="${ADMIN_PASSWORD_FILE:-/run/trueppm/admin_password}"
+  log "reading admin password with the documented command: kubectl exec -n ${WALKTHROUGH_NAMESPACE} deployment/${WALKTHROUGH_API_NAME} -- cat ${pw_file}"
+  admin_pw="$(kubectl exec -n "$WALKTHROUGH_NAMESPACE" "deployment/${WALKTHROUGH_API_NAME}" -- \
+    cat "$pw_file" 2>/dev/null || true)"
+  [ -n "$admin_pw" ] \
+    || fail "the documented admin-password command returned nothing — 'kubectl exec deployment/${WALKTHROUGH_API_NAME} -- cat ${pw_file}' no longer matches deployment.md, or create_admin did not write it"
+  log "admin password present (${#admin_pw} chars) via the documented command"
+}
+
+# ---- beat: pinned singleton, Running, and it STAYS up ----------------------
+# `--wait` already gates on beat's Deployment reporting its replica ready, but
+# beat renders NO readiness probe (by design — see templates/celery-beat/
+# deployment.yaml's own comment), so a container with no readiness gate counts
+# as "ready" the instant it starts Running: `--wait` alone would not catch a
+# beat stuck restart-looping on its liveness probe after that first tick.
+# Runs for every leg (not just walkthrough) since it is cheap and was
+# previously untested by any leg.
+check_beat_health() {
+  local beat_pod beat_restarts beat_phase
+  beat_pod="$(kubectl get pod -l app.kubernetes.io/component=celery-beat -o jsonpath='{.items[0].metadata.name}')"
+  [ -n "$beat_pod" ] || fail "no celery-beat pod found"
+  beat_phase="$(kubectl get pod "$beat_pod" -o jsonpath='{.status.phase}')"
+  [ "$beat_phase" = "Running" ] || fail "celery-beat pod is not Running (phase=${beat_phase:-<empty>})"
+  beat_restarts="$(kubectl get pod "$beat_pod" -o jsonpath='{.status.containerStatuses[0].restartCount}')"
+  [ "${beat_restarts:-0}" -eq 0 ] \
+    || fail "celery-beat restarted ${beat_restarts}x since rollout — the pinned singleton scheduler should not be restart-looping"
+  log "celery beat pinned singleton Running with 0 restarts: $beat_pod"
+}
+
 # ---- diagnostics on any failure -------------------------------------------
 dump_diagnostics() {
   echo "======== DIAGNOSTICS (deploy did not reach a healthy state) ========" >&2
@@ -417,6 +766,20 @@ except Exception as e:
       mt=$(stat -c %Y "$f" 2>&1) || { echo "stat failed: $mt"; exit 0; }
       echo "now=$now mtime=$mt age=$((now - mt))s"
     ' 2>&1 | sed "$INDENT_SED" >&2 || true
+  fi
+  # Walkthrough leg only (#4027): the managed-datastore stand-in lives in its
+  # OWN namespace, which the loop above never sees (it only walks the current
+  # context's namespace). A TLS misconfiguration on the managed Postgres is
+  # exactly the kind of failure that needs its logs, not just "Ready: false".
+  if [ "$DRILL_LEG" = "walkthrough" ]; then
+    echo "---- managed-datastore namespace (${WALKTHROUGH_MANAGED_NAMESPACE}): pods ----" >&2
+    kubectl get pods -n "$WALKTHROUGH_MANAGED_NAMESPACE" -o wide 2>&1 | sed "$INDENT_SED" >&2 || true
+    for p in $(kubectl get pods -n "$WALKTHROUGH_MANAGED_NAMESPACE" -o name 2>/dev/null); do
+      echo "---- describe ${WALKTHROUGH_MANAGED_NAMESPACE}/$p ----" >&2
+      kubectl describe -n "$WALKTHROUGH_MANAGED_NAMESPACE" "$p" 2>&1 | sed "$INDENT_SED" >&2 || true
+      echo "---- logs ${WALKTHROUGH_MANAGED_NAMESPACE}/$p (all containers, incl. init) ----" >&2
+      kubectl logs -n "$WALKTHROUGH_MANAGED_NAMESPACE" "$p" --all-containers --prefix --tail=80 2>&1 | sed "$INDENT_SED" >&2 || true
+    done
   fi
 }
 
@@ -522,6 +885,13 @@ if [ "$DRILL_LEG" = "upgrade" ]; then
 fi
 
 # ---- 3. the required operator secret ---------------------------------------
+# Walkthrough leg (#4027) skips all of this: it creates its OWN namespace and
+# Secret in setup_walkthrough_datastores(), reproducing deployment.md's
+# commands verbatim rather than this generic derived-ALLOWED_HOSTS shape,
+# which the doc's walkthrough never shows an operator running.
+if [ "$DRILL_LEG" = "walkthrough" ]; then
+  setup_walkthrough_datastores
+else
 # The three secrets settings.prod refuses to boot without (#566/#1002) plus the
 # local-storage opt-in (#775). The bundled-postgres DB escape hatch
 # (TRUEPPM_ALLOW_UNENCRYPTED_DB) is auto-injected by the chart because
@@ -570,6 +940,7 @@ kubectl create secret generic trueppm-env \
   --from-literal=ALLOWED_HOSTS="$allowed_hosts" \
   --from-literal=INTEGRATION_ENCRYPTION_KEY="$integration_key" \
   --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
+fi
 
 # ---- 4. install + wait for full rollout ------------------------------------
 # The image is the current commit's code (ci:build-deploy-images, #2284), so the
@@ -654,6 +1025,44 @@ if [ "$DRILL_LEG" = "upgrade" ]; then
     --set 'envFrom[0].secretRef.name=trueppm-env' \
     "${CELERY_PROBE_OVERRIDES[@]}" >/dev/null \
     || fail "a second upgrade still tripped the NetworkPolicy transition guard after the policy exists; it must fire only once (#4000)"
+elif [ "$DRILL_LEG" = "walkthrough" ]; then
+  # ---- 4w. install exactly as deployment.md's "Install:" step shows (#4027) -
+  # `-f "$CHART/values-prod.yaml" -f "$WALKTHROUGH_VALUES_FILE"` is the same
+  # two-file layering the doc's own `helm install ... -f values-prod.yaml -f
+  # my-values.yaml` command uses; scripts/check-helm-walkthrough-drift.py
+  # asserts the flag shape stays aligned with that fenced block. Everything
+  # past that point is CI-environment plumbing a real operator would not need
+  # (image tag, celery probe timing, and the ingress host — see below), added
+  # as --set overrides rather than folded into $WALKTHROUGH_VALUES_FILE so
+  # that file can stay byte-identical to the documented my-values.yaml.
+  #
+  # ingress.hosts[0].host: values-prod.yaml turns the Ingress on but ships its
+  # host EMPTY (a documented REQUIRED placeholder — see that file's own
+  # comment); deployment.md's own text says to set it in my-values.yaml
+  # ("values-prod.yaml also enables the Ingress and leaves its host ... empty
+  # ... Set them in my-values.yaml too"). Left unset, `trueppm.probeHostHeader`
+  # resolves to that empty string, and `{{- with ... }}` treats an empty
+  # string as falsy (Go templates), so NO Host header renders on the api
+  # probes at all — kubelet then sends `Host: <podIP>:8000`, which is in no
+  # ALLOWED_HOSTS list, and every pod sits NotReady forever (#3183's exact
+  # mechanism). trueppm.example.com is already the first ALLOWED_HOSTS entry
+  # created above, matching this. No real Ingress controller runs on this kind
+  # cluster — kubelet reaches the probe by pod IP regardless of DNS, so this
+  # value never needs to resolve.
+  #
+  # CELERY_PROBE_OVERRIDES are the same runner-contention accommodation the
+  # other three legs already need (#3218/#3346/#3692) — see that array's own
+  # header comment. The chart's OWN probe defaults are unchanged; this is a
+  # drill-only relaxation for shared CI runners, stated here and in
+  # deployment.md's "Verifying a deploy" section rather than left implicit.
+  log "helm install ${RELEASE} --namespace ${WALKTHROUGH_NAMESPACE} -f values-prod.yaml -f my-values.yaml (documented walkthrough, #4027)"
+  helm install "$RELEASE" "$CHART" --namespace "$WALKTHROUGH_NAMESPACE" \
+    -f "${CHART}/values-prod.yaml" -f "$WALKTHROUGH_VALUES_FILE" \
+    --set image.tag="$RELEASE_IMAGE_TAG" \
+    --set 'ingress.hosts[0].host=trueppm.example.com' \
+    "${CELERY_PROBE_OVERRIDES[@]}" \
+    --wait --timeout "$INSTALL_TIMEOUT"
+  log "walkthrough rollout complete"
 elif [ "$DRILL_LEG" = "demo" ]; then
   # ---- 4c. install the HEAD chart with values-demo.yaml layered on (#4018) -
   # No persistence.media here, unlike the other two branches: values-demo.yaml
@@ -705,9 +1114,16 @@ helm test "$RELEASE" --timeout 3m
 # Upgrade leg already ran this (4a-cont., above) against the pre-upgrade pod —
 # the only pod create_admin ever wrote it to. See check_admin_password's
 # header comment for why a post-upgrade pod can never pass this check.
-if [ "$DRILL_LEG" != "upgrade" ]; then
+if [ "$DRILL_LEG" = "walkthrough" ]; then
+  # The documented command (deployment.md "Post-install"), not the generic
+  # label-based lookup — see check_admin_password_documented's own comment.
+  check_admin_password_documented
+elif [ "$DRILL_LEG" != "upgrade" ]; then
   check_admin_password
 fi
+
+# ---- 6b. beat: pinned singleton, Running, and it STAYS up (#4027) ----------
+check_beat_health
 
 # ---- 7. negative probe: boot guard fails closed without SECRET_KEY ----------
 # settings.prod reads SECRET_KEY (import-time, no default) BEFORE it ever touches
@@ -1183,6 +1599,8 @@ fi
 
 if [ "$DRILL_LEG" = "upgrade" ]; then
   log "HELM UPGRADE DRILL GREEN — ${PREV_CHART_VERSION} -> HEAD upgraded cleanly; admin retrievable (pre-upgrade pod, #3964), NetworkPolicy transition guard refused then passed (#4000), admin denied at edge, worker pinned+Ready+serving, guards fail closed"
+elif [ "$DRILL_LEG" = "walkthrough" ]; then
+  log "HELM WALKTHROUGH DRILL GREEN (#4027) — named namespace, values-prod.yaml, managed PostgreSQL (TLS, sslmode=require) + Valkey reached via env.*.secretKeyRef all boot per deployment.md; admin retrievable via the documented kubectl exec command, admin denied at edge, worker+beat pinned/Ready/serving, guards fail closed"
 elif [ "$DRILL_LEG" = "demo" ]; then
   log "HELM DEMO DRILL GREEN — values-demo.yaml boots, seed hook completed, allowlist matrix holds (200 on /, /share/*, /api/v1/share/*; 404 elsewhere incl. admin/projects/auth/users/ws/schema; 403 demo_read_only on writes; traversal/double-slash variants 404; case variants fall to the SPA), per-visitor throttle buckets distinct (#4017), admin retrievable, worker pinned+Ready+serving, guards fail closed"
 else

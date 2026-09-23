@@ -63,13 +63,9 @@ Docker Compose is the fastest path to a running instance — every service start
 | Path | Best for |
 |------|----------|
 | Docker Compose (below) | Evaluation, development, contributors |
-| [Helm / Kubernetes](/administration/deployment/#kubernetes-with-helm)\* | Production, horizontal scaling |
+| [Helm / Kubernetes](/administration/deployment/#kubernetes-with-helm) | Production, horizontal scaling |
 | [Single server with systemd](/administration/deployment/#single-server-with-systemd) | Production without Kubernetes |
 | [Scheduler library](#scheduler-library-only) | Embedding the CPM (Critical Path Method — the algorithm that computes task dates and the critical path) engine in your own app |
-
-\* The Helm production walkthrough's end-to-end CI drill is still landing — see
-the [current-state note](/administration/deployment/#kubernetes-with-helm)
-before committing to it as your production path.
 
 Before you put a real program on it, read **[Deployment Sizing](/administration/sizing/#at-a-glance)** — a one-screen summary of how large a project and team TruePPM handles, and a checklist to hand your IT team, with the measured envelope behind it. The short version: plan on the Schedule view staying comfortable up to roughly **2,000 tasks** per project (about **1,000** on 0.4.0-beta.1, which does not turn off PostgreSQL's JIT compiler — the sizing page explains how to), and on a program's total task count, not just one project's, for schedule recalculation.
 
