@@ -82,6 +82,8 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     inherited_mcp_enabled: true,
     risk_slip_propagation: 'warn',
     risk_escalation_days: 3,
+    rollup_enabled_kpis: [],
+    rollup_aggregation_policy: 'worst',
     health: 'AUTO',
     target_date: null,
     visibility: 'WORKSPACE',

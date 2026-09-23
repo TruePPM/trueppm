@@ -43,7 +43,18 @@ _DURABILITY_OFF = ("fsync=off", "full_page_writes=off", "synchronous_commit=off"
 
 @pytest.fixture(scope="module")
 def ci_config() -> dict[str, Any]:
+    """The pipeline config as GitLab sees it: the root file plus its local includes.
+
+    Jobs are split across ``include: local`` files (#4035), so reading the root
+    file alone makes a moved job vanish — a lookup here would KeyError, and a
+    looser check would pass on a job it can no longer see.
+    """
     loaded: dict[str, Any] = yaml.safe_load(_CI_CONFIG.read_text())
+    for entry in loaded.pop("include", []):
+        included: dict[str, Any] = yaml.safe_load((_REPO_ROOT / entry["local"]).read_text())
+        overlap = loaded.keys() & included.keys()
+        assert not overlap, f"{entry['local']} redefines {sorted(overlap)} from the root file"
+        loaded.update(included)
     return loaded
 
 

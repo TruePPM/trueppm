@@ -6,6 +6,7 @@ from typing import Any
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+from trueppm_scheduler.derive import Quantity as CpmDerivationQuantity
 
 from trueppm_api.apps.scheduling.models import (
     FailedTask,
@@ -182,6 +183,91 @@ class ForecastStalenessFieldsSerializer(serializers.Serializer[dict[str, Any]]):
     )
     plan_version = serializers.IntegerField(allow_null=True)
     plan_version_current = serializers.IntegerField(allow_null=True)
+
+
+class ScheduleDerivationContributionSerializer(serializers.Serializer[dict[str, Any]]):
+    """One candidate constraint the CPM engine weighed for a derived value (ADR-0218).
+
+    Mirrors :meth:`trueppm_scheduler.derive.DerivationContribution.to_dict`. Exactly
+    one contribution in a given derivation's ``contributions`` list carries
+    ``is_binding=True`` — the term the engine's ``max``/``min`` actually selected.
+    """
+
+    kind = serializers.CharField()
+    source_task_id = serializers.CharField(allow_null=True)
+    source_task_name = serializers.CharField(allow_null=True)
+    dep_type = serializers.CharField(allow_null=True)
+    lag_days = serializers.IntegerField(allow_null=True)
+    imposed_date = serializers.DateField(allow_null=True)
+    calendar_days_added = serializers.IntegerField(allow_null=True)
+    slack_days = serializers.IntegerField(allow_null=True)
+    is_binding = serializers.BooleanField()
+
+
+@extend_schema_field({"oneOf": [{"type": "string"}, {"type": "integer"}], "nullable": True})
+class ScheduleDerivationValueField(serializers.CharField):
+    """A CPM quantity's derived value (ADR-0218).
+
+    An ISO-8601 date string for a date quantity, or a plain integer working-day
+    count for ``total_float``/``free_float`` — never both on one response, since the
+    shape is fixed by the ``quantity`` query param. Declaration-only: this field is
+    never bound to real data (:class:`ScheduleDerivationView` returns a plain dict),
+    so the inherited ``CharField`` behavior is never exercised — only the
+    ``@extend_schema_field`` override, which states the true wire type.
+    """
+
+
+class ScheduleCpmDerivationSerializer(serializers.Serializer[dict[str, Any]]):
+    """CPM-quantity derivation payload — the *why* behind one computed value (ADR-0218).
+
+    Mirrors :meth:`trueppm_scheduler.derive.Derivation.to_dict`. Returned for a CPM
+    ``quantity`` (``early_start``/``early_finish``/``late_start``/``late_finish``/
+    ``total_float``/``free_float``/``scheduled_start``); see
+    :class:`ScheduleMonteCarloDerivationSerializer` for the percentile shape returned
+    for ``p50``/``p80``/``p95``.
+    """
+
+    task_id = serializers.CharField()
+    task_name = serializers.CharField()
+    quantity = serializers.ChoiceField(choices=[q.value for q in CpmDerivationQuantity])
+    value = ScheduleDerivationValueField(allow_null=True)
+    is_critical = serializers.BooleanField()
+    binding = ScheduleDerivationContributionSerializer(allow_null=True)
+    contributions = ScheduleDerivationContributionSerializer(many=True)
+
+
+# "pass" is a Python keyword and cannot be a class-body attribute name, but the wire
+# key is unsuffixed — Derivation.to_dict() emits it as "pass", not "pass_" — so the
+# field is added to the declared-fields map directly instead of following the
+# trailing-underscore convention into the schema, which would misdeclare the key.
+ScheduleCpmDerivationSerializer._declared_fields["pass"] = serializers.ChoiceField(
+    choices=["forward", "backward", "float"]
+)
+
+
+class ScheduleMonteCarloDerivationSerializer(ForecastStalenessFieldsSerializer):
+    """Monte Carlo percentile derivation payload (ADR-0218, #987, #3140).
+
+    Mirrors the dict built by ``ScheduleDerivationView._monte_carlo_derivation`` —
+    shared verbatim by its cache-hit and persisted-run-fallback branches. Returned for
+    a percentile ``quantity`` (``p50``/``p80``/``p95``); see
+    :class:`ScheduleCpmDerivationSerializer` for the CPM shape.
+    """
+
+    quantity = serializers.ChoiceField(choices=["p50", "p80", "p95"])
+    value = serializers.DateField(allow_null=True)
+    cpm_finish = serializers.DateField(allow_null=True)
+    delta_vs_cpm_days = serializers.IntegerField(allow_null=True)
+    drivers = MonteCarloSensitivitySerializer(many=True)
+    runs = serializers.IntegerField()
+    last_run_at = serializers.DateTimeField()
+
+
+# Same reserved-keyword workaround as ScheduleCpmDerivationSerializer above — this
+# payload's "pass" is always the literal "monte_carlo".
+ScheduleMonteCarloDerivationSerializer._declared_fields["pass"] = serializers.ChoiceField(
+    choices=["monte_carlo"]
+)
 
 
 class MonteCarloForecastSerializer(

@@ -21,6 +21,7 @@ from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
     OpenApiResponse,
+    PolymorphicProxySerializer,
     extend_schema,
     extend_schema_view,
     inline_serializer,
@@ -85,6 +86,8 @@ from trueppm_api.apps.scheduling.serializers import (
     MonteCarloWhatIfRequestSerializer,
     MonteCarloWhatIfResponseSerializer,
     ProjectForecastSnapshotSerializer,
+    ScheduleCpmDerivationSerializer,
+    ScheduleMonteCarloDerivationSerializer,
     VelocitySuggestionSerializer,
 )
 from trueppm_api.apps.scheduling.services import (
@@ -2396,9 +2399,25 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
         ],
         responses={
             200: OpenApiResponse(
+                response=PolymorphicProxySerializer(
+                    component_name="ScheduleDerivationResponse",
+                    serializers=[
+                        ScheduleCpmDerivationSerializer,
+                        ScheduleMonteCarloDerivationSerializer,
+                    ],
+                    # Neither shape carries a field naming which one it is — the
+                    # caller already knows, from the `quantity` query param it sent,
+                    # which shape comes back. A discriminator field would have to be
+                    # fabricated onto the wire payload, which ADR-0218's "nothing is
+                    # fabricated" rule (rule 120) forbids just to satisfy
+                    # client-generator tooling.
+                    resource_type_field_name=None,
+                ),
                 description=(
-                    "The derivation of the requested value. The Monte Carlo quantities "
-                    "(p50/p80/p95) additionally carry forecast_staleness "
+                    "The derivation of the requested value. A CPM quantity returns "
+                    "ScheduleCpmDerivationResponse; a Monte Carlo percentile "
+                    "(p50/p80/p95) returns ScheduleMonteCarloDerivationResponse, which "
+                    "additionally carries forecast_staleness "
                     "(current|project_changed|aged|unknown), plan_version and "
                     "plan_version_current (#3140), so a cited percentile states whether "
                     "the run it comes from still describes the current plan rather than "
@@ -2406,7 +2425,7 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
                     "`project_changed` means the project was written to (or its CPM "
                     "output recomputed) since the run — grounds for rerunning, NOT "
                     "evidence that a schedule date changed."
-                )
+                ),
             ),
             400: OpenApiResponse(
                 description="Missing/unknown quantity, or invalid schedule input."
