@@ -12,10 +12,27 @@
 #   4. the settings.prod boot guards fail CLOSED — a deploy missing SECRET_KEY
 #      does not start (negative probe).
 #
-# DRILL_LEG (#3941) selects which of two legs runs:
+# DRILL_LEG (#3941) selects which of three legs runs:
 #   install (default) — `helm install` the HEAD chart straight from a clean
 #     cluster, as above. This is the leg the `helm:install` CI job runs on
 #     every MR and main push.
+#   demo (#4018) — `helm install` the HEAD chart with `values-demo.yaml`
+#     layered on top (the public, read-only, share-link-only overlay,
+#     ADR-0658), waits for the demo-seed post-install hook, then asserts the
+#     allowlist matrix from a probe pod placed where the chart's own
+#     NetworkPolicy admits it (the `ingress-nginx` namespace, same as the
+#     admin-denied-at-edge probe in section 8): `/`, both `/share/...` SPA
+#     routes and both `/api/v1/share/...` projections answer 200; every other
+#     `/api/` route, `/admin/*` and `/ws/` answer 404; a write verb to a share
+#     projection answers 403 `demo_read_only`; path-traversal and
+#     double-slash variants still 404; and a case-different path falls to the
+#     SPA (`text/html`) rather than being proxied. It also re-proves the
+#     per-visitor throttle property from #4017: two distinct
+#     `X-Forwarded-For` values must land in two distinct `share_access`
+#     buckets, not one shared one. Nothing here is visible to `helm template`
+#     — the allowlist and the throttle are both runtime-only surfaces (#4018).
+#     The `helm:demo` CI job runs this leg on MRs and main pushes that touch
+#     the chart or this script, like `helm:install`/`helm:upgrade`.
 #   upgrade — `helm install` the PREVIOUS released chart version (pulled from
 #     the public OCI registry, oci://${CHART_GHCR_HOST}/${CHART_OCI_REPO}) at
 #     its OWN default image tag, then `helm upgrade` the SAME release to the
@@ -187,6 +204,48 @@ CELERY_PROBE_OVERRIDES=(
 WORKER_PING_ATTEMPTS="${WORKER_PING_ATTEMPTS:-3}"
 WORKER_PING_TIMEOUT="${WORKER_PING_TIMEOUT:-20}"
 WORKER_PING_RETRY_DELAY="${WORKER_PING_RETRY_DELAY:-10}"
+
+# ---- DEMO-LEG-ONLY values overlay (#4018) -----------------------------------
+# `helm template` needs no live cluster, so this is resolved up front, before
+# section 1 even creates one. values-demo.yaml ships with demo.baseUrl and
+# both demo.shareToken.* deliberately empty (see that file's own SECRETS
+# comment) — the chart's demo-seed-job.yaml `fail`s the WHOLE render without
+# them, not just that one template, so every `helm template`/`helm install`
+# call below that layers values-demo.yaml on must carry all three.
+#
+# demo.baseUrl is the operator's public origin, used verbatim in the `/`
+# route's redirect (templates/web/configmap.yaml, #3911). A drill has no real
+# public origin, so this points it at the web Service's OWN in-cluster DNS
+# name instead of a placeholder host: a placeholder would make the redirect
+# resolve nowhere, and "GET / -> 200" (section 10) can only be asserted by
+# actually following that redirect back through the same allowlisted nginx.
+# Namespace is the chart's implicit "default" — nothing in this script ever
+# passes -n/--namespace to helm or kubectl.
+if [ "$DRILL_LEG" = "demo" ]; then
+  demo_web_svc="$(helm template "$RELEASE" "$CHART" --set image.tag="$RELEASE_IMAGE_TAG" \
+    --show-only templates/web/service.yaml \
+    | awk '/^  name:/{print $2; exit}')"
+  [ -n "$demo_web_svc" ] || fail "could not resolve the web Service name from the render (#4018)"
+  DEMO_BASE_URL="http://${demo_web_svc}.default.svc.cluster.local"
+  DEMO_SCHEDULE_TOKEN="$(head -c 32 /dev/urandom | base64 | tr -d '=+/')"
+  DEMO_BOARD_TOKEN="$(head -c 32 /dev/urandom | base64 | tr -d '=+/')"
+  DEMO_ARGS=(
+    -f "${CHART}/values-demo.yaml"
+    --set "demo.baseUrl=${DEMO_BASE_URL}"
+    --set "demo.shareToken.schedule=${DEMO_SCHEDULE_TOKEN}"
+    --set "demo.shareToken.board=${DEMO_BOARD_TOKEN}"
+    # demo.enabled + no rendered Ingress + the default
+    # networkPolicy.ingressControllerSelector (an "ingress-nginx" namespace)
+    # trips trueppm.webExposureNetworkPolicyGuard (#4003) on a FRESH install,
+    # not just an upgrade — the guard exists because that default peer is
+    # normally the WRONG one for a tunnel-fronted demo. Here it is the right
+    # one: section 10's probe pod deliberately runs IN that namespace (same
+    # trick section 8 already uses for the admin-denied-at-edge probe), so
+    # confirming the default is what makes the peer under test match the
+    # probe's real placement.
+    --set networkPolicy.ingressControllerConfirmed=true
+  )
+fi
 
 API_IMAGE="${IMAGE_REPO}/api:${RELEASE_IMAGE_TAG}"
 WEB_IMAGE="${IMAGE_REPO}/web:${RELEASE_IMAGE_TAG}"
@@ -491,6 +550,18 @@ api_svc="$(helm template "$RELEASE" "$CHART" --set image.tag="$RELEASE_IMAGE_TAG
 [ -n "$probe_host" ] || fail "could not resolve the probe Host header from the render (#3183)"
 [ -n "$api_svc" ] || fail "could not resolve the api Service name from the render"
 allowed_hosts="${probe_host},${api_svc},localhost,127.0.0.1"
+# The demo leg's render has no Ingress (ingress.enabled=false, #4018's
+# NetworkPolicy-guard comment above explains why), so the demo-probe reaches
+# the deployment through the web Service's own in-cluster DNS name rather than
+# an ingress host. templates/web/configmap.yaml's demo server block forwards
+# that unchanged (`proxy_set_header Host $host;`) to Django on every
+# /api/v1/share/... call, so without it here every one of those calls fails
+# get_host()'s check with 400 DisallowedHost before section 10's allowlist
+# matrix ever sees a real response — the two "public projection" checks and
+# both throttle-property checks depend on it.
+if [ "$DRILL_LEG" = "demo" ]; then
+  allowed_hosts="${allowed_hosts},${demo_web_svc}.default.svc.cluster.local"
+fi
 log "ALLOWED_HOSTS=${allowed_hosts}"
 
 log "creating trueppm-env secret"
@@ -583,6 +654,24 @@ if [ "$DRILL_LEG" = "upgrade" ]; then
     --set 'envFrom[0].secretRef.name=trueppm-env' \
     "${CELERY_PROBE_OVERRIDES[@]}" >/dev/null \
     || fail "a second upgrade still tripped the NetworkPolicy transition guard after the policy exists; it must fire only once (#4000)"
+elif [ "$DRILL_LEG" = "demo" ]; then
+  # ---- 4c. install the HEAD chart with values-demo.yaml layered on (#4018) -
+  # No persistence.media here, unlike the other two branches: values-demo.yaml
+  # deliberately does NOT enable it (its own SECRETS comment) — the demo-seed
+  # Job's template does not mount that claim, so enabling the PVC would fix the
+  # api pod's writability and leave the seed hook failing on a read-only root
+  # filesystem. TRUEPPM_MEDIA_ROOT=/tmp (also in values-demo.yaml) is what
+  # makes every pod's boot guard pass instead, using the emptyDir every pod
+  # already mounts. DEMO_ARGS (baseUrl, both share tokens, the NetworkPolicy
+  # confirmation) was assembled above, before section 1, since it needs no
+  # live cluster.
+  log "helm install ${RELEASE} with values-demo.yaml (image tag ${RELEASE_IMAGE_TAG})"
+  helm install "$RELEASE" "$CHART" \
+    "${DEMO_ARGS[@]}" \
+    --set image.tag="$RELEASE_IMAGE_TAG" \
+    "${CELERY_PROBE_OVERRIDES[@]}" \
+    --wait --timeout "$INSTALL_TIMEOUT"
+  log "demo rollout complete"
 else
   # ---- 4. install + wait for full rollout ----------------------------------
   # The image is the current commit's code (ci:build-deploy-images, #2284), so the
@@ -707,9 +796,22 @@ except urllib.error.HTTPError as e:
 except Exception as e:
     print('UNREACHABLE:%s' % e)
 " 2>&1 | tr -d '[:space:]' || true)"
-[ "$admin_code" = "403" ] \
-  || fail "/admin/ through the web tier (svc/${web_svc}) returned '${admin_code}', expected 403 — a default install is publishing Django admin (#2569)"
-log "admin denied at the web tier (HTTP 403) — deny-by-default holds at runtime"
+# The demo leg's web tier is a completely different nginx server block
+# (templates/web/configmap.yaml's `else if .Values.demo.enabled` branch, #2440):
+# it has no web.adminAccess allow/deny logic at all — every /admin/ location is a
+# flat `return 404;` — so a demo install correctly answers 404 here, not 403.
+# Section 10 below asserts that same 404 again as part of the wider allowlist
+# matrix; this earlier check still runs unconditionally for every leg because it
+# is proving something narrower and unrelated to the allowlist (#2569 held even
+# before demo mode existed).
+if [ "$DRILL_LEG" = "demo" ]; then
+  expected_admin_code="404"
+else
+  expected_admin_code="403"
+fi
+[ "$admin_code" = "$expected_admin_code" ] \
+  || fail "/admin/ through the web tier (svc/${web_svc}) returned '${admin_code}', expected ${expected_admin_code} — a default install is publishing Django admin (#2569)"
+log "admin denied at the web tier (HTTP ${expected_admin_code}) — deny-by-default holds at runtime"
 
 # ---- 9. celery worker: concurrency pinned, Ready, and it STAYS up (#2571) ---
 # `helm install --wait` above already gates on the worker becoming Ready — and
@@ -855,8 +957,234 @@ print("all bound pidbox queues:", queues)
   fail "celery-worker is Ready with ${restarts:-0} restarts but never answered 'inspect ping' after ${WORKER_PING_ATTEMPTS} attempts of ${WORKER_PING_TIMEOUT}s — Ready does not mean serving (#3236). Startup: ${broker_waits} broker wait(s), ${consumer_refusals} consumer refusal(s) — 0 refusals falsifies #3722's startup-race explanation. Last ping output: ${ping_out:-<none>}"
 fi
 
+# ---- 10. demo allowlist matrix + per-visitor throttle property (#4018) -----
+# Everything above this point is generic chart health, shared with the other
+# two legs. This is the runtime surface that ONLY exists under demo.enabled —
+# an allowlist rendered correctly by helm:template still says nothing about
+# what nginx actually returns for a given path, and #4017 (a single shared
+# throttle bucket for the whole internet) is proof: it rendered clean, passed
+# kubeconform, and passed every static grep.
+if [ "$DRILL_LEG" = "demo" ]; then
+  log "waiting for the demo-seed post-install hook to complete"
+  demo_seed_job="$(kubectl get job -l app.kubernetes.io/component=demo-seed -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  [ -n "$demo_seed_job" ] || fail "no demo-seed Job found (component=demo-seed) — did the chart actually render demo.enabled? (#4018)"
+  # Belt-and-braces: Helm always blocks on a hook's own completion before
+  # `helm install` above can return, regardless of --wait, so this should
+  # never actually wait. Asserted explicitly so a future Helm/hook-ordering
+  # change that broke that assumption fails HERE with a clear message
+  # instead of a confusing 404 a few lines down.
+  kubectl wait --for=condition=complete "job/${demo_seed_job}" --timeout=180s \
+    || fail "demo-seed hook (job/${demo_seed_job}) did not reach Complete — see its pod logs above"
+  seed_log_tail="$(kubectl logs "job/${demo_seed_job}" -c demo-seed 2>&1 | tail -3 || true)"
+  log "demo-seed hook complete — log tail: ${seed_log_tail}"
+
+  log "starting an in-cluster probe pod for the demo allowlist matrix (ingress-nginx namespace, admitted by the web-ingress NetworkPolicy — same placement as the admin-probe above)"
+  kubectl run demo-probe -n ingress-nginx \
+    --image="$API_IMAGE" --image-pull-policy=IfNotPresent --restart=Never \
+    --command -- sleep 3600
+  kubectl wait --for=condition=Ready pod/demo-probe -n ingress-nginx --timeout=60s \
+    || fail "demo-probe pod never became Ready"
+
+  log "asserting the demo allowlist matrix and the #4017 per-visitor throttle property"
+  if ! kubectl exec -i demo-probe -n ingress-nginx -- env \
+      WEB_HOST="${demo_web_svc}.default.svc.cluster.local" \
+      SCHEDULE_TOKEN="$DEMO_SCHEDULE_TOKEN" \
+      BOARD_TOKEN="$DEMO_BOARD_TOKEN" \
+      python -u - <<'PYEOF'
+import os
+import sys
+import urllib.error
+import urllib.request
+
+host = os.environ["WEB_HOST"]
+schedule_token = os.environ["SCHEDULE_TOKEN"]
+board_token = os.environ["BOARD_TOKEN"]
+
+failures = []
+
+
+def req(method, path, xff=None):
+    url = "http://%s%s" % (host, path)
+    r = urllib.request.Request(url, method=method)
+    if xff:
+        r.add_header("X-Forwarded-For", xff)
+    try:
+        resp = urllib.request.urlopen(r, timeout=15)
+        return resp.status, resp.headers.get("Content-Type", ""), resp.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.headers.get("Content-Type", ""), e.read()
+    except Exception as e:
+        return None, "UNREACHABLE:%s" % e, b""
+
+
+def check(label, method, path, expect_status, expect_ct_contains=None, xff=None):
+    status, ct, body = req(method, path, xff=xff)
+    ok = status == expect_status and (
+        expect_ct_contains is None or expect_ct_contains in (ct or "")
+    )
+    print("%s: %s -> %s %s" % ("OK" if ok else "FAIL", label, status, ct))
+    if not ok:
+        want = "status=%s" % expect_status
+        if expect_ct_contains:
+            want += " content-type~%r" % expect_ct_contains
+        failures.append(
+            "%s: got status=%s content-type=%r, expected %s" % (label, status, ct, want)
+        )
+    return ok
+
+
+# --- allowlist matrix -------------------------------------------------------
+check("GET / (redirects to the schedule share link)", "GET", "/", 200, "text/html")
+check(
+    "GET /share/schedule/<token> (SPA route)",
+    "GET",
+    "/share/schedule/%s" % schedule_token,
+    200,
+    "text/html",
+)
+check(
+    "GET /share/board/<token> (SPA route)",
+    "GET",
+    "/share/board/%s" % board_token,
+    200,
+    "text/html",
+)
+projection_ok = check(
+    "GET /api/v1/share/schedule/<token>/ (public projection)",
+    "GET",
+    "/api/v1/share/schedule/%s/" % schedule_token,
+    200,
+    "application/json",
+)
+check(
+    "GET /api/v1/share/board/<token>/ (public projection)",
+    "GET",
+    "/api/v1/share/board/%s/" % board_token,
+    200,
+    "application/json",
+)
+
+for path in (
+    "/admin/",
+    "/admin/login/",
+    "/api/v1/projects/",
+    "/api/v1/auth/token/",
+    "/api/v1/users/me/",
+    "/ws/",
+    "/api/schema/",
+):
+    check("GET %s (must be absent from the demo)" % path, "GET", path, 404)
+
+for method in ("POST", "PUT", "DELETE"):
+    status, ct, body = req(method, "/api/v1/share/schedule/%s/" % schedule_token)
+    ok = status == 403 and b"demo_read_only" in body
+    print(
+        "%s: %s /api/v1/share/schedule/<token>/ -> %s %r"
+        % ("OK" if ok else "FAIL", method, status, body[:200])
+    )
+    if not ok:
+        failures.append(
+            "%s write to a share projection: got status=%s body=%r, expected 403 demo_read_only"
+            % (method, status, body[:200])
+        )
+
+# nginx resolves both literal ".." and percent-encoded "%2e%2e" (and merges
+# "//") before location matching, so every one of these lands under /api/
+# (or, for the last one, /admin/) and must still 404 rather than reach a
+# route the plain path would never have matched.
+for path in (
+    "/api/v1/share/../admin/",
+    "/api/v1/share/%2e%2e/admin/",
+    "//admin/",
+    "/api/v1/share/../../../admin/",
+):
+    check("traversal GET %s" % path, "GET", path, 404)
+
+# nginx location matching is case-sensitive; none of these match /api/ or
+# /admin/, so they fall through to the SPA — never proxied to Django.
+for path in ("/API/v1/projects/", "/Admin/", "/ADMIN/"):
+    check(
+        "case-variant GET %s (falls to the SPA, never proxied)" % path,
+        "GET",
+        path,
+        200,
+        "text/html",
+    )
+
+# --- per-visitor throttle property (#4017) ----------------------------------
+# share_access defaults to 60/min. Burn visitor A's whole bucket, then prove
+# visitor B — a DIFFERENT X-Forwarded-For value — gets an untouched one.
+# NUM_PROXIES=2 (values-demo.yaml) is what makes DRF key on the FIRST
+# X-Forwarded-For entry (the client's own claim) rather than the web tier's
+# own appended peer address — the exact regression #4017 found: at
+# NUM_PROXIES=1 every visitor collapses into one shared bucket.
+#
+# Gated on the plain projection GET above having actually reached the
+# throttle (status 200): a precondition failure upstream (a host-validation
+# 400, a 5xx, anything that never reaches DRF's throttle check) makes every
+# request in the loop below fail identically, and an identical failure reads
+# exactly like "the bucket is shared" even though the bucket was never
+# consulted. Without this gate, that precondition failure prints as
+# "#4017 regression" — the label a reader trusts least to be wrong.
+if not projection_ok:
+    failures.append(
+        "throttle: skipped — the plain GET /api/v1/share/schedule/<token>/ check "
+        "above did not return 200, so no request in this section ever reached "
+        "share_access's throttle in the first place (see that check's own failure "
+        "for the real cause; this is a precondition failure, not a #4017 regression)"
+    )
+else:
+    XFF_A = "203.0.113.10"
+    XFF_B = "203.0.113.20"
+    saw_429 = False
+    last_status = None
+    for _ in range(61):
+        last_status, _, _ = req(
+            "GET", "/api/v1/share/schedule/%s/" % schedule_token, xff=XFF_A
+        )
+        if last_status == 429:
+            saw_429 = True
+            break
+    if saw_429:
+        print("OK: visitor A (%s) throttled to 429 within 61 requests" % XFF_A)
+    else:
+        failures.append(
+            "throttle: visitor A (%s) never saw a 429 within 61 requests (last status %s) "
+            "— share_access is not enforcing a per-visitor limit" % (XFF_A, last_status)
+        )
+
+    status_b, _, body_b = req(
+        "GET", "/api/v1/share/schedule/%s/" % schedule_token, xff=XFF_B
+    )
+    if status_b == 200:
+        print(
+            "OK: visitor B (%s) got 200 while visitor A is throttled — distinct "
+            "X-Forwarded-For values get distinct buckets (#4017)" % XFF_B
+        )
+    else:
+        failures.append(
+            "throttle: visitor B (%s) got %s while visitor A (%s) was throttled, expected "
+            "200 — distinct X-Forwarded-For values are NOT getting distinct buckets "
+            "(#4017 regression)" % (XFF_B, status_b, XFF_A)
+        )
+
+if failures:
+    print("=== FAILURES (%d) ===" % len(failures))
+    for f in failures:
+        print(" -", f)
+    sys.exit(1)
+print("ALL DEMO ALLOWLIST + THROTTLE ASSERTIONS PASSED")
+PYEOF
+  then
+    fail "the demo allowlist matrix and/or the #4017 throttle property did not hold — see the probe output above"
+  fi
+  log "demo allowlist matrix + per-visitor throttle property GREEN (#4018, #4017)"
+fi
+
 if [ "$DRILL_LEG" = "upgrade" ]; then
   log "HELM UPGRADE DRILL GREEN — ${PREV_CHART_VERSION} -> HEAD upgraded cleanly; admin retrievable (pre-upgrade pod, #3964), NetworkPolicy transition guard refused then passed (#4000), admin denied at edge, worker pinned+Ready+serving, guards fail closed"
+elif [ "$DRILL_LEG" = "demo" ]; then
+  log "HELM DEMO DRILL GREEN — values-demo.yaml boots, seed hook completed, allowlist matrix holds (200 on /, /share/*, /api/v1/share/*; 404 elsewhere incl. admin/projects/auth/users/ws/schema; 403 demo_read_only on writes; traversal/double-slash variants 404; case variants fall to the SPA), per-visitor throttle buckets distinct (#4017), admin retrievable, worker pinned+Ready+serving, guards fail closed"
 else
   log "HELM INSTALL DRILL GREEN — chart boots, admin retrievable, admin denied at edge, worker pinned+Ready+serving, guards fail closed"
 fi

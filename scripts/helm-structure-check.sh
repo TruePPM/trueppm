@@ -1975,6 +1975,33 @@ fi
 [ "$(np_ingress trueppm-api-ingress | yq -p json length)" = 3 ] \
   || fail "api-ingress admits $(np_ingress trueppm-api-ingress | yq -p json length) peers with monitoringSelector empty, expected 3 (web, test, ingress controller) (#4001)"
 
+# 14f. The share-link demo's helm test hook curls the WEB Service, so web-ingress
+#      must admit the chart's `test` pod exactly when that hook renders —
+#      otherwise an enforcing CNI drops the probe and `helm test` hangs (#4018).
+web_test_rules() { # [extra helm args...] -> count of web-ingress rules admitting component=test
+  helm template trueppm "$CHART" "$@" --show-only templates/networkpolicy.yaml \
+    | yq 'select(.metadata.name == "trueppm-web-ingress") | .spec.ingress[].from[] | select(.podSelector.matchLabels."app.kubernetes.io/component" == "test") | .podSelector.matchLabels."app.kubernetes.io/component"' \
+    | grep -c '^test$' || true
+}
+share_demo=(-f "$CHART/values-demo.yaml" --set demo.baseUrl=https://demo.example.com
+  --set demo.shareToken.schedule=structurecheckschedule --set demo.shareToken.board=structurecheckboard
+  --set networkPolicy.ingressControllerConfirmed=true)
+[ "$(web_test_rules "${share_demo[@]}")" = 1 ] \
+  || fail "share-link demo: web-ingress does not admit the helm test pod, so templates/tests/demo-share-links.yaml cannot reach the web Service (#4018)"
+[ "$(web_test_rules)" = 0 ] \
+  || fail "a non-demo install admits the helm test pod to web-ingress; only the share-link demo hook needs it (#4018)"
+[ "$(web_test_rules "${share_demo[@]}" --set demo.interactive=true)" = 0 ] \
+  || fail "interactive demo admits the helm test pod to web-ingress, but the share-link hook does not render there (#4018)"
+
+# 14g. web's nginx forwards `Host $host`, so the hook must send a Host that is
+#      already in ALLOWED_HOSTS — demo.baseUrl's — or Django 400s it (#4018).
+hook="$(helm template trueppm "$CHART" "${share_demo[@]}" --set demo.baseUrl=https://share.probe.example:8443 \
+  --show-only templates/tests/demo-share-links.yaml)"
+grep -qF 'public_host="share.probe.example:8443"' <<<"$hook" \
+  || fail "the share-link helm test hook does not derive its Host from demo.baseUrl (#4018)"
+[ "$(grep -cF -- '-H "Host: ${public_host}"' <<<"$hook")" = 2 ] \
+  || fail "the share-link helm test hook does not send demo.baseUrl's host on BOTH share probes — the web Service name reaches Django and 400s DisallowedHost (#4018)"
+
 # 15. Fresh-install (and upgrade) guard for the two documented exposure paths
 #     that bypass any in-cluster ingress controller entirely: the demo's
 #     Cloudflare Tunnel (values-demo.yaml's EXPOSURE block, ADR-0658 D9) and a

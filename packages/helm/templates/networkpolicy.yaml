@@ -198,6 +198,22 @@ spec:
       ports:
         - protocol: TCP
           port: http
+    {{- /* The share-link demo's `helm test` hook (templates/tests/
+         demo-share-links.yaml) must go THROUGH web to prove the nginx
+         allowlist, so it is the one chart pod that dials this tier. A separate
+         rule, rendered under the hook's own condition, so ingress[0] stays the
+         controller peer alone. Without it an enforcing CNI drops the probe and
+         `helm test` hangs until timeout (#4018). */}}
+    {{- if and .Values.demo.enabled (not .Values.demo.interactive) }}
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "trueppm.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: test
+      ports:
+        - protocol: TCP
+          port: http
+    {{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

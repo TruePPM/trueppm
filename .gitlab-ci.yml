@@ -3229,6 +3229,80 @@ helm:upgrade:
   script:
     - bash scripts/helm-install-drill.sh
 
+helm:demo:
+  # Runtime smoke test of demo mode on a real kind cluster (#4018): the leg
+  # helm:install/helm:upgrade never exercise. Both of those drill the DEFAULT
+  # chart; neither ever installs values-demo.yaml, so demo mode's entire
+  # pipeline coverage used to be helm:lint + helm:template (a render,
+  # kubeconform, and a set of grep/yq assertions over the rendered YAML) —
+  # real coverage that cannot see anything only true at runtime. #4017 is the
+  # proof: TRUEPPM_NUM_PROXIES rendered fine, kubeconform passed, every demo
+  # grep passed, and the per-IP throttle on the demo's only public endpoint
+  # was nevertheless a single global bucket for the whole internet.
+  #
+  # `helm install` the HEAD chart with values-demo.yaml layered on, wait for
+  # the demo-seed post-install hook, then assert the allowlist matrix from a
+  # probe pod placed where the web-ingress NetworkPolicy actually admits it:
+  # `/`, both `/share/...` SPA routes and both `/api/v1/share/...`
+  # projections answer 200; every other `/api/` route, `/admin/*` and `/ws/`
+  # answer 404; a write verb to a share projection answers 403
+  # `demo_read_only`; path-traversal and double-slash variants still 404; and
+  # a case-different path falls to the SPA rather than being proxied. It also
+  # re-proves the #4017 per-visitor throttle property: two distinct
+  # `X-Forwarded-For` values land in two distinct `share_access` buckets
+  # (DRILL_LEG=demo in the same script — see its header comment). See
+  # scripts/helm-install-drill.sh.
+  #
+  # Trigger: MRs and main pushes that touch the chart, the drill or this
+  # file, plus the nightly schedule — matching helm:install/helm:upgrade.
+  # BLOCKING on MR + main for the same reason those two are: the drill runs
+  # HEAD chart against HEAD application code, so a red is a real deploy
+  # regression, not version skew. Schedule stays advisory (allow_failure): a
+  # nightly infra blip on the shared runner fleet is a signal, not a hard
+  # red. `needs:` the same per-commit image build as the other two legs, so
+  # it drills real code.
+  stage: test
+  interruptible: false
+  timeout: 25m
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  needs:
+    - job: ci:build-deploy-images
+      artifacts: false
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    KIND_VERSION: "0.24.0"
+    KUBECTL_VERSION: "1.31.2"
+    HELM_VERSION: "3.16.3"
+    RELEASE_IMAGE_TAG: "$CI_COMMIT_SHA"
+    APISERVER_HOST: "docker"
+    DRILL_LEG: "demo"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - packages/helm/**/*
+        - scripts/helm-install-drill.sh
+        - .gitlab-ci.yml
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/helm/**/*
+        - scripts/helm-install-drill.sh
+        - .gitlab-ci.yml
+  before_script:
+    - apk add --no-cache bash curl
+    - curl -sSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && chmod +x /usr/local/bin/kind
+    - curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && chmod +x /usr/local/bin/kubectl
+    - curl -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm && mv /tmp/linux-amd64/helm /usr/local/bin/helm
+    - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
+  script:
+    - bash scripts/helm-install-drill.sh
+
 compose:prod:
   # Production docker-compose BOOT drill (#2817): the runtime half of the
   # prod-compose completeness fix (#2804, !1945), whose three fixes were all
