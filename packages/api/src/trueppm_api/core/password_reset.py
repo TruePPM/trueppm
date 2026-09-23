@@ -379,7 +379,9 @@ class PasswordResetConfirmView(APIView):
     Unauthenticated (``AllowAny``) — possession of a valid, unexpired token *is* the
     authorization. Returns:
 
-    - ``200`` on success (password changed, all other sessions revoked).
+    - ``200`` on success (password changed, all other sessions revoked, and the
+      account's Personal Access Tokens, public share links, and git-automation
+      webhook secret revoked/cleared — #4006).
     - ``400 {"code": "invalid_token"}`` for any bad/unknown/expired uid+token — the
       same shape for all three so confirm carries no enumeration signal either. The
       frontend maps this to the "expired link" screen.
@@ -397,13 +399,17 @@ class PasswordResetConfirmView(APIView):
         description=(
             "Validates the uid + token from the reset link and sets the new "
             "password. On success, every other active session for the account is "
-            "revoked (all refresh tokens are blacklisted). Returns 400 with "
+            "revoked (all refresh tokens are blacklisted), the account's Personal "
+            "Access Tokens are revoked, and its public share links and "
+            "git-automation webhook secret are revoked/cleared. Returns 400 with "
             "`code: invalid_token` for an invalid or expired link, or `code: "
             "weak_password` with a `messages` list when the password fails policy."
         ),
         request=PasswordResetConfirmSerializer,
         responses={
-            200: OpenApiResponse(description="Password reset; other sessions revoked."),
+            200: OpenApiResponse(
+                description="Password reset; sessions, PATs, and durable grants revoked."
+            ),
             400: OpenApiResponse(description="Invalid/expired token or weak password."),
         },
         auth=[],
@@ -449,6 +455,7 @@ class PasswordResetConfirmView(APIView):
         from trueppm_api.apps.access.services import (
             revoke_all_personal_access_tokens,
             revoke_all_refresh_tokens,
+            revoke_personal_durable_grants,
         )
 
         with transaction.atomic():
@@ -475,6 +482,18 @@ class PasswordResetConfirmView(APIView):
                 reason="password_reset",
                 source_ip=_client_ip(request),
             )
+            # A password reset is the same "my credentials are compromised" signal
+            # the off-boarding path acts on, but before #4006 it only revoked
+            # sessions and PATs — not the two non-token durable grants that are
+            # "exactly as durable as a personal access token" per
+            # revoke_personal_durable_grants()'s own docstring: public share links
+            # this user minted, and any git-automation webhook secret they
+            # configured. Without this, an attacker who held a live session could
+            # mint a share link or rotate an automation secret, and both survived
+            # a reset untouched. Same atomic block as the other two revocations —
+            # `actor=user` for the same reason: the reset itself is unauthenticated,
+            # but it is the account owner asserting compromise.
+            revoke_personal_durable_grants(user, actor=user)
 
         return Response(
             {"detail": "Your password has been reset. Please sign in with your new password."},
