@@ -153,6 +153,16 @@ docker compose exec api cat /tmp/trueppm_admin_password
 docker compose exec api rm  /tmp/trueppm_admin_password   # delete after retrieval
 ```
 
+:::note[This path is drilled in CI]
+Every step above — building the images, all six services reaching a healthy
+state, retrieving the admin password and using it, the web UI serving, and
+both `celery` and `celery-beat` actually dispatching work — runs as the
+`compose:dev` CI job on every relevant change and a nightly schedule (see
+[Deployment](/administration/deployment/#docker-compose-recommended-for-evaluation)).
+It does not cover running this stack under load or with more than one
+developer on it — see the note there on what this stack is (and isn't) for.
+:::
+
 ### Load demo data (optional)
 
 The quickest way to see TruePPM with realistic data is the in-app **Load demo data**

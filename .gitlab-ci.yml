@@ -3395,6 +3395,127 @@ compose:prod:tls:
   variables:
     TLS_MODE: "selfsigned"
 
+compose:dev:
+  # Development-stack docker-compose BOOT drill (#4026): the runtime
+  # counterpart of compose:prod, for the OTHER compose file most evaluators and
+  # contributors actually run first. installation.md's entire "Docker Compose"
+  # section is `docker compose up -d` against the UNMODIFIED docker-compose.yml
+  # — until this job, nothing ever started it; compose:image-pins and
+  # compose:project-names only render and grep it statically. The #2817/#2828
+  # base rate (four independently fatal faults in a compose file that rendered
+  # clean under `docker compose config`) applies here exactly as it did to the
+  # prod stack, and this was the one documented, first-run path with none of
+  # that evidence.
+  #
+  # Builds the api/web images from THIS commit via `docker compose up -d
+  # --build`, rather than reusing ci:build-deploy-images: the dev build target
+  # (packages/api/Dockerfile's `[binary]` psycopg extra, packages/web/
+  # Dockerfile's Vite-dev-server stage) is a DIFFERENT build path from the
+  # runtime image that job produces, so nothing else in CI exercises it.
+  # Asserts db/valkey/api reach `healthy` (api's own healthcheck IS
+  # /api/v1/readyz, so this doubles as the migration-completion check), the
+  # bootstrapped admin password at /tmp/trueppm_admin_password authenticates,
+  # the Vite dev server serves the SPA on :5173, the celery worker answers
+  # `inspect ping`, and /api/v1/health/beat/ returns 200 — proving celery-beat
+  # actually dispatches rather than merely being declared. See
+  # scripts/dev-demo-compose-drill.sh for the full rationale.
+  #
+  # BLOCKING on MR + main: a red here is a real regression in the first path
+  # most evaluators take. Schedule stays advisory for the same shared-runner
+  # infra-blip reason as every other drill in this file.
+  #
+  # Not `interruptible`: a rebased push must not abort a half-created stack and
+  # leak its containers/volumes into the dind daemon.
+  stage: test
+  interruptible: false
+  timeout: 25m
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    DRILL_MODE: "dev"
+    # The dind service publishes the stack's ports under this hostname; locally
+    # the script defaults the same variable to "docker" too, but a developer
+    # overrides it to "localhost".
+    PROBE_HOST: "docker"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: &dev-demo-drill-paths
+        - docker-compose.yml
+        - docker-compose.demo.yml
+        - packages/api/Dockerfile
+        - packages/web/Dockerfile
+        - nginx/demo.conf.template
+        - scripts/dev-demo-compose-drill.sh
+        - .gitlab-ci.yml
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *dev-demo-drill-paths
+  before_script:
+    - apk add --no-cache bash curl python3 docker-cli-compose
+    - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
+  script:
+    - bash scripts/dev-demo-compose-drill.sh
+
+compose:demo:
+  # Public-demo docker-compose BOOT drill (#4026): the sibling of compose:dev
+  # for docker-compose.demo.yml, the path try-it.md leads every evaluator
+  # through as the "one command, zero config" local trial. Its api/web images
+  # reference published `ghcr.io/trueppm/{api,web}:${APP_VERSION:-latest}` tags
+  # rather than a build context (#939, #2271) — this job retags the SAME
+  # per-commit images ci:build-deploy-images just built under those names (the
+  # identical accommodation compose:prod makes for docker-compose.prod.yml), so
+  # the drill boots HEAD code and touches GHCR not at all. `needs:` that job
+  # for exactly this reason, same as compose:prod.
+  #
+  # Asserts db/valkey reach `healthy`, api-init and demo-seed each exit 0, api
+  # reaches `healthy`, the share URL demo-seed prints renders the SPA through
+  # nginx, the underlying share API answers with no authentication, and the
+  # nginx allowlist deployment.md documents holds — /api/v1/health/ stays
+  # open, /robots.txt disallows everything, and three representative closed
+  # routes (auth/token, an authenticated viewset, /admin/) come back 404/403
+  # rather than reaching Django. See scripts/dev-demo-compose-drill.sh for the
+  # full rationale, including what this leg does NOT prove — Cloudflare Access
+  # and the try.trueppm.com edge are outside any compose file, so this only
+  # ever speaks to the boot chain a self-hoster's own `docker compose -f
+  # docker-compose.demo.yml up` would drive.
+  #
+  # BLOCKING on MR + main, same reasoning as compose:dev. Schedule advisory.
+  stage: test
+  interruptible: false
+  timeout: 25m
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  needs:
+    - job: ci:build-deploy-images
+      artifacts: false
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    DRILL_MODE: "demo"
+    RELEASE_IMAGE_TAG: "$CI_COMMIT_SHA"
+    PROBE_HOST: "docker"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: *dev-demo-drill-paths
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *dev-demo-drill-paths
+  before_script:
+    - apk add --no-cache bash curl python3 docker-cli-compose
+    - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
+  script:
+    - bash scripts/dev-demo-compose-drill.sh
+
 helm:netpol:
   # Datastore NetworkPolicy ENFORCEMENT drill (#2560). See
   # scripts/helm-netpol-drill.sh for the full rationale and the probe list.
