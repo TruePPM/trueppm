@@ -88,7 +88,7 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     color: null,
     lead: null,
     lead_detail: null,
-    created_by: 'u-1',
+    created_by: 1,
     created_at: '2026-05-18T00:00:00Z',
     updated_at: '2026-05-18T00:00:00Z',
     my_role: 400,
@@ -180,7 +180,12 @@ describe('ProgramListPage', () => {
     usePrograms.mockReturnValue({
       data: [
         makeProgram({ id: 'p-1', name: 'Phase 2', project_count: 4, member_count: 7 }),
-        makeProgram({ id: 'p-2', name: 'Customer Health', my_role: ROLE_VIEWER, my_role_label: 'Viewer' }),
+        makeProgram({
+          id: 'p-2',
+          name: 'Customer Health',
+          my_role: ROLE_VIEWER,
+          my_role_label: 'Viewer',
+        }),
       ],
       isLoading: false,
       error: null,

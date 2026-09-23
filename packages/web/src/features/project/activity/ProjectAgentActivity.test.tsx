@@ -7,7 +7,7 @@ import { renderWithProvidersAndRouter } from '@/test/utils';
 import { ProjectAgentActivity } from './ProjectAgentActivity';
 
 vi.mock('@/hooks/useCurrentUser', () => ({
-  useCurrentUser: () => ({ user: { id: 'u1', username: 'alice' }, isLoading: false }),
+  useCurrentUser: () => ({ user: { id: '1', username: 'alice' }, isLoading: false }),
 }));
 
 const { useProjectAgentActionsMock } = vi.hoisted(() => ({
@@ -39,7 +39,7 @@ function action(over: Partial<AgentAction> = {}): AgentAction {
     sequence: 1841,
     actor_kind: 'mcp_token',
     actor_token_prefix: 'tppm_ab',
-    principal: 'u1',
+    principal: 1,
     action: 'list_tasks',
     method: 'GET',
     object_type: 'task',

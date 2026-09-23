@@ -6,7 +6,7 @@ import { GROUP_LABEL, refusalGroup, refusalWhy } from './agentDisplay';
 
 export interface RefusalLogProps {
   refusals: AgentAction[];
-  resolvePrincipal: (id: string | null) => string | null;
+  resolvePrincipal: (id: number | null) => string | null;
   onSelect: (action: AgentAction) => void;
   hasNextPage: boolean;
   fetchNextPage: () => void;

@@ -25,6 +25,7 @@ import { RefusalLog } from '@/features/programs/agents/RefusalLog';
 import { useProjectAgentActions } from './useProjectAgentActions';
 import type { AgentRange } from './agentActivityUrl';
 import { AGENT_RANGES } from './agentActivityUrl';
+import { isSameUser } from '@/lib/userId';
 
 // A navigating anchor keeps `focus-visible:` — a clicked link does not retain
 // focus, so the rule-214 `focus:` carve-out (standalone buttons/tabs) does not apply.
@@ -62,7 +63,8 @@ export function ProjectAgentActivity({
 
   // A token's own actions are the only principal we can name from the client;
   // everyone else stays an opaque id, exactly as the program panel does.
-  const resolvePrincipal = (id: string | null) => (id && user?.id === id ? 'You' : null);
+  // `principal` is the integer PK; `user.id` is /auth/me/'s string form of it.
+  const resolvePrincipal = (id: number | null) => (isSameUser(id, user?.id) ? 'You' : null);
 
   return (
     <div className="px-4 py-4">

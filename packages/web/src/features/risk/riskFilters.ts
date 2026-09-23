@@ -1,4 +1,5 @@
 import type { Risk } from '@/api/types';
+import { isSameUser } from '@/lib/userId';
 
 /**
  * Risk register facet filtering and severity sort.
@@ -57,7 +58,9 @@ export function matchesRiskFilter(
     case 'unmitigated':
       return isUnmitigated(risk);
     case 'mine':
-      return currentUserId != null && risk.owner === currentUserId;
+      // `owner` is the integer PK; `currentUserId` is /auth/me/'s string form of
+      // it, so a bare `===` never matched and "Mine" was always empty (#2633).
+      return isSameUser(risk.owner, currentUserId);
   }
 }
 

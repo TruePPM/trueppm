@@ -75,7 +75,8 @@ export function MemberPicker({
             initials: initialsOf(m.username),
           }))
         : (programQuery.data ?? []).map((m) => ({
-            id: m.user_detail.id,
+            // Option ids are strings (a form-control value); the PK is an integer.
+            id: String(m.user_detail.id),
             primaryText: m.user_detail.username,
             secondaryText: m.user_detail.email,
             initials: initialsOf(m.user_detail.username),

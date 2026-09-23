@@ -16,6 +16,7 @@ import { ROLE_OWNER } from '@/lib/roles';
 import { roleLabel } from '@/lib/roleLabels';
 import type { ProgramMembership } from '@/api/types';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { isSameUser } from '@/lib/userId';
 
 const GRID = '1.8fr 1.2fr 130px 170px 88px';
 
@@ -282,7 +283,8 @@ export function ProgramAccessPage() {
               <MemberRow
                 key={m.id}
                 membership={m}
-                isSelf={user?.id === m.user}
+                // `m.user` is the integer PK, `user.id` /auth/me/'s string form (#2633).
+                isSelf={isSameUser(user?.id, m.user)}
                 canManage={canManage}
                 isOwner={isOwner}
                 closedToOwner={closedToOwner}

@@ -77,6 +77,10 @@ def test_me_authenticated_returns_200_with_expected_fields(db: object) -> None:
     assert resp.status_code == 200
     data = resp.data
     assert str(user.pk) == data["id"]
+    # A decimal string of the integer PK, deliberately — not a UUID and not a
+    # JSON number (#2633; see MeSerializer.id for why the encoding is kept).
+    assert isinstance(data["id"], str)
+    assert data["id"].isdigit()
     assert data["username"] == "sarah_chen"
     assert data["email"] == "sarah@example.com"
     assert "display_name" in data

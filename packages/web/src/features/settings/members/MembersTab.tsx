@@ -9,6 +9,7 @@ import { InviteForm } from './InviteForm';
 import { MentionGroupsSection } from './MentionGroupsSection';
 import { DefaultMemberRoleSetting } from './DefaultMemberRoleSetting';
 import { ROLE_ADMIN, ROLE_OWNER } from '@/lib/roles';
+import { isSameUser } from '@/lib/userId';
 
 export function MembersTab() {
   const projectId = useProjectId();
@@ -42,7 +43,10 @@ export function MembersTab() {
         {isLoading && (
           <div className="space-y-px">
             {Array.from({ length: 3 }, (_, i) => (
-              <div key={i} className="h-14 rounded bg-neutral-surface-raised motion-safe:animate-pulse" />
+              <div
+                key={i}
+                className="h-14 rounded bg-neutral-surface-raised motion-safe:animate-pulse"
+              />
             ))}
           </div>
         )}
@@ -68,7 +72,8 @@ export function MembersTab() {
               <MemberRow
                 key={m.id}
                 membership={m}
-                isSelf={user?.id === m.user}
+                // `m.user` is the integer PK, `user.id` /auth/me/'s string form (#2633).
+                isSelf={isSameUser(user?.id, m.user)}
                 isOwnerRole={isOwnerRole}
                 isSoleOwner={m.role === ROLE_OWNER && ownerCount === 1}
                 onChangeRole={(membershipId, role) => updateRole({ membershipId, role })}
@@ -84,7 +89,10 @@ export function MembersTab() {
       {/* Invite form — OWNER only */}
       {isOwnerRole && (
         <section aria-labelledby="invite-heading">
-          <h2 id="invite-heading" className="text-base font-semibold text-neutral-text-primary mb-4">
+          <h2
+            id="invite-heading"
+            className="text-base font-semibold text-neutral-text-primary mb-4"
+          >
             Add member
           </h2>
           <InviteForm projectId={projectId} />

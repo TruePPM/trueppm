@@ -154,9 +154,9 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     target_date: null,
     visibility: 'WORKSPACE',
     color: null,
-    lead: 'u-1',
-    lead_detail: { id: 'u-1', username: 'anika.k', email: 'anika@example.com' },
-    created_by: 'u-1',
+    lead: 1,
+    lead_detail: { id: 1, username: 'anika.k', email: 'anika@example.com' },
+    created_by: 1,
     created_at: '2026-05-18T00:00:00Z',
     updated_at: '2026-05-18T00:00:00Z',
     my_role: 400,
@@ -256,7 +256,9 @@ describe('ProgramGeneralPage (settings)', () => {
 
     // The ⓘ trigger is a button named "About the {label} options" (FieldHelp,
     // web-rule 263). Self-evident fields (name, code, description) get no ⓘ.
-    expect(screen.getByRole('button', { name: /About the Methodology options/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /About the Methodology options/i }),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: /About the Estimation scale options/i }),
     ).toBeInTheDocument();
@@ -281,7 +283,9 @@ describe('ProgramGeneralPage (settings)', () => {
     // `<fieldset disabled>` would disable the ⓘ trigger <button> — a dead, dimmed
     // affordance (ux-review §8 / web-rule 122). Below Admin we render no trigger;
     // the always-visible inline hint still explains the field.
-    useProgram.mockReturnValue({ data: makeProgram({ my_role: ROLE_VIEWER, my_role_label: 'Viewer' }) });
+    useProgram.mockReturnValue({
+      data: makeProgram({ my_role: ROLE_VIEWER, my_role_label: 'Viewer' }),
+    });
     renderPage();
     expect(screen.queryByRole('button', { name: /About the Methodology options/i })).toBeNull();
     // The inline hint the control describes by is unaffected (it is a <div>, not a
@@ -493,7 +497,7 @@ describe('ProgramGeneralPage (settings)', () => {
         allow_guests: null,
         visibility: 'WORKSPACE',
         color: null,
-        lead: 'u-1',
+        lead: 1,
         mc_history_enabled: null,
         mc_history_retention_cap: null,
         mc_history_attribution_audience: null,
@@ -576,7 +580,7 @@ describe('ProgramGeneralPage (settings)', () => {
         allow_guests: null,
         visibility: 'WORKSPACE',
         color: '#0EA5E9',
-        lead: 'u-1',
+        lead: 1,
         mc_history_enabled: null,
         mc_history_retention_cap: null,
         mc_history_attribution_audience: null,
@@ -617,7 +621,7 @@ describe('ProgramGeneralPage (settings)', () => {
         allow_guests: null,
         visibility: 'WORKSPACE',
         color: null,
-        lead: 'u-1',
+        lead: 1,
         mc_history_enabled: null,
         mc_history_retention_cap: null,
         mc_history_attribution_audience: null,
@@ -687,9 +691,7 @@ describe('ProgramGeneralPage (settings)', () => {
     useProgram.mockReturnValue({ data: makeProgram({ my_role: 300 }) });
     renderPage();
     expect(screen.getByText('Export program bundle')).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /Export program bundle/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Export program bundle/i })).toBeInTheDocument();
   });
 
   // ----- Methodology cascade lock (ADR-0107, issue 955) ----------------------
@@ -1060,9 +1062,10 @@ describe('ProgramGeneralPage — methodology align offer (#3293)', () => {
     expect(offer).toHaveTextContent(/^Saved\./);
     // Both fixture projects run something other than Waterfall.
     expect(offer).toHaveTextContent(/0 of 2 projects in this program run as Waterfall; 2 do not/i);
-    expect(
-      screen.getByRole('link', { name: 'Align the 2 projects that differ' }),
-    ).toHaveAttribute('href', '/programs/p-1/settings?bulk=methodology&only=deviating#projects');
+    expect(screen.getByRole('link', { name: 'Align the 2 projects that differ' })).toHaveAttribute(
+      'href',
+      '/programs/p-1/settings?bulk=methodology&only=deviating#projects',
+    );
   });
 
   // D17 — "never when some other field on the page was the thing that moved". The page
@@ -1091,7 +1094,10 @@ describe('ProgramGeneralPage — methodology align offer (#3293)', () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole('radio', { name: 'Waterfall' }));
     await act(async () => {
-      await useSettingsSaveStore.getState().triggerSave().catch(() => undefined);
+      await useSettingsSaveStore
+        .getState()
+        .triggerSave()
+        .catch(() => undefined);
     });
     expect(screen.queryByTestId('methodology-align-offer')).toBeNull();
   });
@@ -1145,12 +1151,11 @@ describe('ProgramGeneralPage — methodology align offer (#3293)', () => {
     useProgram.mockReturnValue({ data: makeProgram() });
     renderPage();
     const group = screen.getByRole('radiogroup', { name: 'Methodology' });
-    expect(group.getAttribute('aria-describedby')).not.toContain(
-      'program-methodology-align-offer',
-    );
+    expect(group.getAttribute('aria-describedby')).not.toContain('program-methodology-align-offer');
 
     await saveMethodology('Waterfall');
-    const describedBy = screen.getByRole('radiogroup', { name: 'Methodology' })
+    const describedBy = screen
+      .getByRole('radiogroup', { name: 'Methodology' })
       .getAttribute('aria-describedby');
     expect(describedBy).toContain('program-methodology-align-offer');
     // The hint is still described too — the offer joins it, it does not replace it.

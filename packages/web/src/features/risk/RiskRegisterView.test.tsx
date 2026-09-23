@@ -62,7 +62,7 @@ vi.mock('@/hooks/useProjects', () => ({
   useProjects: () => ({ data: [{ id: 'p1', name: 'Test Project' }] }),
 }));
 
-const currentUserState = { id: 'user-1' as string | null };
+const currentUserState = { id: '1' as string | null };
 vi.mock('@/hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({
     user: currentUserState.id ? { id: currentUserState.id } : undefined,
@@ -145,7 +145,7 @@ describe('RiskRegisterView', () => {
     useRisksState.risks = [FIXTURE_RISK];
     useRisksState.isLoading = false;
     useRisksState.error = null;
-    currentUserState.id = 'user-1';
+    currentUserState.id = '1';
     roleState.value = null;
     exportRisksToCSVMock.mockClear();
     localStorage.clear();
@@ -244,7 +244,7 @@ describe('RiskRegisterView', () => {
       title: 'Overdue mitigation',
       status: 'MITIGATING',
       mitigation_due_date: '2020-01-01',
-      owner: 'user-1',
+      owner: 1,
       owner_name: 'Alex Owner',
       owner_initials: 'AO',
     };
@@ -283,7 +283,7 @@ describe('RiskRegisterView', () => {
     probability: 2,
     impact: 2,
     severity: 4,
-    owner: 'user-2',
+    owner: 2,
   };
   const MINE_HIGH: Risk = {
     ...HIGH_RISK,
@@ -291,7 +291,7 @@ describe('RiskRegisterView', () => {
     short_id_display: 'R-MINE',
     title: 'My high risk',
     status: 'MITIGATING',
-    owner: 'user-1',
+    owner: 1,
   };
 
   it('renders the segment filter as a radiogroup with four options', () => {

@@ -10,7 +10,7 @@ function action(overrides: Partial<AgentAction> = {}): AgentAction {
     sequence: 1274,
     actor_kind: 'mcp_token',
     actor_token_prefix: '3f9a1122',
-    principal: 'u1',
+    principal: 1,
     action: 'get_schedule',
     method: 'GET',
     object_type: '',

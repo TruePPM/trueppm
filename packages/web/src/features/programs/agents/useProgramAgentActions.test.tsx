@@ -17,7 +17,7 @@ function action(seq: number): AgentAction {
     sequence: seq,
     actor_kind: 'mcp_token',
     actor_token_prefix: 'tok',
-    principal: 'u1',
+    principal: 1,
     action: 'get_schedule',
     method: 'GET',
     object_type: '',

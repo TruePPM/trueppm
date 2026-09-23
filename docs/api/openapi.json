@@ -56786,7 +56786,7 @@
                 "properties": {
                     "id": {
                         "type": "string",
-                        "format": "uuid"
+                        "readOnly": true
                     },
                     "username": {
                         "type": "string"

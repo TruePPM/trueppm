@@ -18,7 +18,10 @@ vi.mock('@/hooks/useProjectId', () => ({
 }));
 
 vi.mock('@/hooks/useCurrentUser', () => ({
-  useCurrentUser: () => ({ user: { id: 'user-owner', username: 'alice', email: 'alice@example.com' }, isLoading: false }),
+  useCurrentUser: () => ({
+    user: { id: '1', username: 'alice', email: 'alice@example.com' },
+    isLoading: false,
+  }),
 }));
 
 vi.mock('@/hooks/useCurrentUserRole', () => ({
@@ -65,8 +68,8 @@ const makeOwner = (overrides: Partial<ProjectMembership> = {}): ProjectMembershi
   id: 'mem-owner',
   server_version: 1,
   project: 'proj-1',
-  user: 'user-owner',
-  user_detail: { id: 'user-owner', username: 'alice', email: 'alice@example.com' },
+  user: 1,
+  user_detail: { id: 1, username: 'alice', email: 'alice@example.com' },
   role: 400,
   role_label: 'Project Admin',
   joined_at: '2026-04-12T12:00:00Z',
@@ -81,8 +84,8 @@ const makeMember = (overrides: Partial<ProjectMembership> = {}): ProjectMembersh
   id: 'mem-bob',
   server_version: 1,
   project: 'proj-1',
-  user: 'user-bob',
-  user_detail: { id: 'user-bob', username: 'bob', email: 'bob@example.com' },
+  user: 2,
+  user_detail: { id: 2, username: 'bob', email: 'bob@example.com' },
   role: 100,
   role_label: 'Team Member',
   joined_at: '2026-04-12T12:00:00Z',
@@ -158,7 +161,11 @@ describe('MembersTab', () => {
     // Two owners → alice is not the sole owner, so Leave button is available
     mockMembers = [
       makeOwner(),
-      makeOwner({ id: 'mem-owner2', user: 'user-carol', user_detail: { id: 'user-carol', username: 'carol', email: 'carol@example.com' } }),
+      makeOwner({
+        id: 'mem-owner2',
+        user: 3,
+        user_detail: { id: 3, username: 'carol', email: 'carol@example.com' },
+      }),
       makeMember(),
     ];
     render();
@@ -197,7 +204,9 @@ describe('MembersTab', () => {
     mockMembers = [makeMember({ joined_at: '2026-04-12T12:00:00Z', role_changed_at: null })];
     render();
     const bobRow = screen.getByText('bob').closest('li')!;
-    expect(within(bobRow).getByText(new RegExp(`Joined ${fmt('2026-04-12T12:00:00Z')}`))).toBeInTheDocument();
+    expect(
+      within(bobRow).getByText(new RegExp(`Joined ${fmt('2026-04-12T12:00:00Z')}`)),
+    ).toBeInTheDocument();
     expect(within(bobRow).queryByText(/Role changed/)).not.toBeInTheDocument();
   });
 
@@ -207,8 +216,12 @@ describe('MembersTab', () => {
     ];
     render();
     const bobRow = screen.getByText('bob').closest('li')!;
-    expect(within(bobRow).getByText(new RegExp(`Joined ${fmt('2026-04-12T12:00:00Z')}`))).toBeInTheDocument();
-    expect(within(bobRow).getByText(new RegExp(`Role changed ${fmt('2026-05-01T12:00:00Z')}`))).toBeInTheDocument();
+    expect(
+      within(bobRow).getByText(new RegExp(`Joined ${fmt('2026-04-12T12:00:00Z')}`)),
+    ).toBeInTheDocument();
+    expect(
+      within(bobRow).getByText(new RegExp(`Role changed ${fmt('2026-05-01T12:00:00Z')}`)),
+    ).toBeInTheDocument();
   });
 
   // Other-active-projects badge (#598)
@@ -235,7 +248,10 @@ describe('MembersTab', () => {
 
   it('lists visible project names in the badge tooltip', () => {
     mockMembers = [
-      makeMember({ other_active_project_count: 2, other_active_project_names: ['Apollo', 'Gemini'] }),
+      makeMember({
+        other_active_project_count: 2,
+        other_active_project_names: ['Apollo', 'Gemini'],
+      }),
     ];
     render();
     const bobRow = screen.getByText('bob').closest('li')!;

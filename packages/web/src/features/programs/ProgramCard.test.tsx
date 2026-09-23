@@ -70,7 +70,7 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     color: null,
     lead: null,
     lead_detail: null,
-    created_by: 'u-1',
+    created_by: 1,
     created_at: '2026-05-18T00:00:00Z',
     updated_at: '2026-05-18T00:00:00Z',
     my_role: 400,
