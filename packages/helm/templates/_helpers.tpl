@@ -1304,3 +1304,77 @@ resolve through `| default dict`, so the guard is always the thing that speaks.
 {{- define "trueppm.demoLoginPassword" -}}
 {{- ((.Values.demo.loginHint | default dict).password | default "") -}}
 {{- end -}}
+
+{{/*
+The chart's default networkPolicy.ingressControllerSelector, as JSON. Used to
+tell "left at the default" from "set by the operator", which is what decides
+whether the k3s/RKE2 kube-system peer is added and whether the transition guard
+below fires. scripts/helm-structure-check.sh asserts it still equals the
+default in values.yaml, so the two cannot drift apart.
+*/}}
+{{- define "trueppm.defaultIngressControllerSelectorJson" -}}
+{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"ingress-nginx"}},"podSelector":{}}
+{{- end -}}
+
+{{- define "trueppm.ingressControllerSelectorIsDefault" -}}
+{{- if eq (toJson (.Values.networkPolicy.ingressControllerSelector | default dict)) (include "trueppm.defaultIngressControllerSelectorJson" .) -}}true{{- end -}}
+{{- end -}}
+
+{{/*
+The NetworkPolicyPeer list the api/web ingress policies admit for the ingress
+controller, as YAML list items. The operator's selector is rendered verbatim so
+any peer shape works, including the ipBlock a cloud load balancer needs.
+
+k3s and RKE2 run their bundled controller (Traefik, rke2-ingress-nginx) in
+kube-system, not in an ingress-nginx namespace, and both enforce NetworkPolicy
+out of the box, so the bare default blackholed them (#4000). While the selector
+is still the default on either distribution, kube-system is admitted too. That
+is looser than naming the controller pod, but the controller's pod labels vary
+by version, and a guess that misses reproduces the outage. The distribution is
+read from the version string (v1.30.4+k3s1, v1.30.4+rke2r1). `helm template`
+reports a generic version, so offline renders never add this peer.
+
+An empty result would render `from:` with no peers, which Kubernetes reads as
+"allow from anywhere". An empty selector therefore refuses to render.
+*/}}
+{{- define "trueppm.ingressControllerPeers" -}}
+{{- $sel := .Values.networkPolicy.ingressControllerSelector | default dict -}}
+{{- if not $sel -}}
+{{- fail "networkPolicy.ingressControllerSelector is empty. An empty peer list would admit ingress from anywhere, so the chart refuses to render. Set it to your ingress controller's NetworkPolicyPeer, or set networkPolicy.enabled=false." -}}
+{{- end -}}
+- {{- toYaml $sel | nindent 2 }}
+{{- $kv := .Capabilities.KubeVersion.Version -}}
+{{- if and (include "trueppm.ingressControllerSelectorIsDefault" .) (or (contains "+k3s" $kv) (contains "+rke2" $kv)) }}
+- namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: kube-system
+{{- end -}}
+{{- end -}}
+
+{{/*
+Refuse the one `helm upgrade` that first introduces the app-tier ingress
+policies while the ingress-controller selector is an unconfirmed default (#4000).
+
+Before #3850 the chart rendered no policy for the api/web pods. An upgrade that
+adds one on a cluster whose controller does not match the default takes a
+working site offline, and nothing reports it: the pods stay Ready and the
+policy applies cleanly. Failing the render is the only point at which the
+operator is still reading output.
+
+"First introduces" means the release is being upgraded and the api-ingress
+policy does not exist yet. That lookup is namespace-scoped, like the
+Secret lookups above, so it needs no extra RBAC. It returns empty under
+`helm template` and client-side `--dry-run`. `helm template` never sets
+IsUpgrade, so offline renders are unaffected, but a client-side
+`helm upgrade --dry-run` fires the guard. Use `--dry-run=server` for an
+accurate preview. Tools that render with `helm template` and apply the result
+themselves (Argo CD) never reach this guard; the upgrade notes cover them.
+*/}}
+{{- define "trueppm.networkPolicyTransitionGuard" -}}
+{{- if and .Release.IsUpgrade (not .Values.networkPolicy.ingressControllerConfirmed) (include "trueppm.ingressControllerSelectorIsDefault" .) -}}
+{{- $existing := lookup "networking.k8s.io/v1" "NetworkPolicy" .Release.Namespace (printf "%s-api-ingress" (include "trueppm.fullname" .)) -}}
+{{- if not $existing -}}
+{{- fail "\n\nThis upgrade adds default-deny ingress NetworkPolicies to the api and web pods. They admit traffic only from the ingress controller named by networkPolicy.ingressControllerSelector. That selector is still the chart default (a namespace called ingress-nginx). If your controller runs somewhere else, this upgrade would cut off all traffic to the site. Choose one:\n\n  - your controller really is in the ingress-nginx namespace:\n      --set networkPolicy.ingressControllerConfirmed=true\n  - it runs elsewhere (k3s Traefik and RKE2 run in kube-system):\n      --set-json 'networkPolicy.ingressControllerSelector={\"namespaceSelector\":{\"matchLabels\":{\"kubernetes.io/metadata.name\":\"kube-system\"}},\"podSelector\":{}}'\n  - add the policies later:\n      --set networkPolicy.enabled=false\n\nPrometheus or Blackbox scrapes of the api from another namespace also need networkPolicy.monitoringSelector.\nSee https://docs.trueppm.com/getting-started/upgrade/ (#4000).\n" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

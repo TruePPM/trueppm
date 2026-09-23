@@ -375,19 +375,47 @@ networkPolicy:
   # namespace (the ingress-nginx project's own recommended install; every
   # namespace has carried the immutable `kubernetes.io/metadata.name` label
   # since Kubernetes 1.21, so this needs no chart-applied label). Override it
-  # for a different controller or namespace name — e.g. RKE2's bundled
-  # `rke2-ingress-nginx`, or a cloud-managed Ingress (GKE) whose health-check
-  # and LB traffic does not come from an in-cluster controller pod at all, and
-  # instead needs an ipBlock-shaped peer here naming the LB's source ranges.
-  # An unconfigurable policy that blackholes ingress traffic on a cluster
-  # whose controller uses different labels is worse than no policy — verify
-  # this against your controller's actual namespace/pod labels before relying
-  # on the default.
+  # for a different controller or namespace name — e.g. a controller in
+  # `kube-system`, or a cloud-managed Ingress (GKE) whose health-check and LB
+  # traffic does not come from an in-cluster controller pod at all, and instead
+  # needs an ipBlock peer naming the LB's source ranges. The peer is rendered
+  # verbatim, so any NetworkPolicyPeer shape works; because Helm MERGES a map
+  # override into this default, an ipBlock override must also null the default
+  # keys (`namespaceSelector: null`, `podSelector: null`) or Kubernetes rejects
+  # the mixed peer.
+  #
+  # While this is left at the default on k3s or RKE2 (detected from the
+  # cluster's version string, e.g. v1.30.4+k3s1), the chart ALSO admits the
+  # whole `kube-system` namespace, where both distributions run their bundled
+  # controller (#4000). A controller on hostNetwork is not a pod-network peer
+  # at all and needs an ipBlock naming the node addresses instead.
   ingressControllerSelector:
     namespaceSelector:
       matchLabels:
         kubernetes.io/metadata.name: ingress-nginx
     podSelector: {}
+
+  # The ONE `helm upgrade` that first introduces the api/web ingress policies
+  # above (from 0.4.0-beta.3 or earlier, or with networkPolicy.enabled
+  # previously false) refuses to render while ingressControllerSelector is still
+  # the default, because a wrong guess cuts off all traffic to a site that was
+  # working (#4000). Set a selector that matches your controller, or set this to
+  # true to confirm the default is right for your cluster. Fresh installs and
+  # every later upgrade ignore it.
+  ingressControllerConfirmed: false
+
+  # Optional NetworkPolicyPeer admitted to the api pod's http port, for the
+  # in-cluster scrapes and probes the observability docs ask you to add:
+  # /api/v1/health/dead-letter/, /api/v1/health/email/ and the Blackbox probe
+  # of /api/v1/health/beat/ (#4001). Empty admits nothing extra, and those
+  # requests are then DROPPED by the api default-deny policy — the dead-letter
+  # and beat alerts go silent rather than red. Rendered verbatim, e.g. for
+  # kube-prometheus-stack in `monitoring`:
+  #   monitoringSelector:
+  #     namespaceSelector:
+  #       matchLabels:
+  #         kubernetes.io/metadata.name: monitoring
+  monitoringSelector: {}
 
   # DNS resolver target for the demo.interactive egress-deny policies (ADR-1197
   # D7, #3925 MR 2). Only rendered while demo.interactive is true — every other

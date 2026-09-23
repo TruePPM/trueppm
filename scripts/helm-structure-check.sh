@@ -1884,6 +1884,92 @@ if grep -q 'CSRF_TRUSTED_ORIGINS' <<<"$(csrf_notice \
   fail "the CSRF-origin notice still fires on a split-origin deploy once env.CSRF_TRUSTED_ORIGINS is set (#3945)"
 fi
 
+# 14. App-tier ingress policies: upgrade transition guard, distro peer, monitoring
+#     peer (#4000, #4001).
+#
+#     #3850's api/web default-deny policies admit only the ingress-controller peer.
+#     Left at its default (an ingress-nginx namespace), an upgrade on k3s/RKE2 —
+#     whose controllers run in kube-system under an enforcing CNI — took a working
+#     site offline with every pod still Ready. And the in-cluster health scrapes
+#     the observability docs prescribe were dropped, so the dead-letter and beat
+#     alerts went silent rather than red.
+np_ingress() { # <policy name> [extra helm args...]
+  local name="$1"; shift
+  helm template trueppm "$CHART" "$@" --show-only templates/networkpolicy.yaml \
+    | yq "select(.metadata.name == \"$name\") | .spec.ingress[0].from" -o json | tr -d ' \n'
+}
+
+# The helper's copy of the default must equal values.yaml's, or "left at the
+# default" silently stops meaning anything and both behaviors below switch off.
+tpl_default="$(sed -n '/define "trueppm.defaultIngressControllerSelectorJson"/{n;p;}' "$CHART/templates/_helpers.tpl")"
+values_default="$(yq -o json -I0 '.networkPolicy.ingressControllerSelector' "$CHART/values.yaml")"
+[ "$(yq -p json -o json -I0 'sort_keys(..)' <<<"$tpl_default")" = "$(yq -p json -o json -I0 'sort_keys(..)' <<<"$values_default")" ] \
+  || fail "trueppm.defaultIngressControllerSelectorJson ($tpl_default) no longer matches values.yaml's networkPolicy.ingressControllerSelector ($values_default) (#4000)"
+
+# 14a. The guard fires on an upgrade with the default selector (`helm template`
+#      leaves lookup empty, i.e. "no api-ingress policy exists yet" — the
+#      first-introduction case), and names the fix.
+guard_err="$(helm template trueppm "$CHART" --is-upgrade 2>&1 >/dev/null || true)"
+grep -q 'networkPolicy.ingressControllerConfirmed=true' <<<"$guard_err" \
+  || fail "an upgrade introducing the app-tier ingress policies on the default selector rendered without refusing, or refused without naming networkPolicy.ingressControllerConfirmed (#4000). Output: $guard_err"
+helm template trueppm "$CHART" >/dev/null \
+  || fail "a fresh install (not an upgrade) tripped the NetworkPolicy transition guard (#4000)"
+helm template trueppm "$CHART" --is-upgrade --set networkPolicy.ingressControllerConfirmed=true >/dev/null \
+  || fail "networkPolicy.ingressControllerConfirmed=true did not satisfy the transition guard (#4000)"
+helm template trueppm "$CHART" --is-upgrade --set networkPolicy.enabled=false >/dev/null \
+  || fail "networkPolicy.enabled=false still tripped the transition guard (#4000)"
+helm template trueppm "$CHART" --is-upgrade \
+  --set-json 'networkPolicy.ingressControllerSelector={"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}},"podSelector":{}}' >/dev/null \
+  || fail "an explicit non-default ingressControllerSelector still tripped the transition guard (#4000)"
+
+# 14b. The peer is rendered verbatim, so an ipBlock (cloud LB) is expressible —
+#      the old template hardcoded namespaceSelector/podSelector keys.
+got="$(np_ingress trueppm-web-ingress \
+  --set-json 'networkPolicy.ingressControllerSelector={"namespaceSelector":null,"podSelector":null,"ipBlock":{"cidr":"10.0.0.0/8"}}')"
+[ "$got" = '[{"ipBlock":{"cidr":"10.0.0.0/8"}}]' ] \
+  || fail "an ipBlock ingressControllerSelector rendered web-ingress 'from' as $got (#4000)"
+
+# 14c. An empty selector would render a peerless `from:`, which Kubernetes reads
+#      as allow-from-anywhere. It must refuse instead.
+if helm template trueppm "$CHART" \
+    --set-json 'networkPolicy.ingressControllerSelector={"namespaceSelector":null,"podSelector":null}' >/dev/null 2>&1; then
+  fail "an empty ingressControllerSelector rendered — a peerless 'from' admits every source (#4000)"
+fi
+
+# 14d. k3s/RKE2 with the default selector also admit kube-system. `helm template
+#      --kube-version` strips the +k3s1 build suffix a live cluster reports, so
+#      substitute the version string in a probe copy of the chart instead.
+distro_from() { # <kube version string> [extra helm args...]
+  local kv="$1"; shift
+  rm -rf "$PROBE_DIR/distro" && cp -R "$CHART" "$PROBE_DIR/distro"
+  sed -i.bak "s/\$kv := .Capabilities.KubeVersion.Version/\$kv := \"$kv\"/" "$PROBE_DIR/distro/templates/_helpers.tpl"
+  grep -q "\$kv := \"$kv\"" "$PROBE_DIR/distro/templates/_helpers.tpl" \
+    || fail "structure-check could not substitute the kube version into the probe chart — the distro-peer assertion would be vacuous"
+  helm template trueppm "$PROBE_DIR/distro" "$@" --show-only templates/networkpolicy.yaml \
+    | yq 'select(.metadata.name == "trueppm-web-ingress") | .spec.ingress[0].from' -o json | tr -d ' \n'
+}
+ks='{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}}}'
+for kv in v1.30.4+k3s1 v1.30.4+rke2r1; do
+  grep -qF "$ks" <<<"$(distro_from "$kv")" \
+    || fail "web-ingress on $kv with the default selector does not admit kube-system, where the distribution runs its bundled controller (#4000)"
+done
+if grep -qF "$ks" <<<"$(distro_from v1.30.4)"; then
+  fail "web-ingress admits kube-system on a non-k3s/RKE2 cluster (#4000)"
+fi
+if grep -qF "$ks" <<<"$(distro_from v1.30.4+k3s1 --set-json 'networkPolicy.ingressControllerSelector={"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"traefik"}},"podSelector":{}}')"; then
+  fail "web-ingress still adds kube-system on k3s after the operator set their own selector (#4000)"
+fi
+
+# 14e. monitoringSelector reaches the api policy only, and adds nothing when empty.
+mon='{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"monitoring"}}}'
+grep -qF "$mon" <<<"$(np_ingress trueppm-api-ingress --set-json "networkPolicy.monitoringSelector=$mon")" \
+  || fail "networkPolicy.monitoringSelector does not reach the api-ingress policy — health scrapes and the beat Blackbox probe stay dropped (#4001)"
+if grep -qF "$mon" <<<"$(np_ingress trueppm-web-ingress --set-json "networkPolicy.monitoringSelector=$mon")"; then
+  fail "networkPolicy.monitoringSelector widened the web-ingress policy; nothing scrapes the web pod (#4001)"
+fi
+[ "$(np_ingress trueppm-api-ingress | yq -p json length)" = 3 ] \
+  || fail "api-ingress admits $(np_ingress trueppm-api-ingress | yq -p json length) peers with monitoringSelector empty, expected 3 (web, test, ingress controller) (#4001)"
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches all $env_checked containers that import settings.prod"
@@ -1914,3 +2000,4 @@ echo "  - podSecurityContext.fsGroup=1000 on all $fsg_checked workloads plus the
 echo "  - no Deployment/Job/CronJob container invokes bare 'manage.py migrate' — every migrate call goes through migrate_locked (#3188, #3933)"
 echo "  - valkey has a PDB (maxUnavailable: 0, gated by valkey.podDisruptionBudget.enabled) and priorityClassName/terminationGracePeriodSeconds reach its StatefulSet, matching postgresql (#3934)"
 echo "  - NOTES.txt warns on a split-origin deploy (differing TRUEPPM_FRONTEND_BASE_URL/TRUEPPM_PUBLIC_API_BASE_URL) with no CSRF_TRUSTED_ORIGINS, and stays quiet when same-origin or once it is set (#3945)"
+echo "  - app-tier ingress NetworkPolicy: an upgrade that first introduces it refuses to render on the unconfirmed default selector; the peer renders verbatim (ipBlock works) and never empty; k3s/RKE2 also admit kube-system only while the selector is the default; monitoringSelector widens api only (#4000, #4001)"

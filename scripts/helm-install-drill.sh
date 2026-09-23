@@ -522,15 +522,43 @@ if [ "$DRILL_LEG" = "upgrade" ]; then
   # none of which a from-empty `helm install` can ever exercise. Same release
   # name, same namespace, same secret: a real operator upgrade never
   # recreates either.
+  upgrade_args=(
+    --set image.tag="$RELEASE_IMAGE_TAG"
+    --set persistence.media.enabled=true
+    --set persistence.media.accessMode=ReadWriteOnce
+    --set 'envFrom[0].secretRef.name=trueppm-env'
+    "${CELERY_PROBE_OVERRIDES[@]}"
+  )
+  # The NetworkPolicy transition guard (#4000) must refuse the upgrade that
+  # first introduces the api/web ingress policies while the selector is an
+  # unconfirmed default. It only runs when the previous release did NOT already
+  # render trueppm-api-ingress, so the refusal is asserted only in that case.
+  # Once the previous release is itself a post-#4000 chart, the lookup finds the
+  # policy and this branch is skipped. The refusal happens at render time, so
+  # nothing is applied to the release.
+  if ! kubectl get networkpolicy "${RELEASE}-api-ingress" >/dev/null 2>&1; then
+    log "expect: upgrade introducing the app-tier ingress policies on the default selector is REFUSED (#4000)"
+    if guard_out="$(helm upgrade "$RELEASE" "$CHART" "${upgrade_args[@]}" 2>&1)"; then
+      fail "helm upgrade introduced the app-tier ingress NetworkPolicies on an unconfirmed default selector without refusing (#4000)"
+    fi
+    grep -q 'networkPolicy.ingressControllerConfirmed=true' <<<"$guard_out" \
+      || fail "helm upgrade failed, but not with the NetworkPolicy transition guard (#4000): $guard_out"
+    upgrade_args+=(--set networkPolicy.ingressControllerConfirmed=true)
+  fi
   log "helm upgrade ${RELEASE} -> HEAD chart (image tag ${RELEASE_IMAGE_TAG})"
-  helm upgrade "$RELEASE" "$CHART" \
+  helm upgrade "$RELEASE" "$CHART" "${upgrade_args[@]}" --wait --timeout "$INSTALL_TIMEOUT"
+  log "upgrade rollout complete"
+  # The guard fires once. With the policy now present, the lookup finds it and
+  # a later upgrade on the same default selector, without the confirmation,
+  # must render. A server-side dry run performs the real lookup and applies
+  # nothing.
+  helm upgrade "$RELEASE" "$CHART" --dry-run=server \
     --set image.tag="$RELEASE_IMAGE_TAG" \
     --set persistence.media.enabled=true \
     --set persistence.media.accessMode=ReadWriteOnce \
     --set 'envFrom[0].secretRef.name=trueppm-env' \
-    "${CELERY_PROBE_OVERRIDES[@]}" \
-    --wait --timeout "$INSTALL_TIMEOUT"
-  log "upgrade rollout complete"
+    "${CELERY_PROBE_OVERRIDES[@]}" >/dev/null \
+    || fail "a second upgrade still tripped the NetworkPolicy transition guard after the policy exists; it must fire only once (#4000)"
 else
   # ---- 4. install + wait for full rollout ----------------------------------
   # The image is the current commit's code (ci:build-deploy-images, #2284), so the
