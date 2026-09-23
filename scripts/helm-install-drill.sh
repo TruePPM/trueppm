@@ -675,6 +675,72 @@ persistence:
   media:
     enabled: true
 EOF
+
+  # ---- static RWX PersistentVolume for the media claim (#4027) ---------------
+  # values.yaml's own comment on persistence.media is explicit: "ACCESS MODE IS
+  # LOAD-BEARING" — ReadWriteOnce above one API replica is a render-time `fail`
+  # (trueppm.mediaVolume, _helpers.tpl), so the chart's default is
+  # ReadWriteMany, which my-values.yaml above does not override. values-prod.yaml
+  # sets replicaCount: 2, so THIS leg is the only one of the four that actually
+  # asks for that RWX claim under real load — install/upgrade/demo all pass
+  # `--set persistence.media.accessMode=ReadWriteOnce` as a CI-only override
+  # instead (see their own helm install/upgrade calls), precisely because
+  # kind's default StorageClass ("standard", rancher.io/local-path) cannot
+  # satisfy ReadWriteMany at all: it never provisions a PV for one, so the PVC
+  # sits Pending forever while every pod referencing it repeatedly retries the
+  # scheduler's PreBind step against the same never-provisioned claim. That
+  # surfaces as a `PreBind plugin "VolumeBinding": ... object has been
+  # modified` loop across the api and celery-worker pods, not an obvious
+  # "unsupported access mode" error — the PVC/PV/StorageClass state has to be
+  # inspected directly to see the real cause (kubectl get pvc shows Pending
+  # with zero PVs ever created).
+  #
+  # A dynamic RWX provisioner (NFS, the CSI hostpath driver) is real
+  # infrastructure this drill does not otherwise need. Every pod in this
+  # single-node kind cluster lands on the SAME node regardless, so a plain
+  # hostPath directory already gives genuine concurrent multi-pod read/write —
+  # no network filesystem or kernel module required. A STATICALLY pre-bound
+  # PersistentVolume is therefore sufficient: `claimRef` binds it to the PVC
+  # directly the moment the PVC is created, skipping dynamic provisioning (and
+  # `standard`'s WaitForFirstConsumer mode) entirely, so local-path's own
+  # inability to provision RWX never comes into play.
+  #
+  # storageClassName has to match what the PVC resolves to: my-values.yaml
+  # above never sets persistence.media.storageClass, so pvc-media.yaml renders
+  # no storageClassName field at all, and the cluster's default-StorageClass
+  # admission plugin fills in the current default ("standard") on the PVC —
+  # this PV declares the same string so the two sides match for binding, even
+  # though nothing here ever invokes local-path's provisioner. Capacity must
+  # be >= persistence.media.size (20Gi, values.yaml's default, unmodified by
+  # my-values.yaml) or the binder refuses the pair on size alone; hostPath
+  # does not actually enforce it, so the number is a binding formality, not a
+  # real disk reservation. No teardown needed — the PV and its backing
+  # directory die with the kind cluster this drill deletes on exit.
+  media_claim="$(helm template "$RELEASE" "$CHART" --set image.tag="$RELEASE_IMAGE_TAG" \
+    --set persistence.media.enabled=true \
+    --show-only templates/pvc-media.yaml \
+    | awk '/^  name:/{print $2; exit}')"
+  [ -n "$media_claim" ] || fail "could not resolve the media PVC name from the render (#4027)"
+  log "pre-creating a static RWX PersistentVolume for ${WALKTHROUGH_NAMESPACE}/${media_claim} — kind's default StorageClass cannot satisfy ReadWriteMany (#4027)"
+  kubectl apply -f - <<PVEOF
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ${media_claim}-walkthrough-drill
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: standard
+  hostPath:
+    path: /tmp/trueppm-media-walkthrough-drill
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: ${WALKTHROUGH_NAMESPACE}
+    name: ${media_claim}
+PVEOF
 }
 
 # ---- the documented admin-password command, run verbatim (#4027) -----------
@@ -718,10 +784,11 @@ check_beat_health() {
 dump_diagnostics() {
   echo "======== DIAGNOSTICS (deploy did not reach a healthy state) ========" >&2
   kubectl get pods -A -o wide 2>&1 | sed "$INDENT_SED" >&2 || true
-  # TEMPORARY (#4027 walkthrough-leg triage): PVC/PV binding state and node
-  # capacity, neither previously captured — a pod stuck Pending gives no
-  # other signal to tell "PVC unbindable on this StorageClass" apart from
-  # "node has insufficient CPU/memory to schedule everything at once".
+  # PVC/PV binding state and node capacity, neither previously captured
+  # (#4027) — a pod stuck Pending gives no other signal to tell "PVC
+  # unbindable on this StorageClass" apart from "node has insufficient
+  # CPU/memory to schedule everything at once". Worth keeping for any future
+  # PVC-related failure on any leg, not just the triage that added it.
   echo "---- PersistentVolumeClaims (all namespaces) ----" >&2
   kubectl get pvc -A -o wide 2>&1 | sed "$INDENT_SED" >&2 || true
   echo "---- PersistentVolumes ----" >&2
