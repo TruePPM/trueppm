@@ -256,34 +256,6 @@ Three more things to check for this upgrade:
   result themselves, such as Argo CD, never run this check. Set the selector
   before you sync.
 
-:::caution[Known issue: tunnels and LoadBalancer/NodePort exposure (#4003)]
-The web pod's policy admits only the ingress-controller peer. It therefore also
-blocks two other ways of exposing the site:
-
-- **A tunnel pointed at the web Service**, such as Cloudflare Tunnel. This is
-  the documented way to expose the demo.
-- **`web.service.type: LoadBalancer` or `NodePort`.**
-
-On a CNI that enforces NetworkPolicy, such an install is unreachable even though
-every pod is Ready and `helm test` passes. A **fresh** install gets no warning,
-because the check above only runs on upgrade. Until #4003 ships, do one of the
-following:
-
-- Set `networkPolicy.ingressControllerSelector` to the namespace your tunnel runs
-  in. For example, for `cloudflared`:
-
-  ```bash
-  --set-json 'networkPolicy.ingressControllerSelector={"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"cloudflared"}},"podSelector":{}}'
-  ```
-
-- Use an `ipBlock` peer naming the LoadBalancer or client source ranges.
-- Set `networkPolicy.enabled=false`.
-
-If the tunnel runs on the host rather than as a pod, whether its traffic is
-admitted depends on your CNI. Disabling the policy is the safe choice. Check the
-public URL after installing or upgrading.
-:::
-
 ---
 
 ## Upgrading to 0.3
