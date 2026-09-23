@@ -307,6 +307,17 @@ else # DRILL_MODE=demo
   log "syncing bind-mount sources onto the dind daemon filesystem (nginx)"
   sync_checkout_to_daemon nginx
 
+  # docker-compose.demo.yml's own ALLOWED_HOSTS default (localhost, 127.0.0.1,
+  # api, try.trueppm.com) is right for every real deployment of this file —
+  # "docker" is not a hostname any self-hoster's browser or curl would ever
+  # send; it exists only because this drill reaches the published ports
+  # through the dind service under that name (PROBE_HOST, see the header
+  # comment). Without it, nginx proxies the share-API probe through to
+  # Django with Host: docker, which settings.prod's ALLOWED_HOSTS check
+  # correctly refuses (400 DisallowedHost) — so this is CI-only plumbing,
+  # exported here rather than added to the compose file itself.
+  export ALLOWED_HOSTS="localhost,127.0.0.1,api,try.trueppm.com,${PROBE_HOST}"
+
   log "booting the unmodified demo stack (docker compose up -d)"
   compose up -d
 
