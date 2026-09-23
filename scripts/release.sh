@@ -632,6 +632,47 @@ bump_manifest packages/helm/Chart.yaml \
 
 echo "  Bumped manifests to $NEW_VERSION (scheduler PyPI: $NEW_PEP440)"
 
+# Restamp CI_API_TAG, which the bumps above have ALREADY invalidated (#4022).
+#
+# scripts/check-ci-api-tag.sh digests four files into that tag:
+# .gitlab/ci-images/api.Dockerfile plus the api, scheduler and mcp
+# pyproject.toml files. Three of the four were just rewritten, so by this line
+# the digest has moved and the value declared in .gitlab-ci.yml is stale. Nothing
+# else in this script touches .gitlab-ci.yml, which is why every release commit
+# up to now has carried a stale tag.
+#
+# Left stale it does not merely lag, it cancels the release. api:ci-api-tag
+# carries no allow_failure, so main goes red AT the release commit;
+# wait-for-main-pipeline.sh counts "failed" as terminal and exits 1 rather than
+# waiting; and helm:publish, scheduler:publish and api:publish:pypi all declare
+# `needs: tag:wait-for-main`. The tag would publish NOTHING — no chart, no
+# images, no PyPI — which is a forced re-cut, not a retry. Beta.3's release
+# commit (e887781b7) carried exactly this one-line fix by hand; this is that
+# hand-patch automated so the next cut does not depend on someone remembering.
+#
+# Deliberately NOT solved by dropping the version lines from the digest. That
+# digest is conservative on purpose: under a fixed :py3.11 tag and
+# if-not-present pulls on self-hosted runners, three different cached images ran
+# the SAME commit and api:type-check reported 41 mypy errors under one and none
+# under the other two (#3275). Narrowing it to dodge this bookkeeping would
+# trade a correctness gate for convenience — the bookkeeping is what belongs
+# here instead.
+NEW_CI_API_TAG="$(bash scripts/check-ci-api-tag.sh --print-expected)" || die \
+  "Failed to compute the expected CI_API_TAG after the manifest bump."
+[ -n "$NEW_CI_API_TAG" ] || die \
+  "scripts/check-ci-api-tag.sh --print-expected produced an empty tag."
+sed -i.bak "s/^\(  CI_API_TAG: \).*\$/\1\"${NEW_CI_API_TAG}\"/" .gitlab-ci.yml \
+  && rm .gitlab-ci.yml.bak
+grep -qF "CI_API_TAG: \"${NEW_CI_API_TAG}\"" .gitlab-ci.yml || die \
+  "Failed to write CI_API_TAG into .gitlab-ci.yml.
+   Expected a line matching '  CI_API_TAG: \"...\"' under the top-level variables block."
+# Ask the gate itself rather than trusting the sed — this is the exact check
+# api:ci-api-tag runs on the release commit, so a pass here is the same evidence.
+bash scripts/check-ci-api-tag.sh >/dev/null || die \
+  "CI_API_TAG is still stale after restamping — scripts/check-ci-api-tag.sh disagrees.
+   Releasing now would red main and hold every publish job (#4022)."
+echo "  Bumped CI_API_TAG to $NEW_CI_API_TAG"
+
 # Re-lock after bumping the Python manifests. Each uv.lock records the project's
 # own version under its self-entry, so a manifest bump without a re-lock leaves
 # the lock claiming the previous version and turns the post-tag main pipeline red
@@ -839,6 +880,7 @@ esac
 # stale "Ships in 0.X" callouts in --apply mode, and those edits belong in the
 # same release commit, not left dangling unstaged (#2694).
 git add \
+  .gitlab-ci.yml \
   packages/scheduler/pyproject.toml \
   packages/scheduler/uv.lock \
   packages/scheduler/CHANGELOG.md \
