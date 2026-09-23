@@ -701,6 +701,27 @@ default probe timings. That drill is tracked in
 [#4027](https://gitlab.com/trueppm/trueppm/-/work_items/4027). Until it lands,
 `helm test` on your own install is the evidence for that path.
 
+:::caution[Production walkthrough: not yet drilled live in CI (#4029)]
+The steps above are correct as documented, but nothing in CI currently boots
+them end-to-end against a real cluster. `helm:install` runs a nightly install
+drill, not this walkthrough's own shape — a named namespace, the
+`values-prod.yaml` overlay, and managed (non-bundled) datastores — and that gap
+is tracked in #4027.
+
+It is not theoretical: a cluster of bugs opened this week shows the
+walkthrough as written can currently fail when followed literally — the
+default-on NetworkPolicy has blackholed real traffic on upgrade from beta.3
+(#4000) and blocked Prometheus/Blackbox scrapes (#4001), the documented demo
+Cloudflare Tunnel exposure is blackholed the same way (#4003), and #4025
+tracks the walkthrough failing outright when followed literally.
+
+If you don't specifically need Kubernetes, [Single server with
+systemd](#single-server-with-systemd) is the better-proven production path
+today — it gets a live boot in CI on every relevant change
+(`compose:prod`/`compose:prod:tls`). Remove this callout once #4027's drill
+lands and goes green.
+:::
+
 :::note
 The Helm chart is functional with dev and prod values overlays and was hardened
 for secure-by-default installs; further updates landed in 0.2 (available since the `0.2.0-alpha.1` pre-release).
