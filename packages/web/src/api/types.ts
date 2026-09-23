@@ -8,11 +8,20 @@
 // API schema changes, update the affected interfaces here by hand.
 // Committed to version control so CI can typecheck without a running API.
 //
-// THIS FILE IS STILL UNGATED (#2633). Nothing compares these interfaces to
-// docs/api/openapi.json, so `tsc --strict` passing over them is evidence that
-// they agree with their own consumers and with the vitest fixtures written from
-// the same assumption — not that they agree with the server. #2633 is the live
-// receipt: six user-id fields are typed `string` against integer AutoField PKs.
+// PARTLY GATED (#2633): scripts/check-web-types-drift.py (CI `lint:web-types-drift`,
+// `make web-types-drift-check`) maps each interface here to its component schema in
+// docs/api/openapi.json and fails when a field BOTH sides declare disagrees on
+// primitive kind (number / string / boolean / array / object; inline object
+// literals are followed). It does NOT check missing or extra fields, nullability,
+// optionality, enum values or string formats, and it reads nothing outside this
+// file — so `tsc --strict` plus that gate still does not prove an interface
+// matches the server. Map a new interface (or list it as unmapped with a reason)
+// in the script, or the gate fails.
+//
+// User ids: the auth User PK is an integer. Every user FK here is `number`.
+// `/auth/me/` (`CurrentUser.id`) and the comment/mention author payloads encode
+// the same PK as a decimal string — compare across the two with `isSameUser`
+// (src/lib/userId.ts), never a bare `===`.
 //
 // What DID change: the Playwright mock layer is now bound to the schema at test
 // time (#3440, packages/web/e2e/fixtures/schema-guard.ts). So a payload shape
@@ -45,7 +54,7 @@ export interface PaginatedResponse<T> {
 // ---------------------------------------------------------------------------
 
 export interface UserSummary {
-  id: string;
+  id: number;
   username: string;
   email: string;
 }
@@ -54,7 +63,7 @@ export interface ProjectMembership {
   id: string;
   server_version: number;
   project: string;
-  user: string;
+  user: number;
   user_detail: UserSummary;
   role: number;
   role_label: string;
@@ -301,7 +310,7 @@ export type EstimationMode = 'open' | 'suggest_approve' | 'pm_only';
 export interface TaskDurationChangeEvent {
   id: string;
   task: string;
-  actor: string | null;
+  actor: number | null;
   actor_name: string | null;
   old_duration: number;
   new_duration: number;
@@ -441,11 +450,11 @@ export interface Program {
   visibility: ProgramVisibility;
   /** Accent color as #RRGGBB hex, or null when unset (#698). */
   color: string | null;
-  /** User ID of the displayed program lead, or null when unset. */
-  lead: string | null;
+  /** User PK (integer) of the displayed program lead, or null when unset. */
+  lead: number | null;
   /** Read-only nested user payload for the lead — null when ``lead`` is null. */
-  lead_detail: { id: string; username: string; email: string } | null;
-  created_by: string | null;
+  lead_detail: { id: number; username: string; email: string } | null;
+  created_by: number | null;
   created_at: string;
   updated_at: string;
   /**
@@ -480,14 +489,14 @@ export interface Program {
   /** Lifecycle (#530) — closed programs are read-only at the program shell. */
   is_closed: boolean;
   closed_at: string | null;
-  closed_by: string | null;
+  closed_by: number | null;
 }
 
 export interface ProgramMembership {
   id: string;
   server_version: number;
   program: string;
-  user: string;
+  user: number;
   user_detail: UserSummary;
   role: number;
   role_label: string;
@@ -523,12 +532,12 @@ export interface Risk {
   impact: number;
   /** Computed by the API: probability × impact (1–25). */
   severity: number;
-  owner: string | null;
+  owner: number | null;
   /** Display name for the owner — first+last, falls back to username. Null when unassigned. */
   owner_name?: string | null;
   /** 1–2 char initials for the owner — used in matrix bubbles and the register table avatar. */
   owner_initials?: string | null;
-  created_by: string | null;
+  created_by: number | null;
   created_at: string;
   updated_at: string;
   tasks: string[];
@@ -574,7 +583,7 @@ export interface CeremonyTemplate {
   duration_minutes: number;
   owner_role: string;
   enabled: boolean;
-  created_by: string | null;
+  created_by: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -838,8 +847,8 @@ export interface AgentAction {
   sequence: number;
   actor_kind: AgentActorKind;
   actor_token_prefix: string;
-  /** UUID of the accountable human who owns the acting token, or null. */
-  principal: string | null;
+  /** User PK (integer) of the accountable human who owns the acting token, or null. */
+  principal: number | null;
   action: string;
   method: string;
   object_type: string;

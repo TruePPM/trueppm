@@ -76,12 +76,12 @@ describe('matchesRiskFilter', () => {
   });
 
   it('mine matches risks owned by the current user', () => {
-    expect(matchesRiskFilter(makeRisk({ owner: 'u1' }), 'mine', 'u1')).toBe(true);
-    expect(matchesRiskFilter(makeRisk({ owner: 'u2' }), 'mine', 'u1')).toBe(false);
+    expect(matchesRiskFilter(makeRisk({ owner: 1 }), 'mine', '1')).toBe(true);
+    expect(matchesRiskFilter(makeRisk({ owner: 2 }), 'mine', '1')).toBe(false);
   });
 
   it('mine matches nothing when the current user id is null', () => {
-    expect(matchesRiskFilter(makeRisk({ owner: 'u1' }), 'mine', null)).toBe(false);
+    expect(matchesRiskFilter(makeRisk({ owner: 1 }), 'mine', null)).toBe(false);
     expect(matchesRiskFilter(makeRisk({ owner: null }), 'mine', null)).toBe(false);
   });
 });
@@ -142,12 +142,12 @@ describe('riskFilterCounts', () => {
   // R1: critical (sev 25), OPEN, owned by me → all, high, unmitigated, mine
   // R2: sev 9, MITIGATING, someone else      → all, unmitigated
   // R3: sev 4, RESOLVED, someone else         → all
-  const r1 = makeRisk({ id: 'r1', severity: 25, status: 'OPEN', owner: 'me' });
-  const r2 = makeRisk({ id: 'r2', severity: 9, status: 'MITIGATING', owner: 'other' });
-  const r3 = makeRisk({ id: 'r3', severity: 4, status: 'RESOLVED', owner: 'other' });
+  const r1 = makeRisk({ id: 'r1', severity: 25, status: 'OPEN', owner: 1 });
+  const r2 = makeRisk({ id: 'r2', severity: 9, status: 'MITIGATING', owner: 2 });
+  const r3 = makeRisk({ id: 'r3', severity: 4, status: 'RESOLVED', owner: 2 });
 
   it('counts each facet over the full list', () => {
-    expect(riskFilterCounts([r1, r2, r3], 'me')).toEqual({
+    expect(riskFilterCounts([r1, r2, r3], '1')).toEqual({
       all: 3,
       high: 1,
       unmitigated: 2,

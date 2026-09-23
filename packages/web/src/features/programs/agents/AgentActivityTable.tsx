@@ -5,7 +5,7 @@ import { VERDICT_DISPLAY } from './agentDisplay';
 
 export interface AgentActivityTableProps {
   actions: AgentAction[];
-  resolvePrincipal: (id: string | null) => string | null;
+  resolvePrincipal: (id: number | null) => string | null;
   onSelect: (action: AgentAction) => void;
   hasNextPage: boolean;
   fetchNextPage: () => void;

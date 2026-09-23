@@ -2,7 +2,7 @@
 # Run `make help` for a list of targets.
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod memory-check \
-        migrations-check migrations-numbering migrations-constraint-safety schema-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks e2e-schema-guard-check \
+        migrations-check migrations-numbering migrations-constraint-safety schema-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks e2e-schema-guard-check web-types-drift-check \
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         mobile-version-check \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
@@ -516,6 +516,14 @@ e2e-catchall-check: ## Run the lint:e2e-catchall CI job locally (#2941)
 	@bash scripts/check-e2e-catchall.sh --self-test
 	@bash scripts/check-e2e-catchall.sh
 
+web-types-drift-check: ## Run the lint:web-types-drift CI job locally (#2633)
+	@# packages/web/src/api/types.ts is hand-maintained. This fails when a field an
+	@# interface shares with its mapped schema in docs/api/openapi.json disagrees on
+	@# primitive kind — six user-id FKs sat typed `string` against integer PKs with
+	@# nothing noticing. Kind only; see the script's docstring for what it skips. ~50ms.
+	@python3 scripts/check-web-types-drift.py --self-test
+	@python3 scripts/check-web-types-drift.py
+
 e2e-schema-guard-check: ## Run the lint:e2e-schema-guard CI job locally (#3440)
 	@# The e2e mock layer is bound to docs/api/openapi.json by ONE line inside
 	@# setupCatchAll. Delete it and 290 specs go back to asserting the front end
@@ -661,6 +669,7 @@ pre-push-checks: gate-selftest-parity-check
 pre-push-checks: pre-push-wasm
 pre-push-checks: pre-push-mobile
 pre-push-checks: e2e-schema-guard-check
+pre-push-checks: web-types-drift-check
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

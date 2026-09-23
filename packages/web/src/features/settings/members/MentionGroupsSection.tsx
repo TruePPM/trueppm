@@ -2,10 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { extractFieldErrors } from '@/lib/apiError';
 import { ROLE_ADMIN, ROLE_SCHEDULER } from '@/lib/roles';
 import type { ProjectMembership } from '@/api/types';
-import {
-  useMentionGroups,
-  useMentionGroupMutations,
-} from '../hooks/useMentionGroups';
+import { useMentionGroups, useMentionGroupMutations } from '../hooks/useMentionGroups';
 import type { ProjectMemberOption } from './MentionGroupRow';
 import { MentionGroupList } from './MentionGroupList';
 import { MentionGroupCreateForm } from './MentionGroupCreateForm';
@@ -28,11 +25,7 @@ interface MentionGroupsSectionProps {
  * which requires an existing group to act on — so it renders read-with-mute for
  * any member when at least one group exists.
  */
-export function MentionGroupsSection({
-  projectId,
-  myRole,
-  members,
-}: MentionGroupsSectionProps) {
+export function MentionGroupsSection({ projectId, myRole, members }: MentionGroupsSectionProps) {
   const { data: groups = [], isLoading, isError } = useMentionGroups(projectId);
   const { create, update, remove, addMember, removeMember, mute } =
     useMentionGroupMutations(projectId);
@@ -44,7 +37,9 @@ export function MentionGroupsSection({
   const canManageMembers = myRole != null && myRole >= ROLE_SCHEDULER;
 
   const memberOptions: ProjectMemberOption[] = members.map((m) => ({
-    userId: m.user,
+    // String: a <select> option value, compared with mention-group member ids
+    // (also strings). `m.user` is the integer PK (#2633).
+    userId: String(m.user),
     username: m.user_detail.username,
   }));
 
@@ -90,8 +85,8 @@ export function MentionGroupsSection({
         )}
       </h2>
       <p className="mb-4 text-xs text-neutral-text-secondary">
-        Custom <span className="tppm-mono">@groups</span> for notifying a curated
-        set of project members in comments.
+        Custom <span className="tppm-mono">@groups</span> for notifying a curated set of project
+        members in comments.
       </p>
 
       <MentionGroupList

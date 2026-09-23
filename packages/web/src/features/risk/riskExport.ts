@@ -15,37 +15,52 @@ function csvCell(value: string | number | null | undefined): string {
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '';
   const d = new Date(`${iso}T00:00:00Z`);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-  TECHNICAL:          'Technical',
-  EXTERNAL:           'External',
-  ORGANIZATIONAL:     'Organizational',
+  TECHNICAL: 'Technical',
+  EXTERNAL: 'External',
+  ORGANIZATIONAL: 'Organizational',
   PROJECT_MANAGEMENT: 'Project Management',
 };
 
 const RESPONSE_LABELS: Record<string, string> = {
-  AVOID:    'Avoid',
+  AVOID: 'Avoid',
   MITIGATE: 'Mitigate',
   TRANSFER: 'Transfer',
-  ACCEPT:   'Accept',
+  ACCEPT: 'Accept',
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  OPEN:       'Open',
+  OPEN: 'Open',
   MITIGATING: 'Mitigating',
-  RESOLVED:   'Resolved',
-  ACCEPTED:   'Accepted',
-  CLOSED:     'Closed',
+  RESOLVED: 'Resolved',
+  ACCEPTED: 'Accepted',
+  CLOSED: 'Closed',
 };
 
 // Column order per ADR-0043: ID, Title, Status, Category, Response, P, I, Severity, Owner,
 // Mitigation Due Date, Trigger, Contingency, Description
 const HEADERS = [
-  'ID', 'Title', 'Status', 'Category', 'Response',
-  'P', 'I', 'Severity', 'Owner',
-  'Mitigation Due Date', 'Trigger', 'Contingency', 'Description',
+  'ID',
+  'Title',
+  'Status',
+  'Category',
+  'Response',
+  'P',
+  'I',
+  'Severity',
+  'Owner',
+  'Mitigation Due Date',
+  'Trigger',
+  'Contingency',
+  'Description',
 ];
 
 function riskToRow(risk: Risk): string[] {
@@ -60,7 +75,7 @@ function riskToRow(risk: Risk): string[] {
     String(risk.probability),
     String(risk.impact),
     String(risk.severity),
-    risk.owner ?? '',
+    risk.owner == null ? '' : String(risk.owner),
     formatDate(risk.mitigation_due_date),
     risk.trigger ?? '',
     risk.contingency ?? '',

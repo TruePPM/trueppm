@@ -9,6 +9,7 @@ import {
 import { ProgramInviteForm } from './ProgramInviteForm';
 import { ProgramMemberRow } from './ProgramMemberRow';
 import { ROLE_OWNER } from '@/lib/roles';
+import { isSameUser } from '@/lib/userId';
 
 /**
  * /programs/:programId/members — manage program membership (ADR-0070).
@@ -92,7 +93,8 @@ export function ProgramMembersTab() {
               <ProgramMemberRow
                 key={m.id}
                 membership={m}
-                isSelf={user?.id === m.user}
+                // `m.user` is the integer PK, `user.id` /auth/me/'s string form (#2633).
+                isSelf={isSameUser(user?.id, m.user)}
                 isOwnerRole={isOwnerRole}
                 isSoleOwner={m.role === ROLE_OWNER && ownerCount === 1}
                 onChangeRole={(membershipId, role) => updateRole({ membershipId, role })}
@@ -107,7 +109,10 @@ export function ProgramMembersTab() {
 
       {isOwnerRole && (
         <section aria-labelledby="program-invite-heading">
-          <h2 id="program-invite-heading" className="mb-3 text-base font-semibold text-neutral-text-primary">
+          <h2
+            id="program-invite-heading"
+            className="mb-3 text-base font-semibold text-neutral-text-primary"
+          >
             Add a member
           </h2>
           <ProgramInviteForm programId={programId} />

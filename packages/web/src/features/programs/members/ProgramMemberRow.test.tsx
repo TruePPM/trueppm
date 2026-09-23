@@ -17,8 +17,8 @@ function makeMembership(overrides: Partial<ProgramMembership> = {}): ProgramMemb
     id: 'm-1',
     server_version: 1,
     program: 'p-1',
-    user: 'u-1',
-    user_detail: { id: 'u-1', username: 'alice', email: 'alice@example.com' },
+    user: 1,
+    user_detail: { id: 1, username: 'alice', email: 'alice@example.com' },
     role: ROLE_MEMBER,
     role_label: 'Team Member',
     joined_at: '2026-01-01T00:00:00Z',
@@ -71,8 +71,8 @@ describe('ProgramMemberRow — accessible name on the role select', () => {
         <ProgramMemberRow
           membership={makeMembership({
             id: 'm-2',
-            user: 'u-2',
-            user_detail: { id: 'u-2', username: 'sofia.p', email: 'sofia@example.com' },
+            user: 2,
+            user_detail: { id: 2, username: 'sofia.p', email: 'sofia@example.com' },
           })}
           isSelf={false}
           isOwnerRole

@@ -15,7 +15,10 @@ import { InheritableNumberField } from '../components/InheritableNumberField';
 import { InheritableSelectField } from '../components/InheritableSelectField';
 import { MC_ATTRIBUTION_OPTIONS, MC_ATTRIBUTION_HINT, MC_HISTORY_HINT } from '../forecastHistory';
 import { bundleButtonLabel, exportErrorText, exportStatusLabel } from '../exportJobDisplay';
-import { DURATION_CHANGE_POLICY_OPTIONS, DURATION_CHANGE_POLICY_HINT } from '../durationChangePolicy';
+import {
+  DURATION_CHANGE_POLICY_OPTIONS,
+  DURATION_CHANGE_POLICY_HINT,
+} from '../durationChangePolicy';
 import { ESTIMATION_SCALE_OPTIONS, ESTIMATION_SCALE_HINT } from '../estimationScale';
 import { DEFAULT_ITERATION_LABEL } from '@/lib/iterationLabel';
 import { useExportProgramSeed } from '@/hooks/useProgramSeedIo';
@@ -159,6 +162,11 @@ function ExportProgramBundle({ programId, code }: { programId: string; code?: st
   );
 }
 
+/** `Program.lead` (integer user PK) → the string the member-picker control keys on. */
+function leadToControl(lead: number | null | undefined): string | null {
+  return lead == null ? null : String(lead);
+}
+
 /**
  * Program > General settings page (issue #523).
  *
@@ -211,6 +219,9 @@ export function ProgramGeneralPage() {
   const [color, setColor] = useState<string | null>(null);
   // null = Unassigned. User id of the program lead (#966) — the display field,
   // not the ordinal-300 "Program Manager" role, which is set under Access (#3513).
+  // Held as a STRING because it is a form-control value: MemberPicker /
+  // EntitySelectCombobox key options by string. `Program.lead` is the integer
+  // user PK, so it is stringified on seed and converted back on save (#2633).
   const [lead, setLead] = useState<string | null>(null);
 
   // Re-seed whenever the loaded program's identity changes. React Router reuses
@@ -244,11 +255,11 @@ export function ProgramGeneralPage() {
   );
   const [initialMcHistoryAttributionAudience, setInitialMcHistoryAttributionAudience] =
     useState<MCAttributionAudience | null>(null);
-  const [
-    initialTaskDurationChangePercentPolicy,
-    setInitialTaskDurationChangePercentPolicy,
-  ] = useState<DurationChangePercentPolicy | null>(null);
-  const [initialEstimationScale, setInitialEstimationScale] = useState<EstimationScale | null>(null);
+  const [initialTaskDurationChangePercentPolicy, setInitialTaskDurationChangePercentPolicy] =
+    useState<DurationChangePercentPolicy | null>(null);
+  const [initialEstimationScale, setInitialEstimationScale] = useState<EstimationScale | null>(
+    null,
+  );
   const [initialSprintPickerReadyOnlyDefault, setInitialSprintPickerReadyOnlyDefault] = useState<
     boolean | null
   >(null);
@@ -276,7 +287,7 @@ export function ProgramGeneralPage() {
     setSprintPickerReadyOnlyDefault(program.sprint_picker_ready_only_default ?? null);
     setVisibility(program.visibility);
     setColor(program.color ?? null);
-    setLead(program.lead ?? null);
+    setLead(leadToControl(program.lead));
     setInitialName(program.name);
     setInitialDescription(program.description ?? '');
     setInitialCode(program.code ?? '');
@@ -294,7 +305,7 @@ export function ProgramGeneralPage() {
     setInitialSprintPickerReadyOnlyDefault(program.sprint_picker_ready_only_default ?? null);
     setInitialVisibility(program.visibility);
     setInitialColor(program.color ?? null);
-    setInitialLead(program.lead ?? null);
+    setInitialLead(leadToControl(program.lead));
   }, [program]);
 
   const values = useMemo(
@@ -411,7 +422,7 @@ export function ProgramGeneralPage() {
         sprint_picker_ready_only_default: sprintPickerReadyOnlyDefault,
         visibility,
         color,
-        lead,
+        lead: lead == null ? null : Number(lead),
       },
     });
     // Bump the snapshot — dirty flips back to false and the save bar collapses.
@@ -730,7 +741,11 @@ export function ProgramGeneralPage() {
                 onChange={setLead}
                 label="program lead"
                 canEdit={canEdit}
-                selectedDetail={program?.lead_detail ?? null}
+                selectedDetail={
+                  program?.lead_detail
+                    ? { ...program.lead_detail, id: String(program.lead_detail.id) }
+                    : null
+                }
                 describedBy={describedBy}
               />
             )}
@@ -1042,7 +1057,7 @@ export function ProgramGeneralPage() {
             hint={`${ESTIMATION_SCALE_HINT} Inherits the workspace setting unless you override it here.`}
             help={fieldHelp({
               label: 'Estimation scale',
-              body: 'The scale this program\'s projects use to size work — story points, hours, or T-shirt sizes. Inherits the workspace setting unless you override it here.',
+              body: "The scale this program's projects use to size work — story points, hours, or T-shirt sizes. Inherits the workspace setting unless you override it here.",
               docHref: 'administration/program-settings/#general',
             })}
           >
@@ -1138,9 +1153,7 @@ export function ProgramGeneralPage() {
             label="Export program bundle"
             hint="Download a complete .tar.gz archive of this program: the JSON seed plus, per project, MS Project XML, attachments, time entries, and change history. Program Manager or above only; built in the background and the download link expires after a few days."
           >
-            {programId ? (
-              <ExportProgramBundle programId={programId} code={program?.code} />
-            ) : null}
+            {programId ? <ExportProgramBundle programId={programId} code={program?.code} /> : null}
           </FieldRow>
         </div>
       </StubFieldset>

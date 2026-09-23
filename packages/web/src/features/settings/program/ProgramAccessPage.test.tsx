@@ -22,7 +22,8 @@ vi.mock('@/hooks/useCurrentUser', () => ({
 }));
 
 vi.mock('@/features/programs/hooks/useProgramMembers', () => ({
-  useProgramMembers: () => useProgramMembers() as { data: ProgramMembership[]; isLoading: boolean; isError: boolean },
+  useProgramMembers: () =>
+    useProgramMembers() as { data: ProgramMembership[]; isLoading: boolean; isError: boolean },
 }));
 
 vi.mock('@/features/programs/hooks/useProgramMemberMutations', () => ({
@@ -42,8 +43,8 @@ function makeMembership(overrides: Partial<ProgramMembership> = {}): ProgramMemb
     id: 'm-1',
     server_version: 1,
     program: 'p-1',
-    user: 'u-1',
-    user_detail: { id: 'u-1', username: 'anika.k', email: 'anika@example.com' },
+    user: 1,
+    user_detail: { id: 1, username: 'anika.k', email: 'anika@example.com' },
     role: ROLE_OWNER,
     role_label: 'Project Admin',
     joined_at: '2026-01-01T00:00:00Z',
@@ -73,18 +74,18 @@ describe('ProgramAccessPage (settings)', () => {
     useProgramMembers.mockReset();
     updateRole.mockReset();
     removeMember.mockReset();
-    useCurrentUser.mockReturnValue({ user: { id: 'u-1' } });
+    useCurrentUser.mockReturnValue({ user: { id: '1' } });
   });
 
   it('renders members from the API and shows the member count', () => {
     useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER } });
     useProgramMembers.mockReturnValue({
       data: [
-        makeMembership({ id: 'm-1', user: 'u-1' }),
+        makeMembership({ id: 'm-1', user: 1 }),
         makeMembership({
           id: 'm-2',
-          user: 'u-2',
-          user_detail: { id: 'u-2', username: 'james.t', email: 'james@example.com' },
+          user: 2,
+          user_detail: { id: 2, username: 'james.t', email: 'james@example.com' },
           role: ROLE_SCHEDULER,
           role_label: 'Resource Manager',
         }),
@@ -123,11 +124,11 @@ describe('ProgramAccessPage (settings)', () => {
     useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER } });
     useProgramMembers.mockReturnValue({
       data: [
-        makeMembership({ id: 'm-1', user: 'u-1' }),
+        makeMembership({ id: 'm-1', user: 1 }),
         makeMembership({
           id: 'm-2',
-          user: 'u-2',
-          user_detail: { id: 'u-2', username: 'sofia.p', email: 'sofia@example.com' },
+          user: 2,
+          user_detail: { id: 2, username: 'sofia.p', email: 'sofia@example.com' },
           role: ROLE_MEMBER,
           role_label: 'Team Member',
         }),
@@ -147,7 +148,7 @@ describe('ProgramAccessPage (settings)', () => {
   it('hides the role picker for the Owner row', () => {
     useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER } });
     useProgramMembers.mockReturnValue({
-      data: [makeMembership({ id: 'm-1', user: 'u-1', role: ROLE_OWNER })],
+      data: [makeMembership({ id: 'm-1', user: 1, role: ROLE_OWNER })],
       isLoading: false,
       isError: false,
     });
@@ -161,11 +162,11 @@ describe('ProgramAccessPage (settings)', () => {
     useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER } });
     useProgramMembers.mockReturnValue({
       data: [
-        makeMembership({ id: 'm-1', user: 'u-1' }),
+        makeMembership({ id: 'm-1', user: 1 }),
         makeMembership({
           id: 'm-2',
-          user: 'u-2',
-          user_detail: { id: 'u-2', username: 'sofia.p', email: 'sofia@example.com' },
+          user: 2,
+          user_detail: { id: 2, username: 'sofia.p', email: 'sofia@example.com' },
           role: ROLE_MEMBER,
           role_label: 'Team Member',
         }),
@@ -191,11 +192,11 @@ describe('ProgramAccessPage (settings)', () => {
     useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER, is_closed: true } });
     useProgramMembers.mockReturnValue({
       data: [
-        makeMembership({ id: 'm-1', user: 'u-1' }),
+        makeMembership({ id: 'm-1', user: 1 }),
         makeMembership({
           id: 'm-2',
-          user: 'u-2',
-          user_detail: { id: 'u-2', username: 'sofia.p', email: 'sofia@example.com' },
+          user: 2,
+          user_detail: { id: 2, username: 'sofia.p', email: 'sofia@example.com' },
           role: ROLE_MEMBER,
           role_label: 'Team Member',
         }),
@@ -224,7 +225,7 @@ describe('ProgramAccessPage (settings)', () => {
   it('shows the sole-owner guard when the only Owner is self', () => {
     useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER } });
     useProgramMembers.mockReturnValue({
-      data: [makeMembership({ id: 'm-1', user: 'u-1', role: ROLE_OWNER })],
+      data: [makeMembership({ id: 'm-1', user: 1, role: ROLE_OWNER })],
       isLoading: false,
       isError: false,
     });
@@ -239,8 +240,8 @@ describe('ProgramAccessPage (settings)', () => {
       data: [
         makeMembership({
           id: 'm-2',
-          user: 'u-2',
-          user_detail: { id: 'u-2', username: 'sofia.p', email: 'sofia@example.com' },
+          user: 2,
+          user_detail: { id: 2, username: 'sofia.p', email: 'sofia@example.com' },
           role: ROLE_MEMBER,
           role_label: 'Team Member',
         }),

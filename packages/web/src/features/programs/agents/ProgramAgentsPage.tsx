@@ -12,6 +12,7 @@ import { AgentActionDrawer } from './AgentActionDrawer';
 import { RefusalLog } from './RefusalLog';
 import { AgentForecastImpact } from './AgentForecastImpact';
 import { ChainVerifyBadge } from './ChainVerifyBadge';
+import { isSameUser } from '@/lib/userId';
 
 type SubView = 'activity' | 'refusals' | 'forecast';
 const SUB_VIEWS: { key: SubView; label: string }[] = [
@@ -73,7 +74,8 @@ export function ProgramAgentsPage() {
     [projects],
   );
   const resolvePrincipal = useCallback(
-    (id: string | null) => (id && user?.id === id ? 'You' : null),
+    // `principal` is the integer PK; `user.id` is /auth/me/'s string form of it.
+    (id: number | null) => (isSameUser(id, user?.id) ? 'You' : null),
     [user?.id],
   );
 
@@ -132,7 +134,7 @@ function ActivityView({
 }: {
   programId: string | undefined;
   since: string | undefined;
-  resolvePrincipal: (id: string | null) => string | null;
+  resolvePrincipal: (id: number | null) => string | null;
   onSelect: (a: AgentAction) => void;
 }) {
   const q = useProgramAgentActions(programId, { since });
@@ -176,7 +178,7 @@ function RefusalsView({
 }: {
   programId: string | undefined;
   since: string | undefined;
-  resolvePrincipal: (id: string | null) => string | null;
+  resolvePrincipal: (id: number | null) => string | null;
   onSelect: (a: AgentAction) => void;
 }) {
   const q = useProgramAgentActions(programId, { since, verdict: 'refused' });

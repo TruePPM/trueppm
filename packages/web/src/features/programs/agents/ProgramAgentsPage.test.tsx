@@ -26,7 +26,7 @@ function action(overrides: Partial<AgentAction> = {}): AgentAction {
     sequence: 1274,
     actor_kind: 'mcp_token',
     actor_token_prefix: '3f9a1122',
-    principal: 'u1',
+    principal: 1,
     action: 'get_schedule',
     method: 'GET',
     object_type: '',
@@ -71,7 +71,7 @@ function renderPage() {
 beforeEach(() => {
   vi.clearAllMocks();
   programIdMock.mockReturnValue('prog-1');
-  currentUserMock.mockReturnValue({ user: { id: 'u1' }, isLoading: false });
+  currentUserMock.mockReturnValue({ user: { id: '1' }, isLoading: false });
   programProjectsMock.mockReturnValue({ data: [{ id: 'p1', name: 'Apollo' }] });
   hookMock.mockReturnValue(hookResult([action()]));
 });

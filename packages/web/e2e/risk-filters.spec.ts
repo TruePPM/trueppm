@@ -12,7 +12,10 @@ import { setupCatchAll } from './fixtures/api-mocks';
  */
 
 const PROJECT_ID = 'e2e-riskf-00000000-0000-0000-0000-000000001170';
-const ME_ID = 'me-00000000-0000-0000-0000-000000000001';
+// The user PK is an integer: `Risk.owner` serializes it as a JSON number while
+// `/auth/me/` serializes the same PK as a decimal string. Mocking both as one
+// shared string hid that "Mine" could never match in production (#2633).
+const ME_PK = 1;
 
 const FIXTURE_PROJECT = {
   id: PROJECT_ID,
@@ -40,7 +43,7 @@ const FIXTURE_RISKS = [
     probability: 5,
     impact: 5,
     severity: 25,
-    owner: ME_ID,
+    owner: ME_PK,
     owner_name: 'Me Myself',
     owner_initials: 'MM',
     created_by: null,
@@ -66,7 +69,7 @@ const FIXTURE_RISKS = [
     probability: 3,
     impact: 3,
     severity: 9,
-    owner: 'other-user',
+    owner: 2,
     owner_name: 'Other Person',
     owner_initials: 'OP',
     created_by: null,
@@ -92,7 +95,7 @@ const FIXTURE_RISKS = [
     probability: 2,
     impact: 2,
     severity: 4,
-    owner: 'other-user',
+    owner: 2,
     owner_name: 'Other Person',
     owner_initials: 'OP',
     created_by: null,
@@ -137,7 +140,7 @@ async function setup(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        id: ME_ID,
+        id: String(ME_PK),
         username: 'me',
         display_name: 'Me Myself',
         initials: 'MM',
@@ -180,7 +183,11 @@ async function setup(page: Page) {
   // gate passed off the list-seeded render, and any step still running a second
   // later found the register gone and timed out with nothing naming the cause.
   await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FIXTURE_PROJECT) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(FIXTURE_PROJECT),
+    }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/overview/`, (r) =>
     r.fulfill({

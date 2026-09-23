@@ -757,7 +757,17 @@ class TokenPostureSerializer(serializers.Serializer[Any]):
 class MeSerializer(serializers.Serializer[Any]):
     """Read-only serializer for GET /api/v1/auth/me/."""
 
-    id = serializers.UUIDField()
+    # The user PK is an integer AutoField (django.contrib.auth.models.User), but
+    # this endpoint has always emitted it as a decimal STRING ("5"): the field was
+    # declared ``UUIDField``, whose ``to_representation`` is a bare ``str(value)``,
+    # so the wire value was a string while the schema advertised ``format: uuid``
+    # — a claim no value ever satisfied (#2633). The string encoding is kept on
+    # purpose: every client keys on it (the web ``CurrentUser.id``, trueppm-mcp's
+    # whoami, per-user localStorage keys), and the comment/mention author payloads
+    # use the same string form, so flipping it to a number would silently break
+    # each ``===`` against those. Declared as what it is, so the schema stops
+    # lying; integer FKs elsewhere are compared to it via the web's ``isSameUser``.
+    id = serializers.CharField(read_only=True)
     username = serializers.CharField()
     display_name = serializers.SerializerMethodField()
     initials = serializers.SerializerMethodField()

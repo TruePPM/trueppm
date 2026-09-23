@@ -57,9 +57,12 @@ export function ProgramMentionGroupsSection({
   const seen = new Set<string>();
   const memberOptions: ProjectMemberOption[] = [];
   for (const m of members) {
-    if (seen.has(m.user)) continue;
-    seen.add(m.user);
-    memberOptions.push({ userId: m.user, username: m.user_detail.username });
+    // String: a <select> option value, compared with mention-group member ids
+    // (also strings). `m.user` is the integer PK (#2633).
+    const userId = String(m.user);
+    if (seen.has(userId)) continue;
+    seen.add(userId);
+    memberOptions.push({ userId, username: m.user_detail.username });
   }
 
   const isBusy =
@@ -104,8 +107,8 @@ export function ProgramMentionGroupsSection({
         )}
       </h2>
       <p className="mb-4 text-xs text-neutral-text-secondary">
-        Custom <span className="tppm-mono">@groups</span> for notifying a curated
-        set of members across the program&rsquo;s projects in comments.
+        Custom <span className="tppm-mono">@groups</span> for notifying a curated set of members
+        across the program&rsquo;s projects in comments.
       </p>
 
       <MentionGroupList
