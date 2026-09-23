@@ -119,8 +119,10 @@ networkPolicy.ingressControllerSelector (defaults to an `ingress-nginx` namespac
 rather than a hardcoded selector — the controller's own namespace/pod labels vary
 by distribution (RKE2, GKE, k3s, …), and a policy that assumes the wrong one
 silently blackholes ingress traffic rather than merely under-protecting it.
+The peers themselves, and the guard that stops an upgrade from introducing these
+policies on an unconfirmed default, live in _helpers.tpl (#4000).
 */}}
-{{- $ingressFrom := .Values.networkPolicy.ingressControllerSelector | default dict }}
+{{- include "trueppm.networkPolicyTransitionGuard" . }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -153,10 +155,14 @@ spec:
             matchLabels:
               {{- include "trueppm.selectorLabels" . | nindent 14 }}
               app.kubernetes.io/component: test
-        - namespaceSelector:
-            {{- toYaml $ingressFrom.namespaceSelector | nindent 12 }}
-          podSelector:
-            {{- toYaml ($ingressFrom.podSelector | default dict) | nindent 12 }}
+        {{- include "trueppm.ingressControllerPeers" . | nindent 8 }}
+        {{- /* The in-cluster health scrapes and Blackbox probe the
+             observability docs prescribe hit this pod from a monitoring
+             namespace; without a peer for them they are dropped and the
+             dead-letter / beat alerts go silent instead of red (#4001). */}}
+        {{- with .Values.networkPolicy.monitoringSelector }}
+        - {{- toYaml . | nindent 10 }}
+        {{- end }}
       ports:
         - protocol: TCP
           port: http
@@ -182,10 +188,7 @@ spec:
          pods proxies to the web tier (the web tier proxies OUT to api, not the
          other way around). */}}
     - from:
-        - namespaceSelector:
-            {{- toYaml $ingressFrom.namespaceSelector | nindent 12 }}
-          podSelector:
-            {{- toYaml ($ingressFrom.podSelector | default dict) | nindent 12 }}
+        {{- include "trueppm.ingressControllerPeers" . | nindent 8 }}
       ports:
         - protocol: TCP
           port: http

@@ -128,6 +128,14 @@ scrape_configs:
       - targets: ["trueppm.example.com"]
 ```
 
+This example scrapes through your public hostname, so it reaches the api pod
+through the ingress controller. If you point the job at the api Service from
+inside the cluster instead, the Helm chart's default-deny NetworkPolicy drops it
+until you set
+[`networkPolicy.monitoringSelector`](/administration/helm-values/) to your
+monitoring namespace. The gauge then never appears, and the alert below can never
+fire.
+
 A useful alert rule fires when anything is parked:
 
 ```yaml

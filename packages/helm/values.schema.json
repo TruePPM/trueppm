@@ -402,6 +402,14 @@
           "description": "NetworkPolicyPeer selecting the ingress controller ({namespaceSelector, podSelector}), rendered verbatim into the api/web ingress-allow policies. Open: the valid keys are Kubernetes', not this chart's.",
           "type": "object"
         },
+        "ingressControllerConfirmed": {
+          "description": "Confirms the default ingressControllerSelector is right for this cluster. Only consulted on the one helm upgrade that first introduces the api/web ingress policies, which otherwise refuses to render while the selector is still the default (#4000).",
+          "type": "boolean"
+        },
+        "monitoringSelector": {
+          "description": "Optional NetworkPolicyPeer admitted to the api pod's http port for in-cluster health scrapes and Blackbox probes (#4001). Empty admits nothing extra. Open: the valid keys are Kubernetes', not this chart's.",
+          "type": "object"
+        },
         "dnsSelector": {
           "description": "NetworkPolicyPeer selecting the cluster's DNS resolver ({namespaceSelector, podSelector}), rendered verbatim into the demo.interactive egress-deny policies (ADR-1197 D7). Open: the valid keys are Kubernetes', not this chart's.",
           "type": "object"

@@ -198,6 +198,54 @@ clean rollback means restoring the pre-upgrade backup, not a `migrate` reverse.
 `projects.0149` in particular cannot be reversed by any means other than
 restore — its `reverse_sql` is a no-op by design.
 
+### Helm: the api and web pods get a default-deny ingress NetworkPolicy
+
+Upgrading the Helm chart from `0.4.0-beta.3` or earlier adds default-deny
+ingress NetworkPolicies to the `api`, `web`, `celery-worker`, and `celery-beat`
+pods. The `api` and `web` policies admit traffic only from the ingress controller
+named by `networkPolicy.ingressControllerSelector`. By default, that is a
+namespace called `ingress-nginx`.
+
+If your controller runs anywhere else and your CNI enforces NetworkPolicy, those
+policies would cut off all traffic to the site, and every pod would still report
+Ready. k3s (Traefik) and RKE2 (`rke2-ingress-nginx`) both run their controller in
+`kube-system` and enforce policies out of the box. To prevent a silent outage,
+**the first upgrade that adds these policies refuses to render** until you choose
+one of the following:
+
+```bash
+# Your controller really is in the ingress-nginx namespace:
+helm upgrade trueppm ... --set networkPolicy.ingressControllerConfirmed=true
+
+# It runs elsewhere, for example kube-system:
+helm upgrade trueppm ... --set-json \
+  'networkPolicy.ingressControllerSelector={"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}},"podSelector":{}}'
+
+# Defer the policies (you can enable them later):
+helm upgrade trueppm ... --set networkPolicy.enabled=false
+```
+
+The check runs only on the upgrade that introduces the policies. Fresh installs and
+later upgrades skip it. A cloud load balancer that sends traffic from outside the
+cluster needs an `ipBlock` peer instead; see
+[`networkPolicy.ingressControllerSelector`](/administration/helm-values/).
+
+Three more things to check for this upgrade:
+
+- **In-cluster monitoring.** If Prometheus or a Blackbox exporter in another
+  namespace scrapes the api Service directly (the health endpoints described in
+  [Observability](/administration/observability/)), set
+  `networkPolicy.monitoringSelector` to that namespace. Otherwise the new policy
+  drops those scrapes, and the dead-letter and beat-staleness alerts go quiet
+  instead of firing. Scrapes that go through your public hostname pass through
+  the ingress controller and are unaffected.
+- **Previews.** A client-side `helm upgrade --dry-run` cannot see the cluster, so
+  it always reports this refusal. Use `--dry-run=server` to preview the upgrade
+  accurately.
+- **GitOps.** Tools that render the chart with `helm template` and apply the
+  result themselves, such as Argo CD, never run this check. Set the selector
+  before you sync.
+
 ---
 
 ## Upgrading to 0.3

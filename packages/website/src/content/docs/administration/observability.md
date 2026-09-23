@@ -1,6 +1,7 @@
 ---
 title: OpenTelemetry & OTLP Export
 description: How to export TruePPM's traces and metrics to your own OpenTelemetry collector over OTLP — an opt-in, off-by-default integration configured with environment variables or Helm values.
+documentedFor: "0.4"
 ---
 
 
@@ -523,6 +524,17 @@ The other three signals do not, and each needs a job you add yourself:
   empty vectors and a dead SMTP relay raises nothing. See [Outbound
   email](/administration/email/#knowing-when-mail-stops-working) for what each
   gauge means.
+
+**On Helm, scrapes from inside the cluster are blocked by default.** The chart's
+default-deny ingress NetworkPolicy on the api pod only admits the ingress
+controller. A Prometheus server or Blackbox exporter in another namespace that
+calls the api Service directly is dropped. The panels go blank, and
+`TruePPMDeadLetterPresent` and `TruePPMBeatStale` never fire, so nothing alerts
+you that anything is wrong. To allow those scrapes, set
+`networkPolicy.monitoringSelector` to your monitoring namespace (for example
+`{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"monitoring"}}}`).
+Scrapes that go through your public hostname pass the ingress controller and need
+nothing extra.
 :::
 
 ## Enterprise
