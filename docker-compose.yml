@@ -132,7 +132,18 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-      start_period: 20s
+      # uvicorn does not bind :8000 until the command's migrate ->
+      # collectstatic -> create_admin sequence finishes, so every check
+      # fails with connection-refused until then — a from-empty `migrate`
+      # applies 250+ migrations and can genuinely run past a minute on a
+      # loaded machine. Docker excludes failures inside start_period from
+      # the retries budget entirely (unlike interval, which just spaces
+      # attempts out), so this is the actual dial that has to cover
+      # first-boot migration time; 20s was only ever long enough on an
+      # already-migrated restart. Sized to the drill's own READY_TIMEOUT
+      # (#4026, scripts/dev-demo-compose-drill.sh) so Docker's own verdict
+      # does not go unhealthy before that script's patience does.
+      start_period: 280s
 
   web:
     build:
