@@ -8,6 +8,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import environ
+from django.core.exceptions import ImproperlyConfigured
 
 from trueppm_api.core.demo_read_only import (
     parse_demo_access_gate,
@@ -1440,6 +1441,18 @@ _STRICT_ABUSE_RATE = "6/min"
 # The remaining scoped-throttle tiers, from the general per-user default down
 # to the credential-shaped endpoints (login, password reset, invite resend).
 # Named once for the same reason as _STRICT_ABUSE_RATE above.
+# Trusted-proxy depth, validated here rather than left to DRF (#4020). A negative
+# value makes DRF's ``addrs[-min(NUM_PROXIES, len(addrs))]`` index from the LEFT —
+# the client-written end of X-Forwarded-For — or raise IndexError on a one-entry
+# header, so it is never a working configuration; refuse to boot on it.
+_NUM_PROXIES = env.int("TRUEPPM_NUM_PROXIES", default=1)
+if _NUM_PROXIES < 0:
+    raise ImproperlyConfigured(
+        f"TRUEPPM_NUM_PROXIES must be 0 or a positive integer (got {_NUM_PROXIES}). "
+        "It is the number of reverse proxies in front of Django; see "
+        "administration/networking.md."
+    )
+
 _STANDARD_RATE = "60/min"
 _MODERATE_RATE = "20/min"
 _STRICT_RATE = "10/min"
@@ -1523,7 +1536,13 @@ REST_FRAMEWORK = {
     # prepended entries. Set to the deployment's actual proxy depth via env; 0 means
     # "no proxy, use REMOTE_ADDR". The authenticated "user" scope keys on the account
     # id and is unaffected.
-    "NUM_PROXIES": env.int("TRUEPPM_NUM_PROXIES", default=1),
+    #
+    # Wrong in EITHER direction is silent (#4020): too low collapses every per-IP
+    # throttle into one shared bucket, too high lets a client pick its own bucket
+    # via X-Forwarded-For. Nothing here can know the real topology, so the check is
+    # a readback — GET /api/v1/health/system/ → security.client_address shows the
+    # address THIS request was keyed on. See administration/networking.md.
+    "NUM_PROXIES": _NUM_PROXIES,
     "DEFAULT_THROTTLE_RATES": {
         # General default rates for the ProbeExempt* classes above. Env-tunable
         # so operators can tighten or loosen the baseline without a rebuild.

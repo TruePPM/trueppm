@@ -29,12 +29,15 @@ documented probe configuration comes close to tripping it.
 from __future__ import annotations
 
 import hashlib
-from typing import TYPE_CHECKING, cast
+import ipaddress
+from typing import TYPE_CHECKING, Any, cast
 
 from django.http import HttpRequest
 from rest_framework.request import Request
+from rest_framework.settings import api_settings
 from rest_framework.throttling import (
     AnonRateThrottle,
+    BaseThrottle,
     SimpleRateThrottle,
     UserRateThrottle,
 )
@@ -342,3 +345,130 @@ class ReadyzRateThrottle(AnonRateThrottle):
     """
 
     scope = "readyz"
+
+
+# Bounds on the X-Forwarded-For chain echoed back by ``describe_client_address``.
+# The header is caller-supplied, so the readback must not become a way to make an
+# admin endpoint reflect an arbitrarily large payload.
+_XFF_ECHO_MAX_ENTRIES = 16
+_XFF_ECHO_MAX_ENTRY_LEN = 64
+
+
+def describe_client_address(request: HttpRequest | Request) -> dict[str, Any]:
+    """Read back which address the per-IP throttles key *this* request on (#4020).
+
+    ``REST_FRAMEWORK["NUM_PROXIES"]`` is a promise about deployment topology that
+    nothing else checks, and both ways of breaking it are silent: too low and every
+    client shares one bucket (the throttles still answer ``429``, just to the wrong
+    people); too high and a client picks its own bucket by sending
+    ``X-Forwarded-For`` (the throttles still answer ``401``, just forever). The
+    only way to tell is to see the address the server resolved and compare it with
+    the address the request really came from — which only the caller knows. So this
+    returns the resolution rather than trying to judge it from the server alone.
+
+    ``resolved`` comes from DRF's own ``BaseThrottle.get_ident`` rather than a
+    re-implementation, so it cannot drift from what ``anon``, ``login``,
+    ``share_access``, ``readyz`` and the webhook IP throttle actually key on.
+
+    ``status`` flags only the shapes the server *can* prove from one request:
+
+    - ``fewer_hops_than_configured`` — fewer ``X-Forwarded-For`` entries arrived
+      than ``NUM_PROXIES`` claims proxies. Every real proxy in the configured
+      chain would have appended one, so the setting is too high for this path (or
+      a proxy on it does not set the header). Either way the resolved address is
+      not a proxy-attested one.
+    - ``forwarded_for_ignored`` — ``NUM_PROXIES`` is 0 but the header arrived. If
+      a proxy wrote it, every client shares that proxy's bucket.
+    - ``unparsable`` — the resolved value is not an IP address.
+    - ``non_public`` — the resolved address is private, loopback, link-local or
+      otherwise not globally routable. Correct for a client inside the network;
+      a proxy's address if the caller came in over the internet.
+    - ``ok`` — none of the above. Still only proven by the caller: ``resolved``
+      must be their own address, and must not change when they send their own
+      ``X-Forwarded-For``.
+
+    Admin-only by construction: it is surfaced on ``/api/v1/health/system/``
+    (``IsAdminUser``) and never on the public probes, because it reveals the
+    proxies' internal addresses.
+    """
+    meta = request.META
+    raw_xff = meta.get("HTTP_X_FORWARDED_FOR")
+    remote_addr = meta.get("REMOTE_ADDR")
+    num_proxies = api_settings.NUM_PROXIES
+    # ``get_ident`` is annotated for a DRF ``Request`` but reads only ``META`` —
+    # see ``LoginIpRateThrottle.cache_key_for_request``.
+    resolved = BaseThrottle().get_ident(cast("Request", request))
+
+    chain = [entry.strip() for entry in raw_xff.split(",")] if raw_xff is not None else []
+    echoed = [entry[:_XFF_ECHO_MAX_ENTRY_LEN] for entry in chain[-_XFF_ECHO_MAX_ENTRIES:]]
+
+    status, detail = _assess_client_address(
+        num_proxies=num_proxies,
+        chain_len=len(chain),
+        has_xff=raw_xff is not None,
+        resolved=resolved,
+    )
+    return {
+        "num_proxies": num_proxies,
+        "resolved": resolved[:_XFF_ECHO_MAX_ENTRY_LEN] if resolved else resolved,
+        "remote_addr": remote_addr,
+        "forwarded_for": echoed,
+        "forwarded_for_entries": len(chain),
+        "status": status,
+        "detail": detail,
+    }
+
+
+def _assess_client_address(
+    *, num_proxies: int | None, chain_len: int, has_xff: bool, resolved: str | None
+) -> tuple[str, str]:
+    """Classify one request's client-address resolution (see ``describe_client_address``)."""
+    if num_proxies is None:
+        # DRF's legacy mode: the whole header, whitespace-stripped, is the ident.
+        # TruePPM always sets NUM_PROXIES, so this only appears if an override drops it.
+        return (
+            "fewer_hops_than_configured",
+            "NUM_PROXIES is unset, so the per-IP limits key on the whole "
+            "client-supplied X-Forwarded-For header. Set TRUEPPM_NUM_PROXIES.",
+        )
+    if num_proxies == 0:
+        if has_xff:
+            return (
+                "forwarded_for_ignored",
+                "X-Forwarded-For arrived but TRUEPPM_NUM_PROXIES is 0, so the per-IP "
+                "limits key on the immediate peer. If that peer is a proxy you run, "
+                "every client shares its bucket: set TRUEPPM_NUM_PROXIES to the number "
+                "of proxies in front of Django.",
+            )
+    elif chain_len < num_proxies:
+        return (
+            "fewer_hops_than_configured",
+            f"TRUEPPM_NUM_PROXIES is {num_proxies} but only {chain_len} "
+            "X-Forwarded-For entries arrived, so fewer proxies wrote the header than "
+            "the setting claims. A client can then choose the address the per-IP "
+            "limits key on. Lower TRUEPPM_NUM_PROXIES to the real number of proxies "
+            "on this path, or make each proxy append to X-Forwarded-For.",
+        )
+    try:
+        address = ipaddress.ip_address(resolved or "")
+    except ValueError:
+        return (
+            "unparsable",
+            "The address the per-IP limits key on is not an IP address, so the "
+            "position TRUEPPM_NUM_PROXIES selects holds something a proxy did not "
+            "write. Check the proxy chain and the setting.",
+        )
+    if not address.is_global:
+        return (
+            "non_public",
+            "The per-IP limits key this request on a non-public address. That is "
+            "correct if you are inside the network; if you came in over the "
+            "internet it is a proxy's address and every client shares one bucket "
+            "— raise TRUEPPM_NUM_PROXIES and make the outer proxy forward the chain.",
+        )
+    return (
+        "ok",
+        "Nothing wrong is provable from this request. Confirm `resolved` is your own "
+        "address, and that it does not change when you send your own "
+        "X-Forwarded-For header — if it does, TRUEPPM_NUM_PROXIES is too high.",
+    )
