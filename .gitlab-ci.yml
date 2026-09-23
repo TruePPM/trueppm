@@ -1962,6 +1962,45 @@ api:extension-signals:
     - bash scripts/check-extension-signals.sh --self-test
     - bash scripts/check-extension-signals.sh
 
+ci:pypi-id-tokens:
+  extends: .fast-job
+  # Guards the set of jobs allowed to mint a live PyPI OIDC upload token
+  # (id_tokens: PYPI_ID_TOKEN) down to the known publish jobs, and asserts
+  # each keeps the environment: name its PyPI Trusted Publisher is registered
+  # against (#3993).
+  #
+  # id_tokens: is issued to ANY job on ANY ref — unlike a Masked + Protected
+  # CI/CD variable, ref protection does not gate it at all. #3992's probe
+  # proved this: a job that was not api:publish:pypi, on an ordinary
+  # unprotected feature branch, declared `id_tokens: PYPI_ID_TOKEN` plus
+  # `environment: {name: pypi-api}` and minted a real, project-scoped
+  # trueppm-api upload token from PyPI. Both declarations are plain YAML —
+  # copyable by anyone with push access. A NEW job copying that block is a
+  # new, silent mint path; an EXISTING publish job silently losing its
+  # environment: name breaks its own publish or widens a Trusted Publisher's
+  # match to a job it was never registered for. Neither has any other tell.
+  #
+  # Scoped to changes: this file, since id_tokens: declarations can only ever
+  # appear here.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - .gitlab-ci.yml
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - .gitlab-ci.yml
+        - scripts/check-pypi-id-tokens.sh
+  before_script:
+    - apk add --no-cache bash python3
+  script:
+    # Self-test FIRST: a gate that cannot be shown to fail is indistinguishable
+    # from one that works (#3194) — prove it can still catch the #3993 shape
+    # before trusting it found none.
+    - bash scripts/check-pypi-id-tokens.sh --self-test
+    - bash scripts/check-pypi-id-tokens.sh
+
 api:dependency-soft-delete:
   extends: .fast-job
   # Every scheduler-input builder must read dependency edges through the
