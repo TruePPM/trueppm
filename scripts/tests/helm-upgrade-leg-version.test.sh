@@ -8,7 +8,8 @@
 # in milliseconds with no cluster or network: whether the version-selection
 # ALGORITHM picks the right "previous" version across the shapes that actually
 # occur — HEAD already published, HEAD ahead of everything published, no prior
-# release at all, and CHART_TAGS carrying stray cosign sha256-* tags.
+# release at all, a stray bare X.Y.Z beside its betas (#3914), and CHART_TAGS
+# carrying stray cosign sha256-* tags.
 #
 # The function is extracted from the shipping drill (via the same "not
 # sourceable, the script boots a kind cluster on load" workaround
@@ -75,10 +76,25 @@ run_case() { # run_case <desc> <CHART_TAGS|__UNSET__> <HEAD_CHART_VERSION> [CHAR
 
 echo "resolve_previous_chart_version:"
 
-run_case "HEAD already published (0.4.0-beta.3): resolves to the release before it" \
-  "0.4.0 0.4.0-beta.1 0.4.0-beta.2 0.4.0-beta.3 sha256-deadbeef.sig" "0.4.0-beta.3"
+run_case "HEAD already published (0.4.0-beta.3): upgrades FROM that published artifact, the path operators on the latest release take next (#4000)" \
+  "0.4.0-beta.1 0.4.0-beta.2 0.4.0-beta.3 sha256-deadbeef.sig" "0.4.0-beta.3"
 check "$RUN_DESC" 0 "$RUN_RC"
-check "$RUN_DESC — RESULT" "RESULT=0.4.0-beta.2" "$(printf '%s\n' "$RUN_OUT" | grep '^RESULT=')"
+check "$RUN_DESC — RESULT" "RESULT=0.4.0-beta.3" "$(printf '%s\n' "$RUN_OUT" | grep '^RESULT=')"
+
+run_case "a stray bare 0.4.0 in the registry (#3914) ranks ABOVE its betas, so it is never picked for a beta HEAD" \
+  "0.4.0 0.4.0-beta.1 0.4.0-beta.2 0.4.0-beta.3" "0.4.0-beta.3"
+check "$RUN_DESC" 0 "$RUN_RC"
+check "$RUN_DESC — RESULT" "RESULT=0.4.0-beta.3" "$(printf '%s\n' "$RUN_OUT" | grep '^RESULT=')"
+
+run_case "stable HEAD after its betas resolves to the stable, not a beta" \
+  "0.4.0-beta.2 0.4.0-beta.3 0.4.0" "0.4.0"
+check "$RUN_DESC" 0 "$RUN_RC"
+check "$RUN_DESC — RESULT" "RESULT=0.4.0" "$(printf '%s\n' "$RUN_OUT" | grep '^RESULT=')"
+
+run_case "stable HEAD not yet published resolves to its last beta" \
+  "0.4.0-beta.2 0.4.0-beta.3" "0.4.0"
+check "$RUN_DESC" 0 "$RUN_RC"
+check "$RUN_DESC — RESULT" "RESULT=0.4.0-beta.3" "$(printf '%s\n' "$RUN_OUT" | grep '^RESULT=')"
 
 run_case "HEAD bumped ahead of anything published: falls back to the highest published" \
   "0.4.0-beta.1 0.4.0-beta.2" "0.4.0-beta.3"
@@ -90,13 +106,18 @@ run_case "an older stable line does not get picked over a newer beta" \
 check "$RUN_DESC" 0 "$RUN_RC"
 check "$RUN_DESC — RESULT" "RESULT=0.4.0-beta.2" "$(printf '%s\n' "$RUN_OUT" | grep '^RESULT=')"
 
+run_case "a newer published version than HEAD is never picked" \
+  "0.4.0-beta.2 0.4.0-beta.3 0.5.0-beta.1" "0.4.0-beta.3"
+check "$RUN_DESC" 0 "$RUN_RC"
+check "$RUN_DESC — RESULT" "RESULT=0.4.0-beta.3" "$(printf '%s\n' "$RUN_OUT" | grep '^RESULT=')"
+
 run_case "cosign sha256-* tags are excluded from the candidate set" \
   "0.4.0-beta.1 0.4.0-beta.2 sha256-3aada sha256-be9e.sig" "0.4.0-beta.2"
 check "$RUN_DESC" 0 "$RUN_RC"
-check "$RUN_DESC — RESULT" "RESULT=0.4.0-beta.1" "$(printf '%s\n' "$RUN_OUT" | grep '^RESULT=')"
+check "$RUN_DESC — RESULT" "RESULT=0.4.0-beta.2" "$(printf '%s\n' "$RUN_OUT" | grep '^RESULT=')"
 
-run_case "no published version older than HEAD (first-ever release): skips via exit 0, not a fail" \
-  "0.4.0-beta.1" "0.4.0-beta.1"
+run_case "nothing published at or below HEAD (first-ever release): skips via exit 0, not a fail" \
+  "0.4.0-beta.2" "0.4.0-beta.1"
 check "$RUN_DESC — exits 0 (skip), not 1 (fail)" 0 "$RUN_RC"
 check "$RUN_DESC — logs a skip, not a version" yes "$(grep -qi 'nothing to upgrade FROM yet' <<<"$RUN_OUT" && echo yes || echo no)"
 

@@ -613,6 +613,11 @@ scripts:test:
   #     closed, so a renamed probe key makes `helm install` REFUSE, minutes into
   #     the runtime job, with a message about the values file rather than the
   #     rename.
+  #   - helm-upgrade-leg-version — which published chart helm:upgrade upgrades
+  #     FROM. It existed from #3941 on but was listed in no job, so its first
+  #     real use (#4000) found its expectations encoded the wrong rule: "strictly
+  #     below HEAD" kept the drill on beta.2 -> HEAD while operators were on
+  #     beta.3.
   #   - helm-sentinel-schema-experimental — every valkey.sentinel.* key's
   #     values.schema.json `description` still carries the EXPERIMENTAL marker
   #     (#3778). Before #3778 that caveat lived only in a values.yaml comment, so
@@ -673,6 +678,7 @@ scripts:test:
         - scripts/tests/check-suppression-issues.test.sh
         - scripts/tests/helm-netpol-probe.test.sh
         - scripts/tests/helm-celery-probe-overrides.test.sh
+        - scripts/tests/helm-upgrade-leg-version.test.sh
         - scripts/tests/helm-sentinel-schema-experimental.test.sh
         - scripts/tests/check-release-images.test.sh
         - scripts/check-migration-constraint-safety.py
@@ -709,6 +715,7 @@ scripts:test:
         - scripts/tests/check-suppression-issues.test.sh
         - scripts/tests/helm-netpol-probe.test.sh
         - scripts/tests/helm-celery-probe-overrides.test.sh
+        - scripts/tests/helm-upgrade-leg-version.test.sh
         - scripts/tests/helm-sentinel-schema-experimental.test.sh
         - scripts/tests/check-release-images.test.sh
         - scripts/check-migration-constraint-safety.py
@@ -730,6 +737,7 @@ scripts:test:
     - bash scripts/tests/check-suppression-issues.test.sh
     - bash scripts/tests/helm-netpol-probe.test.sh
     - bash scripts/tests/helm-celery-probe-overrides.test.sh
+    - bash scripts/tests/helm-upgrade-leg-version.test.sh
     - bash scripts/tests/helm-sentinel-schema-experimental.test.sh
     - bash scripts/tests/check-release-images.test.sh
     - bash scripts/tests/check-migration-constraint-safety.test.sh
@@ -3063,15 +3071,16 @@ helm:upgrade:
   # already uses (DRILL_LEG=upgrade in the same script — see its header
   # comment). See scripts/helm-install-drill.sh.
   #
-  # Trigger: main pushes and the nightly schedule ONLY — deliberately NOT
-  # merge_request_event. This leg pays for two kind clusters worth of pulls
-  # and two full `--wait` rollouts in one job (see INSTALL_TIMEOUT x2 below),
-  # roughly doubling helm:install's runtime; per the issue's own stated cost
-  # concern, that is worth paying on every push to main and nightly, not on
-  # every MR iteration. Schedule stays advisory (allow_failure), matching
-  # helm:install/helm:netpol: a nightly infra blip on the shared runner fleet
-  # is a signal, not a hard red. `needs:` the same per-commit image build as
-  # helm:install so it upgrades TO real HEAD code, not a stale tag.
+  # Trigger: MRs and main pushes that touch the chart, the drill or this file,
+  # plus the nightly schedule, matching helm:install. It first ran MR-free, on
+  # cost grounds (two rollouts per job, roughly double helm:install). That is
+  # why its only failure (#3964/#3965) was found on main after !2677 merged,
+  # and why the job then sat paused. Every chart change can break this path,
+  # so an MR that touches the chart pays for it (#4000). Schedule stays
+  # advisory (allow_failure), matching helm:install/helm:netpol: a nightly
+  # infra blip on the shared runner fleet is a signal, not a hard red.
+  # `needs:` the same per-commit image build as helm:install, so it upgrades
+  # TO real HEAD code, not a stale tag.
   stage: test
   interruptible: false
   timeout: 40m
@@ -3092,29 +3101,24 @@ helm:upgrade:
     RELEASE_IMAGE_TAG: "$CI_COMMIT_SHA"
     APISERVER_HOST: "docker"
     DRILL_LEG: "upgrade"
-  # PAUSED (#3965): step 6 of scripts/helm-install-drill.sh (admin password
-  # retrievable) fails deterministically on this leg, not flakily. The
-  # password file lives in a Pod-scoped emptyDir and is written only while no
-  # superuser exists yet; `helm upgrade` rolls a fresh pod whose bootstrap
-  # correctly skips rewriting it because a superuser already exists from the
-  # install leg. That is the chart's one-time-password design working as
-  # intended — the CI assertion is checking the wrong proxy for "admin access
-  # survives an upgrade." First failed on main at pipeline 2868638832 (sha
-  # 3da8c93fe1beab0c0c4a1cc08c019c1bb4745c18), immediately after !2677 merged
-  # — its own MR pipeline never ran this job, since these rules deliberately
-  # exclude merge_request_event. Re-enable (drop the `when: never` overrides
-  # below) once #3965 lands in 0.5.
+  # Re-enabled by #4000. The #3965 assertion (admin password retrievable after
+  # the upgrade) was fixed by #3964 (fd5bbec4a): the drill reads the password
+  # from the PRE-upgrade pod, the only pod whose bootstrap wrote it, because
+  # create_admin is one-time by design. The pause landed the same day against
+  # the same failed pipeline and was never lifted.
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
-      when: never
-      # was: allow_failure: true
+      allow_failure: true
     - if: '$CI_COMMIT_BRANCH == "main"'
-      when: never
-      # was:
-      # changes:
-      #   - packages/helm/**/*
-      #   - scripts/helm-install-drill.sh
-      #   - .gitlab-ci.yml
+      changes:
+        - packages/helm/**/*
+        - scripts/helm-install-drill.sh
+        - .gitlab-ci.yml
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/helm/**/*
+        - scripts/helm-install-drill.sh
+        - .gitlab-ci.yml
   before_script:
     - apk add --no-cache bash curl
     - curl -sSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && chmod +x /usr/local/bin/kind

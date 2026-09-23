@@ -30,9 +30,9 @@
 #     dynamically against the OCI registry's tag list (see
 #     resolve_previous_chart_version below) rather than a hardcoded version
 #     string, so it keeps tracking the real last tag as releases ship. The
-#     `helm:upgrade` CI job runs this leg on main pushes and the nightly
-#     schedule only — not on every MR — because it doubles the cluster/install
-#     cost of `helm:install` (see .gitlab-ci.yml's `helm:upgrade` job comment).
+#     `helm:upgrade` CI job runs this leg on MRs and main pushes that touch
+#     the chart or this script, and nightly (see .gitlab-ci.yml's
+#     `helm:upgrade` job comment for why MRs pay for it, #4000).
 #
 # The api/web images are built per-commit by ci:build-deploy-images (#2284) and
 # tagged $CI_COMMIT_SHA, so this drills the HEAD chart against the SAME commit's
@@ -224,17 +224,18 @@ check_admin_password() {
 # can never disagree about what counts as a chart version vs. a stray
 # cosign sha256-* tag.
 #
-# "Previous" is defined as: the highest published version strictly BELOW
-# HEAD's own packages/helm/Chart.yaml `version`. In the common case HEAD's
-# Chart.yaml already equals the just-shipped tag (release.sh bumps it AT tag
-# time), so this resolves to the release before that one — e.g. HEAD ==
-# 0.4.0-beta.3 resolves to 0.4.0-beta.2, the exact beta.2 -> beta.3 path users
-# are walking. If HEAD has been bumped ahead of anything published yet
-# (mid-cycle dev before the next tag), it falls back to the highest version
-# actually in the registry. Merging HEAD's own version into the sorted list
-# and walking to it (rather than comparing PRE_RE bases like the publish
-# guard does) is what makes both cases fall out of the same code path without
-# a special-cased "is HEAD's version already published?" branch.
+# "Previous" is defined as: the highest published version AT OR BELOW HEAD's
+# own packages/helm/Chart.yaml `version`. release.sh bumps Chart.yaml at tag
+# time, and it stays there until the next cut, so on every main commit after
+# the 0.4.0-beta.3 tag HEAD still says 0.4.0-beta.3. The operators this job
+# speaks for are running the PUBLISHED 0.4.0-beta.3 chart and will upgrade to
+# whatever main becomes. Upgrading from that exact artifact to HEAD is their
+# next path. An earlier "strictly below" rule resolved that to 0.4.0-beta.2,
+# so the drill kept testing a path nobody on the latest release takes (#4000).
+# HEAD equal to a published version is not a no-op: the published chart is the
+# artifact from the tag, and HEAD is main's chart since then.
+# If HEAD has been bumped ahead of anything published (a release branch mid-
+# cut), this is the highest version actually in the registry.
 resolve_previous_chart_version() {
   local head_version token body versions merged
   # HEAD_CHART_VERSION lets a test stub the version without a real Chart.yaml
@@ -268,15 +269,38 @@ resolve_previous_chart_version() {
   fi
   [ -n "$versions" ] || fail "no chart versions found in ${CHART_GHCR_HOST}/${CHART_OCI_REPO} — is the registry readable?"
 
-  merged="$(printf '%s\n%s\n' "$versions" "$head_version" | sort -V -u)"
-  PREV_CHART_VERSION="$(printf '%s\n' "$merged" | awk -v head="$head_version" '
-    $0 == head { print prev; found=1; exit }
-    { prev = $0 }
-    END { if (!found) print prev }
+  # Pick the highest published version <= HEAD under SemVer precedence, in
+  # POSIX awk rather than `sort -V`: GNU sort -V ranks 0.4.0 BELOW 0.4.0-beta.1
+  # (the registry does carry a bare 0.4.0, #3914), and the busybox sort in the
+  # docker:27 job image has no V key modifier at all.
+  PREV_CHART_VERSION="$(printf '%s\n' "$versions" | awk -v head="$head_version" '
+    function isnum(s) { return s ~ /^[0-9]+$/ }
+    # SemVer 2.0.0 §11 precedence: -1 if a<b, 0 if equal, 1 if a>b.
+    function cmp(a, b,    ac, bc, ap, bp, i, n, x, y, na, nb, xa, ya) {
+      ac = a; ap = ""; if ((i = index(a, "-")) > 0) { ac = substr(a, 1, i - 1); ap = substr(a, i + 1) }
+      bc = b; bp = ""; if ((i = index(b, "-")) > 0) { bc = substr(b, 1, i - 1); bp = substr(b, i + 1) }
+      split(ac, x, "."); split(bc, y, ".")
+      for (i = 1; i <= 3; i++) { if (x[i] + 0 != y[i] + 0) return (x[i] + 0 < y[i] + 0) ? -1 : 1 }
+      if (ap == bp) return 0
+      if (ap == "") return 1
+      if (bp == "") return -1
+      na = split(ap, xa, "."); nb = split(bp, ya, ".")
+      n = (na < nb) ? na : nb
+      for (i = 1; i <= n; i++) {
+        if (xa[i] == ya[i]) continue
+        if (isnum(xa[i]) && isnum(ya[i])) return (xa[i] + 0 < ya[i] + 0) ? -1 : 1
+        if (isnum(xa[i])) return -1
+        if (isnum(ya[i])) return 1
+        return (xa[i] < ya[i]) ? -1 : 1
+      }
+      return (na < nb) ? -1 : (na > nb) ? 1 : 0
+    }
+    NF && cmp($0, head) <= 0 && (best == "" || cmp($0, best) > 0) { best = $0 }
+    END { print best }
   ')"
 
   if [ -z "$PREV_CHART_VERSION" ]; then
-    log "no published chart version older than HEAD (${head_version}) found in ${CHART_GHCR_HOST}/${CHART_OCI_REPO} — nothing to upgrade FROM yet; skipping the upgrade leg"
+    log "no published chart version at or below HEAD (${head_version}) found in ${CHART_GHCR_HOST}/${CHART_OCI_REPO} — nothing to upgrade FROM yet; skipping the upgrade leg"
     exit 0
   fi
   log "upgrade leg: previous released chart = ${PREV_CHART_VERSION}, HEAD chart = ${head_version}"
@@ -832,7 +856,7 @@ print("all bound pidbox queues:", queues)
 fi
 
 if [ "$DRILL_LEG" = "upgrade" ]; then
-  log "HELM UPGRADE DRILL GREEN — ${PREV_CHART_VERSION} -> HEAD upgraded cleanly; admin retrievable, admin denied at edge, worker pinned+Ready+serving, guards fail closed"
+  log "HELM UPGRADE DRILL GREEN — ${PREV_CHART_VERSION} -> HEAD upgraded cleanly; admin retrievable (pre-upgrade pod, #3964), NetworkPolicy transition guard refused then passed (#4000), admin denied at edge, worker pinned+Ready+serving, guards fail closed"
 else
   log "HELM INSTALL DRILL GREEN — chart boots, admin retrievable, admin denied at edge, worker pinned+Ready+serving, guards fail closed"
 fi
