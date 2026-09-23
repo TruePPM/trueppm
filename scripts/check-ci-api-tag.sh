@@ -27,8 +27,14 @@
 # this gate.
 #
 # Modes:
-#   bash scripts/check-ci-api-tag.sh             # check the tree
-#   bash scripts/check-ci-api-tag.sh --self-test # prove the check can fail
+#   bash scripts/check-ci-api-tag.sh                  # check the tree
+#   bash scripts/check-ci-api-tag.sh --self-test      # prove the check can fail
+#   bash scripts/check-ci-api-tag.sh --print-expected # print the required tag
+#
+# --print-expected exists so scripts/release.sh can restamp CI_API_TAG from the
+# same function this gate checks against, rather than scraping it out of the
+# failure message (#4022). One definition, two readers — if they ever disagree
+# the self-test below fails.
 #
 # Both inputs are injectable so --self-test runs the REAL check against fixture
 # files rather than keeping a second copy of the parsing to drift (#3195).
@@ -157,12 +163,27 @@ self_test() {
   fi
   _case "tag stale after input change rejected" fail "$root" "$tmp/ok.yml"
 
+  # --print-expected must emit EXACTLY what run_check accepts. If the two ever
+  # drift, release.sh would restamp CI_API_TAG to a value this same gate then
+  # rejects — turning the #4022 fix into the bug it was written to prevent.
+  local printed
+  printed="$(REPO_ROOT_OVERRIDE="$root" bash "${BASH_SOURCE[0]}" --print-expected)"
+  if [ "$printed" = "$moved" ]; then
+    echo "SELF-TEST OK: --print-expected agrees with the value the check demands"
+  else
+    echo "SELF-TEST FAILED: --print-expected emitted '$printed', check demands '$moved'"; rc=1
+  fi
+  printf 'variables:\n  CI_API_TAG: "%s"\n  image: $CI_REGISTRY_IMAGE/ci-api:$CI_API_TAG\n' "$printed" > "$tmp/printed.yml"
+  _case "a ci file stamped from --print-expected passes" pass "$root" "$tmp/printed.yml"
+
   [ "$rc" -eq 0 ] && echo "SELF-TEST: all cases passed."
   return "$rc"
 }
 
 if [ "${1:-}" = "--self-test" ]; then
   self_test
+elif [ "${1:-}" = "--print-expected" ]; then
+  expected_tag "${REPO_ROOT_OVERRIDE:-$REPO_ROOT}"
 else
   run_check "${REPO_ROOT_OVERRIDE:-$REPO_ROOT}" "${CI_FILE_OVERRIDE:-$REPO_ROOT/.gitlab-ci.yml}"
 fi
