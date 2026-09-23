@@ -710,26 +710,38 @@ generated admin password with `kubectl exec` against the shared password volume
 as described in [Admin password setup](/administration/admin-password/).
 
 An install-and-`helm test` drill runs in CI on every chart change and on a
-nightly schedule. `helm:install` installs from empty; `helm:upgrade` installs the
-previous published chart and upgrades it in place. A static gate
-(`helm:template`) runs alongside them: it renders the chart, validates every
-object against the Kubernetes schema with `kubeconform`, and asserts the deploy
-contract (init-container order, secret propagation to the init containers, the
-shared admin-password volume).
+nightly schedule, across four legs, each installing a different configuration on
+a fresh kind cluster:
 
-Be precise about what the drills prove. They install the **bundled-datastore
-evaluation configuration** described above: the `trueppm-env` Secret,
-`persistence.media` with `ReadWriteOnce`, and a single-node kind cluster in the
-`default` namespace. They also relax the Celery worker's liveness probe and widen
-the beat probe for shared CI runners. The production path is **not** drilled
-yet: `values-prod.yaml`, managed datastores, a named namespace, and the chart's
-default probe timings. That drill is tracked in
-[#4027](https://gitlab.com/trueppm/trueppm/-/work_items/4027). Until it lands,
-`helm test` on your own install is the evidence for that path. If you don't
-specifically need Kubernetes, [Single server with
-systemd](#single-server-with-systemd) is the more currently-proven production
-option: it already gets a live boot in CI on every relevant change
-(`compose:prod`/`compose:prod:tls`), the same assurance #4027 will bring here.
+| Leg | Configuration | Namespace |
+|-----|---------------|-----------|
+| `helm:install` | Bundled PostgreSQL/Valkey, chart defaults + `persistence.media` (`ReadWriteOnce`) | `default` |
+| `helm:upgrade` | Installs the previous published chart, then `helm upgrade`s it to HEAD in place | `default` |
+| `helm:demo` | The public read-only demo overlay (`values-demo.yaml`) | `default` |
+| `helm:walkthrough` | **This page's production walkthrough, followed step for step**: a named `trueppm` namespace, `values-prod.yaml` + the `my-values.yaml` shown above, bundled datastores disabled, and a managed PostgreSQL (TLS on, `sslmode=require`) + Valkey reached the documented `env.*.secretKeyRef` way | `trueppm` |
+
+All four run `helm test`, retrieve the admin password (`helm:walkthrough` via
+the exact `kubectl exec … deployment/trueppm-api` command shown above), assert
+the Celery worker answers a control-plane ping, and check Celery beat is a
+Running, non-restarting singleton. A static gate (`helm:template`) runs
+alongside them: it renders the chart, validates every object against the
+Kubernetes schema with `kubeconform`, and asserts the deploy contract
+(init-container order, secret propagation to the init containers, the shared
+admin-password volume). `scripts/check-helm-walkthrough-drift.py`
+(`docs:helm-walkthrough-drift`) checks the `helm:walkthrough` leg's commands —
+namespace/Secret order, the datastore-URL `secretKeyRef` shape, Secret names,
+`ALLOWED_HOSTS` — stay identical to this page's own fenced code blocks, so the
+drill and the doc cannot silently diverge again the way they did before #4025.
+
+Be precise about what every leg relaxes for shared CI runners, regardless of
+configuration: the Celery worker's liveness probe is off and the beat probe is
+widened (`scripts/helm-install-drill.sh`'s `CELERY_PROBE_OVERRIDES`, needed on
+every leg including `helm:walkthrough` — the chart's own probe defaults are
+unchanged by this, and self-hosted production runs them unmodified). No leg
+runs a real Ingress controller; `helm:walkthrough` sets
+`ingress.hosts[0].host` to a resolvable placeholder purely so the API's
+readiness probe gets a `Host` header (see the `ALLOWED_HOSTS` callout above) —
+it does not exercise [Ingress and edge TLS](#ingress-and-edge-tls) end to end.
 
 :::note
 The Helm chart is functional with dev and prod values overlays and was hardened
