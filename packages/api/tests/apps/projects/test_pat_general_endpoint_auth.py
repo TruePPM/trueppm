@@ -171,8 +171,8 @@ def test_personal_token_reads_calendar_list(owner: Any, calendar: Calendar) -> N
 def test_personal_token_write_still_governed_by_ordinary_rbac(owner: Any) -> None:
     """A PAT acts strictly as its owner — RBAC still applies, no privilege elevation.
 
-    `owner` holds no ADMIN/OWNER project membership anywhere, so IsOrgAdmin denies
-    the write exactly as it would for the same user's own JWT session.
+    `owner` holds no workspace ADMIN membership, so IsWorkspaceAdminStrict (#3600)
+    denies the write exactly as it would for the same user's own JWT session.
     """
     _, raw = _mint_personal(owner)
     resp = _bearer(raw).post("/api/v1/calendars/", {"name": "New Calendar"}, format="json")
@@ -180,12 +180,15 @@ def test_personal_token_write_still_governed_by_ordinary_rbac(owner: Any) -> Non
 
 
 @pytest.mark.django_db
-def test_personal_token_write_succeeds_when_owner_has_admin_role(calendar: Calendar) -> None:
+def test_personal_token_write_succeeds_when_owner_has_admin_role(
+    calendar: Calendar, grant_workspace_admin: Any
+) -> None:
     """The flip side: an admin owner's PAT can write, exactly as their own session
     would — proving the fix grants real general write access, not merely reads."""
     admin_owner = User.objects.create_user(username="pat_admin", password="pw")
     proj = Project.objects.create(name="AdminProj", start_date=date(2026, 4, 1), calendar=calendar)
     ProjectMembership.objects.create(project=proj, user=admin_owner, role=Role.ADMIN)
+    grant_workspace_admin(admin_owner)
     _, raw = _mint_personal(admin_owner)
     resp = _bearer(raw).post("/api/v1/calendars/", {"name": "New Calendar"}, format="json")
     assert resp.status_code == 201, resp.data

@@ -774,15 +774,15 @@ class AuditEventType(models.TextChoices):
     INVITE_SENT = "invite_sent", "Invite sent"
     INVITE_ACCEPTED = "invite_accepted", "Invite accepted"
     INVITE_REVOKED = "invite_revoked", "Invite revoked"
-    # #3174. Calendars are shared org-level resources gated on IsOrgAdmin, which
-    # passes anyone holding ADMIN on at least one *active* project (#3569 narrowed
-    # the derivation to exclude archived and soft-deleted projects; it did not
-    # change who may edit a calendar). Editing working_days,
+    # #3174. Calendars are shared workspace-level resources. Editing working_days,
     # hours_per_day, or a single holiday exception fans a CPM recompute across every
     # project bound to that calendar — including projects the actor is not a member
     # of, whose owners saw their finish dates move with nothing naming who did it or
-    # why. The permission question is deliberately left open (see the issue); this
-    # verb is the attribution half, so the movement is at least traceable.
+    # why. This verb is the attribution half, so the movement is traceable. The
+    # permission half closed in #3600: the write gate moved from the self-grantable
+    # IsOrgAdmin derivation to IsWorkspaceAdminStrict (a stored WorkspaceRole.ADMIN).
+    # That raises the bar on who may trigger the fan-out; it does not narrow the
+    # fan-out, so this row is still the only record of who moved which dates.
     CALENDAR_CHANGED = "calendar_changed", "Calendar changed"
     # #3552, ADR-1120. The auth surface recorded failures and no successes: an SSO
     # provider could be created, repointed, widened, disabled or torn down, and its

@@ -67,6 +67,61 @@
 > (this ADR's "Creating and editing catalog rows is unchanged" and the #3569
 > changelog fragment) did not.
 
+> **Amended (2026-09-22, #3600) — the calendar residual above is closed, and the
+> residual list is now one item shorter, not empty.** The #3569 amendment recorded
+> the shared **calendar library** (`CalendarViewSet`, `CalendarExceptionViewSet`) as
+> a deliberate residual: the surface met the disclosure/destruction test on its face,
+> but #3174 had already met that exact reach and chosen a different remedy (a
+> `CALENDAR_CHANGED` audit event naming the actor), and a hardening fix was not the
+> place to re-decide a closed ADR. #3600 is the place. Both viewsets now gate every
+> unsafe method on **`IsWorkspaceAdminStrict`**, the same stored `WorkspaceRole.ADMIN`
+> this amendment's predecessor applied to the catalog's destructive surfaces. Reads
+> are unchanged: the calendar library stays listable by any authenticated user,
+> because a project member has to be able to see which calendar schedules their plan.
+>
+> **What the attribution half could not do.** #3174's remedy is correct and stays —
+> nothing here makes it redundant, because the fan-out itself is unchanged: a
+> calendar edit still reaches every bound project, including ones the actor cannot
+> see, and `_recalc_projects_for_calendar` still does not filter `is_archived`. What
+> an audit row cannot do is stop the write. Three requests from a fresh account
+> (`POST /projects/` → Owner, `GET /calendars/` → the whole library, `PATCH
+> /calendars/{id}/` → `working_days`) moved finish dates across the entire install,
+> and on the workspace default calendar that is every project with no override. The
+> audit row named who did it, after it was done.
+>
+> **On the choice of `IsWorkspaceAdminStrict` over `IsWorkspaceOperator`.** Calendar
+> curation is routine PM work — holidays, shutdowns, an hours-per-day correction —
+> and the Resource Manager persona must keep it. Putting it on superuser
+> (`IsWorkspaceOperator`, ADR-0213 C1) would be the same mistake an earlier revision
+> of the #3569 amendment made and corrected: the install operator is the right floor
+> for set-once infrastructure, not for lifecycle work an in-app admin does. The
+> stored workspace ADMIN is also already the gate on the **workspace default-calendar
+> FK**, so before this change editing a shared calendar's *contents* was easier than
+> pointing a project at a different one — the weaker gate on the more dangerous verb.
+> Superusers are unaffected: `workspace_role_for_user` resolves a superuser with no
+> membership row to implicit OWNER.
+>
+> **The 409 body was the other half, and it was a project-name oracle.**
+> `DELETE /calendars/{id}/` names up to ten referencing projects, unfiltered by
+> membership and unthrottled. Its docstring justified that by "the `IsOrgAdmin` gate
+> on this endpoint" — a premise this ADR's #3569 amendment and ADR-0499's already
+> disproved, and which #3600 removes outright. The describer is now built per request
+> (`_calendar_reference_describer(user)`) and withholds `name` for projects **and
+> programs** the caller is not a member of, following
+> `resources.views._skill_reference_describer`. Programs are included because
+> `ProgramViewSet.get_queryset` is membership-scoped exactly as `ProjectViewSet`'s is,
+> and a workspace ADMIN is a stronger principal than `IsOrgAdmin` but is still not
+> membership. `reference_count` continues to count **all** blockers, named or not, so
+> the refusal stays honest about how much is blocking even where it cannot say what.
+> Resource and workspace names are not filtered — the resource catalog is readable by
+> any authenticated user and the workspace is the install itself.
+>
+> **What remains.** `IsOrgAdmin` is no longer an enforcement gate anywhere outside the
+> resources app: its only remaining site is `ResourceViewSet`'s ordinary catalog
+> create/edit, which this ADR's #3569 amendment deliberately left ("Creating and
+> editing catalog rows is unchanged"). #3583 and #3600's siblings #3599/#3625 are
+> unaffected by this change.
+
 ## Status
 Accepted (2026-05-31) — implemented in #155
 

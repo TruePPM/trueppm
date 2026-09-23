@@ -1,5 +1,15 @@
 # ADR-0194: Calendar Exception Write Path — Nested CRUD, Aggregate-Root Sync, and Calendar-Change Recompute
 
+> **Amended (2026-09-22, #3600).** Decision 2's write gate is now
+> `IsAuthenticated + IsWorkspaceAdminStrict` (a stored `WorkspaceRole.ADMIN`), not
+> `IsOrgAdmin`. The reasoning in that decision is unchanged and still correct — this
+> viewset mirrors `CalendarViewSet`'s gate rather than holding one of its own, and it
+> is `CalendarViewSet`'s gate that moved. `IsOrgAdmin` turned out to be self-grantable
+> (project creation is ungated and makes the caller Owner), and one holiday written
+> here recomputes every project bound to the calendar. Read access, the URL-derived
+> parent, and the aggregate-root sync behavior are untouched. See ADR-0034's #3600
+> amendment.
+
 ## Status
 Accepted
 

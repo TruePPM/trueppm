@@ -33,7 +33,7 @@
 # a hole — but it IS a route whose whole defense is downstream, which is the shape
 # every one of #2508 / #2551 / #3413 / #3439 took.
 -++++++  DELETE api/v1/^acceptance-criteria/(?P<pk>[^/.]+)/$::destroy
------++  DELETE api/v1/^calendars/(?P<pk>[^/.]+)/$::destroy
+-------  DELETE api/v1/^calendars/(?P<pk>[^/.]+)/$::destroy
 -++++++  DELETE api/v1/^dependencies/(?P<pk>[^/.]+)/$::destroy
 -++++++  DELETE api/v1/^programs/(?P<pk>[^/.]+)/$::destroy
 -++++++  DELETE api/v1/^programs/(?P<pk>[^/.]+)/pin/$::pin
@@ -50,7 +50,7 @@
 -++++++  DELETE api/v1/^task-resources/(?P<pk>[^/.]+)/$::destroy
 -++++++  DELETE api/v1/^task-skill-requirements/(?P<pk>[^/.]+)/$::destroy
 -++++++  DELETE api/v1/^tasks/(?P<pk>[^/.]+)/$::destroy
------++  DELETE api/v1/calendars/<calendar_pk>/exceptions/<pk>/::destroy
+-------  DELETE api/v1/calendars/<calendar_pk>/exceptions/<pk>/::destroy
 -++++++  DELETE api/v1/me/api-tokens/<pk>/::destroy
 -++++++  DELETE api/v1/me/connections/<slug:source>/::delete
 -++++++  DELETE api/v1/me/credentials/<slug:provider>/::destroy
@@ -350,7 +350,7 @@
 -------  GET api/v1/workspace/sso/providers/<slug:slug>/::get
 -------  GET api/v1/workspace/sso/redirect-uri/::get
 -++++++  PATCH api/v1/^acceptance-criteria/(?P<pk>[^/.]+)/$::partial_update
------++  PATCH api/v1/^calendars/(?P<pk>[^/.]+)/$::partial_update
+-------  PATCH api/v1/^calendars/(?P<pk>[^/.]+)/$::partial_update
 -++++++  PATCH api/v1/^dependencies/(?P<pk>[^/.]+)/$::partial_update
 -++++++  PATCH api/v1/^programs/(?P<pk>[^/.]+)/$::partial_update
 -++++++  PATCH api/v1/^programs/(?P<pk>[^/.]+)/risk-policy/$::risk_policy
@@ -368,7 +368,7 @@
 -++++++  PATCH api/v1/^task-skill-requirements/(?P<pk>[^/.]+)/$::partial_update
 -++++++  PATCH api/v1/^tasks/(?P<pk>[^/.]+)/$::partial_update
 -++++++  PATCH api/v1/auth/me/profile/::patch
------++  PATCH api/v1/calendars/<calendar_pk>/exceptions/<pk>/::partial_update
+-------  PATCH api/v1/calendars/<calendar_pk>/exceptions/<pk>/::partial_update
 -------  PATCH api/v1/health/retention/::patch
 -++++++  PATCH api/v1/me/connections/<slug:source>/::patch
 -++++++  PATCH api/v1/me/notification-preferences/<int:pk>/::partial_update
@@ -410,7 +410,7 @@
 -------  POST api/v1/^admin/failed-tasks/(?P<pk>[^/.]+)/requeue/$::requeue
 -------  POST api/v1/^admin/failed-tasks/drop-all/$::drop_all
 -------  POST api/v1/^admin/failed-tasks/requeue-all/$::requeue_all
------++  POST api/v1/^calendars/$::create
+-------  POST api/v1/^calendars/$::create
 -++++++  POST api/v1/^cascade-classification-operations/(?P<pk>[^/.]+)/undo/$::undo
 -++++++  POST api/v1/^dependencies/$::create
 -++++++  POST api/v1/^dependencies/(?P<pk>[^/.]+)/accept/$::accept
@@ -472,7 +472,7 @@
 +++++++  POST api/v1/auth/password/reset/confirm/::post
 +++++++  POST api/v1/auth/token/::post
 +++++++  POST api/v1/auth/token/refresh/::post
------++  POST api/v1/calendars/<calendar_pk>/exceptions/::create
+-------  POST api/v1/calendars/<calendar_pk>/exceptions/::create
 -------  POST api/v1/health/retention/runs/::post
 -------  POST api/v1/health/telemetry/test/::post
 -----++  POST api/v1/integrations/projects/<uuid:project_pk>/git-automation/rotate-secret/::post
@@ -599,7 +599,7 @@
 -------  POST api/v1/workspace/transfer-ownership/::post
 -++++++  POST api/v1/ws/ticket/::post
 -++++++  PUT api/v1/^acceptance-criteria/(?P<pk>[^/.]+)/$::update
------++  PUT api/v1/^calendars/(?P<pk>[^/.]+)/$::update
+-------  PUT api/v1/^calendars/(?P<pk>[^/.]+)/$::update
 -++++++  PUT api/v1/^dependencies/(?P<pk>[^/.]+)/$::update
 -++++++  PUT api/v1/^programs/(?P<pk>[^/.]+)/$::update
 -----++  PUT api/v1/^programs/(?P<program_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/$::update
@@ -615,7 +615,7 @@
 -++++++  PUT api/v1/^task-resources/(?P<pk>[^/.]+)/$::update
 -++++++  PUT api/v1/^task-skill-requirements/(?P<pk>[^/.]+)/$::update
 -++++++  PUT api/v1/^tasks/(?P<pk>[^/.]+)/$::update
------++  PUT api/v1/calendars/<calendar_pk>/exceptions/<pk>/::update
+-------  PUT api/v1/calendars/<calendar_pk>/exceptions/<pk>/::update
 -----++  PUT api/v1/integrations/projects/<uuid:project_pk>/git-automation/::put
 -++++++  PUT api/v1/me/connections/<slug:source>/::put
 ---++++  PUT api/v1/programs/<program_pk>/backlog-items/<pk>/::update

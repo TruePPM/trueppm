@@ -1,5 +1,15 @@
 # ADR-0251: Composable working calendars (OSS slice of #906)
 
+> **Amended (2026-09-22, #3600).** §4's "writes gated `IsOrgAdmin` — unchanged" and
+> the RBAC line "authoring the shared library → `IsOrgAdmin` (unchanged)" now read
+> **`IsWorkspaceAdminStrict`** (a stored `WorkspaceRole.ADMIN`). Only the library's own
+> gate moved; this ADR's actual subject is untouched — **applying** calendars to a
+> project (`PUT /projects/{pk}/calendars/`) is still Scheduler+ on that project, and
+> preview is still any project member. The split this ADR draws, between mutating a
+> shared resource and making a local scheduling decision, is what the change reinforces:
+> authoring the shared row is now strictly the higher bar. See ADR-0034's #3600
+> amendment.
+
 ## Status
 Accepted
 

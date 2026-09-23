@@ -14,6 +14,14 @@
 > member-scoped) semantics — stands. Callers who need only their own projects' view
 > use `GET /task-resources/?resource=`, as this ADR already notes.
 
+> **Cross-reference (2026-09-22, #3600).** The false premise this amendment names —
+> "the RBAC gate is what makes that safe", where the gate is `IsOrgAdmin` — was cited
+> a second time, in `_describe_calendar_reference`'s docstring, to justify naming
+> every project that blocks a shared-calendar delete. #3600 removes that justification
+> and membership-filters the 409 body, and moves both calendar viewsets' writes to
+> `IsWorkspaceAdminStrict`. Recorded in ADR-0034's #3600 amendment; nothing in this
+> ADR's own decision changes.
+
 ## Status
 Accepted
 

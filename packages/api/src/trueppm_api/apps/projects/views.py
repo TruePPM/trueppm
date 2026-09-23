@@ -68,7 +68,6 @@ from rest_framework.views import APIView
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import (
     IsNotTokenAuthenticated,
-    IsOrgAdmin,
     IsProgramAdmin,
     IsProgramMember,
     IsProgramNotClosed,
@@ -299,6 +298,7 @@ from trueppm_api.apps.webhooks.models import (
     Webhook,
     WebhookDelivery,
 )
+from trueppm_api.apps.workspace.permissions import IsWorkspaceAdminStrict
 from trueppm_api.core.export_downloads import stream_export_job_or_error
 from trueppm_api.core.openapi import (
     ownership_refusal_403,
@@ -948,30 +948,79 @@ class TemplateDivergenceSerializer(serializers.Serializer[Any]):
 _CALENDAR_IN_USE_DETAIL = "This calendar is still in use and cannot be deleted."
 
 
-def _describe_calendar_reference(obj: db_models.Model) -> dict[str, str]:
-    """Render one PROTECT-ing row as a client-actionable ``{type, id, name}`` entry.
+def _calendar_reference_describer(user: Any) -> Callable[[db_models.Model], dict[str, str]]:
+    """Build a describer that names a calendar's blockers without leaking plan names.
 
-    Names the referencing project/program even when the caller is not a member of it.
-    That is deliberate and scoped to the ``IsOrgAdmin`` gate on this endpoint: the
-    role exists to curate the shared calendar library, and "3 projects still use
-    this" without saying which is unactionable for exactly that persona. It does
-    widen what an org admin can learn — repeated delete attempts would enumerate the
-    names of projects they are not a member of — so if project names ever become
-    membership-confidential, filter this list by visibility and report the remainder
-    as an opaque count.
+    Renders one PROTECT-ing row as a client-actionable ``{type, id, name}`` entry, so
+    a 409 can say *which* project still applies the calendar rather than only how
+    many do.
+
+    **Project and program names are membership-scoped, and this endpoint's gate does
+    not imply membership.** The previous unconditional version justified naming every
+    referencing project by "the ``IsOrgAdmin`` gate on this endpoint" — a premise that
+    is wrong twice over. ``IsOrgAdmin`` is self-grantable (creating a project makes
+    the caller its Owner, so any account reaches it in two requests — ADR-0034's #3569
+    amendment), and since #3600 this endpoint is not gated on it at all. A workspace
+    ADMIN is a stronger principal, but it is still not membership: ``ProjectViewSet``
+    and ``ProgramViewSet`` both scope their querysets to the caller's own memberships
+    with no workspace-role bypass, so naming every blocker here would turn repeated
+    delete attempts into an enumeration oracle for the names of plans the caller
+    cannot open. Rows in projects/programs the caller is not a member of are therefore
+    reported by type and id only; ``reference_count`` still counts **all** blockers, so
+    the refusal stays honest about how much is blocking even when it cannot say what.
+
+    Resource and workspace names are *not* filtered: the resource catalog is org-shared
+    and readable by any authenticated user (see ``ResourceViewSet``), and the workspace
+    is the install itself, whose name every authenticated caller already sees.
+
+    Mirrors ``resources.views._skill_reference_describer``, which is the same pattern
+    for the skill catalog's 409.
     """
-    if isinstance(obj, ProjectCalendarLayer):
-        # The layer row is a join table the user never sees. What they can act on is
-        # the project whose overlay set still applies this calendar.
-        return {"type": "project", "id": str(obj.project_id), "name": obj.project.name}
-    return describe_reference(obj)
+    from trueppm_api.apps.access.models import ProgramMembership
+    from trueppm_api.apps.projects.models import Program
+
+    # Two set-building queries, evaluated once per refused DELETE — not per blocker.
+    # The describer is called up to REFERENCE_SAMPLE_SIZE times and must not query.
+    visible_project_ids = set(
+        ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
+            "project_id", flat=True
+        )
+    )
+    visible_program_ids = set(
+        ProgramMembership.objects.filter(user=user, is_deleted=False).values_list(
+            "program_id", flat=True
+        )
+    )
+
+    def describe(obj: db_models.Model) -> dict[str, str]:
+        if isinstance(obj, ProjectCalendarLayer):
+            # The layer row is a join table the user never sees. What they can act on
+            # is the project whose overlay set still applies this calendar.
+            entry = {"type": "project", "id": str(obj.project_id)}
+            if obj.project_id in visible_project_ids:
+                entry["name"] = obj.project.name
+            return entry
+        if isinstance(obj, Project):
+            entry = {"type": "project", "id": str(obj.pk)}
+            if obj.pk in visible_project_ids:
+                entry["name"] = obj.name
+            return entry
+        if isinstance(obj, Program):
+            entry = {"type": "program", "id": str(obj.pk)}
+            if obj.pk in visible_program_ids:
+                entry["name"] = obj.name
+            return entry
+        return describe_reference(obj)
+
+    return describe
 
 
 @extend_schema_view(
     destroy=extend_schema(
         summary="Delete a calendar",
         description=(
-            "Deletes a calendar from the shared org library.\n\n"
+            "Deletes a calendar from the shared workspace library. Requires the "
+            "workspace Admin role.\n\n"
             "A calendar that is still applied somewhere cannot be deleted — it would "
             "leave a live schedule without the working-time definition it was computed "
             "against. That is refused with `409`, and the body names what still "
@@ -987,7 +1036,12 @@ def _describe_calendar_reference(obj: db_models.Model) -> dict[str, str]:
                     "Calendar is still applied as a project/program/workspace base, a "
                     "project overlay, or a resource calendar. Body carries "
                     "`reference_count` and a `references` sample so the client can name "
-                    "what to detach first."
+                    "what to detach first. Each `references` entry carries `type` and "
+                    "`id`; `name` is present only for projects and programs the caller "
+                    "is a member of (workspace Admin is not membership), and for "
+                    "resources and the workspace, which any authenticated user can "
+                    "already read. `reference_count` counts every blocker, named or "
+                    "not, so a client must not derive it from `references.length`."
                 ),
             ),
         },
@@ -1000,14 +1054,15 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
     They are shared org-level resources — not scoped to a single project.
 
     Read access: any authenticated user.
-    Write operations: org admin (Project Manager+ on at least one *active* project —
-    #3569 stopped counting memberships on archived and soft-deleted projects).
+    Write operations: workspace Admin (a stored ``WorkspaceRole.ADMIN``) since #3600 —
+    previously the self-grantable ``IsOrgAdmin`` derivation.
     """
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
     # Exempt from the archived-write invariant (#3414). A Calendar belongs to no
     # project — `get_queryset` returns the whole org library and `get_permissions`
-    # replaces the class-level project gate with `IsOrgAdmin` on every write. The
+    # replaces the class-level project gate with `IsWorkspaceAdminStrict` on every
+    # write. The
     # inherited declaration above applies to nothing; archiving one project must not
     # freeze a calendar every other project also schedules against.
     #
@@ -1021,7 +1076,7 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
     # archived plan's dates through a shared calendar is intended.
     archived_write_exempt = (
         "workspace-level calendar library: the row is not project-scoped and writes "
-        "are gated by IsOrgAdmin, not by any project's lifecycle state"
+        "are gated by IsWorkspaceAdminStrict, not by any project's lifecycle state"
     )
     queryset = Calendar.objects.prefetch_related("exceptions").order_by("name")
     serializer_class = CalendarSerializer
@@ -1031,15 +1086,19 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
     def get_permissions(self) -> list[BasePermission]:
         if self.request.method in SAFE_METHODS:
             return [IsAuthenticated()]
-        # Deliberately still IsOrgAdmin, though this surface meets the test stated in
-        # IsWorkspaceOperator's docstring (a calendar edit fans a CPM recompute to
-        # every bound project, including ones the actor cannot see). #3174 already
-        # decided this exact reach and chose attribution — a CALENDAR_CHANGED audit
-        # event naming the actor — over a raised gate; #3569 is a hardening fix and
-        # does not reopen a closed ADR. Tracked as #3600 and recorded as a known
-        # residual in ADR-0034's #3569 amendment. Do not read this as the
-        # derivation being right here.
-        return [IsAuthenticated(), IsOrgAdmin()]
+        # Workspace ADMIN, not the `IsOrgAdmin` derivation (#3600, ADR-0034's #3600
+        # amendment). A calendar edit fans a CPM recompute to every project bound to
+        # it, including ones the actor cannot see — and `IsOrgAdmin` is reachable in
+        # two requests from a fresh account, because nothing gates project creation
+        # and `perform_create` makes the caller Owner. #3174 met this same reach and
+        # shipped the attribution half (a CALENDAR_CHANGED audit row naming the
+        # actor); this is the permission half it left open. `IsWorkspaceAdminStrict`
+        # rather than `IsWorkspaceOperator` (superuser): calendar curation is routine
+        # PM work and the Resource Manager persona must keep it, and the stored
+        # `WorkspaceRole.ADMIN` is already what gates the workspace default-calendar
+        # FK — editing a shared calendar's contents must not be easier than pointing
+        # a project at a different one.
+        return [IsAuthenticated(), IsWorkspaceAdminStrict()]
 
     def get_queryset(self) -> QuerySet[Calendar]:
         # Calendars are not project-scoped — they are shared org-level resources.
@@ -1064,7 +1123,7 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
                 exc.protected_objects,
                 detail=_CALENDAR_IN_USE_DETAIL,
                 code="calendar_in_use",
-                describe=_describe_calendar_reference,
+                describe=_calendar_reference_describer(request.user),
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1119,11 +1178,13 @@ def _enqueue_calendar_recalc(
     reassignment), and it is the one thing the client needs in order to re-read.
 
     **Attribution (#3174).** This is also the single place that can name *who* moved
-    those dates. Calendars are gated on ``IsOrgAdmin``, which passes anyone holding
-    ADMIN on at least one project — so a PM on one small project can shift finish
-    dates across every project bound to a shared calendar, including projects they
-    are not a member of. Whether that permission is right is a separate, open
-    question; what is not defensible either way is the movement being anonymous. One
+    those dates. A calendar edit still shifts finish dates across every project bound
+    to it, including projects the actor is not a member of — that reach is inherent to
+    a shared calendar and did not change. What changed is who can reach it: #3600 moved
+    the write gate from ``IsOrgAdmin`` (self-grantable: create a project, become its
+    Owner) to ``IsWorkspaceAdminStrict`` (a stored ``WorkspaceRole.ADMIN``), so the
+    open permission question this paragraph used to record is closed. Attribution is
+    still required and is not made redundant by the higher gate: one
     ``CALENDAR_CHANGED`` audit row records the actor and the affected set, and the
     broadcast carries the actor label so an owner watching a project sees a name
     rather than dates moving by themselves.
@@ -1183,9 +1244,9 @@ def _enqueue_calendar_recalc(
 def _recalc_projects_for_calendar(calendar_id: uuid.UUID | str, *, actor: Any = None) -> None:
     """Enqueue a CPM recompute for every live project this calendar's edit affects.
 
-    Calendar (and calendar-exception) edits are org-admin writes that may touch
-    projects the editor is not a member of, so the fan-out is by calendar FK, not by
-    membership. A project is affected when it applies the calendar as its **base**, as
+    Calendar (and calendar-exception) edits are workspace-Admin writes (#3600) that
+    may touch projects the editor is not a member of, so the fan-out is by calendar
+    FK, not by membership. A project is affected when it applies the calendar as its **base**, as
     an **overlay** layer (#906/ADR-0251), OR when it **inherits** the calendar as its
     effective base from its program or the workspace (ADR-0441): a program-default or
     workspace-default calendar edit must reach the projects that resolve up to it, not
@@ -1287,8 +1348,8 @@ class CalendarExceptionViewSet(IdempotencyMixin, viewsets.ModelViewSet[CalendarE
     parent Calendar.server_version (so the change rides the existing calendar
     sync delta) and fans out a CPM recompute to affected projects.
 
-    Read access: any authenticated user. Writes: org admin (Project Manager+ on at
-    least one *active* project, #3569), mirroring CalendarViewSet.
+    Read access: any authenticated user. Writes: workspace Admin (a stored
+    ``WorkspaceRole.ADMIN``, #3600), mirroring CalendarViewSet.
     """
 
     serializer_class = CalendarExceptionSerializer
@@ -1296,9 +1357,10 @@ class CalendarExceptionViewSet(IdempotencyMixin, viewsets.ModelViewSet[CalendarE
     def get_permissions(self) -> list[BasePermission]:
         if self.request.method in SAFE_METHODS:
             return [IsAuthenticated()]
-        # Same deliberate exception as CalendarViewSet.get_permissions — see the note
-        # there before "fixing" this to IsWorkspaceOperator (#3174, #3569).
-        return [IsAuthenticated(), IsOrgAdmin()]
+        # Same gate as CalendarViewSet.get_permissions, for the same reason: one
+        # holiday here moves finish dates on every project bound to this calendar
+        # (#3600). See the note there.
+        return [IsAuthenticated(), IsWorkspaceAdminStrict()]
 
     def get_queryset(self) -> QuerySet[CalendarException]:
         # Scope strictly to the URL calendar so an exception id from calendar A

@@ -2079,7 +2079,7 @@
         "/api/v1/calendars/": {
             "get": {
                 "operationId": "v1_calendars_list",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one *active* project —\n#3569 stopped counting memberships on archived and soft-deleted projects).",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: workspace Admin (a stored ``WorkspaceRole.ADMIN``) since #3600 —\npreviously the self-grantable ``IsOrgAdmin`` derivation.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -2155,7 +2155,7 @@
             },
             "post": {
                 "operationId": "v1_calendars_create",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one *active* project —\n#3569 stopped counting memberships on archived and soft-deleted projects).",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: workspace Admin (a stored ``WorkspaceRole.ADMIN``) since #3600 —\npreviously the self-grantable ``IsOrgAdmin`` derivation.",
                 "tags": [
                     "calendars"
                 ],
@@ -2257,7 +2257,7 @@
         "/api/v1/calendars/{calendar_pk}/exceptions/": {
             "get": {
                 "operationId": "v1_calendars_exceptions_list",
-                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+ on at\nleast one *active* project, #3569), mirroring CalendarViewSet.",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: workspace Admin (a stored\n``WorkspaceRole.ADMIN``, #3600), mirroring CalendarViewSet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2341,7 +2341,7 @@
             },
             "post": {
                 "operationId": "v1_calendars_exceptions_create",
-                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+ on at\nleast one *active* project, #3569), mirroring CalendarViewSet.",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: workspace Admin (a stored\n``WorkspaceRole.ADMIN``, #3600), mirroring CalendarViewSet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2453,7 +2453,7 @@
         "/api/v1/calendars/{calendar_pk}/exceptions/{id}/": {
             "get": {
                 "operationId": "v1_calendars_exceptions_retrieve",
-                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+ on at\nleast one *active* project, #3569), mirroring CalendarViewSet.",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: workspace Admin (a stored\n``WorkspaceRole.ADMIN``, #3600), mirroring CalendarViewSet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2518,7 +2518,7 @@
             },
             "put": {
                 "operationId": "v1_calendars_exceptions_update",
-                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+ on at\nleast one *active* project, #3569), mirroring CalendarViewSet.",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: workspace Admin (a stored\n``WorkspaceRole.ADMIN``, #3600), mirroring CalendarViewSet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2636,7 +2636,7 @@
             },
             "patch": {
                 "operationId": "v1_calendars_exceptions_partial_update",
-                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+ on at\nleast one *active* project, #3569), mirroring CalendarViewSet.",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: workspace Admin (a stored\n``WorkspaceRole.ADMIN``, #3600), mirroring CalendarViewSet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2753,7 +2753,7 @@
             },
             "delete": {
                 "operationId": "v1_calendars_exceptions_destroy",
-                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: org admin (Project Manager+ on at\nleast one *active* project, #3569), mirroring CalendarViewSet.",
+                "description": "CRUD for a calendar's non-working date ranges (holidays, shutdowns).\n\nMounted under /calendars/<calendar_pk>/exceptions/ via explicit path()s\n(ADR-0194) rather than a router @action, to keep the OpenAPI schema clean\n(#846). Exceptions are an aggregate of their calendar: every write bumps the\nparent Calendar.server_version (so the change rides the existing calendar\nsync delta) and fans out a CPM recompute to affected projects.\n\nRead access: any authenticated user. Writes: workspace Admin (a stored\n``WorkspaceRole.ADMIN``, #3600), mirroring CalendarViewSet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2813,7 +2813,7 @@
         "/api/v1/calendars/{id}/": {
             "get": {
                 "operationId": "v1_calendars_retrieve",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one *active* project —\n#3569 stopped counting memberships on archived and soft-deleted projects).",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: workspace Admin (a stored ``WorkspaceRole.ADMIN``) since #3600 —\npreviously the self-grantable ``IsOrgAdmin`` derivation.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2872,7 +2872,7 @@
             },
             "put": {
                 "operationId": "v1_calendars_update",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one *active* project —\n#3569 stopped counting memberships on archived and soft-deleted projects).",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: workspace Admin (a stored ``WorkspaceRole.ADMIN``) since #3600 —\npreviously the self-grantable ``IsOrgAdmin`` derivation.",
                 "parameters": [
                     {
                         "in": "path",
@@ -2984,7 +2984,7 @@
             },
             "patch": {
                 "operationId": "v1_calendars_partial_update",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one *active* project —\n#3569 stopped counting memberships on archived and soft-deleted projects).",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: workspace Admin (a stored ``WorkspaceRole.ADMIN``) since #3600 —\npreviously the self-grantable ``IsOrgAdmin`` derivation.",
                 "parameters": [
                     {
                         "in": "path",
@@ -3095,7 +3095,7 @@
             },
             "delete": {
                 "operationId": "v1_calendars_destroy",
-                "description": "Deletes a calendar from the shared org library.\n\nA calendar that is still applied somewhere cannot be deleted — it would leave a live schedule without the working-time definition it was computed against. That is refused with `409`, and the body names what still references it so the caller can detach those first. A calendar is referenced when it is a project's base calendar, a project overlay, a program default, the workspace default, or a resource's calendar.",
+                "description": "Deletes a calendar from the shared workspace library. Requires the workspace Admin role.\n\nA calendar that is still applied somewhere cannot be deleted — it would leave a live schedule without the working-time definition it was computed against. That is refused with `409`, and the body names what still references it so the caller can detach those first. A calendar is referenced when it is a project's base calendar, a project overlay, a program default, the workspace default, or a resource's calendar.",
                 "summary": "Delete a calendar",
                 "parameters": [
                     {
@@ -3136,7 +3136,7 @@
                                 }
                             }
                         },
-                        "description": "Calendar is still applied as a project/program/workspace base, a project overlay, or a resource calendar. Body carries `reference_count` and a `references` sample so the client can name what to detach first."
+                        "description": "Calendar is still applied as a project/program/workspace base, a project overlay, or a resource calendar. Body carries `reference_count` and a `references` sample so the client can name what to detach first. Each `references` entry carries `type` and `id`; `name` is present only for projects and programs the caller is a member of (workspace Admin is not membership), and for resources and the workspace, which any authenticated user can already read. `reference_count` counts every blocker, named or not, so a client must not derive it from `references.length`."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
