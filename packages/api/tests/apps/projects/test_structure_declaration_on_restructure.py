@@ -588,6 +588,51 @@ def test_a_member_cannot_un_declare_a_colleagues_phase_by_outdenting(project: Pr
     assert head.structure_role == StructureRole.CONTAINER, "declared, so never auto-reverted"
 
 
+def test_a_member_cannot_reparent_a_colleagues_task_via_outdent(project: Project) -> None:
+    """#4012: outdent reparents every FOLLOWING sibling under the outdented task,
+    but only checked restructure authority on the primary task. A Member who may
+    restructure their own task must not be able to reparent a colleague's task as
+    a side effect of outdenting past it.
+    """
+    member = get_user_model().objects.create_user(username="outdenter2", password="pw")
+    ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
+    other = get_user_model().objects.create_user(username="colleague", password="pw")
+    client = APIClient()
+    client.force_authenticate(user=member)
+
+    _task(project, "Phase", "1")
+    mover = _task(project, "Mine", "1.1", assignee=member)
+    follower = _task(project, "Colleague's", "1.2", assignee=other)
+
+    r = client.post(f"/api/v1/projects/{project.id}/tasks/{mover.id}/outdent/")
+    assert r.status_code == 403
+
+    follower.refresh_from_db()
+    assert follower.wbs_path == "1.2", "refused before any row was mutated"
+    mover.refresh_from_db()
+    assert mover.wbs_path == "1.1", "the whole outdent rolls back, not just the follower's move"
+
+
+def test_a_scheduler_or_above_outdent_still_adopts_all_followers(
+    owner_client: APIClient, project: Project
+) -> None:
+    """Regression bound for #4012: an Admin+ caller is unaffected by the new
+    per-follower gate, and followers are still adopted exactly as before.
+    """
+    _task(project, "Phase", "1")
+    mover = _task(project, "Design", "1.1")
+    follower_a = _task(project, "Build", "1.2")
+    follower_b = _task(project, "Test", "1.3")
+
+    r = owner_client.post(f"/api/v1/projects/{project.id}/tasks/{mover.id}/outdent/")
+    assert r.status_code == 200
+
+    follower_a.refresh_from_db()
+    follower_b.refresh_from_db()
+    assert follower_a.wbs_path == "2.1", "adopted as the outdented task's first child"
+    assert follower_b.wbs_path == "2.2", "adopted as the outdented task's second child"
+
+
 def test_an_unauthenticated_caller_cannot_indent(project: Project) -> None:
     _task(project, "Mobilization", "1")
     mover = _task(project, "Permits", "2")
