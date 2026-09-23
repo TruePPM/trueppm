@@ -334,6 +334,13 @@ extension-signals-check: ## Fail if an OSS→Enterprise extension signal uses pl
 	@bash scripts/check-extension-signals.sh --self-test
 	@bash scripts/check-extension-signals.sh
 
+pypi-id-tokens-check: ## Fail if a job outside the known publish jobs can mint a PyPI OIDC token (#3993)
+	@# id_tokens: is issued to ANY job on ANY ref — unlike a Masked+Protected
+	@# variable, branch protection does not gate it. A new job copying
+	@# `id_tokens: PYPI_ID_TOKEN` is a new, silent path to a live upload token.
+	@bash scripts/check-pypi-id-tokens.sh --self-test
+	@bash scripts/check-pypi-id-tokens.sh
+
 dependency-soft-delete-check: ## Fail if a scheduler input reads Dependency.objects (#3532)
 	@# A soft-deleted edge read through the unfiltered manager keeps constraining
 	@# CPM, Monte Carlo, what-if and the derivation endpoint. Grep, ~1s.
@@ -606,6 +613,7 @@ pre-push-checks: sonar-exclusions-check
 pre-push-checks: request-body-guards-check
 pre-push-checks: summary-duration-units-check
 pre-push-checks: extension-signals-check
+pre-push-checks: pypi-id-tokens-check
 pre-push-checks: dependency-soft-delete-check
 pre-push-checks: membership-live-floor-check
 pre-push-checks: enterprise-boundary-check
