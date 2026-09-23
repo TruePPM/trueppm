@@ -48,7 +48,7 @@
 #     resolve_previous_chart_version below) rather than a hardcoded version
 #     string, so it keeps tracking the real last tag as releases ship. The
 #     `helm:upgrade` CI job runs this leg on MRs and main pushes that touch
-#     the chart or this script, and nightly (see .gitlab-ci.yml's
+#     the chart or this script, and nightly (see .gitlab/ci/deploy-drills.yml's
 #     `helm:upgrade` job comment for why MRs pay for it, #4000).
 #   walkthrough (#4027) — drills administration/deployment.md's "Production
 #     install walkthrough" step for step, the path `helm:install`/`helm:upgrade`/
