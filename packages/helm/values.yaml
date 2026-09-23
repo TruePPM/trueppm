@@ -216,8 +216,28 @@ ingress:
   # `buffering` middleware (`maxRequestBodyBytes`); on HAProxy set
   # `haproxy.org/client-body-buffer-size`. Helm deep-merges this map, so adding
   # your own keys keeps this one unless you override it by name.
+  #
+  # proxy-read-timeout / proxy-send-timeout: same class of bug as
+  # proxy-body-size above, for WebSockets instead of uploads. The default
+  # `hosts` topology below routes /ws straight to the API Service, bypassing
+  # the web tier's own nginx (templates/web/configmap.yaml), which sets
+  # proxy_read_timeout 86400s for exactly this reason. Without a matching
+  # annotation here, ingress-nginx applies its own default of 60s — a
+  # *connection* lifetime, not a request timeout — and silently drops every
+  # WebSocket that goes quiet for a minute (a project left open in a
+  # background tab). The consumer's presence keepalive (#2607) re-arms a
+  # Redis TTL, not a frame on the wire, so it does nothing to hold this
+  # timeout open. 3600s matches the floor documented in
+  # docs/administration/networking.md's "Idle timeouts" table; raise it
+  # further if your users routinely leave a project open longer than that.
+  # Also ingress-nginx-specific — see the table in that doc for the
+  # equivalent knob on Traefik/HAProxy/ALB/GCP LB; an unrecognized annotation
+  # is usually just ignored, which silently leaves the controller's own
+  # 60s-class default in place.
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "110m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
   # One or more virtual hosts. Each path routes to either the web SPA or the API,
   # selected by its `service:` key (`web` or `api`, default `api`). The default
   # below sends /api and /ws to the Django API Service and everything else (/) to

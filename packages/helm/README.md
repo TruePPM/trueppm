@@ -324,6 +324,15 @@ ingress:
   className: nginx
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Setting `annotations:` at all REPLACES the chart's default map rather
+    # than merging into it, so restate these two or you silently lose them:
+    # the 100 MB attachment cap (#2604) and the WebSocket idle timeout — a
+    # dropped `nginx.ingress.kubernetes.io/proxy-read-timeout` reverts to
+    # ingress-nginx's own 60s default and disconnects every WebSocket left
+    # open for a minute (real-time collaboration goes over /ws above).
+    nginx.ingress.kubernetes.io/proxy-body-size: "110m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
   hosts:
     - host: trueppm.example.com
       paths:
