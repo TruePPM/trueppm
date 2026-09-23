@@ -815,6 +815,21 @@ hint and asserts that an authenticated `POST /api/v1/projects/` answers `403` wi
 fails the release. It reaches the API Service by in-cluster DNS, so it proves the
 API-tier fence and says nothing about the public edge.
 
+**`helm test` also verifies the share-link overlay itself**, not only the interactive
+one. `demo.enabled` with `demo.interactive` left off — the overlay `values-demo.yaml`
+ships — renders its own hook that curls both share URLs
+(`/api/v1/share/schedule/<token>/`, `/api/v1/share/board/<token>/`) through the **web**
+Service, never the API Service, and asserts each answers `200` with a non-empty body.
+Reaching them through the web Service exercises the nginx allowlist
+(`location ^~ /api/v1/share/`) rather than bypassing it, so the hook also proves that
+allowlist is still proxying the two URLs it exists to serve. The tokens it checks come
+from the same `demo.shareToken.schedule` / `.board` values the seed hook passes to
+`create_demo_share_link`, so a token that was pinned but never actually seeded — or a
+seed that produced a different one — fails the test instead of a demo that is up,
+green, and silently blank. The two hooks are gated independently and never render
+together: this one needs `demo.interactive` to stay `false`, exactly as
+`values-demo.yaml` leaves it.
+
 The guard sees only what the chart renders. It cannot see an Ingress you create
 yourself, or controller annotations under `ingress.annotations` that reroute traffic
 behind the chart's back — for example ingress-nginx's default backend pointing at the
