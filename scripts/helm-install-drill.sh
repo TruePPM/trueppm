@@ -1030,6 +1030,7 @@ def check(label, method, path, expect_status, expect_ct_contains=None, xff=None)
         failures.append(
             "%s: got status=%s content-type=%r, expected %s" % (label, status, ct, want)
         )
+    return ok
 
 
 # --- allowlist matrix -------------------------------------------------------
@@ -1048,7 +1049,7 @@ check(
     200,
     "text/html",
 )
-check(
+projection_ok = check(
     "GET /api/v1/share/schedule/<token>/ (public projection)",
     "GET",
     "/api/v1/share/schedule/%s/" % schedule_token,
@@ -1117,39 +1118,55 @@ for path in ("/API/v1/projects/", "/Admin/", "/ADMIN/"):
 # X-Forwarded-For entry (the client's own claim) rather than the web tier's
 # own appended peer address — the exact regression #4017 found: at
 # NUM_PROXIES=1 every visitor collapses into one shared bucket.
-XFF_A = "203.0.113.10"
-XFF_B = "203.0.113.20"
-saw_429 = False
-last_status = None
-for _ in range(61):
-    last_status, _, _ = req(
-        "GET", "/api/v1/share/schedule/%s/" % schedule_token, xff=XFF_A
-    )
-    if last_status == 429:
-        saw_429 = True
-        break
-if saw_429:
-    print("OK: visitor A (%s) throttled to 429 within 61 requests" % XFF_A)
-else:
+#
+# Gated on the plain projection GET above having actually reached the
+# throttle (status 200): a precondition failure upstream (a host-validation
+# 400, a 5xx, anything that never reaches DRF's throttle check) makes every
+# request in the loop below fail identically, and an identical failure reads
+# exactly like "the bucket is shared" even though the bucket was never
+# consulted. Without this gate, that precondition failure prints as
+# "#4017 regression" — the label a reader trusts least to be wrong.
+if not projection_ok:
     failures.append(
-        "throttle: visitor A (%s) never saw a 429 within 61 requests (last status %s) "
-        "— share_access is not enforcing a per-visitor limit" % (XFF_A, last_status)
+        "throttle: skipped — the plain GET /api/v1/share/schedule/<token>/ check "
+        "above did not return 200, so no request in this section ever reached "
+        "share_access's throttle in the first place (see that check's own failure "
+        "for the real cause; this is a precondition failure, not a #4017 regression)"
     )
+else:
+    XFF_A = "203.0.113.10"
+    XFF_B = "203.0.113.20"
+    saw_429 = False
+    last_status = None
+    for _ in range(61):
+        last_status, _, _ = req(
+            "GET", "/api/v1/share/schedule/%s/" % schedule_token, xff=XFF_A
+        )
+        if last_status == 429:
+            saw_429 = True
+            break
+    if saw_429:
+        print("OK: visitor A (%s) throttled to 429 within 61 requests" % XFF_A)
+    else:
+        failures.append(
+            "throttle: visitor A (%s) never saw a 429 within 61 requests (last status %s) "
+            "— share_access is not enforcing a per-visitor limit" % (XFF_A, last_status)
+        )
 
-status_b, _, body_b = req(
-    "GET", "/api/v1/share/schedule/%s/" % schedule_token, xff=XFF_B
-)
-if status_b == 200:
-    print(
-        "OK: visitor B (%s) got 200 while visitor A is throttled — distinct "
-        "X-Forwarded-For values get distinct buckets (#4017)" % XFF_B
+    status_b, _, body_b = req(
+        "GET", "/api/v1/share/schedule/%s/" % schedule_token, xff=XFF_B
     )
-else:
-    failures.append(
-        "throttle: visitor B (%s) got %s while visitor A (%s) was throttled, expected "
-        "200 — distinct X-Forwarded-For values are NOT getting distinct buckets "
-        "(#4017 regression)" % (XFF_B, status_b, XFF_A)
-    )
+    if status_b == 200:
+        print(
+            "OK: visitor B (%s) got 200 while visitor A is throttled — distinct "
+            "X-Forwarded-For values get distinct buckets (#4017)" % XFF_B
+        )
+    else:
+        failures.append(
+            "throttle: visitor B (%s) got %s while visitor A (%s) was throttled, expected "
+            "200 — distinct X-Forwarded-For values are NOT getting distinct buckets "
+            "(#4017 regression)" % (XFF_B, status_b, XFF_A)
+        )
 
 if failures:
     print("=== FAILURES (%d) ===" % len(failures))
