@@ -12,6 +12,7 @@ Covers:
 from __future__ import annotations
 
 import pytest
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import override_settings
 from django.utils import timezone
@@ -229,3 +230,21 @@ class TestSecurityStatus:
     def test_reflects_disabled_flag(self) -> None:
         security = _admin_client().get(URL).data["security"]
         assert security["rate_limiting_enabled"] is False
+
+    def test_client_address_reads_back_the_calling_request(self) -> None:
+        """#4020: the admin sees which address the per-IP throttles keyed them on."""
+        with override_settings(REST_FRAMEWORK={**settings.REST_FRAMEWORK, "NUM_PROXIES": 1}):
+            self._assert_readback()
+
+    def _assert_readback(self) -> None:
+        security = (
+            _admin_client()
+            .get(URL, HTTP_X_FORWARDED_FOR="93.184.216.34", REMOTE_ADDR="10.42.0.17")
+            .data["security"]
+        )
+        client_address = security["client_address"]
+        assert client_address["num_proxies"] == 1
+        assert client_address["resolved"] == "93.184.216.34"
+        assert client_address["remote_addr"] == "10.42.0.17"
+        assert client_address["forwarded_for"] == ["93.184.216.34"]
+        assert client_address["status"] == "ok"

@@ -104,6 +104,14 @@ services:
       # check reads a same-browser-origin request as cross-site and 403s every
       # token refresh. Mirrors the CSRF_TRUSTED_ORIGINS pin used in .gitlab-ci.yml.
       CSRF_TRUSTED_ORIGINS: http://localhost:5173
+      # Zero proxies write X-Forwarded-For in this stack (#4020): :8000 is the API
+      # itself, and the Vite dev proxy on :5173 forwards without `xfwd`, so it
+      # passes a client's header through untouched rather than appending to it.
+      # At the settings default of 1, DRF would key every per-IP throttle —
+      # including the login brute-force bucket — on whatever X-Forwarded-For the
+      # caller sent, so rotating one header minted a fresh budget per value.
+      # At 0 the throttles key on the TCP peer and ignore the header.
+      TRUEPPM_NUM_PROXIES: "0"
     volumes:
       - ./packages/api/src:/app/src
     ports:

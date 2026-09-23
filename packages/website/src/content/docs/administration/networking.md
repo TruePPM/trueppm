@@ -262,10 +262,17 @@ Count the hops on the path the request really takes:
 
 | Path to Django | Proxies | `TRUEPPM_NUM_PROXIES` |
 |---|---|---|
-| Ingress → API Service (the default `ingress.hosts`) | 1 | `1` |
+| Ingress → API Service (the default `ingress.hosts`), nothing in front of the ingress controller | 1 | `1` |
+| Cloud load balancer or CDN → ingress-nginx → API Service | see [below](#a-load-balancer-in-front-of-the-ingress-controller) | `1` or `2` |
 | Ingress → web tier → API Service | 2 | `2` |
 | Cloudflare Tunnel → web tier → API Service (demo mode) | 2 | `2` |
+| Docker Compose production stack (`nginx` → `api`) | 1 | `1` |
+| Development `docker-compose.yml` (`:8000` directly, or the Vite proxy on `:5173`) | 0 | `0`, set in the file |
 | Client → API Service, nothing in front | 0 | `0` |
+
+A proxy only counts if it **appends** to `X-Forwarded-For`. The Vite dev
+server's proxy passes the header through without adding to it, so the
+development stack counts as zero proxies even when you browse through `:5173`.
 
 Demo mode is always in the two-hop rows: it refuses an Ingress path that reaches
 the API Service directly, so `/api/v1/share/` necessarily crosses the web tier.
@@ -274,8 +281,95 @@ endpoint shares a single 60/min bucket across every visitor on the internet, and
 one crawler answers `429` to everyone else.
 
 Set it too *high* and you have the opposite problem: a client can prepend its own
-`X-Forwarded-For` and choose its own throttle bucket. Match the number to the
-deployment, and re-check it whenever you change what sits in front of the API.
+`X-Forwarded-For` and choose its own throttle bucket. With nothing in front of
+Django and the default of `1`, rotating that one header gives a client a fresh
+login brute-force budget per value. The per-account `login_account` limit still
+applies, but the per-IP limit stops working. Match the number to the deployment,
+and re-check it whenever you change what sits in front of the API.
+
+TruePPM refuses to start on a negative `TRUEPPM_NUM_PROXIES`, because DRF would
+then read the header from its client-written end.
+
+#### A load balancer in front of the ingress controller
+
+This is the ordinary production shape on a managed cloud (AWS ALB or NLB, Google
+Cloud Load Balancing, Azure Application Gateway, Cloudflare proxying the
+hostname). It is also where the default of `1` quietly stops being right.
+ingress-nginx is configured by its controller ConfigMap, not by this chart:
+
+- **`use-forwarded-headers: "false"`** (the ingress-nginx default). The controller
+  discards the incoming `X-Forwarded-For` and sends only the address it saw, which
+  is the load balancer's. No value of `TRUEPPM_NUM_PROXIES` recovers the visitor,
+  so every client shares one bucket. This is fine only for an L4 load balancer
+  that preserves the source address (an NLB or `type: LoadBalancer` Service with
+  `externalTrafficPolicy: Local`, or PROXY protocol with `use-proxy-protocol`).
+  In that case the controller really does see the visitor, and `1` is right.
+- **`use-forwarded-headers: "true"` and `proxy-real-ip-cidr` set to the load
+  balancer's address range.** The controller works out the client address
+  itself, trusting the header only from the range you named, and forwards that
+  single address. Keep `TRUEPPM_NUM_PROXIES` at `1`. This is the setup we
+  recommend, because the trust decision is made by address range at the edge
+  rather than by counting hops. Do not leave `proxy-real-ip-cidr` at its default
+  of `0.0.0.0/0`. With every address trusted, the controller walks the header
+  back to its leftmost entry, which the client wrote, and you are in the too-high
+  case again.
+- **`compute-full-forwarded-for: "true"`.** The controller appends to the chain
+  instead of replacing it, so Django sees one more entry per proxy. Set
+  `TRUEPPM_NUM_PROXIES` to the full count, usually `2`, and make sure nothing
+  except the load balancer can reach the controller.
+
+A CDN in front of a cloud load balancer adds a hop again. Don't work the count
+out from a diagram. Read it back from the running deployment, as described in the
+next section.
+
+#### Check the value
+
+The address the throttles actually used can't be seen from outside, so check it
+directly. A staff user can call the System Health endpoint, and its
+`security.client_address` block shows how *their own request* was resolved:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  https://pm.example.com/api/v1/health/system/ | jq .security.client_address
+```
+
+```json
+{
+  "num_proxies": 1,
+  "resolved": "198.51.100.23",
+  "remote_addr": "10.42.1.7",
+  "forwarded_for": ["198.51.100.23"],
+  "forwarded_for_entries": 1,
+  "status": "ok",
+  "detail": "Nothing wrong is provable from this request. …"
+}
+```
+
+`resolved` is the address every per-IP throttle keyed this request on. Run two
+checks against it:
+
+1. **It is your address.** Compare it with the public address you are connecting
+   from. If it is a private or load-balancer address, the value is too low.
+2. **You cannot change it.** Repeat the call with
+   `-H "X-Forwarded-For: 192.0.2.1"`. If `resolved` becomes `192.0.2.1`, the
+   value is too high.
+
+`status` flags the cases one request is enough to prove:
+
+| `status` | Meaning |
+|---|---|
+| `ok` | Nothing provably wrong. Still run both checks above. |
+| `fewer_hops_than_configured` | Fewer `X-Forwarded-For` entries arrived than `TRUEPPM_NUM_PROXIES` says proxies exist. The value is too high for this path, or a proxy on it does not set the header. |
+| `forwarded_for_ignored` | The value is `0`, but the header arrived. If a proxy wrote it, every client shares that proxy's bucket. |
+| `non_public` | `resolved` is a private, loopback or link-local address. That is correct from inside your network, but if you came in over the internet it is a proxy's address. |
+| `unparsable` | The position the value selects doesn't hold an IP address. |
+
+The block describes the path *your* request took. If `/api` reaches Django by
+more than one path (for example straight from the ingress and also through the
+web tier), check each path.
+
+The `client_address` block is added after `v0.4.0-beta.3`, and is absent on that
+tag and earlier.
 
 ### cert-manager
 
