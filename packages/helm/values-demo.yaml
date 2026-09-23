@@ -161,6 +161,30 @@ env:
   # Not a base for a real install: files here vanish with the pod.
   TRUEPPM_MEDIA_ROOT: /tmp
 
+  # The demo's proxy chain is TWO hops deep, and the chart default of 1 is wrong
+  # for it (#4017). DRF keys every per-IP throttle on the address NUM_PROXIES
+  # hops back in X-Forwarded-For. Demo mode FORBIDS an Ingress path that reaches
+  # the API Service directly (#3908), so /api/v1/share/ always travels
+  #
+  #   cloudflared (ADR-0658 D9) — or ingress-nginx — -> the web tier's nginx -> api
+  #
+  # and the web tier appends its own peer with $proxy_add_x_forwarded_for. At 1,
+  # DRF reads the LAST entry: the tunnel pod's address, identical for every
+  # visitor. share_access then stops being a per-visitor 60/min limit and becomes
+  # ONE GLOBAL 60/min bucket for the whole internet.
+  #
+  # That inverts what the scope is for. ADR-0245 added share_access so a leaked or
+  # viral link could not become an unthrottled load source; at 1 it does not
+  # throttle the abuser, it takes the demo down for everyone — one crawler spends
+  # the minute and every human visitor gets 429. Measured on a kind install: with
+  # 1, a second visitor's FIRST request answers 429; with 2, it answers 200.
+  #
+  # Set this back to 1 ONLY if you expose the web Service with no proxy in front
+  # of it (the topology networkPolicy.ingressControllerConfirmed exists to make
+  # you confirm). At 2 with nothing in front, a client that sends its own
+  # X-Forwarded-For picks its own bucket.
+  TRUEPPM_NUM_PROXIES: "2"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SECRETS
 #

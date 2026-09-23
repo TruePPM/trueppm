@@ -236,15 +236,46 @@ load balancer is the *only* way in — a client that reaches nginx directly can 
 the header too.
 :::
 
-The missing `X-Forwarded-For` has a quieter failure. DRF's per-IP throttles read
-the client address `TRUEPPM_NUM_PROXIES` hops back in `X-Forwarded-For`
-(default `1`). The Helm web tier's nginx sets `Host`, `X-Real-IP` and
-`Authorization` but **not** `X-Forwarded-For`, so if you route `/api` through
-the web tier instead of straight to the API Service, every request arrives with
-the same apparent source address and the per-IP login and anonymous throttles
-collapse into one shared bucket. The default `ingress.hosts` sends `/api` and
-`/ws` directly to the API Service, where this does not arise; if you change that,
-add the header at your edge.
+`X-Forwarded-For` has a quieter failure, and it has **two** causes that look
+identical from the outside. DRF's per-IP throttles key on the client address
+`TRUEPPM_NUM_PROXIES` hops back in `X-Forwarded-For` (default `1`). Get either
+the header or the hop count wrong and every request arrives with the same
+apparent source address, so the per-IP login and anonymous throttles collapse
+into **one shared bucket** — which does not merely fail to throttle an abuser,
+it lets one client spend everybody's budget.
+
+**Cause 1 — the header is absent.** The production branch of the Helm web tier's
+nginx sets `Host`, `X-Real-IP` and `Authorization` but not `X-Forwarded-For`, so
+routing `/api` through the web tier leaves DRF reading `REMOTE_ADDR` — the web
+pod's own peer. The default `ingress.hosts` sends `/api` and `/ws` straight to
+the API Service, where this does not arise. If you change that, add the header at
+your edge.
+
+**Cause 2 — the header is present and the hop count is too low.** The *demo*
+branch of that same nginx does set `X-Forwarded-For`, with
+`$proxy_add_x_forwarded_for`, which appends its own peer to whatever arrived. So
+the header being there is not enough: `NUM_PROXIES` has to match how many proxies
+actually sit in front of Django, and it is the *last* `NUM_PROXIES` entries that
+get skipped.
+
+Count the hops on the path the request really takes:
+
+| Path to Django | Proxies | `TRUEPPM_NUM_PROXIES` |
+|---|---|---|
+| Ingress → API Service (the default `ingress.hosts`) | 1 | `1` |
+| Ingress → web tier → API Service | 2 | `2` |
+| Cloudflare Tunnel → web tier → API Service (demo mode) | 2 | `2` |
+| Client → API Service, nothing in front | 0 | `0` |
+
+Demo mode is always in the two-hop rows: it refuses an Ingress path that reaches
+the API Service directly, so `/api/v1/share/` necessarily crosses the web tier.
+`values-demo.yaml` therefore overrides this to `2`. At `1` the demo's only public
+endpoint shares a single 60/min bucket across every visitor on the internet, and
+one crawler answers `429` to everyone else.
+
+Set it too *high* and you have the opposite problem: a client can prepend its own
+`X-Forwarded-For` and choose its own throttle bucket. Match the number to the
+deployment, and re-check it whenever you change what sits in front of the API.
 
 ### cert-manager
 
