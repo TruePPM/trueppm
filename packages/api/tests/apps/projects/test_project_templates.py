@@ -23,7 +23,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.access.permissions import role_can_undo_batch_operation
 from trueppm_api.apps.projects.models import (
     Calendar,
@@ -851,7 +851,12 @@ class TestProgramScopedUniqueness:
 
     @pytest.fixture
     def two_programs(self, calendar: Calendar, owner: Any) -> tuple[Project, Project, APIClient]:
-        """One workspace, two programs, one Admin on a project in each."""
+        """One workspace, two programs, one Admin on a project in each — AND a member
+        of both programs (#4005), since these tests exercise cross-program name-
+        collision scoping and need the caller to actually see both programs'
+        galleries, not the RBAC visibility boundary itself (covered separately in
+        ``TestProgramScopedVisibility``).
+        """
         a = Project.objects.create(
             name="A1",
             start_date=date(2026, 4, 1),
@@ -865,7 +870,9 @@ class TestProgramScopedUniqueness:
             program=Program.objects.create(name="Program B"),
         )
         for project in (a, b):
+            assert project.program is not None
             ProjectMembership.objects.create(project=project, user=owner, role=Role.ADMIN)
+            ProgramMembership.objects.create(program=project.program, user=owner, role=Role.ADMIN)
             _shape(project)
         client = APIClient()
         client.force_authenticate(user=owner)
@@ -936,6 +943,168 @@ class TestProgramScopedUniqueness:
 
         assert str(second["supersedes"]) == str(own["id"])
         assert ProjectTemplate.objects.get(pk=shared.pk).superseded_by.exists() is False
+
+
+@pytest.mark.django_db
+class TestProgramScopedVisibility:
+    """A program-scoped template is offered only inside that program (#4005).
+
+    Before this fix, ``ProjectTemplateViewSet.get_queryset`` returned every
+    published template — program-scoped or not — to any authenticated caller,
+    and ``apply`` inherited that same unscoped queryset through ``get_object()``.
+    Any authenticated account could list a program's templates, read one, and
+    apply it to a throwaway project they made themselves (``POST /projects/``
+    mints the creator Owner), copying the source project's whole frozen
+    structure into a project they control. This is the RBAC boundary the
+    exploit crossed — distinct from :class:`TestProgramScopedUniqueness` above,
+    which covers name-collision behavior for a caller who legitimately belongs
+    to both pools.
+    """
+
+    @pytest.fixture
+    def program_a(self) -> Program:
+        return Program.objects.create(name="Program A")
+
+    @pytest.fixture
+    def program_a_template(self, calendar: Calendar, program_a: Program) -> ProjectTemplate:
+        project = Project.objects.create(
+            name="A1", start_date=date(2026, 4, 1), calendar=calendar, program=program_a
+        )
+        _shape(project)
+        return ProjectTemplate.objects.create(
+            name="Program A skeleton", program=program_a, structure=extract_structure(project)
+        )
+
+    @pytest.fixture
+    def workspace_template(self, calendar: Calendar) -> ProjectTemplate:
+        project = Project.objects.create(name="WS1", start_date=date(2026, 4, 1), calendar=calendar)
+        _shape(project)
+        return ProjectTemplate.objects.create(
+            name="Workspace skeleton", program=None, structure=extract_structure(project)
+        )
+
+    def _as(self, user: Any) -> APIClient:
+        client = APIClient()
+        client.force_authenticate(user=user)
+        return client
+
+    # -- non-member of P: list, retrieve, apply all refuse ------------------
+
+    def test_non_member_does_not_see_the_program_template_in_list(
+        self, program_a_template: ProjectTemplate, target_project: Project
+    ) -> None:
+        outsider = User.objects.create_user(username="outsider-list", password="pw")
+        ProjectMembership.objects.create(project=target_project, user=outsider, role=Role.OWNER)
+
+        resp = self._as(outsider).get("/api/v1/project-templates/")
+
+        assert resp.status_code == 200
+        assert str(program_a_template.pk) not in {r["id"] for r in resp.data["results"]}
+
+    def test_non_member_gets_404_on_retrieve(self, program_a_template: ProjectTemplate) -> None:
+        outsider = User.objects.create_user(username="outsider-retrieve", password="pw")
+
+        resp = self._as(outsider).get(f"/api/v1/project-templates/{program_a_template.pk}/")
+
+        assert resp.status_code == 404
+
+    def test_non_member_gets_404_on_apply_even_as_owner_of_the_target_project(
+        self, program_a_template: ProjectTemplate, target_project: Project
+    ) -> None:
+        """The exploit itself (#4005): a throwaway project the caller owns by
+        creation is not a door into a template from a program they never
+        joined. Must 404 through ``get_object()`` — a 403 would still confirm
+        the template exists and disclose its gallery metadata.
+        """
+        outsider = User.objects.create_user(username="outsider-apply", password="pw")
+        ProjectMembership.objects.create(project=target_project, user=outsider, role=Role.OWNER)
+
+        resp = self._as(outsider).post(
+            f"/api/v1/project-templates/{program_a_template.pk}/apply/",
+            {"project": str(target_project.pk)},
+            format="json",
+        )
+
+        assert resp.status_code == 404
+        assert TemplateApplication.objects.count() == 0
+
+    # -- member of P: sees P's templates plus the workspace-wide ones -------
+
+    def test_member_sees_the_programs_template_and_the_workspace_wide_one(
+        self,
+        program_a: Program,
+        program_a_template: ProjectTemplate,
+        workspace_template: ProjectTemplate,
+    ) -> None:
+        member = User.objects.create_user(username="member-list", password="pw")
+        ProgramMembership.objects.create(program=program_a, user=member, role=Role.MEMBER)
+
+        resp = self._as(member).get("/api/v1/project-templates/")
+
+        ids = {r["id"] for r in resp.data["results"]}
+        assert str(program_a_template.pk) in ids
+        assert str(workspace_template.pk) in ids
+
+    def test_member_sees_both_pools_with_the_program_query_param_too(
+        self,
+        program_a: Program,
+        program_a_template: ProjectTemplate,
+        workspace_template: ProjectTemplate,
+    ) -> None:
+        member = User.objects.create_user(username="member-scoped", password="pw")
+        ProgramMembership.objects.create(program=program_a, user=member, role=Role.MEMBER)
+
+        resp = self._as(member).get("/api/v1/project-templates/", {"program": str(program_a.pk)})
+
+        ids = {r["id"] for r in resp.data["results"]}
+        assert str(program_a_template.pk) in ids
+        assert str(workspace_template.pk) in ids
+
+    def test_member_can_apply_their_own_programs_template(
+        self, program_a: Program, program_a_template: ProjectTemplate, target_project: Project
+    ) -> None:
+        member = User.objects.create_user(username="member-apply", password="pw")
+        ProgramMembership.objects.create(program=program_a, user=member, role=Role.MEMBER)
+        ProjectMembership.objects.create(project=target_project, user=member, role=Role.OWNER)
+
+        resp = self._as(member).post(
+            f"/api/v1/project-templates/{program_a_template.pk}/apply/",
+            {"project": str(target_project.pk)},
+            format="json",
+        )
+
+        assert resp.status_code == 202, resp.data
+
+    # -- workspace-wide templates: visible regardless of program membership --
+
+    def test_workspace_wide_template_stays_visible_to_a_program_non_member(
+        self, workspace_template: ProjectTemplate
+    ) -> None:
+        outsider = User.objects.create_user(username="outsider-ws-list", password="pw")
+
+        resp = self._as(outsider).get("/api/v1/project-templates/")
+
+        assert str(workspace_template.pk) in {r["id"] for r in resp.data["results"]}
+
+    def test_workspace_wide_template_retrieve_stays_open_to_a_program_non_member(
+        self, workspace_template: ProjectTemplate
+    ) -> None:
+        outsider = User.objects.create_user(username="outsider-ws-retrieve", password="pw")
+
+        resp = self._as(outsider).get(f"/api/v1/project-templates/{workspace_template.pk}/")
+
+        assert resp.status_code == 200
+
+    # -- superuser bypass -----------------------------------------------------
+
+    def test_superuser_sees_a_program_scoped_template_with_no_membership(
+        self, program_a_template: ProjectTemplate
+    ) -> None:
+        root = User.objects.create_superuser(username="root", password="pw")
+
+        resp = self._as(root).get("/api/v1/project-templates/")
+
+        assert str(program_a_template.pk) in {r["id"] for r in resp.data["results"]}
 
 
 class TestUsageCount:

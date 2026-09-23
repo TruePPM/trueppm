@@ -3,8 +3,11 @@
 RBAC follows ADR-0773's matrix, which already decided this before any code:
 **"Apply a template" is Admin+** (Owner and Admin; Viewer, Member and Scheduler
 cannot). Publishing is likewise Admin+ on the source project. *Reading* the gallery
-needs only authentication — a Member should be able to see what skeletons exist
-without being able to fire one at a project.
+needs only authentication and — for a program-scoped template — live membership in
+that program (#4005); a Member should be able to see what skeletons exist without
+being able to fire one at a project, but only for programs they actually belong to.
+Workspace-wide templates (``program`` null) stay visible to every authenticated
+caller regardless of program membership.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from trueppm_api.apps.access.models import Role
+from trueppm_api.apps.access.models import ProgramMembership, Role
 from trueppm_api.apps.access.permissions import (
     IsProjectNotArchived,
     _membership_role,
@@ -411,11 +414,22 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
     permission_classes = [IsAuthenticated]  # noqa: RUF012
 
     def get_queryset(self) -> QuerySet[ProjectTemplate]:
-        """Published templates in scope: workspace-wide, or this program's.
+        """Published templates in scope: workspace-wide, or a program the caller belongs to.
 
-        ``?program=`` narrows to a program's own templates *plus* the workspace-wide
-        ones — a program-scoped gallery that hid the shared skeletons would be
-        emptier than the user expects and would push them to republish duplicates.
+        A program-scoped template (``program`` set) is offered only inside that
+        program (the invariant stated on :class:`ProjectTemplate`, ADR-0789) — a
+        non-member must not be able to list, retrieve, or ``apply`` it (#4005). The
+        membership check runs as a subquery (``ProgramMembership.live()`` filtered to
+        the caller, projected to ``program_id``), not a Python-evaluated list, so it
+        costs one extra join rather than N extra queries. Superusers bypass the
+        membership floor, matching the existing admin-visibility precedent elsewhere
+        in this app.
+
+        ``?program=`` further narrows to a program's own templates *plus* the
+        workspace-wide ones — a program-scoped gallery that hid the shared skeletons
+        would be emptier than the user expects and would push them to republish
+        duplicates. It narrows the already-membership-scoped queryset; it cannot
+        widen it back out to a program the caller does not belong to.
         """
         qs = (
             ProjectTemplate.objects.filter(is_published=True)
@@ -449,6 +463,22 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
                 "-version",
             )
         )
+        # `getattr(self.request, "user", None)` rather than `self.request.user`: schema
+        # introspection (drf-spectacular resolving the `id` path parameter's type)
+        # calls `get_queryset()` with `self.request` unset, and `IsAuthenticated`
+        # already refuses a real unauthenticated caller before this method runs — the
+        # same guard `DependencyViewSet.get_queryset()` (projects/views.py) uses for
+        # the identical reason. An unauthenticated/unresolvable caller sees only the
+        # workspace-wide pool, the most restrictive branch, never every program's
+        # templates.
+        user = getattr(self.request, "user", None)
+        if user is None or not getattr(user, "is_authenticated", False):
+            qs = qs.filter(program__isnull=True)
+        elif not user.is_superuser:
+            member_program_ids = (
+                ProgramMembership.live().filter(user=cast("Any", user)).values("program_id")
+            )
+            qs = qs.filter(Q(program__isnull=True) | Q(program_id__in=member_program_ids))
         program_id = self.request.query_params.get("program")
         if program_id:
             qs = qs.filter(Q(program_id=program_id) | Q(program__isnull=True))
