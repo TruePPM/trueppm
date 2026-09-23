@@ -550,6 +550,18 @@ api_svc="$(helm template "$RELEASE" "$CHART" --set image.tag="$RELEASE_IMAGE_TAG
 [ -n "$probe_host" ] || fail "could not resolve the probe Host header from the render (#3183)"
 [ -n "$api_svc" ] || fail "could not resolve the api Service name from the render"
 allowed_hosts="${probe_host},${api_svc},localhost,127.0.0.1"
+# The demo leg's render has no Ingress (ingress.enabled=false, #4018's
+# NetworkPolicy-guard comment above explains why), so the demo-probe reaches
+# the deployment through the web Service's own in-cluster DNS name rather than
+# an ingress host. templates/web/configmap.yaml's demo server block forwards
+# that unchanged (`proxy_set_header Host $host;`) to Django on every
+# /api/v1/share/... call, so without it here every one of those calls fails
+# get_host()'s check with 400 DisallowedHost before section 10's allowlist
+# matrix ever sees a real response — the two "public projection" checks and
+# both throttle-property checks depend on it.
+if [ "$DRILL_LEG" = "demo" ]; then
+  allowed_hosts="${allowed_hosts},${demo_web_svc}.default.svc.cluster.local"
+fi
 log "ALLOWED_HOSTS=${allowed_hosts}"
 
 log "creating trueppm-env secret"
