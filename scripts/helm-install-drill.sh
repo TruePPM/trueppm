@@ -1225,6 +1225,16 @@ check_beat_health
 # in reach — no connection strings needed here. It must exit non-zero rather than
 # start with an insecure default.
 log "negative probe: api image without SECRET_KEY must refuse to start"
+# `integration_key` is set by the generic (non-walkthrough) branch above
+# (section 3) for its own Secret, and the walkthrough leg never sets it —
+# it builds its own INTEGRATION_ENCRYPTION_KEY inline inside
+# setup_walkthrough_datastores() instead, scoped to that function's own
+# `kubectl create secret` call, not this variable. This probe needs no
+# leg's real key: INTEGRATION_ENCRYPTION_KEY only has to be present and
+# valid-looking so the pod fails on the missing SECRET_KEY specifically,
+# not on this one — so generate a fresh throwaway value unconditionally
+# here rather than depend on a variable only some legs set.
+integration_key="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_')"
 # ALLOWED_HOSTS='*' is deliberate here, and only here: this throwaway pod must
 # fail on SECRET_KEY alone, so host validation is taken out of the picture. It
 # never serves a request (#3183).
