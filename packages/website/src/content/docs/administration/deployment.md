@@ -60,9 +60,18 @@ docker compose exec api cat /tmp/trueppm_admin_password
 
 **Good for:** local development, evaluation, demos.
 
-Unlike the single-server stack below, this development stack is not yet started
-by any CI job; only its image pins and project name are checked statically. A
-boot drill is tracked in [#4026](https://gitlab.com/trueppm/trueppm/-/work_items/4026).
+This stack is now booted in CI, not just rendered and grepped: a `compose:dev`
+job ([#4026](https://gitlab.com/trueppm/trueppm/-/work_items/4026)) runs on
+every change to `docker-compose.yml` or the api/web Dockerfiles, plus a nightly
+schedule. It builds the api/web images from the commit under test — the dev
+build target is a different path from the runtime image the Helm/Compose-prod
+drills use, so this is the only CI job that exercises it — then confirms `db`,
+`valkey`, and `api` reach `healthy` (which doubles as proving migrations
+completed), that the bootstrapped admin password actually authenticates, that
+the Vite dev server serves the SPA on `:5173`, and that both `celery` and
+`celery-beat` are genuinely dispatching work rather than merely running. What
+it does not cover: multi-developer contention, sustained load, or any topology
+other than the single-machine one `docker compose up -d` gives you.
 
 **Not for shared or production use, even a small team.** This stack hardcodes
 `POSTGRES_PASSWORD: trueppm` and `SECRET_KEY: dev-secret-key-change-in-prod` in
@@ -93,7 +102,7 @@ container from the public internet:
 | `GET /api/v1/share/{schedule,board}/<token>/` | The anonymous, read-only, throttled share-link projections — the demo's only data plane. |
 | `GET /api/v1/health/` | Liveness probe for an upstream load balancer / ingress. |
 | `/static/` | Django-collected static assets (admin CSS, etc.). |
-| `/admin/` | Django admin — additionally restricted to loopback; reach it via an SSH tunnel. From 0.4 the API answers `404` here regardless, because this stack runs `settings.prod` and does not set `TRUEPPM_DJANGO_ADMIN_ENABLED` — the demo has no accounts to administer. |
+| `/admin/` | Django admin — closed unconditionally by nginx's own `deny all`, which returns `403` before the request ever reaches the `api` container; the request never gets a chance to hit Django at all. Even a direct connection to `api` would find no accounts to administer, since this stack runs without `TRUEPPM_DJANGO_ADMIN_ENABLED`. |
 
 Every **other** `/api/` route — `auth/token` and the rest of the auth surface,
 every project viewset, the Admin-only share-link *management* endpoints, workspace
@@ -106,6 +115,23 @@ This posture is a deliberate decision, not an accident of configuration: a CI ga
 ever regresses to proxying anything beyond this allowlist. Production
 (`nginx/app-http.conf.template`) intentionally proxies **all** of `/api/` — correct
 there, because production is authenticated and has real accounts.
+
+That static gate proves the *template* declares the right routes; a `compose:demo`
+job ([#4026](https://gitlab.com/trueppm/trueppm/-/work_items/4026)) additionally
+BOOTS this stack — on every change to `docker-compose.demo.yml` or
+`nginx/demo.conf.template`, plus a nightly schedule — and confirms `api-init` and
+`demo-seed` each exit cleanly, that the share URL `demo-seed` prints actually
+renders through nginx, that the underlying share API answers with no
+authentication, and that every route in the table above behaves exactly as
+documented — including the `403` on `/admin/`, which is a live boot assertion
+rather than a read of the config: this page previously described that route as
+answering `404`, which was true of Django but not of what a client actually
+receives, since nginx's `deny all` never lets the request reach Django at all.
+The drill runs against images retagged from the commit under test, not pulled
+from GHCR, so a compose- or nginx-template change lands against HEAD
+application code rather than the last release. It does not drill Cloudflare
+Access or the `try.trueppm.com` edge — those sit in front of this stack, not
+inside it.
 
 ## Kubernetes with Helm
 
@@ -684,26 +710,38 @@ generated admin password with `kubectl exec` against the shared password volume
 as described in [Admin password setup](/administration/admin-password/).
 
 An install-and-`helm test` drill runs in CI on every chart change and on a
-nightly schedule. `helm:install` installs from empty; `helm:upgrade` installs the
-previous published chart and upgrades it in place. A static gate
-(`helm:template`) runs alongside them: it renders the chart, validates every
-object against the Kubernetes schema with `kubeconform`, and asserts the deploy
-contract (init-container order, secret propagation to the init containers, the
-shared admin-password volume).
+nightly schedule, across four legs, each installing a different configuration on
+a fresh kind cluster:
 
-Be precise about what the drills prove. They install the **bundled-datastore
-evaluation configuration** described above: the `trueppm-env` Secret,
-`persistence.media` with `ReadWriteOnce`, and a single-node kind cluster in the
-`default` namespace. They also relax the Celery worker's liveness probe and widen
-the beat probe for shared CI runners. The production path is **not** drilled
-yet: `values-prod.yaml`, managed datastores, a named namespace, and the chart's
-default probe timings. That drill is tracked in
-[#4027](https://gitlab.com/trueppm/trueppm/-/work_items/4027). Until it lands,
-`helm test` on your own install is the evidence for that path. If you don't
-specifically need Kubernetes, [Single server with
-systemd](#single-server-with-systemd) is the more currently-proven production
-option: it already gets a live boot in CI on every relevant change
-(`compose:prod`/`compose:prod:tls`), the same assurance #4027 will bring here.
+| Leg | Configuration | Namespace |
+|-----|---------------|-----------|
+| `helm:install` | Bundled PostgreSQL/Valkey, chart defaults + `persistence.media` (`ReadWriteOnce`) | `default` |
+| `helm:upgrade` | Installs the previous published chart, then `helm upgrade`s it to HEAD in place | `default` |
+| `helm:demo` | The public read-only demo overlay (`values-demo.yaml`) | `default` |
+| `helm:walkthrough` | **This page's production walkthrough, followed step for step**: a named `trueppm` namespace, `values-prod.yaml` + the `my-values.yaml` shown above, bundled datastores disabled, and a managed PostgreSQL (TLS on, `sslmode=require`) + Valkey reached the documented `env.*.secretKeyRef` way | `trueppm` |
+
+All four run `helm test`, retrieve the admin password (`helm:walkthrough` via
+the exact `kubectl exec … deployment/trueppm-api` command shown above), assert
+the Celery worker answers a control-plane ping, and check Celery beat is a
+Running, non-restarting singleton. A static gate (`helm:template`) runs
+alongside them: it renders the chart, validates every object against the
+Kubernetes schema with `kubeconform`, and asserts the deploy contract
+(init-container order, secret propagation to the init containers, the shared
+admin-password volume). `scripts/check-helm-walkthrough-drift.py`
+(`docs:helm-walkthrough-drift`) checks the `helm:walkthrough` leg's commands —
+namespace/Secret order, the datastore-URL `secretKeyRef` shape, Secret names,
+`ALLOWED_HOSTS` — stay identical to this page's own fenced code blocks, so the
+drill and the doc cannot silently diverge again the way they did before #4025.
+
+Be precise about what every leg relaxes for shared CI runners, regardless of
+configuration: the Celery worker's liveness probe is off and the beat probe is
+widened (`scripts/helm-install-drill.sh`'s `CELERY_PROBE_OVERRIDES`, needed on
+every leg including `helm:walkthrough` — the chart's own probe defaults are
+unchanged by this, and self-hosted production runs them unmodified). No leg
+runs a real Ingress controller; `helm:walkthrough` sets
+`ingress.hosts[0].host` to a resolvable placeholder purely so the API's
+readiness probe gets a `Host` header (see the `ALLOWED_HOSTS` callout above) —
+it does not exercise [Ingress and edge TLS](#ingress-and-edge-tls) end to end.
 
 :::note
 The Helm chart is functional with dev and prod values overlays and was hardened

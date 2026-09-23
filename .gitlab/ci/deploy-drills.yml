@@ -1,7 +1,8 @@
 # Deploy drills (#4036, part of #4035): the dind / kind-in-dind jobs that BOOT
 # the shipped artifacts — ci:build-deploy-images and the drills that `needs:` it
-# (helm:install, helm:upgrade, helm:demo, compose:prod, compose:prod:tls,
-# helm:netpol), plus backup:restore-drill.
+# (helm:install, helm:upgrade, helm:demo, helm:walkthrough, compose:prod,
+# compose:prod:tls, compose:dev, compose:demo, helm:netpol), plus
+# backup:restore-drill.
 #
 # They live in their own include so their `changes:` lists can name THIS file
 # instead of the whole .gitlab-ci.yml. Keyed on the root file, any edit to any
@@ -68,11 +69,14 @@ ci:build-deploy-images:
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
   # The changes: list is the UNION of every drill that `needs:` this job —
-  # helm:install, compose:prod (#2817) AND helm:netpol (#2944). It has to be a
-  # superset: a drill scheduled without this job is a pipeline configuration
-  # error that fails the whole pipeline instantly with zero jobs, not a skipped
-  # drill. helm-netpol-drill.sh was missing here until #2944, so an MR touching
-  # only that script scheduled helm:netpol against a `needs:` that did not exist.
+  # helm:install, compose:prod (#2817), helm:netpol (#2944) AND helm:walkthrough
+  # (#4027). It has to be a superset: a drill scheduled without this job is a
+  # pipeline configuration error that fails the whole pipeline instantly with
+  # zero jobs, not a skipped drill. helm-netpol-drill.sh was missing here until
+  # #2944, so an MR touching only that script scheduled helm:netpol against a
+  # `needs:` that did not exist — the deployment.md path below exists so the
+  # same class of gap cannot recur for helm:walkthrough, which triggers on that
+  # doc changing.
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
       allow_failure: true
@@ -83,6 +87,7 @@ ci:build-deploy-images:
         - scripts/helm-install-drill.sh
         - scripts/prod-compose-drill.sh
         - scripts/helm-netpol-drill.sh
+        - packages/website/src/content/docs/administration/deployment.md
         - docker-compose.prod.yml
         - init-prod.sh
         - .env.example
@@ -322,6 +327,84 @@ helm:demo:
   script:
     - bash scripts/helm-install-drill.sh
 
+helm:walkthrough:
+  # Runtime smoke test of the DOCUMENTED PRODUCTION WALKTHROUGH on a real kind
+  # cluster (#4027) — the path helm:install/helm:upgrade/helm:demo never touch.
+  # Those three all install into the `default` namespace with the bundled
+  # postgresql/valkey subcharts on; none of them exercises a named namespace,
+  # values-prod.yaml, or managed datastores supplied the documented
+  # env.DATABASE_URL/env.REDIS_URL secretKeyRef way. That gap is how two
+  # walkthrough steps shipped broken on green pipelines (#4025): the Secret was
+  # created in a namespace that did not exist yet, and the documented way to
+  # supply managed datastore URLs failed the chart's render.
+  #
+  # `helm install` administration/deployment.md's walkthrough step for step: a
+  # named `trueppm` namespace, the app Secret exactly as the page shows, a
+  # "managed" PostgreSQL (TLS on, so `sslmode=require` is a real negotiated
+  # handshake, not just a substring) + Valkey stood up by this drill OUTSIDE
+  # the chart's own release, reached via the documented secretKeyRef form, then
+  # the same assertions the other legs use (rollout, `helm test`, admin
+  # password via the documented `kubectl exec` command, worker ping, beat
+  # health). scripts/check-helm-walkthrough-drift.py (docs:helm-walkthrough-
+  # drift in .gitlab-ci.yml) is the static half — it asserts the commands
+  # below stay aligned with deployment.md's own fenced code blocks; this job
+  # is the runtime half, actually booting them (DRILL_LEG=walkthrough in the
+  # same script — see its header comment). See scripts/helm-install-drill.sh.
+  #
+  # Trigger: MRs and main pushes that touch the chart, the drill, this file, or
+  # the walkthrough doc itself, plus the nightly schedule — matching the other
+  # three legs. BLOCKING on MR + main for the same reason those three are: the
+  # drill runs HEAD chart against HEAD application code, so a red is a real
+  # deploy regression, not version skew. Schedule stays advisory
+  # (allow_failure): a nightly infra blip on the shared runner fleet is a
+  # signal, not a hard red. `needs:` the same per-commit image build as the
+  # other three legs, so it drills real code.
+  stage: test
+  interruptible: false
+  timeout: 25m
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  needs:
+    - job: ci:build-deploy-images
+      artifacts: false
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    KIND_VERSION: "0.24.0"
+    KUBECTL_VERSION: "1.31.2"
+    HELM_VERSION: "3.16.3"
+    RELEASE_IMAGE_TAG: "$CI_COMMIT_SHA"
+    APISERVER_HOST: "docker"
+    DRILL_LEG: "walkthrough"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: &helm-walkthrough-paths
+        - packages/helm/**/*
+        - scripts/helm-install-drill.sh
+        - packages/website/src/content/docs/administration/deployment.md
+        - .gitlab/ci/deploy-drills.yml
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *helm-walkthrough-paths
+  before_script:
+    # openssl mints the managed-postgres self-signed TLS certificate;
+    # python3 is what deployment.md's own INTEGRATION_ENCRYPTION_KEY command
+    # uses — this leg runs that command VERBATIM (see setup_walkthrough_
+    # datastores in scripts/helm-install-drill.sh), unlike the other three
+    # legs, which generate it a different way specifically because this image
+    # does not carry python3 by default.
+    - apk add --no-cache bash curl openssl python3
+    - curl -sSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && chmod +x /usr/local/bin/kind
+    - curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && chmod +x /usr/local/bin/kubectl
+    - curl -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm && mv /tmp/linux-amd64/helm /usr/local/bin/helm
+    - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
+  script:
+    - bash scripts/helm-install-drill.sh
+
 compose:prod:
   # Production docker-compose BOOT drill (#2817): the runtime half of the
   # prod-compose completeness fix (#2804, !1945), whose three fixes were all
@@ -413,6 +496,127 @@ compose:prod:tls:
   extends: compose:prod
   variables:
     TLS_MODE: "selfsigned"
+
+compose:dev:
+  # Development-stack docker-compose BOOT drill (#4026): the runtime
+  # counterpart of compose:prod, for the OTHER compose file most evaluators and
+  # contributors actually run first. installation.md's entire "Docker Compose"
+  # section is `docker compose up -d` against the UNMODIFIED docker-compose.yml
+  # — until this job, nothing ever started it; compose:image-pins and
+  # compose:project-names only render and grep it statically. The #2817/#2828
+  # base rate (four independently fatal faults in a compose file that rendered
+  # clean under `docker compose config`) applies here exactly as it did to the
+  # prod stack, and this was the one documented, first-run path with none of
+  # that evidence.
+  #
+  # Builds the api/web images from THIS commit via `docker compose up -d
+  # --build`, rather than reusing ci:build-deploy-images: the dev build target
+  # (packages/api/Dockerfile's `[binary]` psycopg extra, packages/web/
+  # Dockerfile's Vite-dev-server stage) is a DIFFERENT build path from the
+  # runtime image that job produces, so nothing else in CI exercises it.
+  # Asserts db/valkey/api reach `healthy` (api's own healthcheck IS
+  # /api/v1/readyz, so this doubles as the migration-completion check), the
+  # bootstrapped admin password at /tmp/trueppm_admin_password authenticates,
+  # the Vite dev server serves the SPA on :5173, the celery worker answers
+  # `inspect ping`, and /api/v1/health/beat/ returns 200 — proving celery-beat
+  # actually dispatches rather than merely being declared. See
+  # scripts/dev-demo-compose-drill.sh for the full rationale.
+  #
+  # BLOCKING on MR + main: a red here is a real regression in the first path
+  # most evaluators take. Schedule stays advisory for the same shared-runner
+  # infra-blip reason as every other drill in this file.
+  #
+  # Not `interruptible`: a rebased push must not abort a half-created stack and
+  # leak its containers/volumes into the dind daemon.
+  stage: test
+  interruptible: false
+  timeout: 25m
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    DRILL_MODE: "dev"
+    # The dind service publishes the stack's ports under this hostname; locally
+    # the script defaults the same variable to "docker" too, but a developer
+    # overrides it to "localhost".
+    PROBE_HOST: "docker"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: &dev-demo-drill-paths
+        - docker-compose.yml
+        - docker-compose.demo.yml
+        - packages/api/Dockerfile
+        - packages/web/Dockerfile
+        - nginx/demo.conf.template
+        - scripts/dev-demo-compose-drill.sh
+        - .gitlab/ci/deploy-drills.yml
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *dev-demo-drill-paths
+  before_script:
+    - apk add --no-cache bash curl python3 docker-cli-compose
+    - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
+  script:
+    - bash scripts/dev-demo-compose-drill.sh
+
+compose:demo:
+  # Public-demo docker-compose BOOT drill (#4026): the sibling of compose:dev
+  # for docker-compose.demo.yml, the path try-it.md leads every evaluator
+  # through as the "one command, zero config" local trial. Its api/web images
+  # reference published `ghcr.io/trueppm/{api,web}:${APP_VERSION:-latest}` tags
+  # rather than a build context (#939, #2271) — this job retags the SAME
+  # per-commit images ci:build-deploy-images just built under those names (the
+  # identical accommodation compose:prod makes for docker-compose.prod.yml), so
+  # the drill boots HEAD code and touches GHCR not at all. `needs:` that job
+  # for exactly this reason, same as compose:prod.
+  #
+  # Asserts db/valkey reach `healthy`, api-init and demo-seed each exit 0, api
+  # reaches `healthy`, the share URL demo-seed prints renders the SPA through
+  # nginx, the underlying share API answers with no authentication, and the
+  # nginx allowlist deployment.md documents holds — /api/v1/health/ stays
+  # open, /robots.txt disallows everything, and three representative closed
+  # routes (auth/token, an authenticated viewset, /admin/) come back 404/403
+  # rather than reaching Django. See scripts/dev-demo-compose-drill.sh for the
+  # full rationale, including what this leg does NOT prove — Cloudflare Access
+  # and the try.trueppm.com edge are outside any compose file, so this only
+  # ever speaks to the boot chain a self-hoster's own `docker compose -f
+  # docker-compose.demo.yml up` would drive.
+  #
+  # BLOCKING on MR + main, same reasoning as compose:dev. Schedule advisory.
+  stage: test
+  interruptible: false
+  timeout: 25m
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  needs:
+    - job: ci:build-deploy-images
+      artifacts: false
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    DRILL_MODE: "demo"
+    RELEASE_IMAGE_TAG: "$CI_COMMIT_SHA"
+    PROBE_HOST: "docker"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: *dev-demo-drill-paths
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *dev-demo-drill-paths
+  before_script:
+    - apk add --no-cache bash curl python3 docker-cli-compose
+    - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
+  script:
+    - bash scripts/dev-demo-compose-drill.sh
 
 helm:netpol:
   # Datastore NetworkPolicy ENFORCEMENT drill (#2560). See

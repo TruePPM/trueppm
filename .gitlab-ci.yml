@@ -1482,6 +1482,29 @@ docs:api-routes:
     - python3 scripts/check-docs-api-routes.py --self-test
     - python3 scripts/check-docs-api-routes.py
 
+docs:helm-walkthrough-drift:
+  extends: .fast-job
+  # scripts/helm-install-drill.sh's `walkthrough` leg (#4027) drills
+  # deployment.md's "Production install walkthrough" step for step; nothing
+  # enforced that the two stay aligned, which is exactly how #4025's two bugs
+  # shipped (Secret created before its namespace existed; DATABASE_URL supplied
+  # in a shape the chart's render rejects). Checks namespace/Secret creation
+  # order, the datastore-URL secretKeyRef shape, Secret names, and the literal
+  # ALLOWED_HOSTS value stay identical between the doc and the drill script —
+  # see scripts/check-helm-walkthrough-drift.py's own docstring. ~1s, no
+  # cluster, no network — this is the STATIC half; the live walkthrough boot
+  # runs in helm:walkthrough below.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache python3
+  script:
+    - python3 scripts/check-helm-walkthrough-drift.py --self-test
+    - python3 scripts/check-helm-walkthrough-drift.py
+
 docs:adr-status:
   extends: .fast-job
   # ADR status-drift gate (#2685). An ADR cited by name from packages/*/src must

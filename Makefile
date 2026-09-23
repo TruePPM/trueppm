@@ -504,6 +504,14 @@ docs-api-routes-check: ## Run the docs:api-routes CI job locally (#3753)
 	@python3 scripts/check-docs-api-routes.py --self-test
 	@python3 scripts/check-docs-api-routes.py
 
+helm-walkthrough-drift-check: ## Run the docs:helm-walkthrough-drift CI job locally (#4027)
+	@# scripts/helm-install-drill.sh's walkthrough leg must keep running the SAME
+	@# namespace/Secret/my-values.yaml commands deployment.md documents — see
+	@# scripts/check-helm-walkthrough-drift.py's own docstring for the two bugs
+	@# (#4025) this catches a recurrence of. ~1s, no cluster, no network.
+	@python3 scripts/check-helm-walkthrough-drift.py --self-test
+	@python3 scripts/check-helm-walkthrough-drift.py
+
 e2e-catchall-check: ## Run the lint:e2e-catchall CI job locally (#2941)
 	@bash scripts/check-e2e-catchall.sh --self-test
 	@bash scripts/check-e2e-catchall.sh
@@ -642,6 +650,7 @@ pre-push-checks: ws-event-reachability-check
 pre-push-checks: ws-handler-conformance-check
 pre-push-checks: docs-internal-links-check
 pre-push-checks: docs-api-routes-check
+pre-push-checks: helm-walkthrough-drift-check
 pre-push-checks: e2e-catchall-check
 pre-push-checks: demo-nginx-allowlist-check
 pre-push-checks: chart-registry-check
