@@ -948,16 +948,44 @@ def _resolve_edges(
 ) -> list[_EdgeEntry]:
     """Resolve and role-gate every proposed edge; return the survivors.
 
-    Two gates, both per-edge rather than per-request, so a Member's task rows still
-    apply and only their edge rows reject (ADR-0772 §3).
+    Three gates, all per-edge rather than per-request, so a Member's task rows still
+    apply and only their edge rows reject (ADR-0772 §3):
+
+    1. The caller must hold Scheduler+ on ``ctx.project`` — the floor for authoring
+       dependencies through this endpoint at all (dependency ops sit one role above
+       this view's own ``IsProjectMemberWrite`` floor; accepting edges under the
+       view's own gate would silently hand dependency authoring to Member).
+    2. Both endpoints must resolve to a live task.
+    3. For a SAME-project edge, the caller must ALSO hold Scheduler+ on the
+       endpoints' *actual* project — which is not necessarily ``ctx.project``
+       (#4011). Gate 1 only checks role on ``ctx.project``, so without this an
+       Owner of a throwaway project could submit an edge between two tasks that
+       both happen to live in a FOREIGN project they are not a member of: the
+       existence check in gate 2 has no project filter, and nothing downstream
+       re-checked the edge's real project before writing it. A cross-project
+       edge is exempt from gate 3 — it is authorized (and consent-gated) by
+       ``DependencySerializer._resolve_cross_project_consent``, which reads
+       real request-scoped membership on both endpoint projects independently
+       of ``ctx.project`` and is unaffected by this bug.
+
+       Gate 3 rejects with the SAME code as gate 2's unresolved-endpoint case,
+       rather than a distinguishing forbidden/denied code — collapsing "task
+       exists, you cannot reach it" into "task does not resolve" closes the
+       existence oracle a distinct code would open (an attacker could
+       otherwise fish for live task ids anywhere in the install by diffing
+       reject codes across projects they are not a member of).
+
+    Both the existence check (gate 2) and the new per-project role check
+    (gate 3) are batched over the whole ``edge_rows`` list — one query each —
+    rather than once per row, so resolution stays O(1) queries in the batch
+    size rather than O(edges).
     """
+    from trueppm_api.apps.access.models import ProjectMembership
     from trueppm_api.apps.projects.models import Task
 
-    survivors: list[_EdgeEntry] = []
+    # Pass 1 — syntactic validation only, no DB access.
+    parsed: list[tuple[int, dict[str, Any], uuid.UUID, uuid.UUID]] = []
     for index, row in enumerate(edge_rows):
-        # Dependency ops sit at IsProjectScheduler — one role ABOVE this view's
-        # IsProjectMemberWrite floor. Accepting edges under the view's own gate
-        # would silently hand dependency authoring to Member.
         if ctx.caller_role < Role.SCHEDULER:
             out.dep_reject(
                 index, CODE_FORBIDDEN, "Your role cannot create dependencies on this project."
@@ -975,17 +1003,59 @@ def _resolve_edges(
         if pred is None or succ is None:
             out.dep_reject(index, CODE_MALFORMED_ID, "Edge endpoints must be task UUIDs.")
             continue
-        # Forward references are legal: an edge may name a task whose create op
-        # appears LATER in `operations`, because phase 1 has already materialized
-        # every row by the time we get here.
-        live = set(
-            Task.objects.filter(pk__in=[pred, succ], is_deleted=False).values_list("pk", flat=True)
+        parsed.append((index, row, pred, succ))
+
+    if not parsed:
+        return []
+
+    # Pass 2 — resolve every referenced task's project in ONE query. Forward
+    # references are legal: an edge may name a task whose create op appears
+    # LATER in `operations`, because phase 1 has already materialized every
+    # row by the time we get here.
+    all_ids = {tid for _index, _row, pred, succ in parsed for tid in (pred, succ)}
+    project_by_task: dict[uuid.UUID, uuid.UUID] = dict(
+        Task.objects.filter(pk__in=all_ids, is_deleted=False).values_list("pk", "project_id")
+    )
+
+    # Pass 3 — which foreign projects a role lookup is needed for: same-project
+    # edges whose (single, shared) project is not ctx.project. Skipped for an
+    # edge with an unresolved endpoint (handled as gate 2 below) and for a
+    # cross-project edge (gate 3 does not apply to it).
+    foreign_project_ids: set[uuid.UUID] = {
+        project_by_task[pred]
+        for _index, _row, pred, succ in parsed
+        if project_by_task.get(pred) is not None
+        and project_by_task.get(pred) == project_by_task.get(succ)
+        and project_by_task[pred] != ctx.project.pk
+    }
+    role_by_project: dict[uuid.UUID, int] = (
+        dict(
+            ProjectMembership.objects.filter(
+                user=ctx.caller, project_id__in=foreign_project_ids, is_deleted=False
+            ).values_list("project_id", "role")
         )
-        if pred not in live or succ not in live:
+        if foreign_project_ids
+        else {}
+    )
+
+    survivors: list[_EdgeEntry] = []
+    for index, row, pred, succ in parsed:
+        pred_proj = project_by_task.get(pred)
+        succ_proj = project_by_task.get(succ)
+        if pred_proj is None or succ_proj is None:
             out.dep_reject(
                 index, CODE_UNRESOLVED_ENDPOINT, "Edge endpoint does not resolve to a live task."
             )
             continue
+        if pred_proj == succ_proj and pred_proj != ctx.project.pk:
+            role = role_by_project.get(pred_proj)
+            if role is None or role < Role.SCHEDULER:
+                out.dep_reject(
+                    index,
+                    CODE_UNRESOLVED_ENDPOINT,
+                    "Edge endpoint does not resolve to a live task.",
+                )
+                continue
         survivors.append((index, row, str(pred), str(succ)))
     return survivors
 

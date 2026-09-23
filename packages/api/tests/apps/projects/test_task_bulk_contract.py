@@ -769,6 +769,86 @@ def test_a_cross_project_edge_without_successor_access_is_forbidden(
 
 
 @pytest.mark.django_db
+def test_a_same_project_edge_entirely_inside_a_foreign_project_is_rejected(
+    owner_client: APIClient, project: Project, other_project: Project
+) -> None:
+    """#4011 — the exploit: an Owner of a throwaway project mints a dependency
+    edge between two tasks that both live in a project they are NOT a member of.
+
+    `_resolve_edges`'s role gate only checked `ctx.caller_role` — the caller's
+    role on the URL's own project — never the edge's actual project(s). Since
+    both endpoints here share `other_project`, this is neither the top-of-batch
+    floor check (which only ever inspects `project`) nor a cross-project edge
+    (which the serializer's consent gate already authorized correctly): it fell
+    through both gates and reached `DependencySerializer.validate()`, where
+    `_authorize_same_project_edge` no-opped because the bulk path builds its
+    context with `request` but no `view`.
+
+    The reject code must be `unresolved_endpoint`, matching a task that does not
+    exist at all — not a distinguishing `forbidden` — so the response cannot be
+    used as an oracle for "this task id exists in a project I can't reach."
+    """
+    pred = Task.objects.create(project=other_project, name="Pred", duration=1)
+    succ = Task.objects.create(project=other_project, name="Succ", duration=1)
+    with _no_side_effects():
+        r = owner_client.post(
+            url(project),
+            {
+                # A benign row in the caller's own project — operations requires
+                # at least one — unrelated to the foreign edge under test.
+                "operations": [{"op": "create", "data": {"name": "Unrelated", "duration": 1}}],
+                "dependencies": {
+                    "created": [{"predecessor": str(pred.pk), "successor": str(succ.pk)}]
+                },
+            },
+            format="json",
+        )
+    assert r.status_code == 207, r.data
+    assert [e["code"] for e in r.data["dependencies"]["rejected"]] == ["unresolved_endpoint"]
+    assert r.data["dependencies"]["rejected"][0]["id"] is None
+    assert not Dependency.objects.filter(predecessor=pred, successor=succ).exists()
+
+
+@pytest.mark.django_db
+def test_dependency_serializer_same_project_edge_with_request_but_no_view_is_denied(
+    project: Project,
+) -> None:
+    """#4011 — `_authorize_same_project_edge` must fail closed when `view` is
+    absent from context but `request` is present, rather than no-op.
+
+    This is exactly the context shape `POST /tasks/bulk/` builds the serializer
+    with (`_row_serializer_context` sets `request` and never `view`). Exercised
+    directly against the serializer, independent of the bulk endpoint's own
+    per-edge role gate, so a regression in either one is still caught by the
+    other.
+    """
+    from rest_framework.exceptions import PermissionDenied
+    from rest_framework.request import Request
+    from rest_framework.test import APIRequestFactory
+
+    from trueppm_api.apps.projects.serializers import DependencySerializer
+
+    a = Task.objects.create(project=project, name="A", duration=1)
+    b = Task.objects.create(project=project, name="B", duration=1)
+    User = get_user_model()
+    outsider = User.objects.create_user(username="outsider_ctx", password="pw")
+    # Deliberately no ProjectMembership — outsider has no role on `project`.
+
+    django_request = APIRequestFactory().post("/")
+    django_request.user = outsider
+    drf_request = Request(django_request)
+    drf_request.user = outsider
+
+    ser = DependencySerializer(
+        data={"predecessor": str(a.pk), "successor": str(b.pk)},
+        context={"request": drf_request},
+    )
+    with pytest.raises(PermissionDenied):
+        ser.is_valid()
+    assert not Dependency.objects.filter(predecessor=a, successor=b).exists()
+
+
+@pytest.mark.django_db
 def test_a_cross_program_edge_is_rejected_as_invalid(
     project: Project, other_project: Project, calendar: Calendar
 ) -> None:
