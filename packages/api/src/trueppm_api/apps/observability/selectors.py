@@ -25,7 +25,9 @@ from celery.schedules import crontab
 from django.conf import settings
 from django.db.migrations.loader import MigrationLoader
 from django.db.models import Count, Q
+from django.http import HttpRequest
 from django.utils import timezone
+from rest_framework.request import Request
 
 from trueppm_api.apps.notifications.models import Notification
 from trueppm_api.apps.observability.models import BeatHeartbeat, PurgeRun
@@ -37,6 +39,7 @@ from trueppm_api.apps.scheduling.models import (
     ScheduleRequestStatus,
 )
 from trueppm_api.apps.workflow_engine.models import WorkflowOutboxRow, WorkflowOutboxStatus
+from trueppm_api.core.throttling import describe_client_address
 
 logger = logging.getLogger(__name__)
 
@@ -922,23 +925,34 @@ def _export_health_live(enabled: bool) -> dict[str, Any]:
     )
 
 
-def _security() -> dict[str, Any]:
+def _security(request: HttpRequest | Request | None = None) -> dict[str, Any]:
     """Read-only security posture for the System Health page (ADR-0604).
 
-    Currently surfaces whether API rate limiting is enabled. ``rate_limiting_enabled``
-    is False only when an operator has both set ``TRUEPPM_RATE_LIMIT_ENABLED=false``
-    and provided the acknowledgment (see :mod:`trueppm_api.core.ratelimit`) — i.e. all
-    DRF throttling is off. Surfaced ONLY on this admin-gated endpoint, never on the
-    public ``/health/`` / ``/readyz`` / ``/edition/`` probes, so a disabled protection
-    is not advertised to anonymous callers. Pure settings read — deploy-time operator
-    config, never writable here.
+    ``rate_limiting_enabled`` is False only when an operator has both set
+    ``TRUEPPM_RATE_LIMIT_ENABLED=false`` and provided the acknowledgment (see
+    :mod:`trueppm_api.core.ratelimit`) — i.e. all DRF throttling is off.
+
+    ``client_address`` (#4020) is the readback of which address the per-IP
+    throttles keyed the *calling* request on, so an operator can check
+    ``TRUEPPM_NUM_PROXIES`` against the path their own request took — the setting
+    is otherwise unobservable and both ways of getting it wrong are silent. It is
+    per-request, not a deployment fact, which is why it needs ``request`` and is
+    omitted without one.
+
+    Surfaced ONLY on this admin-gated endpoint, never on the public ``/health/`` /
+    ``/readyz`` / ``/edition/`` probes, so a disabled protection is not advertised
+    to anonymous callers and proxy addresses are not disclosed. Pure reads —
+    deploy-time operator config, never writable here.
     """
-    return {
+    security: dict[str, Any] = {
         "rate_limiting_enabled": bool(getattr(settings, "RATE_LIMIT_ENABLED", True)),
     }
+    if request is not None:
+        security["client_address"] = describe_client_address(request)
+    return security
 
 
-def get_system_health() -> dict[str, Any]:
+def get_system_health(request: HttpRequest | Request | None = None) -> dict[str, Any]:
     """Aggregate the full System Health overview payload (ADR-0172 §2).
 
     Returns the component cards, Beat heartbeat panel + configured schedule,
@@ -965,5 +979,5 @@ def get_system_health() -> dict[str, Any]:
         "dead_letter": dead_letter_summary,
         "retention": retention_rows,
         "telemetry": _telemetry(),
-        "security": _security(),
+        "security": _security(request),
     }
