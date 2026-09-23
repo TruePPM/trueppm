@@ -60,6 +60,7 @@ another nightly to draw the same example.
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -122,6 +123,22 @@ def owner_client(owner: object) -> APIClient:
     c = APIClient()
     c.force_authenticate(user=owner)
     return c
+
+
+@pytest.fixture
+def calendar_admin_client(
+    owner_client: APIClient, owner: object, grant_workspace_admin: Any
+) -> APIClient:
+    """``owner_client`` promoted to workspace ADMIN — the gate on calendar writes.
+
+    Shared-calendar writes moved off the self-grantable ``IsOrgAdmin`` derivation in
+    #3600; a project Owner alone now gets a 403. ``owner`` keeps its project and
+    program memberships, so the 409 bodies below still name their blockers — the
+    membership filter added in the same change withholds only what the caller cannot
+    see.
+    """
+    grant_workspace_admin(owner)
+    return owner_client
 
 
 @pytest.fixture
@@ -292,9 +309,11 @@ def test_tasks_list_valid_date_param_ok(
 # --------------------------------------------------------------------------- #
 
 
-def test_delete_calendar_in_use_by_project_409(owner_client: APIClient, project: Project) -> None:
+def test_delete_calendar_in_use_by_project_409(
+    calendar_admin_client: APIClient, project: Project
+) -> None:
     """A calendar applied as a project's base is PROTECT-ed — refuse with 409, not 500."""
-    resp = owner_client.delete(f"/api/v1/calendars/{project.calendar_id}/")
+    resp = calendar_admin_client.delete(f"/api/v1/calendars/{project.calendar_id}/")
 
     assert resp.status_code == status.HTTP_409_CONFLICT
     body = resp.json()
@@ -304,7 +323,9 @@ def test_delete_calendar_in_use_by_project_409(owner_client: APIClient, project:
     assert Calendar.objects.filter(pk=project.calendar_id).exists()
 
 
-def test_delete_calendar_in_use_as_overlay_409(owner_client: APIClient, project: Project) -> None:
+def test_delete_calendar_in_use_as_overlay_409(
+    calendar_admin_client: APIClient, project: Project
+) -> None:
     """An overlay layer PROTECTs too, and reports the *project*, not the join row.
 
     The ``ProjectCalendarLayer`` id is meaningless to a user; what they can act on
@@ -315,7 +336,7 @@ def test_delete_calendar_in_use_as_overlay_409(owner_client: APIClient, project:
         project=project, calendar=overlay, role=CalendarRole.HOLIDAYS, sort_order=0
     )
 
-    resp = owner_client.delete(f"/api/v1/calendars/{overlay.pk}/")
+    resp = calendar_admin_client.delete(f"/api/v1/calendars/{overlay.pk}/")
 
     assert resp.status_code == status.HTTP_409_CONFLICT
     assert resp.json()["references"] == [
@@ -324,14 +345,14 @@ def test_delete_calendar_in_use_as_overlay_409(owner_client: APIClient, project:
 
 
 def test_delete_calendar_in_use_by_program_409(
-    owner_client: APIClient, project: Project, program: Program
+    calendar_admin_client: APIClient, project: Project, program: Program
 ) -> None:
     """``Program.calendar`` (ADR-0441) PROTECTs as well."""
     cal = Calendar.objects.create(name="Program default")
     program.calendar = cal
     program.save(update_fields=["calendar"])
 
-    resp = owner_client.delete(f"/api/v1/calendars/{cal.pk}/")
+    resp = calendar_admin_client.delete(f"/api/v1/calendars/{cal.pk}/")
 
     assert resp.status_code == status.HTTP_409_CONFLICT
     assert resp.json()["references"] == [
@@ -339,26 +360,30 @@ def test_delete_calendar_in_use_by_program_409(
     ]
 
 
-def test_delete_calendar_in_use_by_resource_409(owner_client: APIClient, project: Project) -> None:
+def test_delete_calendar_in_use_by_resource_409(
+    calendar_admin_client: APIClient, project: Project
+) -> None:
     """``Resource.calendar`` is the fifth PROTECT-ing FK and was missed in review.
 
-    It is not special-cased by ``_describe_calendar_reference``; this pins that the
+    It is not special-cased by the calendar reference describer; this pins that the
     generic branch names it usefully rather than falling through to a 500.
     """
     cal = Calendar.objects.create(name="Contractor hours")
     res = Resource.objects.create(name="Priya", calendar=cal)
 
-    resp = owner_client.delete(f"/api/v1/calendars/{cal.pk}/")
+    resp = calendar_admin_client.delete(f"/api/v1/calendars/{cal.pk}/")
 
     assert resp.status_code == status.HTTP_409_CONFLICT
     assert resp.json()["references"] == [{"type": "resource", "id": str(res.pk), "name": "Priya"}]
 
 
-def test_delete_unused_calendar_still_204(owner_client: APIClient, project: Project) -> None:
+def test_delete_unused_calendar_still_204(
+    calendar_admin_client: APIClient, project: Project
+) -> None:
     """The refusal must not have broken the ordinary delete path."""
     cal = Calendar.objects.create(name="Unused")
 
-    resp = owner_client.delete(f"/api/v1/calendars/{cal.pk}/")
+    resp = calendar_admin_client.delete(f"/api/v1/calendars/{cal.pk}/")
 
     assert resp.status_code == status.HTTP_204_NO_CONTENT
     assert not Calendar.objects.filter(pk=cal.pk).exists()

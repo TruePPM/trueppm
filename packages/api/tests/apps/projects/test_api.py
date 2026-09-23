@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -47,19 +48,41 @@ def membership(user: object, project: Project) -> ProjectMembership:
 
 
 @pytest.fixture
+def calendar_writer(user: object, grant_workspace_admin: Any) -> object:
+    """Promote the test user to the workspace ADMIN shared-calendar writes need (#3600).
+
+    ``membership`` (project Owner) used to be enough, because the gate was the
+    ``IsOrgAdmin`` derivation. It is not a gate test — the tests that request this are
+    about recompute fan-out; the gate itself is pinned in ``test_calendar_write_gate.py``.
+    """
+    return grant_workspace_admin(user)
+
+
+@pytest.fixture
 def task(project: Project) -> Task:
     return Task.objects.create(project=project, name="Design", duration=5)
 
 
 @pytest.mark.django_db
 class TestCalendarAPI:
+    @pytest.fixture(autouse=True)
+    def _calendar_write_gate(self, user: object, grant_workspace_admin: Any) -> None:
+        """Shared-calendar writes need a stored ``WorkspaceRole.ADMIN`` (#3600).
+
+        Before that they rode ``IsOrgAdmin`` — ADMIN+ on any one project — which the
+        ``membership`` fixture below happened to satisfy. Autouse rather than
+        per-test so the class keeps testing calendar CRUD rather than the gate; the
+        gate itself is pinned in ``test_calendar_write_gate.py``.
+        """
+        grant_workspace_admin(user)
+
     def test_list(self, client: APIClient, calendar: Calendar) -> None:
         r = client.get("/api/v1/calendars/")
         assert r.status_code == 200
         assert len(r.data["results"]) >= 1
 
     def test_create(self, client: APIClient, membership: ProjectMembership) -> None:
-        # Requires IsOrgAdmin: user must have ADMIN+ role on at least one project.
+        # Requires IsWorkspaceAdminStrict — granted by the autouse fixture above.
         r = client.post("/api/v1/calendars/", {"name": "Custom", "working_days": 31})
         assert r.status_code == 201
         assert r.data["name"] == "Custom"
@@ -72,13 +95,13 @@ class TestCalendarAPI:
     def test_update(
         self, client: APIClient, calendar: Calendar, membership: ProjectMembership
     ) -> None:
-        # Requires IsOrgAdmin: user must have ADMIN+ role on at least one project.
+        # Requires IsWorkspaceAdminStrict — granted by the autouse fixture above.
         r = client.patch(f"/api/v1/calendars/{calendar.pk}/", {"hours_per_day": 9.0})
         assert r.status_code == 200
         assert r.data["hours_per_day"] == 9.0
 
     def test_delete(self, client: APIClient, membership: ProjectMembership) -> None:
-        # Requires IsOrgAdmin: user must have ADMIN+ role on at least one project.
+        # Requires IsWorkspaceAdminStrict — granted by the autouse fixture above.
         # Use a fresh calendar not referenced by any project to avoid PROTECT errors.
         standalone = Calendar.objects.create(name="ToDelete")
         r = client.delete(f"/api/v1/calendars/{standalone.pk}/")
@@ -1063,9 +1086,10 @@ def _exc_detail_url(calendar: Calendar, exc: object) -> str:
 class TestCalendarExceptionAPI:
     """Nested CRUD for /calendars/{id}/exceptions/ (#1079, ADR-0194).
 
-    Reads are open to any authenticated user; writes require org admin
-    (Project Manager+), mirroring CalendarViewSet. The ``membership`` fixture
-    grants the test user the Owner role, which satisfies IsOrgAdmin.
+    Reads are open to any authenticated user; writes require the workspace Admin role
+    (#3600), mirroring CalendarViewSet. Tests that expect a write to succeed request
+    ``calendar_writer``, which grants it; the ``requires_workspace_admin`` tests below
+    deliberately do not, and a project role no longer substitutes for it.
     """
 
     def _make_exc(
@@ -1101,16 +1125,21 @@ class TestCalendarExceptionAPI:
         assert r.data["exc_start"] == "2026-07-01"
         assert r.data["exc_end"] == "2026-07-03"
 
-    def test_create_requires_org_admin(self, client: APIClient, calendar: Calendar) -> None:
-        # Authenticated but with no ADMIN+ role anywhere → IsOrgAdmin denies.
+    def test_create_requires_workspace_admin(self, client: APIClient, calendar: Calendar) -> None:
+        # Authenticated, but with no stored workspace ADMIN role → the gate denies
+        # (#3600). A project role, including Owner, does not substitute for it.
         r = client.post(
             _exc_list_url(calendar),
             {"exc_start": "2026-12-25", "exc_end": "2026-12-26", "description": "Xmas"},
         )
         assert r.status_code == 403
 
-    def test_create_as_org_admin(
-        self, client: APIClient, calendar: Calendar, membership: ProjectMembership
+    def test_create_as_workspace_admin(
+        self,
+        client: APIClient,
+        calendar: Calendar,
+        membership: ProjectMembership,
+        calendar_writer: object,
     ) -> None:
         from trueppm_api.apps.projects.models import CalendarException
 
@@ -1123,7 +1152,11 @@ class TestCalendarExceptionAPI:
         assert CalendarException.objects.filter(calendar=calendar).count() == 1
 
     def test_create_binds_calendar_from_url_not_body(
-        self, client: APIClient, calendar: Calendar, membership: ProjectMembership
+        self,
+        client: APIClient,
+        calendar: Calendar,
+        membership: ProjectMembership,
+        calendar_writer: object,
     ) -> None:
         """A ``calendar`` in the body is ignored — the URL calendar always wins."""
         from trueppm_api.apps.projects.models import CalendarException
@@ -1138,7 +1171,11 @@ class TestCalendarExceptionAPI:
         assert exc.calendar_id == calendar.pk
 
     def test_create_rejects_end_before_start(
-        self, client: APIClient, calendar: Calendar, membership: ProjectMembership
+        self,
+        client: APIClient,
+        calendar: Calendar,
+        membership: ProjectMembership,
+        calendar_writer: object,
     ) -> None:
         r = client.post(
             _exc_list_url(calendar),
@@ -1148,7 +1185,11 @@ class TestCalendarExceptionAPI:
         assert "exc_end" in r.data
 
     def test_create_allows_single_day_range(
-        self, client: APIClient, calendar: Calendar, membership: ProjectMembership
+        self,
+        client: APIClient,
+        calendar: Calendar,
+        membership: ProjectMembership,
+        calendar_writer: object,
     ) -> None:
         r = client.post(
             _exc_list_url(calendar),
@@ -1157,7 +1198,7 @@ class TestCalendarExceptionAPI:
         assert r.status_code == 201, r.data
 
     def test_create_on_missing_calendar_404(
-        self, client: APIClient, membership: ProjectMembership
+        self, client: APIClient, membership: ProjectMembership, calendar_writer: object
     ) -> None:
         import uuid
 
@@ -1166,7 +1207,11 @@ class TestCalendarExceptionAPI:
         assert r.status_code == 404
 
     def test_update(
-        self, client: APIClient, calendar: Calendar, membership: ProjectMembership
+        self,
+        client: APIClient,
+        calendar: Calendar,
+        membership: ProjectMembership,
+        calendar_writer: object,
     ) -> None:
         exc = self._make_exc(calendar, date(2026, 7, 1), date(2026, 7, 3), "Old")
         r = client.patch(_exc_detail_url(calendar, exc), {"description": "New"})
@@ -1175,20 +1220,28 @@ class TestCalendarExceptionAPI:
         assert exc.description == "New"
 
     def test_update_rejects_end_before_start(
-        self, client: APIClient, calendar: Calendar, membership: ProjectMembership
+        self,
+        client: APIClient,
+        calendar: Calendar,
+        membership: ProjectMembership,
+        calendar_writer: object,
     ) -> None:
         exc = self._make_exc(calendar, date(2026, 6, 1), date(2026, 6, 5))
         r = client.patch(_exc_detail_url(calendar, exc), {"exc_end": "2026-05-30"})
         assert r.status_code == 400
         assert "exc_end" in r.data
 
-    def test_update_requires_org_admin(self, client: APIClient, calendar: Calendar) -> None:
+    def test_update_requires_workspace_admin(self, client: APIClient, calendar: Calendar) -> None:
         exc = self._make_exc(calendar, date(2026, 7, 1), date(2026, 7, 3), "Old")
         r = client.patch(_exc_detail_url(calendar, exc), {"description": "Hacked"})
         assert r.status_code == 403
 
     def test_delete(
-        self, client: APIClient, calendar: Calendar, membership: ProjectMembership
+        self,
+        client: APIClient,
+        calendar: Calendar,
+        membership: ProjectMembership,
+        calendar_writer: object,
     ) -> None:
         from trueppm_api.apps.projects.models import CalendarException
 
@@ -1197,7 +1250,7 @@ class TestCalendarExceptionAPI:
         assert r.status_code == 204
         assert CalendarException.objects.filter(calendar=calendar).count() == 0
 
-    def test_delete_requires_org_admin(self, client: APIClient, calendar: Calendar) -> None:
+    def test_delete_requires_workspace_admin(self, client: APIClient, calendar: Calendar) -> None:
         exc = self._make_exc(calendar, date(2026, 7, 1), date(2026, 7, 3))
         r = client.delete(_exc_detail_url(calendar, exc))
         assert r.status_code == 403
@@ -1205,7 +1258,11 @@ class TestCalendarExceptionAPI:
 
 @pytest.mark.django_db(transaction=True)
 def test_calendar_exception_create_enqueues_recalc_and_bumps_calendar(
-    client: APIClient, calendar: Calendar, project: Project, membership: ProjectMembership
+    client: APIClient,
+    calendar: Calendar,
+    project: Project,
+    membership: ProjectMembership,
+    calendar_writer: object,
 ) -> None:
     """Creating an exception bumps the calendar and recalcs dependent projects."""
     from unittest.mock import patch
@@ -1229,7 +1286,11 @@ def test_calendar_exception_create_enqueues_recalc_and_bumps_calendar(
 
 @pytest.mark.django_db(transaction=True)
 def test_calendar_exception_delete_enqueues_recalc(
-    client: APIClient, calendar: Calendar, project: Project, membership: ProjectMembership
+    client: APIClient,
+    calendar: Calendar,
+    project: Project,
+    membership: ProjectMembership,
+    calendar_writer: object,
 ) -> None:
     """Deleting an exception also bumps the calendar and recalcs dependent projects."""
     from unittest.mock import patch
@@ -1254,7 +1315,11 @@ def test_calendar_exception_delete_enqueues_recalc(
 
 @pytest.mark.django_db(transaction=True)
 def test_calendar_exception_update_enqueues_recalc(
-    client: APIClient, calendar: Calendar, project: Project, membership: ProjectMembership
+    client: APIClient,
+    calendar: Calendar,
+    project: Project,
+    membership: ProjectMembership,
+    calendar_writer: object,
 ) -> None:
     """Updating an existing exception (e.g. widening its date range) also recalcs
     dependent projects — a PATCH is as much a schedule-input change as create/delete
@@ -1278,7 +1343,11 @@ def test_calendar_exception_update_enqueues_recalc(
 
 @pytest.mark.django_db(transaction=True)
 def test_calendar_update_enqueues_recalc_for_all_referencing_projects(
-    client: APIClient, calendar: Calendar, project: Project, membership: ProjectMembership
+    client: APIClient,
+    calendar: Calendar,
+    project: Project,
+    membership: ProjectMembership,
+    calendar_writer: object,
 ) -> None:
     """Editing a shared calendar's working_days recalcs every project bound to it,
     not just one (#1492) — calendars are org-shared resources, so a single edit can
@@ -1308,7 +1377,11 @@ def test_calendar_update_enqueues_recalc_for_all_referencing_projects(
 
 @pytest.mark.django_db(transaction=True)
 def test_calendar_update_of_hours_per_day_enqueues_recalc(
-    client: APIClient, calendar: Calendar, project: Project, membership: ProjectMembership
+    client: APIClient,
+    calendar: Calendar,
+    project: Project,
+    membership: ProjectMembership,
+    calendar_writer: object,
 ) -> None:
     """hours_per_day is a CPM input alongside working_days — changing it alone must
     also trigger a recalc (#1492)."""
@@ -1327,7 +1400,11 @@ def test_calendar_update_of_hours_per_day_enqueues_recalc(
 
 @pytest.mark.django_db(transaction=True)
 def test_calendar_update_of_unrelated_field_does_not_enqueue_recalc(
-    client: APIClient, calendar: Calendar, project: Project, membership: ProjectMembership
+    client: APIClient,
+    calendar: Calendar,
+    project: Project,
+    membership: ProjectMembership,
+    calendar_writer: object,
 ) -> None:
     """Renaming a calendar (or any non-CPM field) must NOT enqueue a recalc — over-
     triggering would waste a recompute pass on every project bound to the calendar

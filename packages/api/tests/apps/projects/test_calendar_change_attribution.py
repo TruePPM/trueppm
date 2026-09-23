@@ -1,13 +1,15 @@
 """Attribution for shared-calendar edits that reschedule other people's projects (#3174).
 
-``IsOrgAdmin`` passes anyone holding ADMIN on *at least one* project, and a Calendar is
-an org-global resource. So a PM on one small project can add a single holiday and shift
-finish dates on every project bound to that calendar — including projects they are not a
+A Calendar is a workspace-global resource, so one holiday added to it shifts finish
+dates on every project bound to that calendar — including projects the editor is not a
 member of, whose owners previously saw dates move with nothing naming who did it.
 
-Whether that permission boundary is right is a separate, open question (see the issue).
-These tests pin the attribution half: one ``CALENDAR_CHANGED`` audit row per edit naming
-the actor and the affected set, and an actor label on the live broadcast.
+The permission question these tests used to leave open closed in #3600: the write gate
+moved from the self-grantable ``IsOrgAdmin`` derivation to ``IsWorkspaceAdminStrict``.
+That raises who may trigger the fan-out and narrows nothing about its reach, so the
+attribution half these tests pin is not made redundant by it — one ``CALENDAR_CHANGED``
+audit row per edit naming the actor and the affected set, and an actor label on the
+live broadcast.
 """
 
 from __future__ import annotations
@@ -45,12 +47,17 @@ def outsider_project(shared_calendar: Calendar) -> Project:
 
 
 @pytest.fixture
-def actor(db: object, shared_calendar: Calendar) -> Any:
-    """A PM on one unrelated project — the minimum IsOrgAdmin accepts."""
+def actor(db: object, shared_calendar: Calendar, grant_workspace_admin: Any) -> Any:
+    """A workspace ADMIN who is a member of exactly one of the affected projects.
+
+    Workspace ADMIN because that is the gate on calendar writes since #3600. Member of
+    only "Their own" because the blast radius is what these tests are about: the edit
+    must still reach ``outsider_project``, which the actor cannot see.
+    """
     user = User.objects.create_user(username="pm", email="pm@example.com", password="pw")
     own = Project.objects.create(name="Their own", start_date=MONDAY, calendar=shared_calendar)
     ProjectMembership.objects.create(project=own, user=user, role=Role.ADMIN)
-    return user
+    return grant_workspace_admin(user)
 
 
 def _client(user: Any) -> APIClient:

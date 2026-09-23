@@ -60,15 +60,22 @@ def calendar(db: object) -> Calendar:
 
 
 @pytest.fixture
-def owner(db: object) -> Any:
-    return User.objects.create_user(username="matrix_owner", password="pw")
+def owner(db: object, grant_workspace_admin: Any) -> Any:
+    """The token's owner, holding every role a refusal below must not be explained by.
+
+    Workspace ADMIN as well as project OWNER since #3600: the calendar library's writes
+    moved off the project-derived gate, and a 403 from RBAC here would masquerade as the
+    scope-guard refusal this matrix exists to isolate.
+    """
+    return grant_workspace_admin(User.objects.create_user(username="matrix_owner", password="pw"))
 
 
 @pytest.fixture
 def project(calendar: Calendar, owner: Any) -> Project:
     proj = Project.objects.create(name="Matrix", start_date=date(2026, 4, 1), calendar=calendar)
-    # OWNER satisfies every RBAC gate, so any refusal below comes from a scope guard
-    # rather than from a missing role — which is the whole point of the matrix.
+    # Project OWNER, plus the workspace ADMIN granted on the `owner` fixture, satisfies
+    # every RBAC gate on this matrix's paths — so any refusal below comes from a scope
+    # guard rather than from a missing role, which is the whole point of the matrix.
     ProjectMembership.objects.create(project=proj, user=owner, role=Role.OWNER)
     return proj
 

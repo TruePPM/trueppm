@@ -125,9 +125,21 @@ Do not rely on Enforce to restrict calendar overrides on a community-edition dep
 | Change the workspace calendar | Workspace **Owner / Admin** |
 | Override a program's calendar | Program **Admin** (or higher) |
 | Override a project's calendar | Project **Admin** (or higher) |
+| Create, edit, or delete a calendar in the shared library | Workspace **Owner / Admin** |
 
 Members, Schedulers, and Viewers see the resulting schedule but cannot change which
 calendar produced it.
+
+The last row is about a calendar's **contents** — its working days, hours per day, and
+holiday exceptions — rather than about which calendar a scope points at. It is
+deliberately the same role as the first row: a shared calendar's working days feed the
+critical path of every project bound to it, so editing one moves finish dates across
+projects the editor may not even be a member of. A Project Manager can still point their
+own project at a different calendar (row four); what they cannot do is rewrite a
+calendar that other people's plans also schedule against.
+
+Reading the library is open to any signed-in user, so a Project Manager choosing an
+override can always see what is available.
 
 ## Where to find it
 

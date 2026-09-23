@@ -11,6 +11,7 @@ Covers the OSS slice of ADR-0251:
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -345,7 +346,7 @@ def test_preview_caps_window(project: Project, member_client: APIClient) -> None
 
 @pytest.mark.django_db(transaction=True)
 def test_overlay_calendar_edit_recomputes_using_project(
-    project: Project, holidays_calendar: Calendar
+    project: Project, holidays_calendar: Calendar, grant_workspace_admin: Any
 ) -> None:
     """Editing a calendar used only as an OVERLAY must recompute the project (#906).
 
@@ -356,7 +357,9 @@ def test_overlay_calendar_edit_recomputes_using_project(
     ProjectCalendarLayer.objects.create(
         project=project, calendar=holidays_calendar, role="holidays", sort_order=0
     )
-    admin = User.objects.create_user(username="orgadmin", password="pw")
+    # Workspace ADMIN, not project ADMIN: shared-calendar writes moved off the
+    # self-grantable IsOrgAdmin derivation in #3600.
+    admin = grant_workspace_admin(User.objects.create_user(username="wsadmin", password="pw"))
     ProjectMembership.objects.create(project=project, user=admin, role=Role.ADMIN)
     ScheduleRequest.objects.filter(project=project).delete()
 

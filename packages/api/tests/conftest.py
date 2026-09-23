@@ -147,6 +147,36 @@ def django_capture_on_commit_callbacks() -> Callable[..., Any]:
     return capture_on_commit_callbacks
 
 
+@pytest.fixture
+def grant_workspace_admin() -> Callable[[Any], Any]:
+    """Factory: give a user a stored ``WorkspaceRole.ADMIN`` membership (#3600).
+
+    The gate ``IsWorkspaceAdminStrict`` asks for a real ``WorkspaceMembership`` row,
+    which is precisely what a project role cannot buy — that is the defect it exists
+    to close. A superuser would also pass (``workspace_role_for_user`` resolves one
+    with no membership row to implicit OWNER), but promoting a user that way proves
+    the superuser bypass rather than the ADMIN boundary, so this grants the explicit
+    role instead.
+    """
+
+    def _grant(user: Any) -> Any:
+        from trueppm_api.apps.workspace.models import (
+            MemberStatus,
+            Workspace,
+            WorkspaceMembership,
+            WorkspaceRole,
+        )
+
+        WorkspaceMembership.objects.update_or_create(
+            workspace=Workspace.load(),
+            user=user,
+            defaults={"role": WorkspaceRole.ADMIN, "status": MemberStatus.ACTIVE},
+        )
+        return user
+
+    return _grant
+
+
 def pytest_configure(config: object) -> None:
     """Start a testcontainers PostgreSQL instance when DATABASE_URL is not set.
 

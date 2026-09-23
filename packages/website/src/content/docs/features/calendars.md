@@ -91,9 +91,20 @@ Calendars are managed via the REST API (a visual settings editor is planned):
 | `PATCH /api/v1/calendars/{id}/` | Update |
 | `DELETE /api/v1/calendars/{id}/` | Delete |
 
-Any authenticated user can read calendars; creating and editing them requires the
-Project Manager or Project Admin role on at least one **active** project
-(from 0.4 a role held on an archived or deleted project no longer counts).
+Any authenticated user can read calendars — a project member has to be able to see
+which calendar schedules their plan. Creating, editing, and deleting them requires the
+**workspace Admin** role (or Owner): a calendar is shared, so changing its working days
+or hours per day moves finish dates on every project bound to it, including projects the
+editor is not a member of. A project-level role — even Owner — is not enough, because
+anyone can create a project and become its Owner. This is the same role that sets the
+workspace default calendar, so editing a shared calendar's contents is no easier than
+pointing a project at a different one.
+
+A `DELETE` that would orphan a live schedule is refused with `409` and a body naming
+what still references the calendar, so you can detach those first. Projects and programs
+you are not a member of appear in that list by id only, without their name; the
+`reference_count` still counts them, so the refusal tells you how much is blocking even
+where it cannot tell you what.
 
 ## Managing exceptions
 
@@ -117,8 +128,9 @@ the scheduler treats their union as non-working.
 The parent calendar is taken from the URL, never the request body: an exception
 always belongs to the calendar it was created under and cannot be reassigned. Any
 authenticated user can read exceptions; creating, editing, and deleting them requires
-the Project Manager or Project Admin role — the same gate as editing the calendar
-itself.
+the **workspace Admin** role — the same gate as editing the calendar itself, and for
+the same reason: one holiday added here moves finish dates on every project bound to
+the calendar.
 
 Adding, editing, or removing an exception recomputes every project scheduled against
 the calendar — whether the calendar is that project's base or one of its overlays — so
