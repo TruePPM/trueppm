@@ -2670,6 +2670,32 @@ helm:template:
         echo "$offenders"
         exit 1
       fi
+    # The demo's per-IP throttles must actually discriminate between visitors
+    # (#4017). DRF keys them on the address TRUEPPM_NUM_PROXIES hops back in
+    # X-Forwarded-For, and demo mode FORBIDS an Ingress path that reaches the API
+    # Service directly (#3908) — so /api/v1/share/ always crosses TWO proxies
+    # (cloudflared or ingress-nginx, then the web tier's nginx, which appends its
+    # own peer with $proxy_add_x_forwarded_for). At the chart default of 1, DRF
+    # reads the LAST entry: the tunnel pod's address, identical for every visitor,
+    # collapsing share_access from a per-visitor 60/min limit into ONE GLOBAL
+    # 60/min bucket — one crawler 429s the whole internet.
+    #
+    # Asserted on the RENDERED demo manifests rather than on values-demo.yaml, so
+    # a later `env:` restructure that drops the override cannot pass. Scoped to the
+    # workloads that serve or seed over HTTP — the same set as the two checks
+    # above. Checked against the literal "2": presence is not the property, the
+    # HOP COUNT is, and a wrong-but-present value fails exactly like a missing one.
+    #
+    # If the demo ever grows a supported no-proxy edge (the web Service exposed
+    # directly), this assertion is what forces that change to be deliberate.
+    - |
+      offenders="$(yq 'select((.kind=="Deployment" or .kind=="Job" or .kind=="CronJob") and (.metadata.name | test("-(api|demo-seed|demo-reset)$"))) | .metadata.name as $w | (.spec.template.spec // .spec.jobTemplate.spec.template.spec) | ([.initContainers[]?] + [.containers[]?])[] | .name as $c | ((.env[]? | select(.name=="TRUEPPM_NUM_PROXIES") | .value) // "MISSING") as $v | select($v != "2") | [$w, $c, $v] | join("/")' /tmp/rendered-demo.yaml | grep -vE '^(---)?$' || true)"
+      if [ -n "$offenders" ]; then
+        echo "DEMO REGRESSION: TRUEPPM_NUM_PROXIES is missing, or not the literal \"2\", on these containers (workload/container/value) (#4017)."
+        echo "The demo's proxy chain is two hops deep; at any other value the per-IP share_access throttle becomes one global bucket and a single crawler 429s every visitor."
+        echo "$offenders"
+        exit 1
+      fi
     # The demo's security model IS the nginx allowlist: /admin/, /ws/ and every
     # /api/ route other than the share projections and the liveness probe must be
     # closed. A regression here silently publishes the authenticated API — the
