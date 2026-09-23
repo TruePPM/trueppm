@@ -699,7 +699,11 @@ the beat probe for shared CI runners. The production path is **not** drilled
 yet: `values-prod.yaml`, managed datastores, a named namespace, and the chart's
 default probe timings. That drill is tracked in
 [#4027](https://gitlab.com/trueppm/trueppm/-/work_items/4027). Until it lands,
-`helm test` on your own install is the evidence for that path.
+`helm test` on your own install is the evidence for that path. If you don't
+specifically need Kubernetes, [Single server with
+systemd](#single-server-with-systemd) is the more currently-proven production
+option: it already gets a live boot in CI on every relevant change
+(`compose:prod`/`compose:prod:tls`), the same assurance #4027 will bring here.
 
 :::note
 The Helm chart is functional with dev and prod values overlays and was hardened
