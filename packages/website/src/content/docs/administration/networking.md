@@ -452,8 +452,13 @@ ingress:
   className: nginx
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod   # or letsencrypt-dns
-    # Keep the chart's own default; Helm deep-merges this map, but naming the
-    # key here replaces it, so restate it.
+    # Keep the chart's own defaults; Helm deep-merges this map, but naming a
+    # key here replaces it, so restate the three below rather than dropping
+    # them. All three ship as chart defaults already (values.yaml) — shown
+    # here only because adding cert-manager.io/cluster-issuer to this map
+    # would otherwise silently keep them (deep-merge), which is correct, but
+    # worth restating explicitly since this file overrides the whole
+    # `ingress.annotations` key by example elsewhere on this page.
     nginx.ingress.kubernetes.io/proxy-body-size: "110m"
     # WebSocket lifetime — see the timeout table below.
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
