@@ -183,7 +183,7 @@ kubectl create namespace trueppm
 # init container.
 kubectl create secret generic trueppm-env --namespace trueppm \
   --from-literal=SECRET_KEY="$(openssl rand -base64 48)" \
-  --from-literal=ALLOWED_HOSTS=trueppm.example.com \
+  --from-literal=ALLOWED_HOSTS=trueppm.example.com,trueppm-api,localhost,127.0.0.1 \
   --from-literal=INTEGRATION_ENCRYPTION_KEY="$(python3 -c \
     'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')" \
   --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true

@@ -60,6 +60,10 @@ docker compose exec api cat /tmp/trueppm_admin_password
 
 **Good for:** local development, evaluation, demos.
 
+Unlike the single-server stack below, this development stack is not yet started
+by any CI job; only its image pins and project name are checked statically. A
+boot drill is tracked in [#4026](https://gitlab.com/trueppm/trueppm/-/work_items/4026).
+
 **Not for shared or production use, even a small team.** This stack hardcodes
 `POSTGRES_PASSWORD: trueppm` and `SECRET_KEY: dev-secret-key-change-in-prod` in
 the tracked compose file, and it publishes PostgreSQL on the host. That port
@@ -111,12 +115,15 @@ PostgreSQL and Valkey (the BSD-licensed Linux Foundation fork of Redis;
 wire-compatible). The bundled datastores are intended for dev / demo / CI; for
 production, disable them and point at managed services (see below).
 
-```bash
-helm lint packages/helm
-helm install trueppm packages/helm -f packages/helm/values-dev.yaml
-```
+To install, follow the [production install walkthrough](#production-install-walkthrough)
+below. It works for an evaluation cluster too: the app will not start until you
+create its Secret, so no install path skips that step.
 
 Separate `values-dev.yaml` and `values-prod.yaml` overlays are provided.
+`values-dev.yaml` is for local development against images you have built and
+side-loaded yourself (for example `kind load docker-image`). It sets
+`image.pullPolicy: Never`, so on any other cluster the pods fail with
+`ErrImageNeverPull`. Do not use it to install a published release.
 `values-prod.yaml` is a **commented template**, not a working configuration: it
 carries every key you must supply present-but-empty, and the render fails with a
 named error rather than installing something that neither routes nor encrypts.
@@ -182,13 +189,18 @@ helm dependency update packages/helm
 
 The rest of this walkthrough works with either source.
 
-**Prepare your values file.** Download the production values template and
-fill in your settings:
+**Get the production values template.** Download it next to where you will
+keep your own values file. You pass both files to `helm install`, and Helm
+deep-merges them: your `my-values.yaml` (written below) overrides the template
+key by key, so you never edit the template itself:
 
 ```bash
 curl -sL https://gitlab.com/trueppm/trueppm/-/raw/main/packages/helm/values-prod.yaml \
-  -o my-values.yaml
+  -o values-prod.yaml
 ```
+
+If you install a pinned chart version, download the template from that
+release's tag rather than `main` (replace `main` in the URL with `v<version>`).
 
 **Create the application Secret.** TruePPM validates four values at startup and
 **refuses to boot** without them — the pod crash-loops in the `migrate` init
@@ -201,7 +213,11 @@ container before the API ever runs, so this is not an optional hardening step:
 | `INTEGRATION_ENCRYPTION_KEY` | Fernet key that encrypts integration credentials at rest |
 | `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` **or** `TRUEPPM_DEFAULT_FILE_STORAGE` + `TRUEPPM_S3_BUCKET_NAME` | Where task attachments are stored |
 
+Create the namespace first. The Secret has to exist in it before the install,
+and `kubectl create secret` does not create a namespace for you:
+
 ```bash
+kubectl create namespace trueppm
 kubectl create secret generic trueppm-env --namespace trueppm \
   --from-literal=SECRET_KEY="$(openssl rand -base64 48)" \
   --from-literal=ALLOWED_HOSTS=trueppm.example.com,trueppm-api,localhost,127.0.0.1 \
@@ -250,11 +266,13 @@ rewrites the authority.
 
 `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` puts task attachments on local
 disk. The pods run with a read-only root filesystem, so it needs a volume to
-write to — set `persistence.media.enabled=true` alongside it, or the API refuses
-to start. On a single-node evaluation cluster add
-`persistence.media.accessMode=ReadWriteOnce`; anywhere else the default
-`ReadWriteMany` is required, because an `ReadWriteOnce` claim binds to one node
-and the api, worker, and beat pods all mount it. See
+write to. The values file below sets `persistence.media.enabled: true` for that
+reason; without it the API refuses to start. The default access mode is
+`ReadWriteMany`, and it is required whenever more than one api pod runs (as it
+does with `values-prod.yaml`'s `replicaCount: 2`), because a `ReadWriteOnce`
+claim binds to one node and the api, worker, and beat pods all mount it. Only
+on a single-node evaluation cluster running one replica can you use
+`persistence.media.accessMode: ReadWriteOnce`. See
 [attachment storage](/administration/helm-values/#attachment-storage-persistencemedia).
 
 It is a reasonable choice for a first install you are evaluating and the wrong
@@ -262,10 +280,25 @@ one for anything you intend to keep on a multi-node cluster — swap it for the 
 pair when you are ready (see
 [object storage](/administration/configuration/storage-and-networking/#object-storage-s3--minio)).
 
-At minimum, your values file then needs:
+`values-prod.yaml` already disables the bundled datastores. That means the
+chart **requires** `env.DATABASE_URL` and `env.REDIS_URL`, and fails the render
+if either is missing. Store both URLs in their own Secrets:
+
+```bash
+kubectl create secret generic trueppm-db --namespace trueppm \
+  --from-literal=url='postgres://trueppm:<password>@<host>:5432/trueppm?sslmode=require'
+kubectl create secret generic trueppm-cache --namespace trueppm \
+  --from-literal=url='redis://:<password>@<host>:6379'
+```
+
+`sslmode=require` is **mandatory**. TruePPM refuses to boot on a database URL
+that does not ask for TLS; see [Managed (external) datastores](#managed-external-datastores)
+for the one exception.
+
+Then create `my-values.yaml` containing at least the following:
 
 ```yaml
-# my-values.yaml
+# my-values.yaml (layered on top of values-prod.yaml at install time)
 # Point the chart at the Secret created above. This reaches the API, the Celery
 # worker, AND the migrate/bootstrap init containers — all of which import the
 # same settings module and so hit the same startup checks.
@@ -273,46 +306,65 @@ envFrom:
   - secretRef:
       name: trueppm-env
 
-# Recommended for production: disable the bundled datastores and point at managed
-# services. When they are disabled, env.DATABASE_URL and env.REDIS_URL are
-# REQUIRED — the chart fails the render with a clear message if either is missing.
-postgresql:
-  enabled: false
-valkey:
-  enabled: false
-# env:
-#   # sslmode=require is REQUIRED on an external database — TruePPM refuses to
-#   # boot on a connection string that does not ask for TLS. If TLS is already
-#   # enforced at the network layer (service mesh, private encrypted link), set
-#   # env.TRUEPPM_ALLOW_UNENCRYPTED_DB: "true" to downgrade that check to a warning.
-#   DATABASE_URL: "postgres://trueppm:<password>@<host>:5432/trueppm?sslmode=require"
-#   REDIS_URL: "redis://:<password>@<host>:6379"
+# The managed datastores. These MUST be set under env: in the secretKeyRef
+# form shown here (or as plain URL strings). The chart checks for them at render
+# time and does not read the envFrom Secret above.
+env:
+  DATABASE_URL:
+    secretKeyRef:
+      name: trueppm-db
+      key: url
+  REDIS_URL:
+    secretKeyRef:
+      name: trueppm-cache
+      key: url
+
+# Required when the Secret sets TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true.
+# Omit it if you configured S3 storage instead.
+persistence:
+  media:
+    enabled: true
 ```
 
-With the bundled datastores **enabled** (dev / demo) instead, leave
-`postgresql.auth.password` and `valkey.auth.password` empty — see
-[Secure by default](#secure-by-default) below for what the chart generates on
-its own. The chart also satisfies the database-TLS check for you on that path, so
-the bundled install needs no `DATABASE_URL` of its own.
+`values-prod.yaml` also enables the Ingress and leaves its host, the public URLs
+(`env.TRUEPPM_FRONTEND_BASE_URL`, `env.TRUEPPM_PUBLIC_API_BASE_URL`), and
+`env.CSRF_TRUSTED_ORIGINS` empty. Set them in `my-values.yaml` too, alongside the
+`env:` keys above; see [Ingress and edge TLS](#ingress-and-edge-tls).
+
+**Evaluating on a cluster with no managed database?** Skip `values-prod.yaml`
+and the two datastore Secrets, and use a values file that holds only the
+`envFrom:` and `persistence:` blocks above, with `accessMode: ReadWriteOnce`
+added under `persistence.media` on a single-node cluster. The chart then runs
+its bundled PostgreSQL and Valkey. Leave `postgresql.auth.password` and
+`valkey.auth.password` empty; see [Secure by default](#secure-by-default) below
+for what the chart generates for you. The chart also satisfies the database-TLS
+check for you on that path, so the bundled install needs no `DATABASE_URL`. This
+is the configuration CI installs on every chart change (see
+[Verifying a deploy](#verifying-a-deploy)).
 
 **Install:**
 
 ```bash
-helm install trueppm packages/helm \
+helm install trueppm oci://ghcr.io/trueppm/charts/trueppm --version <version> \
   --namespace trueppm \
-  --create-namespace \
-  -f my-values.yaml
+  -f values-prod.yaml -f my-values.yaml
 ```
+
+From a clone, use `packages/helm` in place of the `oci://…` reference and
+`--version`. For the bundled-datastore evaluation install, pass only
+`-f my-values.yaml`.
 
 If anything required is still missing, the install's own output says so: the
 chart's post-install notes name the exact keys the app will refuse to start
 without, and `helm upgrade --reuse-values` fixes it without a reinstall.
 
-Keep secrets in the Kubernetes Secret rather than in `my-values.yaml` or `--set`:
-values files get committed and `--set` lands in shell history. `DATABASE_URL` and
-`REDIS_URL` for a managed datastore belong in the same Secret for the same reason
-— add them as extra `--from-literal` keys instead of the commented `env:` block
-above.
+Keep secrets in Kubernetes Secrets rather than in `my-values.yaml` or `--set`:
+values files get committed and `--set` lands in shell history. That is why the
+datastore URLs above are `secretKeyRef` references and not plain strings.
+Adding `DATABASE_URL` or `REDIS_URL` as keys of `trueppm-env` does **not** work:
+the chart checks `env.DATABASE_URL` at render time and sets that variable
+explicitly on every pod, so a value arriving through `envFrom` would be both
+rejected by the render and overridden by the chart's own value.
 
 :::note[Bring your own Ingress]
 The chart's `Ingress` template is off by default — it exposes the API as a
@@ -631,12 +683,23 @@ single strongest signal that the whole boot chain succeeded. Retrieve the
 generated admin password with `kubectl exec` against the shared password volume
 as described in [Admin password setup](/administration/admin-password/).
 
-The same install-and-`helm test` drill runs in CI (`helm:install`, on any chart
-change plus a nightly schedule), alongside a static gate (`helm:template`) that
-renders the chart, validates every object against the Kubernetes schema with
-`kubeconform`, and asserts the deploy contract (init-container order, secret
-propagation to the init containers, the shared admin-password volume). Together
-they catch a chart regression before it reaches a cluster.
+An install-and-`helm test` drill runs in CI on every chart change and on a
+nightly schedule. `helm:install` installs from empty; `helm:upgrade` installs the
+previous published chart and upgrades it in place. A static gate
+(`helm:template`) runs alongside them: it renders the chart, validates every
+object against the Kubernetes schema with `kubeconform`, and asserts the deploy
+contract (init-container order, secret propagation to the init containers, the
+shared admin-password volume).
+
+Be precise about what the drills prove. They install the **bundled-datastore
+evaluation configuration** described above: the `trueppm-env` Secret,
+`persistence.media` with `ReadWriteOnce`, and a single-node kind cluster in the
+`default` namespace. They also relax the Celery worker's liveness probe and widen
+the beat probe for shared CI runners. The production path is **not** drilled
+yet: `values-prod.yaml`, managed datastores, a named namespace, and the chart's
+default probe timings. That drill is tracked in
+[#4027](https://gitlab.com/trueppm/trueppm/-/work_items/4027). Until it lands,
+`helm test` on your own install is the evidence for that path.
 
 :::note
 The Helm chart is functional with dev and prod values overlays and was hardened
@@ -682,7 +745,18 @@ cd trueppm
 cp .env.example .env
 ```
 
-Edit `.env` and fill in all required values:
+Generate the three random values `.env` needs. `.env` is read as plain
+`KEY=value` text, so a `$(...)` written inside it is **not** run; it becomes the
+literal value. Run these in your shell and paste each output into the file:
+
+```bash
+python3 -c "import secrets; print('DB_PASSWORD=' + secrets.token_urlsafe(24))"
+python3 -c "import secrets; print('REDIS_PASSWORD=' + secrets.token_urlsafe(24))"
+# A Fernet key: 32 random bytes, URL-safe base64. Standard library only.
+python3 -c "import base64, os; print('INTEGRATION_ENCRYPTION_KEY=' + base64.urlsafe_b64encode(os.urandom(32)).decode())"
+```
+
+Then edit `.env` and fill in all required values:
 
 ```bash
 # Required minimums — see .env.example for full list
@@ -693,12 +767,12 @@ CERTBOT_EMAIL=ops@example.com
 # writes it back to .env. Set it yourself only if you want to control the value;
 # it refuses any documented placeholder either way.
 SECRET_KEY=
-DB_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
-REDIS_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
+DB_PASSWORD=<paste the generated value>
+REDIS_PASSWORD=<paste the generated value>
 
 # Encrypts stored integration credentials at rest. The API refuses to start
 # without it, so this is required even if you never connect an integration.
-INTEGRATION_ENCRYPTION_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+INTEGRATION_ENCRYPTION_KEY=<paste the generated value>
 
 # Attachment storage — the API refuses to start until you choose one.
 # (a) Recommended: object storage, which survives container replacement.
@@ -758,7 +832,9 @@ docker compose -f docker-compose.prod.yml exec api \
   cat /run/trueppm/admin_password
 ```
 
-This exact path is drilled in CI. On any change to `docker-compose.prod.yml`,
+This path is drilled in CI with local-disk attachment storage and without a
+real ACME exchange; S3 storage and Let's Encrypt issuance are not exercised. On
+any change to `docker-compose.prod.yml`,
 `init-prod.sh`, `.env.example`, or the nginx templates — plus a nightly schedule
 — a `compose:prod` job fills `.env.example` with generated values, runs
 `init-prod.sh` against images built from that commit, and fails the pipeline
