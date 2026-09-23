@@ -126,6 +126,33 @@ fail() { echo "FAIL [${DRILL_MODE}]: $*" >&2; exit 1; }
 
 compose() { docker compose -f "${COMPOSE_FILE}" "$@"; }
 
+# ── dind caveat, mirroring scripts/prod-compose-drill.sh (#2817/#2828) ────────
+# `docker compose` runs in THIS container but the daemon lives in the dind
+# service, so a bind mount's SOURCE path is resolved by the daemon — on its
+# own filesystem, where our checkout does not exist. Docker's response to a
+# missing bind source is to create it as an empty DIRECTORY. `api` (and
+# celery/celery-beat, which share its image) tolerate this silently: their
+# PYTHONPATH prepends the bind-mounted src dir ahead of the venv's already-
+# installed copy, and Python just falls through to the installed copy when
+# the override directory is empty, so they boot fine but silently lose hot-
+# reload of this commit's source. `web`'s `npm run dev` and `nginx`'s
+# `envsubst` have no such fallback and hard-fail instead — `npm error ...
+# ENOENT ... package.json` and `envsubst: ... Is a directory` respectively.
+#
+# Fix: place the checkout on the daemon's filesystem at the SAME absolute
+# path first, via a throwaway container mounting `-v /:/host` on the dind
+# root, so the compose files' relative bind sources resolve to real files —
+# the identical mechanism scripts/prod-compose-drill.sh's
+# sync_checkout_to_daemon uses for nginx/active.conf.template.
+sync_checkout_to_daemon() {
+  local paths=("$@") targets
+  targets="$(printf "'/host${PWD}/%s' " "${paths[@]}")"
+  tar -C "${PWD}" -cf - "${paths[@]}" 2>/dev/null \
+    | docker run --rm -i -v /:/host alpine:3 \
+        sh -c "rm -rf ${targets} && mkdir -p '/host${PWD}' && tar -C '/host${PWD}' -xf -" \
+    >/dev/null
+}
+
 dump_diagnostics() {
   echo "======== DIAGNOSTICS (${DRILL_MODE} compose stack did not reach a healthy state) ========" >&2
   compose ps -a 2>&1 | sed 's/^/  /' >&2 || true
@@ -197,6 +224,9 @@ wait_http_200() {
 
 # ============================================================================
 if [ "${DRILL_MODE}" = "dev" ]; then
+
+  log "syncing bind-mount sources onto the dind daemon filesystem (packages/api/src, packages/web)"
+  sync_checkout_to_daemon packages/api/src packages/web
 
   log "booting the unmodified dev stack (docker compose up -d --build)"
   compose up -d --build
@@ -274,6 +304,9 @@ else # DRILL_MODE=demo
     docker pull "${src}" >/dev/null || fail "could not pull ${src} — did ci:build-deploy-images run?"
     docker tag "${src}" "ghcr.io/trueppm/${svc}:latest"
   done
+
+  log "syncing bind-mount sources onto the dind daemon filesystem (nginx)"
+  sync_checkout_to_daemon nginx
 
   log "booting the unmodified demo stack (docker compose up -d)"
   compose up -d
