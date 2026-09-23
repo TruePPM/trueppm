@@ -1010,10 +1010,16 @@ env:
   # an authenticated account. Raise or lower to fit your deployment.
   TRUEPPM_THROTTLE_ANON_RATE: "60/min"
   TRUEPPM_THROTTLE_USER_RATE: "1000/min"
-  # Trusted reverse-proxy depth for real-client-IP extraction behind the anon
-  # rate limit. Default 1 matches this chart's single ingress; set to your actual
-  # proxy depth (0 = direct, use REMOTE_ADDR). A wrong value lets clients spoof
-  # X-Forwarded-For and evade the anon limit.
+  # Trusted reverse-proxy depth for real-client-IP extraction behind EVERY per-IP
+  # throttle (anon, login, readyz, share_access, the git webhook). Default 1 is
+  # right ONLY when the ingress controller is the first thing a client reaches
+  # and /api goes straight to the API Service (the default ingress.hosts). A
+  # cloud LB or CDN in front of the controller, or /api routed through the web
+  # tier, is two hops — see administration/networking.md for the table.
+  # 0 = nothing in front, use REMOTE_ADDR. Too low: every client shares one
+  # bucket. Too high: a client picks its own bucket via X-Forwarded-For. Neither
+  # is visible from outside — check it with the readback (#4020):
+  #   GET /api/v1/health/system/ as a staff user -> security.client_address
   TRUEPPM_NUM_PROXIES: "1"
   # Global API rate-limiting kill switch (#2316, ADR-0604). "true" (default) keeps
   # ALL throttling on. Setting "false" alone does nothing — disabling also requires

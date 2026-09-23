@@ -319,7 +319,12 @@ def email_metrics(_request: Request) -> HttpResponse:
         "configured schedule, a dead-letter summary, the read-only retention "
         "configuration, and the read-only telemetry (OpenTelemetry exporter) "
         "posture — export enabled flag, endpoint, protocol, sampler, and per-signal "
-        "toggles (never the OTLP headers, which carry the export token). Composes "
+        "toggles (never the OTLP headers, which carry the export token), and the "
+        "security posture — whether rate limiting is on, and `client_address`: "
+        "which address the per-IP throttles keyed THIS request on under "
+        "`TRUEPPM_NUM_PROXIES`, with the raw peer and `X-Forwarded-For` chain it "
+        "was resolved from and a `status` verdict, so an operator can check the "
+        "proxy-depth setting against the path their own request took. Composes "
         "existing committed state and settings — no payloads or task "
         "arguments are exposed here. Always responds 200 with statuses in the body "
         "(unlike `/health/beat/`, which is a 200/503 probe). Requires a staff "
@@ -344,7 +349,7 @@ def email_metrics(_request: Request) -> HttpResponse:
 )
 @api_view(["GET"])
 @permission_classes([IsAdminUser])
-def system_health(_request: Request) -> Response:
+def system_health(request: Request) -> Response:
     """Return the aggregated System Health overview payload.
 
     All figures are read from committed rows, so they reflect work done by the
@@ -352,7 +357,7 @@ def system_health(_request: Request) -> Response:
     process. Safe to poll on the dashboard's 10 s refresh — see
     ``observability.selectors.get_system_health`` for the query budget.
     """
-    return Response(get_system_health())
+    return Response(get_system_health(request))
 
 
 @extend_schema(
