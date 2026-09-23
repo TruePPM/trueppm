@@ -721,6 +721,21 @@ EOF
     --show-only templates/pvc-media.yaml \
     | awk '/^  name:/{print $2; exit}')"
   [ -n "$media_claim" ] || fail "could not resolve the media PVC name from the render (#4027)"
+
+  # hostPath is deliberately excluded from Kubernetes' fsGroup ownership
+  # management (letting a pod chown an arbitrary host path via fsGroup would
+  # be a real privilege-escalation vector), so `type: DirectoryOrCreate`
+  # below would otherwise leave this directory root-owned — the chart's own
+  # values.yaml documents fsGroup: 1000 / runAsUser: 1000 specifically so a
+  # REAL (non-hostPath) RWX volume comes up group-writable for that UID/GID;
+  # a hostPath one needs the same ownership set by hand. `docker exec` into
+  # the kind node directly: this path is on that container's filesystem, not
+  # this job's, the same dind-remote-daemon distinction
+  # sync_checkout_to_daemon (scripts/dev-demo-compose-drill.sh) exists for.
+  log "pre-creating the media hostPath directory on the kind node, owned by 1000:1000 (fsGroup does not reach hostPath)"
+  docker exec "${CLUSTER}-control-plane" mkdir -p /tmp/trueppm-media-walkthrough-drill
+  docker exec "${CLUSTER}-control-plane" chown 1000:1000 /tmp/trueppm-media-walkthrough-drill
+
   log "pre-creating a static RWX PersistentVolume for ${WALKTHROUGH_NAMESPACE}/${media_claim} — kind's default StorageClass cannot satisfy ReadWriteMany (#4027)"
   kubectl apply -f - <<PVEOF
 apiVersion: v1
