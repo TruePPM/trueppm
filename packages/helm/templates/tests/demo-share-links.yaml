@@ -1,0 +1,140 @@
+{{- if and .Values.demo.enabled (not .Values.demo.interactive) }}
+{{/*
+Share-link demo verification hook (#4019).
+
+`templates/tests/demo-read-only.yaml` proves the INTERACTIVE demo's api-tier
+fence, but that hook is gated on `demo.interactive`, which `values-demo.yaml`
+deliberately leaves off — this overlay is the SHARE-LINK demo. Before #4019 the
+only test hook that rendered here was `api-connection.yaml`, which proves
+Django is up and says nothing about whether the two URLs this deployment
+exists to serve actually serve. A green `helm install` plus a green
+`helm test` was consistent with a demo that is up and blank: the seed silently
+producing no links, TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED flipped off
+instance-wide, an nginx allowlist regression, or a token mismatch between what
+was seeded and what is published all pass unnoticed downstream of a
+successful install.
+
+This hook curls both share projections through the WEB Service, not the api
+Service — deliberately the opposite of demo-read-only.yaml's choice, and for
+the opposite reason: the read-only fence there is an api-tier concern reached
+correctly by in-cluster DNS, but the share links' entire point is that they
+are served through the web tier's nginx allowlist (`location ^~
+/api/v1/share/`, values-demo.yaml). Reaching the api Service directly would
+bypass the one thing this deployment's public edge depends on and prove
+nothing about it.
+
+The tokens are read from `.Values.demo.shareToken.schedule` /
+`.board` — the exact same values `templates/demo-seed-job.yaml` passes to
+`create_demo_share_link` as TRUEPPM_DEMO_SHARE_TOKEN /
+TRUEPPM_DEMO_SHARE_TOKEN_BOARD. There is no separate source to drift from: if
+the seed and this hook ever disagreed, it could only be because someone
+introduced a second one, and reading the same key is what prevents that.
+
+Gated on `demo.enabled AND NOT demo.interactive`, independently of
+demo-read-only.yaml's `demo.interactive` gate (never widen that one to cover
+this case — the two demos must stay independently gated, exactly like the
+seed's TRUEPPM_DEMO_LOGIN_* block and the nginx ConfigMap's two branches).
+The two hooks are mutually exclusive by construction: `demo.interactive=true`
+implies renders of the OTHER server block (the third, method-fenced one) that
+does not carry this allowlist location at all, so a share-link probe there
+would be probing a config this overlay never ships.
+*/}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "trueppm.fullname" . }}-test-demo-share-links
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    helm.sh/hook: test
+    # Run after the connection probe so a plain "the API is not up" failure is
+    # reported by the test that is about that, not by this one.
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  securityContext:
+    {{- toYaml .Values.podSecurityContext | nindent 4 }}
+  volumes:
+    # readOnlyRootFilesystem is on and curl writes its response bodies to disk.
+    - name: tmp
+      emptyDir: {}
+  containers:
+    - name: curl
+      image: "{{ .Values.tests.image.repository }}:{{ .Values.tests.image.tag }}"
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      securityContext:
+        {{- toYaml .Values.containerSecurityContext | nindent 8 }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      # Literal, for the same reason as the connection probe's: a short-lived curl
+      # pod never needs tuning, and a values-driven toYaml hides the limits from
+      # static analysis.
+      resources:
+        requests:
+          cpu: 20m
+          memory: 32Mi
+          ephemeral-storage: 16Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi
+          ephemeral-storage: 32Mi
+      command:
+        - /bin/sh
+        - -ec
+        - |
+          host="{{ include "trueppm.fullname" . }}-web:{{ .Values.web.service.port }}"
+
+          # --retry rides out the brief window the seed's scheduled reset (#4019,
+          # ADR-1197 D9) opens: the reset deletes the pinned share links (cascade
+          # on ShareLink.project) and recreates them, and values-demo.yaml turns
+          # that reset on by default. A `helm test` run that lands in that window
+          # should still pass rather than flake.
+          echo "probing http://${host}/api/v1/share/schedule/{{ .Values.demo.shareToken.schedule }}/ ..."
+          schedule_code="$(curl -sS --retry 30 --retry-delay 2 --retry-all-errors \
+            -o /tmp/schedule.json -w '%{http_code}' \
+            "http://${host}/api/v1/share/schedule/{{ .Values.demo.shareToken.schedule }}/" || echo 000)"
+          if [ "$schedule_code" != "200" ]; then
+            echo "FAIL: the schedule share projection returned ${schedule_code}, expected 200."
+            echo "      Reached through the web Service (not the api Service), so this exercises"
+            echo "      the nginx allowlist ('location ^~ /api/v1/share/') rather than bypassing it."
+            echo "      Possible causes: demo.shareToken.schedule does not match the token"
+            echo "      create_demo_share_link minted, TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED is not"
+            echo "      \"true\" instance-wide, or the web tier's allowlist stopped proxying the"
+            echo "      share location."
+            cat /tmp/schedule.json || true
+            exit 1
+          fi
+          if [ ! -s /tmp/schedule.json ]; then
+            echo "FAIL: the schedule share projection answered 200 with an EMPTY body."
+            exit 1
+          fi
+          echo "OK: schedule share projection 200 with a non-empty body"
+
+          echo "probing http://${host}/api/v1/share/board/{{ .Values.demo.shareToken.board }}/ ..."
+          board_code="$(curl -sS --retry 30 --retry-delay 2 --retry-all-errors \
+            -o /tmp/board.json -w '%{http_code}' \
+            "http://${host}/api/v1/share/board/{{ .Values.demo.shareToken.board }}/" || echo 000)"
+          if [ "$board_code" != "200" ]; then
+            echo "FAIL: the board share projection returned ${board_code}, expected 200."
+            echo "      Reached through the web Service (not the api Service), so this exercises"
+            echo "      the nginx allowlist ('location ^~ /api/v1/share/') rather than bypassing it."
+            echo "      Possible causes: demo.shareToken.board does not match the token"
+            echo "      create_demo_share_link minted, TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED is not"
+            echo "      \"true\" instance-wide, or the web tier's allowlist stopped proxying the"
+            echo "      share location."
+            cat /tmp/board.json || true
+            exit 1
+          fi
+          if [ ! -s /tmp/board.json ]; then
+            echo "FAIL: the board share projection answered 200 with an EMPTY body."
+            exit 1
+          fi
+          echo "OK: board share projection 200 with a non-empty body"
+
+          echo "OK: both share projections reachable through the web Service — the public"
+          echo "    edge is proven, not just the api tier."
+{{- end }}

@@ -2730,6 +2730,36 @@ helm:template:
     - |
       grep -q 'location \^~ /api/v1/share/' /tmp/rendered-demo.yaml \
         || { echo "DEMO BROKEN: share projections not proxied"; exit 1; }
+    # #4019: `helm test` on the share-link demo must actually assert something
+    # about the two URLs it exists to serve, not just that Django is up
+    # (api-connection.yaml). templates/tests/demo-share-links.yaml is that hook,
+    # gated on `demo.enabled AND NOT demo.interactive` — a sibling of
+    # demo-read-only.yaml's `demo.interactive` gate, never a widening of it. Prove
+    # the two stay independently gated: the share-link hook renders here and only
+    # here, the interactive hook renders only under demo.interactive=true, and
+    # neither leaks into the other's overlay or the chart's default render.
+    - |
+      helm template trueppm packages/helm --set image.tag=latest \
+        --set demo.interactive=true \
+        --set demo.loginHint.username=ci-visitor \
+        --set demo.loginHint.password=CiDemoCheck1Pw > /tmp/rendered-demo-interactive.yaml
+    - |
+      grep -q -- '-test-demo-share-links' /tmp/rendered-demo.yaml \
+        || { echo "DEMO REGRESSION (#4019): the share-link verification test hook did not render for values-demo.yaml (demo.enabled=true, demo.interactive=false)"; exit 1; }
+      grep -q -- '-test-demo-read-only' /tmp/rendered-demo-interactive.yaml \
+        || { echo "DEMO REGRESSION: demo.interactive=true did not render the interactive read-only test hook"; exit 1; }
+      if grep -q -- '-test-demo-share-links' /tmp/rendered.yaml; then
+        echo "DEMO REGRESSION (#4019): the share-link verification test hook rendered on the DEFAULT values (demo.enabled=false) — it must stay gated on demo.enabled"
+        exit 1
+      fi
+      if grep -q -- '-test-demo-share-links' /tmp/rendered-demo-interactive.yaml; then
+        echo "DEMO REGRESSION (#4019): the share-link verification test hook rendered under demo.interactive=true — the two demo test hooks must stay independently gated, never widen one to cover the other"
+        exit 1
+      fi
+      if grep -q -- '-test-demo-read-only' /tmp/rendered-demo.yaml; then
+        echo "DEMO REGRESSION: the interactive read-only test hook rendered on values-demo.yaml (demo.interactive left off) — it must stay gated on demo.interactive"
+        exit 1
+      fi
     - |
       grep -q 'X-Robots-Tag' /tmp/rendered-demo.yaml \
         || { echo "DEMO REGRESSION: noindex header missing"; exit 1; }
