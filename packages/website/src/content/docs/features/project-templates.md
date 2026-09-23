@@ -69,8 +69,10 @@ schedules the new rows against *your* calendar and start date as soon as they
 land — the dates never come from the template.
 
 Applying a template requires the **Project Manager** role or above on the target
-project. Publishing one requires the same on the source project. Anyone can *see*
-the gallery.
+project. Publishing one requires the same on the source project. Seeing the gallery
+needs only authentication — for a workspace-wide template. A template published
+from inside a program is offered only to that program's members; everyone else's
+gallery simply omits it.
 
 ## Landing on a seeded schedule
 
