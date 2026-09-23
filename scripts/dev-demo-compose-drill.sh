@@ -227,6 +227,15 @@ if [ "${DRILL_MODE}" = "dev" ]; then
   log "syncing bind-mount sources onto the dind daemon filesystem (packages/api/src, packages/web)"
   sync_checkout_to_daemon packages/api/src packages/web
 
+  # Vite 5+'s server.allowedHosts rejects a Host header it does not
+  # recognize (docker-compose.yml's own default covers localhost/127.0.0.1/
+  # the --host bind address, right for every real `docker compose up`) —
+  # "docker" is not a hostname a real browser would ever send; it exists
+  # only because this drill reaches the published port through the dind
+  # service under that name (PROBE_HOST, see the header comment). Same CI-
+  # only-plumbing reasoning as the demo leg's ALLOWED_HOSTS export below.
+  export DEV_SERVER_ALLOWED_HOSTS="${PROBE_HOST}"
+
   log "booting the unmodified dev stack (docker compose up -d --build)"
   compose up -d --build
 

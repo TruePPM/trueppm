@@ -34,6 +34,14 @@ const appVersion = (() => {
 const apiUrl = process.env['API_URL'] ?? 'http://localhost:8000';
 const wsUrl = apiUrl.replace(/^http/, 'ws');
 
+// DEV_SERVER_ALLOWED_HOSTS (no VITE_ prefix — server-side only, same reasoning
+// as API_URL above) extends Vite's Host-header allowlist for the dev server.
+// Unset, `allowedHosts` is omitted entirely and Vite's own default applies
+// (localhost/127.0.0.1/the configured --host). Comma-separated so a compose
+// override can add exactly one extra name without disabling the check
+// (`allowedHosts: true`, which accepts every Host header).
+const devServerAllowedHosts = process.env['DEV_SERVER_ALLOWED_HOSTS']?.split(',').filter(Boolean);
+
 // E2E coverage build (issue #2117). Gated on VITE_COVERAGE so the production
 // build is never instrumented. The instrumented modules populate
 // `window.__coverage__`; the Playwright coverage fixture (e2e/fixtures/coverage.ts)
@@ -78,6 +86,9 @@ export default defineConfig({
     },
   },
   server: {
+    ...(devServerAllowedHosts && devServerAllowedHosts.length > 0
+      ? { allowedHosts: devServerAllowedHosts }
+      : {}),
     proxy: {
       '/api': {
         target: apiUrl,
