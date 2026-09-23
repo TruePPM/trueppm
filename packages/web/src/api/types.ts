@@ -200,6 +200,14 @@ export type ProgramHealth = 'AUTO' | 'ON_TRACK' | 'AT_RISK' | 'CRITICAL';
 export type ProgramSlipPropagation = 'none' | 'warn' | 'block';
 
 /**
+ * How project health rolls up into the program health dot (ADR-0169, #527).
+ * Mirrors ``apps.projects.models.AggregationPolicy``. Direct column, default
+ * `worst`. Read-only on this serializer — writes go through the dedicated
+ * `/rollup-config/` action.
+ */
+export type ProgramRollupAggregationPolicy = 'worst' | 'average' | 'weighted_by_budget' | 'task_weighted';
+
+/**
  * Program listing scope. Queryset enforcement is a future change; the field is
  * stored and rendered today. Mirrors ``apps.projects.models.Visibility`` (#523).
  */
@@ -419,6 +427,11 @@ export interface Program {
   /** Days a cross-project slip may persist before escalation (issue 529), 1–30
    *  (default 3). Bulk-editable from the Workspace → Programs matrix (issue 1283). */
   risk_escalation_days: number;
+  /** Rollup config (ADR-0169, #527) — which KPIs the program overview surfaces.
+   *  Read-only here; writes go through the dedicated `/rollup-config/` action. */
+  rollup_enabled_kpis: string[];
+  /** Read-only here; writes go through the dedicated `/rollup-config/` action. */
+  rollup_aggregation_policy: ProgramRollupAggregationPolicy;
   /** PM health override; AUTO defers to the rollup. */
   health: ProgramHealth;
   /** Headline target finish date as an ISO `YYYY-MM-DD` string, or null when the

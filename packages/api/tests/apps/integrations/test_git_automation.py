@@ -26,6 +26,7 @@ from rest_framework.test import APIClient
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.integrations.encryption import CredentialEncryptionError
 from trueppm_api.apps.integrations.models import BoardAutomation, TaskLink
+from trueppm_api.apps.integrations.serializers import GIT_WEBHOOK_RESULT_SCHEMA
 from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
 from trueppm_api.apps.projects.models import (
     SCOPE_LEGACY_FULL,
@@ -336,6 +337,103 @@ def test_duplicate_delivery_is_noop(
     assert resp.json()["reason"] == "duplicate"
     task.refresh_from_db()
     assert task.status == TaskStatus.IN_PROGRESS
+
+
+# --- OpenAPI schema conformance (#4034) --------------------------------------
+#
+# GIT_WEBHOOK_RESULT_SCHEMA is the raw schema the ``@extend_schema`` on
+# ``GitWebhookIngestView`` declares for its 200 response. The view returns three
+# distinct key sets — the plain-ignored shape, the reasoned-ignored/no-op/duplicate
+# shape, and the full match shape — and nothing before this asserted any of them
+# against the declared schema, so a future field rename on either side could drift
+# silently past every functional test above.
+
+
+def test_ignored_response_keys_are_declared(
+    project: Project, task: Task, automation: BoardAutomation
+) -> None:
+    """A plain ignored event (no ``ignored_reason``) omits the ``reason`` key."""
+    _github_link(task)
+    body = json.dumps({"zen": "ping"}).encode("utf-8")
+    sig = "sha256=" + hmac.new(SECRET.encode(), body, hashlib.sha256).hexdigest()
+    headers = {"HTTP_X_GITHUB_EVENT": "push", "HTTP_X_HUB_SIGNATURE_256": sig}
+    resp = _post(project, body, headers)
+    payload = resp.json()
+    declared = set(GIT_WEBHOOK_RESULT_SCHEMA["properties"])
+    assert payload == {"matched": False, "moved": False, "ignored": "push"}
+    assert set(payload) <= declared
+    assert set(GIT_WEBHOOK_RESULT_SCHEMA["required"]) <= set(payload)
+
+
+def test_draft_ignored_response_keys_and_reason_are_declared(
+    project: Project, task: Task, automation: BoardAutomation
+) -> None:
+    """A draft-open carries ``reason: "draft"`` alongside ``ignored``."""
+    _github_link(task)
+    body = json.dumps(
+        {"action": "opened", "pull_request": {"html_url": GITHUB_PR_URL, "draft": True}}
+    ).encode("utf-8")
+    resp = _post(project, body, _github_headers(body))
+    payload = resp.json()
+    declared = set(GIT_WEBHOOK_RESULT_SCHEMA["properties"])
+    assert set(payload) == {"matched", "moved", "ignored", "reason"}
+    assert set(payload) <= declared
+    assert payload["reason"] in GIT_WEBHOOK_RESULT_SCHEMA["properties"]["reason"]["enum"]
+
+
+def test_matched_response_keys_are_declared(
+    project: Project, task: Task, automation: BoardAutomation
+) -> None:
+    """A card move returns exactly ``matched, moved, task, from, to, reason`` —
+    the shape the issue's ``{matched, moved, task, from, to, reason}`` names."""
+    _github_link(task)
+    body = _github_body("opened")
+    resp = _post(project, body, _github_headers(body))
+    payload = resp.json()
+    declared = set(GIT_WEBHOOK_RESULT_SCHEMA["properties"])
+    assert set(payload) == {"matched", "moved", "task", "from", "to", "reason"}
+    assert set(payload) <= declared
+    assert payload["reason"] in GIT_WEBHOOK_RESULT_SCHEMA["properties"]["reason"]["enum"]
+    # Declared ``{"type": "string", "format": "uuid"}` — verify it round-trips.
+    assert uuid.UUID(payload["task"])
+
+
+def test_unmatched_response_keys_are_declared(
+    project: Project, task: Task, automation: BoardAutomation
+) -> None:
+    """No linked task: still the full match shape, with ``task``/``from``/``to``
+    present but ``null`` — the "past the gate" branch always returns all six keys,
+    only the ignored/duplicate short-circuits omit some of them."""
+    body = _github_body("opened")
+    resp = _post(project, body, _github_headers(body))
+    payload = resp.json()
+    declared = set(GIT_WEBHOOK_RESULT_SCHEMA["properties"])
+    assert payload == {
+        "matched": False,
+        "moved": False,
+        "task": None,
+        "from": None,
+        "to": None,
+        "reason": "no_link",
+    }
+    assert set(payload) <= declared
+    assert payload["reason"] in GIT_WEBHOOK_RESULT_SCHEMA["properties"]["reason"]["enum"]
+
+
+def test_duplicate_response_keys_are_declared(
+    project: Project, task: Task, automation: BoardAutomation
+) -> None:
+    _github_link(task)
+    body = _github_body("opened")
+    with patch(
+        "trueppm_api.apps.integrations.throttles.claim_webhook_delivery", return_value=False
+    ):
+        resp = _post(project, body, _github_headers(body))
+    payload = resp.json()
+    declared = set(GIT_WEBHOOK_RESULT_SCHEMA["properties"])
+    assert payload == {"matched": False, "moved": False, "reason": "duplicate"}
+    assert set(payload) <= declared
+    assert payload["reason"] in GIT_WEBHOOK_RESULT_SCHEMA["properties"]["reason"]["enum"]
 
 
 # --- Config + rotate-secret RBAC ---------------------------------------------
