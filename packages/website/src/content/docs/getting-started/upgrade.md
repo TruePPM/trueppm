@@ -209,15 +209,17 @@ namespace called `ingress-nginx`.
 If your controller runs anywhere else and your CNI enforces NetworkPolicy, those
 policies would cut off all traffic to the site, and every pod would still report
 Ready. k3s (Traefik) and RKE2 (`rke2-ingress-nginx`) both run their controller in
-`kube-system` and enforce policies out of the box. To prevent a silent outage,
-**the first upgrade that adds these policies refuses to render** until you choose
-one of the following:
+`kube-system` and enforce policies out of the box — and a **tunnel** such as
+Cloudflare Tunnel is not an ingress controller at all, so it never matches the
+default no matter which namespace it runs in. To prevent a silent outage, **the
+first upgrade that adds these policies refuses to render** until you choose one
+of the following:
 
 ```bash
 # Your controller really is in the ingress-nginx namespace:
 helm upgrade trueppm ... --set networkPolicy.ingressControllerConfirmed=true
 
-# It runs elsewhere, for example kube-system:
+# It runs elsewhere, for example kube-system (or wherever your tunnel client runs):
 helm upgrade trueppm ... --set-json \
   'networkPolicy.ingressControllerSelector={"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}},"podSelector":{}}'
 
@@ -225,9 +227,17 @@ helm upgrade trueppm ... --set-json \
 helm upgrade trueppm ... --set networkPolicy.enabled=false
 ```
 
-The check runs only on the upgrade that introduces the policies. Fresh installs and
-later upgrades skip it. A cloud load balancer that sends traffic from outside the
-cluster needs an `ipBlock` peer instead; see
+The check above runs only on the upgrade that introduces the policies — fresh
+installs and later upgrades skip it, because it compares against a policy that
+must already exist for there to be a "transition" at all. A **separate** check
+fires on a fresh install too, for the two paths that bypass any in-cluster
+ingress controller entirely: `demo.enabled` (the documented Cloudflare Tunnel
+exposure) and `web.service.type: LoadBalancer`/`NodePort`. Neither has a prior
+policy to compare against, so the render simply refuses while the selector is
+still the default — see [Public read-only demo
+mode](/administration/helm-values/#public-read-only-demo-mode). A cloud load
+balancer that sends traffic from outside the cluster needs an `ipBlock` peer
+instead; see
 [`networkPolicy.ingressControllerSelector`](/administration/helm-values/).
 
 Three more things to check for this upgrade:
@@ -245,34 +255,6 @@ Three more things to check for this upgrade:
 - **GitOps.** Tools that render the chart with `helm template` and apply the
   result themselves, such as Argo CD, never run this check. Set the selector
   before you sync.
-
-:::caution[Known issue: tunnels and LoadBalancer/NodePort exposure (#4003)]
-The web pod's policy admits only the ingress-controller peer. It therefore also
-blocks two other ways of exposing the site:
-
-- **A tunnel pointed at the web Service**, such as Cloudflare Tunnel. This is
-  the documented way to expose the demo.
-- **`web.service.type: LoadBalancer` or `NodePort`.**
-
-On a CNI that enforces NetworkPolicy, such an install is unreachable even though
-every pod is Ready and `helm test` passes. A **fresh** install gets no warning,
-because the check above only runs on upgrade. Until #4003 ships, do one of the
-following:
-
-- Set `networkPolicy.ingressControllerSelector` to the namespace your tunnel runs
-  in. For example, for `cloudflared`:
-
-  ```bash
-  --set-json 'networkPolicy.ingressControllerSelector={"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"cloudflared"}},"podSelector":{}}'
-  ```
-
-- Use an `ipBlock` peer naming the LoadBalancer or client source ranges.
-- Set `networkPolicy.enabled=false`.
-
-If the tunnel runs on the host rather than as a pod, whether its traffic is
-admitted depends on your CNI. Disabling the policy is the safe choice. Check the
-public URL after installing or upgrading.
-:::
 
 ---
 

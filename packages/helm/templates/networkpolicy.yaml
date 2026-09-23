@@ -120,9 +120,15 @@ rather than a hardcoded selector — the controller's own namespace/pod labels v
 by distribution (RKE2, GKE, k3s, …), and a policy that assumes the wrong one
 silently blackholes ingress traffic rather than merely under-protecting it.
 The peers themselves, and the guard that stops an upgrade from introducing these
-policies on an unconfirmed default, live in _helpers.tpl (#4000).
+policies on an unconfirmed default, live in _helpers.tpl (#4000). A second guard
+in the same file (trueppm.webExposureNetworkPolicyGuard, #4003) covers the two
+exposure paths that never go through an in-cluster ingress controller at all —
+the demo's documented Cloudflare Tunnel, and a LoadBalancer/NodePort web Service
+— and fires on a fresh install too, since neither has a prior policy for the
+transition guard's lookup to find.
 */}}
 {{- include "trueppm.networkPolicyTransitionGuard" . }}
+{{- include "trueppm.webExposureNetworkPolicyGuard" . }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

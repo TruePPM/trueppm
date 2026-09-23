@@ -389,6 +389,14 @@ networkPolicy:
   # whole `kube-system` namespace, where both distributions run their bundled
   # controller (#4000). A controller on hostNetwork is not a pod-network peer
   # at all and needs an ipBlock naming the node addresses instead.
+  #
+  # Two paths never go through an in-cluster ingress controller at all, so the
+  # default here is simply wrong for them, not merely a guess that might miss:
+  # a tunnel (Cloudflare Tunnel is the one demo mode's docs name, ADR-0658 D9)
+  # pointed at svc/<release>-trueppm-web, and a LoadBalancer/NodePort
+  # web.service.type reached directly from client/node IPs. Point this at the
+  # tunnel's own namespace, or at an ipBlock naming the load balancer's/node's
+  # source range — see ingressControllerConfirmed below and #4003.
   ingressControllerSelector:
     namespaceSelector:
       matchLabels:
@@ -401,7 +409,15 @@ networkPolicy:
   # the default, because a wrong guess cuts off all traffic to a site that was
   # working (#4000). Set a selector that matches your controller, or set this to
   # true to confirm the default is right for your cluster. Fresh installs and
-  # every later upgrade ignore it.
+  # every later upgrade ignore THAT guard.
+  #
+  # A second, narrower guard (#4003) also consults this on a FRESH install (not
+  # just upgrades) whenever no chart-rendered Ingress exists AND either
+  # demo.enabled is true or web.service.type is LoadBalancer/NodePort — the two
+  # documented exposure paths that bypass any in-cluster ingress controller.
+  # Point ingressControllerSelector at the tunnel's namespace or a source-range
+  # ipBlock instead of setting this, unless you have actually reviewed the
+  # exposure and the default really is fine.
   ingressControllerConfirmed: false
 
   # Optional NetworkPolicyPeer admitted to the api pod's http port, for the

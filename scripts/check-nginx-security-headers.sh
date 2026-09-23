@@ -323,7 +323,8 @@ run_check() {
       -f "$CHART/values-demo.yaml" \
       --set demo.baseUrl=https://demo.example.com \
       --set demo.shareToken.schedule=ci-schedule-token \
-      --set demo.shareToken.board=ci-board-token
+      --set demo.shareToken.board=ci-board-token \
+      --set networkPolicy.ingressControllerConfirmed=true
   else
     skipped_helm=1
     echo "WARNING: helm is not on PATH — the two Helm-rendered configs were NOT checked." >&2

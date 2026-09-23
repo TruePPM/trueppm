@@ -403,7 +403,7 @@
           "type": "object"
         },
         "ingressControllerConfirmed": {
-          "description": "Confirms the default ingressControllerSelector is right for this cluster. Only consulted on the one helm upgrade that first introduces the api/web ingress policies, which otherwise refuses to render while the selector is still the default (#4000).",
+          "description": "Confirms the default ingressControllerSelector is right for this cluster. Consulted on the one helm upgrade that first introduces the api/web ingress policies (#4000), and also on a fresh install with no chart-rendered Ingress when demo.enabled is true or web.service.type is LoadBalancer/NodePort (#4003) -- both bypass any in-cluster ingress controller, so the default selector is wrong for them rather than merely unconfirmed.",
           "type": "boolean"
         },
         "monitoringSelector": {

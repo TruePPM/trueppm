@@ -230,7 +230,7 @@ Availability](/administration/valkey-ha/).
 |---|---|---|
 | `networkPolicy.enabled` | `true` | Restrict datastore ingress to the API/worker pods and default-deny datastore egress. Also renders default-deny ingress policies for `api`/`web`/`celery-worker`/`celery-beat` (see below) — independent of the bundled-subchart toggles, so it applies on the managed-datastore (production) path too. **Requires a policy-enforcing CNI** (Calico, Cilium, Antrea, …) — silently unenforced without one. |
 | `networkPolicy.ingressControllerSelector` | `namespaceSelector` matching `kubernetes.io/metadata.name: ingress-nginx`, empty `podSelector` | The NetworkPolicyPeer that the `api`/`web` default-deny ingress policies admit for your ingress controller. They also admit each other where the chart's own topology needs it: `web`'s nginx proxies to `api`, and the `helm test` probe calls `api` directly. The peer is rendered verbatim, so any peer shape works. For a cloud load balancer, use an `ipBlock` naming its source ranges. Helm merges your override into the default, so an `ipBlock` override must also set `namespaceSelector: null` and `podSelector: null`. An empty selector refuses to render, because a peerless rule admits every source. **While this is left at the default on k3s or RKE2, `kube-system` is also admitted**, since both distributions run their bundled controller there. A controller on `hostNetwork` needs an `ipBlock` for the node addresses instead. Otherwise a mismatch silently blackholes ingress traffic. `celery-worker` and `celery-beat` admit nothing, because neither has a Service. Egress is untouched by any of this; see the caveat above `networkPolicy.enabled`. |
-| `networkPolicy.ingressControllerConfirmed` | `false` | Confirms that the default `ingressControllerSelector` is right for your cluster. It only matters on the one `helm upgrade` that first adds the `api`/`web` ingress policies (from `0.4.0-beta.3` or earlier, or after `networkPolicy.enabled` was `false`). That upgrade **refuses to render** while the selector is still the default and this is `false`, instead of risking a site-wide outage. Fresh installs and later upgrades ignore it. See [Upgrading to 0.4](/getting-started/upgrade/#helm-the-api-and-web-pods-get-a-default-deny-ingress-networkpolicy). |
+| `networkPolicy.ingressControllerConfirmed` | `false` | Confirms that the default `ingressControllerSelector` is right for your cluster. It matters on the one `helm upgrade` that first adds the `api`/`web` ingress policies (from `0.4.0-beta.3` or earlier, or after `networkPolicy.enabled` was `false`) — that upgrade **refuses to render** while the selector is still the default and this is `false`, instead of risking a site-wide outage — and on a **fresh install** with no chart-rendered Ingress when `demo.enabled` is true or `web.service.type` is `LoadBalancer`/`NodePort`, since both bypass any in-cluster ingress controller entirely and the default selector is simply wrong for them, not merely unconfirmed. See [Upgrading to 0.4](/getting-started/upgrade/#helm-the-api-and-web-pods-get-a-default-deny-ingress-networkpolicy) and the demo exposure notes below. |
 | `networkPolicy.monitoringSelector` | `{}` | An optional NetworkPolicyPeer admitted to the `api` pod's http port for in-cluster monitoring: the Prometheus scrapes of `/api/v1/health/dead-letter/` and `/api/v1/health/email/`, and the Blackbox probe of `/api/v1/health/beat/` described in [Observability](/administration/observability/). When it is empty, those requests are **dropped**, and the dead-letter and beat alerts go quiet instead of firing. Scrapes through your public hostname pass the ingress controller and need nothing. Example: `{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"monitoring"}}}`. |
 | `networkPolicy.dnsSelector` | `namespaceSelector` matching `kubernetes.io/metadata.name: kube-system`, empty `podSelector` | The `{namespaceSelector, podSelector}` peer the `demo.interactive` egress-deny policies (below) resolve DNS through. Only rendered — and only consulted — while `demo.interactive` is true; every other deployment shape leaves `api`/`celery-worker` egress open. Matches the whole `kube-system` namespace rather than a specific CoreDNS pod label, because `k8s-app: kube-dns` is conventional but not guaranteed across distributions. Override it if your cluster runs DNS somewhere else. |
 | `podSecurityContext` | `runAsNonRoot: true`, `runAsUser: 1000`, `fsGroup: 1000` | Pod-level restricted defaults, applied to every workload. `fsGroup` makes the kubelet give a mounted PersistentVolume (`persistence.media`, `backup.persistence`) group `1000` with group-write, so the non-root process can write a volume a CSI driver provisioned `root:root`. It changes volume ownership only, not process identity. On OpenShift set `fsGroup: null` (see [OpenShift Deployment](/administration/openshift/)). |
@@ -761,6 +761,29 @@ API and `/ws/` around the allowlist, so the chart refuses to render them:
 - `demo.enabled` with an API Service (`service.type`) other than `ClusterIP`. A
   `LoadBalancer` or `NodePort` there is reachable with no Ingress at all. To publish a
   demo through a load balancer, set `web.service.type` instead.
+
+Getting past those two refusals is not the same as being reachable. This overlay renders
+no Ingress, so `networkPolicy.ingressControllerSelector`'s default (a namespace called
+`ingress-nginx`) is the peer the app-tier default-deny NetworkPolicy admits — and a
+tunnel client such as `cloudflared` is not an ingress controller and does not run in
+that namespace. Left at the default, the chart refuses to render at all: **on a fresh
+install, not only an upgrade** (#4003), because there is no existing policy for the
+upgrade-only transition guard above to have already let through. Point the selector at
+the namespace your tunnel actually runs in:
+
+```bash
+--set-json 'networkPolicy.ingressControllerSelector={"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"cloudflared"}},"podSelector":{}}'
+```
+
+The same guard applies to `web.service.type: LoadBalancer`/`NodePort`: that traffic
+arrives from client or node IPs, not from a pod in the ingress controller's namespace,
+so it needs an `ipBlock` peer naming the load balancer's or node's source range instead
+— set the same `networkPolicy.ingressControllerSelector` key to an `ipBlock` shape. In
+either case, `networkPolicy.ingressControllerConfirmed=true` is the escape hatch if you
+have reviewed the exposure and the default selector is genuinely fine (for example, a
+service mesh or an external firewall already restricts the Service). If `cloudflared`
+runs on the host rather than as an in-cluster pod, host-to-pod reachability under your
+CNI is not something the chart can verify — confirm it yourself before relying on it.
 
 Five more refusals guard the interactive mode's published credential and its edge
 hardening:

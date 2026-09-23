@@ -1374,7 +1374,49 @@ themselves (Argo CD) never reach this guard; the upgrade notes cover them.
 {{- if and .Release.IsUpgrade (not .Values.networkPolicy.ingressControllerConfirmed) (include "trueppm.ingressControllerSelectorIsDefault" .) -}}
 {{- $existing := lookup "networking.k8s.io/v1" "NetworkPolicy" .Release.Namespace (printf "%s-api-ingress" (include "trueppm.fullname" .)) -}}
 {{- if not $existing -}}
-{{- fail "\n\nThis upgrade adds default-deny ingress NetworkPolicies to the api and web pods. They admit traffic only from the ingress controller named by networkPolicy.ingressControllerSelector. That selector is still the chart default (a namespace called ingress-nginx). If your controller runs somewhere else, this upgrade would cut off all traffic to the site. Choose one:\n\n  - your controller really is in the ingress-nginx namespace:\n      --set networkPolicy.ingressControllerConfirmed=true\n  - it runs elsewhere (k3s Traefik and RKE2 run in kube-system):\n      --set-json 'networkPolicy.ingressControllerSelector={\"namespaceSelector\":{\"matchLabels\":{\"kubernetes.io/metadata.name\":\"kube-system\"}},\"podSelector\":{}}'\n  - add the policies later:\n      --set networkPolicy.enabled=false\n\nPrometheus or Blackbox scrapes of the api from another namespace also need networkPolicy.monitoringSelector.\nSee https://docs.trueppm.com/getting-started/upgrade/ (#4000).\n" -}}
+{{- fail "\n\nThis upgrade adds default-deny ingress NetworkPolicies to the api and web pods. They admit traffic only from the ingress controller named by networkPolicy.ingressControllerSelector. That selector is still the chart default (a namespace called ingress-nginx). If your controller runs somewhere else -- including a tunnel client such as cloudflared, which is not an ingress controller at all and does not run in ingress-nginx -- this upgrade would cut off all traffic to the site. Choose one:\n\n  - your controller really is in the ingress-nginx namespace:\n      --set networkPolicy.ingressControllerConfirmed=true\n  - it runs elsewhere (k3s Traefik and RKE2 run in kube-system; a tunnel such as Cloudflare Tunnel runs wherever you deployed cloudflared):\n      --set-json 'networkPolicy.ingressControllerSelector={\"namespaceSelector\":{\"matchLabels\":{\"kubernetes.io/metadata.name\":\"<your-tunnel-or-controller-namespace>\"}},\"podSelector\":{}}'\n  - add the policies later:\n      --set networkPolicy.enabled=false\n\nPrometheus or Blackbox scrapes of the api from another namespace also need networkPolicy.monitoringSelector.\nSee https://docs.trueppm.com/getting-started/upgrade/ (#4000).\n" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Refuse a FRESH install too, for the two documented exposure paths that never go
+through an in-cluster ingress controller at all (#4003): the demo's Cloudflare
+Tunnel (values-demo.yaml's EXPOSURE block, ADR-0658 D9) and a LoadBalancer/
+NodePort web Service (the fix templates/api/service.yaml's own refusal points
+operators toward). trueppm.networkPolicyTransitionGuard above only fires on an
+UPGRADE that first introduces the policy — it has nothing to compare against on
+a fresh install, so a brand-new demo release sailed straight past it: pods Ready,
+`helm test` green (the probe and the test Pod are both in-cluster), and the
+public tunnel got nothing, because ingressControllerSelector's default (an
+ingress-nginx namespace) does not match a tunnel client's namespace or a
+LoadBalancer/NodePort's client/node-IP traffic.
+
+Scoped narrowly so the chart's actual default (ClusterIP + port-forward, no
+chart-rendered Ingress) adds no friction: this only fires when the chart
+renders NO Ingress of its own (ingress.enabled=false -- an Ingress-fronted
+release already has a real controller-selector story and is covered by the
+guard above on upgrade) AND the selector is still the untouched chart default
+AND the operator has not confirmed it AND EITHER demo.enabled is true OR
+web.service.type is LoadBalancer/NodePort. It fires on every render meeting
+that condition, install or upgrade, unlike the transition guard's fire-once
+lookup -- there is no "transition" here to have already happened.
+
+No second values key: networkPolicy.ingressControllerSelector is already
+rendered verbatim (trueppm.ingressControllerPeers) into BOTH the api and web
+ingress policies, so pointing it at the tunnel's namespace, or at an ipBlock
+naming a load balancer's or node's source range, satisfies this the same way
+it satisfies the guard above -- setting it once covers both. ingressController-
+Confirmed remains the "I have reviewed this and it is fine" escape hatch.
+*/}}
+{{- define "trueppm.webExposureNetworkPolicyGuard" -}}
+{{- if and .Values.networkPolicy.enabled (not .Values.ingress.enabled) (not .Values.networkPolicy.ingressControllerConfirmed) (include "trueppm.ingressControllerSelectorIsDefault" .) -}}
+{{- $webType := ((.Values.web.service | default dict).type | default "ClusterIP") -}}
+{{- if .Values.demo.enabled -}}
+{{- fail "\n\nnetworkPolicy.enabled is true, no Ingress is rendered (ingress.enabled=false), demo.enabled is true, and networkPolicy.ingressControllerSelector is still the chart default (a namespace called ingress-nginx). The documented way to expose this mode is a tunnel -- Cloudflare Tunnel is the one the chart's docs name, ADR-0658 D9 -- pointed at svc/<release>-trueppm-web, with the tunnel client running wherever the operator deployed it, which is not an ingress-nginx namespace. The default peer admits none of that traffic: the web pod stays Ready and `helm test` still passes while every request the tunnel forwards is silently dropped. Choose one:\n\n  - set the selector to the namespace your tunnel (e.g. cloudflared) runs in:\n      --set-json 'networkPolicy.ingressControllerSelector={\"namespaceSelector\":{\"matchLabels\":{\"kubernetes.io/metadata.name\":\"<your-tunnel-namespace>\"}},\"podSelector\":{}}'\n  - you really do have an in-cluster ingress-nginx controller fronting this release:\n      --set networkPolicy.ingressControllerConfirmed=true\n  - add the policy later:\n      --set networkPolicy.enabled=false\n\nSee https://docs.trueppm.com/administration/helm-values/#public-read-only-demo-mode (#4003).\n" -}}
+{{- end -}}
+{{- if or (eq $webType "LoadBalancer") (eq $webType "NodePort") -}}
+{{- fail (printf "\n\nnetworkPolicy.enabled is true, no Ingress is rendered (ingress.enabled=false), web.service.type is %s, and networkPolicy.ingressControllerSelector is still the chart default (a namespace called ingress-nginx). A %s web Service is reached directly from client or node IPs, not from a pod in an ingress controller's namespace, so the default peer admits none of that traffic: the web pod stays Ready while every external request is silently dropped. Choose one:\n\n  - add an ipBlock/source-range peer naming the load balancer's or node's addresses (rendered verbatim into the same policy the ingress-controller peer uses):\n      --set-json 'networkPolicy.ingressControllerSelector={\"namespaceSelector\":null,\"podSelector\":null,\"ipBlock\":{\"cidr\":\"<your-source-cidr>\"}}'\n  - confirm the default is deliberate (e.g. a service mesh or an external firewall already restricts this Service):\n      --set networkPolicy.ingressControllerConfirmed=true\n  - add the policy later:\n      --set networkPolicy.enabled=false\n\nSee https://docs.trueppm.com/administration/helm-values/#network-and-pod-security (#4003).\n" $webType $webType) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

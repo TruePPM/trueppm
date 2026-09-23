@@ -405,6 +405,13 @@ the operator-facing highlights:
   upgrade that adds these policies refuses to render on the default controller
   selector until you confirm it; see [Upgrading to
   0.4](/getting-started/upgrade/#helm-the-api-and-web-pods-get-a-default-deny-ingress-networkpolicy).
+  The same refusal also fires on a **fresh install** with no chart-rendered
+  Ingress when `demo.enabled` is true or `web.service.type` is
+  `LoadBalancer`/`NodePort` — a tunnel (demo mode's documented Cloudflare
+  Tunnel path) and a LoadBalancer/NodePort Service both bypass any in-cluster
+  ingress controller entirely, so the default selector is wrong for them
+  rather than merely unconfirmed. See [Public read-only demo
+  mode](/administration/helm-values/#public-read-only-demo-mode).
 - **Django admin denied at the edge** (`web.adminAccess.allowCIDRs: []`). The web
   tier's nginx answers `403` for `/admin/` from every source until you name one,
   and rate-limits the surface at 5 requests/minute per IP. See
