@@ -1,1 +1,4 @@
-The Helm chart has a new `networkPolicy.monitoringSelector` value that admits in-cluster Prometheus scrapes and Blackbox probes to the api pod. Without it, the default-deny ingress NetworkPolicy dropped the health-endpoint scrapes described in the observability docs, so the dead-letter and beat-staleness alerts stopped firing and nothing reported the failure (#4001).
+- The Helm chart has a new `networkPolicy.monitoringSelector` value that admits in-cluster
+  Prometheus scrapes and Blackbox probes to the api pod. Without it, the default-deny ingress
+  NetworkPolicy dropped the health-endpoint scrapes described in the observability docs, so the
+  dead-letter and beat-staleness alerts stopped firing and nothing reported the failure (#4001).
