@@ -147,10 +147,9 @@ compose() { docker compose -f "${COMPOSE_FILE}" "$@"; }
 sync_checkout_to_daemon() {
   local paths=("$@") targets
   targets="$(printf "'/host${PWD}/%s' " "${paths[@]}")"
-  tar -C "${PWD}" -cf - "${paths[@]}" 2>/dev/null \
+  tar -C "${PWD}" -cf - "${paths[@]}" \
     | docker run --rm -i -v /:/host alpine:3 \
-        sh -c "rm -rf ${targets} && mkdir -p '/host${PWD}' && tar -C '/host${PWD}' -xf -" \
-    >/dev/null
+        sh -c "rm -rf ${targets} && mkdir -p '/host${PWD}' && tar -C '/host${PWD}' -xf -"
 }
 
 dump_diagnostics() {
