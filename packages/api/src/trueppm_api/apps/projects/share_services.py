@@ -109,7 +109,7 @@ def resolve_share_link(token: str, content_kind: str) -> ShareLink | None:
         return None
     return (
         ShareLink.objects.filter(token_hash=sha256_hex(token), content_kind=content_kind)
-        .select_related("project")
+        .select_related("project", "created_by")
         .first()
     )
 

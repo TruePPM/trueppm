@@ -351,9 +351,11 @@ See [`revoke_api_tokens`](/administration/management-commands/#maintenance-comma
 Two routine paths already revoke personal tokens on their own and need no manual
 step: a **password reset** and **deactivating or removing a member** each revoke
 that account's personal tokens in the same transaction, and both are audited.
-Off-boarding also revokes any board share link *that member personally minted*
-and clears any git-automation webhook secret *they configured* — the project's
-other admins keep their own.
+Both also revoke any board share link *that account personally minted* and clear
+any git-automation webhook secret *they configured* — the project's other admins
+keep their own. A public share link also stops serving as soon as its creator's
+account is deactivated by any means (including outside the app, such as the
+Django admin or a script), even before a password reset or off-boarding runs.
 :::
 
 ## Helm secure-by-default

@@ -238,6 +238,26 @@ def _serve_public_share(
             {"detail": "This share link has been revoked."},
             status=status.HTTP_410_GONE,
         )
+    if link.created_by is not None and not link.created_by.is_active:
+        # Deactivation is a termination signal exactly like revocation (#4006):
+        # `_revoke_offboarded_credentials` already revokes a link *row* when a
+        # member is off-boarded through the app, but a deactivation that happens
+        # any other way — Django admin, a shell, a future SCIM deprovision — never
+        # calls it, and this view never re-checked the creator afterward. A link
+        # minted by an account that is not active keeps serving forever unless
+        # something remembers to revoke the row too. Checked at serve time (like
+        # `link.project.is_deleted` below) rather than by revoking on deactivation,
+        # so no code path has to remember to do it. `created_by` is nullable
+        # (`on_delete=SET_NULL`) — a link whose creator was hard-deleted has no
+        # creator left to have been deactivated, so it is not covered here.
+        #
+        # 410, not 404: same "intentionally gone" family as revocation — the
+        # recipient already held a valid link and gets the same signal a revoke
+        # would have produced.
+        return Response(
+            {"detail": "This share link has been revoked."},
+            status=status.HTTP_410_GONE,
+        )
     if link.is_expired:
         # Expiry and revocation are both "intentionally gone" → 410 (not 404), so
         # the recipient knows the link was real and asks the owner for a new one.

@@ -312,6 +312,47 @@ def test_public_access_is_metered(project):
 
 
 # --------------------------------------------------------------------------- #
+# Creator deactivation (#4006)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.django_db
+def test_public_link_stops_serving_once_its_creator_is_deactivated(project):
+    """A password reset and off-boarding both revoke a link row directly, but a
+
+    deactivation done outside the app — Django admin, a shell, a future SCIM
+    deprovision — never calls either, and nothing previously re-checked the
+    creator on serve. Deactivating the creator via the ORM (bypassing every
+    in-app revocation path) must still 410 the link.
+    """
+    creator = _member(project, "share_creator", Role.ADMIN)
+    link, raw = share_services.mint_share_link(project, creator)
+    assert APIClient().get(_public_url(raw)).status_code == 200
+    assert link.revoked_at is None
+
+    creator.is_active = False
+    creator.save(update_fields=["is_active"])
+
+    resp = APIClient().get(_public_url(raw))
+    assert resp.status_code == 410
+    # The row itself is untouched — this is a serve-time check, not a revoke.
+    link.refresh_from_db()
+    assert link.revoked_at is None
+
+
+@pytest.mark.django_db
+def test_public_link_with_no_creator_still_serves(project):
+    """``created_by`` is nullable (``on_delete=SET_NULL``) — a link whose creator
+
+    was hard-deleted has no creator left to have been deactivated, so the #4006
+    check must not treat a missing creator as a deactivated one.
+    """
+    link, raw = share_services.mint_share_link(project, None)
+    assert link.created_by is None
+    assert APIClient().get(_public_url(raw)).status_code == 200
+
+
+# --------------------------------------------------------------------------- #
 # Instance kill switch
 # --------------------------------------------------------------------------- #
 

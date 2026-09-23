@@ -262,6 +262,96 @@ def test_confirm_revokes_personal_access_tokens_but_not_project_tokens(user) -> 
     assert project_token.revoked_at is None
 
 
+@pytest.mark.django_db
+def test_confirm_revokes_share_links_and_git_automation_secret(user) -> None:
+    """#4006: a reset is the "my credentials are compromised" path, so it must
+
+    revoke the same durable, non-token grants that off-boarding revokes
+    (``_revoke_offboarded_credentials``) — a public share link the user minted and
+    a git-automation webhook secret they configured — not just sessions and PATs.
+    A co-admin's own grant on the same project must survive untouched.
+    """
+    from datetime import date
+
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.integrations.models import BoardAutomation
+    from trueppm_api.apps.projects.authentication import sha256_hex
+    from trueppm_api.apps.projects.models import Calendar, Project, ShareLink
+
+    calendar = Calendar.objects.create(name="Standard")
+    project = Project.objects.create(name="P", start_date=date(2026, 1, 1), calendar=calendar)
+    ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
+
+    coadmin = User.objects.create_user(username="coadmin_pwreset", password="pw")
+    ProjectMembership.objects.create(project=project, user=coadmin, role=Role.ADMIN)
+
+    user_link = ShareLink.objects.create(
+        project=project,
+        token_prefix="user-tok-pfx",
+        token_hash=sha256_hex("user-share-link"),
+        created_by=user,
+    )
+    coadmin_link = ShareLink.objects.create(
+        project=project,
+        token_prefix="coadmin-pfx",
+        token_hash=sha256_hex("coadmin-share-link"),
+        created_by=coadmin,
+    )
+    automation = BoardAutomation(project=project, enabled=True, configured_by=user)
+    automation.set_secret("s3cr3t-webhook-token")
+    automation.save()
+
+    uid, token = _uid_token(user)
+    resp = APIClient().post(
+        _CONFIRM_URL,
+        {"uid": uid, "token": token, "new_password": _NEW_PASSWORD},
+        format="json",
+    )
+    assert resp.status_code == 200
+
+    user_link.refresh_from_db()
+    coadmin_link.refresh_from_db()
+    automation.refresh_from_db()
+    assert user_link.revoked_at is not None
+    assert coadmin_link.revoked_at is None
+    assert automation.has_secret is False
+
+
+@pytest.mark.django_db
+def test_confirm_revoked_share_link_serves_410_after_reset(user) -> None:
+    """The revoked-row effect is observable from the public serve path, not just
+
+    the model: a share link the resetting user minted 410s once the reset runs.
+    """
+    from datetime import date
+
+    from trueppm_api.apps.projects.authentication import sha256_hex
+    from trueppm_api.apps.projects.models import Calendar, Project, ShareLink
+
+    calendar = Calendar.objects.create(name="Standard")
+    project = Project.objects.create(
+        name="P", start_date=date(2026, 1, 1), calendar=calendar, public_sharing=True
+    )
+    raw_token = "user-share-link-raw"
+    ShareLink.objects.create(
+        project=project,
+        token_prefix=raw_token[:12],
+        token_hash=sha256_hex(raw_token),
+        created_by=user,
+    )
+
+    uid, token = _uid_token(user)
+    confirm = APIClient().post(
+        _CONFIRM_URL,
+        {"uid": uid, "token": token, "new_password": _NEW_PASSWORD},
+        format="json",
+    )
+    assert confirm.status_code == 200
+
+    serve = APIClient().get(f"/api/v1/share/board/{raw_token}/")
+    assert serve.status_code == 410
+
+
 # ---------------------------------------------------------------------------
 # Confirm endpoint — invalid / expired token (all indistinguishable)
 # ---------------------------------------------------------------------------
