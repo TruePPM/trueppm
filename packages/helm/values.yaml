@@ -228,8 +228,9 @@ ingress:
   # background tab). The consumer's presence keepalive (#2607) re-arms a
   # Redis TTL, not a frame on the wire, so it does nothing to hold this
   # timeout open. 3600s matches the floor documented in
-  # docs/administration/networking.md's "Idle timeouts" table; raise it
-  # further if your users routinely leave a project open longer than that.
+  # packages/website/src/content/docs/administration/networking.md's "Idle
+  # timeouts" table; raise it further if your users routinely leave a project
+  # open longer than that.
   # Also ingress-nginx-specific — see the table in that doc for the
   # equivalent knob on Traefik/HAProxy/ALB/GCP LB; an unrecognized annotation
   # is usually just ignored, which silently leaves the controller's own

@@ -6,4 +6,4 @@
   dropped any WebSocket left idle for a minute — a project left open in a
   background tab, most commonly. `values.yaml` now ships `proxy-read-timeout` and
   `proxy-send-timeout` set to `3600`, matching the floor already documented in
-  `docs/administration/networking.md`.
+  `packages/website/src/content/docs/administration/networking.md`.
