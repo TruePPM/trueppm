@@ -87,6 +87,11 @@ spec:
         - -ec
         - |
           host="{{ include "trueppm.fullname" . }}-web:{{ .Values.web.service.port }}"
+          # web's nginx forwards `Host $host` to Django, so the Service name would
+          # reach get_host() and 400 DisallowedHost: no doc tells an operator to
+          # allow it. demo.baseUrl's host is the one name every working demo
+          # already has in ALLOWED_HOSTS (#4018).
+          public_host="{{ (urlParse .Values.demo.baseUrl).host }}"
 
           # --retry rides out the brief window the seed's scheduled reset (#4019,
           # ADR-1197 D9) opens: the reset deletes the pinned share links (cascade
@@ -94,7 +99,7 @@ spec:
           # that reset on by default. A `helm test` run that lands in that window
           # should still pass rather than flake.
           echo "probing http://${host}/api/v1/share/schedule/{{ .Values.demo.shareToken.schedule }}/ ..."
-          schedule_code="$(curl -sS --retry 30 --retry-delay 2 --retry-all-errors \
+          schedule_code="$(curl -sS --retry 30 --retry-delay 2 --retry-all-errors -H "Host: ${public_host}" \
             -o /tmp/schedule.json -w '%{http_code}' \
             "http://${host}/api/v1/share/schedule/{{ .Values.demo.shareToken.schedule }}/" || echo 000)"
           if [ "$schedule_code" != "200" ]; then
@@ -104,7 +109,8 @@ spec:
             echo "      Possible causes: demo.shareToken.schedule does not match the token"
             echo "      create_demo_share_link minted, TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED is not"
             echo "      \"true\" instance-wide, or the web tier's allowlist stopped proxying the"
-            echo "      share location."
+            echo "      share location. A 400 \"Bad Request\" page means ALLOWED_HOSTS lacks"
+            echo "      ${public_host} (the host of demo.baseUrl, sent as this probe's Host)."
             cat /tmp/schedule.json || true
             exit 1
           fi
@@ -115,7 +121,7 @@ spec:
           echo "OK: schedule share projection 200 with a non-empty body"
 
           echo "probing http://${host}/api/v1/share/board/{{ .Values.demo.shareToken.board }}/ ..."
-          board_code="$(curl -sS --retry 30 --retry-delay 2 --retry-all-errors \
+          board_code="$(curl -sS --retry 30 --retry-delay 2 --retry-all-errors -H "Host: ${public_host}" \
             -o /tmp/board.json -w '%{http_code}' \
             "http://${host}/api/v1/share/board/{{ .Values.demo.shareToken.board }}/" || echo 000)"
           if [ "$board_code" != "200" ]; then
@@ -125,7 +131,8 @@ spec:
             echo "      Possible causes: demo.shareToken.board does not match the token"
             echo "      create_demo_share_link minted, TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED is not"
             echo "      \"true\" instance-wide, or the web tier's allowlist stopped proxying the"
-            echo "      share location."
+            echo "      share location. A 400 \"Bad Request\" page means ALLOWED_HOSTS lacks"
+            echo "      ${public_host} (the host of demo.baseUrl, sent as this probe's Host)."
             cat /tmp/board.json || true
             exit 1
           fi
