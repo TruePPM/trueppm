@@ -7,6 +7,8 @@ TruePPM is pre-GA and is built part-time. Through 1.0 we aim for a point release
 
 **This roadmap stops carrying dates after 0.5, deliberately.** 0.4 is the first release we have asked anyone to run a real project on. What those people report should set the order of everything after it — and until we have heard from them, a dated 2027 plan is a forecast built from our own assumptions and published at a precision we have not earned. We would rather say so than fill the gap with numbers.
 
+**Two things shape every decision past 0.6**, added 2026-09-23: we increasingly plan TruePPM's own development inside TruePPM itself — a real, adversarial workload for the scheduling engine and the MCP surface, not a demo — and we build for two kinds of worker on the same plan, not one replacing the other. AI augments a delivery team; it does not remove the PM, the Scrum Master, or the person the plan is actually for. So the roadmap holds two things to the same bar: the plan a human runs day to day, and the grounded, citable, refusable facts an agent acts on beside them. Work that serves neither waits in Unsequenced until real usage — ours or a self-hoster's — asks for it specifically.
+
 - **0.4 and 0.5** carry a two-week delivery window. The target is the midpoint. The window says when in that fortnight the tag gets cut — it is not a claim that we are confident to ±7 days.
 - **0.6** is named and scoped, but carries no date.
 - **Everything beyond 0.6** sits under **Direction** below: committed in intent, uncommitted in position, unassigned in time. The full backlog lives in [GitLab](https://gitlab.com/trueppm/trueppm/-/issues).
@@ -296,27 +298,17 @@ The rule we sequence by: **decisions that keep future options open are made now;
 features after 0.6 is set by beta evidence.** In practice that means extensibility and evidence
 — extension points, stable API contracts, provenance, the audit record — go into the OSS core
 as we build, while Enterprise-specific boundaries and governance wait until their requirements
-are concrete.
+are concrete. A second filter shapes everything below, per the note at the top of this page:
+does this serve the plan a human runs, the grounded facts an agent cites, or both? If neither,
+it waits in Unsequenced.
 
 **The product owner's surface** *(currently 0.7)* — an editable now/next/later product
 roadmap with release-target lanes per epic, release planning across sprints with
 velocity-based delivery ranges, and matured backlog ↔ schedule reconciliation, so the PO and
-PM never maintain two representations of the same work. With it, the **mindmap view** (#2093):
-the live WBS as an editable node tree — a *projection, not a document*, where every node is a
-real task or phase row, a drag is a real reparent, and plan mode's verdict machinery badges a
-dragged branch with its real schedule impact *before* the drop.
-
-**The platform opens up** *(currently 0.7, graduating at 0.9)* — the *internal* slot registry
-the enterprise edition already registers against is formalized (#2094) and dogfooded by two
-deliberately different surfaces: the mindmap, and the **collaborative canvas shell** (#1281) —
-the Excalidraw-based workshop surface with sticky notes, CRDT co-editing, and anonymous guest
-links. Its session/presence substrate is net-new — the earlier board Workshop Mode was removed
-in 0.4 (#3301). Canvas scenes stay freeform *artifacts*; the
-mindmap remains the structured projection, so a whiteboard never becomes a second place the
-plan lives. The extension points those dogfoods prove graduate into a public **Extension SDK**
-— custom fields, views, widgets, workflow actions, webhook events. Extending your own instance
-is OSS; governing extensions across an org (install approval, allow/deny policy, signed-plugin
-provenance) is enterprise.
+PM never maintain two representations of the same work. The **mindmap view** (#2093) that was
+sequenced alongside it — the live WBS as an editable node tree — moves to Unsequenced: it is a
+real idea, but a second authoring surface for the same plan is exactly the kind of platform bet
+that does not need to exist before either the PM's plan or the agent's judgment layer is solid.
 
 **The trust gradient for agents** *(currently 0.7; the change-request object itself moved to 0.6 on 2026-09-05 and accepts a human proposer too)* — **Change Requests** (#1312) route agent
 plan-mode proposals — and, since the re-scope, a PM's own scope changes — to a **named approver** who sees the projected schedule impact and records
@@ -336,23 +328,21 @@ sovereignty, phase locks) lift behind a domain-agnostic `Invariant → Verdict` 
 behavior-identical conformance tests; if it fails, the issue closes as "scheduling-specific by
 design" and the capacity returns to product-owner depth.
 
-**Importer long-tail** *(currently 0.7)* (#630–#635) — the specialist formats: Primavera P6
-XER/PMXML, OmniPlan, GanttProject, and MPX/ProjectLibre. Held out of 0.6 so that release stays
-focused on the write surface and resource leveling.
-
 **Reporting stakeholders live on** *(currently 0.8)* — the headliner is **auto-narrative: "why
 did the date move"**. Every status meeting exists to answer that question, and TruePPM answers
 it from the engine: the actual chain of changes behind a date move, computed from the
 provenance graph (#1058) rather than reconstructed from memory. An **agents section** (#2138)
 extends it to what agents did this period and what was refused, computed the same way from the
-audit chain (#1805). Beside it, **EV-lite** (#2139) — PV/EV/AC with SPI/CPI, pure deterministic
-formulas over baselines, timesheet actuals, and the cost data landing with it — plus Gantt PDF,
-what-if scenarios, baseline variance, resource costs and cost reports, and a configurable
-fiscal year (configurable working days already ship in calendars; the read-only print/share
-view moved to 0.5 with the status update). The **Team Cohesion technical preview**
-(#1488) also publishes here, as a post and an experimental flag, so the 1.0 marquee arrives
-validated rather than asserted. Single-project narrative is OSS; cross-program schedule
-forensics stays enterprise.
+audit chain (#1805) — the *reproduce* half of the AI contract made legible to a human reading a
+status report, not just to an agent citing a derivation. A lighter **EV-lite** (#2139) rides
+alongside it — PV/EV/AC with SPI/CPI over baselines and the timesheet actuals already shipping
+— with cost reports, a configurable fiscal year, and deeper earned-value surfaces held to
+Unsequenced until real programs ask for them. The **Team Cohesion technical preview** (#1488)
+also publishes here, as a post and an experimental flag — a real bet, but an independent one:
+it does not gate 0.8, 0.9, or 1.0, and if it does not hold up under real teams it stays a
+preview rather than becoming the 1.0 marquee, the same "unproven by design" posture the 0.6
+falsification spike (#1998) holds itself to. Single-project narrative is OSS; cross-program
+schedule forensics stays enterprise.
 
 **The program as one view** *(currently 0.8)* — one timeline across a program's projects,
 cross-project dependency lines, program rollup, and risk-slip
@@ -371,31 +361,45 @@ hash so an AI-surfaced number can be re-run and audited later; **audit & evidenc
 API v1; and the **status snapshot archive** (#2141) seals a monthly point-in-time status pack
 — what we reported, and provably what we knew when we reported it. OSS ships complete,
 verifiable evidence data anyone can check; regulator-shaped packaging (DORA / SR 11-7 /
-AI-Act bundles, retention, legal hold) stays enterprise, building against that seam.
+AI-Act bundles, retention, legal hold) stays enterprise, building against that seam. 0.9 is
+also where we expect to leave the beta line for good — GA hardening is the last `beta.N` cycle
+before `1.0.0`, not a promise about which date that lands on.
 
-**1.0 — first stable release** — the marquee differentiator is **Team Cohesion** (epic #582):
-a Brooks'-Law friction coefficient that feeds Monte Carlo, making TruePPM the first PPM tool to
-model team friction as a first-class scheduling input. Beside it: workflow-engine maturity
-(ADR-0080: dead-letter, history API, idempotency hardening, observability, a second DBOS
-backend) and a pre-1.0 sample-project refresh. The installable PWA is the mobile surface at
-1.0; the iPhone and iPad parity once planned here left the roadmap with the native app (#3834). The AI-native arc threaded across this roadmap — the read-only MCP
-server, provenance, and the agent-action audit foundation (0.4), the write surface with
-engine-as-referee and standing subscriptions (0.6), and the trust-gradient stages above —
-completes here under GitLab's umbrella epic **human + agent coexistence substrate** (#1315,
-labeled `killer-feature`): a team running agents safely against one deterministic
-plan-of-record they plan against, act on, and answer to. Org-scale governance of that same
-substrate — immutable cross-team audit, mandatory approval policy, capability roles,
-model/data-egress governance — is the enterprise overlay.
+**1.0 — first stable release** — the marquee is completion, not a single new feature: **human +
+agent coexistence substrate** (GitLab epic #1315, labeled `killer-feature`) — a team running
+agents safely against one deterministic plan-of-record they plan against, act on, and answer
+to, with humans staying the ones who decide. The AI-native arc threaded across this whole
+roadmap completes here: the read-only MCP server, provenance, and the agent-action audit
+foundation (0.4), the write surface with engine-as-referee and standing subscriptions (0.6),
+and the trust-gradient stages above (0.7) land as one coherent substrate rather than a
+scattered feature list — judged by the same bar as the human-facing plan it sits beside:
+computed, cited, refusable, and reproducible, for a person or an agent equally. Beside it:
+workflow-engine maturity (ADR-0080: dead-letter, history API, idempotency hardening,
+observability, a second DBOS backend) and a pre-1.0 sample-project refresh. The installable PWA
+is the mobile surface at 1.0; the iPhone and iPad parity once planned here left the roadmap
+with the native app (#3834). **Team Cohesion** (epic #582) — a Brooks'-Law friction coefficient
+that feeds Monte Carlo — remains the most differentiated single idea on this page, but it does
+not gate 1.0: it ships as its own release once the 0.8 technical preview validates against real
+teams, the same "unproven by design" posture the falsification spike holds itself to. Org-scale
+governance of the coexistence substrate — immutable cross-team audit, mandatory approval
+policy, capability roles, model/data-egress governance — is the enterprise overlay.
 
-**Unsequenced** — intended, but not placed against any release. **Methodology Packs**
-(epic #577) — versioned phase bundles that slot into existing projects, with mechanical
-validation (cycle detection, milestone reachability, role coverage) and a local pack registry
-(file / git / http sources). Deeper earned-value surfaces on the Schedule view (EV-lite itself
-is above), cycle-time and throughput analytics on the board, and sub-tasks and checklists on
-stories sit here too. **Methodology Marketplace** and **Automated Cohesion Inference** are
-enterprise-edition extensions built on the pack format and the Team Cohesion model
-respectively. When one of these becomes the next thing we are actually building, it moves up
-into a numbered release.
+**Unsequenced** — intended, but not placed against any release, and deliberately so: none of
+these earn their place against the filter at the top of this page until real usage — ours
+building TruePPM, or a self-hoster's — asks for them specifically. The **mindmap view**
+(#2093), the **collaborative canvas shell** (#1281 — Excalidraw-based, CRDT co-editing, guest
+links), and the public **Extension SDK** (#2094) it was meant to dogfood are the biggest of
+these: each is a real, self-contained product, not an incremental feature, and none is required
+to run a plan or to give an agent something true to cite. The **importer long-tail** (Primavera
+P6 XER/PMXML, OmniPlan, GanttProject, MPX/ProjectLibre — #630–#635) sits here too, behind the
+top-10 breadth that ships at 0.6. **Methodology Packs** (epic #577) — versioned phase bundles
+that slot into existing projects, with mechanical validation (cycle detection, milestone
+reachability, role coverage) and a local pack registry (file / git / http sources) — joins
+them. Deeper earned-value surfaces on the Schedule view (EV-lite itself is above), cycle-time
+and throughput analytics on the board, and sub-tasks and checklists on stories sit here too.
+**Methodology Marketplace** and **Automated Cohesion Inference** are enterprise-edition
+extensions built on the pack format and the Team Cohesion model respectively. When one of these
+becomes the next thing we are actually building, it moves up into a numbered release.
 
 ## Planned (enterprise edition)
 
