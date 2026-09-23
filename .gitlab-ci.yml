@@ -2531,7 +2531,8 @@ helm:lint:
       helm lint packages/helm/ -f packages/helm/values-demo.yaml \
         --set demo.baseUrl=https://demo.example.com \
         --set demo.shareToken.schedule=ci-schedule-token \
-        --set demo.shareToken.board=ci-board-token
+        --set demo.shareToken.board=ci-board-token \
+        --set networkPolicy.ingressControllerConfirmed=true
     # Guard the bug class from #777: a `DJANGO_SETTINGS_MODULE` typo in the chart
     # (e.g. `settings.production` vs the real `settings.prod`) crash-loops every
     # fresh deploy yet passes `helm lint` silently. Verify every settings module
@@ -2591,7 +2592,8 @@ helm:template:
         --set image.tag=latest \
         --set demo.baseUrl=https://demo.example.com \
         --set demo.shareToken.schedule=ci-schedule-token \
-        --set demo.shareToken.board=ci-board-token > /tmp/rendered-demo.yaml
+        --set demo.shareToken.board=ci-board-token \
+        --set networkPolicy.ingressControllerConfirmed=true > /tmp/rendered-demo.yaml
     - kubeconform -strict -summary -ignore-missing-schemas /tmp/rendered-demo.yaml
     # Every container that imports settings.prod must get a MEDIA_ROOT (#3910). The
     # boot guard refuses to start when the local-attachment opt-in has no writable
@@ -2649,12 +2651,15 @@ helm:template:
     # The redirect interpolates operator values into the security-boundary nginx
     # file, so a hostile value must fail the render rather than reach it.
     - |
-      if helm template trueppm packages/helm -f packages/helm/values-demo.yaml \
+      if out=$(helm template trueppm packages/helm -f packages/helm/values-demo.yaml \
            --set demo.baseUrl='https://demo.example.com' \
            --set 'demo.shareToken.schedule=x;return 200 pwn' \
-           --set demo.shareToken.board=ci-board-token >/dev/null 2>&1; then
+           --set demo.shareToken.board=ci-board-token \
+           --set networkPolicy.ingressControllerConfirmed=true 2>&1); then
         echo "DEMO REGRESSION: a share token containing nginx metacharacters rendered (#3911)"; exit 1
       fi
+      echo "$out" | grep -q 'may contain only letters' \
+        || { echo "DEMO TEST INVALID: render failed but not from the #3911 share-token guard:"; echo "$out"; exit 1; }
     # Block scalars, not plain ones: an unquoted YAML scalar cannot contain ": ",
     # so the message text would be parsed as a mapping and reject the whole file.
     - |
@@ -2778,7 +2783,8 @@ helm:template:
         --set demo.shareToken.board=ci-board-token \
         --set demo.interactive=true \
         --set demo.loginHint.username=atlas-visitor \
-        --set demo.loginHint.password=ci-visitor-password > /tmp/rendered-demo-interactive.yaml
+        --set demo.loginHint.password=ci-visitor-password \
+        --set networkPolicy.ingressControllerConfirmed=true > /tmp/rendered-demo-interactive.yaml
       kubeconform -strict -summary -ignore-missing-schemas /tmp/rendered-demo-interactive.yaml
       api_env="$(yq ea 'select(.kind == "Deployment" and (.metadata.name | test("-api$"))) | .spec.template.spec.containers[] | select(.name == "api") | .env[] | .name + "=" + (.value // "")' /tmp/rendered-demo-interactive.yaml)"
       for want in 'TRUEPPM_DEMO_READ_ONLY=true' 'TRUEPPM_DEMO_LOGIN_HINT=atlas-visitor:ci-visitor-password' 'TRUEPPM_DEMO_RESET_SCHEDULE=0 */6 * * *'; do

@@ -5,7 +5,7 @@
   Exposing the WEB Service (web.service.type) is the safe way to publish a demo.
 */ -}}
 {{- if and .Values.demo.enabled (ne (.Values.service.type | default "ClusterIP") "ClusterIP") }}
-{{- fail (printf "demo.enabled is true but service.type is %s. The API Service must stay ClusterIP in demo mode: the read-only allowlist lives only in the web tier's nginx, so a LoadBalancer/NodePort API Service bypasses it. Expose the web Service instead (web.service.type, or a tunnel such as Cloudflare Tunnel — ADR-0658 D9)." .Values.service.type) }}
+{{- fail (printf "demo.enabled is true but service.type is %s. The API Service must stay ClusterIP in demo mode: the read-only allowlist lives only in the web tier's nginx, so a LoadBalancer/NodePort API Service bypasses it. Expose the web Service instead — a tunnel such as Cloudflare Tunnel pointed at svc/<release>-trueppm-web is the documented path (ADR-0658 D9), or web.service.type. Either one also needs networkPolicy.ingressControllerSelector pointed at wherever that traffic actually originates (the tunnel's namespace, or an ipBlock for a LoadBalancer/NodePort): left at the chart default, the app-tier NetworkPolicy admits only an in-cluster ingress-nginx controller and silently drops both — see https://docs.trueppm.com/administration/helm-values/#public-read-only-demo-mode (#4003)." .Values.service.type) }}
 {{- end }}
 apiVersion: v1
 kind: Service

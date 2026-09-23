@@ -209,15 +209,17 @@ namespace called `ingress-nginx`.
 If your controller runs anywhere else and your CNI enforces NetworkPolicy, those
 policies would cut off all traffic to the site, and every pod would still report
 Ready. k3s (Traefik) and RKE2 (`rke2-ingress-nginx`) both run their controller in
-`kube-system` and enforce policies out of the box. To prevent a silent outage,
-**the first upgrade that adds these policies refuses to render** until you choose
-one of the following:
+`kube-system` and enforce policies out of the box — and a **tunnel** such as
+Cloudflare Tunnel is not an ingress controller at all, so it never matches the
+default no matter which namespace it runs in. To prevent a silent outage, **the
+first upgrade that adds these policies refuses to render** until you choose one
+of the following:
 
 ```bash
 # Your controller really is in the ingress-nginx namespace:
 helm upgrade trueppm ... --set networkPolicy.ingressControllerConfirmed=true
 
-# It runs elsewhere, for example kube-system:
+# It runs elsewhere, for example kube-system (or wherever your tunnel client runs):
 helm upgrade trueppm ... --set-json \
   'networkPolicy.ingressControllerSelector={"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"kube-system"}},"podSelector":{}}'
 
@@ -225,9 +227,17 @@ helm upgrade trueppm ... --set-json \
 helm upgrade trueppm ... --set networkPolicy.enabled=false
 ```
 
-The check runs only on the upgrade that introduces the policies. Fresh installs and
-later upgrades skip it. A cloud load balancer that sends traffic from outside the
-cluster needs an `ipBlock` peer instead; see
+The check above runs only on the upgrade that introduces the policies — fresh
+installs and later upgrades skip it, because it compares against a policy that
+must already exist for there to be a "transition" at all. A **separate** check
+fires on a fresh install too, for the two paths that bypass any in-cluster
+ingress controller entirely: `demo.enabled` (the documented Cloudflare Tunnel
+exposure) and `web.service.type: LoadBalancer`/`NodePort`. Neither has a prior
+policy to compare against, so the render simply refuses while the selector is
+still the default — see [Public read-only demo
+mode](/administration/helm-values/#public-read-only-demo-mode). A cloud load
+balancer that sends traffic from outside the cluster needs an `ipBlock` peer
+instead; see
 [`networkPolicy.ingressControllerSelector`](/administration/helm-values/).
 
 Three more things to check for this upgrade:

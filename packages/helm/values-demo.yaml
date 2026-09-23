@@ -42,6 +42,23 @@
 # back (e.g. ingress-nginx's default-backend pointing at the api Service) — keep
 # those out of a demo.
 #
+# NETWORK POLICY (#4003): with this overlay you render NO Ingress, so the
+# api/web default-deny NetworkPolicy's networkPolicy.ingressControllerSelector
+# (default: a namespace called ingress-nginx) is the WRONG peer for a tunnel —
+# cloudflared is not an ingress controller and does not run in that namespace.
+# Left at the default the chart refuses to render at all (both on a fresh
+# install and on every later upgrade, since there is no in-cluster ingress
+# controller to eventually match). Point the selector at the namespace your
+# tunnel client actually runs in:
+#
+#   --set-json 'networkPolicy.ingressControllerSelector={"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"cloudflared"}},"podSelector":{}}'
+#
+# If cloudflared instead runs on the HOST rather than as an in-cluster pod, it
+# is not a pod-network peer at all — front it with an ipBlock naming the host's
+# address instead, or set networkPolicy.ingressControllerConfirmed=true only
+# after verifying host-to-pod reachability yourself; the chart cannot verify it
+# for you.
+#
 # WHAT THIS IS NOT
 #
 # A production deployment, and not a base to build one from. `demo.enabled` runs a

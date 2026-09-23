@@ -392,7 +392,8 @@ NP_ALL="$(helm template trueppm "$CHART" \
   --set demo.reset.enabled=true \
   --set demo.baseUrl=https://demo.example.com \
   --set demo.shareToken.schedule=structurecheckschedule \
-  --set demo.shareToken.board=structurecheckboard)"
+  --set demo.shareToken.board=structurecheckboard \
+  --set networkPolicy.ingressControllerConfirmed=true)"
 
 np_split="$(mktemp -d)"
 trap 'rm -rf "$np_split"' EXIT
@@ -629,6 +630,7 @@ FIRST_PARTY_IMAGES="$(default_images \
   --set demo.baseUrl=https://demo.example.com \
   --set demo.shareToken.schedule=structurecheckschedule \
   --set demo.shareToken.board=structurecheckboard \
+  --set networkPolicy.ingressControllerConfirmed=true \
   | grep -E "^(${API_REPO}|${WEB_REPO}):" || true)"
 
 [ -n "$FIRST_PARTY_IMAGES" ] \
@@ -1463,7 +1465,8 @@ fi
 #      that began re-seeding on a timer unprompted would be a destructive surprise.
 demo_args=(--set image.tag=latest --set demo.enabled=true
   --set demo.baseUrl=https://demo.example.com
-  --set demo.shareToken.schedule=struct-schedule --set demo.shareToken.board=struct-board)
+  --set demo.shareToken.schedule=struct-schedule --set demo.shareToken.board=struct-board
+  --set networkPolicy.ingressControllerConfirmed=true)
 reset_names() {
   helm template trueppm "$CHART" "$@" \
     | yq 'select(.kind=="CronJob" and (.metadata.name | test("-demo-reset$"))) | .metadata.name' \
@@ -1584,7 +1587,8 @@ cm_default="$(cm --set image.tag=latest)"
 cm_interactive="$(cm "${interactive_args[@]}")"
 cm_sharelink="$(cm --set image.tag=latest --set demo.enabled=true \
   --set demo.baseUrl=https://demo.example.com \
-  --set demo.shareToken.schedule=struct-schedule --set demo.shareToken.board=struct-board)"
+  --set demo.shareToken.schedule=struct-schedule --set demo.shareToken.board=struct-board \
+  --set networkPolicy.ingressControllerConfirmed=true)"
 
 grep -q 'limit_except GET HEAD OPTIONS' <<<"$cm_interactive" \
   || fail "demo.interactive=true did not render the method fence (limit_except GET HEAD OPTIONS) in the web ConfigMap"
@@ -1612,6 +1616,7 @@ ws_block="$(grep -A2 'location /ws/ {' <<<"$cm_interactive")"
 cm_sharelink_default_switch="$(cm --set image.tag=latest --set demo.enabled=true \
   --set demo.baseUrl=https://demo.example.com \
   --set demo.shareToken.schedule=struct-schedule --set demo.shareToken.board=struct-board \
+  --set networkPolicy.ingressControllerConfirmed=true \
   --set demo.interactive=false)"
 [ "$cm_sharelink" = "$cm_sharelink_default_switch" ] \
   || fail "the share-link demo's rendered ConfigMap changed depending on demo.interactive's value while demo.interactive is false in both cases — it must be inert"
@@ -1970,6 +1975,99 @@ fi
 [ "$(np_ingress trueppm-api-ingress | yq -p json length)" = 3 ] \
   || fail "api-ingress admits $(np_ingress trueppm-api-ingress | yq -p json length) peers with monitoringSelector empty, expected 3 (web, test, ingress controller) (#4001)"
 
+# 15. Fresh-install (and upgrade) guard for the two documented exposure paths
+#     that bypass any in-cluster ingress controller entirely: the demo's
+#     Cloudflare Tunnel (values-demo.yaml's EXPOSURE block, ADR-0658 D9) and a
+#     LoadBalancer/NodePort web Service (#4003).
+#
+#     Unlike section 14's guard, this one has no `lookup`-based "first
+#     introduction" check to skip on later renders — there is no PRIOR policy to
+#     compare against on a brand-new demo install, so the #4000 guard (upgrade
+#     only, and only when no api-ingress policy exists yet) never sees this
+#     case at all. Every assertion below uses a plain (non-upgrade) `helm
+#     template` unless noted, which is the harder case: it proves the render
+#     refuses even with no "transition" to detect.
+demo_np_args=(-f "$CHART/values-demo.yaml" --set demo.baseUrl=https://demo.example.com
+  --set demo.shareToken.schedule=ci-schedule-token --set demo.shareToken.board=ci-board-token)
+
+# 15a. A stock default install (no demo, no LB/NodePort, no Ingress) must stay
+#      exactly as friction-free as before this issue — this is the fast path
+#      the guard must never touch.
+helm template trueppm "$CHART" >/dev/null \
+  || fail "a stock default install (ClusterIP + port-forward, no demo) tripped the #4003 exposure guard — it must never fire on the chart's own default rendering"
+
+# 15b. demo.enabled with the untouched default selector refuses on a FRESH
+#      install, and names the tunnel case specifically — not just "an ingress
+#      controller".
+demo_err="$(helm template trueppm "$CHART" "${demo_np_args[@]}" 2>&1 >/dev/null || true)"
+grep -q '(#4003)' <<<"$demo_err" \
+  || fail "demo.enabled with the default networkPolicy.ingressControllerSelector rendered on a fresh install, or refused for an unrelated reason (#4003). Output: $demo_err"
+grep -qi 'tunnel' <<<"$demo_err" \
+  || fail "the demo exposure guard's refusal does not name the tunnel case (#4003). Output: $demo_err"
+
+# 15c. The SAME misconfiguration on an upgrade also refuses — this guard has no
+#      once-only lookup gate, unlike section 14's.
+helm template trueppm "$CHART" "${demo_np_args[@]}" --is-upgrade >/dev/null 2>&1 \
+  && fail "demo.enabled with the default selector rendered on an upgrade — the #4003 guard must fire on install AND upgrade, it has no first-introduction lookup to skip on"
+
+# 15d. ingressControllerConfirmed=true satisfies it.
+helm template trueppm "$CHART" "${demo_np_args[@]}" --set networkPolicy.ingressControllerConfirmed=true >/dev/null \
+  || fail "demo.enabled did not render with networkPolicy.ingressControllerConfirmed=true (#4003)"
+
+# 15e. Pointing the EXISTING ingressControllerSelector key at the tunnel's own
+#      namespace also satisfies it — no second values key was added; the same
+#      selector already feeds both the api and web ingress policies.
+helm template trueppm "$CHART" "${demo_np_args[@]}" \
+  --set-json 'networkPolicy.ingressControllerSelector={"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"cloudflared"}},"podSelector":{}}' >/dev/null \
+  || fail "demo.enabled did not render once ingressControllerSelector named the tunnel's namespace (#4003)"
+
+# 15f. demo.enabled with ingress.enabled=true must NOT trip THIS guard — an
+#      Ingress-fronted release has a real controller-selector story, so this
+#      case is out of scope for it (it still refuses, but for the pre-existing
+#      #3908 reason, asserted earlier in this file).
+ingress_demo_err="$(helm template trueppm "$CHART" "${demo_np_args[@]}" --set ingress.enabled=true 2>&1 >/dev/null || true)"
+if grep -q '(#4003)' <<<"$ingress_demo_err"; then
+  fail "demo.enabled with ingress.enabled=true tripped the #4003 exposure guard — it must be scoped to ingress.enabled=false, an Ingress-fronted release is covered by the #4000 upgrade guard instead"
+fi
+
+# 15g/h. web.service.type LoadBalancer and NodePort each refuse on a fresh
+#        install with no Ingress and the default selector, and name the
+#        service type in the message.
+for wt in LoadBalancer NodePort; do
+  wt_err="$(helm template trueppm "$CHART" --set image.tag=latest --set web.service.type="$wt" 2>&1 >/dev/null || true)"
+  grep -q '(#4003)' <<<"$wt_err" \
+    || fail "web.service.type=$wt with the default selector rendered, or refused for an unrelated reason (#4003). Output: $wt_err"
+  grep -q "$wt" <<<"$wt_err" \
+    || fail "the web-exposure guard's refusal for web.service.type=$wt does not name the service type (#4003). Output: $wt_err"
+done
+
+# 15i. ingressControllerConfirmed=true also satisfies the LoadBalancer/NodePort
+#      case.
+helm template trueppm "$CHART" --set image.tag=latest --set web.service.type=LoadBalancer \
+  --set networkPolicy.ingressControllerConfirmed=true >/dev/null \
+  || fail "web.service.type=LoadBalancer did not render with networkPolicy.ingressControllerConfirmed=true (#4003)"
+
+# 15j. An ipBlock peer (the shape a cloud load balancer or a set of node
+#      addresses needs) also satisfies it, reusing the same selector key the
+#      #4000 guard's ipBlock case already proves works for the ingress
+#      controller peer (section 14b).
+helm template trueppm "$CHART" --set image.tag=latest --set web.service.type=NodePort \
+  --set-json 'networkPolicy.ingressControllerSelector={"namespaceSelector":null,"podSelector":null,"ipBlock":{"cidr":"10.0.0.0/8"}}' >/dev/null \
+  || fail "web.service.type=NodePort did not render with an ipBlock ingressControllerSelector (#4003)"
+
+# 15k. The top-level (API) service.type is a DIFFERENT knob from web.service.type
+#      and must not be read by this guard — demo.enabled already refuses a
+#      non-ClusterIP API Service on its own (templates/api/service.yaml,
+#      #3908), and that refusal must fire, not this one, when only the API
+#      Service is widened.
+api_lb_err="$(helm template trueppm "$CHART" "${demo_np_args[@]}" --set service.type=LoadBalancer 2>&1 >/dev/null || true)"
+grep -q 'API Service must stay ClusterIP' <<<"$api_lb_err" \
+  || fail "demo.enabled with a LoadBalancer API (not web) Service did not refuse with the #3908 message — got: $api_lb_err"
+
+# 15l. networkPolicy.enabled=false is always an escape hatch, same as section 14.
+helm template trueppm "$CHART" "${demo_np_args[@]}" --set networkPolicy.enabled=false >/dev/null \
+  || fail "demo.enabled with networkPolicy.enabled=false still tripped the #4003 exposure guard"
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches all $env_checked containers that import settings.prod"
@@ -2001,3 +2099,4 @@ echo "  - no Deployment/Job/CronJob container invokes bare 'manage.py migrate' �
 echo "  - valkey has a PDB (maxUnavailable: 0, gated by valkey.podDisruptionBudget.enabled) and priorityClassName/terminationGracePeriodSeconds reach its StatefulSet, matching postgresql (#3934)"
 echo "  - NOTES.txt warns on a split-origin deploy (differing TRUEPPM_FRONTEND_BASE_URL/TRUEPPM_PUBLIC_API_BASE_URL) with no CSRF_TRUSTED_ORIGINS, and stays quiet when same-origin or once it is set (#3945)"
 echo "  - app-tier ingress NetworkPolicy: an upgrade that first introduces it refuses to render on the unconfirmed default selector; the peer renders verbatim (ipBlock works) and never empty; k3s/RKE2 also admit kube-system only while the selector is the default; monitoringSelector widens api only (#4000, #4001)"
+echo "  - demo/LoadBalancer/NodePort web exposure with no Ingress and the default ingressControllerSelector refuses on install AND upgrade, names the tunnel or the service type, and is satisfied by ingressControllerConfirmed=true or a non-default selector (ipBlock included); a stock default install and an Ingress-fronted demo are untouched; the API (not web) Service LoadBalancer case still raises the #3908 message (#4003)"

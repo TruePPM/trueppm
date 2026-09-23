@@ -127,7 +127,7 @@ kubectl get secret <release>-trueppm-connection \
 | `ingress.tls` | `[]` | TLS Secret + host list for edge termination. Empty renders HTTP-only (dev/demo). |
 | `networkPolicy.enabled` | `true` | Default-on; requires a NetworkPolicy-enforcing CNI. |
 | `networkPolicy.ingressControllerSelector` | `namespaceSelector` matching `kubernetes.io/metadata.name: ingress-nginx`, empty `podSelector` | NetworkPolicyPeer (rendered verbatim, so `ipBlock` works) admitted by the `api`/`web` default-deny ingress policies. Left at the default on k3s/RKE2, `kube-system` is admitted too. Otherwise, a controller elsewhere is silently blackholed. An empty value refuses to render. |
-| `networkPolicy.ingressControllerConfirmed` | `false` | The one upgrade that first adds the `api`/`web` ingress policies refuses to render on the default selector unless this is `true` or the selector is set (#4000). |
+| `networkPolicy.ingressControllerConfirmed` | `false` | The one upgrade that first adds the `api`/`web` ingress policies refuses to render on the default selector unless this is `true` or the selector is set (#4000). Also consulted on a fresh install with no chart-rendered Ingress when `demo.enabled` is true or `web.service.type` is `LoadBalancer`/`NodePort` — both bypass any in-cluster ingress controller (#4003). |
 | `networkPolicy.monitoringSelector` | `{}` | Optional peer admitted to the `api` pod for in-cluster Prometheus/Blackbox health scrapes. Without it they are dropped, and the dead-letter and beat alerts go silent (#4001). |
 | `podSecurityContext` | `runAsNonRoot`, uid 1000, `fsGroup` 1000 | Pod-level security context for every workload. `fsGroup` keeps `persistence.media` / `backup.persistence` PVCs writable. Set `runAsUser: null` and `fsGroup: null` on OpenShift. |
 | `containerSecurityContext` | restricted profile | Container-level hardening for API/worker. |
@@ -294,6 +294,14 @@ Things worth knowing before you run it:
   that claim, so the install would still fail.
 - **The chart does not terminate TLS.** Front it at your ingress or load balancer, as
   with any other deployment (see below).
+- **The default `networkPolicy.ingressControllerSelector` blackholes a tunnel.**
+  This overlay renders no Ingress, so the app-tier default-deny NetworkPolicy's
+  selector (default: a namespace called `ingress-nginx`) is the wrong peer for
+  a tunnel client, which is not an ingress controller and does not run there.
+  Left at the default, the chart refuses to render — on a fresh install too, not
+  only an upgrade (#4003). Point it at your tunnel's namespace instead:
+  `--set-json 'networkPolicy.ingressControllerSelector={"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"cloudflared"}},"podSelector":{}}'`.
+  See `values-demo.yaml`'s EXPOSURE block.
 
 Demo mode also adds `X-Robots-Tag: noindex, nofollow, noarchive` and a
 `Disallow: /` robots.txt to the web tier, so a public demo does not end up in search
