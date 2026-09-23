@@ -9373,6 +9373,16 @@ class TaskOutdentView(IdempotencyMixin, APIView):
             following_siblings = old_siblings[task_idx + 1 :]
             remaining_old = old_siblings[:task_idx]
 
+            # Outdent reparents every following sibling under the outdented task
+            # (#4012) — that is as heavy a move for each follower as it is for the
+            # primary task, so each one needs its own restructure authority, not
+            # just the primary task's. A Member who may restructure their own task
+            # must not be able to reparent a colleague's via this side effect.
+            # Checked before any row is mutated (loop below starts at the primary
+            # task's own move), so a refusal here leaves the whole outdent a no-op.
+            for follower in following_siblings:
+                _require_wbs_restructure_permission(request, follower)
+
             # Task's existing descendants.
             task_descendants = _get_descendants(str(project.pk), task.wbs_path, lock=True)
 
