@@ -106,6 +106,9 @@ READY_TIMEOUT="${READY_TIMEOUT:-300}"
 # read-only, so nothing ever needs auto-scheduling).
 BEAT_TIMEOUT="${BEAT_TIMEOUT:-120}"
 
+# Loopback probes of the drill's own compose stack; override to https if it terminates TLS.
+PROBE_SCHEME="${PROBE_SCHEME:-http}"
+
 REGISTRY="${CI_REGISTRY:-registry.gitlab.com}"
 IMAGE_REPO="${IMAGE_REPO:-${REGISTRY}/trueppm/trueppm}"
 RELEASE_IMAGE_TAG="${RELEASE_IMAGE_TAG:-latest}"
@@ -113,12 +116,12 @@ RELEASE_IMAGE_TAG="${RELEASE_IMAGE_TAG:-latest}"
 if [ "${DRILL_MODE}" = "dev" ]; then
   COMPOSE_FILE="docker-compose.yml"
   export COMPOSE_PROJECT_NAME="trueppm-dev-drill"
-  API_BASE_URL="http://${PROBE_HOST}:8000"
-  WEB_BASE_URL="http://${PROBE_HOST}:5173"
+  API_BASE_URL="${PROBE_SCHEME}://${PROBE_HOST}:8000"
+  WEB_BASE_URL="${PROBE_SCHEME}://${PROBE_HOST}:5173"
 else
   COMPOSE_FILE="docker-compose.demo.yml"
   export COMPOSE_PROJECT_NAME="trueppm-demo-drill"
-  BASE_URL="http://${PROBE_HOST}"
+  BASE_URL="${PROBE_SCHEME}://${PROBE_HOST}"
 fi
 
 log()  { echo "==> [${DRILL_MODE}] $*"; }
@@ -344,7 +347,7 @@ else # DRILL_MODE=demo
   wait_healthy api
 
   log "reading the share URL demo-seed printed"
-  share_url="$(compose logs demo-seed 2>&1 | grep -oE 'URL: *http://[^[:space:]]+' | tail -n1 | sed -E 's/^URL: *//')"
+  share_url="$(compose logs demo-seed 2>&1 | grep -oE 'URL: *https?://[^[:space:]]+' | tail -n1 | sed -E 's/^URL: *//')"
   [ -n "${share_url}" ] || fail "demo-seed logged no share URL — create_demo_share_link did not print one"
   # The printed URL names TRUEPPM_DEMO_BASE_URL (default http://localhost);
   # rewrite it onto PROBE_HOST, which is what this drill can actually reach.
