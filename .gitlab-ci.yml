@@ -4394,12 +4394,23 @@ api:s3-drill:
       alias: postgres
     - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
-    # Pinned to a dated release tag (same convention as the postgres/valkey
-    # services above — not `latest`). `server /data` is the command MinIO needs to
-    # start; the console port is unused here.
-    - name: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # `minio/minio` was pulled from Docker Hub entirely in Sept 2026 after MinIO
+    # moved Community Edition to source-only distribution (repo archived April
+    # 2026) — `quay.io/minio/minio`, its documented fallback mirror, now also
+    # 401s on anonymous pull. `bitnamilegacy/minio` is Bitnami's frozen
+    # pre-restructure mirror and is confirmed pullable; pinned by digest (same
+    # convention as postgres/valkey above) rather than a tag, since this mirror
+    # gets no new pushes to re-pin against.
+    #
+    # The image's default non-root user (uid 1001) cannot create `/data` at the
+    # container root — GitLab CI's services: syntax has no per-service `user:`
+    # override to work around that — so this points MinIO at
+    # `/bitnami/minio/data`, the pre-owned data directory the image ships with.
+    # `server /bitnami/minio/data` is the command MinIO needs to start; the
+    # console port is unused here.
+    - name: bitnamilegacy/minio@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20
       alias: minio
-      command: ["server", "/data"]
+      command: ["server", "/bitnami/minio/data"]
   variables:
     # Throwaway root credentials for a service container that lives for one job,
     # has no persistence and no ingress. NOT a pattern to copy into a deploy: the

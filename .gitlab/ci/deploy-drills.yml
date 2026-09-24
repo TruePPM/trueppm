@@ -725,9 +725,14 @@ backup:restore-drill:
     - name: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
       alias: postgres
     # Object store for the off-cluster leg of the drill (#2611).
-    - name: minio/minio:latest
+    # `minio/minio` was pulled from Docker Hub entirely in Sept 2026 (MinIO moved
+    # Community Edition to source-only distribution); see the api:s3-drill job
+    # in .gitlab-ci.yml for the full story and why this points at
+    # `bitnamilegacy/minio` pinned by digest and at `/bitnami/minio/data` rather
+    # than `/data`.
+    - name: bitnamilegacy/minio@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20
       alias: minio
-      command: ["server", "/data"]
+      command: ["server", "/bitnami/minio/data"]
       variables:
         MINIO_ROOT_USER: drillkey
         MINIO_ROOT_PASSWORD: "dr/ill+sec:ret12345"
