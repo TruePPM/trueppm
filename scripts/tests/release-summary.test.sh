@@ -105,6 +105,56 @@ check "default summary computed before the guard" "$r"
 grep -q 'DEFAULT_SUMMARY="$(python3 - ' "$RELEASE_SH" && r=1 || r=0
 check "no second inline default-summary extractor left in release.sh" "$r"
 
+# --- Case 5: Release page keeps paragraph breaks ------------------------------
+# release:create used to delete every blank line, so a multi-paragraph summary
+# rendered as ONE Markdown paragraph and a bolded upgrade warning disappeared
+# into the text before it (v0.4.0-beta.3's Release page shows it).
+PAGE="$REPO_ROOT/scripts/release-page-summary.sh"
+CI_YML="$REPO_ROOT/.gitlab-ci.yml"
+echo "Case 5: release-page-summary.sh keeps paragraphs, trims the edges"
+cat >"$TMP/c5.md" <<'EOF'
+## [Unreleased]
+
+_Nothing yet._
+
+## [0.2.0-beta.1] — 2026-01-02
+
+
+First paragraph,
+second line.
+
+
+
+**Upgrading? Read this first.** Warning.
+
+### Added
+
+- Not on the Release page.
+
+## [0.2.0-beta.10] — 2026-01-01
+
+Wrong section.
+EOF
+out="$(sh "$PAGE" 0.2.0-beta.1 "$TMP/c5.md")"
+expected="$(printf 'First paragraph,\nsecond line.\n\n**Upgrading? Read this first.** Warning.')"
+if [[ "$out" == "$expected" ]]; then r=0; else r=1; fi
+check "one blank line between paragraphs, none at the edges (got: '$out')" "$r"
+out="$(sh "$PAGE" 0.2.0-beta.10 "$TMP/c5.md")"
+if [[ "$out" == "Wrong section." ]]; then r=0; else r=1; fi
+check "beta.1 does not prefix-match beta.10, and vice versa (got: '$out')" "$r"
+out="$(sh "$PAGE" 0.2.0-beta.1X "$TMP/c5.md")"
+if [[ -z "$out" ]]; then r=0; else r=1; fi
+check "unknown version → empty output, so release:create links out (got: '$out')" "$r"
+out="$(sh "$PAGE" 0.2.0.beta.1 "$TMP/c5.md")"
+if [[ -z "$out" ]]; then r=0; else r=1; fi
+check "dots in the version are literal, not regex wildcards (got: '$out')" "$r"
+
+echo "Case 6: release:create uses the script, not the blank-line-deleting sed"
+if grep -qF 'sh scripts/release-page-summary.sh "$VERSION" CHANGELOG.md' "$CI_YML"; then r=0; else r=1; fi
+check "release:create calls release-page-summary.sh" "$r"
+if grep -qF "| sed '/^[[:space:]]*\$/d' > /tmp/summary.md" "$CI_YML"; then r=1; else r=0; fi
+check "the old sed that flattened paragraphs is gone" "$r"
+
 echo ""
 echo "release-summary: $pass passed, $fail failed"
 [[ "$fail" -eq 0 ]]

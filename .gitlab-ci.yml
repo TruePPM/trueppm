@@ -579,7 +579,8 @@ scripts:test:
   #   - assemble-changelog.sh — folds changelog.d/ fragments into [Unreleased];
   #   - release-staging — the changelog.d/ git-add contract (#1386);
   #   - release-summary — the default release summary never publishes the
-  #     "_Nothing yet._" placeholder, and is resolved before any bump (#4041);
+  #     "_Nothing yet._" placeholder, is resolved before any bump, and keeps
+  #     its paragraph breaks on the Release page (#4041);
   #   - release-preflight — the pre-tag image Trivy scan, incl. the TRIVY_VERSION
   #     lockstep with this file (#1391). That lockstep is why .gitlab-ci.yml is a
   #     trigger below: a Trivy bump here that forgets release.sh must fail here.
@@ -678,6 +679,7 @@ scripts:test:
         - scripts/tests/release-preflight.test.sh
         - scripts/tests/release-summary.test.sh
         - scripts/release-default-summary.py
+        - scripts/release-page-summary.sh
         - scripts/tests/wt-args.test.sh
         - scripts/tests/wt-prune.test.sh
         - scripts/tests/wt-reserve.test.sh
@@ -717,6 +719,7 @@ scripts:test:
         - scripts/tests/release-preflight.test.sh
         - scripts/tests/release-summary.test.sh
         - scripts/release-default-summary.py
+        - scripts/release-page-summary.sh
         - scripts/tests/wt-args.test.sh
         - scripts/tests/wt-prune.test.sh
         - scripts/tests/wt-reserve.test.sh
@@ -7802,8 +7805,10 @@ release:create:
       # can run to thousands of lines when a cycle accumulates a large
       # backlog (0.4.0-beta.1's ran ~7,600), which is not a fit size for a
       # Release page. Link out to CHANGELOG.md for the itemized detail.
-      awk "/^## \[$VERSION\]/{found=1; next} found && (/^## \[/ || /^### /){exit} found{print}" CHANGELOG.md \
-        | sed '/^[[:space:]]*$/d' > /tmp/summary.md
+      # The script keeps the blank lines BETWEEN paragraphs: deleting them all
+      # (the old `sed '/^\s*$/d'`) merged a multi-paragraph summary into one
+      # Markdown paragraph on the Release page (#4041).
+      sh scripts/release-page-summary.sh "$VERSION" CHANGELOG.md > /tmp/summary.md
       if [ -s /tmp/summary.md ]; then
         {
           printf '**TruePPM %s**\n\n' "${CI_COMMIT_TAG}"
