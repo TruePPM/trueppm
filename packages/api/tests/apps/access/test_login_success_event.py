@@ -135,7 +135,9 @@ def test_a_well_formed_forwarded_ip_is_still_used(user, caplog: pytest.LogCaptur
         HTTP_X_FORWARDED_FOR="198.51.100.9, 10.0.0.1",
     )
 
-    assert "client_ip=198.51.100.9" in _success_lines(caplog)[0]
+    # NUM_PROXIES=1: the entry the ingress appended, not the client-written
+    # leftmost one (#4023).
+    assert "client_ip=10.0.0.1" in _success_lines(caplog)[0]
 
 
 @pytest.mark.django_db

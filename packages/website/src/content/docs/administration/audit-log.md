@@ -115,9 +115,13 @@ in a stream TruePPM does not own — it goes to your log pipeline, and TruePPM c
 prune it, redact it, or honor an erasure request against it. Set your retention on that
 pipeline accordingly.
 
-As with the failure line, `client_ip` is best-effort: it prefers the left-most
-`X-Forwarded-For` hop and is spoofable behind a proxy that does not normalize that
-header. It is for correlation, never for a security decision.
+`client_ip` — on both lines, and the `source_ip` on agent-action and API-token audit
+rows — is the address the per-IP rate limits key on: the `X-Forwarded-For` entry
+`TRUEPPM_NUM_PROXIES` hops from the right, or the peer address when there is no
+proxy. It is never the left-most entry, which the client writes itself. It is only
+as trustworthy as `TRUEPPM_NUM_PROXIES` is correct for your topology — see
+[Networking](/administration/networking/) for how to check it — and it is for
+correlation, never for a security decision.
 :::
 
 :::note[Why a refused login is never an audit row]

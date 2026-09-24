@@ -24,7 +24,6 @@ request endpoint to email-bomb a victim (ADR-0209).
 
 from __future__ import annotations
 
-import ipaddress
 import logging
 from typing import Any
 
@@ -45,6 +44,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
+
+from trueppm_api.core.throttling import resolve_client_ip
 
 logger = logging.getLogger("trueppm.auth")
 
@@ -146,27 +147,11 @@ def _client_ip(request: Request) -> str | None:
     ``None`` rather than a placeholder string for the same reason: ``"unknown"`` is not
     a valid ``inet``.
 
-    Takes the left-most ``X-Forwarded-For`` hop (deployments sit behind an ingress); the
-    rest of the chain is caller-forgeable. Recorded only, never used for a security
-    decision.
-
-    Deliberately local rather than shared: the equivalent helper in
-    ``apps/projects/views`` is private to that module, and importing it here would
-    couple the auth flow to a 16k-line view module. Consolidating the three near-copies
-    (this one, that one, and ``core/auth_views``) is its own change — note that only
-    this copy feeds a DB column, so only this one has to validate.
+    The address the per-IP throttles key on (``core.throttling.resolve_client_ip``),
+    never the client-written left-most ``X-Forwarded-For`` entry. Recorded only,
+    never used for a security decision.
     """
-    forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
-    candidate = (
-        str(forwarded).split(",")[0].strip() if forwarded else request.META.get("REMOTE_ADDR")
-    )
-    if not candidate:
-        return None
-    try:
-        ipaddress.ip_address(candidate)
-    except ValueError:
-        return None
-    return str(candidate)
+    return resolve_client_ip(request)
 
 
 def _reset_link(uid: str, token: str) -> str:

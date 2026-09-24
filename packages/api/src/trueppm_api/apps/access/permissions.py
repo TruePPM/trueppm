@@ -2751,12 +2751,10 @@ class McpReadableViewMixin(_McpViewBase):
 
 
 def _mcp_client_ip(request: Request) -> str | None:
-    """Client IP for the audit row: leftmost X-Forwarded-For hop, else REMOTE_ADDR."""
+    """Client IP for the audit row — the address the per-IP throttles key on."""
+    from trueppm_api.core.throttling import resolve_client_ip
 
-    xff = request.META.get("HTTP_X_FORWARDED_FOR")
-    if xff:
-        return xff.split(",")[0].strip() or None
-    return request.META.get("REMOTE_ADDR") or None
+    return resolve_client_ip(request)
 
 
 def _set_agent_span_attributes(token: Any, verdict: str) -> None:

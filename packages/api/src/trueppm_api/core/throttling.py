@@ -347,6 +347,45 @@ class ReadyzRateThrottle(AnonRateThrottle):
     scope = "readyz"
 
 
+def resolve_client_ident(request: HttpRequest | Request) -> str:
+    """The raw client identity the per-IP throttles key ``request`` on (#4023).
+
+    DRF's ``BaseThrottle.get_ident``: with ``NUM_PROXIES = n`` it takes the entry
+    ``n`` hops from the *right* of ``X-Forwarded-For`` (the one the outermost
+    trusted proxy appended), and ``REMOTE_ADDR`` when the header is absent or
+    ``NUM_PROXIES`` is 0. Never the leftmost entry: that one is written by the
+    client and is attacker-chosen at every topology. Not validated — see
+    ``resolve_client_ip``.
+    """
+    # ``get_ident`` is annotated for a DRF ``Request`` but reads only ``META`` —
+    # see ``LoginIpRateThrottle.cache_key_for_request``.
+    return str(BaseThrottle().get_ident(cast("Request", request)) or "").strip()
+
+
+def resolve_client_ip(request: HttpRequest | Request) -> str | None:
+    """The client IP to record in an audit or security log, or ``None`` (#4023).
+
+    Every record of "where this request came from" goes through here so that the
+    forensic trail names the same address the per-IP throttles charged — an
+    attacker brute-forcing login or replaying a revoked token cannot write an
+    arbitrary address into the record, and the log and the throttle never
+    disagree about one request. The address is only as trustworthy as
+    ``TRUEPPM_NUM_PROXIES`` is correct; ``describe_client_address`` is how an
+    admin checks that.
+
+    ``None`` when the resolved value is empty or not an IP address, so the result
+    is always safe for an ``inet`` column and cannot inject ``key=value`` pairs
+    into a log line.
+    """
+    ident = resolve_client_ident(request)
+    if not ident:
+        return None
+    try:
+        return str(ipaddress.ip_address(ident))
+    except ValueError:
+        return None
+
+
 # Bounds on the X-Forwarded-For chain echoed back by ``describe_client_address``.
 # The header is caller-supplied, so the readback must not become a way to make an
 # admin endpoint reflect an arbitrarily large payload.
