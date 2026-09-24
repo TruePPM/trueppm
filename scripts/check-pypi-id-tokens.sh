@@ -41,13 +41,10 @@
 # and their environment names honest; it does not restrict who can push a
 # branch that runs one of the allowlisted jobs.
 #
-# scheduler:publish is a DOCUMENTED EXCEPTION: its PyPI Trusted Publisher is
-# still registered with a BLANK environment (it predates the environment:
-# pattern — see the comment on the job itself). Giving it a name is unsafe to
-# do here: the PyPI-side Trusted Publisher must be re-registered against the
-# new name FIRST, or the next `scheduler-vX.Y.Z` tag fails closed mid-release.
-# That is sequenced follow-up work, not this script's job — this script simply
-# encodes "blank" as the expected, correct state for that one job today.
+# scheduler:publish declares `pypi-scheduler` like the other publish jobs. It
+# was a blank-environment exception until #4016, when the PyPI-side Trusted
+# Publisher was re-registered against the name first (a blank publisher matches
+# on project claims alone).
 #
 # Usage:
 #   check-pypi-id-tokens.sh [CI_FILE]     # CI_FILE defaults to .gitlab-ci.yml
@@ -64,15 +61,14 @@ set -euo pipefail
 # point is that a new job cannot silently add itself to the trusted set by
 # copying a YAML block.
 #
-#   job name            -> expected `environment: name:` value ("" = blank,
-#                           i.e. no environment: block at all, documented above)
+#   job name            -> expected `environment: name:` value
 ALLOWLIST_JOBS="api:publish:pypi mcp:publish scheduler:publish ci:pypi-mint-probe"
 expected_env() {
   case "$1" in
     api:publish:pypi)   echo "pypi-api" ;;
     ci:pypi-mint-probe) echo "pypi-api" ;;
     mcp:publish)        echo "pypi-mcp" ;;
-    scheduler:publish)  echo "" ;;
+    scheduler:publish)  echo "pypi-scheduler" ;;
     *)                  echo "__UNKNOWN__" ;;
   esac
 }
@@ -220,21 +216,12 @@ run_scan() {
     want="$(expected_env "$job")"
     [ "$want" = "__UNKNOWN__" ] && continue  # already reported above (#1)
     if [ "$env" != "$want" ]; then
-      if [ -z "$want" ]; then
-        err "job '$job' in $ci_file declares environment: '$env', but this" \
-            "script expects it BLANK (scheduler:publish's PyPI Trusted"
-        note "  Publisher is still registered with a blank environment; adding"
-        note "  a name here requires re-registering the PyPI-side Trusted"
-        note "  Publisher FIRST or the next scheduler-vX.Y.Z tag fails closed."
-        note "  See #3993's Notes for the sequenced follow-up."
-      else
-        err "job '$job' in $ci_file declares environment: '${env:-<none>}'," \
-            "expected '$want'."
-        note "  PyPI matches its Trusted Publisher on this exact name. A mismatch"
-        note "  either fails the mint closed (loud) or — if it happens to match a"
-        note "  DIFFERENT registered publisher — silently widens that publisher's"
-        note "  trust surface to this job (#3993)."
-      fi
+      err "job '$job' in $ci_file declares environment: '${env:-<none>}'," \
+          "expected '$want'."
+      note "  PyPI matches its Trusted Publisher on this exact name. A mismatch"
+      note "  either fails the mint closed (loud) or — if it happens to match a"
+      note "  DIFFERENT registered publisher — silently widens that publisher's"
+      note "  trust surface to this job (#3993)."
       violations=$((violations + 1))
     fi
   done <<<"$scan"
@@ -274,7 +261,7 @@ self_test() {
   }
 
   # A minimal, fully-correct fixture mirroring the real file's shape,
-  # including scheduler:publish's documented blank environment.
+  # including scheduler:publish's named environment.
   cat >"$tmp/good.yml" <<'YAML'
 api:publish:pypi:
   stage: publish
@@ -298,6 +285,9 @@ mcp:publish:
 
 scheduler:publish:
   stage: publish
+  environment:
+    name: pypi-scheduler
+    url: https://pypi.org/project/trueppm-scheduler/
   id_tokens:
     PYPI_ID_TOKEN:
       aud: pypi
@@ -354,9 +344,19 @@ with open(dst, "w") as f:
 PY
   _case "api:publish:pypi's environment: block removed" expect-fail "$tmp/no-env.yml"
 
-  # scheduler:publish gains a name without the PyPI-side re-registration.
-  sed 's/^scheduler:publish:$/scheduler:publish:\n  environment:\n    name: pypi-scheduler/' "$tmp/good.yml" >"$tmp/sched-named.yml"
-  _case "scheduler:publish given a non-blank environment" expect-fail "$tmp/sched-named.yml"
+  # scheduler:publish reverts to the old blank environment, which would
+  # silently reopen the wider project-claims-only trust surface.
+  python3 - "$tmp/good.yml" "$tmp/sched-blank.yml" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src).read()
+old = ("scheduler:publish:\n  stage: publish\n  environment:\n"
+       "    name: pypi-scheduler\n"
+       "    url: https://pypi.org/project/trueppm-scheduler/\n")
+assert old in text
+open(dst, "w").write(text.replace(old, "scheduler:publish:\n  stage: publish\n"))
+PY
+  _case "scheduler:publish loses its environment (blank)" expect-fail "$tmp/sched-blank.yml"
 
   # An allowlisted job's id_tokens: block disappears entirely.
   python3 - "$tmp/good.yml" "$tmp/missing-job.yml" <<'PY'
