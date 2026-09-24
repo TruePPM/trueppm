@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router';
+import { useDemoMode } from '@/hooks/useDemoMode';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProjectUnavailable } from '@/hooks/useProjectUnavailable';
 import { useProjects } from '@/hooks/useProjects';
@@ -89,7 +90,12 @@ export function StatusBar() {
   // a project (ProjectShell). Off a project — or on one that is unavailable, where
   // ProjectShell deliberately holds the socket closed — there is no live channel
   // to report.
-  const showConnection = Boolean(projectId) && !projectUnavailable;
+  // In the read-only demo there is no socket by design (ADR-1197 D1), so the pill is
+  // replaced by a neutral note rather than a fault state (#4048).
+  const { isDemoReadOnly } = useDemoMode();
+  const inProject = Boolean(projectId) && !projectUnavailable;
+  const showConnection = inProject && !isDemoReadOnly;
+  const showDemoNote = inProject && isDemoReadOnly;
   const conn = CONNECTION_PRESENTATION[connectionState];
   const isLive = connectionState === 'live';
   // "viewing" (not "online") so the count can't be misread as availability/load
@@ -178,6 +184,16 @@ export function StatusBar() {
               {presenceContract}
             </span>
           )}
+        </span>
+      )}
+
+      {showDemoNote && (
+        <span className="flex items-center gap-1.5">
+          <span
+            className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-neutral-text-disabled"
+            aria-hidden="true"
+          />
+          <span>Read-only demo · no live updates</span>
         </span>
       )}
 

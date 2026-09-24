@@ -4,6 +4,7 @@ import type { Mutation, QueryClient } from '@tanstack/react-query';
 import { queryClient as appQueryClient } from '@/lib/queryClient';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useSyncStatusStore } from '@/stores/syncStatusStore';
+import { useDemoMode } from '@/hooks/useDemoMode';
 import { useWsConnectionStore } from '@/stores/wsConnectionStore';
 import { deriveSyncStatus, type SyncStatus } from '@/features/shell/syncStatus';
 import { isClientRejection } from '@/lib/apiError';
@@ -85,7 +86,10 @@ export function useSyncStatus(): SyncStatusView {
   // (#2053). `connecting`/`reconnecting` are transient and deliberately excluded
   // so brief blips don't alarm; only the prolonged/terminal states count.
   const wsState = useWsConnectionStore((s) => s.state);
-  const liveUpdatesDegraded = wsState === 'stale' || wsState === 'failed';
+  // The read-only demo has no socket by design (ADR-1197 D1: nginx 404s `/ws/`), so a
+  // down socket there is the mode, not a fault — never paint "Not live" on it (#4048).
+  const { isDemoReadOnly } = useDemoMode();
+  const liveUpdatesDegraded = !isDemoReadOnly && (wsState === 'stale' || wsState === 'failed');
   const lastSyncAt = useSyncStatusStore((s) => s.lastSyncAt);
   const pendingPeak = useSyncStatusStore((s) => s.pendingPeak);
   const reportPending = useSyncStatusStore((s) => s.reportPending);
