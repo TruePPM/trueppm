@@ -69,15 +69,16 @@ The **community edition** (Apache 2.0, this repository) includes everything an i
 - Offline-first sync protocol (WatermelonDB-compatible)
 - REST + WebSocket API (OpenAPI 3.0.3 schema)
 - Helm 3 chart for Kubernetes deployment
+- Integrations — [Jira Server/Data Center import](/features/jira-import/), a personal read-only Jira source for My Work, [GitLab and GitHub task links](/features/connected-accounts/) with live MR/PR/issue status, [Git-event board card automation](/administration/git-event-automation/), and [outbound webhooks](/features/webhooks/)
 
 The **enterprise edition** (separate repository, proprietary) adds features for organizations governing a portfolio across multiple programs:
 
 - Portfolio dashboard and health scores
-- Org identity governance — SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO (basic OIDC/OAuth login lands in the community core at 0.4)
+- Org identity governance — SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO (basic OIDC/OAuth login is included in the community core since 0.4)
 - Immutable audit trail
 - Cross-program resource leveling and capacity forecasting
 - AI scheduling and scenario modeling
-- Jira / GitLab / ServiceNow connectors
+- Integration hub: org-wide, bidirectional Jira / GitLab / ServiceNow connectors with writeback and conflict resolution (Jira import, personal Jira and Git links, and Git-event automation are in the community edition)
 - Multi-tenancy
 
 The community edition is fully functional on its own — it never imports from the enterprise repo. The dependency is strictly one-way: enterprise extends core.

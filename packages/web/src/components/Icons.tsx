@@ -1855,9 +1855,10 @@ export function CopyIcon({ className, ...rest }: IconProps) {
 }
 
 /**
- * Burst — the "nothing left to worry about" empty state, replacing `🎉`
- * (issue 1749). Celebratory rather than status-bearing: it is always paired with
- * text that carries the meaning.
+ * Check in a circle — the static "done / nothing left" empty state, replacing
+ * `🎉` (issue 1749). Deliberately not a radial-stroke glyph: a ring of short
+ * strokes reads as an indeterminate spinner, so a finished inbox looked like it
+ * was still loading (#4055). Always paired with text that carries the meaning.
  */
 export function CelebrationIcon({ className, ...rest }: IconProps) {
   return (
@@ -1873,8 +1874,8 @@ export function CelebrationIcon({ className, ...rest }: IconProps) {
       className={className}
       {...rest}
     >
-      <path d="M8 1.75v2.5M8 11.75v2.5M1.75 8h2.5M11.75 8h2.5" />
-      <path d="M3.6 3.6l1.75 1.75M10.65 10.65l1.75 1.75M12.4 3.6l-1.75 1.75M5.35 10.65 3.6 12.4" />
+      <circle cx="8" cy="8" r="6.25" />
+      <path d="M5.25 8.25l1.9 1.9 3.6-4" />
     </svg>
   );
 }
