@@ -30,7 +30,14 @@
 #   bash scripts/wait-for-main-pipeline.sh --self-test
 #
 # Env:
-#   CI_API_V4_URL, CI_PROJECT_ID, CI_JOB_TOKEN — supplied by GitLab CI.
+#   CI_API_V4_URL, CI_PROJECT_ID — supplied by GitLab CI.
+#   WAIT_FOR_MAIN_TOKEN (optional) — a project/group access token with
+#     `read_api`, masked and protected, sent as PRIVATE-TOKEN. Needed only
+#     for a private project or fork; trueppm/trueppm's pipelines are public.
+#     CI_JOB_TOKEN is deliberately NOT used: listing pipelines is not in
+#     GitLab's job-token endpoint allowlist, so the request is refused (#4040).
+#   WAIT_FOR_MAIN_CURL (self-test only) — replaces `curl`, so the request the
+#     real path builds (URL + auth header) can be asserted without a network.
 #   MAIN_PIPELINE_LIST (self-test / local use only) — command that, given a
 #     SHA as $1, prints a JSON array of pipeline objects (the shape
 #     GET .../pipelines?ref=main&sha=<sha> returns: at least `status`) to
@@ -62,8 +69,18 @@ list_pipelines() {
     echo "ERROR: CI_API_V4_URL / CI_PROJECT_ID not set — not running in GitLab CI?" >&2
     exit 2
   fi
-  curl -sSf --header "JOB-TOKEN: ${CI_JOB_TOKEN:-}" \
-    "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/pipelines?ref=main&sha=${sha}&order_by=id&sort=desc"
+  # No JOB-TOKEN header (#4040). GitLab authenticates a job token only on the
+  # endpoints in its allowlist, and the pipelines list is not one of them, so
+  # the header turns a public read into a 401 — and under `set -e` that
+  # failed every tag's publish jobs before any polling started. Same lesson
+  # as lint:todo-grep (#3043): a rejected auth header is worse than none.
+  local url="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/pipelines?ref=main&sha=${sha}&order_by=id&sort=desc"
+  local curl_cmd="${WAIT_FOR_MAIN_CURL:-curl}"
+  if [ -n "${WAIT_FOR_MAIN_TOKEN:-}" ]; then
+    $curl_cmd -sSf --header "PRIVATE-TOKEN: ${WAIT_FOR_MAIN_TOKEN}" "$url"
+  else
+    $curl_cmd -sSf "$url"
+  fi
 }
 
 # latest_status SHA — the status of the newest ref=main pipeline at SHA, or
@@ -176,7 +193,42 @@ elif [ "$calls" -eq 2 ]; then echo '[{"status":"running","id":9997}]'
 else echo '[{"status":"success","id":9997}]'
 fi
 EOF
+  # Stands in for curl on the REAL list_pipelines path (no MAIN_PIPELINE_LIST),
+  # recording its argv one per line so the auth header can be asserted.
+  cat > "$fixtures/fake-curl.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$0.args"
+echo '[{"status":"success","id":9996}]'
+EOF
   chmod +x "$fixtures"/*.sh
+
+  # request_sends CI_JOB_TOKEN WAIT_FOR_MAIN_TOKEN PATTERN — run the real
+  # request path through fake-curl; succeed iff its argv matches PATTERN.
+  request_sends() {
+    rm -f "$fixtures/fake-curl.sh.args"
+    (
+      unset MAIN_PIPELINE_LIST
+      export CI_API_V4_URL="https://gitlab.example/api/v4" CI_PROJECT_ID=42
+      export CI_JOB_TOKEN="$1" WAIT_FOR_MAIN_TOKEN="$2"
+      export WAIT_FOR_MAIN_CURL="$fixtures/fake-curl.sh"
+      export WAIT_FOR_MAIN_TIMEOUT_SECONDS=2 WAIT_FOR_MAIN_POLL_SECONDS=1
+      wait_for_main abc123 >/dev/null
+    ) || return 1
+    grep -q -- "$3" "$fixtures/fake-curl.sh.args"
+  }
+  request_omits() {
+    request_sends "$1" "$2" "pipelines?ref=main&sha=abc123" || return 1
+    ! grep -q -- "$3" "$fixtures/fake-curl.sh.args"
+  }
+
+  check "the job token is never sent, even when CI provides one (#4040)" 0 \
+    request_omits "glcbt-job-token" "" "JOB-TOKEN"
+
+  check "with no WAIT_FOR_MAIN_TOKEN the request carries no auth header" 0 \
+    request_omits "glcbt-job-token" "" "PRIVATE-TOKEN"
+
+  check "WAIT_FOR_MAIN_TOKEN is sent as PRIVATE-TOKEN" 0 \
+    request_sends "glcbt-job-token" "glpat-read-api" "PRIVATE-TOKEN: glpat-read-api"
 
   check "a green main pipeline is accepted" 0 \
     run_case "$fixtures/success.sh" 5 1 abc123
