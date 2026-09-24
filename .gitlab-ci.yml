@@ -7317,12 +7317,11 @@ release:backfill-sbom-attestation:
       when: manual
       allow_failure: true
   variables:
-    BACKFILL_IMAGE:
-      value: "web"
-      description: "Image to backfill: api or web."
-    BACKFILL_TAG:
-      value: ""
-      description: "Bare release version on GHCR, e.g. 0.4.0-beta.4."
+    # Job-level `variables:` cannot carry `description:` (only global ones can),
+    # so override both in the play dialog: BACKFILL_IMAGE = api|web, BACKFILL_TAG
+    # = bare GHCR version, e.g. 0.4.0-beta.4.
+    BACKFILL_IMAGE: "web"
+    BACKFILL_TAG: ""
   id_tokens:
     SIGSTORE_ID_TOKEN:
       aud: sigstore
