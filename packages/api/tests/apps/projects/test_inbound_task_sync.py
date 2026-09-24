@@ -620,7 +620,8 @@ def test_used_audit_entry_written_with_source_ip(project: Project, admin_user: A
     entry = ApiTokenAuditEntry.objects.get(
         project=project, action=ApiTokenAuditAction.USED, token=token
     )
-    assert entry.source_ip == "203.0.113.1"
+    # NUM_PROXIES=1: the proxy-appended entry, not the client-written leftmost (#4023).
+    assert entry.source_ip == "198.51.100.1"
     assert entry.actor is None  # inbound — no Django user
     assert entry.detail["external_id"] == "X-AUDIT"
 

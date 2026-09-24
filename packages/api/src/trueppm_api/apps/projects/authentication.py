@@ -291,8 +291,9 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
             else "Rejected a revoked/expired/deleted API token"
         )
 
-        xff = request.META.get("HTTP_X_FORWARDED_FOR")
-        source_ip = xff.split(",")[0].strip() if xff else request.META.get("REMOTE_ADDR")
+        from trueppm_api.core.throttling import resolve_client_ip
+
+        source_ip = resolve_client_ip(request)
         queue_agent_action(
             request,
             actor_kind=AgentActorKind.MCP_TOKEN,

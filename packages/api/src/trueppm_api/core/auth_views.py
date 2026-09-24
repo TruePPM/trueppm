@@ -71,7 +71,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from trueppm_api.core.throttling import LoginAccountRateThrottle
+from trueppm_api.core.throttling import LoginAccountRateThrottle, resolve_client_ident
 
 # Auth-domain logger. Failed-login attempts are emitted here as a structured
 # WARNING so self-hosting operators can alarm on brute-force / credential-stuffing
@@ -88,15 +88,15 @@ User = get_user_model()
 def _client_ip(request: HttpRequest | Request) -> str:
     """Best-effort client IP for the audit event.
 
-    Prefers the left-most ``X-Forwarded-For`` hop when present (deployments sit
-    behind an ingress), falling back to ``REMOTE_ADDR``. This value is only used
-    for an operator-facing log line, never for a security decision, so a spoofable
-    header is acceptable here — the per-account throttle does the enforcement.
+    The address the per-IP throttles key on (``core.throttling.resolve_client_ident``),
+    not the left-most ``X-Forwarded-For`` entry, which the client writes (#4023). So
+    ``auth.login_failed`` names the address the login throttle actually charged, and
+    a brute-forcer cannot pick what the forensic record says.
 
     **The result is parsed as an IP address and replaced with ``"invalid"`` if it is
-    not one** (#3552). Spoofing the *value* is accepted; forging the *shape* is not.
-    Both auth lines are space-delimited ``key=value``, and this field is caller-supplied
-    and sits before another field, so an unvalidated value containing spaces and ``=``
+    not one** (#3552). At ``NUM_PROXIES = 1`` with a single-entry header the resolved
+    value is still whatever that one entry says, and this field sits before another
+    in a space-delimited ``key=value`` line, so an unvalidated value containing spaces and ``=
     lets a caller inject extra pairs into the record:
 
         X-Forwarded-For: 1.2.3.4 user_id=1 method=password
@@ -107,12 +107,7 @@ def _client_ip(request: HttpRequest | Request) -> str:
     fixes ``auth.login_failed`` — reachable *without* credentials, and so the worse of
     the two — at the same time.
     """
-    forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
-    candidate = (
-        str(forwarded).split(",")[0].strip()
-        if forwarded
-        else str(request.META.get("REMOTE_ADDR", "") or "").strip()
-    )
+    candidate = resolve_client_ident(request)
     if not candidate:
         return "unknown"
     try:

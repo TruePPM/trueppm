@@ -1811,11 +1811,13 @@ class TestTokenHasScope:
 
 
 class TestMcpClientIp:
-    def test_prefers_leftmost_forwarded_hop(self) -> None:
+    def test_ignores_the_client_written_leftmost_hop(self) -> None:
+        # NUM_PROXIES=1: the proxy-appended rightmost entry, not the spoofable
+        # leftmost one (#4023).
         req = SimpleNamespace(
-            META={"HTTP_X_FORWARDED_FOR": "203.0.113.9, 10.0.0.1", "REMOTE_ADDR": "10.0.0.1"}
+            META={"HTTP_X_FORWARDED_FOR": "203.0.113.9, 10.0.0.1", "REMOTE_ADDR": "10.0.0.2"}
         )
-        assert _mcp_client_ip(req) == "203.0.113.9"
+        assert _mcp_client_ip(req) == "10.0.0.1"
 
     def test_falls_back_to_remote_addr(self) -> None:
         req = SimpleNamespace(META={"REMOTE_ADDR": "198.51.100.4"})
@@ -1824,8 +1826,12 @@ class TestMcpClientIp:
     def test_none_when_no_source_is_available(self) -> None:
         assert _mcp_client_ip(SimpleNamespace(META={})) is None
 
-    def test_blank_forwarded_hop_yields_none(self) -> None:
+    def test_blank_leftmost_hop_is_irrelevant(self) -> None:
         req = SimpleNamespace(META={"HTTP_X_FORWARDED_FOR": " , 10.0.0.1"})
+        assert _mcp_client_ip(req) == "10.0.0.1"
+
+    def test_non_ip_resolution_yields_none(self) -> None:
+        req = SimpleNamespace(META={"HTTP_X_FORWARDED_FOR": "unknown"})
         assert _mcp_client_ip(req) is None
 
 

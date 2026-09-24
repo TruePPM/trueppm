@@ -307,6 +307,7 @@ from trueppm_api.core.openapi import (
 )
 from trueppm_api.core.protect_conflict import describe_reference, protected_error_response
 from trueppm_api.core.request_body import object_body
+from trueppm_api.core.throttling import resolve_client_ip
 
 logger = logging.getLogger(__name__)
 
@@ -18619,18 +18620,8 @@ class ProjectBurnView(APIView):
 
 
 def _client_ip(request: Request) -> str | None:
-    """Best-effort client-IP extraction for audit rows.
-
-    Reads ``X-Forwarded-For`` first (most TruePPM deployments sit behind a
-    reverse proxy or ingress), falling back to ``REMOTE_ADDR``.  Returns the
-    first hop from XFF — the chain after that is forgeable.  ``None`` if
-    neither is present (e.g. test client).
-    """
-    xff = request.META.get("HTTP_X_FORWARDED_FOR")
-    if xff:
-        # Comma-separated; take the leftmost (client) hop.
-        return xff.split(",")[0].strip() or None
-    return request.META.get("REMOTE_ADDR") or None
+    """Client IP for audit rows — see ``core.throttling.resolve_client_ip``."""
+    return resolve_client_ip(request)
 
 
 class TaskSyncView(IdempotencyMixin, APIView):
