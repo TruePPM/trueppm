@@ -465,6 +465,28 @@ cosign verify \
 A verified signature proves the image came from a TruePPM release tag; the
 attestation lets you pull the exact CycloneDX SBOM for that digest.
 
+#### Backfilled SBOM attestations
+
+`web:0.4.0-beta.4` was published without its CycloneDX attestation (its tag pipeline
+failed at the attest step), and a tag pipeline cannot be re-run from a fixed CI file.
+Its attestation was added afterwards by the manual `release:backfill-sbom-attestation`
+job, which regenerates the SBOM from each published platform digest with the pinned
+Syft and attests it keyless. That job runs on `main`, not on the release tag, so its
+certificate identity ends in `@refs/heads/main` instead of `@refs/tags/v...` and the
+tag-only regexp above does not match it. Verify a backfilled digest with:
+
+```bash
+cosign verify-attestation --type cyclonedx \
+  --certificate-identity 'https://gitlab.com/trueppm/trueppm//.gitlab-ci.yml@refs/heads/main' \
+  --certificate-oidc-issuer https://gitlab.com \
+  ghcr.io/trueppm/web@<platform-digest>
+```
+
+Maintainers: play the job from a `main` pipeline, set `BACKFILL_IMAGE` and
+`BACKFILL_TAG`, then note the backfill (attestation time versus tag time) on that
+tag's Release page. Locally, `scripts/backfill-sbom-attestation.sh --image web --tag <version> --dry-run`
+resolves the digests read-only; the script refuses to attest outside GitLab CI.
+
 ### Secure by default
 
 A default install needs no extra security flags. The chart:

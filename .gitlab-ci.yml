@@ -7294,6 +7294,61 @@ web:publish:manifest:
       - sbom/
     expire_in: never
 
+release:backfill-sbom-attestation:
+  # MANUAL, one-off repair (#4064): attach the CycloneDX SBOM attestation to a
+  # published image whose tag pipeline never produced one (web:0.4.0-beta.4).
+  # Runs only from the default branch, only when a maintainer plays it, and
+  # never blocks a pipeline (allow_failure). Set BACKFILL_IMAGE / BACKFILL_TAG
+  # in the play dialog. Attesting is keyless, so identity comes from THIS job.
+  #
+  # CERTIFICATE IDENTITY: a tag pipeline's cert SAN is
+  #   https://gitlab.com/<project>//.gitlab-ci.yml@refs/tags/v<version>
+  # This job runs on main, so its SAN is
+  #   https://gitlab.com/<project>//.gitlab-ci.yml@refs/heads/main
+  # It therefore will NOT match the `refs/tags/v.*` regexp the deployment docs
+  # verify with. A tag ref for an already-released version cannot be
+  # re-created without moving the release tag, so this gap is inherent; see
+  # administration/deployment.md for the verification command that accepts it.
+  stage: publish
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  needs: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+      when: manual
+      allow_failure: true
+  variables:
+    BACKFILL_IMAGE:
+      value: "web"
+      description: "Image to backfill: api or web."
+    BACKFILL_TAG:
+      value: ""
+      description: "Bare release version on GHCR, e.g. 0.4.0-beta.4."
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  before_script:
+    - apk add --no-cache bash curl jq
+    # Pinned, checksum-verified syft + cosign (match .docker-publish-base).
+    - |
+      SYFT_VERSION=1.18.1
+      SYFT_SHA256=066c251652221e4d44fcc4d115ce3df33a91769da38c830a8533199db2f65aab
+      curl -sSfL "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz" -o /tmp/syft.tar.gz
+      echo "${SYFT_SHA256}  /tmp/syft.tar.gz" | sha256sum -c -
+      tar xzf /tmp/syft.tar.gz -C /usr/local/bin syft
+    - |
+      COSIGN_VERSION=2.4.3
+      COSIGN_SHA256=caaad125acef1cb81d58dcdc454a1e429d09a750d1e9e2b3ed1aed8964454708
+      curl -sSfL "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64" -o /usr/local/bin/cosign
+      echo "${COSIGN_SHA256}  /usr/local/bin/cosign" | sha256sum -c -
+      chmod +x /usr/local/bin/cosign
+  script:
+    - |
+      if [ -z "${BACKFILL_TAG}" ]; then
+        echo "ERROR: set BACKFILL_TAG (e.g. 0.4.0-beta.4) when playing this job."
+        exit 1
+      fi
+      bash scripts/backfill-sbom-attestation.sh --image "${BACKFILL_IMAGE}" --tag "${BACKFILL_TAG}"
+
 registry:release-images:
   # Nightly proof that the latest v* release tag is still pullable (#2803).
   #
