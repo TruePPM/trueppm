@@ -7598,6 +7598,8 @@ ci:pypi-mint-probe:
       # and signs real artifacts; uploads none.
       python -m pypi_attestations sign dist/*.tar.gz dist/*.whl
       ls -1 dist/*.publish.attestation
+    # Prove the scope checker can still fail before trusting it found nothing (#4045).
+    - python ../../scripts/check-pypi-token-project.py --self-test
     - |
       set -euo pipefail
       # THE STEP THIS JOB EXISTS FOR. Identical exchange to api:publish:pypi's,
