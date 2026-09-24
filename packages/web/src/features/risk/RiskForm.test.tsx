@@ -315,6 +315,29 @@ describe('<RiskForm> pending + error states', () => {
     expect(alert).toHaveTextContent('impact: Too high');
   });
 
+  it('renders the generic fallback, not indexed characters, for an HTML error body', () => {
+    const err = Object.assign(new Error('Request failed with status code 502'), {
+      isAxiosError: true,
+      response: { status: 502, data: '<html><body>502 Bad Gateway</body></html>' },
+    });
+    setMutations({ error: err });
+    renderForm();
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Failed to save risk. Please try again.');
+    expect(alert.textContent).not.toMatch(/0: </);
+  });
+
+  it('renders the read-only demo refusal as a calm status note, not a red alert', () => {
+    const err = Object.assign(new Error('Request failed with status code 403'), {
+      isAxiosError: true,
+      response: { status: 403, data: { code: 'demo_read_only', detail: 'Read-only.' } },
+    });
+    setMutations({ error: err });
+    renderForm();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent('Read-only demo');
+  });
+
   it('falls back to the error message for a non-axios error', () => {
     setMutations({ error: new Error('Network down') });
     renderForm();

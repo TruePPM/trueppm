@@ -23,6 +23,12 @@ const CHART_H = 80;
 // Extra vertical room below the bars for the "excl" sub-label on excluded
 // sprints (ADR-0113). The number sits at CHART_H + 12; "excl" at CHART_H + 26.
 const LABEL_H = 30;
+// The drawing is rendered at its intrinsic pixel size (1 viewBox unit = 1 px),
+// never stretched to the card. The viewBox is floored at this many bar slots so
+// a team with one closed sprint gets the same drawing scale as one with twenty;
+// otherwise `w-full h-auto` upscaled a 44-unit viewBox ~16x and ballooned it.
+const MIN_SLOTS = 8;
+const CHART_VIEW_H = CHART_H + LABEL_H;
 
 /**
  * Velocity panel — last-N closed sprints as bars, rolling avg ± stdev, and a
@@ -57,7 +63,7 @@ export function VelocityPanel({ velocity, currentSprint }: Props) {
     .filter((s) => s.exclude_from_velocity)
     .map((s) => s.name)
     .join(', ');
-  const chartW = sprints.length * (BAR_W + BAR_GAP) + BAR_GAP;
+  const chartW = Math.max(sprints.length, MIN_SLOTS) * (BAR_W + BAR_GAP) + BAR_GAP;
   // Rolling-average reference line height. Guarded `avg <= max` so the line
   // always sits inside the plot area (avg is a mean of completed points, so it
   // can never exceed the chart's `max`, but the guard keeps the math safe).
@@ -171,8 +177,10 @@ function VelocityBody({ itl, sprints, avg, stdev, countedCount, max, chartW, avg
 
       {sprints.length > 0 && (
         <svg
-          viewBox={`0 0 ${chartW} ${CHART_H + LABEL_H}`}
-          className="w-full h-auto"
+          viewBox={`0 0 ${chartW} ${CHART_VIEW_H}`}
+          width={chartW}
+          height={CHART_VIEW_H}
+          className="max-w-full h-auto"
           role="img"
           aria-label="Velocity bar chart"
           aria-describedby="velocity-band-legend"

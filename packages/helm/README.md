@@ -259,8 +259,12 @@ helm install trueppm ./packages/helm \
   -f packages/helm/values-demo.yaml \
   --set demo.baseUrl=https://demo.example.com \
   --set demo.shareToken.schedule="$SCHEDULE_TOKEN" \
-  --set demo.shareToken.board="$BOARD_TOKEN"
+  --set demo.shareToken.board="$BOARD_TOKEN" \
+  --set-json 'networkPolicy.ingressControllerSelector={"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"cloudflared"}},"podSelector":{}}'
 ```
+
+Replace `cloudflared` in the last line with the namespace your tunnel client runs in;
+without that line the chart refuses to render (see the NetworkPolicy note below).
 
 The links are printed by the hook Job and are also derivable from the tokens:
 `<baseUrl>/share/schedule/<token>` and `<baseUrl>/share/board/<token>`. To re-read
