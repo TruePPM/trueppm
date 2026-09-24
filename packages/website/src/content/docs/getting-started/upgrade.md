@@ -316,7 +316,7 @@ cd /opt/trueppm
 git pull origin main
 
 # Update the target version in .env:
-# APP_VERSION=0.4.0-beta.3
+# APP_VERSION=0.4.0-beta.4
 
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
@@ -341,7 +341,7 @@ helm upgrade trueppm oci://ghcr.io/trueppm/charts/trueppm \
 ```
 
 `<version>` is the release version without a leading `v`, for example
-`0.4.0-beta.3`. Always pass it: Helm skips pre-release chart versions unless you
+`0.4.0-beta.4`. Always pass it: Helm skips pre-release chart versions unless you
 name one, so while 0.4 is in beta a bare `helm upgrade` fails with `could not locate
 a version matching provided version string`. `--devel` selects the newest beta.
 
