@@ -704,8 +704,13 @@ helm install trueppm ./packages/helm \
   -f packages/helm/values-demo.yaml \
   --set demo.baseUrl=https://demo.example.com \
   --set demo.shareToken.schedule="$(openssl rand -base64 32 | tr -d '=+/')" \
-  --set demo.shareToken.board="$(openssl rand -base64 32 | tr -d '=+/')"
+  --set demo.shareToken.board="$(openssl rand -base64 32 | tr -d '=+/')" \
+  --set-json 'networkPolicy.ingressControllerSelector={"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"cloudflared"}},"podSelector":{}}'
 ```
+
+The last line is required from 0.4.0-beta.4: without it the chart refuses to render.
+Replace `cloudflared` with the namespace your tunnel client runs in; the exposure notes
+below explain why and cover a tunnel running on the host.
 
 :::danger[Never enable this against real data]
 `demo.enabled` runs `load_sample_project` on every install **and every upgrade**, which

@@ -581,6 +581,8 @@ scripts:test:
   #   - release-summary — the default release summary never publishes the
   #     "_Nothing yet._" placeholder, is resolved before any bump, and keeps
   #     its paragraph breaks on the Release page (#4041);
+  #   - release-readme-pins — the package READMEs' version pins move with the
+  #     release, so scheduler:test does not go red at the release commit;
   #   - release-preflight — the pre-tag image Trivy scan, incl. the TRIVY_VERSION
   #     lockstep with this file (#1391). That lockstep is why .gitlab-ci.yml is a
   #     trigger below: a Trivy bump here that forgets release.sh must fail here.
@@ -678,6 +680,8 @@ scripts:test:
         - scripts/tests/release-staging.test.sh
         - scripts/tests/release-preflight.test.sh
         - scripts/tests/release-summary.test.sh
+        - scripts/tests/release-readme-pins.test.sh
+        - scripts/bump-readme-pins.sh
         - scripts/release-default-summary.py
         - scripts/release-page-summary.sh
         - scripts/tests/wt-args.test.sh
@@ -718,6 +722,8 @@ scripts:test:
         - scripts/tests/release-staging.test.sh
         - scripts/tests/release-preflight.test.sh
         - scripts/tests/release-summary.test.sh
+        - scripts/tests/release-readme-pins.test.sh
+        - scripts/bump-readme-pins.sh
         - scripts/release-default-summary.py
         - scripts/release-page-summary.sh
         - scripts/tests/wt-args.test.sh
@@ -743,6 +749,7 @@ scripts:test:
     - bash scripts/tests/release-staging.test.sh
     - bash scripts/tests/release-preflight.test.sh
     - bash scripts/tests/release-summary.test.sh
+    - bash scripts/tests/release-readme-pins.test.sh
     - bash scripts/tests/wt-args.test.sh
     - bash scripts/tests/wt-prune.test.sh
     - bash scripts/tests/wt-reserve.test.sh
@@ -7117,10 +7124,20 @@ web:publish:
       docker save "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" -o /tmp/web-image-amd64.tar
       trivy image --input /tmp/web-image-amd64.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
       # CycloneDX SBOM from the image tarball (see api:publish for rationale).
-      mkdir -p sbom
+      # The SBOM must land in the PROJECT-ROOT sbom/ that `artifacts: paths` and
+      # the manifest job's `needs: artifacts` read. This script has already done
+      # `cd packages/web`, so a bare `sbom/` here is packages/web/sbom/, which
+      # uploads nothing ("no matching files") while the job still passes, and
+      # web:publish:manifest then fails to attest (#4044).
+      mkdir -p "${CI_PROJECT_DIR}/sbom"
       syft "docker-archive:/tmp/web-image-amd64.tar" \
         --source-name "${GH_IMAGE_NAME}" --source-version "${VERSION}-amd64" \
-        -o "cyclonedx-json=sbom/web-${VERSION}-amd64.cdx.json"
+        -o "cyclonedx-json=${CI_PROJECT_DIR}/sbom/web-${VERSION}-amd64.cdx.json"
+      # Fail here, at the producer, rather than passing with nothing to upload.
+      test -s "${CI_PROJECT_DIR}/sbom/web-${VERSION}-amd64.cdx.json" || {
+        echo "ERROR: syft produced no SBOM at ${CI_PROJECT_DIR}/sbom/web-${VERSION}-amd64.cdx.json"
+        exit 1
+      }
       # Internal GitLab Container Registry mirror (always available).
       docker push "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64"
       # Public GHCR release — REQUIRED on a release tag (see api:publish).
@@ -7165,10 +7182,20 @@ web:publish:arm64:
         .
       docker save "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" -o /tmp/web-image-arm64.tar
       trivy image --input /tmp/web-image-arm64.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
-      mkdir -p sbom
+      # The SBOM must land in the PROJECT-ROOT sbom/ that `artifacts: paths` and
+      # the manifest job's `needs: artifacts` read. This script has already done
+      # `cd packages/web`, so a bare `sbom/` here is packages/web/sbom/, which
+      # uploads nothing ("no matching files") while the job still passes, and
+      # web:publish:manifest then fails to attest (#4044).
+      mkdir -p "${CI_PROJECT_DIR}/sbom"
       syft "docker-archive:/tmp/web-image-arm64.tar" \
         --source-name "${GH_IMAGE_NAME}" --source-version "${VERSION}-arm64" \
-        -o "cyclonedx-json=sbom/web-${VERSION}-arm64.cdx.json"
+        -o "cyclonedx-json=${CI_PROJECT_DIR}/sbom/web-${VERSION}-arm64.cdx.json"
+      # Fail here, at the producer, rather than passing with nothing to upload.
+      test -s "${CI_PROJECT_DIR}/sbom/web-${VERSION}-arm64.cdx.json" || {
+        echo "ERROR: syft produced no SBOM at ${CI_PROJECT_DIR}/sbom/web-${VERSION}-arm64.cdx.json"
+        exit 1
+      }
       # See the api arm64 leg and scripts/docker-push-retry.sh (#3990). This is
       # the exact push that failed on job 16659791908 with a cross-repo mount.
       . "$CI_PROJECT_DIR/scripts/docker-push-retry.sh"

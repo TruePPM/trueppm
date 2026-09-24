@@ -277,6 +277,13 @@ describe('PhaseGateConfigPanel — mutation error surfacing', () => {
     return alert;
   }
 
+  it('renders the generic fallback, not indexed characters, for an HTML error body', async () => {
+    const alert = await saveAndReadError(axiosErrorWith('<html><body>502 Bad Gateway</body></html>'));
+
+    expect(alert).toHaveTextContent('Couldn’t save phase-gate template.');
+    expect(alert.textContent).not.toMatch(/0: </);
+  });
+
   it('shows a DRF `detail` string verbatim', async () => {
     const alert = await saveAndReadError(axiosErrorWith({ detail: 'Not a program admin.' }));
 

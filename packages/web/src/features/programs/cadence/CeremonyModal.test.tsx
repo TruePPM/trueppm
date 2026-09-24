@@ -428,6 +428,13 @@ describe('CeremonyModal — mutation error surfacing', () => {
     return alert;
   }
 
+  it('renders the generic fallback, not indexed characters, for an HTML error body', async () => {
+    const alert = await submitAndReadError(axiosErrorWith('<html><body>502 Bad Gateway</body></html>'));
+
+    expect(alert).toHaveTextContent('Couldn’t save ceremony.');
+    expect(alert.textContent).not.toMatch(/0: </);
+  });
+
   it('shows a DRF `detail` string verbatim', async () => {
     const alert = await submitAndReadError(axiosErrorWith({ detail: 'Not allowed on this program.' }));
 
