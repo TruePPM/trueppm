@@ -2063,6 +2063,7 @@ ci:pypi-id-tokens:
       changes:
         - .gitlab-ci.yml
         - scripts/check-pypi-id-tokens.sh
+        - scripts/check-pypi-token-project.py
   before_script:
     - apk add --no-cache bash python3
   script:
@@ -2071,6 +2072,8 @@ ci:pypi-id-tokens:
     # before trusting it found none.
     - bash scripts/check-pypi-id-tokens.sh --self-test
     - bash scripts/check-pypi-id-tokens.sh
+    # The probe's token-scope checker (#4045), same fail-first discipline.
+    - python3 scripts/check-pypi-token-project.py --self-test
 
 api:dependency-soft-delete:
   extends: .fast-job
@@ -7631,8 +7634,18 @@ ci:pypi-mint-probe:
       if not token or not token.startswith("pypi-"):
           sys.stderr.write("ERROR: mint succeeded but returned an unexpected token shape\n")
           sys.exit(1)
-      print("PyPI mint-token OK: received a project-scoped token (%d chars, 'pypi-' prefix)." % len(token))
-      print("Trusted Publisher configuration for trueppm-api is valid for this pipeline.")
+      print("PyPI mint-token OK: received a token (%d chars, 'pypi-' prefix)." % len(token))
+
+      # A successful mint only proves SOME publisher matched this pipeline's
+      # claims, possibly one registered on another project (#4045). The upload
+      # is refused unless the token's project scope names trueppm-api, so check
+      # that scope. The token goes to the checker by environment, never argv.
+      import subprocess
+      env = dict(os.environ, PYPI_TOKEN=token)
+      sys.exit(subprocess.run(
+          [sys.executable, "../../scripts/check-pypi-token-project.py", "trueppm-api"],
+          env=env,
+      ).returncode)
       PY
     # Phrased to avoid the literal upload command string, so a grep-based
     # audit of this file cannot mistake this job for one that publishes.
