@@ -2075,6 +2075,28 @@ ci:pypi-id-tokens:
     # The probe's token-scope checker (#4045), same fail-first discipline.
     - python3 scripts/check-pypi-token-project.py --self-test
 
+ci:artifact-assertions:
+  extends: .fast-job
+  # The tag publish jobs that declare artifacts:paths must assert them
+  # non-empty in their own script (#4062): GitLab passes a job that uploaded
+  # nothing ("ERROR: No files to upload" + "Job succeeded").
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - .gitlab-ci.yml
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - .gitlab-ci.yml
+        - scripts/check-artifact-assertions.sh
+        - scripts/ci-assert-artifacts.sh
+  before_script:
+    - apk add --no-cache bash python3
+  script:
+    - bash scripts/check-artifact-assertions.sh --self-test
+    - bash scripts/check-artifact-assertions.sh
+
 api:dependency-soft-delete:
   extends: .fast-job
   # Every scheduler-input builder must read dependency edges through the
@@ -7168,6 +7190,9 @@ web:publish:
       GH_IMAGE="ghcr.io/${GHCR_USER}/web"
       docker tag "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" "${GH_IMAGE}:${VERSION}-amd64"
       docker push "${GH_IMAGE}:${VERSION}-amd64"
+    # Fail HERE if a declared artifact path is empty (#4062); anchored at
+    # $CI_PROJECT_DIR so the `cd packages/web` above cannot hide it.
+    - sh "$CI_PROJECT_DIR/scripts/ci-assert-artifacts.sh" sbom/
   artifacts:
     name: "web-sbom-amd64-${CI_COMMIT_TAG}"
     paths:
@@ -7224,6 +7249,9 @@ web:publish:arm64:
       docker tag "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" "${GH_IMAGE}:${VERSION}-arm64"
       . "$CI_PROJECT_DIR/scripts/docker-push-retry.sh"
       push_with_retry "${GH_IMAGE}:${VERSION}-arm64"
+    # Fail HERE if a declared artifact path is empty (#4062); anchored at
+    # $CI_PROJECT_DIR so the `cd packages/web` above cannot hide it.
+    - sh "$CI_PROJECT_DIR/scripts/ci-assert-artifacts.sh" sbom/
   artifacts:
     name: "web-sbom-arm64-${CI_COMMIT_TAG}"
     paths:
@@ -7759,6 +7787,8 @@ api:publish:pypi:
     # NOT filesystem discovery — the sidecars must appear in the argument list
     # or twine errors with "has no associated attestations" before any upload.
     - TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_API_TOKEN" twine upload --attestations dist/*.tar.gz dist/*.whl dist/*.publish.attestation --non-interactive --verbose
+    # Fail HERE if the declared artifact path is empty (#4062).
+    - sh "$CI_PROJECT_DIR/scripts/ci-assert-artifacts.sh" packages/api/dist/
   artifacts:
     # Keep the built wheel + sdist as a CI artifact for traceability (7-day
     # expiry — unlike scheduler:publish / mcp:publish this job does not
@@ -7820,6 +7850,8 @@ web:publish:npm:
     - npm run build
     - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
     - npm publish
+    # Only reached when NPM_TOKEN is set (the skip above exits 0 first) (#4062).
+    - sh "$CI_PROJECT_DIR/scripts/ci-assert-artifacts.sh" packages/web/dist/
   artifacts:
     paths:
       - packages/web/dist/
