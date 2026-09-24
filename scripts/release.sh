@@ -505,6 +505,44 @@ grep -qxF "$TAG" <<<"$(git tag)" && die "Tag $TAG already exists."
 grep -qxF "$SCHEDULER_TAG" <<<"$(git tag)" && die "Tag $SCHEDULER_TAG already exists."
 grep -qxF "$MCP_TAG" <<<"$(git tag)" && die "Tag $MCP_TAG already exists."
 
+# ---------------------------------------------------------------------------
+# Release summary — resolved BEFORE anything is modified
+# ---------------------------------------------------------------------------
+#
+# The dated CHANGELOG section opens with a summary, which release:create
+# publishes on the GitLab Release page. Resolving it here rather than at
+# rotation time means a missing summary aborts on a clean tree, not after the
+# manifests, lockfiles and changelog.d/ have already been rewritten. Fragment
+# assembly appends below the [Unreleased] prose, so it cannot change the default.
+#
+# Precedence: --summary flag > RELEASE_SUMMARY env > [Unreleased] prose. The
+# "_Nothing yet._" placeholder is not prose (release-default-summary.py drops
+# it), so an untouched [Unreleased] fails closed instead of publishing it.
+# On a TTY (and not --yes) the default is shown for confirmation; Enter accepts
+# it, or a typed line replaces it.
+
+CHANGELOG="CHANGELOG.md"
+DEFAULT_SUMMARY="$(python3 scripts/release-default-summary.py "$CHANGELOG")"
+RELEASE_SUMMARY="${RELEASE_SUMMARY_ARG:-${RELEASE_SUMMARY:-}}"
+if [[ -z "$RELEASE_SUMMARY" ]]; then
+  RELEASE_SUMMARY="$DEFAULT_SUMMARY"
+  if [[ "$ASSUME_YES" != true && -t 0 && -n "$DEFAULT_SUMMARY" ]]; then
+    {
+      echo ""
+      echo "Release summary (opens the $NEW_VERSION changelog section):"
+      echo "----------------------------------------------------------"
+      echo "$DEFAULT_SUMMARY"
+      echo "----------------------------------------------------------"
+    } >&2
+    read -r -p "Enter to accept this summary, or type a one-line replacement: " reply
+    [[ -n "$reply" ]] && RELEASE_SUMMARY="$reply"
+  fi
+fi
+
+if [[ -z "$(echo "$RELEASE_SUMMARY" | tr -d '[:space:]')" ]]; then
+  die "No release summary. Write a summary paragraph under [Unreleased] in $CHANGELOG, pass --summary \"\$(cat <file>)\", or set RELEASE_SUMMARY."
+fi
+
 # Build + Trivy-scan the api and web images BEFORE bumping manifests or cutting a
 # tag, so a fixable image CVE aborts the release cleanly here rather than failing
 # api:publish / web:publish after the tag is already pushed (#1391). The working
@@ -721,8 +759,6 @@ echo "  Regenerated docs/api/openapi.json at info.version $NEW_PEP440"
 # section first. The summary defaults to the prose already written under
 # [Unreleased] during the cycle and is overridable with --summary / RELEASE_SUMMARY.
 
-CHANGELOG="CHANGELOG.md"
-
 # Assemble any pending changelog fragments into [Unreleased] before rotating.
 bash scripts/assemble-changelog.sh
 
@@ -735,46 +771,7 @@ if [[ -z "$(echo "$UNRELEASED_CONTENT" | tr -d '[:space:]')" ]]; then
   die "$CHANGELOG [Unreleased] section is empty — add release notes before releasing."
 fi
 
-# Default summary: the prose written under [Unreleased] (everything before the
-# first ### category heading), trimmed of surrounding blank lines.
-DEFAULT_SUMMARY="$(python3 - "$CHANGELOG" <<'PY'
-import sys
-lines = open(sys.argv[1]).read().split("\n")
-buf, f = [], False
-for l in lines:
-    if l.strip() == "## [Unreleased]":
-        f = True
-        continue
-    if f and (l.startswith("### ") or l.startswith("## [")):
-        break
-    if f:
-        buf.append(l)
-print("\n".join(buf).strip("\n"))
-PY
-)"
-
-# Summary precedence: --summary flag > RELEASE_SUMMARY env > [Unreleased] prose.
-# On a TTY (and not --yes) the default is shown for confirmation; Enter accepts
-# it, or a typed line replaces it.
-RELEASE_SUMMARY="${RELEASE_SUMMARY_ARG:-${RELEASE_SUMMARY:-}}"
-if [[ -z "$RELEASE_SUMMARY" ]]; then
-  RELEASE_SUMMARY="$DEFAULT_SUMMARY"
-  if [[ "$ASSUME_YES" != true && -t 0 && -n "$DEFAULT_SUMMARY" ]]; then
-    {
-      echo ""
-      echo "Release summary (opens the $NEW_VERSION changelog section):"
-      echo "----------------------------------------------------------"
-      echo "$DEFAULT_SUMMARY"
-      echo "----------------------------------------------------------"
-    } >&2
-    read -r -p "Enter to accept this summary, or type a one-line replacement: " reply
-    [[ -n "$reply" ]] && RELEASE_SUMMARY="$reply"
-  fi
-fi
-
-if [[ -z "$(echo "$RELEASE_SUMMARY" | tr -d '[:space:]')" ]]; then
-  die "No release summary. Write a summary paragraph under [Unreleased] in $CHANGELOG, pass --summary \"<text>\", or set RELEASE_SUMMARY."
-fi
+# RELEASE_SUMMARY was resolved (and validated) before any manifest was touched.
 
 # Rotate: replace [Unreleased] and its prose with a fresh empty [Unreleased] and
 # a dated section that opens with the summary; the assembled ### categories follow.
