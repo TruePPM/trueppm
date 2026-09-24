@@ -138,7 +138,7 @@ def _parse_members(body: str) -> dict[str, str]:
         if not part or part.startswith("["):
             continue
         m = re.match(
-            r"(?:readonly\s+)?['\"]?([A-Za-z_$][\w$]*)['\"]?\??\s*:\s*(.+)$", part, re.S
+            r"(?:readonly\s+)?['\"]?([A-Za-z_$][\w$]*)['\"]?\??\s*:(.+)$", part, re.S
         )
         if m:
             members[m.group(1)] = " ".join(m.group(2).split())
@@ -150,7 +150,7 @@ def parse_types_ts(src: str) -> tuple[dict[str, dict[str, str]], dict[str, str]]
     src = _strip_comments(src)
     interfaces: dict[str, dict[str, str]] = {}
     for m in re.finditer(
-        r"export interface (\w+)(?:<[^>]*>)?(?:\s+extends[^{]*)?\s*\{", src
+        r"export interface (\w+)(?:<[^>]*>)?\s*(?:extends[^{]*)?\{", src
     ):
         depth, i = 1, m.end()
         while depth:
@@ -159,7 +159,7 @@ def parse_types_ts(src: str) -> tuple[dict[str, dict[str, str]], dict[str, str]]
         interfaces[m.group(1)] = _parse_members(src[m.end() : i - 1])
     aliases = {
         m.group(1): " ".join(m.group(2).split())
-        for m in re.finditer(r"export type (\w+)\s*=\s*([^;]+);", src)
+        for m in re.finditer(r"export type (\w+)\s*=([^;]+);", src)
     }
     return interfaces, aliases
 
