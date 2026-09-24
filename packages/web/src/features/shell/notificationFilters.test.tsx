@@ -1,8 +1,9 @@
+import type { ReactNode } from 'react';
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { notificationEmptyCopy } from './notificationFilters';
 
-function svgOf(icon: React.ReactNode): SVGSVGElement {
+function svgOf(icon: ReactNode): SVGSVGElement {
   const { container } = render(<>{icon}</>);
   return container.querySelector('svg') as SVGSVGElement;
 }
