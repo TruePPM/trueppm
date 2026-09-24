@@ -5,6 +5,7 @@ import {
   extractValidationMessage,
   extractFieldErrors,
   extractFormLevelMessage,
+  formatDrfErrorSummary,
 } from './apiError';
 
 function axios4xx(status: number, data: unknown): AxiosError {
@@ -162,5 +163,27 @@ describe('extractFormLevelMessage', () => {
   it('is null when only field errors, an opaque body, or a non-axios error is present', () => {
     expect(extractFormLevelMessage(axios4xx(400, { host: ['x'] }))).toBeNull();
     expect(extractFormLevelMessage(new Error('x'))).toBeNull();
+  });
+});
+
+describe('formatDrfErrorSummary', () => {
+  it('returns the detail string', () => {
+    expect(formatDrfErrorSummary(axios4xx(403, { detail: 'No.' }), 'fb')).toBe('No.');
+  });
+  it('joins field messages', () => {
+    expect(
+      formatDrfErrorSummary(axios4xx(400, { a: ['x', 'y'], b: 'z' }), 'fb'),
+    ).toBe('a: x, y. b: z');
+  });
+  it('falls back for an HTML string body instead of enumerating characters', () => {
+    expect(formatDrfErrorSummary(axios4xx(502, '<html><body>502 Bad Gateway</body></html>'), 'fb')).toBe('fb');
+  });
+  it('does not enumerate an array body', () => {
+    const err = axios4xx(400, ['a', 'b']);
+    expect(formatDrfErrorSummary(err, 'fb')).toBe(err.message);
+  });
+  it('uses the error message for a non-axios error, else the fallback', () => {
+    expect(formatDrfErrorSummary(new Error('Boom'), 'fb')).toBe('Boom');
+    expect(formatDrfErrorSummary(new Error(''), 'fb')).toBe('fb');
   });
 });

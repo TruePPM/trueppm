@@ -1,25 +1,11 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import axios from 'axios';
+import { formatDrfErrorSummary } from '@/lib/apiError';
+import { DEMO_REFUSAL_TOAST, isDemoReadOnlyRefusal } from '@/lib/demoReadOnly';
 import type { Risk } from '@/api/types';
 import { useCreateRisk, useUpdateRisk } from '@/hooks/useRisks';
 import { RiskChip } from './RiskChip';
 import { RiskTaskPicker } from './RiskTaskPicker';
-
-function formatMutationError(error: Error): string {
-  if (axios.isAxiosError(error) && error.response?.data) {
-    const data = error.response.data as Record<string, unknown>;
-    // DRF returns { field: ["error"] } or { detail: "error" }
-    if (typeof data.detail === 'string') return data.detail;
-    const messages: string[] = [];
-    for (const [key, val] of Object.entries(data)) {
-      if (Array.isArray(val)) messages.push(`${key}: ${val.join(', ')}`);
-      else if (typeof val === 'string') messages.push(`${key}: ${val}`);
-    }
-    if (messages.length > 0) return messages.join('. ');
-  }
-  return error.message || 'Failed to save risk. Please try again.';
-}
 
 export interface RiskFormProps {
   projectId: string;
@@ -483,18 +469,28 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
       </div>
 
       {/* Mutation error */}
-      {mutationError && (
-        <div
-          role="alert"
-          className="rounded-card border border-semantic-critical/30 bg-semantic-critical-bg px-3 py-2"
-        >
-          <p className="text-sm text-semantic-critical">
-            {mutationError instanceof Error
-              ? formatMutationError(mutationError)
-              : 'Failed to save risk. Please try again.'}
-          </p>
-        </div>
-      )}
+      {mutationError &&
+        (isDemoReadOnlyRefusal(mutationError) ? (
+          // The read-only demo's refusal is a designed surface, not a failure: a red
+          // "Forbidden" reads as a broken product (ADR-1197 D3).
+          <div
+            role="status"
+            className="rounded-card border border-neutral-border bg-neutral-surface px-3 py-2"
+          >
+            <p className="text-sm text-neutral-text-secondary">{DEMO_REFUSAL_TOAST}</p>
+          </div>
+        ) : (
+          <div
+            role="alert"
+            className="rounded-card border border-semantic-critical/30 bg-semantic-critical-bg px-3 py-2"
+          >
+            <p className="text-sm text-semantic-critical">
+              {mutationError instanceof Error
+                ? formatDrfErrorSummary(mutationError, 'Failed to save risk. Please try again.')
+                : 'Failed to save risk. Please try again.'}
+            </p>
+          </div>
+        ))}
 
       {/* Actions */}
       <div className="flex justify-end gap-3 pt-2">
