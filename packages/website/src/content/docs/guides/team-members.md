@@ -120,7 +120,7 @@ The only question that matters: does this remove a click, or add one? Run these 
 Cards with a red border have an unresolved dependency, and the **Member** role can move cards but not restructure the schedule. Both are deliberate — see [your role and what you can do](#your-role-and-what-you-can-do).
 :::
 
-The two things you'd want that aren't here yet — automatic Jira sync so you never double-enter (lands in **0.4**) and mobile time entry (offline-capable time entry via the installable PWA lands in **0.5**, with a push-triggered end-of-day quick-log prompt planned for **0.6**).
+The two things you'd want that aren't here yet — automatic Jira sync so you never double-enter (shipped in **0.4** as a personal, read-only sync into My Work) and mobile time entry (offline-capable time entry via the installable PWA lands in **0.5**, with a push-triggered end-of-day quick-log prompt planned for **0.6**).
 
 ## Where to go next
 

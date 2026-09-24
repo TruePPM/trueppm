@@ -77,7 +77,7 @@ The task list is [Schedule build mode](/features/schedule-build-mode/) — a key
 
 ### Float and free float
 
-The engine computes two kinds of slack for every task, and 0.4 will put both in
+The engine computes two kinds of slack for every task, and 0.4 put both in
 the outline as their own columns:
 
 | Column | Reads | Answers |
@@ -124,7 +124,7 @@ it was. Drag the divider if you would rather spend the width the other way.
 Worth knowing what that costs in practice, because the numbers are not obvious. At
 1280px with the left rail expanded the eight-column outline already asks for more
 room than the clamp can give it, so the Owner column has always been the first to
-clip there. The two float columns 0.4 will add are the rightmost pair, which puts them
+clip there. The two float columns added in 0.4 are the rightmost pair, which puts them
 first in line: at 1440px and above the full ten-column set fits, and below that you
 will want to hide a column you are not reading, collapse the rail, or drag the
 divider. That order is deliberate — float is the pair a planner consults rather

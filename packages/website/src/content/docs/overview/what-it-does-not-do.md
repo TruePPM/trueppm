@@ -322,7 +322,7 @@ on the roadmap.
 ## High availability — partial, and not turnkey
 
 - **The API and Celery worker tiers support multiple replicas today.** An optional
-  `PodDisruptionBudget` and `HorizontalPodAutoscaler` ship in the 0.4 Helm chart,
+  `PodDisruptionBudget` and `HorizontalPodAutoscaler` shipped in the 0.4 Helm chart,
   both off by default. Celery-originated broadcasts reach WebSocket clients
   connected to any API pod, so horizontal API scaling is safe.
 - **Celery beat is single-replica by design**, not a gap — exactly one Beat process
@@ -330,7 +330,7 @@ on the roadmap.
 - **The bundled Valkey pod is single-node, with no replication or failover.** For
   real HA you disable it and bring your own: a replicated primary behind one
   stable endpoint (`REDIS_URL`) is the path to rely on today. **Sentinel** is
-  configurable via the `TRUEPPM_VALKEY_*` settings but ships **experimental** in
+  configurable via the `TRUEPPM_VALKEY_*` settings but shipped **experimental** in
   0.4 — wired and unit-tested, not yet verified against a live quorum failover.
   **Cluster mode is not supported** — TruePPM uses four logical databases and a
   clustered endpoint exposes only one. See
