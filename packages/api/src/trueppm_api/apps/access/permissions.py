@@ -2640,12 +2640,17 @@ class McpReadableViewMixin(_McpViewBase):
             # inflate the exact signal the log exists to carry. Recorded as nothing
             # until the enum grows an error member.
             return
-        verdict = AgentActionVerdict.ALLOWED if allowed else AgentActionVerdict.REFUSED
+        # The three `# NOSONAR` markers below silence pythonbugs:S2583 (#4056). Sonar
+        # evaluates `is_agent_token(token)` as constant False and so reads `allowed` as
+        # always False past the early return. It is not: an allowed agent read falls
+        # through with allowed=True and is audited inline
+        # (test_mcp_read_records_allowed_action). Restructuring did not clear it (96e7ea9d2).
+        verdict = AgentActionVerdict.ALLOWED if allowed else AgentActionVerdict.REFUSED  # NOSONAR
         refusal_reason, refusal_constraint = self._mcp_refusal_classification(request, allowed)
 
         action, object_type, object_id, project_id = self._mcp_audit_target(request)
         summary = f"MCP {request.method} {action}"
-        if not allowed:
+        if not allowed:  # NOSONAR
             summary += f" — refused ({status})"
         elif getattr(request, "_mcp_scope_filtered", False):
             # ADR-0678 T8: a collection read that had opted-out projects filtered out
@@ -2677,7 +2682,7 @@ class McpReadableViewMixin(_McpViewBase):
         # deferred path it may well have ended by the time the queue drains.
         _set_agent_span_attributes(token, str(verdict))
 
-        if allowed:
+        if allowed:  # NOSONAR
             # Fail-closed, and inline for that reason: a successful read that we could
             # not audit must not be served, so the write shares the read's transaction —
             # it raises, ATOMIC_REQUESTS rolls back, and the request 500s. This is the
