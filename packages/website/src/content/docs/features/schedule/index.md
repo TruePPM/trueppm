@@ -169,6 +169,10 @@ for what capturing a baseline does today and when the overlay itself lands.
 
 Bar labels use `COLOR.text` (`#1A1917` light / palette swap in dark mode). The canvas font is set once at engine init to the Tailwind `font-sans` stack so labels match the task list typography.
 
+### Legend
+
+A floating panel over the bottom-left of the timeline (1024px and wider) names every bar type, state marker, delivery-mode gutter, and dependency line the canvas draws, plus the pan and drag-to-link gestures. It is open the first time you ever visit a Schedule view, and closed by default on every visit after — a toolbar toggle (**Legend**, next to the Grid/Timeline switch) and the panel's own close control both show and hide it, and stay in sync with each other. Whichever state you leave it in persists across reloads; at a narrower toolbar width the toggle moves into the **Actions** menu rather than disappearing.
+
 ## Zoom
 
 You can zoom smoothly from hour-level detail all the way out to a multi-year overview — there are no fixed steps to click through. As you zoom, the two-row date header automatically changes the unit it emphasizes (day → week → month → quarter → year) so the timeline always stays readable.
