@@ -33,6 +33,10 @@ paths = [
   # API docs page whose body shows a literal example Idempotency-Key (a plain
   # UUID), which the generic-api-key rule flags. It is documentation, not a key.
   '''(^|/)idempotency\.md$''',
+  # PyPI project UUIDs the mint probe compares a token's scope against. A project
+  # id is public identifier data, not a credential; the generic-api-key rule
+  # flags any UUID assigned to a key.
+  '''(^|/)scripts/pypi-project-ids\.json$''',
 ]
 
 # Value-scoped: strings that match a secret-shaped pattern but are not secrets.
