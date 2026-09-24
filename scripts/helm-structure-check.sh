@@ -1990,8 +1990,9 @@ share_demo=(-f "$CHART/values-demo.yaml" --set demo.baseUrl=https://demo.example
   || fail "share-link demo: web-ingress does not admit the helm test pod, so templates/tests/demo-share-links.yaml cannot reach the web Service (#4018)"
 [ "$(web_test_rules)" = 0 ] \
   || fail "a non-demo install admits the helm test pod to web-ingress; only the share-link demo hook needs it (#4018)"
-[ "$(web_test_rules "${share_demo[@]}" --set demo.interactive=true)" = 0 ] \
-  || fail "interactive demo admits the helm test pod to web-ingress, but the share-link hook does not render there (#4018)"
+[ "$(web_test_rules "${share_demo[@]}" --set demo.interactive=true \
+  --set demo.loginHint.username=atlas-visitor --set demo.loginHint.password=struct-pass)" = 1 ] \
+  || fail "interactive demo: web-ingress does not admit the helm test pod, so templates/tests/demo-read-only.yaml cannot reach the web Service (#4053)"
 
 # 14g. web's nginx forwards `Host $host`, so the hook must send a Host that is
 #      already in ALLOWED_HOSTS — demo.baseUrl's — or Django 400s it (#4018).
@@ -2109,6 +2110,23 @@ ck_interactive="$(web_ck "${interactive_args[@]}")"
 [ "$ck_default" != "$ck_interactive" ] \
   || fail "checksum/nginx-conf is identical for a default and a demo.interactive render although their nginx configs differ — the hash is not tracking templates/web/configmap.yaml (#4047)"
 
+# 17. Interactive demo edge refusal is JSON, not nginx's stock HTML 403 (#4053).
+#     The web app recognizes a demo refusal by status AND body code, so the fenced
+#     /api/ location must route its 403 to an internal named location returning the
+#     middleware's body. Share-link and production blocks must not carry it.
+grep -q 'error_page 403 @demo_read_only;' <<<"$cm_interactive" \
+  || fail "demo.interactive=true's /api/ fence has no 'error_page 403 @demo_read_only;' — refused writes would return nginx's stock HTML 403 and the web app would never see demo_read_only (#4053)"
+grep -q 'location @demo_read_only {' <<<"$cm_interactive" \
+  || fail "demo.interactive=true renders no internal @demo_read_only location (#4053)"
+grep -q '"code": "demo_read_only"' <<<"$cm_interactive" \
+  || fail "the @demo_read_only location does not return the demo_read_only code (#4053)"
+for other_name in default sharelink; do
+  other_var="cm_$other_name"
+  if grep -q 'demo_read_only' <<<"${!other_var}"; then
+    fail "the $other_name web ConfigMap mentions demo_read_only — the edge refusal must exist only in the interactive block (#4053)"
+  fi
+done
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches all $env_checked containers that import settings.prod"
@@ -2142,3 +2160,4 @@ echo "  - NOTES.txt warns on a split-origin deploy (differing TRUEPPM_FRONTEND_B
 echo "  - app-tier ingress NetworkPolicy: an upgrade that first introduces it refuses to render on the unconfirmed default selector; the peer renders verbatim (ipBlock works) and never empty; k3s/RKE2 also admit kube-system only while the selector is the default; monitoringSelector widens api only (#4000, #4001)"
 echo "  - demo/LoadBalancer/NodePort web exposure with no Ingress and the default ingressControllerSelector refuses on install AND upgrade, names the tunnel or the service type, and is satisfied by ingressControllerConfirmed=true or a non-default selector (ipBlock included); a stock default install and an Ingress-fronted demo are untouched; the API (not web) Service LoadBalancer case still raises the #3908 message (#4003)"
 echo "  - web pod template carries checksum/nginx-conf, and it changes when the nginx config does, so a config-only upgrade rolls the web pod (#4047)"
+echo "  - interactive demo edge: the fenced /api/ 403 routes to an internal @demo_read_only location returning the middleware JSON body; share-link and production ConfigMaps carry none of it (#4053)"

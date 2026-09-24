@@ -22,6 +22,11 @@ vi.mock('@/stores/schedulerStore', () => ({ useSchedulerStore: () => false }));
 vi.mock('./ProjectSampleIndicator', () => ({ ProjectSampleIndicator: () => null }));
 vi.mock('./RecalculatingBadge', () => ({ RecalculatingBadge: () => null }));
 
+const demoMode = vi.hoisted(() => ({ readOnly: false }));
+vi.mock('@/hooks/useDemoMode', () => ({
+  useDemoMode: () => ({ isDemoReadOnly: demoMode.readOnly, loginHint: null, isLoading: false }),
+}));
+
 const mockUseProject = vi.fn<() => { error: unknown }>();
 vi.mock('@/hooks/useProject', () => ({ useProject: () => mockUseProject() }));
 
@@ -35,6 +40,7 @@ describe('ProjectShell availability gate (#1111, #2040)', () => {
   beforeEach(() => {
     mockUseProject.mockReset();
     wsSpy.mockReset();
+    demoMode.readOnly = false;
   });
 
   it('renders ProjectNotFound when the project query 404s (deleted / no access)', () => {
@@ -69,6 +75,14 @@ describe('ProjectShell availability gate (#1111, #2040)', () => {
 
   it('suppresses the WebSocket (passes null) once the project is unavailable', () => {
     mockUseProject.mockReturnValue({ error: axiosStatus(403) });
+    renderWithRouter(<ProjectShell />);
+    expect(wsSpy).toHaveBeenCalledWith(null);
+    expect(wsSpy).not.toHaveBeenCalledWith('proj-1');
+  });
+
+  it('never opens the WebSocket in the read-only demo, where /ws/ is 404 by design (#4048)', () => {
+    demoMode.readOnly = true;
+    mockUseProject.mockReturnValue({ error: null });
     renderWithRouter(<ProjectShell />);
     expect(wsSpy).toHaveBeenCalledWith(null);
     expect(wsSpy).not.toHaveBeenCalledWith('proj-1');

@@ -203,8 +203,10 @@ spec:
          allowlist, so it is the one chart pod that dials this tier. A separate
          rule, rendered under the hook's own condition, so ingress[0] stays the
          controller peer alone. Without it an enforcing CNI drops the probe and
-         `helm test` hangs until timeout (#4018). */}}
-    {{- if and .Values.demo.enabled (not .Values.demo.interactive) }}
+         `helm test` hangs until timeout (#4018). The interactive demo's
+         demo-read-only.yaml hook also dials web, to prove the nginx write
+         fence answers with the JSON demo_read_only refusal (#4053). */}}
+    {{- if .Values.demo.enabled }}
     - from:
         - podSelector:
             matchLabels:

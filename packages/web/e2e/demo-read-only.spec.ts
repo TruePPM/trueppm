@@ -197,6 +197,19 @@ test.describe('Read-only demo — the refusal and the preview (ADR-1197 D3/D4)',
     await expect(bar).toContainText('Read-only demo — nothing you change here is saved.');
   });
 
+  test('shows no connection fault — /ws/ is 404 by design (#4048)', async ({ page }) => {
+    // The real deployment's nginx 404s the socket; mirror that so a client that still
+    // tried to connect would land in the fault states this test forbids.
+    await page.routeWebSocket('**/ws/**', (ws) => void ws.close({ code: 1006 }));
+    await page.goto(BASE_URL);
+    await expect(page.getByRole('option', { name: /Foundation/ })).toBeVisible();
+    const footer = page.getByRole('contentinfo', { name: 'Application status' });
+    await expect(footer.getByText('Read-only demo · no live updates')).toBeVisible();
+    // Long enough for a retrying socket to have reached `stale`/`failed`.
+    await page.waitForTimeout(2000);
+    await expect(page.getByText(/Connection lost|Not live|Disconnected/)).toHaveCount(0);
+  });
+
   test('a refused write gets the mode toast, and the dropped date outlives the refetch', async ({
     page,
   }) => {
