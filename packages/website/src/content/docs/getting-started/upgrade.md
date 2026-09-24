@@ -240,6 +240,33 @@ balancer that sends traffic from outside the cluster needs an `ipBlock` peer
 instead; see
 [`networkPolicy.ingressControllerSelector`](/administration/helm-values/).
 
+:::caution[0.4.0-beta.4 and earlier: a settings-only upgrade does not restart the web pod]
+Through `0.4.0-beta.4`, the chart gives the web pod no signal that its nginx
+configuration changed. An upgrade that changes the image version restarts every
+pod and is unaffected. An upgrade that changes **only settings** that land in the
+web tier's nginx config (turning on `demo.interactive`, a new `demo.baseUrl` or
+share token, a changed allowlist) updates the ConfigMap but leaves the running
+web pod serving the old configuration. After such an upgrade, restart it:
+
+```bash
+kubectl -n <namespace> rollout restart deploy/<release>-trueppm-web
+```
+
+Later chart versions restart the pod automatically (#4047).
+:::
+
+To upgrade a release you installed with `--set` flags without retyping them,
+start from what Helm recorded at install time:
+
+```bash
+helm -n <namespace> get values <release> -o yaml > current-values.yaml
+helm upgrade <release> oci://ghcr.io/trueppm/charts/trueppm --version <version> \
+  -n <namespace> -f current-values.yaml
+```
+
+This keeps your own settings and picks up the new chart's defaults.
+`--reuse-values` does not: it also freezes the previous chart's defaults.
+
 Three more things to check for this upgrade:
 
 - **In-cluster monitoring.** If Prometheus or a Blackbox exporter in another
