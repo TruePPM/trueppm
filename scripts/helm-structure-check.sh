@@ -2095,6 +2095,20 @@ grep -q 'API Service must stay ClusterIP' <<<"$api_lb_err" \
 helm template trueppm "$CHART" "${demo_np_args[@]}" --set networkPolicy.enabled=false >/dev/null \
   || fail "demo.enabled with networkPolicy.enabled=false still tripped the #4003 exposure guard"
 
+# 16. The web pod must roll when its nginx config changes (#4047). default.conf is a
+#     subPath mount, which never sees ConfigMap updates, and nginx reads it only at
+#     start — so a config-only upgrade (turning on demo.interactive, say) left the
+#     old server block serving indefinitely. The pod-template checksum is the only
+#     thing that turns a config change into a pod-spec change.
+web_ck() { helm template trueppm "$CHART" "$@" --show-only templates/web/deployment.yaml \
+  | yq '.spec.template.metadata.annotations["checksum/nginx-conf"]'; }
+ck_default="$(web_ck --set image.tag=latest)"
+ck_interactive="$(web_ck "${interactive_args[@]}")"
+[ -n "$ck_default" ] && [ "$ck_default" != "null" ] \
+  || fail "web Deployment pod template has no checksum/nginx-conf annotation — a config-only upgrade will not roll the web pod (#4047)"
+[ "$ck_default" != "$ck_interactive" ] \
+  || fail "checksum/nginx-conf is identical for a default and a demo.interactive render although their nginx configs differ — the hash is not tracking templates/web/configmap.yaml (#4047)"
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches all $env_checked containers that import settings.prod"
@@ -2127,3 +2141,4 @@ echo "  - valkey has a PDB (maxUnavailable: 0, gated by valkey.podDisruptionBudg
 echo "  - NOTES.txt warns on a split-origin deploy (differing TRUEPPM_FRONTEND_BASE_URL/TRUEPPM_PUBLIC_API_BASE_URL) with no CSRF_TRUSTED_ORIGINS, and stays quiet when same-origin or once it is set (#3945)"
 echo "  - app-tier ingress NetworkPolicy: an upgrade that first introduces it refuses to render on the unconfirmed default selector; the peer renders verbatim (ipBlock works) and never empty; k3s/RKE2 also admit kube-system only while the selector is the default; monitoringSelector widens api only (#4000, #4001)"
 echo "  - demo/LoadBalancer/NodePort web exposure with no Ingress and the default ingressControllerSelector refuses on install AND upgrade, names the tunnel or the service type, and is satisfied by ingressControllerConfirmed=true or a non-default selector (ipBlock included); a stock default install and an Ingress-fronted demo are untouched; the API (not web) Service LoadBalancer case still raises the #3908 message (#4003)"
+echo "  - web pod template carries checksum/nginx-conf, and it changes when the nginx config does, so a config-only upgrade rolls the web pod (#4047)"
