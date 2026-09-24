@@ -670,6 +670,15 @@ bump_manifest packages/helm/Chart.yaml \
 
 echo "  Bumped manifests to $NEW_VERSION (scheduler PyPI: $NEW_PEP440)"
 
+# The package READMEs pin the release they document (`trueppm-scheduler==X`) and
+# are the PyPI long descriptions, but they are not manifests, so the bumps above
+# never touched them. Left at the previous release they fail packages/scheduler's
+# TestReleaseMetadataConsistency, which reds main at the release commit and holds
+# every tag-gated publish job (0.4.0-beta.4).
+bash scripts/bump-readme-pins.sh \
+  "$CURRENT_PEP440" "$NEW_PEP440" "$CURRENT_VERSION" "$NEW_VERSION" \
+  || die "Failed to bump the README version pins — see the error above."
+
 # Restamp CI_API_TAG, which the bumps above have ALREADY invalidated (#4022).
 #
 # scripts/check-ci-api-tag.sh digests four files into that tag:
@@ -748,6 +757,25 @@ echo "  Regenerated uv.lock for scheduler, api, and mcp"
 # a client deserves to know it is building against a beta.
 TRUEPPM_VERSION="$NEW_PEP440" bash scripts/export-openapi.sh
 echo "  Regenerated docs/api/openapi.json at info.version $NEW_PEP440"
+
+# Refresh the venv's editable install of trueppm-api so its installed metadata
+# reports the new version. The regenerate above sidesteps the stale metadata with
+# TRUEPPM_VERSION, but `make pre-push`'s schema-check (which runs on the push of
+# the release commit) does not: it regenerates from installed metadata, sees the
+# previous version, and blocks the push over a one-line version diff. Only
+# trueppm-api is reinstalled, --no-deps, so no other package in a shared venv is
+# repointed. Best effort: a missing venv only means the push hook may need the
+# same command run by hand.
+API_VENV_PY="packages/api/.venv/bin/python"
+if [ -x "$API_VENV_PY" ]; then
+  uv pip install --python "$API_VENV_PY" --no-deps -e packages/api -q \
+    && echo "  Refreshed the venv's trueppm-api install to $NEW_PEP440" \
+    || echo "  WARN: could not refresh the venv's trueppm-api install; before pushing run:" \
+            "uv pip install --python $API_VENV_PY --no-deps -e packages/api" >&2
+else
+  echo "  WARN: $API_VENV_PY not found; make pre-push's schema-check may report a stale" \
+       "version until trueppm-api is reinstalled in the venv you push from." >&2
+fi
 
 # ---------------------------------------------------------------------------
 # CHANGELOG rotation (every release — alpha/beta/rc and stable)
@@ -863,6 +891,26 @@ case "$CALLOUT_STATUS" in
   *) die "scripts/remove-ships-in-callouts.sh failed (exit $CALLOUT_STATUS) — fix before releasing." ;;
 esac
 
+# Prove the tree is release-consistent BEFORE it becomes a commit. This is the
+# scheduler's own metadata contract (pyproject version == README pin == top
+# CHANGELOG heading == trove classifier), which is exactly what scheduler:test
+# runs on the release commit. Catching it here costs a failed local run; catching
+# it after the push cost a red main and a tag that could not be pushed. Skipped,
+# loudly, when there is no venv to run it in.
+if [ -x "$API_VENV_PY" ]; then
+  ( cd packages/scheduler \
+    && "../../$API_VENV_PY" -m pytest tests/test_public_surface.py \
+         -k TestReleaseMetadataConsistency -q -p no:cacheprovider ) || die \
+"The scheduler's release-metadata test fails on the bumped tree.
+   Something that names the released version was not bumped (a README pin, the
+   CHANGELOG heading, a classifier). Fix it, then reset and re-run:
+   git reset --hard origin/main && git tag -d $TAG $SCHEDULER_TAG $MCP_TAG"
+  echo "  Scheduler release-metadata test passes on the bumped tree"
+else
+  echo "  WARN: skipped the scheduler release-metadata test (no $API_VENV_PY)." \
+       "Run it before pushing: cd packages/scheduler && pytest tests/test_public_surface.py -k Metadata" >&2
+fi
+
 # ---------------------------------------------------------------------------
 # Commit and tag
 # ---------------------------------------------------------------------------
@@ -881,6 +929,9 @@ git add \
   packages/scheduler/pyproject.toml \
   packages/scheduler/uv.lock \
   packages/scheduler/CHANGELOG.md \
+  packages/scheduler/README.md \
+  packages/api/README.md \
+  packages/mcp/README.md \
   packages/mcp/pyproject.toml \
   packages/mcp/uv.lock \
   packages/mcp/server.json \
