@@ -17,7 +17,7 @@ from your project admin and go straight to
 [For Team Members: already have a login?](/guides/team-members/#already-have-a-login).
 :::
 
-TruePPM ships as pre-built Docker images and a Python package on PyPI. Release images publish to the GitLab Container Registry and, since the 0.4 beta, also to the **GitHub Container Registry (GHCR)** as a public pull path — `ghcr.io/trueppm/{api,web}` for the images and `oci://ghcr.io/trueppm/charts` for the chart — with every published artifact Trivy-scanned, CycloneDX SBOM-attested, and Cosign-signed (keyless). See [Deployment](/administration/deployment/#verifying-image-and-chart-signatures) for how to verify a signed artifact.
+TruePPM ships as pre-built Docker images and a Python package on PyPI. Release images publish to the GitLab Container Registry and, since the 0.4 beta, also to the **GitHub Container Registry (GHCR)** as a public pull path — `ghcr.io/trueppm/{api,web}` for the images and `oci://ghcr.io/trueppm/charts` for the chart — with every published artifact Trivy-scanned and Cosign-signed (keyless), and CycloneDX SBOM-attested (the `web` image for `0.4.0-beta.4` is the one exception: signed, but no SBOM attestation). See [Deployment](/administration/deployment/#verifying-image-and-chart-signatures) for how to verify a signed artifact.
 
 :::note[The development Compose stack builds from source — it does not pull those images]
 The `docker compose up -d` path below is the *development* stack. It builds the
