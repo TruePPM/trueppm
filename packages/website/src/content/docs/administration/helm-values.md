@@ -704,8 +704,13 @@ helm install trueppm ./packages/helm \
   -f packages/helm/values-demo.yaml \
   --set demo.baseUrl=https://demo.example.com \
   --set demo.shareToken.schedule="$(openssl rand -base64 32 | tr -d '=+/')" \
-  --set demo.shareToken.board="$(openssl rand -base64 32 | tr -d '=+/')"
+  --set demo.shareToken.board="$(openssl rand -base64 32 | tr -d '=+/')" \
+  --set-json 'networkPolicy.ingressControllerSelector={"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"cloudflared"}},"podSelector":{}}'
 ```
+
+The last line is required from 0.4.0-beta.4: without it the chart refuses to render.
+Replace `cloudflared` with the namespace your tunnel client runs in; the exposure notes
+below explain why and cover a tunnel running on the host.
 
 :::danger[Never enable this against real data]
 `demo.enabled` runs `load_sample_project` on every install **and every upgrade**, which
@@ -812,8 +817,10 @@ hardening:
 Verify an interactive install with `helm test <release>`: the hook signs in with the
 hint and asserts that an authenticated `POST /api/v1/projects/` answers `403` with
 `code: "demo_read_only"`, so a missing seed, a wrong overlay or an unarmed middleware
-fails the release. It reaches the API Service by in-cluster DNS, so it proves the
-API-tier fence and says nothing about the public edge.
+fails the release. It then repeats the write through the **web** Service and asserts the
+same `403` and `demo_read_only` code with a JSON content type, so the edge fence is proven
+to answer in the shape the web app recognizes. Both calls use in-cluster DNS, so nothing
+in front of the web Service (Ingress, tunnel, access gate) is checked.
 
 **`helm test` also verifies the share-link overlay itself**, not only the interactive
 one. `demo.enabled` with `demo.interactive` left off — the overlay `values-demo.yaml`

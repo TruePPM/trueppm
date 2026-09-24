@@ -107,6 +107,31 @@ describe('VelocityPanel', () => {
     expect(legend?.textContent).toMatch(/on track/i);
   });
 
+  // #4051: the drawing renders at intrinsic pixel size, so its height must not
+  // depend on the sprint count (a 1-sprint viewBox used to be upscaled ~16x).
+  it('renders the chart at the same bounded size for 1 and 12 sprints (#4051)', () => {
+    const dims = (n: number) => {
+      const sprints = Array.from({ length: n }, (_, i) =>
+        makeSprint({ id: `s${i}`, name: `Sprint ${i}` }),
+      );
+      const { container, unmount } = render(<VelocityPanel velocity={makeVelocity({ sprints })} />);
+      const svg = container.querySelector('svg[role="img"]') as SVGSVGElement;
+      const vb = svg.getAttribute('viewBox')!.split(' ').map(Number);
+      const out = { height: svg.getAttribute('height'), vbH: vb[3], width: svg.getAttribute('width'), vbW: vb[2] };
+      unmount();
+      return out;
+    };
+    const one = dims(1);
+    const twelve = dims(12);
+    expect(one.height).toBe(twelve.height);
+    expect(Number(one.height)).toBeLessThanOrEqual(120);
+    expect(one.vbH).toBe(twelve.vbH);
+    // 1 unit = 1px: rendered size equals the viewBox, so nothing is upscaled.
+    expect(Number(one.width)).toBe(one.vbW);
+    expect(Number(twelve.width)).toBe(twelve.vbW);
+    expect(one.vbW).toBeLessThan(twelve.vbW);
+  });
+
   // ADR-0113: excluded sprints are marked (not dropped), the effect is surfaced
   // in plain language, and excluded bars opt out of the health palette.
   it('renders the "N excluded" callout when sprints are excluded', () => {

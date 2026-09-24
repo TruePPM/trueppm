@@ -36,6 +36,16 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 #: The stable machine-readable refusal code, documented in ``api/errors.md``.
 DEMO_READ_ONLY_CODE = "demo_read_only"
 
+#: The refusal's human-readable ``detail``. The interactive-demo web tier's nginx
+#: fence (packages/helm/templates/web/configmap.yaml) refuses writes before they reach
+#: Django and must return this exact body, because the web app recognizes a demo
+#: refusal by its body. The chart cannot import this constant, so
+#: tests/core/test_demo_read_only.py asserts the chart's copy equals it.
+DEMO_READ_ONLY_DETAIL = (
+    "This is a read-only demo. Your change was not saved. "
+    "Nothing in this deployment can be modified."
+)
+
 #: Methods that cannot change server state by HTTP's own contract. Everything *not*
 #: in this set is treated as a write -- including methods this API never serves
 #: (``TRACE``, ``CONNECT``, a made-up verb) -- so an unrecognized method is refused
@@ -268,10 +278,7 @@ class DemoReadOnlyMiddleware:
             # there is no exception handler in play and nothing to roll back.
             return JsonResponse(
                 {
-                    "detail": (
-                        "This is a read-only demo. Your change was not saved. "
-                        "Nothing in this deployment can be modified."
-                    ),
+                    "detail": DEMO_READ_ONLY_DETAIL,
                     "code": DEMO_READ_ONLY_CODE,
                 },
                 status=403,

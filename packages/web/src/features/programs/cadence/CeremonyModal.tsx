@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, MouseEvent } from 'react';
-import axios from 'axios';
+import { formatDrfErrorSummary } from '@/lib/apiError';
 import type { CeremonyCadenceType, CeremonyTemplate } from '@/api/types';
 import {
   useCreateCeremony,
@@ -99,20 +99,6 @@ function buildPayload(state: FormState): CeremonyCreatePayload {
   };
 }
 
-function formatMutationError(error: Error): string {
-  if (axios.isAxiosError(error) && error.response?.data) {
-    const data = error.response.data as Record<string, unknown>;
-    if (typeof data.detail === 'string') return data.detail;
-    const messages: string[] = [];
-    for (const [key, val] of Object.entries(data)) {
-      if (Array.isArray(val)) messages.push(`${key}: ${val.join(', ')}`);
-      else if (typeof val === 'string') messages.push(`${key}: ${val}`);
-    }
-    if (messages.length > 0) return messages.join('. ');
-  }
-  return error.message || 'Couldn’t save ceremony.';
-}
-
 /**
  * Add/edit modal for a CeremonyTemplate (ADR-0079).
  *
@@ -166,7 +152,7 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
       }
       onSaved();
     } catch (err) {
-      setFormError(formatMutationError(err as Error));
+      setFormError(formatDrfErrorSummary(err as Error, 'Couldn’t save ceremony.'));
     }
   }
 

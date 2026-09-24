@@ -18,6 +18,13 @@ spec:
       app.kubernetes.io/component: web
   template:
     metadata:
+      # nginx reads default.conf once at start, and the subPath mount below never
+      # receives ConfigMap updates in a running pod. Without this hash a config-only
+      # upgrade (demo.interactive, demo.baseUrl, a share token, the allowlist) leaves
+      # the pod spec unchanged, so the pod is never rolled and keeps serving the
+      # previous config indefinitely.
+      annotations:
+        checksum/nginx-conf: {{ include (print $.Template.BasePath "/web/configmap.yaml") . | sha256sum }}
       labels:
         {{- include "trueppm.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: web

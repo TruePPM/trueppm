@@ -241,6 +241,25 @@ test.describe('Wave 10 — Sprints metrics row', () => {
     await expect(page.getByLabel(/This sprint: 14 of 40 points completed/)).toBeVisible();
   });
 
+  test('a 1-sprint velocity chart stays within its design height (#4051)', async ({ page }) => {
+    await setupCommon(page, {
+      ...VELOCITY_PAYLOAD,
+      sprints: VELOCITY_PAYLOAD.sprints.slice(0, 1),
+      rolling_avg_points: 28,
+      rolling_stdev_points: null,
+    });
+
+    await page.goto(BASE_URL);
+
+    const chart = page
+      .getByRole('region', { name: /Velocity/i })
+      .getByRole('img', { name: 'Velocity bar chart' });
+    await expect(chart).toBeVisible();
+    const box = await chart.boundingBox();
+    // Design height is 110px; it used to balloon to ~1,800px under w-full h-auto.
+    expect(box!.height).toBeLessThanOrEqual(120);
+  });
+
   test('a suppressed velocity reads team-private, not "No closed sprints yet" (#3472)', async ({
     page,
   }) => {

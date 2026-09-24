@@ -25,8 +25,9 @@ and safe:
      `POST /projects/` is open to any authenticated user and mints its creator an
      OWNER membership.
 
-It talks to the api Service by its in-cluster DNS name, so it never traverses the
-ingress, the tunnel, or any access control in front of the demo.
+It talks to the api and web Services by in-cluster DNS name, so it never traverses the
+ingress, the tunnel, or any access control in front of the demo. The web-Service call
+proves the nginx write fence answers with the middleware's JSON refusal (#4053).
 
 The credential comes from demo.loginHint and from nowhere else; trueppm.demoGuards
 has already refused any value that could close a quote in the body below.
@@ -141,13 +142,35 @@ spec:
             exit 1
           fi
           echo "OK: authenticated write refused 403 demo_read_only"
-          # Say only what was proven. This hook talks to the api Service directly, so
-          # it says NOTHING about the public edge: the web tier's demo branch 404s
-          # /api/, which includes the login route, and the production branch proxies
-          # /api/ and /ws/ wholesale. Neither is the posture an interactive demo
-          # needs — that third server block is #3925 MR 2. An operator who reads this
-          # line as "the demo is ready to expose" would be reading a claim it did not
-          # make, and that misreading is how the deferred edge controls get skipped.
-          echo "OK: api-tier fence verified in-cluster (seeded login works, authenticated"
-          echo "    writes are refused). The PUBLIC EDGE POSTURE IS NOT CHECKED HERE."
+
+          # (c) The same write through the WEB Service — the public edge. nginx's
+          # method fence refuses it before Django, and the web app recognizes a demo
+          # refusal only by 403 AND the JSON code, so a stock HTML 403 would pass (b)
+          # and still leave every refusal surface dead (#4053). Assert all three:
+          # status, code, and JSON content type.
+          web_host="{{ include "trueppm.fullname" . }}-web:{{ .Values.web.service.port }}"
+          edge_code="$(curl -sS -D /tmp/edge.headers -o /tmp/edge.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${token}" \
+            -X POST "http://${web_host}/api/v1/projects/" \
+            -d '{"name":"helm-test-demo-read-only-edge"}' || echo 000)"
+          if [ "$edge_code" != "403" ]; then
+            echo "FAIL: POST /api/v1/projects/ through the web Service returned ${edge_code}, expected 403."
+            cat /tmp/edge.json || true
+            exit 1
+          fi
+          if ! grep -q '"code": *"demo_read_only"' /tmp/edge.json; then
+            echo "FAIL: the edge refused the write with 403 but not with the demo_read_only"
+            echo "      JSON body (nginx's stock page?). The web app would show a generic error."
+            cat /tmp/edge.json || true
+            exit 1
+          fi
+          if ! grep -qi '^content-type: *application/json' /tmp/edge.headers; then
+            echo "FAIL: the edge refusal is not Content-Type: application/json."
+            cat /tmp/edge.headers || true
+            exit 1
+          fi
+          echo "OK: write through the web Service refused 403 demo_read_only (JSON)"
+          echo "OK: api-tier fence and public-edge refusal verified in-cluster. Ingress,"
+          echo "    tunnel and access gate in front of the web Service are NOT checked here."
 {{- end }}

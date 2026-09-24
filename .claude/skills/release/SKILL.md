@@ -137,6 +137,8 @@ changed. Run this check unconditionally, every release, against each PyPI-publis
 - [ ] **Does the README state what the package depends on to be useful, not just how to install it?** A README can be technically accurate about installation while never saying what has to already exist for the package to do anything — mcp's README documented tokens and env vars but never stated it requires a *running self-hosted TruePPM instance on a specific minimum version* until this was caught at the 0.4.0-beta.1 cut (the tools call 0.4-only endpoints, so it silently fails against 0.3). Add a Requirements section naming every hard prerequisite explicitly if one doesn't already exist.
 - [ ] The README still reads as "what can I do with this and why would I reach for it" for someone who has never seen TruePPM — not as an API changelog. If a feature is easy to describe mechanically but hard to motivate, add the one-line "why" before the code, and consider a short worked example (one concrete question/call and what comes back) if the package's value is otherwise hard to picture from prose alone.
 
+`scripts/release.sh` now bumps the `==X` pins in these READMEs and fails the cut if one is stale, so the pin is no longer this step's job; approachability is. **Do not skip this step because the script covers the pin.** At 0.4.0-beta.4 this pass was skipped and the stale pin was the first thing that surfaced afterward.
+
 This is a review pass, not an agent invocation — do it by hand against the diff since the last release tag for each package (`git log <last-tag>..HEAD -- packages/<pkg>/README.md packages/<pkg>/src`).
 
 ## Step 2 — Run the release script
@@ -162,11 +164,28 @@ The script, in order:
 2. Resolves the summary and aborts if there is none, all before touching anything
 3. Builds and Trivy-scans the api image (linux/amd64 only; arm64 is first built by the tag pipeline). This takes about 10 minutes on an arm64 Mac.
 4. Bumps every manifest to lockstep: `packages/{api,scheduler,mcp}/pyproject.toml`, `packages/mcp/server.json` (both fields), `packages/web/package.json`, `packages/wasm-scheduler/Cargo.{toml,lock}`, `packages/helm/Chart.yaml` (`version` and `appVersion`; the chart's default image tag is `v<appVersion>`). It also restamps `CI_API_TAG` in `.gitlab-ci.yml`, re-locks the three `uv.lock` files, and regenerates `docs/api/openapi.json`. `__version__` literals are **not** bumped; they are read from package metadata (#3878).
+   It also rewrites the version pins in `packages/{scheduler,api,mcp}/README.md` (`scripts/bump-readme-pins.sh`; those READMEs are the PyPI long descriptions and were not manifests, so they used to stay one release behind and red `scheduler:test` on `main`), and it refreshes the venv's editable `trueppm-api` install so `make pre-push`'s `schema-check` sees the new version instead of blocking the push.
 5. On **every** release, pre-releases included, assembles `changelog.d/` into `[Unreleased]`, rotates it into `## [X.Y.Z] — YYYY-MM-DD` opening with the summary, leaves a fresh `_Nothing yet._` `[Unreleased]`, and deletes the consumed fragments. It rotates `packages/scheduler/CHANGELOG.md` the same way.
 6. Runs `remove-ships-in-callouts.sh` for the version's `0.X`. This is a no-op unless the roadmap promoted it (Step 1a).
-7. Commits `chore(release): bump version to X.Y.Z` and creates three annotated tags: `vX.Y.Z` (images + chart), `scheduler-v<PEP440>` and `mcp-v<PEP440>` (PyPI). The PyPI tags use the PEP 440 form, e.g. `mcp-v0.4.0b4`, not `mcp-v0.4.0-beta.4`.
+7. Runs the scheduler's `TestReleaseMetadataConsistency` test against the bumped tree (pyproject version, README pin, top CHANGELOG heading, classifier) and aborts **before committing** if it fails, so a stale pin costs a failed local run instead of a red `main`.
+8. Commits `chore(release): bump version to X.Y.Z` and creates three annotated tags: `vX.Y.Z` (images + chart), `scheduler-v<PEP440>` and `mcp-v<PEP440>` (PyPI). The PyPI tags use the PEP 440 form, e.g. `mcp-v0.4.0b4`, not `mcp-v0.4.0-beta.4`.
 
 After it succeeds, sanity-check before pushing: `git status` is clean, `git show --stat HEAD` touches only the files above plus deleted fragments, and the new CHANGELOG section opens with the approved summary.
+
+**Sweep for stale prose the script cannot fix.** The script moves pins; it cannot tell an example version ("for example `0.4.0-beta.3`") from history ("from 0.4.0-beta.3 or earlier"). Grep for the *previous* release and triage each hit:
+
+```bash
+grep -rnE '<prev-pep440>|<prev-semver>' -I . \
+  | grep -vE '^\./(CHANGELOG\.md|packages/scheduler/CHANGELOG\.md|docs/adr/|scripts/)|node_modules|\.venv|uv\.lock|package-lock|Cargo\.lock|\.astro|/dist/'
+```
+
+- **Change** example versions, "latest tagged release" claims (`README.md`, `overview/what-it-does-not-do.md`), and install pins in READMEs, `.env.example`, `docker-compose.prod.yml`, and the Helm README/values.
+- **Keep** "from X or earlier" upgrade notes, "added after X", changelogs, ADRs, and test fixtures.
+- **Hold** "unproven until the next `v*` tag" and "versions through X predate attestation" until the publish is verified; they flip only after Step 4 confirms it.
+
+Land any fixes as a `docs/` MR **before** the tags are pushed; the tags must point at a commit whose own `main` pipeline is green (Step 3).
+
+**If `git push origin main` is blocked by `schema-check` reporting only a `version` diff**, the venv's installed `trueppm-api` metadata is stale (the script refreshes it, but a different venv than `packages/api/.venv` may be the one pushing). Fix: `uv pip install --python packages/api/.venv/bin/python --no-deps -e packages/api`, then push again. Never `--no-verify`.
 
 If the script fails, read its error before doing anything. It fails closed before step 4 for everything except a failed `uv lock` or openapi export. If it dies after step 4, `git reset --hard origin/main` discards the partial bump; delete any local tags it made first (`git tag -d`).
 
@@ -180,7 +199,18 @@ git push origin main                       # pre-push hook runs make pre-push; v
 git push origin vX.Y.Z scheduler-v<PEP440> mcp-v<PEP440>
 ```
 
-Poll `glab api "projects/trueppm%2Ftrueppm/pipelines?ref=main&sha=$(git rev-parse HEAD)"` every few minutes. It takes about 12 minutes. If it fails, **stop**: the tags are still only local, so fix forward on a branch, then delete the local tags and re-cut. Copy the tag names from the script's "Next steps" output rather than reconstructing the PEP 440 suffix.
+Poll `glab api "projects/trueppm%2Ftrueppm/pipelines?ref=main&sha=$(git rev-parse HEAD)"` every few minutes. It takes about 12 minutes. Copy the tag names from the script's "Next steps" output rather than reconstructing the PEP 440 suffix.
+
+**Watch it correctly.** Two mistakes from the 0.4.0-beta.4 cut:
+- A background watcher written as `until s=$(…); echo …; case $s in …) break;; esac; do sleep 60; done` exits on its first pass, because an `until` condition is the *last* command of its list (`case` returns 0). Its "completed" notification then means nothing. Use `while true; do s=$(…); echo "$(date +%T) $s"; if [ "$s" = success ] || [ "$s" = failed ] || [ "$s" = canceled ]; then break; fi; sleep 90; done`, and when it returns, read the pipeline's real status rather than trusting that it returned.
+- Do not wait for a terminal status to find a failure. List `failed` jobs while it runs (`…/pipelines/<id>/jobs?per_page=100&scope[]=failed`): any failed job without `allow_failure` means this pipeline can never go green, so stop and read that job's log immediately. Also check `allow_failure` jobs; `success` can hide one.
+
+**If the release commit's `main` pipeline goes red, stop. The tags are still only local.** Read the failed job's log first; do not retry without a code change unless it is clearly infrastructure (a runner that cannot pull an image). Then:
+1. Fix forward on a `docs/` or `fix/` branch and land it by MR. Do not push to `main`; only the release commit itself goes there.
+2. When the new `main` HEAD's own pipeline is green, delete the local tags (`git tag -d <three tags>`) and recreate them **on that commit by hand**, with the same messages the script uses (`Release vX.Y.Z`, `Release trueppm-scheduler <pep440>`, `Release trueppm-mcp <pep440>`). Do not re-run `release.sh`: the manifests and changelog are already bumped and rotated, and it would rebuild and rescan the image for nothing.
+3. Then push the tags as below.
+
+A `git fetch --tags` that rejects tags with "would clobber existing tag" means a local tag from an earlier re-cut is stale (0.4.0-beta.2 was re-cut). It is not a blocker for this release; verify the version you are cutting exists nowhere (`git tag -l`, `git ls-remote --tags origin`) and leave the stale one alone.
 
 Then watch all three tag pipelines to completion (`glab api "projects/trueppm%2Ftrueppm/pipelines?ref=<tag>"`). Publish jobs sit behind `tag:wait-for-main`. Report every publish job's final status. If a publish job fails, read its log first and never delete a tag whose images have published (Step 5).
 

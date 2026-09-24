@@ -726,3 +726,31 @@ def test_a_seeded_attachment_still_downloads_via_the_signed_url_route(
         signed = client.get(f"{_task_base(world)}/attachments/{att_id}/signed-url/")
     assert signed.status_code == 200
     assert "url" in signed.json()
+
+
+def test_helm_edge_refusal_body_matches_the_middleware() -> None:
+    """The interactive-demo nginx fence must emit the middleware's exact refusal.
+
+    The web tier refuses writes before Django sees them, and the web app recognizes a
+    demo refusal only by its body, so the chart's copy of ``detail`` and ``code`` has
+    to stay byte-equal to the constants here (#4053).
+    """
+    import json
+    from pathlib import Path
+
+    from trueppm_api.core.demo_read_only import DEMO_READ_ONLY_CODE, DEMO_READ_ONLY_DETAIL
+
+    chart = next(
+        (
+            p / "packages/helm/templates/web/configmap.yaml"
+            for p in Path(__file__).resolve().parents
+            if (p / "packages/helm/templates/web/configmap.yaml").is_file()
+        ),
+        None,
+    )
+    if chart is None:
+        pytest.skip("helm chart not present in this checkout")
+    match = re.search(r"return 403 '(\{.*\})';", chart.read_text())
+    assert match, "the chart no longer returns a JSON body for the demo edge refusal"
+    body = json.loads(match.group(1))
+    assert body == {"detail": DEMO_READ_ONLY_DETAIL, "code": DEMO_READ_ONLY_CODE}
