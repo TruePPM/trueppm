@@ -15,6 +15,314 @@ followed by the detailed entries.
 
 _Nothing yet._
 
+## [0.4.0-beta.4] — 2026-09-23
+
+TruePPM 0.4.0-beta.4 is the fourth beta of the 0.4 line and supersedes 0.4.0-beta.3.
+
+The headline is multi-arch images. The `api` and `web` images published to GHCR and the GitLab Container Registry are now manifest lists covering `linux/amd64` and `linux/arm64`, signed and SBOM-attested with Cosign, so Apple Silicon, AWS Graviton, and Raspberry Pi hosts pull the right platform with no `platform:` override. This release also adds the read-only demo mode (`TRUEPPM_DEMO_READ_ONLY`, interactive demo and scheduled reset in the Helm chart, an optional demo access-gate disclosure), a Valkey PodDisruptionBudget in the bundled chart, and a helm upgrade drill in CI.
+
+**Upgrading from 0.4.0-beta.3 or earlier? Read this first.** The Helm chart now renders default-deny ingress NetworkPolicies for the `api`, `web`, `celery-worker`, and `celery-beat` pods. The chart refuses to render until you either set `networkPolicy.ingressControllerSelector` to match your ingress controller (an `ingress-nginx` namespace is the default, and k3s and RKE2 also admit `kube-system`) or set `networkPolicy.ingressControllerConfirmed=true`. This applies on fresh installs too when you expose the web Service through a Cloudflare Tunnel, a LoadBalancer, or a NodePort. Local development only: the dev and demo compose stacks now pin their own project names (`trueppm-dev`, `trueppm-demo`), so the first `make up` after pulling starts with an empty database unless you migrate the volume as described in the changelog.
+
+Security fixes close several authorization gaps. Workspace calendar writes now require the workspace Admin role. Program-scoped project templates are visible only to program members. Bulk task creation and outdenting now check permissions on every project and task they touch. A password reset now revokes public share links and clears git-automation webhook secrets. Audit-log source IPs can no longer be chosen by the client, and `TRUEPPM_NUM_PROXIES` can now be verified from `GET /api/v1/health/system/`. The `trueppm-api` PyPI publish moves to Trusted Publishing with attestations. Container base images are pinned to digests.
+
+Deployment hardening for Helm and Docker Compose:
+- **Helm chart:**
+  - The NetworkPolicy refusals described above are joined by `networkPolicy.monitoringSelector`, which admits in-cluster Prometheus scrapes and Blackbox probes to the api pod, so the dead-letter and beat-staleness alerts keep firing.
+  - The API admin password is now bootstrapped under a PostgreSQL advisory lock, so at two or more replicas (as `values-prod.yaml` runs) only one pod writes the password file.
+  - `podSecurityContext.fsGroup` is now 1000, so `persistence.media` and `backup.persistence` no longer crash-loop on a `root:root` volume (on OpenShift `restricted-v2`, set it to `null`).
+  - The default Ingress now sets the WebSocket idle timeout, so idle sockets are no longer dropped at 60 seconds.
+  - `CSRF_TRUSTED_ORIGINS` is now a chart value, fixing SSO token-refresh 403s on split-origin Ingresses.
+  - Demo mode refuses to render with an Ingress that routes to the API Service, sets `TRUEPPM_NUM_PROXIES=2`, and runs its seed and reset under `migrate_locked`.
+  - The demo overlay now boots on a fresh install.
+- **Docker Compose:**
+  - The dev and demo stacks no longer share a project name with production, so `make up` can no longer land on production data (see the upgrade note above).
+  - The Celery worker now self-exits when its heartbeat goes stale, so Compose restarts a wedged worker instead of leaving it unhealthy forever.
+  - The dev stack sets `TRUEPPM_NUM_PROXIES=0`, closing the `X-Forwarded-For` brute-force-budget hole.
+
+The rest is 41 fixes, most of them in the Helm install walkthroughs, demo hardening, and CI drills.
+
+### Added
+Published `api` and `web` images are now multi-arch, covering both `linux/amd64` and `linux/arm64`, starting with `v0.4.0-beta.4` (moved up from the 0.5 milestone). GHCR and the GitLab Container Registry each serve a signed manifest list under the release tag and `latest`; Docker and Kubernetes pull the platform that matches the host automatically, with no `platform:` override or `nodeSelector` pin needed on Apple Silicon, AWS Graviton, or Raspberry Pi. Cosign signs and CycloneDX-attests the manifest index itself, so `cosign verify` and `cosign verify-attestation` succeed regardless of which platform the puller resolves. Tags before `v0.4.0-beta.4` remain `linux/amd64` only. (#3407)
+- **Who this fits today**: the Platform Overview now states plainly who TruePPM
+  fits — a 50–2,000 task software or IT program run by one PM plus an agile team,
+  self-hosted, wanting a computed forecast — and who it does not yet fit
+  (construction, EPC, defense, or any contractually-scheduled program), linking to
+  the tested scale envelope rather than restating its numbers. Cross-linked from
+  "What TruePPM Doesn't Do Yet" and summarized in the README's status callout.
+The API can now run as a read-only demo. Setting `TRUEPPM_DEMO_READ_ONLY=true` refuses every `POST`, `PUT`, `PATCH` and `DELETE` under `/api/` with `403` and `code: "demo_read_only"`, whatever the caller's role or the endpoint's permission class — except sign-in, token refresh and sign-out. A new endpoint is refused by construction, and an anonymous `POST` (including a password-reset request, which would otherwise mail an arbitrary address) is refused before authentication runs. Off by default, so a normal install is unaffected; an unrecognized value refuses to boot instead of being read as `false`. The `403` body is published as `DemoReadOnlyError` in the OpenAPI schema. (#3924, ADR-1197 D2)
+Helm: `demo.reset.enabled` adds an optional CronJob that re-runs the demo's seed on a schedule (default every 6 hours) so the sample's dates do not age. It is off by default, on in `values-demo.yaml`, and reuses the install hook's pod shape so the NetworkPolicy and the demo read-only guard cover it. Optional `TruePPMDemoReset*` alerts report a failed, stale or never-run reset. Each run leaves the share URLs returning 404 for a few seconds.
+- **Interactive demo mode now has edge hardening (Helm)**: `demo.interactive` renders a
+  third nginx server block on the web tier — a method fence over `/api/`
+  (`limit_except GET HEAD OPTIONS`, with the three sign-in/refresh/logout paths
+  exact-matched around it) mirroring `DemoReadOnlyMiddleware` at the edge, with `/admin/`
+  and `/ws/` still returning 404. The share-link demo's rendered manifest is unchanged.
+- **Egress-deny NetworkPolicy for `demo.interactive`**: the `api` and `celery-worker`
+  pods are restricted to DNS and the chart's own bundled PostgreSQL/Valkey only — this
+  deployment shape needs no other outbound access. Guarded to refuse rendering against a
+  managed (non-bundled) datastore, and controllable via the new
+  `networkPolicy.dnsSelector` value.
+- **Per-account throttles re-aimed for a shared, published credential**: `demo.interactive`
+  now raises `TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE` and `TRUEPPM_THROTTLE_USER_RATE` via the
+  new `demo.throttle.loginAccountRate` / `demo.throttle.userRate` values, for concurrency
+  rather than credential-stuffing resistance — the per-IP `login` and `anon` scopes are the
+  real limiters. `demo.throttle.maxPersonalAccessTokens` records that cap as accepted at
+  its ordinary default, since token creation is already refused by the write fence.
+- **No writable media path in `demo.interactive`**: the chart now refuses to render
+  `demo.interactive: true` alongside `persistence.media.enabled: true` — defense in depth
+  over the write fence, which already refuses the upload.
+- Operator docs: [Interactive demo mode](https://docs.trueppm.com/administration/security/#interactive-demo-mode)
+  documents the full edge posture and what it does **not** cover (a hostname gate such as
+  Cloudflare Access, the scheduled reset, and host isolation from CI runners).
+- **Interactive read-only demo mode (Helm)**: a new `demo.interactive` switch, independent
+  of `demo.enabled`, arms `DemoReadOnlyMiddleware` on the API deployment
+  (`TRUEPPM_DEMO_READ_ONLY=true`) so a published login can walk the whole app while every
+  unsafe HTTP method under `/api/` is refused — a property of the deployment, never of the
+  visitor's role. `demo.loginHint` is the single source of the published credential; the
+  chart also renders `TRUEPPM_DEMO_LOGIN_HINT` and `TRUEPPM_DEMO_RESET_SCHEDULE` for the
+  login page. The share-link demo (`demo.enabled`) renders exactly as before.
+- **A seeded demo account**: the bundled Atlas sample now ships `atlas-visitor`, a Member on
+  the program and on all three projects that holds no work and no ADMIN/OWNER role anywhere.
+  `load_sample_project` enables exactly that one account from
+  `TRUEPPM_DEMO_LOGIN_USERNAME` / `TRUEPPM_DEMO_LOGIN_PASSWORD`, re-applying it on every
+  scheduled reset, and refuses `--with-personas` outright while read-only mode is on —
+  that flag passwords every persona in the pack, three of which hold OWNER or ADMIN.
+- **`helm test` verifies the mode end to end**: the new hook signs in with the published
+  credential and asserts that an authenticated `POST /api/v1/projects/` answers 403
+  `demo_read_only`, so a missing seed, a wrong overlay or an unarmed middleware fails the
+  release instead of reaching the internet. It never leaves the cluster.
+A deployment running in read-only demo mode (`TRUEPPM_DEMO_READ_ONLY=true`) now says so, and its refusals read as the mode working rather than as the product breaking (ADR-1197 D3/D4). `GET /api/v1/edition/` carries `demo_read_only` and — only while the mode is on — a `demo_login_hint` published from the new `TRUEPPM_DEMO_LOGIN_HINT` (`username:password`) variable. The login screen announces the mode and prints the shared credential with a **Fill in demo login** button that fills the form without submitting it; the app shell carries a persistent indicator; and a refused write raises a calm "Read-only demo — that change wasn't saved" notice instead of a red error. On the Schedule, a refused drag or resize turns the commit popover into a **Calculated, not saved** notice and **leaves the bar where you dropped it** until you reload, so the critical-path recompute the demo exists to show is not undone by the refusal. The comment composer and attachment drop zone are disabled up front rather than refused after the fact (#3926).
+- **Valkey subchart eviction protection**: the bundled `valkey` chart now ships a
+  `PodDisruptionBudget` (`maxUnavailable: 0`), plus `priorityClassName` and
+  `terminationGracePeriodSeconds` knobs, matching what the `postgresql` subchart
+  already provided. Without these, a `kubectl drain` silently evicted the
+  single-replica Valkey pod — which backs the Channels real-time layer, the
+  Celery broker, the Django cache, and notification throttles all at once —
+  instead of visibly blocking the drain the way the database's PDB does. This
+  is single-replica eviction protection, not high availability (see #3404 for
+  in-cluster Valkey HA).
+Read-only demo: moving a card on the board now leaves it in the column you dropped it in, and the column counts and WIP bands recalculate around it — the same "recompute locally, refuse the commit" preview the Schedule drag already had. The refused move raises one board-local notice saying nothing was saved, replacing the red "try again" error for an action the demo refuses every time. The sprint burndown and velocity are server-computed and deliberately do not react.
+Public demo instances can now disclose an external identity gate that collects visitor email addresses before the app is reached. A new `demo.accessGate` Helm block (`provider`, `privacyUrl`) surfaces as `demo_access_gate` on the unauthenticated `GET /api/v1/edition/`, and the demo login screen names the gate and links its privacy statement. The disclosure is conditional by construction: an instance that declares no gate says nothing, so a self-hosted demo cannot carry a false claim that it collects addresses. Pairs with a pre-capture notice on **Try TruePPM**, since such a gate intercepts in front of the application (ADR-1197 D8, #3969).
+- **`helm test` on the share-link demo now verifies the share links**: a new
+  test hook, gated on `demo.enabled` with `demo.interactive` left off, curls
+  both `/api/v1/share/schedule/<token>/` and `/api/v1/share/board/<token>/`
+  through the web Service and asserts each answers `200` with a non-empty
+  body. Previously `helm test` on the demo overlay (`values-demo.yaml`) only
+  ran the generic API connection probe, so a broken seed, a disabled
+  `TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED`, an nginx allowlist regression, or a
+  pinned-token mismatch could all pass `helm test` while the demo served
+  nothing.
+
+### Changed
+- **Helm upgrade path now has a runtime drill**: `scripts/helm-install-drill.sh` gained an
+  `upgrade` leg that `helm install`s the previous released chart version (resolved
+  dynamically from the OCI registry, never hardcoded) and `helm upgrade`s it to the chart
+  at HEAD, then re-runs the same readyz / admin-password / admin-denied-at-edge /
+  worker-serving / boot-guard assertions the install drill already uses. This exercises
+  migration ordering, bundled-datastore password handling, and post-upgrade hook re-runs
+  under a real `helm upgrade` — the path self-hosters actually walk on every release — which
+  the existing install-only drill never touched. Runs as the new `helm:upgrade` CI job on
+  `main` pushes and the nightly schedule, not on every MR.
+- **Interactive demo login explains what it is not**: the read-only demo's login
+  note now says every visitor shares one account, so the demo shows the interface
+  rather than collaboration, and links to the installation guide for trying
+  real-time collaboration on your own machine. It also says rate limits are lifted
+  for the demo account only — throttling is on by default in every regular install.
+- **Demo throttles effectively lifted**: `demo.throttle.userRate` defaults to
+  `60000/min` (was `6000/min`) and `demo.throttle.loginAccountRate` to `1000/min`
+  (was `120/min`). Both are one bucket shared by every visitor, so tripping either
+  took the whole demo down at once; the api pod's capacity and per-IP limiting at
+  the edge are the real bounds in this mode.
+Exclude the dev/demo compose drill script from SonarCloud rule `shell:S5332` (clear-text protocols); the drill probes a throwaway loopback stack that has no TLS by design.
+
+### Fixed
+- **User matching in the web app**: several screens compared a user's integer id against the signed-in user's id, which `/auth/me/` sends as a string, so the check never matched. The risk register's **Mine** filter was always empty; **You** never showed on agent activity; and the Members and Access tabs never recognized your own row. All of these now match correctly. On Program settings, saving the program lead sends the lead as an integer, matching what the API declares.
+- **API schema**: `GET /api/v1/auth/me/` still returns `id` as a decimal string, but the published schema no longer labels that field `format: uuid`. The value is the integer user id written as a string, and no response ever held a UUID.
+- **CI**: the new `lint:web-types-drift` gate (also `make pre-push`) now fails when a field in the web client's hand-written API types has a different primitive type from the same field in `docs/api/openapi.json`.
+- **Release script**: `scripts/release.sh` no longer tries to rewrite `packages/mcp/src/trueppm_mcp/__init__.py`'s `__version__` literal. A prior fix switched that file to read its version from installed package metadata at import time, which left no literal for the release script's version bump to match — the next release cut would have hard-failed with a misleading "manifests have drifted out of lockstep" error.
+The Helm chart now refuses to render `demo.enabled` together with an Ingress that routes any path to the API Service. Demo mode's read-only allowlist lives only in the web tier's nginx, and the default `ingress.hosts` sends `/api` and `/ws` straight to the API, so enabling both silently published the full authenticated API. "Demo mode ships no Ingress" was only ever the `ingress.enabled=false` default; it is now enforced, with an all-`service: web` Ingress still allowed. Demo mode also refuses a non-ClusterIP API Service, which bypassed the allowlist with no Ingress at all (#3908).
+- Tag-triggered publish/release pipelines (`v*`, `scheduler-v*`, `mcp-v*`) now refuse to publish unless the tagged commit's own `main` branch pipeline finished with a passing result. Previously a tag pipeline ran independently of `main` and skipped its test/lint suite entirely, so a broken commit could reach GHCR and PyPI even while `main` was red — this shipped for real at `0.3.0-alpha.2` and `0.4.0-beta.2`. (#3909)
+The Helm demo overlay (`values-demo.yaml`) now boots on a fresh install. It told operators to opt in to local attachment storage but never gave any pod a writable `MEDIA_ROOT`, so the boot guard aborted every Django container on the read-only root filesystem: api and the seed Job crashed in their `migrate` init container, the worker crash-looped, and `helm install` failed with `BackoffLimitExceeded`. The overlay now points `TRUEPPM_MEDIA_ROOT` at each pod's `/tmp`, and the `helm:template` CI job asserts that every Django-running workload in the demo render carries a `MEDIA_ROOT`. (#3910)
+Helm demo mode now redirects the bare domain to the schedule share link instead of serving the app's login form. The demo has no accounts, so that form could never succeed and left a visitor typing the domain at a dead end (#3911). `demo.baseUrl` and the share tokens are now validated at render time because they are written into the demo nginx config.
+Corrected the false Monte Carlo uniqueness claim on the **How TruePPM Compares** page.
+LibrePlan ships CPM, a Monte Carlo simulation screen, automatic resource reallocation and
+earned value, and was absent from the page entirely. The open-source comparison table now
+carries a LibrePlan row, a new *Where LibrePlan beats TruePPM* section names the two
+capabilities LibrePlan has and TruePPM does not, and the "Monte Carlo is the empty column"
+paragraph is replaced by the methodological distinction that actually holds — verified
+against LibrePlan's source, not its feature list: LibrePlan simulates one already-critical
+path at a time and sums sampled durations along it, so merge bias from near-critical paths
+is structurally invisible to it, whereas TruePPM re-runs the full CPM forward pass over
+the whole network each run. The ProjectLibre Monte Carlo cell is also disambiguated —
+"No" is true of the CPAL desktop but not of the proprietary ProjectLibre Cloud.
+- **Docs: two shipped-state overstatements on the evaluation path**: `overview/what-it-does-not-do.md` still said the current shipped release was an alpha (0.4 shipped as the first beta on 2026-09-15, now at `v0.4.0-beta.3`); `overview/index.md` and `README.md` framed the offline sync **protocol** as an "offline-first" capability with no client to use it yet — the installable PWA that consumes it ships in 0.5.
+The Monte Carlo and Risk Register feature pages now disclose that the risk register does not currently contribute to the Monte Carlo forecast, what the forecast is driven by instead, and a link to the tracked defect (#3660).
+- **Dev and demo compose stacks no longer share a project name with production** (#3928): `docker-compose.yml` and `docker-compose.demo.yml` pinned no `name:`, so on a default clone (directory `trueppm`) they resolved to the same project as `docker-compose.prod.yml`. Dev and prod then shared `trueppm_postgres_data` (the second stack met the first's Postgres password, or `make up` landed on production data guarded only by the hardcoded dev `SECRET_KEY`), and `docker compose -f docker-compose.demo.yml up` recreated the running prod `db`/`api`/`nginx` containers in place. The dev stack now pins `name: trueppm-dev` and the demo `name: trueppm-demo`; production keeps `trueppm`. A new `compose:project-names` CI job (and `make pre-push` check) requires every standalone compose file to pin a distinct name.
+  **Breaking for local development:** every dev container and volume is renamed (`trueppm-db-1` → `trueppm-dev-db-1`, `trueppm_postgres_data` → `trueppm-dev_postgres_data`), so the first `make up` after pulling starts with an empty database. To keep your dev data, before that `make up` run `COMPOSE_PROJECT_NAME=trueppm docker compose -f docker-compose.yml down`, then `docker volume create trueppm-dev_postgres_data && docker run --rm -v trueppm_postgres_data:/from -v trueppm-dev_postgres_data:/to alpine:3.20 sh -c 'cp -a /from/. /to/'`. Do not remove `trueppm_postgres_data` on a host that also runs `docker-compose.prod.yml`. Existing `scripts/wt` worktrees must change `COMPOSE_PROJECT_NAME=trueppm` to `trueppm-dev` in their `.envrc` (an environment variable overrides the compose `name:` pin); `scripts/wt doctor` flags them.
+- **Demo read-only fence now wired in every deployment path**: `DemoReadOnlyMiddleware`
+  (merged in #3924) reads `TRUEPPM_DEMO_READ_ONLY`, but no Helm manifest or the
+  compose demo stack ever set it, leaving the control inert everywhere it could
+  run. The Helm chart now sets `TRUEPPM_DEMO_READ_ONLY: "true"` on the api
+  Deployment, the demo-seed Job, and the demo-reset CronJob whenever
+  `demo.enabled` is true, and `docker-compose.demo.yml` sets it on every
+  API-image container. A `helm:template` CI assertion pins the rendered value to
+  the literal `parse_demo_read_only` accepts, and `scripts/check-demo-readonly.sh`
+  now fails if the compose stack drops the variable.
+The Helm chart's demo-mode seed hook (`demo-seed-job.yaml`) and scheduled reset (`demo-reset-cronjob.yaml`) now run `manage.py migrate_locked` instead of a bare `manage.py migrate`. Both are `post-install,post-upgrade` hooks and a Forbid-concurrency CronJob that Helm does not wait on before or between firing the api Deployment's own `migrate_locked` init container, so their unlocked `migrate` raced it on every demo install, upgrade, and scheduled reset — the exact concurrent-migration hazard `migrate_locked` (#3188) exists to eliminate. The `helm:template` CI job's structure check (`scripts/helm-structure-check.sh`) now asserts that no rendered Deployment, Job, or CronJob invokes bare `manage.py migrate` anywhere in the chart. (#3933)
+Helm: `podSecurityContext` now sets `fsGroup: 1000`, so enabling `persistence.media` or `backup.persistence` no longer crash-loops with `EACCES` when the CSI driver provisions the volume `root:root`. On OpenShift `restricted-v2`, set `podSecurityContext.fsGroup: null` alongside `runAsUser: null`.
+- **Celery worker self-heal on Docker Compose**: a worker whose event loop wedged
+  after connecting (e.g. following a Valkey restart) used to sit reporting
+  `unhealthy` forever — `restart: unless-stopped` only fires on a process exit,
+  and Compose has no mechanism that restarts a container on healthcheck failure.
+  The worker now self-exits once its own heartbeat file has been stale for 90
+  seconds, giving `restart: unless-stopped` something to act on. Enabled by
+  `TRUEPPM_CELERY_WORKER_SELF_HEAL=1` in both `docker-compose.yml` and
+  `docker-compose.prod.yml`; see [the troubleshooting
+  guide](https://docs.trueppm.com/administration/troubleshooting/#a-celery-worker-wedges-and-never-recovers-docker-compose)
+  for the manual `docker compose restart celery` remedy on older deployments.
+`scripts/release.sh`'s duplicate-tag guard no longer reads a SIGPIPE as "tag not found". `git tag | grep -qxF "$TAG" && die` exits 141 when `grep -q` closes the pipe early under `pipefail`, which the `&& die` treats as a miss and lets a release proceed against an existing tag; the three tag checks (and the `CURRENT_VERSION` parse) now use here-strings. A new gate, `scripts/check-sigpipe-readers.sh` (`make sigpipe-readers-check`, CI job `scripts:sigpipe-readers`), scans every shell script under `scripts/` for an early-exit reader (`grep -q`, `grep -m`, `head`) behind a pipe, replacing the hand-listed three-file scan inside `check-nginx-security-headers.sh`. Widening it to the whole tree also fixed ~110 further sites, including a `tr | head -c 60` secret generator in both helm drills (#3942).
+- **Split-origin SSO 403s on token refresh**: `CSRF_TRUSTED_ORIGINS` — required by
+  the API whenever the web app's origin differs from the API's — was absent from
+  the Helm chart entirely: not in `values.yaml`, `values-prod.yaml`, or the
+  Helm values reference. On a split-origin Ingress (e.g. `app.example.com` +
+  `api.example.com`), SSO login would complete and set the refresh cookie, and
+  then the SPA's post-login refresh request would fail with a 403 CSRF error.
+  `env.CSRF_TRUSTED_ORIGINS` is now exposed in `values.yaml` and
+  `values-prod.yaml`, documented in the Helm values reference and the chart
+  README, and the chart warns in `NOTES.txt` when `TRUEPPM_FRONTEND_BASE_URL`
+  and `TRUEPPM_PUBLIC_API_BASE_URL` name different origins but
+  `CSRF_TRUSTED_ORIGINS` is left unset.
+- **SSO Test connection now points at the egress-allowlist fix for an in-cluster identity provider**: when the "Test connection" probe fails because the server's outbound SSRF/egress guard blocked a private address (the common case for Keycloak, Authentik, Authelia, or Zitadel running inside your own cluster), the card now shows an actionable hint naming `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` and linking to the relevant docs, instead of leaving the admin with only the raw diagnosis. The original error text is unchanged.
+- **SSO allowed-domains hint**: the "Allowed email domains" field's copy implied
+  it was an ongoing access gate. It actually governs new account linking and
+  auto-created members only — it has no effect on accounts already linked
+  through the provider. The hint now says so plainly, points admins at
+  deactivating the member or removing the provider to revoke existing access,
+  and states up front that leaving the list blank blocks everyone from signing
+  in via that provider (no server-side behavior change).
+- **SSO provider panel — spurious default-role rejection on unrelated edits**: editing an SSO provider (e.g. renaming it or rotating its client secret) always sent `default_role` in the save body, even when auto-create is off and the "Default role" control is hidden. If the stored role was Admin, the server's ceiling guard refused the save with an error naming a field the admin could not see. The panel now omits `default_role` from the request unless auto-create is on.
+A task whose recorded **actual start lands on a non-working day** — a Saturday, a Sunday, or a calendar exception — is now scheduled for its full working-day duration. Previously the non-working day was counted as the first day of the duration, so the task finished one working day early and everything downstream of it moved with it. No one had to type a date to hit this: moving a card to In Progress records today as the actual start, so a contributor updating the board over a weekend armed it. Two consequences went with it and are fixed in the same change: the task's late window could land *before* its early window, which drew the float bar backwards and reported the task as critical with zero float; and `schedule()` and `monte_carlo()` returned **different finish dates for the same fully deterministic plan**, with the Monte Carlo date being the correct one. All three implementations of the rule take the fix — the Python engine (`trueppm-scheduler`), the Rust/WASM engine used for offline recompute, and the in-browser engine that draws the Gantt drag preview — so a bar previewed during a drag lands where the recalculation puts it instead of snapping back a day on commit.
+
+**Dates will move on affected projects.** A project carrying a non-working actual start sees its schedule shift by up to one working day at its next recalculation — later, never earlier. Projects whose actual dates all fall on working days are unaffected, byte for byte. Two details worth knowing before you see them: float can also change on *predecessors* of an affected task, including tasks that carry no actual dates themselves (they genuinely have a day more slack than was being reported); and forecast snapshots already written keep the values they recorded, because forecast history is append-only by design and is not retroactively corrected. (#3963)
+- **Demo doesn't disclose it's the OSS/community edition**: the persistent read-only-demo
+  banner now states this is the community edition and links to the docs page explaining
+  what's in Enterprise (portfolio dashboard, audit trail, cross-program governance), so a
+  portfolio-scale evaluator can tell a missing cross-project view is a separate tier rather
+  than a product gap.
+The read-only demo's login-screen marketing panel now names the Schedule as the demo's only interactive surface — drag a task and watch the critical path recompute live — and states plainly that boards, backlogs, sprints and resource plans are sample data to browse, not to try changes on. The previous copy pitched both in the same inviting tone, which risked a Product Owner spending their first minutes on the demo probing static surfaces expecting a "looks live" feel (#3970).
+- **SSO egress-blocked remedy card**: the card shown when the SSO "Test connection"
+  probe is refused by the outbound egress guard now says the fix requires a Helm
+  values change and an API redeploy (not something togglable from the settings
+  page), and names the other subsystems the `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`
+  allow-list affects — personal-access-token verification, git-link status
+  refresh, webhook delivery, and SMTP relay checks.
+`README.md` no longer says multi-arch images are deferred to 0.5 — that claim went stale when #3407 landed `linux/arm64` in 0.4, and the README now matches the installation and deployment pages: every published `api` and `web` image is a multi-arch manifest from `v0.4.0-beta.4` on, with earlier tags `amd64` only. The version-status gate (`scripts/check-version-status.sh`, CI job `docs:version-accuracy`) now scans `README.md` as well as the docs tree, closing the gap between the CLAUDE.md rule — which has always named README — and the scan, which only ever walked `packages/website/src/content/docs/`. (#3996)
+- **`demo.throttle.userRate` never took effect**: the chart's own
+  `env.TRUEPPM_THROTTLE_USER_RATE: "1000/min"` default always satisfied the
+  "operator override wins" check, so interactive-demo installs ran at 1000/min
+  regardless of this key. In interactive mode `demo.throttle.userRate` now owns
+  the variable; tune the demo's rate there, not in `env`.
+- Upgrading the Helm chart from `0.4.0-beta.3` or earlier no longer silently cuts off all traffic on
+  clusters whose ingress controller isn't in an `ingress-nginx` namespace (k3s, RKE2, cloud load
+  balancers). The upgrade that first adds the `api`/`web` default-deny ingress NetworkPolicies now
+  refuses to render until you confirm or set `networkPolicy.ingressControllerSelector`. On k3s and
+  RKE2, the default also admits `kube-system`, where their bundled controllers run. The selector is
+  now rendered verbatim, so an `ipBlock` peer works, and an empty selector refuses to render instead
+  of admitting every source (#4000). The Cloudflare Tunnel / LoadBalancer / NodePort exposure paths
+  this same policy also blocked are fixed by #4003, in this release — see that fragment.
+- The Helm chart has a new `networkPolicy.monitoringSelector` value that admits in-cluster
+  Prometheus scrapes and Blackbox probes to the api pod. Without it, the default-deny ingress
+  NetworkPolicy dropped the health-endpoint scrapes described in the observability docs, so the
+  dead-letter and beat-staleness alerts stopped firing and nothing reported the failure (#4001).
+- The Helm chart's app-tier default-deny ingress NetworkPolicy (#3850) now refuses to
+  render — on a **fresh install too, not only an upgrade** — for the two exposure paths
+  it documents that never go through an in-cluster ingress controller: the demo's
+  Cloudflare Tunnel pointed at the web Service (ADR-0658 D9), and a
+  `web.service.type: LoadBalancer`/`NodePort`. Left at the default
+  `networkPolicy.ingressControllerSelector`, both were silently blackholed — every pod
+  Ready, `helm test` passing, and no traffic reaching the site. Point
+  `networkPolicy.ingressControllerSelector` at your tunnel's namespace or an `ipBlock`
+  for the load balancer/node source range, or set
+  `networkPolicy.ingressControllerConfirmed=true` to confirm the default is deliberate
+  (#4003).
+- The `templates/api/service.yaml` refusal for a non-`ClusterIP` API Service in demo
+  mode now names the NetworkPolicy step needed to actually make the recommended web
+  Service exposure reachable, instead of pointing at a path the policy still blocks.
+Demo mode now sets `TRUEPPM_NUM_PROXIES=2`, matching the two-hop proxy chain
+(Cloudflare Tunnel or Ingress, then the web tier's nginx) that demo mode is
+required to use. At the previous chart default of `1` the API read the tunnel
+pod's address as the client, so the `share_access` throttle guarding the demo's
+only public endpoint behaved as a single global 60/min bucket — one crawler
+could answer `429` to every other visitor. `helm:template` now asserts the value
+on the rendered demo manifests, and the networking documentation gains a
+proxy-depth table covering each topology instead of assuming a single ingress.
+Fixed the release script leaving `CI_API_TAG` stale on every release commit. The
+version bump rewrites three of the four files whose contents that tag is a digest
+of, so the declared tag went stale the moment a release was cut — turning `main`
+red at the release commit and, because every publish job waits on a green `main`,
+leaving the tag with no chart, no images and no PyPI artifacts. `scripts/release.sh`
+now restamps the tag from the same function the CI gate checks against, and stages
+`.gitlab-ci.yml` with the other manifests.
+- **docs:** The Helm production install walkthrough and the single-server `.env` instructions now work when followed literally. The walkthrough creates the namespace before the Secret, supplies managed-datastore URLs through the `env.DATABASE_URL` / `env.REDIS_URL` `secretKeyRef` form the chart actually requires (the old "add them to the `trueppm-env` Secret" advice failed the render), enables `persistence.media` for local attachment storage, and layers your values on top of `values-prod.yaml` instead of editing it. The `values-dev.yaml` quick-install snippet, which could only fail on a real cluster (`pullPolicy: Never`, no Secret), is removed. The `.env` block no longer shows `$(...)` substitutions that `.env` never runs, and the Fernet key generator no longer needs the `cryptography` package. The README's Helm quickstart now lists `trueppm-api`, `localhost`, and `127.0.0.1` in `ALLOWED_HOSTS`; without `trueppm-api` the pods never became Ready. The deployment guide now states which install paths the CI drills cover and which they do not (#4025).
+- **Helm chart WebSocket idle timeout**: the default Ingress topology routes `/ws`
+  straight to the API Service, bypassing the web tier's own nginx (which already
+  sets an 86400s read timeout for exactly this reason). The chart's default
+  `ingress.annotations` never set a matching `proxy-read-timeout`/
+  `proxy-send-timeout`, so ingress-nginx applied its own 60s default and silently
+  dropped any WebSocket left idle for a minute — a project left open in a
+  background tab, most commonly. `values.yaml` now ships `proxy-read-timeout` and
+  `proxy-send-timeout` set to `3600`, matching the floor already documented in
+  `packages/website/src/content/docs/administration/networking.md`.
+- **Schedule derivation endpoint response schema**: `GET /api/v1/projects/{id}/schedule/derivation/` (the *why*-behind-a-value endpoint backing the MCP `get_schedule_derivation` tool, ADR-0218) declared only a prose response description in `docs/api/openapi.json`. It now declares a proper `oneOf` schema for its CPM-quantity and Monte-Carlo-percentile response shapes, so generated clients and schema-validating tests can rely on it.
+- **`Program` type definition**: added the missing `rollup_aggregation_policy` and `rollup_enabled_kpis` fields to the hand-maintained `Program` interface in `packages/web/src/api/types.ts`, matching the OpenAPI schema.
+- **Git webhook receiver schema coverage**: `POST /api/v1/integrations/projects/{project_pk}/git-webhook/`'s `@extend_schema` (its declared 200 response shapes — plain-ignored, reasoned-ignored/no-op/duplicate, and full-match) was verified against the live view and locked in with pytest coverage asserting the returned keys never drift from `docs/api/openapi.json` without a test failing.
+- **Helm admin password at two or more replicas**: with `values-prod.yaml`'s `replicaCount: 2`, both API pods could bootstrap the admin at once, each minting its own password, so the file one pod held did not work. The bootstrap is now serialized on a PostgreSQL advisory lock, and exactly one pod writes the password file. The documented retrieval command (Deployment guide, `helm install` notes) now checks each API pod instead of `deployment/…`, which picked an arbitrary pod and missed the file about half the time.
+- **Release publishing no longer fails before it starts**: `tag:wait-for-main`, which every tag-triggered publish and release job waits on, called GitLab's pipelines API with `CI_JOB_TOKEN`. That endpoint is not in the job-token allowlist, so the call returned 401. It failed the gate on its first run and skipped every publish job for the tag (images, Helm chart, PyPI, npm, GitLab Release). The gate now reads the project's public pipeline list without an auth header. A private fork can set `WAIT_FOR_MAIN_TOKEN` to a `read_api` access token, which is sent as `PRIVATE-TOKEN` (#4040).
+- `scripts/release.sh` no longer uses the `_Nothing yet._` placeholder under `[Unreleased]` as the release summary. Previously a `--yes` run cut the release with that line as its summary, and `release:create` published it on the GitLab Release page. The script now ignores the placeholder and resolves the summary before it bumps any manifest, so a release with no summary aborts on a clean tree instead of leaving a half-bumped one. (#4041)
+- GitLab Release pages keep the summary's paragraph breaks. `release:create` deleted every blank line, so a multi-paragraph summary rendered as a single paragraph (visible on `v0.4.0-beta.3`), and a bolded upgrade warning ran into the text before it. (#4041)
+An MR that changes only the dev/demo compose drill files (`scripts/dev-demo-compose-drill.sh`, the compose files, the Dockerfiles) no longer fails its whole pipeline with zero jobs: `ci:build-deploy-images` now triggers on the same paths as `compose:demo`, which needs it.
+- **`trueppm_api.__version__` was frozen at `0.1.0`**: the published `trueppm-api`
+  PyPI package always reported `0.1.0` from `import trueppm_api`, regardless of
+  the actual installed release (e.g. `0.4.0-beta.3`). It now reads the version
+  from installed package metadata, matching `pip show trueppm-api`.
+- **`trueppm_mcp.__version__` was a hand-maintained literal**: found via regression-check
+  while fixing the identical defect in `trueppm-api` — it worked today only because it
+  happened to be updated for this release, and would have gone stale on the next one the
+  same way. Now reads installed package metadata, matching `trueppm-scheduler`'s pattern.
+
+### Security
+Writes to the shared working-calendar library now require the **workspace Admin** role instead of the derived "Admin on at least one project" gate. That derivation was self-grantable — nothing gates project creation and the creator becomes that project's Owner — so any authenticated account could reach it in two requests, and a single `PATCH /api/v1/calendars/{id}/` recomputes the critical path and moves finish dates on every project bound to that calendar. The workspace default calendar is the worst case: it covers every project with no override of its own. Reads are unchanged — any signed-in user can still list and retrieve calendars and their exceptions, so a Project Manager choosing an override still sees the whole library. The same gate now applies to calendar exceptions (holidays and shutdowns), which fan out identically. Separately, the `409` returned when a calendar is still in use no longer names projects and programs the caller is not a member of; those are reported by type and id with the name withheld, while `reference_count` still counts every blocker so the refusal stays honest about how much is blocking (#3600).
+The Helm chart now renders default-deny ingress NetworkPolicy objects for the `api`, `web`, `celery-worker`, and `celery-beat` pods, independent of the `postgresql.enabled`/`valkey.enabled` toggles. Previously the chart's only NetworkPolicy objects protected the bundled datastores, so `values-prod.yaml` — the recommended production overlay, which points at managed datastores and disables both — rendered zero NetworkPolicy objects at all, leaving the app tier unprotected in a shared cluster. `api` and `web` admit the ingress controller (configurable via the new `networkPolicy.ingressControllerSelector`, default: an `ingress-nginx` namespace) plus each other where the chart's own topology requires it; `celery-worker` and `celery-beat` have no Service and admit nothing. Egress is deliberately unchanged — the API/worker pods keep their existing open egress for OIDC, SMTP, S3, and OTLP endpoints (#3850).
+- **Chart registry check hardened against redirect downgrade**: `scripts/check-chart-registry.sh`'s chart-config fetch used `curl -L` with a live `Authorization: Bearer` token and no protocol restriction on redirects. It now pins `--proto '=https' --proto-redir '=https' --tlsv1.2`, matching the convention already used elsewhere in the repo, so a redirect can no longer downgrade the request to plaintext and leak the token (#3916).
+- **`trueppm-api` PyPI publish hardened with Trusted Publishing + PEP 740 attestation**: `api:publish:pypi` uploaded to PyPI with a long-lived static `PYPI_TOKEN` via twine, with no OIDC and no supply-chain attestation — unlike `trueppm-scheduler` and `trueppm-mcp`, which already use PyPI Trusted Publishing. It now mints a short-lived, project-scoped token via GitLab OIDC and signs PEP 740 attestations for the uploaded wheel and sdist, matching the other two packages. The static token is no longer used or needed. Requires a one-time PyPI-side Trusted Publisher registration for `trueppm-api` before the next release tag (#3943).
+- **PyPI publish token minting is now gated to the known publish jobs**: `id_tokens:` is issued by GitLab OIDC to any job on any ref, unlike a Masked/Protected CI/CD variable — so a job outside `api:publish:pypi`, `mcp:publish`, `scheduler:publish`, or `ci:pypi-mint-probe` could previously declare `id_tokens: PYPI_ID_TOKEN` and mint a live, project-scoped PyPI upload token from an unprotected branch. A new CI gate (`ci:pypi-id-tokens`, mirrored in `make pre-push`) fails the pipeline if any other job declares that token, or if an allowlisted publish job's `environment:` name — what PyPI's Trusted Publisher actually matches against — is missing or wrong.
+- **Demo access-gate privacy link now requires HTTPS**: `TRUEPPM_DEMO_ACCESS_GATE_PRIVACY_URL` no longer accepts a plain `http://` link. The value is rendered as an `href` on the public, unauthenticated pre-auth page, so it is now held to the same bar as any other link a visitor is handed there. Declaring only a `provider` name with no privacy URL is unaffected.
+Project templates published from inside a program are now offered only to that
+program's members. Previously `GET /api/v1/project-templates/` returned every
+published template regardless of program, and `apply` inherited the same
+unscoped list through its object lookup — any authenticated account could list,
+read, and apply a program-scoped template from a program it did not belong to,
+copying the source project's whole frozen structure (task names, phases, gates,
+dependencies) into a project the caller controlled. Workspace-wide templates
+(no program) are unaffected and remain visible to every authenticated caller
+(#4005).
+A password reset now also revokes the account's public share links and clears any
+git-automation webhook secret it configured, closing the gap where an attacker who
+held a session before the reset kept read access via a share link, or kept forging
+webhook-driven status changes via a known secret, indefinitely after the owner
+reset their password. Previously the reset only revoked sessions and Personal
+Access Tokens. Public share links now also stop serving as soon as their
+creator's account is deactivated by any means, not only through the in-app
+off-boarding flow (#4006).
+`POST /api/v1/projects/{pk}/tasks/bulk/` could be used to create dependency edges between tasks in a **project the caller was not a member of**, as long as the caller held Scheduler+ (Resource Manager or above) on the project named in the URL. The bulk endpoint's role check only ever inspected the caller's role on that URL project, never the actual project the submitted edge's two tasks lived in, and the per-row serializer authorization it wrote through was silently skipped because the bulk path never supplied the view context that check depended on. An authenticated user with Scheduler+ on any one project — including a throwaway project they just created and own — could corrupt a foreign project's dependency graph and trigger an unwanted CPM recompute on it. The endpoint now checks Scheduler+ against the edge's real project(s), and a task that exists but is unreachable is rejected with the same code as a task that does not exist at all, so the response can no longer be used to probe whether a given task id exists anywhere in the install. Cross-project edges (linking two projects of the same Program) were already correctly authorized and are unaffected (#4011).
+Outdenting a task now checks the caller's restructure permission on every
+following sibling it reparents underneath the task, not just on the task
+itself. Previously a Member who could restructure only their own task could
+still reparent a colleague's task as a side effect of outdenting past it,
+because the permission check ran only against the primary task (#4012).
+`TRUEPPM_NUM_PROXIES` can now be checked instead of trusted. It sets the address that every per-IP throttle keys on (anonymous, login, share links, readiness, Git webhooks). If it is too low, all clients share one bucket; if it is too high, a client can pick its own bucket with `X-Forwarded-For`. Neither mistake was visible from outside. `GET /api/v1/health/system/` (staff only) now returns `security.client_address`, which shows the address the calling request was keyed on, the peer and `X-Forwarded-For` chain it was resolved from, and a `status` verdict that flags the cases one request can prove, such as fewer forwarded entries than configured proxies. The API now refuses to start on a negative value. The development `docker-compose.yml` now sets `TRUEPPM_NUM_PROXIES=0`: it has no proxy in front of Django, and at the previous default of `1` any caller could get a fresh login brute-force budget by rotating `X-Forwarded-For`. Existing Helm and production Compose installs keep the same default of `1` and behave as before. The networking guide gains the load-balancer-in-front-of-ingress-nginx case (`use-forwarded-headers`, `proxy-real-ip-cidr`, `compute-full-forwarded-for`) and a readback procedure (#4020).
+- **Audit-log source IPs can no longer be chosen by the client**: the `client_ip` on `auth.login_failed` / `auth.login_succeeded` log lines, the `source_ip` on agent-action audit rows (including refused-token rows), API-token audit entries, and password-reset token-revocation rows all recorded the **left-most** `X-Forwarded-For` entry. The client writes that entry, so anyone brute-forcing a login or replaying a revoked token could put any address they liked in the record. All of these now record the address the per-IP rate limits key on (`TRUEPPM_NUM_PROXIES` hops from the right), so the audit trail and the throttle agree about where each request came from. Check that `TRUEPPM_NUM_PROXIES` matches your proxy topology (see Networking); if it is too high, the recorded address is still spoofable.
+- **Container base images pinned to digests**: `.gitlab-ci.yml` image references, Dockerfile `FROM` lines, and Helm chart image values across `alpine`, `amazon/aws-cli`, `certbot/certbot`, `curlimages/curl`, `grafana/grafana`, `mcr.microsoft.com/playwright`, `nginx`, `nginxinc/nginx-unprivileged`, `node`, `otel/opentelemetry-collector-contrib`, `postgres`, `prom/prometheus`, `python`, `quay.io/keycloak/keycloak`, and `valkey/valkey` now pin an exact `sha256` digest alongside their tag instead of tracking a mutable tag alone. Renovate keeps the pins current automatically. Closes the OpenSSF Scorecard Pinned-Dependencies gap (#904) — a compromised or re-pushed upstream tag can no longer silently change what a build or deploy pulls.
+
 ## [0.4.0-beta.3] — 2026-09-19
 
 TruePPM 0.4.0-beta.3 — supersedes 0.4.0-beta.2, which shipped from a commit

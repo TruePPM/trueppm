@@ -16,6 +16,10 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.4.0b4] - 2026-09-23
+
 ### Fixed
 
 - **A non-working `actual_start` no longer spends one working day of the task's
@@ -419,7 +423,8 @@ _No library-facing changes in this release._
 - Cycle detection that names the offending task IDs (`CyclicDependencyError`).
 - CLI: `trueppm-scheduler schedule` / `trueppm-scheduler monte-carlo`.
 
-[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b3...main
+[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b4...main
+[0.4.0b4]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b3...scheduler-v0.4.0b4
 [0.4.0b3]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b2...scheduler-v0.4.0b3
 [0.4.0b2]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b1...scheduler-v0.4.0b2
 [0.4.0b1]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a3...scheduler-v0.4.0b1

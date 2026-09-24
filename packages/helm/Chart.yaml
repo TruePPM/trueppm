@@ -2,8 +2,8 @@ apiVersion: v2
 name: trueppm
 description: TruePPM project scheduling platform
 type: application
-version: 0.4.0-beta.3
-appVersion: "0.4.0-beta.3"
+version: 0.4.0-beta.4
+appVersion: "0.4.0-beta.4"
 # Declared so `helm install` refuses a too-old cluster with a version message,
 # rather than applying and failing with an opaque "no matches for kind" (#3188).
 # 1.23 is the REAL floor, derived from the highest GA API this chart renders —
