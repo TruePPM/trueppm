@@ -26,7 +26,7 @@ Be precise about what this is and isn't: it is an *operational* log for running 
 
 ### Role-based access control
 
-TruePPM enforces a **five-role model** (Owner / Admin / Scheduler / Member / Viewer) on every project, at the engine level — not just hidden in the UI. People see and change only what their role allows. This is the access-control foundation. Basic OIDC/OAuth single sign-on against your own identity provider lands in the community core in 0.4; the org identity-*governance* layer — **SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, and enforced org-wide SSO** — sits on top of it in the enterprise edition.
+TruePPM enforces a **five-role model** (Owner / Admin / Scheduler / Member / Viewer) on every project, at the engine level — not just hidden in the UI. People see and change only what their role allows. This is the access-control foundation. Basic OIDC/OAuth single sign-on against your own identity provider shipped in the community core in 0.4; the org identity-*governance* layer — **SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, and enforced org-wide SSO** — sits on top of it in the enterprise edition.
 
 → See [RBAC](/administration/rbac/) and [Sharing & access](/administration/sharing-and-access/)
 
@@ -80,7 +80,7 @@ Then judge it against your real bar. Your top criteria — a one-glance portfoli
 | Operational audit log (who changed what) | Community | Day-to-day workspace operations |
 | Five-role RBAC, self-hosted | Community | Access-control and residency foundation |
 | Per-project confidence forecasts (P50/P80/P95) | Community | The number you repeat to the board |
-| Basic single sign-on (OIDC/OAuth via your own IdP) | Community | Login federation a self-hoster expects (lands 0.4) |
+| Basic single sign-on (OIDC/OAuth via your own IdP) | Community | Login federation a self-hoster expects (shipped in 0.4) |
 | Portfolio dashboard & health scores | Enterprise | Visibility *across many programs* |
 | Org identity governance (SAML 2.0, SCIM, LDAP/AD sync, enforced SSO) | Enterprise | Directory-driven provisioning and enforced org-wide SSO |
 | Immutable audit trail, SOC 2 evidence export | Enterprise | Tamper-evident compliance, not operations |

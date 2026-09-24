@@ -6,7 +6,7 @@ documentedFor: "0.4"
 
 TruePPM's zero-config evaluation paths — a hosted read-only demo and a
 one-command local trial, both preloaded with the same **Atlas Platform Launch**
-hybrid sample project — arrive with the **0.4 beta**.
+hybrid sample project — arrived with the **0.4 beta**.
 
 ## The hosted read-only demo
 

@@ -52,6 +52,14 @@ export interface ToolbarComposition {
   trail: TrailDensity;
   today: Placement;
   recalc: RecalcDensity;
+  /**
+   * The "Legend" show/hide toggle (#3614). Not one of the five pinnable
+   * controls below — there is nothing to opt into, it is simply the least
+   * essential command in the bar (a reference panel's visibility, not a
+   * navigation or authoring act), so it is the first thing the ladder gives
+   * up.
+   */
+  legend: Placement;
 }
 
 /**
@@ -158,6 +166,9 @@ export const TOOLBAR_LADDER: readonly LadderRung[] = [
   { id: 'recalc-min', estimate: 90, apply: (c) => { c.recalc = 'min'; } },
   { id: 'sentence-drop', estimate: 104, apply: (c) => { c.sentence = 'none'; } },
   // --- Demotions: a control moves into `···`, least-used first. ---------
+  // Legend demotes before Export PDF — a client-ready PDF is a weekly,
+  // client-facing task (#2703); a reference panel's visibility is not.
+  { id: 'legend-overflow', estimate: 70, apply: (c) => { c.legend = 'overflow'; } },
   { id: 'pdf-overflow', estimate: 108, apply: (c) => { c.pdf = 'overflow'; } },
   { id: 'milestone-overflow', estimate: 116, apply: (c) => { c.milestone = 'overflow'; } },
   // Today is the single concession the ladder ever asks of a Team Member,
@@ -186,6 +197,7 @@ export function baseComposition(pins: ToolbarPins): ToolbarComposition {
     trail: 'full',
     today: pins.today ? 'bar' : 'overflow',
     recalc: 'full',
+    legend: 'bar',
   };
 }
 
