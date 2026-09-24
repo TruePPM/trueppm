@@ -1,76 +1,101 @@
 import { useDemoMode } from '@/hooks/useDemoMode';
+import { DemoForecastChip } from './DemoForecastChip';
+import { DemoProjectSwitcher } from './DemoProjectSwitcher';
+import { DemoTipsHint } from './DemoTipsHint';
 
 /**
- * Persistent read-only-demo indicator in the shell's banner slot (ADR-1197 D3, #3926).
+ * The read-only demo's single 44px chrome bar (ADR-1197 D3, #3926, #4050 A1).
  *
- * The login screen announces the mode once; this is what keeps it true for the rest of
- * the session, so a refusal twenty minutes later lands on someone who already knows
- * why. Brand/info tone, not a warning: nothing is wrong.
+ * **What this replaces.** Five stacked strips used to sit between the top bar
+ * and the Gantt on the hosted demo: this banner (two lines), the sample-project
+ * strip, the "How this works" coach bar, the "Worth a look" NextStrip, and the
+ * docked forecast bar. Each is right in a working session. Together, on a first
+ * visit, they left the schedule about a third of the viewport and made a
+ * healthy plan look like a product mid-collapse (#4050, #3887). They are now
+ * one bar: mode, edition, project, and what to do first — which is the whole
+ * set of questions a first-time visitor actually has.
  *
- * **No `aria-live`, no `role="status"`.** The bar never changes during a session, so a
- * live region here would announce nothing of its own and would compete with the
- * Schedule's assertive region — which is where the actual refusal is announced.
- * `<aside aria-label>` gives it findability instead.
+ * **Height is fixed and load-bearing.** 44px at every state, on purpose: the ×
+ * that dismisses the hint must not move the Gantt under the pointer, and the
+ * hint's step 1 → step 2 transition must not reflow the canvas mid-drag. The
+ * hint is therefore `truncate`d rather than wrapped, and below `lg` it collapses
+ * into a Tips popover instead of taking a second line.
  *
- * **Edition disclosure (#3968).** The demo is otherwise silent about being the OSS
- * community edition, which leaves a portfolio-scale evaluator with no signal that the
- * cross-program views they can't find are a separate Enterprise tier rather than a
- * product gap. The second sentence and its link are informational, not a pitch — this
- * bar only renders when `isDemoReadOnly` is true, so a self-hoster's own install never
- * sees it (CLAUDE.md: no premature Enterprise upsell in the OSS UI).
+ * **No `aria-live`, no `role="status"`.** The bar's standing text never changes
+ * during a session, so a live region here would announce nothing of its own and
+ * would compete with the Schedule's assertive region — which is where an actual
+ * refusal is announced. The hint inside it is `role="note"` and never takes
+ * focus (#4050 A1). `<aside aria-label>` gives the whole thing findability.
+ *
+ * **Edition disclosure (#3968) survives the merge.** The demo is otherwise
+ * silent about being the OSS community edition, which leaves a portfolio-scale
+ * evaluator with no signal that the cross-program views they cannot find are a
+ * separate tier rather than a product gap. What is *removed* is the sentence
+ * naming those Enterprise features: on a landing screen it reads as a pitch,
+ * and CLAUDE.md is explicit that the OSS UI does not upsell before adoption.
+ * The link stays, because "what is in this edition" is a question, not a sell.
  */
 export function DemoModeBar() {
-  // Read whole rather than destructured, deliberately. This bar is a **withdrawal**
-  // (rule 379): "still loading", "the read failed" and "not a demo" all resolve to the
-  // same correct render — nothing — and `useDemoMode` already folds the error branch
-  // into that answer. So there is no failure state for rule 246's `QueryErrorState` to
-  // occupy, and a red retry offered to report that we could not confirm the ABSENCE of
-  // a demo would be worse than silence. Rendering nothing while unsettled is also what
-  // stops a normal install flashing a banner it takes straight back.
+  // Read whole rather than destructured, deliberately. This bar is a
+  // **withdrawal** (rule 379): "still loading", "the read failed" and "not a
+  // demo" all resolve to the same correct render — nothing — and `useDemoMode`
+  // already folds the error branch into that answer. Rendering nothing while
+  // unsettled is also what stops a normal install flashing a banner it takes
+  // straight back.
   const demo = useDemoMode();
   if (demo.isLoading || !demo.isDemoReadOnly) return null;
 
   return (
     <aside
       aria-label="Demo mode"
-      className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-b border-brand-primary/30 bg-brand-primary/10 text-brand-primary px-4 py-1.5 text-xs font-medium"
+      data-testid="demo-mode-bar"
+      // h-11 = 44px desktop, h-12 = 48px on a phone (design section 7 — the bar
+      // carries two items there and its controls are 44px touch targets).
+      // `flex-nowrap` + `min-w-0` children is what makes the hint truncate
+      // instead of wrapping the bar onto a second line.
+      className="flex h-12 lg:h-11 flex-shrink-0 flex-nowrap items-center gap-3 overflow-hidden
+        border-b border-brand-primary/30 bg-brand-primary/10 px-3 text-xs
+        text-brand-primary sm:px-4"
     >
-      <span aria-hidden="true">◆</span>
-      {/* One text node, and the pitch half is hidden below `md` VISUALLY only —
-          `sr-only`, never `hidden`. `display:none` would take it out of the
-          accessibility tree too, so a screen-reader user on a phone would hear a
-          shorter sentence than a sighted one (web rule 429). */}
-      <span>
-        Read-only demo — nothing you change here is saved.
-        <span className="sr-only md:not-sr-only md:inline">
-          {' '}
-          Drag a task on the Schedule to watch the critical path recompute.
-        </span>
+      {/* The mode, stated first and never abbreviated. `title` carries the
+          consequence — the sentence the two-line banner used to spend a whole
+          line on — so it is one hover/focus away rather than permanently
+          occupying 44px of the schedule. */}
+      <span
+        className="flex-shrink-0 rounded-chip border border-brand-primary/40 px-2 py-0.5
+          font-semibold uppercase tracking-wide"
+        title="Read-only demo — nothing you change here is saved, and the data resets regularly."
+      >
+        Read-only demo
       </span>
-      <span aria-hidden="true" className="text-brand-primary/50">
-        ·
-      </span>
-      {/* Same visually-hidden-below-md, always-in-the-a11y-tree technique as the pitch
-          sentence above — a phone-width visitor still gets "community edition" and the
-          link, a desktop one also gets the named Enterprise features, and a screen
-          reader user gets both regardless of viewport. */}
-      <span>
-        This is the community edition.
-        <span className="sr-only md:not-sr-only md:inline">
-          {' '}
-          Portfolio dashboard, audit trail, and cross-program governance are part of
-          Enterprise.
-        </span>{' '}
+
+      {/* Edition disclosure (#3968). Hidden below `sm` VISUALLY only — `sr-only`,
+          never `hidden`: `display:none` takes it out of the accessibility tree
+          too, so a screen-reader user on a phone would hear less than a sighted
+          one (web rule 429). */}
+      <span className="sr-only flex-shrink-0 whitespace-nowrap sm:not-sr-only sm:inline">
+        Community edition{' '}
         <a
           href="https://docs.trueppm.com/overview/#open-core-model"
           target="_blank"
           rel="noopener noreferrer"
           className="font-semibold underline underline-offset-2 hover:no-underline rounded
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+            focus-visible:ring-offset-1"
         >
-          See what&apos;s included
+          What&apos;s included
         </a>
       </span>
+
+      <DemoProjectSwitcher />
+
+      {/* The forecast bar's headline, relocated (#4050 A1). Hidden below `md`,
+          where the phone keeps `MobileMonteCarloCard` as its forecast surface. */}
+      <span className="hidden md:contents">
+        <DemoForecastChip />
+      </span>
+
+      <DemoTipsHint />
     </aside>
   );
 }
