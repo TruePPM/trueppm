@@ -399,13 +399,23 @@ below) or put your own Ingress controller / LoadBalancer in front of the
 `<release>-api` Service to terminate TLS and route external traffic.
 :::
 
-**Post-install.** Migrations run automatically in an init container. Retrieve
-the generated admin password from the pod:
+**Post-install.** Migrations run automatically in an init container. The
+generated admin password is written on exactly **one** API pod — whichever
+bootstrapped first — so read it from each pod in turn rather than from
+`deployment/trueppm-api`, which picks an arbitrary pod and at `replicaCount: 2`
+misses the file about half the time:
 
 ```bash
-kubectl exec -n trueppm deployment/trueppm-api -- \
-  cat /run/trueppm/admin_password
+for pod in $(kubectl get pods -n trueppm -o name \
+    -l app.kubernetes.io/instance=trueppm,app.kubernetes.io/component=api); do
+  kubectl exec -n trueppm "$pod" -c api -- cat /run/trueppm/admin_password 2>/dev/null \
+    && echo "(from $pod)"
+done
 ```
+
+It prints one password. If it prints nothing, the pod that held the file has
+restarted since install and the file is gone for good — reset the password
+instead, as described in [Admin password setup](/administration/admin-password/#rotate-the-password-after-first-run).
 
 When using the bundled PostgreSQL, retrieve the generated database password
 from the chart-owned connection Secret:
@@ -721,7 +731,7 @@ a fresh kind cluster:
 | `helm:walkthrough` | **This page's production walkthrough, followed step for step**: a named `trueppm` namespace, `values-prod.yaml` + the `my-values.yaml` shown above, bundled datastores disabled, and a managed PostgreSQL (TLS on, `sslmode=require`) + Valkey reached the documented `env.*.secretKeyRef` way | `trueppm` |
 
 All four run `helm test`, retrieve the admin password (`helm:walkthrough` via
-the exact `kubectl exec … deployment/trueppm-api` command shown above), assert
+the per-pod loop shown above, asserting exactly one API pod holds the file), assert
 the Celery worker answers a control-plane ping, and check Celery beat is a
 Running, non-restarting singleton. A static gate (`helm:template`) runs
 alongside them: it renders the chart, validates every object against the

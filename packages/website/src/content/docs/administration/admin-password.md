@@ -61,12 +61,19 @@ admin:
   passwordFile: /run/trueppm/admin_password   # chart default
 ```
 
-Retrieve it with:
+Retrieve it by checking each API pod — the file exists on exactly one of them
+(see the note on replicas below):
 
 ```bash
-kubectl exec -n <namespace> deployment/<release>-trueppm-api \
-  -- cat /run/trueppm/admin_password
+for pod in $(kubectl get pods -n <namespace> -o name \
+    -l app.kubernetes.io/instance=<release>,app.kubernetes.io/component=api); do
+  kubectl exec -n <namespace> "$pod" -c api -- cat /run/trueppm/admin_password 2>/dev/null \
+    && echo "(from $pod)"
+done
 ```
+
+At one replica this is the same as `kubectl exec deployment/<release>-trueppm-api`;
+at two or more, `deployment/…` picks an arbitrary pod and can miss the file.
 
 **Get the Deployment name right.** The chart's `fullname` helper yields
 `<release>-trueppm-api`, not `<release>-api` — unless the release name already
@@ -77,23 +84,19 @@ called `trueppm` gives plain `trueppm-api`. When in doubt:
 kubectl get deploy -n <namespace> -l app.kubernetes.io/component=api
 ```
 
-:::caution[At two or more replicas, the printed password may not be the real one]
-The `bootstrap` init container runs on **every** API pod. At `replicaCount: 2` —
-which `values-prod.yaml` sets — both pods start with no superuser in the database,
-so both generate a password, both write it to their **own** `emptyDir`, and the
-last `user.save()` wins. `kubectl exec deployment/…` picks an arbitrary pod, so
-the value you read may be the loser's.
+:::note[At two or more replicas, exactly one pod holds the file]
+The `bootstrap` init container runs on **every** API pod, and at `replicaCount: 2`
+— which `values-prod.yaml` sets — they start together against an empty database.
+`create_admin` serializes on a PostgreSQL advisory lock: the first pod creates the
+admin and writes the password to its **own** `emptyDir`; the others wait for it to
+commit, see the superuser, and skip. So exactly one pod has the file and the
+password in it is the real one — which is why the command above checks every pod.
 
-Two ways to avoid the ambiguity entirely:
-
-- **Install at one replica**, retrieve the password, then scale up.
-- **Supply your own** via `DJANGO_SUPERUSER_PASSWORD` from a Kubernetes Secret
-  (through `envFrom`), so every pod bootstraps the same credential and there is
-  nothing to race over.
-
-If you are already past it and the password does not work, reset it with
-[`changepassword`](#kubernetes) — that is the reliable path, not re-reading
-another pod's file.
+The file still lives on a per-pod `emptyDir`: once that one pod restarts, it is
+gone. To avoid depending on it at all, supply your own password via
+`DJANGO_SUPERUSER_PASSWORD` from a Kubernetes Secret (through `envFrom`), or reset
+it with [`changepassword`](#kubernetes). Delivering it through a Kubernetes Secret
+instead is planned for 0.5 ([#4043](https://gitlab.com/trueppm/trueppm/-/issues/4043)).
 :::
 
 ## Set a known password at startup

@@ -419,16 +419,6 @@ setup_walkthrough_datastores() {
   # they already run against "default" for the other three legs.
   kubectl config set-context --current --namespace="$WALKTHROUGH_NAMESPACE"
 
-  # The Deployment name deployment.md's own admin-password command hardcodes
-  # (`deployment/trueppm-api`) — derived from the render rather than assumed,
-  # since `trueppm.fullname` only collapses to the bare release name when the
-  # release name already contains the chart name (see the api_svc comment in
-  # section 3 above).
-  WALKTHROUGH_API_NAME="$(helm template "$RELEASE" "$CHART" --set image.tag="$RELEASE_IMAGE_TAG" \
-    --show-only templates/api/deployment.yaml \
-    | awk '/^  name:/{print $2; exit}')"
-  [ -n "$WALKTHROUGH_API_NAME" ] || fail "could not resolve the api Deployment name from the render (#4027)"
-
   # ---- the documented application Secret ("Create the application Secret"),
   # reproduced byte-for-byte. openssl and python3 are installed by this job's
   # before_script specifically so this command needs no substitute.
@@ -758,46 +748,30 @@ spec:
 PVEOF
 }
 
-# ---- the documented admin-password command, run verbatim (#4027) -----------
-# deployment.md's "Post-install" step names an exact command
-# (`kubectl exec -n trueppm deployment/trueppm-api -- cat
-# /run/trueppm/admin_password`) rather than a dynamic pod lookup. This proves
-# THAT command works, which check_admin_password()'s label-based lookup (used
-# by the other legs) does not.
-#
-# KNOWN GAP, tracked in #4039 — not fixed here: `deployment/NAME` does not
-# deterministically target one pod, and create_admin
-# (packages/api/src/trueppm_api/apps/access/management/commands/create_admin.py)
-# is deliberately idempotent — it exits immediately once a superuser already
-# exists, so a redeploy never resets a production password. Under
-# values-prod.yaml's replicaCount: 2, whichever pod wins the create_admin
-# race writes the password to ITS OWN /run/trueppm/admin_password (a
-# per-pod, non-shared path); the other replica sees the admin already
-# exists, skips bootstrap, and never writes the file locally. So the exact
-# documented command can land on the pod that never wrote it and return
-# nothing — a real operator running it against this exact values-prod.yaml
-# would see the same ~50/50 failure. Trying every api pod in turn is a
-# drill-only workaround so this leg is not blocked on the real fix (doc
-# rewrite vs. password-delivery redesign, #4039's own triage) — it proves
-# the password exists and is retrievable via kubectl exec SOMEWHERE, not
-# that deployment.md's single literal command is reliable as written.
-# Revert to the single-command form once #4039 lands.
+# ---- walkthrough: admin password via deployment.md's documented loop ------
+# Runs deployment.md's "Post-install" loop verbatim: check every api pod of the
+# release for the password file. Then asserts the property #4039 fixed — at
+# values-prod.yaml's replicaCount: 2, EXACTLY ONE pod holds the file. create_admin
+# serializes the bootstrap on a PostgreSQL advisory lock, so the first pod
+# creates the admin and every other pod sees it and skips. Zero files means
+# nobody bootstrapped; two means the lock is not arbitrating and each pod
+# minted its own password (the last save() wins, leaving one file wrong).
 check_admin_password_documented() {
-  local admin_pw pw_file pod
+  local admin_pw pw_file pod pw holders=0
   pw_file="${ADMIN_PASSWORD_FILE:-/run/trueppm/admin_password}"
-  log "reading admin password with the documented command: kubectl exec -n ${WALKTHROUGH_NAMESPACE} deployment/${WALKTHROUGH_API_NAME} -- cat ${pw_file}"
-  admin_pw="$(kubectl exec -n "$WALKTHROUGH_NAMESPACE" "deployment/${WALKTHROUGH_API_NAME}" -- \
-    cat "$pw_file" 2>/dev/null || true)"
-  if [ -z "$admin_pw" ]; then
-    log "documented command returned nothing — trying every api pod individually (#4039: create_admin only writes the file on whichever replica won the bootstrap race)"
-    for pod in $(kubectl get pods -n "$WALKTHROUGH_NAMESPACE" -l app.kubernetes.io/component=api -o name); do
-      admin_pw="$(kubectl exec -n "$WALKTHROUGH_NAMESPACE" "$pod" -- cat "$pw_file" 2>/dev/null || true)"
-      [ -n "$admin_pw" ] && break
-    done
-  fi
-  [ -n "$admin_pw" ] \
-    || fail "no api pod's ${pw_file} held a password — 'kubectl exec deployment/${WALKTHROUGH_API_NAME} -- cat ${pw_file}' no longer matches deployment.md, or create_admin did not write it anywhere"
-  log "admin password present (${#admin_pw} chars) via the documented command"
+  log "reading admin password with deployment.md's per-pod loop"
+  for pod in $(kubectl get pods -n "$WALKTHROUGH_NAMESPACE" -o name \
+      -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=api"); do
+    pw="$(kubectl exec -n "$WALKTHROUGH_NAMESPACE" "$pod" -c api -- cat "$pw_file" 2>/dev/null || true)"
+    if [ -n "$pw" ]; then
+      holders=$((holders + 1))
+      admin_pw="$pw"
+      log "  ${pod} holds ${pw_file}"
+    fi
+  done
+  [ "$holders" -eq 1 ] \
+    || fail "expected exactly one api pod to hold ${pw_file}, found ${holders} — create_admin's bootstrap advisory lock (#4039) is not serializing the replicas, or no pod bootstrapped"
+  log "admin password present (${#admin_pw} chars) on exactly one api pod"
 }
 
 # ---- beat: pinned singleton, Running, and it STAYS up ----------------------
@@ -1234,8 +1208,8 @@ helm test "$RELEASE" --timeout 3m
 # the only pod create_admin ever wrote it to. See check_admin_password's
 # header comment for why a post-upgrade pod can never pass this check.
 if [ "$DRILL_LEG" = "walkthrough" ]; then
-  # The documented command (deployment.md "Post-install"), not the generic
-  # label-based lookup — see check_admin_password_documented's own comment.
+  # deployment.md's documented per-pod loop, plus the exactly-one-holder
+  # assertion — see check_admin_password_documented's own comment.
   check_admin_password_documented
 elif [ "$DRILL_LEG" != "upgrade" ]; then
   check_admin_password
