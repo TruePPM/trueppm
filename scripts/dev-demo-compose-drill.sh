@@ -144,7 +144,26 @@ compose() { docker compose -f "${COMPOSE_FILE}" "$@"; }
 # root, so the compose files' relative bind sources resolve to real files —
 # the identical mechanism scripts/prod-compose-drill.sh's
 # sync_checkout_to_daemon uses for nginx/active.conf.template.
+#
+# Some runners share the job's builds volume with the dind service, so
+# `/host${PWD}` IS this checkout rather than a copy of it (#4066). There the
+# sync is not merely redundant but destructive: the extractor's `rm -rf` deletes
+# the very files the sending tar is still streaming, and a tree the size of
+# packages/web loses that race every time. Probe for the shared view first and
+# skip the sync when the daemon already sees our files.
+daemon_shares_checkout() {
+  local marker=".compose-drill-probe.$$" rc=0
+  : > "${marker}"
+  docker run --rm -v /:/host alpine:3 test -e "/host${PWD}/${marker}" || rc=$?
+  rm -f "${marker}"
+  return "${rc}"
+}
+
 sync_checkout_to_daemon() {
+  if daemon_shares_checkout; then
+    log "dind daemon already sees this checkout (shared builds volume) — skipping sync of $*"
+    return 0
+  fi
   local paths=("$@") targets
   targets="$(printf "'/host${PWD}/%s' " "${paths[@]}")"
   tar -C "${PWD}" -cf - "${paths[@]}" \
