@@ -246,7 +246,26 @@ set_env DJANGO_SUPERUSER_EMAIL "${ADMIN_EMAIL}"
 # template lands on THIS container's filesystem. The trailing `up -d` then
 # recreates nginx against the now-correct source. Doing it this way keeps the
 # drill running the real init-prod.sh rather than a re-implementation of it.
+#
+# Some runners share the job's builds volume with the dind service, so
+# `/host${PWD}` IS this checkout rather than a copy of it (#4066). There the
+# sync's `rm -rf` deletes the real checkout while tar is still reading it — the
+# small nginx payload usually wins that race from inside the pipe buffer, but
+# only by luck. Probe for the shared view and skip the sync when the daemon
+# already sees our files; init-prod.sh's `cp` then lands where nginx reads too.
+daemon_shares_checkout() {
+  local marker=".compose-drill-probe.$$" rc=0
+  : > "${marker}"
+  docker run --rm -v /:/host alpine:3 test -e "/host${PWD}/${marker}" || rc=$?
+  rm -f "${marker}"
+  return "${rc}"
+}
+
 sync_checkout_to_daemon() {
+  if daemon_shares_checkout; then
+    log "dind daemon already sees this checkout (shared builds volume) — skipping sync"
+    return 0
+  fi
   # `rm -rf` the target first: once compose has started a service whose bind
   # source is missing, the daemon holds a DIRECTORY at that path, and tar cannot
   # extract a regular file over a directory — it fails and leaves the directory,
