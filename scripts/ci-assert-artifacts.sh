@@ -22,7 +22,7 @@ rc=0
 for p in "$@"; do
   full="$root/${p%/}"
   if [ -d "$full" ]; then
-    if [ -z "$(find "$full" -type f 2>/dev/null | head -n 1)" ]; then
+    if [ -z "$(find "$full" -type f -print -quit 2>/dev/null)" ]; then
       echo "ERROR: declared artifact path '$p' is empty (no files under $full)" >&2
       rc=1
     fi
