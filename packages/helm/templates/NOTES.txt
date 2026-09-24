@@ -15,10 +15,16 @@ Watch the rollout:
 
   kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} -w
 
-Retrieve the one-time admin password (written by the bootstrap init container):
+Retrieve the one-time admin password. The bootstrap init container writes it on
+exactly ONE api pod (whichever bootstrapped first), so check each pod rather than
+`deployment/...`, which picks an arbitrary one:
 
-  kubectl exec -n {{ .Release.Namespace }} deployment/{{ include "trueppm.fullname" . }}-api \
-    -- cat {{ .Values.admin.passwordFile | default "/run/trueppm/admin_password" }}
+  for pod in $(kubectl get pods -n {{ .Release.Namespace }} -o name \
+      -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=api); do
+    kubectl exec -n {{ .Release.Namespace }} "$pod" -c api \
+      -- cat {{ .Values.admin.passwordFile | default "/run/trueppm/admin_password" }} 2>/dev/null \
+      && echo "(from $pod)"
+  done
 {{- if not .Values.admin.email }}
 
 !! admin.email was not set, so the bootstrap superuser is admin@example.com.

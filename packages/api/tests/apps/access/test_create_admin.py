@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -10,6 +11,9 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
+from django.db import connection as default_connection
+
+from trueppm_api.apps.access.management.commands import create_admin as mod
 
 User = get_user_model()
 
@@ -167,3 +171,55 @@ def test_promoting_an_existing_user_is_announced(tmp_path: Path) -> None:
     output = out.getvalue()
     assert "WARNING" in output
     assert "password has been RESET" in output
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_bootstraps_mint_exactly_one_password(tmp_path: Path) -> None:
+    """Two pods bootstrapping at once must not both mint a password (#4039).
+
+    The first run is held inside its bootstrap transaction while the second
+    starts. Without the advisory lock the second passes the "no superuser"
+    check, resets the password, and the first pod's file is left wrong.
+    """
+    pw_file = str(tmp_path / "admin_password")
+    first_inside = threading.Event()
+    release_first = threading.Event()
+    calls = {"n": 0}
+    original = mod.Command._bootstrap
+
+    def held_bootstrap(self: mod.Command) -> tuple[str, str, str, bool]:
+        result = original(self)
+        calls["n"] += 1
+        if calls["n"] == 1:
+            first_inside.set()
+            release_first.wait(timeout=10)
+        return result
+
+    outputs: dict[str, str] = {}
+
+    def run(name: str) -> None:
+        out = StringIO()
+        try:
+            call_command("create_admin", stdout=out)
+        finally:
+            outputs[name] = out.getvalue()
+            default_connection.close()
+
+    with patch(_CMD, pw_file), patch.object(mod.Command, "_bootstrap", held_bootstrap):
+        first = threading.Thread(target=run, args=("first",))
+        first.start()
+        assert first_inside.wait(timeout=10)
+        second = threading.Thread(target=run, args=("second",))
+        second.start()
+        # Give the second run time to reach the check; with the lock it blocks.
+        second.join(timeout=1)
+        release_first.set()
+        first.join(timeout=10)
+        second.join(timeout=10)
+
+    assert "Created admin" in outputs["first"]
+    assert "skipping bootstrap" in outputs["second"]
+    assert calls["n"] == 1
+    with open(pw_file) as fh:
+        password = fh.read().strip()
+    assert User.objects.get(email="admin@example.com").check_password(password)
