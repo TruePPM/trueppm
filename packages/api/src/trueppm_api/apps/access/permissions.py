@@ -2618,7 +2618,8 @@ class McpReadableViewMixin(_McpViewBase):
         # refusal is queued and drained by ``AgentActionAuditMiddleware``), so the
         # predicate is now load-bearing rather than aspirational — a scoped token walked
         # against the collection tools is recorded.
-        if status_code < 400 and not is_agent_token(token):
+        allowed = status_code < 400
+        if allowed and not is_agent_token(token):
             return
 
         from trueppm_api.apps.agents.deferred import queue_agent_action
@@ -2630,7 +2631,6 @@ class McpReadableViewMixin(_McpViewBase):
         from trueppm_api.apps.projects.models import SCOPE_MCP_READ
 
         status = status_code
-        allowed = status < 400
         if status >= 500:
             # A server error is not a refusal. The taxonomy has no ERROR verdict, so the
             # only row this code could write says refused/policy/capability_scope — i.e.
