@@ -5990,8 +5990,9 @@ wasm:license-check:
 # PyPI-side configuration: a Trusted Publisher must be registered on the
 # `trueppm-scheduler` PyPI project matching this pipeline's OIDC claims exactly —
 # namespace `trueppm`, project `trueppm`, top-level pipeline file `.gitlab-ci.yml`,
-# and a BLANK environment name (this job sets no `environment:`; a non-blank value
-# would itself 422). If that publisher is missing, the mint-token step below fails
+# and the environment name `pypi-scheduler` (must match the `environment:` block
+# below; a blank publisher would match on project claims alone, a wider trust
+# surface). If that publisher is missing, the mint-token step below fails
 # HTTP 422 before any upload — this is what bit the first OIDC tag, 0.3.0a1 (#1387);
 # 0.1/0.2 published via the now-removed static PYPI_TOKEN so never exercised it.
 # PyPI project ownership: the maintainer account (Kelly Hair) that uploaded the
@@ -6048,6 +6049,9 @@ scheduler:publish:
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   needs:
     - job: tag:wait-for-main
+  environment:
+    name: pypi-scheduler
+    url: https://pypi.org/project/trueppm-scheduler/
   rules:
     # Only fire on tags matching the scheduler version format.
     # Never fire on branch pushes or MR events.
