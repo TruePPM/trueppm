@@ -581,6 +581,8 @@ scripts:test:
   #   - release-summary — the default release summary never publishes the
   #     "_Nothing yet._" placeholder, is resolved before any bump, and keeps
   #     its paragraph breaks on the Release page (#4041);
+  #   - release-readme-pins — the package READMEs' version pins move with the
+  #     release, so scheduler:test does not go red at the release commit;
   #   - release-preflight — the pre-tag image Trivy scan, incl. the TRIVY_VERSION
   #     lockstep with this file (#1391). That lockstep is why .gitlab-ci.yml is a
   #     trigger below: a Trivy bump here that forgets release.sh must fail here.
@@ -678,6 +680,8 @@ scripts:test:
         - scripts/tests/release-staging.test.sh
         - scripts/tests/release-preflight.test.sh
         - scripts/tests/release-summary.test.sh
+        - scripts/tests/release-readme-pins.test.sh
+        - scripts/bump-readme-pins.sh
         - scripts/release-default-summary.py
         - scripts/release-page-summary.sh
         - scripts/tests/wt-args.test.sh
@@ -718,6 +722,8 @@ scripts:test:
         - scripts/tests/release-staging.test.sh
         - scripts/tests/release-preflight.test.sh
         - scripts/tests/release-summary.test.sh
+        - scripts/tests/release-readme-pins.test.sh
+        - scripts/bump-readme-pins.sh
         - scripts/release-default-summary.py
         - scripts/release-page-summary.sh
         - scripts/tests/wt-args.test.sh
@@ -743,6 +749,7 @@ scripts:test:
     - bash scripts/tests/release-staging.test.sh
     - bash scripts/tests/release-preflight.test.sh
     - bash scripts/tests/release-summary.test.sh
+    - bash scripts/tests/release-readme-pins.test.sh
     - bash scripts/tests/wt-args.test.sh
     - bash scripts/tests/wt-prune.test.sh
     - bash scripts/tests/wt-reserve.test.sh
