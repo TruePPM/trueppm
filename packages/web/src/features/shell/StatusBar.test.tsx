@@ -28,14 +28,42 @@ vi.mock('@/hooks/useProjectUnavailable', () => ({
   useProjectUnavailable: () => projectUnavailable.current,
 }));
 
+const demoMode = vi.hoisted(() => ({ readOnly: false }));
+vi.mock('@/hooks/useDemoMode', () => ({
+  useDemoMode: () => ({ isDemoReadOnly: demoMode.readOnly, loginHint: null, isLoading: false }),
+}));
+
 import { useProjectId } from '@/hooks/useProjectId';
 const mockUseProjectId = useProjectId as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   mockUseProjectId.mockReturnValue('p1');
   projectUnavailable.current = false;
+  demoMode.readOnly = false;
   // Default to a live connection so the pre-existing presence assertions hold.
   useWsConnectionStore.setState({ state: 'live', reconnectAttempts: 0 });
+});
+
+describe('StatusBar — read-only demo (#4048)', () => {
+  it.each(['stale', 'failed', 'reconnecting', 'connecting'] as const)(
+    'shows a neutral note, never a fault, when the socket is %s',
+    (state) => {
+      demoMode.readOnly = true;
+      useWsConnectionStore.setState({ state, reconnectAttempts: 0 });
+      renderWithRouter(<StatusBar />);
+      expect(screen.getByText('Read-only demo · no live updates')).toBeInTheDocument();
+      expect(screen.queryByText(/connection lost/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/disconnected/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/reconnecting/i)).not.toBeInTheDocument();
+    },
+  );
+
+  it('still reports Connection lost on a normal install when the socket is stale', () => {
+    useWsConnectionStore.setState({ state: 'stale', reconnectAttempts: 0 });
+    renderWithRouter(<StatusBar />);
+    expect(screen.getByText('Connection lost')).toBeInTheDocument();
+    expect(screen.queryByText(/read-only demo/i)).not.toBeInTheDocument();
+  });
 });
 
 describe('StatusBar', () => {

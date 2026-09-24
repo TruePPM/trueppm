@@ -53,9 +53,8 @@ export interface EmptyCopy {
  *
  * Read-state takes precedence: `snoozed` and `archived` have their own copy
  * regardless of category. For `all`/`unread`, a non-`all` category yields
- * category-scoped copy; `all` category preserves the original @mention-flavored
- * strings (the panel's shipped "You're all caught up" / "No unread mentions
- * right now." copy the existing specs assert on).
+ * category-scoped copy; the `all` category covers mentions, tasks, signals and
+ * projects, so its copy names "notifications" rather than mentions alone.
  */
 export function notificationEmptyCopy(
   filter: NotificationFilter,
@@ -90,12 +89,12 @@ export function notificationEmptyCopy(
     return {
       icon: <CelebrationIcon className="h-7 w-7" aria-hidden="true" />,
       title: "You're all caught up",
-      body: 'No unread mentions right now.',
+      body: 'No unread notifications right now.',
     };
   }
   return {
     icon: <CelebrationIcon className="h-7 w-7" aria-hidden="true" />,
     title: "You're all caught up",
-    body: 'When someone @-mentions you, it shows up here.',
+    body: 'New activity from your projects and mentions shows up here.',
   };
 }

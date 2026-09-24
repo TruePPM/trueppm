@@ -1,5 +1,6 @@
 import { Link } from 'react-router';
 import { useProject } from '@/hooks/useProject';
+import { useDemoMode } from '@/hooks/useDemoMode';
 
 /**
  * Compact "this is demo data" strip for project-level views (#1053).
@@ -15,9 +16,21 @@ import { useProject } from '@/hooks/useProject';
  * many places, act in one. "Manage demo data" is the route to both.
  *
  * Renders nothing unless the project belongs to a bundled sample program.
+ *
+ * **"Manage demo data" is hidden, not rendered inert, in the read-only
+ * interactive demo (#4049).** The comment composer and attachment controls
+ * disable-and-explain with {@link DEMO_DISABLED_NOTE} because they are
+ * actions attempted in place — the visitor is already looking at the
+ * surface a note can sit beside. This is a navigation link: following it
+ * takes the read-only `atlas-visitor` to the program overview only to meet
+ * every teardown/reset control refused there too, and it reads as an admin
+ * affordance on the very first screen. Hiding it is the same call
+ * `DemoModeBar` makes for the whole indicator — nothing to explain because
+ * there is nothing to click.
  */
 export function ProjectSampleIndicator({ projectId }: { projectId: string | null }) {
   const { data: project } = useProject(projectId ?? undefined);
+  const { isDemoReadOnly } = useDemoMode();
   if (!project?.is_sample) return null;
 
   const program = project.program_detail;
@@ -49,7 +62,7 @@ export function ProjectSampleIndicator({ projectId }: { projectId: string | null
           </>
         ) : null}
       </span>
-      {program ? (
+      {program && !isDemoReadOnly ? (
         <Link
           to={`/programs/${program.id}`}
           className="underline hover:text-neutral-text-primary focus:outline-none

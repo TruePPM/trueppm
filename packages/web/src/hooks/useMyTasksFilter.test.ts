@@ -10,16 +10,28 @@ vi.mock('./useCurrentUserRole', () => ({
   useCurrentUserRole: vi.fn(),
 }));
 
+vi.mock('./useDemoMode', () => ({
+  useDemoMode: vi.fn(),
+}));
+
 import { useCurrentUser } from './useCurrentUser';
 import { useCurrentUserRole } from './useCurrentUserRole';
+import { useDemoMode } from './useDemoMode';
 
 const useCurrentUserMock = vi.mocked(useCurrentUser);
 const useCurrentUserRoleMock = vi.mocked(useCurrentUserRole);
+const useDemoModeMock = vi.mocked(useDemoMode);
 
 describe('useMyTasksFilter', () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.clearAllMocks();
+    // Normal install by default; the demo read-only carve-out tests override this.
+    useDemoModeMock.mockReturnValue({
+      isDemoReadOnly: false,
+      loginHint: null,
+      isLoading: false,
+    });
   });
 
   it('defaults to on for MEMBER role when no stored preference', async () => {
@@ -146,5 +158,125 @@ describe('useMyTasksFilter', () => {
     const { result } = renderHook(() => useMyTasksFilter('p1'));
     expect(result.current.isLoading).toBe(true);
     expect(result.current.enabled).toBe(false);
+  });
+
+  it('reports isLoading until demo mode resolves, even once role and user have', () => {
+    useCurrentUserMock.mockReturnValue({
+      user: {
+        id: 'u5',
+        username: 'm',
+        display_name: 'M',
+        initials: 'M',
+        email: 'm@x',
+        max_project_role: 100,
+        workspace_role: null,
+        can_access_admin_settings: false,
+        default_landing: 'auto',
+        landing: { intent: 'my_work', path: '/me/work', resolved_by: 'fallback' },
+        hidden_views: [],
+        role_context: 'unified',
+        dnd_enabled: false,
+        timezone: 'auto',
+        date_format: 'auto',
+        token: null,
+      },
+      isLoading: false,
+    });
+    useCurrentUserRoleMock.mockReturnValue({ role: 100, isLoading: false });
+    useDemoModeMock.mockReturnValue({ isDemoReadOnly: false, loginHint: null, isLoading: true });
+    const { result } = renderHook(() => useMyTasksFilter('p1'));
+    expect(result.current.isLoading).toBe(true);
+  });
+
+  describe('read-only demo carve-out (#4052)', () => {
+    it('defaults to off for MEMBER role when demo read-only is on and no stored preference', async () => {
+      useCurrentUserMock.mockReturnValue({
+        user: {
+          id: 'u6',
+          username: 'atlas-visitor',
+          display_name: 'Atlas Visitor',
+          initials: 'AV',
+          email: 'atlas-visitor@x',
+          max_project_role: 100,
+          workspace_role: null,
+          can_access_admin_settings: false,
+          default_landing: 'auto',
+          landing: { intent: 'my_work', path: '/me/work', resolved_by: 'fallback' },
+          hidden_views: [],
+          role_context: 'unified',
+          dnd_enabled: false,
+          timezone: 'auto',
+          date_format: 'auto',
+          token: null,
+        },
+        isLoading: false,
+      });
+      useCurrentUserRoleMock.mockReturnValue({ role: 100, isLoading: false });
+      useDemoModeMock.mockReturnValue({ isDemoReadOnly: true, loginHint: null, isLoading: false });
+      const { result } = renderHook(() => useMyTasksFilter('p1'));
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      // MEMBER role would normally default on — the demo carve-out suppresses it.
+      expect(result.current.enabled).toBe(false);
+    });
+
+    it('leaves the SCHEDULER+ default (already off) unchanged when demo read-only is on', async () => {
+      useCurrentUserMock.mockReturnValue({
+        user: {
+          id: 'u7',
+          username: 'atlas-visitor',
+          display_name: 'Atlas Visitor',
+          initials: 'AV',
+          email: 'atlas-visitor@x',
+          max_project_role: 200,
+          workspace_role: null,
+          can_access_admin_settings: false,
+          default_landing: 'auto',
+          landing: { intent: 'my_work', path: '/me/work', resolved_by: 'fallback' },
+          hidden_views: [],
+          role_context: 'unified',
+          dnd_enabled: false,
+          timezone: 'auto',
+          date_format: 'auto',
+          token: null,
+        },
+        isLoading: false,
+      });
+      useCurrentUserRoleMock.mockReturnValue({ role: 200, isLoading: false });
+      useDemoModeMock.mockReturnValue({ isDemoReadOnly: true, loginHint: null, isLoading: false });
+      const { result } = renderHook(() => useMyTasksFilter('p1'));
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      expect(result.current.enabled).toBe(false);
+    });
+
+    it('an explicit stored preference still wins over the demo read-only default', async () => {
+      window.localStorage.setItem('trueppm.boardFilter.mine.u8.p1', '1');
+      useCurrentUserMock.mockReturnValue({
+        user: {
+          id: 'u8',
+          username: 'atlas-visitor',
+          display_name: 'Atlas Visitor',
+          initials: 'AV',
+          email: 'atlas-visitor@x',
+          max_project_role: 100,
+          workspace_role: null,
+          can_access_admin_settings: false,
+          default_landing: 'auto',
+          landing: { intent: 'my_work', path: '/me/work', resolved_by: 'fallback' },
+          hidden_views: [],
+          role_context: 'unified',
+          dnd_enabled: false,
+          timezone: 'auto',
+          date_format: 'auto',
+          token: null,
+        },
+        isLoading: false,
+      });
+      useCurrentUserRoleMock.mockReturnValue({ role: 100, isLoading: false });
+      useDemoModeMock.mockReturnValue({ isDemoReadOnly: true, loginHint: null, isLoading: false });
+      const { result } = renderHook(() => useMyTasksFilter('p1'));
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      // Stored '1' beats the demo-off default.
+      expect(result.current.enabled).toBe(true);
+    });
   });
 });
