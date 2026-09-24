@@ -2063,6 +2063,7 @@ ci:pypi-id-tokens:
       changes:
         - .gitlab-ci.yml
         - scripts/check-pypi-id-tokens.sh
+        - scripts/check-pypi-token-project.py
   before_script:
     - apk add --no-cache bash python3
   script:
@@ -2071,6 +2072,8 @@ ci:pypi-id-tokens:
     # before trusting it found none.
     - bash scripts/check-pypi-id-tokens.sh --self-test
     - bash scripts/check-pypi-id-tokens.sh
+    # The probe's token-scope checker (#4045), same fail-first discipline.
+    - python3 scripts/check-pypi-token-project.py --self-test
 
 api:dependency-soft-delete:
   extends: .fast-job
@@ -4391,12 +4394,23 @@ api:s3-drill:
       alias: postgres
     - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
-    # Pinned to a dated release tag (same convention as the postgres/valkey
-    # services above — not `latest`). `server /data` is the command MinIO needs to
-    # start; the console port is unused here.
-    - name: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # `minio/minio` was pulled from Docker Hub entirely in Sept 2026 after MinIO
+    # moved Community Edition to source-only distribution (repo archived April
+    # 2026) — `quay.io/minio/minio`, its documented fallback mirror, now also
+    # 401s on anonymous pull. `bitnamilegacy/minio` is Bitnami's frozen
+    # pre-restructure mirror and is confirmed pullable; pinned by digest (same
+    # convention as postgres/valkey above) rather than a tag, since this mirror
+    # gets no new pushes to re-pin against.
+    #
+    # The image's default non-root user (uid 1001) cannot create `/data` at the
+    # container root — GitLab CI's services: syntax has no per-service `user:`
+    # override to work around that — so this points MinIO at
+    # `/bitnami/minio/data`, the pre-owned data directory the image ships with.
+    # `server /bitnami/minio/data` is the command MinIO needs to start; the
+    # console port is unused here.
+    - name: bitnamilegacy/minio@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20
       alias: minio
-      command: ["server", "/data"]
+      command: ["server", "/bitnami/minio/data"]
   variables:
     # Throwaway root credentials for a service container that lives for one job,
     # has no persistence and no ingress. NOT a pattern to copy into a deploy: the
@@ -7595,6 +7609,8 @@ ci:pypi-mint-probe:
       # and signs real artifacts; uploads none.
       python -m pypi_attestations sign dist/*.tar.gz dist/*.whl
       ls -1 dist/*.publish.attestation
+    # Prove the scope checker can still fail before trusting it found nothing (#4045).
+    - python ../../scripts/check-pypi-token-project.py --self-test
     - |
       set -euo pipefail
       # THE STEP THIS JOB EXISTS FOR. Identical exchange to api:publish:pypi's,
@@ -7631,8 +7647,18 @@ ci:pypi-mint-probe:
       if not token or not token.startswith("pypi-"):
           sys.stderr.write("ERROR: mint succeeded but returned an unexpected token shape\n")
           sys.exit(1)
-      print("PyPI mint-token OK: received a project-scoped token (%d chars, 'pypi-' prefix)." % len(token))
-      print("Trusted Publisher configuration for trueppm-api is valid for this pipeline.")
+      print("PyPI mint-token OK: received a token (%d chars, 'pypi-' prefix)." % len(token))
+
+      # A successful mint only proves SOME publisher matched this pipeline's
+      # claims, possibly one registered on another project (#4045). The upload
+      # is refused unless the token's project scope names trueppm-api, so check
+      # that scope. The token goes to the checker by environment, never argv.
+      import subprocess
+      env = dict(os.environ, PYPI_TOKEN=token)
+      sys.exit(subprocess.run(
+          [sys.executable, "../../scripts/check-pypi-token-project.py", "trueppm-api"],
+          env=env,
+      ).returncode)
       PY
     # Phrased to avoid the literal upload command string, so a grep-based
     # audit of this file cannot mistake this job for one that publishes.

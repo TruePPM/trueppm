@@ -340,6 +340,7 @@ pypi-id-tokens-check: ## Fail if a job outside the known publish jobs can mint a
 	@# `id_tokens: PYPI_ID_TOKEN` is a new, silent path to a live upload token.
 	@bash scripts/check-pypi-id-tokens.sh --self-test
 	@bash scripts/check-pypi-id-tokens.sh
+	@python3 scripts/check-pypi-token-project.py --self-test
 
 dependency-soft-delete-check: ## Fail if a scheduler input reads Dependency.objects (#3532)
 	@# A soft-deleted edge read through the unfiltered manager keeps constraining
