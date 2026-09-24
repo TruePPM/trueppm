@@ -19,8 +19,7 @@ Everything below is in service of that.
 The AI-native foundation is **sequenced across releases**, and the
 [roadmap](/overview/roadmap/) is the shipped-vs-planned source of record. The
 deterministic engine is shipped today; the read-only MCP server, the provenance
-graph, and the Phase-0 agent-action audit foundation all **land with the 0.4 beta**
-and are already merged to `main`; the write path and its guardrails follow at 0.6.
+graph, and the Phase-0 agent-action audit foundation all **shipped with the 0.4 beta**; the write path and its guardrails follow at 0.6.
 This page describes the design and uses future tense for anything not yet tagged.
 :::
 
@@ -109,8 +108,8 @@ hallucinate the math. That is what **computed, not guessed** means in practice.
 ## 4. Answers you can cite — the provenance graph
 
 A computed answer is only trustworthy if you can see *why*. The **provenance graph**
-(#1058), the first piece of the AI-native foundation, lands with the 0.4 MCP
-server: every computed date, float, and P80 will carry the server-side derivation
+(#1058), the first piece of the AI-native foundation, shipped with the 0.4 MCP
+server: every computed date, float, and P80 carries the server-side derivation
 that produced it — the driving constraint, the lag, the calendar contribution, the
 critical chain behind a percentile.
 

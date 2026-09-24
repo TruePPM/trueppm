@@ -154,7 +154,7 @@ Each card shows:
 
 ### Card health signal
 
-0.4 will consolidate a card's stacked delivery chips — float, dwell, cost, and the
+0.4 consolidated a card's stacked delivery chips — float, dwell, cost, and the
 schedule/cost performance ratios below — into a single **worst-offender badge**
 that surfaces the one highest-severity signal at a glance. The severity order is
 based on the task's actual delivery state, never on PM priority rank:
