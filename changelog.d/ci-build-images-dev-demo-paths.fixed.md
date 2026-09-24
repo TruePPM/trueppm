@@ -1,0 +1,1 @@
+An MR that changes only the dev/demo compose drill files (`scripts/dev-demo-compose-drill.sh`, the compose files, the Dockerfiles) no longer fails its whole pipeline with zero jobs: `ci:build-deploy-images` now triggers on the same paths as `compose:demo`, which needs it.
