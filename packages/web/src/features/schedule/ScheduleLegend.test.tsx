@@ -53,36 +53,28 @@ describe('ScheduleLegend', () => {
     expect(screen.getByText('Double-click a task to open its details')).toBeInTheDocument();
   });
 
-  it('chip is a button with aria-expanded=true when expanded', () => {
+  it('has a close control that hides the whole panel — not just the body (#3614)', () => {
     render(<ScheduleLegend taskListWidth={240} canLink />);
-    const chip = screen.getByTestId('schedule-legend-chip');
-    expect(chip.tagName).toBe('BUTTON');
-    expect(chip.getAttribute('aria-expanded')).toBe('true');
-    expect(chip.getAttribute('aria-controls')).toBe(
-      screen.getByTestId('schedule-legend-body').id,
-    );
+    const close = screen.getByTestId('schedule-legend-close');
+    expect(close.tagName).toBe('BUTTON');
+    expect(close).toHaveAccessibleName('Close legend');
+    fireEvent.click(close);
+    // Unmounts entirely — a chip-only remainder would still occlude the
+    // canvas corner this issue was filed against.
+    expect(screen.queryByTestId('schedule-legend')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('schedule-legend-body')).not.toBeInTheDocument();
   });
 
-  it('clicking the chip collapses the body and updates aria-expanded', () => {
+  it('persists the closed state to localStorage', () => {
     render(<ScheduleLegend taskListWidth={240} canLink />);
-    const chip = screen.getByTestId('schedule-legend-chip');
-    fireEvent.click(chip);
-    expect(chip.getAttribute('aria-expanded')).toBe('false');
-    expect(screen.getByTestId('schedule-legend-body')).toHaveAttribute('hidden');
-  });
-
-  it('persists collapsed state to localStorage', () => {
-    render(<ScheduleLegend taskListWidth={240} canLink />);
-    fireEvent.click(screen.getByTestId('schedule-legend-chip'));
+    fireEvent.click(screen.getByTestId('schedule-legend-close'));
     expect(localStorage.getItem(STORAGE_KEY)).toBe('true');
   });
 
-  it('reads collapsed state from localStorage on mount', () => {
+  it('renders nothing when the persisted state is closed on mount', () => {
     localStorage.setItem(STORAGE_KEY, 'true');
     render(<ScheduleLegend taskListWidth={240} canLink />);
-    const chip = screen.getByTestId('schedule-legend-chip');
-    expect(chip.getAttribute('aria-expanded')).toBe('false');
-    expect(screen.getByTestId('schedule-legend-body')).toHaveAttribute('hidden');
+    expect(screen.queryByTestId('schedule-legend')).not.toBeInTheDocument();
   });
 
   it('positions horizontally based on taskListWidth prop', () => {
