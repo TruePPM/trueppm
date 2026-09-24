@@ -62,7 +62,7 @@ describe('NotificationPanel', () => {
     useMarkAllReadMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
     renderWithRouter(<NotificationPanel onClose={vi.fn()} />);
     expect(screen.getByText("You're all caught up")).toBeTruthy();
-    expect(screen.getByText('No unread mentions right now.')).toBeTruthy();
+    expect(screen.getByText('No unread notifications right now.')).toBeTruthy();
   });
 
   it('renders a Load more button when the hook reports another page', () => {

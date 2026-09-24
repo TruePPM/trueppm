@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProjectUnavailable } from '@/hooks/useProjectUnavailable';
+import { useDemoMode } from '@/hooks/useDemoMode';
 import { useProjectWebSocket } from '@/hooks/useProjectWebSocket';
 import { useRecordProjectVisit } from '@/hooks/useRecordProjectVisit';
 import { useSchedulerStore } from '@/stores/schedulerStore';
@@ -37,7 +38,11 @@ export function ProjectShell() {
   // Suppress the WebSocket once the project is unavailable: the WS ticket
   // endpoint 403s for a non-member, so leaving the socket live would spin a dead
   // reconnect loop against a project the user can no longer reach (#2040).
-  useProjectWebSocket(projectUnavailable ? null : projectId);
+  //
+  // Also held closed in the read-only demo, whose web tier 404s `/ws/` on purpose
+  // (ADR-1197 D1): connecting would retry forever against a route that never exists (#4048).
+  const { isDemoReadOnly } = useDemoMode();
+  useProjectWebSocket(projectUnavailable || isDemoReadOnly ? null : projectId);
 
   // Record a real last-visited ping so the app's landing default lands the user
   // on the project they actually last opened (ADR-0150). Fire-and-forget.

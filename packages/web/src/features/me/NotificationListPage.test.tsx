@@ -53,7 +53,7 @@ describe('NotificationListPage', () => {
     // Unified with the panel's friendly two-part copy (ADR-0216 §4) — the mobile
     // route no longer renders a bare "broken"-looking <p>.
     expect(screen.getByText("You're all caught up")).toBeTruthy();
-    expect(screen.getByText('No unread mentions right now.')).toBeTruthy();
+    expect(screen.getByText('No unread notifications right now.')).toBeTruthy();
   });
 
   it('shows the snoozed empty-state copy when the Snoozed tab is active', () => {
