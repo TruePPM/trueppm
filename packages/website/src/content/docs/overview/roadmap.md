@@ -109,7 +109,7 @@ would fail the PyPI publish outright; and under SemVer 2.0.0 it sorts *after*
 alpha → beta → rc ladder sits after beta by construction. Go `beta.N` → `rc.N`.
 
 :::tip[SSO is not an enterprise feature]
-Basic single sign-on ships in the **OSS core** at 0.4. The carve-out line is one sentence:
+Basic single sign-on has been part of the **OSS core** since 0.4. The carve-out line is one sentence:
 **log in via your own IdP → OSS; provision, deprovision, and govern accounts from a directory →
 Enterprise.** Point TruePPM at Keycloak, Authentik, Zitadel, Okta, Auth0, Microsoft Entra ID,
 Google, GitLab, or GitHub with a built-in preset — or at any other standards-compliant OIDC
@@ -411,10 +411,10 @@ These features live in a separate proprietary repository and overlay the OSS cor
 - CCPM (Critical Chain Project Management)
 - Resource heat map (cross-portfolio)
 - Schedule forensics (narrative change detection)
-- Org identity governance — SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, and enforced org-wide SSO (basic OIDC/OAuth login ships in the OSS core at 0.4)
+- Org identity governance — SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, and enforced org-wide SSO (basic OIDC/OAuth login has been part of the OSS core since 0.4)
 - Immutable audit trail
 - Custom roles and approval workflows
-- Jira / GitLab / ServiceNow connectors (git integration hub — 0.2)
+- Integration hub: org-wide, bidirectional Jira / GitLab / ServiceNow connectors with writeback and conflict resolution (Jira import, personal Jira and Git links, and Git-event automation are in the community edition)
 - AI scheduling and scenario modeling
 - Portfolio Monte Carlo
 - Multi-tenancy, and advanced HA / disaster recovery — cross-region replication, geo failover, active-active with leader-elected singletons, SLA-grade failover evidence, managed backup verification (basic single-cluster HA — in-cluster HA PostgreSQL and Valkey — lands in the OSS core at 0.5, #3408)
