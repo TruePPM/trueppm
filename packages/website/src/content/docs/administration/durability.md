@@ -382,9 +382,10 @@ What the lock does *not* buy you is bounded by two numbers:
   maintenance window.
 
 The same one-per-pod shape applies to the `bootstrap` init container that mints
-the admin password, and it has **no** lock — see [Admin password
-setup](/administration/admin-password/#kubernetes--helm) for why that matters at
-two or more replicas.
+the admin password, and it is serialized the same way, on its own advisory lock:
+the first pod creates the admin, the rest see it and skip, so the password file
+exists on exactly one pod — see [Admin password
+setup](/administration/admin-password/#kubernetes--helm) for how to find it.
 
 ## What this does not cover
 

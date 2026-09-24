@@ -12,6 +12,19 @@ reset. That is intended (it is how an operator recovers an install whose only
 superuser was demoted), but it is a privilege grant, so it is announced on stdout
 rather than reported as an ordinary create (#3175).
 
+Concurrency
+-----------
+The Helm chart runs this as a **per-pod** ``bootstrap`` init container, so at
+``replicaCount >= 2`` several pods run it against one database at once. Without
+arbitration, every pod passes the "no superuser" check before any of them
+commits, each mints its own password and writes it to its own pod-local file,
+and the last ``save()`` wins — leaving the other pods holding a password that
+does not work, with nothing to tell the operator which file is real (#4039).
+The check-and-create therefore runs under a transaction-scoped PostgreSQL
+advisory lock: the first pod creates the admin, the others block until it
+commits and then see the superuser and skip. Exactly one pod ever holds the
+password file.
+
 Credential delivery
 -------------------
 The password is written to a file (default ``/tmp/trueppm_admin_password``)
@@ -50,6 +63,7 @@ import secrets
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
+from django.db import connection, transaction
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +72,12 @@ logger = logging.getLogger(__name__)
 _PASSWORD_FILE = os.environ.get(  # nosec B108
     "TRUEPPM_ADMIN_PASSWORD_FILE", "/tmp/trueppm_admin_password"
 )
+
+#: Fixed advisory-lock key for the bootstrap, distinct from
+#: ``migrate_locked.MIGRATION_ADVISORY_LOCK_KEY``. Every pod must use the same
+#: literal or the lock arbitrates nothing; not derived from ``hash()``, which is
+#: salted per process.
+BOOTSTRAP_ADVISORY_LOCK_KEY = 4_113_188_002
 
 
 class Command(BaseCommand):
@@ -78,9 +98,27 @@ class Command(BaseCommand):
         """
         User = get_user_model()
 
-        if User.objects.filter(is_superuser=True).exists():
-            self.stdout.write("Admin user already exists — skipping bootstrap.")
-            return
+        with transaction.atomic():
+            if connection.vendor == "postgresql":
+                # xact-scoped: released at COMMIT, so a waiting pod only proceeds
+                # once the winner's superuser row is visible to it. SQLite has no
+                # advisory locks and is necessarily single-process.
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT pg_advisory_xact_lock(%s)", [BOOTSTRAP_ADVISORY_LOCK_KEY]
+                    )
+
+            if User.objects.filter(is_superuser=True).exists():
+                self.stdout.write("Admin user already exists — skipping bootstrap.")
+                return
+
+            email, username, password, created = self._bootstrap()
+
+        self._deliver(email, username, password, created)
+
+    def _bootstrap(self) -> tuple[str, str, str, bool]:
+        """Create or promote the superuser. Caller holds the bootstrap lock."""
+        User = get_user_model()
 
         email = os.environ.get("DJANGO_SUPERUSER_EMAIL", "admin@example.com").strip()
         username = os.environ.get("DJANGO_SUPERUSER_USERNAME", "").strip() or email.split("@")[0]
@@ -103,7 +141,14 @@ class Command(BaseCommand):
         user.is_staff = True
         user.is_superuser = True
         user.save()
+        return email, username, password, created
 
+    def _deliver(self, email: str, username: str, password: str, created: bool) -> None:
+        """Announce the bootstrap and hand the password to the operator.
+
+        Runs after COMMIT, so a pod never writes a password file for a
+        transaction that rolled back.
+        """
         # An existing row being promoted is a privilege grant on an account the
         # operator did not necessarily know was there — say so plainly rather than
         # letting it read like a routine bootstrap line.
