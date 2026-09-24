@@ -794,6 +794,71 @@ check_beat_health() {
   log "celery beat pinned singleton Running with 0 restarts: $beat_pod"
 }
 
+# ---- restart + contention evidence ------------------------------------------
+# A rollout that times out with `context deadline exceeded` can leave every pod
+# Running/Ready by the time dump_diagnostics runs, so the not-Ready loop below
+# dumps nothing while the RESTART COUNTS (5 on web, 5 on kube-proxy, 4 on
+# local-path-provisioner in one observed run) are the whole story. What that
+# loop cannot answer is why a container restarted: OOMKilled (memory limit),
+# a failed liveness probe (CPU throttling or a starved host), or the node itself
+# stalling. This prints the discriminating fact for each, with no assumptions
+# about which one it is.
+dump_restart_and_contention_evidence() {
+  echo "---- container state: restarts + last termination (all namespaces) ----" >&2
+  # Reason=OOMKilled -> memory limit; Error/exit 137 with Reason=Error and
+  # nothing OOM-shaped -> killed by the kubelet after a failed liveness probe;
+  # Completed/exit 0 -> the container exited on its own.
+  kubectl get pods -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"/"}{.metadata.name}{"  uid="}{.metadata.uid}{"\n"}{range .status.containerStatuses[*]}{"    "}{.name}{"  ready="}{.ready}{"  restarts="}{.restartCount}{"  waiting="}{.state.waiting.reason}{"  last="}{.lastState.terminated.reason}{"  exit="}{.lastState.terminated.exitCode}{"  signal="}{.lastState.terminated.signal}{"  started="}{.lastState.terminated.startedAt}{"  finished="}{.lastState.terminated.finishedAt}{"\n"}{end}{end}' 2>&1 | sed "$INDENT_SED" >&2 || true
+
+  echo "---- events, oldest to newest (probe failures, kills, OOM, back-off) ----" >&2
+  kubectl get events -A --sort-by=.lastTimestamp 2>&1 | tail -n 150 | sed "$INDENT_SED" >&2 || true
+
+  echo "---- previous logs of every container that restarted (Ready or not) ----" >&2
+  kubectl get pods -A -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{" "}{range .status.containerStatuses[*]}{.name}{"="}{.restartCount}{","}{end}{"\n"}{end}' 2>/dev/null \
+    | while read -r ns pod counts; do
+        [ -n "$pod" ] || continue
+        for kv in $(echo "${counts:-}" | tr ',' ' '); do
+          c="${kv%%=*}"; n="${kv##*=}"
+          [ "${n:-0}" -gt 0 ] 2>/dev/null || continue
+          echo "---- previous logs ${ns}/${pod} [${c}] (restarts=${n}) ----" >&2
+          kubectl logs -n "$ns" "$pod" -c "$c" --previous --tail=40 2>&1 | sed "$INDENT_SED" >&2 || true
+        done
+      done || true
+
+  # The kind node is a container on the CI host and shares its kernel, so PSI
+  # (/proc/pressure) here is the RUNNER's own CPU/memory/IO stall time: avg10 in
+  # the tens of percent on `some` means processes were waiting for a CPU or for
+  # memory, i.e. host contention rather than anything this chart asked for.
+  echo "---- node host pressure (PSI + load + memory) ----" >&2
+  docker exec "${CLUSTER}-control-plane" sh -c '
+    echo "loadavg: $(cat /proc/loadavg)"
+    for r in cpu memory io; do
+      echo "psi $r: $(cat /proc/pressure/$r 2>&1 | tr "\n" " ")"
+    done
+    grep -E "^(MemTotal|MemAvailable|SwapTotal|SwapFree):" /proc/meminfo
+  ' 2>&1 | sed "$INDENT_SED" >&2 || true
+
+  # cgroup v2 only (kind on a modern host). A non-zero nr_throttled is a pod
+  # that hit its CPU LIMIT and was paused for the rest of the period (slow
+  # start, missed probes); oom_kill>0 / max>0 is a memory limit being hit. Only
+  # non-zero rows print, so an empty section means "not throttled, not OOM".
+  # The uid in each path matches the uid= printed above.
+  echo "---- pod cgroups: CPU throttling + memory-limit hits (non-zero only) ----" >&2
+  docker exec "${CLUSTER}-control-plane" sh -c '
+    if [ ! -f /sys/fs/cgroup/cgroup.controllers ]; then echo "cgroup v2 not present; skipped"; exit 0; fi
+    find /sys/fs/cgroup -path "*kubepods*" -name cpu.stat 2>/dev/null | while read -r f; do
+      set -- $(awk "\$1==\"nr_periods\"{p=\$2} \$1==\"nr_throttled\"{n=\$2} \$1==\"throttled_usec\"{u=\$2} END{print p+0, n+0, u+0}" "$f")
+      [ "$2" -gt 0 ] || continue
+      echo "cpu periods=$1 throttled=$2 throttled_usec=$3 $(echo "${f#/sys/fs/cgroup/}" | sed "s#/cpu.stat##; s/_/-/g")"
+    done
+    find /sys/fs/cgroup -path "*kubepods*" -name memory.events 2>/dev/null | while read -r f; do
+      set -- $(awk "\$1==\"max\"{m=\$2} \$1==\"oom_kill\"{o=\$2} END{print m+0, o+0}" "$f")
+      [ "$1" -gt 0 ] || [ "$2" -gt 0 ] || continue
+      echo "memory max_hits=$1 oom_kill=$2 $(echo "${f#/sys/fs/cgroup/}" | sed "s#/memory.events##; s/_/-/g")"
+    done
+  ' 2>&1 | sed "$INDENT_SED" >&2 || true
+}
+
 # ---- diagnostics on any failure -------------------------------------------
 dump_diagnostics() {
   echo "======== DIAGNOSTICS (deploy did not reach a healthy state) ========" >&2
@@ -828,6 +893,7 @@ dump_diagnostics() {
       kubectl logs "$p" --all-containers --prefix --previous --tail=80 2>&1 | sed "$INDENT_SED" >&2 || true
     fi
   done
+  dump_restart_and_contention_evidence
   # The api pod stays Running-but-0/1 when /readyz returns 503; the access log
   # only shows the 503, not WHICH dependency failed. readyz reports a coarse
   # ok/fail per dependency (database/cache/migrations) in its body, so fetch it

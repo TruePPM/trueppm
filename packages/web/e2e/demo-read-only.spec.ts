@@ -197,6 +197,19 @@ test.describe('Read-only demo — the refusal and the preview (ADR-1197 D3/D4)',
     await expect(bar).toContainText('Read-only demo — nothing you change here is saved.');
   });
 
+  test('shows no connection fault — /ws/ is 404 by design (#4048)', async ({ page }) => {
+    // The real deployment's nginx 404s the socket; mirror that so a client that still
+    // tried to connect would land in the fault states this test forbids.
+    await page.routeWebSocket('**/ws/**', (ws) => void ws.close({ code: 1006 }));
+    await page.goto(BASE_URL);
+    await expect(page.getByRole('option', { name: /Foundation/ })).toBeVisible();
+    const footer = page.getByRole('contentinfo', { name: 'Application status' });
+    await expect(footer.getByText('Read-only demo · no live updates')).toBeVisible();
+    // Long enough for a retrying socket to have reached `stale`/`failed`.
+    await page.waitForTimeout(2000);
+    await expect(page.getByText(/Connection lost|Not live|Disconnected/)).toHaveCount(0);
+  });
+
   test('a refused write gets the mode toast, and the dropped date outlives the refetch', async ({
     page,
   }) => {
@@ -248,6 +261,45 @@ test.describe('Read-only demo — the refusal and the preview (ADR-1197 D3/D4)',
     await expect(page.getByTestId('toast-pill')).toContainText(
       "Read-only demo — that change wasn't saved.",
     );
+  });
+});
+
+test.describe('Read-only demo — sample project indicator hides its link (#4049)', () => {
+  // Self-contained: its own fixture project and its own beforeEach, so this block
+  // stays a small, isolated addition alongside the other demo-read-only cases.
+  const SAMPLE_PROJECT_ID = 'e2e-demo-00000000-0000-0000-0000-000000004049';
+  const SAMPLE_PROJECTS = [
+    {
+      id: SAMPLE_PROJECT_ID,
+      name: 'Sample Demo Project',
+      description: '',
+      start_date: '2026-04-01',
+      calendar: 'default',
+      is_sample: true,
+      program_detail: { id: 'prog-4049', name: 'Atlas Platform Launch', sample_days_stale: null },
+    },
+  ];
+
+  test('the "Manage demo data" link is hidden, not just inert, for the read-only visitor', async ({
+    page,
+  }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: SAMPLE_PROJECTS,
+      projectId: SAMPLE_PROJECT_ID,
+      tasks: [],
+      demoReadOnly: true,
+      demoLoginHint: DEMO_HINT,
+    });
+    await setupTaskStore(page, { tasks: [] });
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    await page.goto(`/projects/${SAMPLE_PROJECT_ID}/schedule`);
+    const sampleBar = page.getByRole('note', { name: 'This is sample data' });
+    await expect(sampleBar).toBeVisible();
+    await expect(sampleBar).toContainText('Atlas Platform Launch');
+    await expect(sampleBar.getByRole('link', { name: /manage demo data/i })).toHaveCount(0);
   });
 });
 

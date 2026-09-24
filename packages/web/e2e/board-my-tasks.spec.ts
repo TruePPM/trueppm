@@ -7,6 +7,10 @@
  *   - "Filter: My tasks" chip + "Show all →" affordance appears.
  *   - Toggle state persists across reloads via localStorage.
  *   - Empty state renders when contributor has zero matching tasks.
+ *   - Read-only demo carve-out (issue #4052): a Member visitor on the shared
+ *     interactive-demo account does not land on the "My tasks" default —
+ *     the account has no work of its own, so the filter is off and both
+ *     cards render.
  */
 import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
@@ -132,7 +136,7 @@ const PROJECT_RESOURCES_WITH_ME = [
 
 async function setup(
   page: import('@playwright/test').Page,
-  opts: { projectResources?: unknown[] } = {},
+  opts: { projectResources?: unknown[]; demoReadOnly?: boolean; selfRole?: number } = {},
 ) {
   await setupAuth(page);
   await setupCatchAll(page);
@@ -140,6 +144,8 @@ async function setup(
     projects: FIXTURE_PROJECTS,
     projectId: FIXTURE_PROJECT_ID,
     tasks: FIXTURE_TASKS,
+    demoReadOnly: opts.demoReadOnly,
+    selfRole: opts.selfRole,
   });
   // Override project-resources with our fixture (default in setupApiMocks is empty).
   await page.route('**/api/v1/project-resources/**', (route) =>
@@ -251,5 +257,28 @@ test.describe('Board My tasks filter (#198)', () => {
     }
     await expect(page.getByText('No tasks assigned to you in this project yet.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Show all tasks' })).toBeVisible();
+  });
+
+  test('read-only demo carve-out: a Member visitor does not default into the My tasks lens (#4052)', async ({
+    page,
+  }) => {
+    // Member role would normally default the filter ON (see the ADMIN-default
+    // test above) — the demo carve-out suppresses that because the shared
+    // demo account owns no work of its own.
+    await setup(page, { demoReadOnly: true, selfRole: 100 });
+    await page.goto(ROUTE);
+    await expect(page.getByText('Alice Build')).toBeVisible({ timeout: 10_000 });
+    // Both cards render — the board is not pre-filtered to a lens with zero matches.
+    await expect(page.getByText('Bob Build')).toBeVisible();
+
+    const pill = page
+      .getByRole('toolbar', { name: 'Board toolbar' })
+      .getByRole('button', { name: 'My tasks', exact: true });
+    await expect(pill).toBeVisible();
+    await expect(pill).toHaveAttribute('aria-pressed', 'false');
+
+    // No "Filter: My tasks" lens banner/chip.
+    await expect(page.getByText('Filter: My tasks')).toHaveCount(0);
+    await expect(page.getByText('No tasks assigned to you in this project yet.')).toHaveCount(0);
   });
 });
