@@ -93,8 +93,23 @@ ci:build-deploy-images:
         - .env.example
         - nginx/**/*
         - .gitlab/ci/deploy-drills.yml
+    # compose:demo `needs:` this job but triggers on the dev/demo path list, so
+    # that list must schedule this job too or an MR touching only those files
+    # fails the whole pipeline with zero jobs. The anchor is defined here (it
+    # must precede its first alias) and reused by compose:dev / compose:demo.
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: &dev-demo-drill-paths
+        - docker-compose.yml
+        - docker-compose.demo.yml
+        - packages/api/Dockerfile
+        - packages/web/Dockerfile
+        - nginx/demo.conf.template
+        - scripts/dev-demo-compose-drill.sh
+        - .gitlab/ci/deploy-drills.yml
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes: *deploy-drill-paths
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *dev-demo-drill-paths
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
   script:
@@ -548,14 +563,7 @@ compose:dev:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
       allow_failure: true
     - if: '$CI_COMMIT_BRANCH == "main"'
-      changes: &dev-demo-drill-paths
-        - docker-compose.yml
-        - docker-compose.demo.yml
-        - packages/api/Dockerfile
-        - packages/web/Dockerfile
-        - nginx/demo.conf.template
-        - scripts/dev-demo-compose-drill.sh
-        - .gitlab/ci/deploy-drills.yml
+      changes: *dev-demo-drill-paths
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes: *dev-demo-drill-paths
   before_script:
