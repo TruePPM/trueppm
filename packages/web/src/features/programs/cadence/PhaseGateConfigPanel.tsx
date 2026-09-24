@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent, MouseEvent } from 'react';
-import axios from 'axios';
+import { formatDrfErrorSummary } from '@/lib/apiError';
 import {
   useProgramPhaseGateConfig,
   useUpdateProgramPhaseGateConfig,
@@ -13,20 +13,6 @@ export interface PhaseGateConfigPanelProps {
   programId: string;
   canEdit: boolean;
   onClose: () => void;
-}
-
-function formatMutationError(error: Error): string {
-  if (axios.isAxiosError(error) && error.response?.data) {
-    const data = error.response.data as Record<string, unknown>;
-    if (typeof data.detail === 'string') return data.detail;
-    const messages: string[] = [];
-    for (const [key, val] of Object.entries(data)) {
-      if (Array.isArray(val)) messages.push(`${key}: ${val.join(', ')}`);
-      else if (typeof val === 'string') messages.push(`${key}: ${val}`);
-    }
-    if (messages.length > 0) return messages.join('. ');
-  }
-  return error.message || 'Couldn’t save phase-gate template.';
 }
 
 /**
@@ -66,7 +52,7 @@ export function PhaseGateConfigPanel({ programId, canEdit, onClose }: PhaseGateC
       await update.mutateAsync({ enabled, invite_template: inviteTemplate });
       onClose();
     } catch (err) {
-      setFormError(formatMutationError(err as Error));
+      setFormError(formatDrfErrorSummary(err as Error, 'Couldn’t save phase-gate template.'));
     }
   }
 
