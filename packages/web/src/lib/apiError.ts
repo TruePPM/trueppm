@@ -110,6 +110,32 @@ export function extractFormLevelMessage(error: unknown): string | null {
 }
 
 /**
+ * One-line summary of a failed write for a form-level banner: the DRF `detail`
+ * string, else every `field: msg, msg` pair joined with ". ", else `fallback`.
+ *
+ * The body is shape-checked before it is enumerated. A proxy 502 or an nginx 403
+ * arrives as an HTML **string**, and `Object.entries` on a string yields one entry
+ * per character ("0: <. 1: h. 2: t …"), so anything that is not a plain object
+ * falls straight through to `fallback`. A non-axios error also falls through, using
+ * its own message when it has one.
+ */
+export function formatDrfErrorSummary(error: Error, fallback: string): string {
+  const data: unknown = axios.isAxiosError(error) ? error.response?.data : undefined;
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const record = data as Record<string, unknown>;
+    if (typeof record.detail === 'string') return record.detail;
+    const messages: string[] = [];
+    for (const [key, val] of Object.entries(record)) {
+      if (Array.isArray(val)) messages.push(`${key}: ${val.join(', ')}`);
+      else if (typeof val === 'string') messages.push(`${key}: ${val}`);
+    }
+    if (messages.length > 0) return messages.join('. ');
+  }
+  // An HTML/plain-text body is never shown: it is the proxy's page, not a message.
+  return axios.isAxiosError(error) && typeof data === 'string' ? fallback : error.message || fallback;
+}
+
+/**
  * How deep {@link findFirstMessage} will descend before giving up. DRF nests at
  * most a few levels in practice (`field → index → subfield → messages`); the cap
  * exists so an unexpected body can never make error *reporting* the expensive
