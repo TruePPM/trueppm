@@ -126,12 +126,12 @@ Pin an exact release the same way you'd pin any other PyPI package:
 # pyproject.toml
 [project]
 dependencies = [
-    "trueppm-api==0.4.0b3",
+    "trueppm-api==0.4.0b4",
 ]
 ```
 
 ```bash
-pip install "trueppm-api[c]==0.4.0b3"
+pip install "trueppm-api[c]==0.4.0b4"
 ```
 
 `import trueppm_api; trueppm_api.__version__` reflects the installed distribution
@@ -147,7 +147,7 @@ portfolio-governance apps without forking the OSS backend.
 ## Versioning and releases
 
 **The version number tracks the whole TruePPM platform release, not this package
-independently.** `0.4.0b3` on PyPI corresponds to git tag `v0.4.0-beta.3` in the
+independently.** `0.4.0b4` on PyPI corresponds to git tag `v0.4.0-beta.4` in the
 [trueppm-suite](https://gitlab.com/trueppm/trueppm) monorepo — the same release
 that produced the `api`/`web` Docker images and the Helm chart at that version.
 There is no separate changelog or release cadence for `trueppm-api` alone; see the

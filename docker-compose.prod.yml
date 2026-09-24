@@ -11,7 +11,7 @@
 # Subsequent starts: docker compose -f docker-compose.prod.yml up -d
 #
 # Required .env variables:
-#   APP_VERSION=0.4.0-beta.3 (image tag; defaults to "latest". NO leading "v"
+#   APP_VERSION=0.4.0-beta.4 (image tag; defaults to "latest". NO leading "v"
 #                — the release pipeline strips it before pushing to GHCR
 #                (`VERSION="${CI_COMMIT_TAG#v}"`), so `v0.4.0` does not exist
 #                there. The v-prefixed form is the GitLab registry's

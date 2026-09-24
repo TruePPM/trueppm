@@ -22,7 +22,7 @@ wrong, incomplete, or slower than they should be, see
 
 :::caution[Read the version status first]
 TruePPM is pre-GA. The current shipped release is the first beta, 0.4 (currently
-`v0.4.0-beta.3`). Anything below marked for 0.5 or later is planned, not built. The
+`v0.4.0-beta.4`). Anything below marked for 0.5 or later is planned, not built. The
 [roadmap](/overview/roadmap/) is the authoritative Shipped / Underway / Planned
 record.
 :::

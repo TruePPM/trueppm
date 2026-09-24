@@ -463,9 +463,9 @@ docker compose exec api python manage.py showmigrations | grep -v '\[X\]'
 
 1. **The tag does not exist on that registry.** The two registries carry different
    tag forms: the GitLab Container Registry (the chart's default
-   `image.repository`) has only the **`v`-prefixed** `v0.4.0-beta.3`, and GHCR
+   `image.repository`) has only the **`v`-prefixed** `v0.4.0-beta.4`, and GHCR
    (`ghcr.io/trueppm/{api,web}`, what `docker-compose.prod.yml` pulls) has only the
-   **bare** `0.4.0-beta.3`. The chart pins itself to `v<appVersion>` when
+   **bare** `0.4.0-beta.4`. The chart pins itself to `v<appVersion>` when
    `image.tag` is empty, so pointing `image.repository` at GHCR without setting
    `image.tag` to the bare version fails with `manifest unknown` — and the reverse
    applies to a `v`-prefixed `APP_VERSION` in Compose. See
@@ -478,7 +478,7 @@ docker compose exec api python manage.py showmigrations | grep -v '\[X\]'
 
    ```bash
    helm upgrade <release> oci://ghcr.io/trueppm/charts/trueppm \
-     --version 0.4.0-beta.3 -n <ns> -f <your-values>.yaml
+     --version 0.4.0-beta.4 -n <ns> -f <your-values>.yaml
    ```
 
 3. **No pull credentials** for a private registry. The chart sets no
@@ -498,8 +498,8 @@ kubectl describe pod -n <ns> <pod> | sed -n '/Events/,$p'
 helm get values -n <ns> <release> --all | grep -A 4 '^image:'
 
 # Can you pull it by hand from a machine on the same network?
-docker pull registry.gitlab.com/trueppm/trueppm/api:v0.4.0-beta.3   # GitLab: v-prefixed
-docker pull ghcr.io/trueppm/api:0.4.0-beta.3                        # GHCR: bare version
+docker pull registry.gitlab.com/trueppm/trueppm/api:v0.4.0-beta.4   # GitLab: v-prefixed
+docker pull ghcr.io/trueppm/api:0.4.0-beta.4                        # GHCR: bare version
 ```
 
 **Confirm the fix.** `kubectl get pods` leaves `ImagePullBackOff` and the pod

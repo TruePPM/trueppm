@@ -187,7 +187,7 @@ helm install trueppm oci://ghcr.io/trueppm/charts/trueppm --version <version>
 ```
 
 `<version>` is the release version without a leading `v`, for example
-`0.4.0-beta.3`. The chart version *is* the release version, and its default image
+`0.4.0-beta.4`. The chart version *is* the release version, and its default image
 tag is that same version prefixed with `v`, pulled from the GitLab Container
 Registry (see [Image tags differ by registry](/administration/helm-values/#image-tags-differ-by-registry)).
 Always pass `--version`. Helm skips pre-release chart versions unless you name one,
@@ -440,7 +440,7 @@ CycloneDX SBOM-attested — so you can confirm an artifact was built by the True
 release pipeline before you run it. The one exception was chart `0.4.0` from the
 first beta cut, which was unsigned and has been removed; every chart published since
 verifies. On GHCR `<version>` is
-the bare version, for example `0.4.0-beta.3`. Verify against the GitLab CI OIDC issuer and the release-tag identity:
+the bare version, for example `0.4.0-beta.4`. Verify against the GitLab CI OIDC issuer and the release-tag identity:
 
 ```bash
 # API and web images (repeat for web)
@@ -838,7 +838,7 @@ TRUEPPM_S3_BUCKET_NAME=trueppm-attachments
 # chart-managed allowlist to lean on. Leave it unset unless you have a reason.
 # TRUEPPM_DJANGO_ADMIN_ENABLED=true
 
-APP_VERSION=0.4.0-beta.3
+APP_VERSION=0.4.0-beta.4
 ```
 
 :::caution[Three values the API refuses to start without]

@@ -27,10 +27,10 @@ purpose: it is the path contributors and evaluators use against `main`.
 
 `docker-compose.prod.yml` is the one that pulls pre-built
 `ghcr.io/trueppm/{api,web}` images, at the tag named by `APP_VERSION`. GHCR tags
-are the **bare version** — `0.4.0-beta.3`, no `v` — so set `APP_VERSION` to that
+are the **bare version** — `0.4.0-beta.4`, no `v` — so set `APP_VERSION` to that
 form and pin it for anything you intend to keep. The GitLab Container Registry
 (`registry.gitlab.com/trueppm/trueppm/{api,web}`, which the Helm chart defaults
-to) uses the **`v`-prefixed** form, `v0.4.0-beta.3`; the two are not
+to) uses the **`v`-prefixed** form, `v0.4.0-beta.4`; the two are not
 interchangeable. To avoid pulling at all, build locally with the development
 stack below.
 
