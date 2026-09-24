@@ -1,12 +1,19 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ProjectSampleIndicator } from './ProjectSampleIndicator';
 
 const useProject = vi.fn();
 vi.mock('@/hooks/useProject', () => ({
   useProject: () => useProject() as { data: unknown },
 }));
+
+// Read-only demo gate (ADR-1197 D3, #4049) — mocked the same way CommentComposer's
+// spec mocks it, so the demo branch here is exercised by its own case below.
+const demoMode = vi.hoisted(() => ({
+  value: { isDemoReadOnly: false, loginHint: null, isLoading: false },
+}));
+vi.mock('@/hooks/useDemoMode', () => ({ useDemoMode: () => demoMode.value }));
 
 function renderIndicator() {
   return render(
@@ -17,6 +24,10 @@ function renderIndicator() {
 }
 
 describe('ProjectSampleIndicator', () => {
+  afterEach(() => {
+    demoMode.value = { isDemoReadOnly: false, loginHint: null, isLoading: false };
+  });
+
   it('renders nothing for a non-sample project', () => {
     useProject.mockReturnValue({ data: { is_sample: false } });
     const { container } = renderIndicator();
@@ -47,5 +58,27 @@ describe('ProjectSampleIndicator', () => {
     renderIndicator();
     expect(screen.getByText(/Demo project/)).toBeInTheDocument();
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  it('hides the manage link for the read-only interactive demo (#4049)', () => {
+    demoMode.value = { isDemoReadOnly: true, loginHint: null, isLoading: false };
+    useProject.mockReturnValue({
+      data: { is_sample: true, program_detail: { id: 'prog-9', name: 'Atlas Platform Launch' } },
+    });
+    renderIndicator();
+    expect(screen.getByText(/Demo project/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /manage demo data/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the manage link outside the read-only demo', () => {
+    demoMode.value = { isDemoReadOnly: false, loginHint: null, isLoading: false };
+    useProject.mockReturnValue({
+      data: { is_sample: true, program_detail: { id: 'prog-9', name: 'Atlas Platform Launch' } },
+    });
+    renderIndicator();
+    expect(screen.getByRole('link', { name: /manage demo data/i })).toHaveAttribute(
+      'href',
+      '/programs/prog-9',
+    );
   });
 });

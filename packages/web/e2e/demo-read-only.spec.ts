@@ -251,6 +251,45 @@ test.describe('Read-only demo — the refusal and the preview (ADR-1197 D3/D4)',
   });
 });
 
+test.describe('Read-only demo — sample project indicator hides its link (#4049)', () => {
+  // Self-contained: its own fixture project and its own beforeEach, so this block
+  // stays a small, isolated addition alongside the other demo-read-only cases.
+  const SAMPLE_PROJECT_ID = 'e2e-demo-00000000-0000-0000-0000-000000004049';
+  const SAMPLE_PROJECTS = [
+    {
+      id: SAMPLE_PROJECT_ID,
+      name: 'Sample Demo Project',
+      description: '',
+      start_date: '2026-04-01',
+      calendar: 'default',
+      is_sample: true,
+      program_detail: { id: 'prog-4049', name: 'Atlas Platform Launch', sample_days_stale: null },
+    },
+  ];
+
+  test('the "Manage demo data" link is hidden, not just inert, for the read-only visitor', async ({
+    page,
+  }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: SAMPLE_PROJECTS,
+      projectId: SAMPLE_PROJECT_ID,
+      tasks: [],
+      demoReadOnly: true,
+      demoLoginHint: DEMO_HINT,
+    });
+    await setupTaskStore(page, { tasks: [] });
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    await page.goto(`/projects/${SAMPLE_PROJECT_ID}/schedule`);
+    const sampleBar = page.getByRole('note', { name: 'This is sample data' });
+    await expect(sampleBar).toBeVisible();
+    await expect(sampleBar).toContainText('Atlas Platform Launch');
+    await expect(sampleBar.getByRole('link', { name: /manage demo data/i })).toHaveCount(0);
+  });
+});
+
 test.describe('Read-only demo — negative control', () => {
   test('an ordinary 403 on a normal install shows the usual refusal, not the demo one', async ({
     page,
