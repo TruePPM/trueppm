@@ -3,12 +3,12 @@ name: release
 model: sonnet
 description: Cut a TruePPM release — bump versions, rotate changelog, tag, push, and verify GHCR publish (live pre-1.0 as of 0.4, #939) and (post-1.0) trigger enterprise release.
 disable-model-invocation: true
-argument-hint: "<patch|minor|major|alpha|beta|rc|release|x.y.z> [alpha|beta|rc]"
+argument-hint: "<0.4 beta 4 | x.y.z[-stage.N] | patch|minor|major|alpha|beta|rc|release [alpha|beta|rc]>"
 ---
 
 # Release
 
-You are creating a release for TruePPM. The heavy lifting lives in `scripts/release.sh` — it handles version bumps across all three packages (`scheduler`, `api`, `web`), changelog fragment assembly, `[Unreleased]` rotation (stable only), commit, and tag. **Do not replicate what the script does manually.** Your job is to run the right pre-flight checks, invoke the script with the right argument, push, and handle post-tag fan-out.
+You are creating a release for TruePPM. The heavy lifting lives in `scripts/release.sh` — it handles version bumps across every package manifest, changelog fragment assembly, `[Unreleased]` rotation (every release, pre-releases included), commit, and tags. **Do not replicate what the script does manually.** Your job is to run the right pre-flight checks, invoke the script with the right argument, push, and handle post-tag fan-out.
 
 TruePPM ships from a single GitLab repo (`gitlab.com/trueppm/trueppm`). **GHCR publish is live pre-1.0, as of the 0.4 beta (#939)** — `github.com/trueppm` was registered-but-empty through 0.3, but every release tag from 0.4 onward publishes public `api`/`web` images and the Helm chart to GHCR (multi-arch `linux/amd64` + `linux/arm64` from `v0.4.0-beta.4` on, #3407; `v0.4.0-beta.1`–`.3` were amd64 only — this timing has now moved twice, so verify against `.gitlab-ci.yml` rather than this sentence). See Step 3's "Pre-1.0" section for the current mechanics and how to re-verify the policy hasn't drifted again.
 
@@ -26,9 +26,26 @@ Pre-rel:   minor alpha | minor beta | minor rc        (start a series)
 Explicit:  x.y.z   or   x.y.z-rc.N
 ```
 
+### The user named the target: `/release 0.4 beta 4`
+
+This is the normal way a cut is started, and it means **"cut exactly `0.4.0-beta.4`"**. Normalize the words to the explicit semver and pass *that* to the script, never a bump keyword. The user stated the result, so do not re-derive it:
+
+| `$ARGUMENTS` | Explicit version |
+|---|---|
+| `0.4 beta 4`, `0.4.0 beta 4`, `0.4.0-beta.4` | `0.4.0-beta.4` |
+| `0.5 alpha 1` | `0.5.0-alpha.1` |
+| `0.4 rc 1` | `0.4.0-rc.1` |
+| `0.4`, `0.4.0`, `0.4 stable` | `0.4.0` |
+
+Then check it is the **next** version, not just a valid one. Read the current version from `packages/api/pyproject.toml` (the script's canonical source) and the latest `v*` tag (`git tag --list 'v*' --sort=-v:refname | head -1`). The target must be exactly one step after the current version: the next number in the same stage (`beta.3 → beta.4`), `.1` of a later stage (`beta.N → rc.1`), or the stable finalize (`rc.N → 0.4.0`). If it skips a number, repeats an existing tag, or goes backwards, **stop and say so**. Do not "fix" it to the nearest valid version.
+
+In this mode you ask the user nothing further about the version. The two remaining human checkpoints are the release **summary** (Step 2) and any 🔴 pre-flight failure (Step 1).
+
+### No arguments
+
 If `$ARGUMENTS` is empty, determine the right bump:
 
-1. Read the current version from `packages/scheduler/pyproject.toml` (canonical source).
+1. Read the current version from `packages/api/pyproject.toml` (the script's canonical source; the scheduler and mcp manifests carry the PEP 440 form of the same version).
 2. List unassembled changelog fragments: `ls changelog.d/*.md` (excluding `README.md`). Group by type suffix (`.added.md`, `.changed.md`, `.fixed.md`, `.security.md`).
 3. Apply these rules:
    - **PATCH** — only `.fixed.md` (and possibly `.security.md`) fragments → e.g. `0.1.0 → 0.1.1`
@@ -60,6 +77,8 @@ Before running the script:
 - [ ] Confirm no merge-conflict markers remain anywhere — particularly in `CHANGELOG.md` (`grep -n '<<<<<<< ' CHANGELOG.md`)
 - [ ] Confirm `GHCR_USER`/`GHCR_TOKEN` CI/CD variables **exist AND are actually reachable by the tag you're about to push.** Existence alone is not enough: `glab api "projects/:id/variables"` will show them as `protected: true` — and a protected variable is withheld from any job whose ref isn't a **Protected Tag** (Settings → Repository → Protected tags), full stop, even if the variable is configured correctly. This is exactly what happened at the 0.4.0-beta.1 cut: `scheduler-v*` was protected, `v*` wasn't, so `v0.4.0-beta.1` triggered `api:publish`/`web:publish`/`helm:publish` with `GHCR_USER`/`GHCR_TOKEN` silently empty — three failed jobs, discovered only from the pushed tag's pipeline. Check `glab api "projects/:id/protected_tags"` and confirm a pattern there covers **every** tag scheme a protected variable's job needs: `v*`, `scheduler-v*`, `mcp-v*`. If one is missing, add it now (`glab api "projects/:id/protected_tags" --method POST -f "name=<pattern>" -f "create_access_level=40"` — Maintainers, matching the existing patterns) — cheaper before the tag than after. See Step 3.
 - [ ] The same existence-isn't-enough trap applies to any credential scoped by more than a name: `trueppm-mcp`'s first-ever PyPI Trusted Publisher binding (Step 3) is scoped to the `pypi-mcp` **environment**, not just the project — a publisher that exists but is bound to the wrong (or no) environment fails at PyPI's mint-token step exactly like a missing credential would, with a similarly generic-sounding error. When a human confirms "that's set up," verify the *binding* matches what the job actually presents (environment name, workflow file, namespace/project) rather than taking "it's set up" as sufficient on its own.
+- [ ] **Prove `api:publish:pypi`'s Trusted Publisher before any tag depends on it.** A PyPI upload cannot be redone, so a misbound publisher burns the version number. `ci:pypi-mint-probe` (#3992) runs the real job's build, attestation signing and OIDC mint-token exchange, then stops before the upload. Look for a successful `api:publish:pypi` on the previous `v*` tag's pipeline. If there is none, or the job's `image` / `id_tokens:` / `environment:` changed since, run `glab ci run -b main --variables PYPI_PROBE:1` and wait for `ci:pypi-mint-probe` to succeed. A failure prints PyPI's own reason and blocks the cut. `scheduler:publish` and `mcp:publish` need the same proof only when their publish config changed since their last green tag.
+- [ ] Confirm `main`'s pipeline for the commit you will release from is **green**, not running: `glab api "projects/trueppm%2Ftrueppm/pipelines?ref=main&sha=$(git rev-parse HEAD)"`. The release commit lands on top of it, and `tag:wait-for-main` refuses to publish from a commit whose own `main` pipeline is not green.
 - [ ] Confirm Docker is running (`docker info`) and `uv` is installed (`uv --version`) — `scripts/release.sh` builds and Trivy-scans the api image before touching any manifest, and re-locks three `uv.lock` files.
 - [ ] `source packages/api/.venv/bin/activate` in the shell you'll run `make pre-push` / `scripts/release.sh` from. Homebrew's `mypy` ahead of the venv's on `PATH` produces spurious `redundant-cast`/`unused-ignore` errors on `packages/api/src/trueppm_api/core/valkey.py` — this reproduces on a clean `main` checkout too, so it's an environment artifact, not a real failure, but it will fail `api-typecheck` (and therefore `make pre-push`) until the venv's `bin` comes first. The repo's `pre-push` git hook needs this same activation in its own invoking shell — `git push` from an unactivated shell re-fails the identical way even after a manual `make pre-push` passed.
 - [ ] If the target milestone has its own launch-checklist issue (search issue titles in that milestone for "launch-gate checklist" / "release checklist"), read it. Its checkboxes are usually launch-*day* actions (image publish, a hosted-demo deploy, a registry submission) that happen *after* the tag, not blockers for cutting it — but verify every sub-issue it names as a **tag** blocker is actually closed, not just assumed closed, and that anything still open was deliberately re-milestoned or labeled `release::stretch` rather than silently dropped.
@@ -120,35 +139,48 @@ This is a review pass, not an agent invocation — do it by hand against the dif
 
 ## Step 2 — Run the release script
 
-```bash
-./scripts/release.sh <bump>
-```
+### 2a — The release summary (the one approval you need)
 
-Use the **explicit version** form (`./scripts/release.sh 0.4.0-beta.1`) rather than a bump keyword whenever Step 0 found the manifests already at the target version — see "Manifests already bumped by a prep commit" above. A bump keyword here recomputes from the current version and will double-bump.
+The dated CHANGELOG section opens with a summary, and `release:create` publishes it as the GitLab Release page body. The script ignores the `_Nothing yet._` placeholder and **aborts before bumping anything** when it has no summary (#4041). So:
 
-Non-interactive invocation (an agent running this, not a human at a TTY): export `RELEASE_ASSUME_YES=1` to accept the computed/explicit version without a prompt — but only *after* independently confirming Step 0's version is correct. The confirmation gate exists specifically to catch a wrong stage or a stale base; don't set this as a default habit. Draft a real `RELEASE_SUMMARY` ahead of time and export it (or pass `--summary "<text>"`) rather than accepting the script's default: on a long pre-1.0 cycle, `changelog.d/` can carry 1000+ fragments, and the default summary (the prose already written under `[Unreleased]`) is usually empty — the script ignores the `_Nothing yet._` placeholder and aborts before bumping anything when no summary is available (#4041). A multi-paragraph summary goes in with `--summary "$(cat <file>)"`; the TTY prompt only accepts a one-line replacement. The target version's own roadmap headline paragraph (Step 1a) is the best source for a real one-paragraph summary.
+1. If the user already approved a summary for this version, in this conversation or as a file they point you to, use it verbatim.
+2. Otherwise draft one and write it to the scratchpad as `release-summary-<version>.md`. Draw on the target version's roadmap headline, the `changelog.d/` fragments (`added` and `security` first), and anything an upgrader must act on. Shape: an opening line naming the release and the version it **supersedes** (the previous `v*` tag); a paragraph on what's new; a bold **"Upgrading from <previous> or earlier? Read this first."** paragraph when any fragment breaks an upgrade (a chart that now refuses to render, a removed setting, a required migration step); then fixes and security in prose. Keep blank lines between paragraphs, because the Release page keeps them. Show it to the user and **wait for approval**. This is the only pause in a named-version run.
 
-The script will automatically:
-1. Validate the working tree is clean and the branch is `main`
-2. Compute the new version from the canonical source (`packages/scheduler/pyproject.toml`)
-3. Bump versions in `packages/scheduler/pyproject.toml`, `packages/api/pyproject.toml`, `packages/web/package.json`, `packages/wasm-scheduler/Cargo.toml`, `packages/helm/Chart.yaml` (both `version` and `appVersion` — the chart's default image tag is `v<appVersion>`, so a stale one ships a chart that pulls images which do not exist), and `packages/mcp/` (`pyproject.toml` and both version fields in `server.json`) to lockstep, then re-lock each `uv.lock`. `packages/mcp/src/trueppm_mcp/__init__.py` is **not** bumped — like `packages/scheduler/src/trueppm_scheduler/__init__.py` and `packages/api/src/trueppm_api/__init__.py`, its `__version__` is read from installed package metadata at import time, not a literal (#3878)
-4. For **stable** releases only: assemble `changelog.d/*.md` fragments via `scripts/assemble-changelog.sh`, rotate `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`, prepend a fresh `[Unreleased]` block, and delete the consumed fragments
-5. For **pre-releases** (alpha/beta/rc): leave `[Unreleased]` and fragments alone — notes accumulate until the final stable release
-6. Commit (`chore(release): bump version to X.Y.Z`) and create **three** annotated tags: `vX.Y.Z` (Docker + Helm publish), `scheduler-v<PEP440>` (`trueppm-scheduler` PyPI publish), and `mcp-v<PEP440>` (`trueppm-mcp` PyPI publish). The PyPI tags carry the PEP 440 form of the same version — `mcp-v0.4.0b1`, not `mcp-v0.4.0-beta.1`
-
-The script **does not push and does not create an MR** — TruePPM tags from `main` directly. Read the printed "Next steps" line for the exact push command. If the script fails, read the error output before taking any action — common failure modes: dirty working tree, not on `main`, empty `[Unreleased]`, or duplicate tag.
-
-## Step 3 — Push the tag
-
-After the script reports success:
+### 2b — Cut
 
 ```bash
-git push origin main vX.Y.Z
-git push origin scheduler-v<PEP440>    # triggers trueppm-scheduler PyPI publish
-git push origin mcp-v<PEP440>          # triggers trueppm-mcp PyPI publish
+source packages/api/.venv/bin/activate
+RELEASE_ASSUME_YES=1 ./scripts/release.sh <explicit version> --summary "$(cat <summary file>)"
 ```
 
-The script prints all three commands under "Next steps" — copy them from there rather than reconstructing the PEP 440 suffix by hand.
+Always pass the explicit version from Step 0. `RELEASE_ASSUME_YES=1` is correct here because Step 0 already confirmed it is the next version. Do not set it on a keyword bump you have not checked.
+
+The script, in order:
+1. Refuses to run unless the tree is clean, the branch is `main`, and none of the three tags exist
+2. Resolves the summary and aborts if there is none, all before touching anything
+3. Builds and Trivy-scans the api image (linux/amd64 only; arm64 is first built by the tag pipeline). This takes about 10 minutes on an arm64 Mac.
+4. Bumps every manifest to lockstep: `packages/{api,scheduler,mcp}/pyproject.toml`, `packages/mcp/server.json` (both fields), `packages/web/package.json`, `packages/wasm-scheduler/Cargo.{toml,lock}`, `packages/helm/Chart.yaml` (`version` and `appVersion`; the chart's default image tag is `v<appVersion>`). It also restamps `CI_API_TAG` in `.gitlab-ci.yml`, re-locks the three `uv.lock` files, and regenerates `docs/api/openapi.json`. `__version__` literals are **not** bumped; they are read from package metadata (#3878).
+5. On **every** release, pre-releases included, assembles `changelog.d/` into `[Unreleased]`, rotates it into `## [X.Y.Z] — YYYY-MM-DD` opening with the summary, leaves a fresh `_Nothing yet._` `[Unreleased]`, and deletes the consumed fragments. It rotates `packages/scheduler/CHANGELOG.md` the same way.
+6. Runs `remove-ships-in-callouts.sh` for the version's `0.X`. This is a no-op unless the roadmap promoted it (Step 1a).
+7. Commits `chore(release): bump version to X.Y.Z` and creates three annotated tags: `vX.Y.Z` (images + chart), `scheduler-v<PEP440>` and `mcp-v<PEP440>` (PyPI). The PyPI tags use the PEP 440 form, e.g. `mcp-v0.4.0b4`, not `mcp-v0.4.0-beta.4`.
+
+After it succeeds, sanity-check before pushing: `git status` is clean, `git show --stat HEAD` touches only the files above plus deleted fragments, and the new CHANGELOG section opens with the approved summary.
+
+If the script fails, read its error before doing anything. It fails closed before step 4 for everything except a failed `uv lock` or openapi export. If it dies after step 4, `git reset --hard origin/main` discards the partial bump; delete any local tags it made first (`git tag -d`).
+
+## Step 3 — Push
+
+**The release commit goes straight to `main`.** This is the one sanctioned direct push to `main` (CLAUDE.md, "Git workflow"); invoking `/release` authorizes it. Push in two steps, so a red `main` can never leave a tag that has been pushed but not published:
+
+```bash
+git push origin main                       # pre-push hook runs make pre-push; venv must be active
+# wait: the main pipeline at the release commit must reach "success"
+git push origin vX.Y.Z scheduler-v<PEP440> mcp-v<PEP440>
+```
+
+Poll `glab api "projects/trueppm%2Ftrueppm/pipelines?ref=main&sha=$(git rev-parse HEAD)"` every few minutes. It takes about 12 minutes. If it fails, **stop**: the tags are still only local, so fix forward on a branch, then delete the local tags and re-cut. Copy the tag names from the script's "Next steps" output rather than reconstructing the PEP 440 suffix.
+
+Then watch all three tag pipelines to completion (`glab api "projects/trueppm%2Ftrueppm/pipelines?ref=<tag>"`). Publish jobs sit behind `tag:wait-for-main`. Report every publish job's final status. If a publish job fails, read its log first and never delete a tag whose images have published (Step 5).
 
 Pushing the tag triggers the release pipeline. What happens next depends on the version line:
 
