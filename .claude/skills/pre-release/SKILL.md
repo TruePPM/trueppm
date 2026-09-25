@@ -151,13 +151,15 @@ The 2026-06-09 `/pre-release full` run validated this assignment table against r
 
 From the 2026-06-09 run, expect each **wave agent** to run roughly **45–170k tokens, 20–240 tool calls, 2–16 min**; the **consolidator** (Steps 2–3, delegated per Step 0.65) ~350k tokens; the **full fleet total** ~2.6M tokens. Treat these as the calibration band, not a budget to spend down.
 
+**State the expected cost before launching.** Tell the user the audit type, the agent count, and the token estimate from the baseline above (a targeted audit is roughly the per-agent band times its agent count; `full` is ~2.6M) and give them the chance to narrow scope. The estimate assumes no nested agents (Step 0.65 pattern 6) — an estimate that ignores children is wrong by the multiplier.
+
 **Runaway guard:** an agent that exceeds ~250k tokens, or roughly 2× any of these baselines, is signalling a runaway — scope drift, a search loop, or repeated re-reads — not deeper rigor. Investigate it before trusting its findings; do not silently absorb the overrun into the run total.
 
 ---
 
 ## Step 0.65 — Orchestration cost patterns
 
-These five patterns keep a 20+ agent run cheap and stable without weakening any check. They tune *how* the fleet runs, not *what* it audits.
+These six patterns keep a 20+ agent run cheap and stable without weakening any check. They tune *how* the fleet runs, not *what* it audits.
 
 1. **Detached worktree.** Run the audit against a detached read-only worktree at the true tip: `git fetch origin main && git worktree add <tmpdir> origin/main --detach`. Agents see `origin/main` rather than a stale or dirty local checkout, branch switches in the main checkout can't disturb them mid-run, and the user's working tree stays untouched. Remove the worktree (`git worktree remove <tmpdir>`) when the audit completes.
 
@@ -168,6 +170,8 @@ These five patterns keep a 20+ agent run cheap and stable without weakening any 
 4. **Background-parallel waves.** Launch each wave's agents as parallel background tasks in a single batch; the wave gate evaluates once they all complete. Kaizen and voc-audit (Steps 0.7 and 0.8) are wave-independent — launch them alongside Wave 1 rather than serially before it.
 
 5. **Delegated consolidation.** Steps 2–3 (consolidate + cross-reference) run as **one delegated Opus agent**, not inline in the orchestrator. It reads all reports from the run directory, dedups findings that multiple agents raised, recalibrates severity against the pre-1.0/post-1.0 bar (agents over-rate 🔴 — the 2026-06-09 run filed 6 blockers out of 15 agent-rated 🔴s), cross-references **both open and closed** issues, and emits one draft file per finding (frontmatter: title / labels / milestone / severity / action / refs; body: Problem / Root cause / Fix instructions / Test plan) ready for mechanical filing. The orchestrator spot-checks the drafts and executes the filing.
+
+6. **No nested fan-out.** Only the orchestrator launches agents. Every wave-agent prompt (and the consolidator's) must include this line verbatim: **"Do not spawn subagents; do the audit directly with Read/Grep/Bash."** The audit agents inherit the `Agent` tool, and left unconstrained they delegate: on 2026-09-22 a targeted `/pre-release security` run (2 agents) spawned 14 more (16 total) within ~4 minutes, multiplying cost several-fold without adding a single check the fleet did not already own. The one sanctioned exception is `voc-audit` (Step 0.8b), whose per-surface persona panel is bounded by design. After launching any wave, run `ListAgents` a few minutes in; if the count exceeds what the wave should contain, stop the extras and re-prompt with the line above.
 
 ---
 
