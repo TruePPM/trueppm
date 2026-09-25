@@ -455,6 +455,7 @@ If the audit type was `full`:
 - If any 🔴 blocking findings remain unresolved against $WORKING_RELEASE → **do not proceed to `/release`**. Tell the user: "Pre-release audit found N blocking issue(s) against $WORKING_RELEASE. Resolve these before running `/release`."
 - If only 🟡 findings remain → advise the user to triage them, then they may proceed to `/release`
 - If all findings are 🟢 → "Pre-release audit passed. You may proceed to `/release` for $WORKING_RELEASE."
+- **Blind spot: this audit says nothing about tag-only jobs** (`*:publish*`, `release:create`, `tag:wait-for-main`, `scheduler:release`, `mcp:release`, `pages`, Helm OCI chart resolution, PyPI project binding). They run only from the tag commit's CI file, so no audit of the tree can exercise them, and a clean report here is not evidence about them. Say so when reporting a pass, and point the user at the `/release` Step 1 checklist items on tag-only jobs (the inventory, `ci:*-probe`/smoke runs, the chart resolution check, and the re-cut warning).
 
 ---
 

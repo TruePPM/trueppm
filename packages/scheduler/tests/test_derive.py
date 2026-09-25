@@ -647,15 +647,22 @@ class TestLateWindowFloorDerivation:
         )
 
     @pytest.mark.parametrize("quantity", [Quantity.LATE_START, Quantity.LATE_FINISH])
-    def test_floored_late_date_cites_the_floor(self, quantity: Quantity) -> None:
+    def test_weekend_milestone_late_date_cites_its_successor(self, quantity: Quantity) -> None:
+        """A milestone's late date is an instant, so its successor bound names it.
+
+        Before #4079 this milestone's late date was produced by the floor: the FS
+        bound resolved to the Friday and the floor raised it to the Saturday. A
+        milestone is now an instant, and the start of Saturday sits at the same
+        working-time position as the start of Monday — the successor's bound — so
+        the successor link *is* the binding constraint and is shown on the
+        Saturday. Citing the floor would now name a mechanism that did not run.
+        """
         d = derive_value(self._milestone_project(), "M", quantity)
         binding = [c for c in d.contributions if c.is_binding]
-        assert [c.kind for c in binding] == ["late_window_floor"]
+        assert [c.kind for c in binding] == ["successor_fs"]
         # Faithfulness: the binding date is the engine's own value (rule 120).
         assert binding[0].imposed_date is not None
         assert binding[0].imposed_date.isoformat() == d.value == self.SAT.isoformat()
-        # The candidate terms it beat are still reported, so a reader can see the
-        # Saturday is neither the project-finish anchor nor the successor bound.
         assert {c.kind for c in d.contributions} >= {"project_finish", "successor_fs"}
 
     def test_floor_on_a_working_day_finish_is_still_cited(self) -> None:

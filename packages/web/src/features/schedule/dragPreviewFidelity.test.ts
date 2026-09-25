@@ -95,7 +95,9 @@ describe('#3535 mechanism 1 — dragging a task earlier propagates to its succes
   it('reports a milestone that moves EARLIER, not only one that slips', () => {
     const withMilestone = [
       tasks[0],
-      task('M', '2024-01-11', '2024-01-11', {
+      // A milestone after work sits on that work's finish day (#4079), so the
+      // server hands the preview M on A's finish (Wed 01-10), not the day after.
+      task('M', '2024-01-10', '2024-01-10', {
         isMilestone: true,
         name: 'Go Live',
         duration: 0,
@@ -107,7 +109,7 @@ describe('#3535 mechanism 1 — dragging a task earlier propagates to its succes
     // improvement the server WILL make produced no headline at all.
     expect(worstMilestone).not.toBeNull();
     expect(worstMilestone!.name).toBe('Go Live');
-    expect(worstMilestone!.newFinish).toBe('2024-01-04');
+    expect(worstMilestone!.newFinish).toBe('2024-01-03');
     expect(worstMilestone!.deltaDays).toBe(-7);
   });
 });

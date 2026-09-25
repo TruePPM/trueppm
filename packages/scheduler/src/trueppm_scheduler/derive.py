@@ -29,16 +29,25 @@ sensitivity tornado) is already a first-class engine output surfaced by the API
 from __future__ import annotations
 
 import enum
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
 
 from trueppm_scheduler.engine import (
+    _START_ANCHORED,
     SchedulerError,
     ScheduleResult,
+    _edge_anchor,
     _effective_duration_days,
     _finish_from_start,
+    _Instant,
+    _instant_day,
     _is_complete,
+    _late_display,
+    _milestone_instants,
+    _milestone_latest,
+    _milestone_refs,
     _next_working_day,
     _prev_working_day,
     _resolve_task_calendars,
@@ -324,6 +333,19 @@ def _derive_scheduled_start(
     return scheduled_start.isoformat(), contribs
 
 
+@dataclass(frozen=True)
+class _LinkContext:
+    """Milestone facts about one link, for replaying the #4079 instant rule.
+
+    ``pred_instant`` is the predecessor's milestone instant (``None`` for ordinary
+    work), ``pred_cal`` its calendar, and ``to_milestone`` whether the target is one.
+    """
+
+    pred_instant: _Instant | None = None
+    pred_cal: Calendar = field(default_factory=Calendar)
+    to_milestone: bool = False
+
+
 # Provenance kind + label per dependency type, mirroring ``engine._forward_pass``.
 _FORWARD_PRED_KIND: dict[DependencyType, tuple[str, str]] = {
     DependencyType.FS: ("predecessor_fs", "FS"),
@@ -334,7 +356,12 @@ _FORWARD_PRED_KIND: dict[DependencyType, tuple[str, str]] = {
 
 
 def _pred_forward_contribution(
-    pred: Task, dep_type: DependencyType, lag: timedelta, cal: Calendar
+    pred: Task,
+    dep_type: DependencyType,
+    lag: timedelta,
+    cal: Calendar,
+    link: _LinkContext | None = None,
+    keys: dict[int, tuple[date, bool]] | None = None,
 ) -> DerivationContribution:
     """One predecessor's early-* contribution, snapped to a working day.
 
@@ -342,17 +369,38 @@ def _pred_forward_contribution(
     the predecessor's ``early_finish`` (FS with the extra +1 inclusive→exclusive
     interval day), SS/SF its ``early_start``, then snap ``anchor + lag`` forward
     to the next working day.
+
+    Milestones (#4079): a milestone predecessor anchors on its instant
+    (``engine._edge_anchor``), and a milestone *target* is shown on the day of the
+    instant the link proposes (``engine._place_milestone``). ``keys`` then receives
+    the instant and its start-of-day reading, the key the engine compares on.
     """
     assert pred.early_start is not None and pred.early_finish is not None
-    if dep_type == DependencyType.FS:
-        raw = _safe_offset(pred.early_finish, timedelta(days=1) + lag)
-    elif dep_type == DependencyType.FF:
-        raw = _safe_offset(pred.early_finish, lag)
-    else:  # SS / SF anchor on the predecessor start
-        raw = _safe_offset(pred.early_start, lag)
+    ctx = link or _LinkContext()
+    pred_instant = ctx.pred_instant
+    raw = _safe_offset(
+        _edge_anchor(
+            dep_type,
+            pred.early_start,
+            pred.early_finish,
+            None if pred_instant is None else pred_instant[0],
+            ctx.pred_cal,
+        ),
+        lag,
+    )
     imposed = _next_working_day(raw, cal)
+    key: tuple[date, bool] | None = None
+    if ctx.to_milestone:
+        if dep_type in _START_ANCHORED:
+            start_display = (
+                pred_instant[1] if pred_instant is not None else dep_type == DependencyType.SS
+            )
+            imposed = _instant_day(raw, start_display, cal)
+            key = (raw, start_display)
+        else:
+            key = (_safe_offset(imposed, timedelta(days=1)), False)
     kind, label = _FORWARD_PRED_KIND[dep_type]
-    return DerivationContribution(
+    contribution = DerivationContribution(
         kind=kind,
         source_task_id=pred.id,
         source_task_name=pred.name,
@@ -361,6 +409,30 @@ def _pred_forward_contribution(
         imposed_date=imposed,
         calendar_days_added=_days_between(raw, imposed),
     )
+    if keys is not None and key is not None:
+        keys[id(contribution)] = key
+    return contribution
+
+
+def _flag_latest_instant(
+    terms: list[DerivationContribution], keys: dict[int, tuple[date, bool]]
+) -> None:
+    """Flag the term proposing the latest instant, as ``engine._place_milestone`` picks it.
+
+    A floor term (no key) proposes the start of its own day. Ties prefer a real
+    predecessor link, as :func:`_flag_binding` does.
+    """
+
+    def key_of(c: DerivationContribution) -> tuple[date, bool]:
+        if id(c) in keys:
+            return keys[id(c)]
+        assert c.imposed_date is not None
+        return (c.imposed_date, True)
+
+    best = max(key_of(c) for c in terms)
+    winners = [c for c in terms if key_of(c) == best]
+    chosen = next((c for c in winners if c.source_task_id is not None), winners[0])
+    chosen.is_binding = True
 
 
 def _derive_forward(
@@ -371,11 +443,13 @@ def _derive_forward(
     status_date: date | None,
     *,
     want_finish: bool,
+    links: list[_LinkContext] | None = None,
 ) -> tuple[str | int | None, list[DerivationContribution]]:
     """Replay :func:`engine._forward_pass` for one node, recording provenance.
 
     Returns the value (ISO date string) and the candidate contributions, with the
     binding one flagged. ``want_finish`` selects ``early_finish`` vs ``early_start``.
+    ``links`` carries each predecessor's milestone context, parallel to ``preds``.
     """
     # Completed tasks are pinned to their recorded actuals and taken out of network
     # logic (engine ADR-0136); the honest binding is the recorded actual, not a
@@ -391,12 +465,23 @@ def _derive_forward(
     # FS/SS impose the early start (appended in-line); FF/SF impose the early finish
     # and are collected separately so the binding resolution below can flag them.
     ef_terms: list[DerivationContribution] = []
-    for pred, dep_type, lag in preds:
-        contribution = _pred_forward_contribution(pred, dep_type, lag, cal)
+    ctxs = links if links is not None else [_LinkContext() for _ in preds]
+    to_milestone = any(c.to_milestone for c in ctxs) if ctxs else False
+    keys: dict[int, tuple[date, bool]] = {}
+    for (pred, dep_type, lag), ctx in zip(preds, ctxs, strict=True):
+        contribution = _pred_forward_contribution(pred, dep_type, lag, cal, ctx, keys)
         if dep_type in (DependencyType.FF, DependencyType.SF):
             ef_terms.append(contribution)
         else:
             contribs.append(contribution)
+
+    if to_milestone:
+        # A milestone is one instant (#4079): every term competes for the same
+        # date, and its start and finish are that date.
+        contribs.extend(ef_terms)
+        _flag_latest_instant(contribs, keys)
+        value = task.early_finish if want_finish else task.early_start
+        return (value.isoformat() if value else None, contribs)
 
     # A snapshot, not a filter: every FF/SF term went to ``ef_terms`` above, so
     # ``contribs`` holds only early-start candidates until the extend below.
@@ -532,8 +617,18 @@ def _derive_backward(
     project_finish: date,
     *,
     want_start: bool,
+    refs: _RefsFn | None = None,
+    milestone_day: _DayFn | None = None,
+    finish_instant: date | None = None,
+    early_instant: date | None = None,
 ) -> tuple[str | int | None, list[DerivationContribution]]:
-    """Replay :func:`engine._backward_pass` for one node, recording provenance."""
+    """Replay :func:`engine._backward_pass` for one node, recording provenance.
+
+    ``refs`` maps a successor to the ``(start, finish)`` references it offers (its
+    late dates, or a milestone's instant positions). ``milestone_day`` is set when
+    this task is a milestone (#4079): it shows a late *instant* bound as the day the
+    engine would display for it, so each term is comparable with the value.
+    """
     if _is_complete(task):
         # Completed → late == early → zero float; the finish anchor is its own finish.
         contribs = [
@@ -547,8 +642,35 @@ def _derive_backward(
         value = task.late_start if want_start else task.late_finish
         return (value.isoformat() if value else None, contribs)
 
-    lf_terms, ls_terms = _backward_successor_terms(succs, cal, project_finish)
+    bounds: dict[int, date] = {}
+    lf_terms, ls_terms = _backward_successor_terms(
+        succs,
+        cal,
+        project_finish,
+        refs=refs,
+        milestone_day=milestone_day,
+        finish_instant=finish_instant,
+        bounds_out=bounds,
+    )
     contribs = [*lf_terms, *ls_terms]
+
+    if milestone_day is not None and early_instant is not None:
+        # A milestone's late date is one instant (#4079): every successor bound is
+        # an LF-list term on the instant, and the tightest one sets it unless it
+        # falls below the early instant, where the floor does.
+        value = task.late_start if want_start else task.late_finish
+        tightest = min(bounds[id(c)] for c in lf_terms)
+        if tightest >= early_instant:
+            winners = [c for c in lf_terms if bounds[id(c)] == tightest]
+            chosen = next((c for c in winners if c.source_task_id is not None), winners[0])
+            chosen.is_binding = True
+        else:
+            contribs.append(
+                DerivationContribution(
+                    kind="late_window_floor", imposed_date=value, is_binding=True
+                )
+            )
+        return (value.isoformat() if value else None, contribs)
 
     if want_start:
         contribs.extend(_derive_backward_start_fallback(task, lf_terms, ls_terms, cal))
@@ -597,10 +719,25 @@ def _derive_backward_finish_fallback(
     return [floor if floor is not None else _backward_pullback_binding(task, ls_terms)]
 
 
+_RefsFn = Callable[..., tuple[date, date]]
+_DayFn = Callable[[date], date]
+
+
+def _late_dates(succ: Task, _dep_type: DependencyType | None = None) -> tuple[date, date]:
+    """An ordinary successor's ``(late_start, late_finish)`` references."""
+    assert succ.late_start is not None and succ.late_finish is not None
+    return succ.late_start, succ.late_finish
+
+
 def _backward_successor_terms(
     succs: list[tuple[Task, DependencyType, timedelta]],
     cal: Calendar,
     project_finish: date,
+    *,
+    refs: _RefsFn | None = None,
+    milestone_day: _DayFn | None = None,
+    finish_instant: date | None = None,
+    bounds_out: dict[int, date] | None = None,
 ) -> tuple[list[DerivationContribution], list[DerivationContribution]]:
     """Split the outgoing edges into late-finish and late-start candidate terms.
 
@@ -609,11 +746,17 @@ def _backward_successor_terms(
     provenance must cite the date the engine actually floors at, not a raw weekend
     ``project_finish``.
     """
+    end = finish_instant or _safe_offset(project_finish, timedelta(days=1))
+    seed = _prev_working_day(_safe_offset(end, -timedelta(days=1)), cal)
     lf_terms: list[DerivationContribution] = [
         DerivationContribution(
-            kind="project_finish", imposed_date=_prev_working_day(project_finish, cal)
+            kind="project_finish",
+            # A milestone may sit as late as the project's finish instant (#4079).
+            imposed_date=seed if milestone_day is None else milestone_day(end),
         )
     ]
+    if bounds_out is not None:
+        bounds_out[id(lf_terms[0])] = end
     ls_terms: list[DerivationContribution] = []
 
     # FS/FF bound when this task may finish; SS/SF bound when it may start. The
@@ -632,28 +775,36 @@ def _backward_successor_terms(
         # a derivation term or the explanation would disagree with the late dates.
         if _is_complete(succ):
             continue
-        assert succ.late_start is not None and succ.late_finish is not None
+        succ_start, succ_finish = (refs or _late_dates)(succ, dep_type)
 
         if dep_type == DependencyType.FS:
-            raw = _safe_offset(succ.late_start, -timedelta(days=1) - lag)
+            raw = _safe_offset(succ_start, -timedelta(days=1) - lag)
         elif dep_type == DependencyType.SS:
-            raw = _safe_offset(succ.late_start, -lag)
+            raw = _safe_offset(succ_start, -lag)
         else:  # FF and SF both retreat from the successor's late finish.
-            raw = _safe_offset(succ.late_finish, -lag)
+            raw = _safe_offset(succ_finish, -lag)
 
         terms, kind, label = bounds[dep_type]
         imposed = _prev_working_day(raw, cal)
-        terms.append(
-            DerivationContribution(
-                kind=kind,
-                source_task_id=succ.id,
-                source_task_name=succ.name,
-                dep_type=label,
-                lag_days=lag.days,
-                imposed_date=imposed,
-                calendar_days_added=_days_between(raw, imposed),
-            )
+        if milestone_day is not None:
+            # This task is a milestone (#4079): the bound is on its instant, and
+            # every bound lands in the one LF list.
+            terms = lf_terms
+            raw = _safe_offset(succ_start if dep_type in _START_ANCHORED else succ_finish, -lag)
+            bound = _milestone_latest(dep_type, lag, succ_start, succ_finish, cal)
+            imposed = milestone_day(bound)
+        contribution = DerivationContribution(
+            kind=kind,
+            source_task_id=succ.id,
+            source_task_name=succ.name,
+            dep_type=label,
+            lag_days=lag.days,
+            imposed_date=imposed,
+            calendar_days_added=_days_between(raw, imposed),
         )
+        terms.append(contribution)
+        if milestone_day is not None and bounds_out is not None:
+            bounds_out[id(contribution)] = bound
 
     return lf_terms, ls_terms
 
@@ -802,10 +953,17 @@ def _flag_binding(
     return tightest
 
 
-def _derive_total_float(task: Task, cal: Calendar) -> tuple[int, list[DerivationContribution]]:
-    """total_float = working days between early_start and late_start (engine def)."""
+def _derive_total_float(
+    task: Task, cal: Calendar, instants: tuple[date, date] | None = None
+) -> tuple[int, list[DerivationContribution]]:
+    """total_float = working days between early_start and late_start (engine def).
+
+    For a milestone, ``instants`` is its ``(early, late)`` instant pair and the span
+    is measured between them, as ``engine._compute_floats`` does (#4079).
+    """
     assert task.early_start is not None and task.late_start is not None
-    tf_days = _working_days_between(task.early_start, task.late_start, cal)
+    span = instants or (task.early_start, task.late_start)
+    tf_days = _working_days_between(span[0], span[1], cal)
     contribs = [
         DerivationContribution(
             kind="early_start", imposed_date=task.early_start, is_binding=True, slack_days=tf_days
@@ -821,6 +979,8 @@ def _inverse_link_constraint(
     dep_type: DependencyType,
     lag: timedelta,
     cal: Calendar,
+    succ_refs: tuple[date, date] | None = None,
+    milestone: tuple[date, _DayFn] | None = None,
 ) -> tuple[date, int]:
     """Latest date this link permits, and the working-day slip to it.
 
@@ -829,24 +989,38 @@ def _inverse_link_constraint(
     measuring the gap from the forward-imposed date, which diverged whenever a
     calendar-day lag re-landed across non-working days (#1828).
 
+    ``succ_refs`` replaces the successor's early dates with a milestone successor's
+    late-instant references, and ``milestone`` is this task's own ``(early_instant,
+    day_fn)`` when it is a milestone (#4079): its slip is measured between instants.
+
     Returns ``(latest, slack)``.
     """
     assert task.early_start is not None and task.early_finish is not None
     assert succ.early_start is not None and succ.early_finish is not None
+    succ_start, succ_finish = succ_refs or (succ.early_start, succ.early_finish)
 
+    if milestone is not None:
+        early, day_fn = milestone
+        latest = _milestone_latest(dep_type, lag, succ_start, succ_finish, cal)
+        slack = (
+            -_working_days_between(latest, early, cal)
+            if latest < early
+            else _working_days_between(early, latest, cal)
+        )
+        return day_fn(latest), slack
     if dep_type == DependencyType.FS:
         # Latest finish that leaves succ.early_start unmoved (inverse of the
         # forward FS constraint; matches the backward pass's LF retreat).
-        latest = _prev_working_day(_safe_offset(succ.early_start, -timedelta(days=1) - lag), cal)
+        latest = _prev_working_day(_safe_offset(succ_start, -timedelta(days=1) - lag), cal)
         return latest, _working_days_between(task.early_finish, latest, cal)
     if dep_type == DependencyType.SS:
-        latest = _retreat_calendar_days(succ.early_start, lag, cal)
+        latest = _retreat_calendar_days(succ_start, lag, cal)
         return latest, _working_days_between(task.early_start, latest, cal)
     if dep_type == DependencyType.FF:
-        latest = _retreat_calendar_days(succ.early_finish, lag, cal)
+        latest = _retreat_calendar_days(succ_finish, lag, cal)
         return latest, _working_days_between(task.early_finish, latest, cal)
     # SF: successor finish is bounded by this task's start + lag
-    latest = _retreat_calendar_days(succ.early_finish, lag, cal)
+    latest = _retreat_calendar_days(succ_finish, lag, cal)
     return latest, _working_days_between(task.early_start, latest, cal)
 
 
@@ -855,6 +1029,8 @@ def _derive_free_float(
     succs: list[tuple[Task, DependencyType, timedelta]],
     cal: Calendar,
     tf_days: int,
+    early_refs: _RefsFn | None = None,
+    milestone: tuple[date, _DayFn] | None = None,
 ) -> tuple[int, list[DerivationContribution]]:
     """Replay :func:`engine._compute_floats` free-float slack, recording provenance.
 
@@ -887,7 +1063,15 @@ def _derive_free_float(
             and succ.early_start is not None
             and succ.early_finish is not None
         )
-        latest, slack = _inverse_link_constraint(task, succ, dep_type, lag, cal)
+        latest, slack = _inverse_link_constraint(
+            task,
+            succ,
+            dep_type,
+            lag,
+            cal,
+            early_refs(succ, dep_type) if early_refs is not None else None,
+            milestone,
+        )
         slack = max(0, slack)
         c = DerivationContribution(
             kind="successor_free_slack",
@@ -911,6 +1095,75 @@ def _derive_free_float(
         fallback = DerivationContribution(kind="total_float", slack_days=tf_days, is_binding=True)
         contribs.append(fallback)
     return ff_days, contribs
+
+
+@dataclass
+class _MilestoneContext:
+    """What one derivation needs to replay the milestone-instant rule (#4079)."""
+
+    late_refs: _RefsFn
+    early_refs: _RefsFn
+    milestone: tuple[date, _DayFn] | None
+    own_instants: tuple[date, date] | None
+    links: list[_LinkContext]
+    finish_instant: date
+
+
+def _milestone_context(
+    project: Project,
+    result: ScheduleResult,
+    task: Task,
+    preds: list[tuple[Task, DependencyType, timedelta]],
+    succs: list[tuple[Task, DependencyType, timedelta]],
+    cal: Calendar,
+    default_cal: Calendar,
+) -> _MilestoneContext:
+    """Milestone kinds and instants around ``task``, recovered only when needed.
+
+    A milestone's kind and late instant are not in the result and can chain through
+    other milestones, so they come from a pass replay
+    (``engine._milestone_instants``) — paid only when the derivation touches a
+    zero-duration task. Otherwise every accessor degrades to plain dates.
+    """
+    task_calendars = _resolve_task_calendars(project)
+    touched = [task, *(p for p, _, _ in preds), *(s for s, _, _ in succs)]
+    instants, late_instants, finish_instant = (
+        _milestone_instants(project)
+        if any(t.duration.days == 0 for t in touched)
+        else ({}, {}, _safe_offset(result.project_finish, timedelta(days=1)))
+    )
+
+    def cal_of(tid: str) -> Calendar:
+        return _cal_for(tid, default_cal, task_calendars)
+
+    def late_refs(succ: Task, _dep_type: DependencyType) -> tuple[date, date]:
+        late = late_instants.get(succ.id)
+        if late is None:
+            return _late_dates(succ)
+        return _milestone_refs(late, cal_of(succ.id))
+
+    def early_refs(succ: Task, _dep_type: DependencyType) -> tuple[date, date]:
+        assert succ.early_start is not None and succ.early_finish is not None
+        early = instants.get(succ.id)
+        if early is None:
+            return succ.early_start, succ.early_finish
+        return _milestone_refs(early[0], cal_of(succ.id))
+
+    own = instants.get(task.id)
+    milestone: tuple[date, _DayFn] | None = None
+    own_instants: tuple[date, date] | None = None
+    if own is not None and task.id in late_instants:
+        own_early = own
+
+        def day_of(instant: date) -> date:
+            # The engine's display rule without its floor, so a bound below the
+            # early instant stays visibly below it (and the floor is cited).
+            return _late_display(instant, task, own_early, cal, result.project_finish)
+
+        milestone = (own[0], day_of)
+        own_instants = (own[0], late_instants[task.id])
+    links = [_LinkContext(instants.get(p.id), cal_of(p.id), own is not None) for p, _, _ in preds]
+    return _MilestoneContext(late_refs, early_refs, milestone, own_instants, links, finish_instant)
 
 
 def derive_value(
@@ -977,6 +1230,13 @@ def derive_value(
         (task_map[succ_id], dep.dep_type, dep.lag) for succ_id, dep in succ_deps.items()
     ]
 
+    # Milestone instants (#4079). Their kind is not in the result, and it can chain
+    # through other milestones upstream, so it is recovered from a forward replay —
+    # paid only when the derivation touches a zero-duration task.
+    mctx = _milestone_context(project, result, task, preds, succs, cal, default_cal)
+    late_refs, early_refs = mctx.late_refs, mctx.early_refs
+    milestone, own_instants, links = mctx.milestone, mctx.own_instants, mctx.links
+
     value: str | int | None
     contribs: list[DerivationContribution]
     if q in (Quantity.EARLY_START, Quantity.EARLY_FINISH):
@@ -987,6 +1247,7 @@ def derive_value(
             project.start_date,
             project.status_date,
             want_finish=q is Quantity.EARLY_FINISH,
+            links=links,
         )
     elif q in (Quantity.LATE_START, Quantity.LATE_FINISH):
         value, contribs = _derive_backward(
@@ -995,15 +1256,19 @@ def derive_value(
             cal,
             result.project_finish,
             want_start=q is Quantity.LATE_START,
+            refs=late_refs,
+            milestone_day=milestone[1] if milestone is not None else None,
+            finish_instant=mctx.finish_instant,
+            early_instant=milestone[0] if milestone is not None else None,
         )
     elif q is Quantity.SCHEDULED_START:
         value, contribs = _derive_scheduled_start(task, cal)
     else:  # TOTAL_FLOAT / FREE_FLOAT — both start from the same total-float replay.
-        tf_days, tf_contribs = _derive_total_float(task, cal)
+        tf_days, tf_contribs = _derive_total_float(task, cal, own_instants)
         if q is Quantity.TOTAL_FLOAT:
             value, contribs = tf_days, tf_contribs
         else:
-            value, contribs = _derive_free_float(task, succs, cal, tf_days)
+            value, contribs = _derive_free_float(task, succs, cal, tf_days, early_refs, milestone)
 
     binding = next((c for c in contribs if c.is_binding), None)
     return Derivation(

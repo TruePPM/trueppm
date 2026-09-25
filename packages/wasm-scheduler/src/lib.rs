@@ -409,7 +409,7 @@ pub(crate) fn compute_full(project: &Project, pg: &ProjectGraph) -> Result<Sched
     // registry — the single-calendar fast path, byte-identical to before.
     let cals = calendar::PassCalendars::resolve(project);
 
-    forward_pass(
+    let instants = forward_pass(
         &mut tasks,
         &pg.topo_order,
         pg,
@@ -425,13 +425,14 @@ pub(crate) fn compute_full(project: &Project, pg: &ProjectGraph) -> Result<Sched
         .max()
         .ok_or("No tasks with early_finish after forward pass")?;
 
-    backward_pass(
+    let late_instants = backward_pass(
         &mut tasks,
         &pg.topo_order,
         pg,
         &project.dependencies,
         project_finish,
         &cals,
+        &instants,
     )?;
 
     let driving_edges = compute_floats(
@@ -440,6 +441,8 @@ pub(crate) fn compute_full(project: &Project, pg: &ProjectGraph) -> Result<Sched
         pg,
         &project.dependencies,
         &cals,
+        &instants,
+        &late_instants,
     )?;
 
     // Deterministic, topologically-valid critical-path order keyed by
