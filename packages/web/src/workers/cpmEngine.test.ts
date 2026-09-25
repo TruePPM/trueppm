@@ -682,7 +682,9 @@ describe('runCpmForwardPass — relaxation is bidirectional', () => {
   it('headlines a milestone that moves EARLIER, not only one that slips', () => {
     const tasks: CpmTask[] = [
       task('A', '2024-01-08', '2024-01-10'),
-      task('M', '2024-01-11', '2024-01-11', {
+      // A milestone after work sits on that work's finish day (#4079), so the
+      // server hands the preview M on A's finish, not the day after it.
+      task('M', '2024-01-10', '2024-01-10', {
         isMilestone: true,
         name: 'Go Live',
         durationDays: 0,
@@ -802,5 +804,72 @@ describe('runCpmForwardPass — a non-working actual never spends a working day 
 
     expect(a.earlyStart).toBe('2026-02-03'); // Tue
     expect(a.earlyFinish).toBe('2026-02-05'); // Tue + Wed + Thu
+  });
+});
+
+describe('runCpmForwardPass — zero-duration milestones are instants (#4079)', () => {
+  const milestone = (id: string, day: string): CpmTask =>
+    task(id, day, day, { isMilestone: true, durationDays: 0, name: id });
+
+  it("places a milestone on its predecessor's finish day and delays nothing", () => {
+    // A (Mon 2026-01-05, 5d) -> M -> B (5d): M on Fri 01-09, B from Mon 01-12,
+    // exactly where A -> B alone would put B.
+    const tasks: CpmTask[] = [
+      task('A', '2026-01-05', '2026-01-09'),
+      milestone('M', '2026-01-09'),
+      task('B', '2026-01-12', '2026-01-16'),
+    ];
+    const { results } = runCpmForwardPass(
+      tasks,
+      [edge('A', 'M'), edge('M', 'B')],
+      'A',
+      '2026-01-12',
+    );
+    const byId = new Map(results.map((r) => [r.taskId, r]));
+    expect(byId.get('M')!.earlyStart).toBe('2026-01-16');
+    expect(byId.get('M')!.earlyFinish).toBe('2026-01-16');
+    expect(byId.get('B')!.earlyStart).toBe('2026-01-19');
+    expect(byId.get('B')!.earlyFinish).toBe('2026-01-23');
+  });
+
+  it('does not move the successor of a project-start milestone', () => {
+    // M0 has no predecessor, so it sits at the START of its day: a successor
+    // starts that same day, not the next one.
+    const tasks: CpmTask[] = [milestone('M0', '2026-01-05'), task('A', '2026-01-05', '2026-01-09')];
+    const { results } = runCpmForwardPass(tasks, [edge('M0', 'A')], 'M0', '2026-01-05');
+    const a = results.find((r) => r.taskId === 'A')!;
+    expect(a.earlyStart).toBe('2026-01-05');
+    expect(a.earlyFinish).toBe('2026-01-09');
+  });
+
+  it('composes lags through a milestone like a direct link', () => {
+    // A -FS(+1)-> M -FS(+1)-> B schedules B where A -FS(+2)-> B would: the
+    // milestone is a raw instant and is never rounded to a working day.
+    const base = [task('A', '2026-01-05', '2026-01-09'), task('B', '2026-01-13', '2026-01-15')];
+    const direct = runCpmForwardPass(base, [edge('A', 'B', 'FS', 2)], 'A', '2026-01-05');
+    const viaM = runCpmForwardPass(
+      [...base, milestone('M', '2026-01-09')],
+      [edge('A', 'M', 'FS', 1), edge('M', 'B', 'FS', 1)],
+      'A',
+      '2026-01-05',
+    );
+    const b = (r: typeof direct) => r.results.find((x) => x.taskId === 'B')!;
+    expect(b(viaM).earlyStart).toBe(b(direct).earlyStart);
+    expect(b(viaM).earlyFinish).toBe(b(direct).earlyFinish);
+  });
+
+  it('treats SS out of a milestone like FS — its start and finish are one point', () => {
+    const tasks: CpmTask[] = [
+      task('A', '2026-01-05', '2026-01-09'),
+      milestone('M', '2026-01-09'),
+      task('B', '2026-01-12', '2026-01-13'),
+    ];
+    const { results } = runCpmForwardPass(
+      tasks,
+      [edge('A', 'M'), edge('M', 'B', 'SS')],
+      'A',
+      '2026-01-05',
+    );
+    expect(results.find((r) => r.taskId === 'B')!.earlyStart).toBe('2026-01-12');
   });
 });

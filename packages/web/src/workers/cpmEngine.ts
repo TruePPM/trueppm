@@ -65,6 +65,15 @@
  * see the note on floor 3 above for the data date, and the gap list below for
  * the project start.
  *
+ * Zero-duration milestones are INSTANTS (#4079), exactly as in both server
+ * engines: a milestone after work sits on that work's finish day, links out of
+ * it measure from the instant (FS/SS) or the last working day before it
+ * (FF/SF), and inserting one into an FS link moves nothing. The client is sent
+ * only the day a milestone is shown on, not which end of that day it sits at,
+ * so a milestone this pass does not re-place is read as the end of its day when
+ * it has a predecessor and the start of its day when it has none — the reading
+ * the server gives a milestone that follows work and one held by a floor.
+ *
  * Known remaining gaps, all reconciled by the server on commit:
  *  - the fixed Mon–Fri week above (#1493). Quantified in #3535: against the
  *    shared fixtures a holiday week or a six-day mask moves the client's answer
@@ -137,6 +146,13 @@ interface TaskState {
    */
   plannedStartMs: number | null;
   isMilestone: boolean;
+  /**
+   * For a live zero-duration task, the midnight its instant sits on (#4079) —
+   * the only thing its links measure from — else null. See the file header.
+   */
+  instantMs: number | null;
+  /** Whether that instant is shown at the start of its own day (else the end of the day before). */
+  startDisplay: boolean;
   name: string;
   /** Original earlyFinish before this recalc (baseline for deltaDays). */
   baselineFinishMs: number;
@@ -250,6 +266,34 @@ function advanceCalendarDays(ms: number, lagDays: number): number {
 }
 
 /**
+ * The raw date a predecessor's constraint is measured from: every bound is
+ * `nextWorkingDay(anchor + lag)`. Ordinary work anchors FS on the day after its
+ * finish, SS/SF on its start and FF on its finish; a milestone anchors FS/SS on
+ * its instant and FF/SF on the last working day before it. Mirrors the server
+ * engines' `_edge_anchor` / `edge_anchor` (#4079).
+ */
+function edgeAnchor(edge: CpmEdge, source: TaskState): number {
+  const startAnchored = edge.type === 'FS' || edge.type === 'SS';
+  if (source.instantMs !== null) {
+    return startAnchored ? source.instantMs : prevWorkingDay(source.instantMs - MS_PER_DAY);
+  }
+  switch (edge.type) {
+    case 'FS':
+      return source.earlyFinishMs + MS_PER_DAY;
+    case 'FF':
+      return source.earlyFinishMs;
+    case 'SS':
+    case 'SF':
+      return source.earlyStartMs;
+  }
+}
+
+/** The day an instant is shown on — mirrors the server's `_instant_day`. */
+function instantDay(instantMs: number, startDisplay: boolean): number {
+  return startDisplay ? nextWorkingDay(instantMs) : prevWorkingDay(instantMs - MS_PER_DAY);
+}
+
+/**
  * Build an adjacency list (predecessors per task) and in-degree map
  * for topological sort.
  */
@@ -326,36 +370,14 @@ function topologicalSort(
  * would hand an in-progress target a start early enough for work it has already
  * done, exactly as `apply_ef_constraints` avoids server-side.
  */
-function constraintFromEdge(
-  edge: CpmEdge,
-  source: TaskState,
-  target: TaskState,
-): number {
-  const lag = edge.lag;
-  switch (edge.type) {
-    case 'FS':
-      // Target cannot start until the day after source finishes, plus lag,
-      // snapped to the next working day.
-      return nextWorkingDay(source.earlyFinishMs + MS_PER_DAY + lag * MS_PER_DAY);
-
-    case 'SS':
-      // Target cannot start before source starts + lag.
-      return advanceCalendarDays(source.earlyStartMs, lag);
-
-    case 'FF': {
-      // Target cannot finish before source finishes + lag; translate that
-      // finish-side constraint into the equivalent earlyStart.
-      const efConstraint = advanceCalendarDays(source.earlyFinishMs, lag);
-      return startFromFinish(efConstraint, target.effectiveDurationDays);
-    }
-
-    case 'SF': {
-      // Target cannot finish before source starts + lag; translate that
-      // finish-side constraint into the equivalent earlyStart.
-      const efConstraint = advanceCalendarDays(source.earlyStartMs, lag);
-      return startFromFinish(efConstraint, target.effectiveDurationDays);
-    }
-  }
+function constraintFromEdge(edge: CpmEdge, source: TaskState, target: TaskState): number {
+  // Lag is calendar days, snapped to the next working day after it is added to
+  // the anchor (`edgeAnchor`, which is where a milestone source differs, #4079).
+  const bound = advanceCalendarDays(edgeAnchor(edge, source), edge.lag);
+  if (edge.type === 'FS' || edge.type === 'SS') return bound;
+  // FF/SF bound the target's FINISH; translate that into the equivalent
+  // earlyStart over the target's remaining duration.
+  return startFromFinish(bound, target.effectiveDurationDays);
 }
 
 /**
@@ -380,11 +402,19 @@ export function runCpmForwardPass(
   const stateMap = new Map<string, TaskState>();
   for (const t of tasks) stateMap.set(t.id, toTaskState(t));
 
-  // --- Override dragged task start ---
-  applyDrag(stateMap.get(draggedTaskId), newStartIso, statusDate);
-
   // --- Topological sort ---
   const { predecessors, inDegree } = buildGraph(tasks, edges);
+
+  // --- Read each milestone's instant off the dates it arrived with (#4079) ---
+  for (const task of stateMap.values()) {
+    if (task.instantMs === null) continue;
+    const followsWork = (predecessors.get(task.id) ?? []).length > 0;
+    task.startDisplay = !followsWork;
+    task.instantMs = followsWork ? task.earlyFinishMs + MS_PER_DAY : task.earlyStartMs;
+  }
+
+  // --- Override dragged task start ---
+  applyDrag(stateMap.get(draggedTaskId), newStartIso, statusDate);
   const order = topologicalSort(tasks, edges, inDegree);
 
   // --- Forward pass ---
@@ -437,6 +467,14 @@ function toTaskState(t: CpmTask): TaskState {
     // constrains the following Monday, not the Sunday.
     plannedStartMs: t.plannedStart ? nextWorkingDay(toMs(t.plannedStart)) : null,
     isMilestone: t.isMilestone,
+    // Placeholder; `runCpmForwardPass` reads the real instant once it knows
+    // which milestones follow work. Pinned tasks are ordinary work to their
+    // successors, as they are server-side.
+    instantMs:
+      t.durationDays === 0 && !(isComplete && (actualStartMs !== null || t.actualFinish != null))
+        ? earlyFinishMs
+        : null,
+    startDisplay: false,
     name: t.name,
     baselineFinishMs: earlyFinishMs,
   };
@@ -473,6 +511,11 @@ function applyDrag(
   // The drop replaces this task's planned_start, so the span floor is the drop
   // itself — not the stale span the task arrived with.
   setEarlyWindow(dragged, earlyStartMs, plannedStartMs);
+  if (dragged.instantMs !== null) {
+    // A dropped milestone is held by its new SNET: the start of that day.
+    dragged.instantMs = earlyStartMs;
+    dragged.startDisplay = true;
+  }
 }
 
 /**
@@ -541,6 +584,11 @@ function relaxForward(
     const preds = predecessors.get(taskId) ?? [];
     if (preds.length === 0) continue; // No predecessors — keep original dates.
 
+    if (task.instantMs !== null) {
+      placeMilestone(task, preds, stateMap);
+      continue;
+    }
+
     const derivedEarlyStart = latestConstraint(preds, stateMap, task);
     // A task whose every predecessor edge left the subgraph is not derived by
     // this pass — leave it where the last server CPM put it. Previously the
@@ -557,6 +605,54 @@ function relaxForward(
     // position while the finish moved back, painting an incoherent bar.
     setEarlyWindow(task, maxEarlyStart, task.plannedStartMs ?? -Infinity);
   }
+}
+
+/**
+ * Place a live milestone as an instant (#4079), mirroring the server's
+ * `_place_milestone` minus the floors this pass does not re-derive (see
+ * `relaxForward`): the recorded and planned starts propose the start of their
+ * day; FS/SS links propose `anchor + lag`, shown at the end of the previous
+ * working day after FS from work, at the start of the day after SS from work,
+ * and as the source is shown after another milestone; FF/SF links propose the
+ * end of the finish day. The latest instant wins, a start-of-day reading on a
+ * tie. A task whose every predecessor left the subgraph keeps its dates.
+ */
+function placeMilestone(task: TaskState, preds: CpmEdge[], stateMap: Map<string, TaskState>): void {
+  let bestInstant = -Infinity;
+  let bestStart = false;
+  let bestDay = task.earlyStartMs;
+  const offer = (instantMs: number, startDisplay: boolean, dayMs: number): void => {
+    if (instantMs > bestInstant || (instantMs === bestInstant && startDisplay && !bestStart)) {
+      bestInstant = instantMs;
+      bestStart = startDisplay;
+      bestDay = dayMs;
+    }
+  };
+  // Floors first, as the server offers them: on an exact tie the floor keeps its
+  // own (verbatim) day.
+  for (const floor of [task.actualStartMs, task.plannedStartMs]) {
+    if (floor !== null) offer(floor, true, floor);
+  }
+  let linked = false;
+  for (const edge of preds) {
+    const source = stateMap.get(edge.sourceId);
+    if (!source) continue;
+    linked = true;
+    const raw = edgeAnchor(edge, source) + edge.lag * MS_PER_DAY;
+    if (edge.type === 'FS' || edge.type === 'SS') {
+      const startDisplay = source.instantMs !== null ? source.startDisplay : edge.type === 'SS';
+      offer(raw, startDisplay, instantDay(raw, startDisplay));
+    } else {
+      const finishDay = nextWorkingDay(raw);
+      offer(finishDay + MS_PER_DAY, false, finishDay);
+    }
+  }
+  if (!linked) return;
+  task.instantMs = bestInstant;
+  task.startDisplay = bestStart;
+  task.earlyStartMs = bestDay;
+  task.earlyFinishMs = bestDay;
+  task.spanStartMs = bestDay;
 }
 
 /** Floor a network-derived early start at the task's recorded and planned starts. */

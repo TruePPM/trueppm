@@ -459,14 +459,16 @@ class TestScheduleZeroDurationMilestone:
         assert m.late_start == m.late_finish == date(2026, 3, 2)
 
     def test_zero_duration_with_predecessor_and_successor(self) -> None:
-        """A milestone in the middle of a chain stays a single point.
+        """A milestone in the middle of a chain is an instant that delays nothing.
 
-        Reproduces the failure mode reported on MR !221: a milestone with both
-        a predecessor and a successor must not stretch across a date range.
+        Reproduces the failure mode reported on MR !221 (a milestone must not
+        stretch across a date range) and #4079 (it must not take up a working day
+        either): the milestone sits at the end of its predecessor's finish day, and
+        the successor starts exactly where it would have without the milestone.
         """
         p = make_project(
             tasks=[
-                task("A", "A", 3),  # finishes 2026-03-04
+                task("A", "A", 3),  # Mon 2026-03-02 .. Wed 2026-03-04
                 task("M", "Milestone", 0),
                 task("B", "B", 2),
             ],
@@ -478,12 +480,65 @@ class TestScheduleZeroDurationMilestone:
         r = schedule(p)
         by_id = {t.id: t for t in r.tasks}
         m = by_id["M"]
-        # Predecessor finish 2026-03-04 → successor's ES is 2026-03-05.
-        # Milestone sits at the gate between A and B as a single point.
-        assert m.early_start == m.early_finish == date(2026, 3, 5)
-        assert m.late_start == m.late_finish == date(2026, 3, 5)
-        # B starts the day after the milestone (FS dependency, EF inclusive).
-        assert by_id["B"].early_start == date(2026, 3, 6)
+        assert m.early_start == m.early_finish == date(2026, 3, 4)
+        assert m.late_start == m.late_finish == date(2026, 3, 4)
+        assert m.total_float == timedelta(0)
+        # B starts the day after A finishes, exactly as A -FS-> B would.
+        assert by_id["B"].early_start == date(2026, 3, 5)
+        assert r.critical_path == ["A", "M", "B"]
+
+    # -- #4079 known answers: the three networks from the issue, Mon 2026-01-05 --
+
+    def test_4079_milestone_between_two_tasks(self) -> None:
+        """``A(5d) -FS-> M(0d) -FS-> B(5d)``: M on Fri 01-09, B Mon 01-12..Fri 01-16."""
+        p = make_project(
+            [task("A", "A", 5), task("M", "M", 0), task("B", "B", 5)],
+            [Dependency("A", "M"), Dependency("M", "B")],
+            start=date(2026, 1, 5),
+        )
+        by_id = {t.id: t for t in schedule(p).tasks}
+        assert (by_id["A"].early_start, by_id["A"].early_finish) == (
+            date(2026, 1, 5),
+            date(2026, 1, 9),
+        )
+        assert by_id["M"].early_start == by_id["M"].early_finish == date(2026, 1, 9)
+        assert (by_id["B"].early_start, by_id["B"].early_finish) == (
+            date(2026, 1, 12),
+            date(2026, 1, 16),
+        )
+        assert all(t.total_float == timedelta(0) for t in by_id.values())
+
+    def test_4079_same_network_without_the_milestone(self) -> None:
+        """``A(5d) -FS-> B(5d)``: the reference the milestone network must equal."""
+        p = make_project(
+            [task("A", "A", 5), task("B", "B", 5)],
+            [Dependency("A", "B")],
+            start=date(2026, 1, 5),
+        )
+        r = schedule(p)
+        by_id = {t.id: t for t in r.tasks}
+        assert (by_id["B"].early_start, by_id["B"].early_finish) == (
+            date(2026, 1, 12),
+            date(2026, 1, 16),
+        )
+        assert r.project_finish == date(2026, 1, 16)
+
+    def test_4079_leading_milestone_does_not_move_its_successor(self) -> None:
+        """``M0(0d) -FS-> A(5d)``: a project-start milestone; A still starts Mon 01-05."""
+        p = make_project(
+            [task("M0", "Start", 0), task("A", "A", 5)],
+            [Dependency("M0", "A")],
+            start=date(2026, 1, 5),
+        )
+        r = schedule(p)
+        by_id = {t.id: t for t in r.tasks}
+        assert by_id["M0"].early_start == by_id["M0"].early_finish == date(2026, 1, 5)
+        assert (by_id["A"].early_start, by_id["A"].early_finish) == (
+            date(2026, 1, 5),
+            date(2026, 1, 9),
+        )
+        assert by_id["M0"].late_start == date(2026, 1, 5)
+        assert r.critical_path == ["M0", "A"]
 
 
 class TestScheduleCycleDetection:
@@ -1194,8 +1249,11 @@ class TestMonteCarloMilestoneParity:
     (EF = ES + duration), which collapsed a milestone's EF onto its ES: FS
     successors started a working day early, lag conversion anchored on the day
     *before* the milestone, and a terminal milestone's completion converted one
-    day early. The effective-duration floor (a task occupies at least its start
-    day, mirroring _finish_from_start) restores parity (#1066).
+    day early. #1066 restored parity by giving milestones a one-day floor in MC,
+    matching the CPM convention of the time — which itself was wrong: every
+    milestone delayed its successors by a working day. #4079 fixed CPM to treat a
+    milestone as an instant and replaced the floor with per-run instant-kind
+    tracking in MC; these parity tests are unchanged and still hold.
     """
 
     def _assert_parity(self, p: Project) -> None:

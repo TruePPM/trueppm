@@ -56,7 +56,7 @@ pub(crate) fn compute_downstream(
     // Per-task calendars (ADR-0120 D3); uniform = single-calendar fast path.
     let cals = crate::calendar::PassCalendars::resolve(project);
 
-    forward_pass(
+    let instants = forward_pass(
         &mut tasks,
         &pg.topo_order,
         pg,
@@ -68,13 +68,14 @@ pub(crate) fn compute_downstream(
 
     let project_finish = tasks.iter().filter_map(|t| t.early_finish).max().unwrap();
 
-    backward_pass(
+    let late_instants = backward_pass(
         &mut tasks,
         &pg.topo_order,
         pg,
         &project.dependencies,
         project_finish,
         &cals,
+        &instants,
     )?;
 
     // compute_floats runs over the full topo order, so the driving edges it
@@ -86,6 +87,8 @@ pub(crate) fn compute_downstream(
         pg,
         &project.dependencies,
         &cals,
+        &instants,
+        &late_instants,
     )?;
 
     // Collect results for downstream tasks only
