@@ -7329,6 +7329,60 @@ web:publish:manifest:
       - sbom/
     expire_in: never
 
+release:backfill-sbom-attestation:
+  # MANUAL, one-off repair (#4064): attach the CycloneDX SBOM attestation to a
+  # published image whose tag pipeline never produced one (web:0.4.0-beta.4).
+  # Runs only from the default branch, only when a maintainer plays it, and
+  # never blocks a pipeline (allow_failure). Set BACKFILL_IMAGE / BACKFILL_TAG
+  # in the play dialog. Attesting is keyless, so identity comes from THIS job.
+  #
+  # CERTIFICATE IDENTITY: a tag pipeline's cert SAN is
+  #   https://gitlab.com/<project>//.gitlab-ci.yml@refs/tags/v<version>
+  # This job runs on main, so its SAN is
+  #   https://gitlab.com/<project>//.gitlab-ci.yml@refs/heads/main
+  # It therefore will NOT match the `refs/tags/v.*` regexp the deployment docs
+  # verify with. A tag ref for an already-released version cannot be
+  # re-created without moving the release tag, so this gap is inherent; see
+  # administration/deployment.md for the verification command that accepts it.
+  stage: publish
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  needs: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+      when: manual
+      allow_failure: true
+  variables:
+    # Job-level `variables:` cannot carry `description:` (only global ones can),
+    # so override both in the play dialog: BACKFILL_IMAGE = api|web, BACKFILL_TAG
+    # = bare GHCR version, e.g. 0.4.0-beta.4.
+    BACKFILL_IMAGE: "web"
+    BACKFILL_TAG: ""
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  before_script:
+    - apk add --no-cache bash curl jq
+    # Pinned, checksum-verified syft + cosign (match .docker-publish-base).
+    - |
+      SYFT_VERSION=1.18.1
+      SYFT_SHA256=066c251652221e4d44fcc4d115ce3df33a91769da38c830a8533199db2f65aab
+      curl -sSfL "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz" -o /tmp/syft.tar.gz
+      echo "${SYFT_SHA256}  /tmp/syft.tar.gz" | sha256sum -c -
+      tar xzf /tmp/syft.tar.gz -C /usr/local/bin syft
+    - |
+      COSIGN_VERSION=2.4.3
+      COSIGN_SHA256=caaad125acef1cb81d58dcdc454a1e429d09a750d1e9e2b3ed1aed8964454708
+      curl -sSfL "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64" -o /usr/local/bin/cosign
+      echo "${COSIGN_SHA256}  /usr/local/bin/cosign" | sha256sum -c -
+      chmod +x /usr/local/bin/cosign
+  script:
+    - |
+      if [ -z "${BACKFILL_TAG}" ]; then
+        echo "ERROR: set BACKFILL_TAG (e.g. 0.4.0-beta.4) when playing this job."
+        exit 1
+      fi
+      bash scripts/backfill-sbom-attestation.sh --image "${BACKFILL_IMAGE}" --tag "${BACKFILL_TAG}"
+
 registry:release-images:
   # Nightly proof that the latest v* release tag is still pullable (#2803).
   #
@@ -7418,23 +7472,16 @@ registry:chart-resolution:
         echo "Merge request: self-test only; the live registry check runs nightly."
       fi
 
-helm:publish:
-  # Helm chart → GHCR OCI registry. GitLab Container Registry does not support
-  # Helm OCI push in this runner setup, so GHCR is the only target — and it is
-  # the public 0.4 release target (#939), so the push is REQUIRED on a release
-  # tag: missing credentials fail the job loudly rather than skipping.
+.helm-publish-base:
+  # Shared body of helm:publish (tag, real push) and ci:helm-publish-dry-run
+  # (MR, DRY_RUN=1) so the dry run executes the SAME script, not a copy (#3956).
+  # A tag pipeline runs the CI file as it stood at the tag commit, so an edit to
+  # this logic is otherwise first exercised by the release that it can break.
+  # Any step that must not run on an MR is gated on DRY_RUN inside the script.
   stage: publish
   image:
     name: alpine/helm:3.14.0@sha256:a90798c9c2b671e3546b10db1ae0b845f9abccc9f9ff79b34744a1ba146b67ed
     entrypoint: [""]
-  <<: *rules-release-tag
-  needs:
-    - job: tag:wait-for-main
-  # Keyless Cosign signing of the OCI chart (#940) — same Sigstore OIDC
-  # audience as the image publish jobs.
-  id_tokens:
-    SIGSTORE_ID_TOKEN:
-      aud: sigstore
   before_script:
     - apk add --no-cache bash curl python3
     # Pinned, checksum-verified Cosign (matches .docker-publish-base).
@@ -7446,7 +7493,9 @@ helm:publish:
       chmod +x /usr/local/bin/cosign
   script:
     - |
-      if [ -z "${GHCR_USER}" ] || [ -z "${GHCR_TOKEN}" ]; then
+      if [ -n "${DRY_RUN:-}" ]; then
+        echo "DRY RUN (#3956): same script as helm:publish, credentials/push/sign steps gated off."
+      elif [ -z "${GHCR_USER}" ] || [ -z "${GHCR_TOKEN}" ]; then
         echo "ERROR: GHCR_USER/GHCR_TOKEN not set — cannot publish the public 0.4 Helm chart."
         echo "Configure both under Settings → CI/CD → Variables (Masked + Protected)."
         echo "If they ARE configured and this still fires: they are Protected variables,"
@@ -7455,7 +7504,9 @@ helm:publish:
         echo "the 0.4.0-beta.1 cut — v* was not protected though scheduler-v* was."
         exit 1
       fi
-      helm registry login ghcr.io -u "$GHCR_USER" -p "$GHCR_TOKEN"
+      if [ -z "${DRY_RUN:-}" ]; then
+        helm registry login ghcr.io -u "$GHCR_USER" -p "$GHCR_TOKEN"
+      fi
       # `helm registry login` writes to Helm's OWN credential store — it does
       # NOT populate the Docker-config-style store `cosign` reads. Without this
       # second login, `cosign sign`/`cosign attest` below 401s trying to pull
@@ -7463,7 +7514,9 @@ helm:publish:
       # chart pushed fine, signing failed). api:publish/web:publish don't hit
       # this because they authenticate via `docker login`, which cosign DOES
       # read; this image has no docker daemon, so cosign needs its own login.
-      echo "$GHCR_TOKEN" | cosign login ghcr.io -u "$GHCR_USER" --password-stdin
+      if [ -z "${DRY_RUN:-}" ]; then
+        echo "$GHCR_TOKEN" | cosign login ghcr.io -u "$GHCR_USER" --password-stdin
+      fi
       helm dependency update packages/helm
       helm package packages/helm
       CHART_FILE=$(ls trueppm-*.tgz)
@@ -7477,6 +7530,13 @@ helm:publish:
       # backstop for a hand-cut or half-bumped tag, and it runs BEFORE the push so
       # a mismatch cannot leave a wrong chart behind in GHCR.
       TAG_VERSION="${CI_COMMIT_TAG#v}"
+      if [ -n "${DRY_RUN:-}" ]; then
+        # No tag on an MR. Compare against the chart's own version so the
+        # mismatch branch below still executes, and require it to be semver.
+        TAG_VERSION="$CHART_VERSION"
+        echo "$CHART_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' \
+          || { echo "ERROR: Chart.yaml version '$CHART_VERSION' is not semver"; exit 1; }
+      fi
       if [ "$CHART_VERSION" != "$TAG_VERSION" ] || [ "$CHART_APP_VERSION" != "$TAG_VERSION" ]; then
         echo "ERROR: tag version ($TAG_VERSION) does not match packages/helm/Chart.yaml (version: $CHART_VERSION, appVersion: $CHART_APP_VERSION)."
         echo "scripts/release.sh bumps Chart.yaml with the other manifests; bump both fields before tagging."
@@ -7489,7 +7549,13 @@ helm:publish:
       # push so a refusal cannot leave anything behind in GHCR. Self-test first:
       # a guard observed only on a healthy registry proves nothing.
       bash scripts/check-chart-registry.sh --self-test
-      bash scripts/check-chart-registry.sh --candidate "$CHART_VERSION"
+      if [ -n "${DRY_RUN:-}" ]; then
+        # An empty CHART_TAGS skips the live registry read (external state no MR
+        # diff controls) but still runs the candidate parsing/guard logic.
+        CHART_TAGS="" bash scripts/check-chart-registry.sh --candidate "$CHART_VERSION"
+      else
+        bash scripts/check-chart-registry.sh --candidate "$CHART_VERSION"
+      fi
       # Chart-level CycloneDX SBOM (#3817 follow-up). A Helm chart isn't a
       # package-manager closure the way the api/web images are, so a
       # Syft-style filesystem scan doesn't apply — there is no installed
@@ -7540,6 +7606,14 @@ helm:publish:
       with open("chart-sbom.cdx.json", "w") as f:
           json.dump(sbom, f, indent=2)
       PY
+      if [ -n "${DRY_RUN:-}" ]; then
+        # Everything above ran for real: dependency update, package, version
+        # backstop, registry guard, SBOM. Stop before the irreversible part.
+        helm show chart "$CHART_FILE" > /dev/null
+        test -s chart-sbom.cdx.json
+        echo "DRY RUN COMPLETE - stopped before push/sign/attest. Nothing was published."
+        exit 0
+      fi
       # Capture the by-digest reference from `helm push` output and Cosign-sign
       # it keyless (Sigstore via SIGSTORE_ID_TOKEN), so operators can
       # `cosign verify` the chart they pull, and attach the SBOM above as a
@@ -7553,6 +7627,41 @@ helm:publish:
     paths:
       - chart-sbom.cdx.json
     expire_in: never
+
+
+helm:publish:
+  # Helm chart → GHCR OCI registry. GitLab Container Registry does not support
+  # Helm OCI push in this runner setup, so GHCR is the only target — and it is
+  # the public 0.4 release target (#939), so the push is REQUIRED on a release
+  # tag: missing credentials fail the job loudly rather than skipping.
+  extends: .helm-publish-base
+  <<: *rules-release-tag
+  needs:
+    - job: tag:wait-for-main
+  # Keyless Cosign signing of the OCI chart (#940) — same Sigstore OIDC
+  # audience as the image publish jobs.
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+
+ci:helm-publish-dry-run:
+  # Runs helm:publish's real script on the MR with DRY_RUN=1 (#3956): chart
+  # packaging, version backstop, registry guard, SBOM — everything but the
+  # credentialed push/sign/attest. Needs no secrets, so it runs on any MR ref.
+  # Triggers when the job definition or anything the script reads changes.
+  extends: .helm-publish-base
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - .gitlab-ci.yml
+        - packages/helm/**/*
+        - scripts/check-chart-registry.sh
+  needs: []
+  variables:
+    DRY_RUN: "1"
+  artifacts:
+    name: "helm-sbom-dry-run"
+    expire_in: 1 week
 
 # ---------------------------------------------------------------------------
 # PUBLISH — OSS package registries (PyPI wheel + npm).
@@ -7580,6 +7689,42 @@ helm:publish:
 # PyPI needs no static token for api:publish:pypi — see the Trusted Publisher
 # setup comment below the job.
 # ---------------------------------------------------------------------------
+
+ci:pypi-build-dry-run:
+  # MR-time proof of the build half of the PyPI publish jobs (#3956):
+  # api:publish:pypi, scheduler:publish and mcp:publish all read the version out
+  # of pyproject.toml, `python -m build`, and hand the result to twine. Runs the
+  # same build commands and `twine check`s the output; signs and uploads nothing.
+  # The credential half is ci:pypi-mint-probe's job (release-time, protected ref).
+  # Keep the image and build steps in lockstep with the real jobs.
+  stage: publish
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - .gitlab-ci.yml
+        - packages/api/pyproject.toml
+        - packages/scheduler/pyproject.toml
+        - packages/mcp/pyproject.toml
+  needs: []
+  variables:
+    PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+  before_script:
+    - pip install build "twine>=6.1" --quiet
+  script:
+    - |
+      set -euo pipefail
+      for pkg in api scheduler mcp; do
+        PKG_VERSION=$(python -c "
+      import tomllib
+      with open('packages/${pkg}/pyproject.toml', 'rb') as f:
+          print(tomllib.load(f)['project']['version'])
+      ")
+        [ -n "$PKG_VERSION" ] || { echo "ERROR: no version in packages/${pkg}/pyproject.toml"; exit 1; }
+        echo "packages/${pkg} version: ${PKG_VERSION}"
+        (cd "packages/${pkg}" && python -m build && twine check --strict dist/*)
+      done
+    - echo "DRY RUN COMPLETE - nothing was signed or uploaded."
 
 ci:pypi-mint-probe:
   # Proves api:publish:pypi's Trusted Publishing configuration WITHOUT
