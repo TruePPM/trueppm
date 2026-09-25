@@ -149,8 +149,10 @@ def parse_types_ts(src: str) -> tuple[dict[str, dict[str, str]], dict[str, str]]
     """Return ``(interfaces, aliases)`` for every exported interface / type alias."""
     src = _strip_comments(src)
     interfaces: dict[str, dict[str, str]] = {}
+    # Possessive quantifiers: a header with no ``{`` fails in one pass instead of
+    # backtracking through every shorter length of the ``extends`` run (S8786).
     for m in re.finditer(
-        r"export interface (\w+)(?:<[^>]*>)?\s*(?:extends[^{]*)?\{", src
+        r"export interface (\w+)(?:<[^>]*+>)?\s*+(?:extends[^{]*+)?\{", src
     ):
         depth, i = 1, m.end()
         while depth:

@@ -258,6 +258,14 @@ export function deriveTier(pxPerDay: number): ZoomLevel {
  * between named tiers (#351, rule 127). Each band is `[minPxPerDay, …)` —
  * inclusive lower bound, open upper bound — scanned high → low.
  */
+/**
+ * A unit the two-tier timescale header can draw a cell for.
+ *
+ * Declared here rather than in `GanttRenderer` so `timescaleLabels` can key its
+ * ladders on it without importing the renderer, which imports this module.
+ */
+export type HeaderUnit = 'day' | 'week' | 'month' | 'quarter' | 'year';
+
 export interface HeaderTier {
   /** Inclusive lower bound in logical px/day. */
   readonly minPxPerDay: number;
@@ -274,8 +282,7 @@ export interface HeaderTier {
  *   ≥80     Hour / Day
  *   24–80   Day / Week
  *   8–24    Week / Month
- *   2.5–8   Month / Quarter
- *   0.7–2.5 Quarter / Year
+ *   0.7–8   Quarter / Month
  *   <0.7    Year / (none)
  *
  * 🟡 DEFERRED: the 'hour' minor tick unit is not implemented in the scale
@@ -287,8 +294,14 @@ export const HEADER_TIERS: readonly HeaderTier[] = [
   { minPxPerDay: 80, primary: 'hour', secondary: 'day' },
   { minPxPerDay: 24, primary: 'day', secondary: 'week' },
   { minPxPerDay: 8, primary: 'week', secondary: 'month' },
-  { minPxPerDay: 2.5, primary: 'month', secondary: 'quarter' },
-  { minPxPerDay: 0.7, primary: 'quarter', secondary: 'year' },
+  // One band, not two (#4050 A5). It used to be `month/quarter` above 2.5 and
+  // `quarter/year` below it, and BOTH printed the year twice in two different
+  // shapes: "Apr 2026" over "Q2 2026", then "Q2 FY26" over "FY26" — the second
+  // of which is the collision the hosted demo lands on. Carrying the year in
+  // the quarter cell itself (`FY26 · Q2`, see `quarterFullLabel`) frees the
+  // lower tier for months, so the pair reads coarse-over-fine with each fact
+  // stated once.
+  { minPxPerDay: 0.7, primary: 'quarter', secondary: 'month' },
   { minPxPerDay: 0, primary: 'year', secondary: null },
 ];
 

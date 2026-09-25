@@ -45,6 +45,10 @@ from django.core.management.base import BaseCommand, CommandError
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.models import Project
+from trueppm_api.apps.projects.seed.demo_landing_overlay import (
+    DemoOverlayFixtureMismatch,
+    apply_demo_landing_overlay,
+)
 from trueppm_api.apps.projects.seed.samples import (
     DEFAULT_SAMPLE,
     SAMPLES,
@@ -146,6 +150,61 @@ class Command(BaseCommand):
             )
 
         self._enable_demo_login(program, demo_login)
+        self._apply_demo_landing_overlay(program, sample_key)
+
+    def _apply_demo_landing_overlay(self, program: Any, sample_key: str) -> None:
+        """Make the landing project readable on a first visit (#4050 Part B).
+
+        Runs **only** on a read-only demo deployment, and **only** for the default
+        sample — the overlay is written against ``atlas-platform-launch.json``'s rows
+        and has nothing to say about another fixture.
+
+        Placed here, after the import and after the demo login is enabled, because
+        the overlay's last act is a Monte Carlo run that must outlive every other
+        write for the forecast not to read as stale (see the module docstring). It is
+        also why this is not folded into ``load_sample``: the overlay is a property of
+        one *deployment mode*, not of loading a sample.
+
+        A fixture mismatch is raised, not swallowed. The seed Job's exit status is the
+        Helm release's exit status, so a rename in the fixture fails the install rather
+        than publishing a demo that is half-fixed with nothing in the log saying which
+        half.
+        """
+        if not settings.DEMO_READ_ONLY:
+            return
+        if sample_key != DEFAULT_SAMPLE:
+            self.stdout.write(
+                f"  Demo landing overlay skipped: it is written against "
+                f"{DEFAULT_SAMPLE!r} and this run loaded {sample_key!r}."
+            )
+            return
+
+        try:
+            result = apply_demo_landing_overlay(program)
+        except DemoOverlayFixtureMismatch as exc:
+            raise CommandError(
+                f"Demo landing overlay could not be applied: {exc} "
+                "(#4050 Part B — the overlay is fixture-coupled by design.)"
+            ) from exc
+
+        if result.was_noop:
+            self.stdout.write("  Demo landing overlay: already applied; forecast re-run.")
+        else:
+            self.stdout.write(
+                self.style.SUCCESS(
+                    "  Demo landing overlay applied: health override cleared, "
+                    f"milestone confirmed, {result.unscheduled_removed} unscheduled "
+                    "row(s) trimmed."
+                )
+            )
+        self.stdout.write(
+            f"    Behind-plan signal kept at WBS {result.behind_plan_task_wbs_path} "
+            f"(task {result.behind_plan_task_id})."
+        )
+        self.stdout.write(
+            f"    Forecast P80 {result.p80.isoformat()} vs commitment "
+            f"{result.commitment_finish.isoformat()}."
+        )
 
     def _report_personas(self, sample_key: str, password: str | None, source: str | None) -> None:
         """Print the persona usernames the printed password actually opens.
