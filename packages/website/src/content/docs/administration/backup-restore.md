@@ -402,8 +402,8 @@ on deliberately once you have chosen a destination.
 `backup.enabled=true` with no destination is worse than no backup: the artifact
 would go to an `emptyDir`, the Job would exit 0, the artifact would die with the
 pod, and the CronJob would report success indefinitely. From 0.4 the chart
-**refuses to render** that combination — `persistence.enabled`,
-`persistence.existingClaim`, `s3.enabled`, or `extraVolumes` **plus** `mediaDir`.
+**refuses to render** that combination — `backup.persistence.enabled`,
+`backup.persistence.existingClaim`, `backup.s3.enabled`, or `backup.extraVolumes` **plus** `backup.mediaDir`.
 See [Helm values](/administration/helm-values/#scheduled-backups).
 :::
 
@@ -521,7 +521,7 @@ deliberately.
 :::
 
 :::note[Why the job has two containers]
-With `s3.enabled`, the CronJob runs an initContainer that dumps and a main
+With `backup.s3.enabled`, the CronJob runs an initContainer that dumps and a main
 container that uploads. They use different images because no stock image carries
 both `pg_dump` and an S3 client — `postgres:16-alpine` has the PostgreSQL client
 binaries and neither `aws` nor `mc`. Override the uploader with

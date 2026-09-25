@@ -38,7 +38,7 @@ The severity is read-only in the UI — it is always derived from the two inputs
 | `ACCEPTED` | Risk acknowledged; no further action |
 | `CLOSED` | Archived |
 
-The risk matrix on the register view treats `OPEN` and `MITIGATING` as **active** risks. `RESOLVED`, `ACCEPTED`, and `CLOSED` risks are hidden by default; use the **Show closed** toggle to include them.
+The risk matrix on the register view treats `OPEN` and `MITIGATING` as **active** risks. `RESOLVED`, `ACCEPTED`, and `CLOSED` risks are not counted as unmitigated (the **Unmitigated** filter and the "need action" callout skip them), but the register list shows every status by default. There is no separate closed toggle; use the **All / High / Unmitigated / Mine** filter to narrow the list.
 
 ## Filtering and sorting
 
