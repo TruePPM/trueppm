@@ -1,14 +1,14 @@
 ---
 title: Calendars
-description: Working-day calendars define which days and hours count toward task durations, so the schedule reflects real availability — weekends, holidays, and part-time hours included.
+description: Working-day calendars define which days count toward task durations, so the schedule reflects real availability — weekends and holidays included — and record the hours per day that drive resource capacity.
 documentedFor: "0.4"
 ---
 
 This page is for a PM or scheduler who wants finish dates that reflect real availability,
 not just a raw day count. A **calendar** defines which days are working days and how many
-hours a working day holds. The scheduling engine uses it to convert a task's duration
-(expressed in working days) into real calendar dates — skipping weekends and holidays so
-your finish dates reflect actual availability.
+hours a working day holds. The scheduling engine uses its working days and exceptions
+to convert a task's duration (expressed in working days) into real calendar dates —
+skipping weekends and holidays so your finish dates reflect actual availability.
 
 :::note[0.1]
 Calendars shipped in 0.1 and are part of the **Community (OSS)** edition.
@@ -27,9 +27,12 @@ The time zone is recorded for API parity only — like hours per day, it round-t
 every read, but it is not consumed by CPM or Monte Carlo and never changes a computed
 date; see [Calendar arithmetic](/features/scheduler/#calendar-arithmetic).
 
-Because **hours per day** is a decimal, part-time and custom-hour teams are first-class:
-a calendar with a 6-hour day stretches the same task duration across more elapsed days
-than a standard 8-hour calendar.
+**Hours per day** is a decimal, so part-time and custom-hour teams can record their real
+day length, and it does change resource capacity: the resource heatmap and the project
+Overview's Team utilization card compute a resource's daily capacity as hours per day ×
+units. It does **not** change task durations or finish dates. The scheduler counts whole
+working days, so a 6-hour calendar schedules the same task across the same elapsed days
+as an 8-hour one. Sub-day scheduling is planned for 0.6.
 
 ## How calendars attach
 
@@ -94,7 +97,7 @@ Calendars are managed via the REST API (a visual settings editor is planned):
 Any authenticated user can read calendars — a project member has to be able to see
 which calendar schedules their plan. Creating, editing, and deleting them requires the
 **workspace Admin** role (or Owner): a calendar is shared, so changing its working days
-or hours per day moves finish dates on every project bound to it, including projects the
+or exceptions moves finish dates on every project bound to it, including projects the
 editor is not a member of. A project-level role — even Owner — is not enough, because
 anyone can create a project and become its Owner. This is the same role that sets the
 workspace default calendar, so editing a shared calendar's contents is no easier than
