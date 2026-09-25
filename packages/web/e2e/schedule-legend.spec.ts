@@ -11,6 +11,9 @@
  *   close control both show/hide the SAME panel and never disagree.
  * - An explicit open/closed choice persists across reload (localStorage key
  *   `trueppm.schedule.legend.collapsed.v1`).
+ * - Read-only demo (`demo_read_only` on `/edition/`): closed on the first-ever
+ *   visit, so an evaluator meets the schedule rather than the panel (#4067).
+ * - Entries grouped Bars / Lines / Gestures, every swatch keeping a text label.
  * - Suppressed below the `lg` (1024px) breakpoint.
  */
 import { test, expect } from './fixtures/coverage';
@@ -153,5 +156,44 @@ test.describe('Schedule legend overlay (#474, #3614)', () => {
     await page.setViewportSize({ width: 900, height: 800 });
     await page.goto(BASE_URL);
     await expect(page.getByTestId('schedule-legend')).toBeHidden();
+  });
+});
+
+test.describe('Schedule legend in the read-only demo (#4067)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: FIXTURE_TASKS,
+      demoReadOnly: true,
+    });
+  });
+
+  test('opens closed on the first-ever visit; the toggle opens it grouped and close returns focus', async ({
+    page,
+  }) => {
+    // 1280 on purpose: the demo's wider mode chip is enough to push the toolbar
+    // down its ladder here, and the demo ladder must keep Legend in the bar.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(BASE_URL);
+    const toggle = page.getByRole('button', { name: 'Legend', exact: true });
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByTestId('schedule-legend')).toHaveCount(0);
+
+    await toggle.click();
+    const body = page.getByTestId('schedule-legend-body');
+    await expect(body).toBeVisible();
+    for (const group of ['Bars', 'Lines', 'Gestures']) {
+      await expect(body.getByRole('heading', { name: group })).toBeVisible();
+    }
+    await expect(body.getByText('Finish-to-start')).toBeVisible();
+    await expect(body.getByText('Double-click a task to open its details')).toBeVisible();
+
+    await page.getByTestId('schedule-legend-close').click();
+    await expect(page.getByTestId('schedule-legend')).toHaveCount(0);
+    await expect(toggle).toBeFocused();
   });
 });

@@ -200,3 +200,29 @@ describe('useScheduleLegendCollapsed', () => {
     expect(panel.current.collapsed).toBe(false);
   });
 });
+
+describe('useLegendDefaultClosedInDemo (#4067)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('closes the first-visit default in a demo, but an explicit stored choice still wins', async () => {
+    const m = await freshModule();
+    const { result } = renderHook(() => {
+      m.useLegendDefaultClosedInDemo(true);
+      return m.useScheduleLegendCollapsed();
+    });
+    expect(result.current.collapsed).toBe(true);
+    act(() => result.current.setCollapsed(false));
+    expect(result.current.collapsed).toBe(false);
+  });
+
+  it('leaves the open-on-first-visit default alone on a normal install', async () => {
+    const m = await freshModule();
+    const { result } = renderHook(() => {
+      m.useLegendDefaultClosedInDemo(false);
+      return m.useScheduleLegendCollapsed();
+    });
+    expect(result.current.collapsed).toBe(false);
+  });
+});

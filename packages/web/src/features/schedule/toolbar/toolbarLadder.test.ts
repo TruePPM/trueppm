@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_TOOLBAR_PINS,
+  DEMO_TOOLBAR_LADDER,
   FIT_HYSTERESIS_PX,
   MAX_LADDER_STEP,
   TOOLBAR_LADDER,
@@ -242,6 +243,35 @@ describe('resolveComposition', () => {
     expect(resolveComposition(ALL_PINNED, 999)).toEqual(
       resolveComposition(ALL_PINNED, MAX_LADDER_STEP),
     );
+  });
+});
+
+describe('DEMO_TOOLBAR_LADDER', () => {
+  it('is the default ladder with Legend moved to the very end', () => {
+    // The demo opens with the legend closed (#4067), so the button is the only
+    // way an evaluator finds it; it must outlast every other demotion.
+    const ids = DEMO_TOOLBAR_LADDER.map((r) => r.id);
+    expect(ids.at(-1)).toBe('legend-overflow');
+    expect(ids.slice(0, -1)).toEqual(
+      TOOLBAR_LADDER.map((r) => r.id).filter((id) => id !== 'legend-overflow'),
+    );
+  });
+
+  it('keeps Legend in the bar until the final step', () => {
+    const last = DEMO_TOOLBAR_LADDER.length;
+    const before = resolveComposition(ALL_PINNED, last - 1, DEMO_TOOLBAR_LADDER);
+    expect(before.legend).toBe('bar');
+    expect(before.pdf).toBe('overflow');
+    expect(before.today).toBe('overflow');
+    expect(resolveComposition(ALL_PINNED, last, DEMO_TOOLBAR_LADDER).legend).toBe('overflow');
+  });
+
+  it('prices a re-widen by the rung at that position in the ladder it walks', () => {
+    // Step 9 undoes rung 8: legend-overflow (70) by default, pdf-overflow (108)
+    // in the demo. 100px of slack clears the first and not the second.
+    const input = { step: 9, contentWidth: 900, availableWidth: 1000, costs: [] };
+    expect(nextFitStep(input)).toBe(8);
+    expect(nextFitStep({ ...input, ladder: DEMO_TOOLBAR_LADDER })).toBe(9);
   });
 });
 

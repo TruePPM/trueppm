@@ -107,4 +107,17 @@ describe('ScheduleLegend', () => {
     expect(screen.getByTestId('schedule-legend')).toBeInTheDocument();
     expect(screen.getByText(/Double-click a task to open its details/)).toBeInTheDocument();
   });
+
+  it('groups entries under Bars, Lines and Gestures headings, each swatch keeping its text label (#4067)', () => {
+    render(<ScheduleLegend taskListWidth={240} canLink />);
+    const group = (name: string) => screen.getByRole('group', { name });
+    expect(group('Bars')).toHaveTextContent('Summary rollup');
+    expect(group('Bars')).toHaveTextContent('Sprint window');
+    expect(group('Lines')).toHaveTextContent('Today');
+    expect(group('Lines')).toHaveTextContent('Finish-to-start');
+    expect(group('Lines')).toHaveTextContent('Merged trunk');
+    expect(group('Gestures')).toHaveTextContent('Hold Space + drag');
+    expect(group('Gestures')).toHaveTextContent('Double-click a task');
+    expect(group('Gestures')).toHaveTextContent('handle at a bar’s right edge');
+  });
 });

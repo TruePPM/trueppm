@@ -41,7 +41,7 @@
  * away from Schedule and back without reloading keeps whatever this session
  * already decided.
  */
-import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useSyncExternalStore } from 'react';
 
 const STORAGE_KEY = 'trueppm.schedule.legend.collapsed.v1';
 /** Set the first time the legend has actually been shown open (#3614). */
@@ -94,13 +94,19 @@ function openByDefault(): boolean {
   return cachedOpenByDefault;
 }
 
+// The read-only demo (#4067) opens with the legend closed: a first-time evaluator
+// should meet the schedule, not a 280x300px panel over it. A deployment fact, not a
+// per-user one, so it overrides the first-visit "open once" default — but never an
+// explicit choice the visitor has stored (see getSnapshot).
+let demoDefaultClosed = false;
+
 function getSnapshot(): boolean {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     // An explicit choice — collapsed OR expanded — always wins over the
     // seen-based default below.
     if (stored !== null) return stored === 'true';
-    return !openByDefault();
+    return demoDefaultClosed || !openByDefault();
   } catch {
     return false;
   }
@@ -155,4 +161,19 @@ export function useMarkScheduleLegendSeen(open: boolean): void {
   useEffect(() => {
     if (open) markSeen();
   }, [open]);
+}
+
+/**
+ * Makes the legend default to closed on a read-only demo (#4067).
+ *
+ * Layout effect, not a passive one, so the flip lands before the first paint and the
+ * legend never flashes open. An explicit stored open/close choice still wins — this
+ * only replaces the first-visit default.
+ */
+export function useLegendDefaultClosedInDemo(isDemo: boolean): void {
+  useLayoutEffect(() => {
+    if (demoDefaultClosed === isDemo) return;
+    demoDefaultClosed = isDemo;
+    notifySubscribers();
+  }, [isDemo]);
 }
