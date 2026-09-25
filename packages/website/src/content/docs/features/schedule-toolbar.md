@@ -129,7 +129,7 @@ Chart choices are saved per-user in your browser. Unlike the view/render filters
 Rightmost in the toolbar (above the Today + Zoom controls). Format: `{N} items · {S} in sprints · {C} critical · CPM ✓`.
 
 - **`{N} items`**: every row currently visible after filtering — tasks, phases and milestones alike. The noun is deliberately neutral: a row's type is a declared property, so a count that spans all three cannot call them tasks.
-- **`{S} in sprints`**: how many of those rows are committed to a sprint, excluding phase summaries. On a hybrid plan this is the one place on the Schedule that says how much of it is running iteratively. If your project renames its iteration container (**Settings → Team & workflow**), this token follows that name — `3 in iterations`, `3 in PIs`.
+- **`{S} in sprints`**: how many of those rows are committed to a sprint, excluding phase summaries. On a hybrid plan this is the one place on the Schedule that says how much of it is running iteratively. If your project renames its iteration container (**Settings → How this team works**), this token follows that name — `3 in iterations`, `3 in PIs`.
 - **`{C} critical`**: rows on the critical path, excluding phase summaries.
 - **`✓`** (green): CPM ran successfully against the current data.
 - **`⚠`** (amber): the scheduling engine reported an error — usually a cyclic dependency. Open the Schedule's status banner or check task dependencies.

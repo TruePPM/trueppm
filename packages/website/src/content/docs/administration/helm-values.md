@@ -75,7 +75,7 @@ yours carries. See [Image pull failure](/administration/troubleshooting/#image-p
 |---|---|---|
 | `service.type` / `service.port` | `ClusterIP` / `8000` | API Service. Stays ClusterIP; the Ingress is the sole external object. |
 | `web.enabled` | `true` | Serve the compiled React SPA from an in-chart nginx tier. Disable if you front the SPA from your own CDN and want only the API + workers. |
-| `web.replicaCount` | `1` | Web-tier replicas; falls back to `replicaCount` when unset. |
+| `web.replicaCount` | `""` (empty) | Web-tier replicas. Empty follows the top-level `replicaCount`; set a number to scale the web tier independently. |
 | `web.containerPort` | `8080` | Port the unprivileged nginx image listens on (satisfies `runAsNonRoot`). |
 | `web.service.type` / `web.service.port` | `ClusterIP` / `80` | Web Service. |
 | `web.maxBodySize` | `110M` | nginx `client_max_body_size` for the web tier. Inert in the default topology — the Ingress sends `/api` and `/ws` straight to the API Service, so uploads never traverse this nginx. It binds when you route everything through the web tier instead. See [Upload size limits](#upload-size-limits). |

@@ -125,7 +125,7 @@ its drawer's **Details** tab, and fill in the **Estimates** section for at least
 your critical-path tasks — a task with no three-point estimate falls back to its
 single duration.
 
-Then expand the **Forecast & sensitivity** bar docked at the bottom of the
+Then expand the **Forecast** bar docked at the bottom of the
 Schedule view and run a simulation from the **Monte Carlo** row. Read the P50 /
 P80 / P95 chips, and press **Details ›** for the full distribution and the
 sensitivity tornado — which tasks are actually driving the finish date, not

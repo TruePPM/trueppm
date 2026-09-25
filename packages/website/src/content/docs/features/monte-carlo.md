@@ -85,9 +85,9 @@ its leaf tasks — so you do not need to redraw them.
 
 ### Step 2 — Run the simulation
 
-In the app, open the Schedule view and expand the **Forecast & sensitivity** bar
+In the app, open the Schedule view and expand the **Forecast** bar
 docked at the bottom, then run a simulation from the **Monte Carlo** row — no
-API call needed. See [Forecast & sensitivity](/features/schedule/#forecast--sensitivity)
+API call needed. See [Forecast](/features/schedule/#forecast)
 for what the collapsed and expanded states show.
 
 To script it instead, or to integrate against it directly:

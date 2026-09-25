@@ -195,7 +195,7 @@ to **API**.
 | Wire dependencies (all four types, lag) | Right-click a row → **Add dependency** | UI |
 | Capture a baseline | [Baselines](/features/baselines/) — **Actions** → **Capture baseline** | **UI from 0.4**; API-only on 0.3 |
 | Set the status date so forecasts anchor on your data | Project settings → General → **Status date** | **UI from 0.4**; API-only (`PATCH /projects/{id}/`) on 0.3 |
-| Run Monte Carlo and read P50/P80/P95 | Schedule → **Forecast & sensitivity** bar | UI |
+| Run Monte Carlo and read P50/P80/P95 | Schedule → **Forecast** bar | UI |
 | Hand the plan to a stakeholder | Schedule toolbar → **Export PDF** | UI |
 
 Until this MR, the step from "create your own project" to "a WBS with phases and
