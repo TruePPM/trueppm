@@ -342,6 +342,10 @@ pypi-id-tokens-check: ## Fail if a job outside the known publish jobs can mint a
 	@bash scripts/check-pypi-id-tokens.sh
 	@python3 scripts/check-pypi-token-project.py --self-test
 
+artifact-assertions-check: ## Fail if a tag publish job's declared artifacts:paths are not asserted non-empty (#4062)
+	@bash scripts/check-artifact-assertions.sh --self-test
+	@bash scripts/check-artifact-assertions.sh
+
 dependency-soft-delete-check: ## Fail if a scheduler input reads Dependency.objects (#3532)
 	@# A soft-deleted edge read through the unfiltered manager keeps constraining
 	@# CPM, Monte Carlo, what-if and the derivation endpoint. Grep, ~1s.
@@ -631,6 +635,7 @@ pre-push-checks: request-body-guards-check
 pre-push-checks: summary-duration-units-check
 pre-push-checks: extension-signals-check
 pre-push-checks: pypi-id-tokens-check
+pre-push-checks: artifact-assertions-check
 pre-push-checks: dependency-soft-delete-check
 pre-push-checks: membership-live-floor-check
 pre-push-checks: enterprise-boundary-check

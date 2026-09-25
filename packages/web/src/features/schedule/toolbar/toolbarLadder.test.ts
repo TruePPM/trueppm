@@ -104,6 +104,13 @@ describe('the insert sentence occupies the rungs everything else cites (#3134 T6
    * Pinned here rather than left as a note in an MR because the next citation
    * will come from a handoff too, and a prose finding cannot be re-checked. If
    * a future rung reorders these, this fails and names the new indices.
+   *
+   * #3614 added one more demotion, `legend-overflow`, between `sentence-drop`
+   * (rung 8) and what was rung 9 (`pdf-overflow`) — the Legend toggle demotes
+   * before Export PDF (#2703's weekly, client-facing button still wins).
+   * `sentence-short` and `sentence-drop` keep their indices unchanged since
+   * the insertion sits after both; everything from `pdf-overflow` on shifts
+   * one rung later and the ladder is now 12 long, not 11.
    */
   it('shortens at rung 2 and stops being drawn at rung 8 — not rung 11', () => {
     const ids = TOOLBAR_LADDER.map((r) => r.id);
@@ -118,10 +125,11 @@ describe('the insert sentence occupies the rungs everything else cites (#3134 T6
 
     // The rung the design's numbering pointed at, so a reader who arrives with
     // the handoff in hand sees what 11 actually is instead of assuming a typo.
-    // It is 10 since #3263 removed `mode-chip`; 11 is now past the end.
-    expect(ids[9]).toBe('milestone-overflow');
-    expect(TOOLBAR_LADDER[9].estimate).toBe(116);
-    expect(ids).toHaveLength(11);
+    // It was 10 since #3263 removed `mode-chip`; #3614's `legend-overflow`
+    // insertion (rung 9) pushed it to 11, and 11 is now past the end.
+    expect(ids[10]).toBe('milestone-overflow');
+    expect(TOOLBAR_LADDER[10].estimate).toBe(116);
+    expect(ids).toHaveLength(12);
   });
 
   it('rations the sentence in that order and never un-rations it on the way down', () => {
@@ -163,12 +171,18 @@ describe('resolveComposition', () => {
     // reversible in place; a demotion costs a hunt. So the cheap concession is
     // the reversible one, not the small one — and a 1280 laptop keeps its
     // Export PDF button because the collapses alone are enough there.
-    const DEMOTIONS = new Set(['pdf-overflow', 'milestone-overflow', 'today-overflow']);
+    const DEMOTIONS = new Set([
+      'legend-overflow',
+      'pdf-overflow',
+      'milestone-overflow',
+      'today-overflow',
+    ]);
     const firstDemotion = TOOLBAR_LADDER.findIndex((r) => DEMOTIONS.has(r.id));
     const lastCollapse = TOOLBAR_LADDER.map((r) => DEMOTIONS.has(r.id)).lastIndexOf(false);
     expect(firstDemotion).toBeGreaterThan(lastCollapse);
     // …and nothing has left the bar at the last collapse.
     const allCollapsed = resolveComposition(ALL_PINNED, lastCollapse + 1);
+    expect(allCollapsed.legend).toBe('bar');
     expect(allCollapsed.pdf).toBe('bar');
     expect(allCollapsed.milestone).toBe('bar');
     expect(allCollapsed.today).toBe('bar');

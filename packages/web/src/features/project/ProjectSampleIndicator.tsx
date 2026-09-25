@@ -17,8 +17,17 @@ import { useDemoMode } from '@/hooks/useDemoMode';
  *
  * Renders nothing unless the project belongs to a bundled sample program.
  *
- * **"Manage demo data" is hidden, not rendered inert, in the read-only
- * interactive demo (#4049).** The comment composer and attachment controls
+ * **The whole strip is absent in the read-only interactive demo (#4050 A1).**
+ * Everything it says is said by `DemoModeBar`: the mode, the sample-data
+ * provenance, the program name, and — as a switcher rather than a caption — the
+ * project. It was one of five strips that between them left the landing Gantt a
+ * third of the viewport, and the cheapest of the five to remove, because its
+ * replacement already renders one row up. A self-hoster's own demo program is
+ * unaffected: that deployment is not `isDemoReadOnly`, and the strip is the only
+ * sample-data cue it has.
+ *
+ * **"Manage demo data" is hidden, not rendered inert, when the strip DOES
+ * render on a demo deployment (#4049).** The comment composer and attachment controls
  * disable-and-explain with {@link DEMO_DISABLED_NOTE} because they are
  * actions attempted in place — the visitor is already looking at the
  * surface a note can sit beside. This is a navigation link: following it
@@ -31,6 +40,7 @@ import { useDemoMode } from '@/hooks/useDemoMode';
 export function ProjectSampleIndicator({ projectId }: { projectId: string | null }) {
   const { data: project } = useProject(projectId ?? undefined);
   const { isDemoReadOnly } = useDemoMode();
+  if (isDemoReadOnly) return null;
   if (!project?.is_sample) return null;
 
   const program = project.program_detail;

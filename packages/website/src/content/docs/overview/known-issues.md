@@ -192,7 +192,7 @@ every merge, not just in a future release. The 0.4 remediation pass — focus tr
 roughly seventy dialogs, drawers, and popovers, 44px touch targets on the board and
 schedule surfaces, contrast fixes in both light and dark themes, live-region
 announcements for route changes and async writes, and keyboard operability on the Gantt,
-board, and outline — is already merged to `main` and lands with the 0.4 beta. The axe
+board, and outline — shipped with the 0.4 beta. The axe
 gate itself is [#1685](https://gitlab.com/trueppm/trueppm/-/issues/1685) <!-- known-issues-ack:closed -->
 and [#2202](https://gitlab.com/trueppm/trueppm/-/issues/2202) <!-- known-issues-ack:closed -->;
 the remediation ran across the release rather than under one tracking issue.

@@ -53,7 +53,7 @@ not a scattered feature list:
 
 The arc is the whole point. An agent that can only *compute*, *cite*, *be refused*, and
 *reproduce* cannot quietly corrupt the record — it never supplies a number the engine did not
-compute, and never commits a change the engine did not allow. The 0.4 beta will close that arc
+compute, and never commits a change the engine did not allow. The 0.4 beta closed that arc
 the strongest way available: the agent surface ships **read-only**, so there is no agent write
 to corrupt anything with. The gated write path (0.5 – 0.6) is where the arc has to hold under
 mutation, and it is being built against the same rulebook.
