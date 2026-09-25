@@ -353,9 +353,8 @@ Tags before `v0.4.0-beta.4` (`v0.4.0-beta.1`–`.3`) are `linux/amd64` only.
 | Web image | `registry.gitlab.com/trueppm/trueppm/web` and `ghcr.io/trueppm/web` |
 | Helm chart | install from source (`packages/helm`) or `oci://ghcr.io/trueppm/charts/trueppm` |
 
-`@trueppm/web` on npm is wired the same way (`web:publish:npm`, same `v*` tag) but
-is not live yet — that job exits 0 without publishing until `NPM_TOKEN` is
-configured, same as `trueppm-api` was dormant until #479 shipped its token.
+`@trueppm/web` is **not** published to npm: it is an application bundle, not an
+importable library, so the web artifact is the Docker image above (#4059).
 
 The web image's baked nginx config is a **fail-closed default, not a deployment**:
 it serves the SPA with the standard security headers and returns `404` for

@@ -7664,30 +7664,24 @@ ci:helm-publish-dry-run:
     expire_in: 1 week
 
 # ---------------------------------------------------------------------------
-# PUBLISH — OSS package registries (PyPI wheel + npm).
+# PUBLISH — OSS package registry (PyPI wheel).
 #
 # Trigger: push a git tag matching `v*` (the same release tag as the Docker
-# image jobs above). These publish the two remaining OSS packages — trueppm-api
-# (PyPI) and @trueppm/web (npm) — as versioned, installable artifacts so that
-# trueppm-enterprise can pin exact OSS versions instead of path-dep references
-# (Enterprise ADR E-0005, phase-2 switchover). Closes #479.
+# image jobs above). This publishes trueppm-api (PyPI) as a versioned,
+# installable artifact so that trueppm-enterprise can pin an exact OSS version
+# instead of a path-dep reference (Enterprise ADR E-0005, phase-2 switchover).
+# @trueppm/web is deliberately NOT published to npm (#4059): it is an app
+# bundle (`files: [dist]`, no main/exports/types), not a library, so an npm
+# release would give no consumer anything importable. The web artifact is the
+# Docker image.
 #
 # api:publish:pypi authenticates via PyPI Trusted Publishing (OIDC) + PEP 740
 # attestations, mirroring scheduler:publish / mcp:publish (#3943) — it carries
-# no static token, and unlike the pre-#3943 version it does NOT skip silently:
-# a missing/misconfigured Trusted Publisher fails the job loudly (PyPI's own
-# 422 at the mint-token step), because a live, publicly-consumed package
-# should never appear to succeed while quietly not publishing. See the
-# "BEFORE THE FIRST v* TAG" comment below the job for the required PyPI-side
-# setup. web:publish:npm still exits 0 — not fail — when NPM_TOKEN is absent,
-# keeping the release pipeline green before the npm token and package-name
-# reservation land; once configured, a v* tag publishes automatically and the
-# E-0005 remote agent detects it.
-#
-# Required CI/CD variables (Settings → CI/CD → Variables), Masked + Protected:
-#   NPM_TOKEN — npm automation token with publish scope for the @trueppm scope.
-# PyPI needs no static token for api:publish:pypi — see the Trusted Publisher
-# setup comment below the job.
+# no static token, and it does NOT skip silently: a missing/misconfigured
+# Trusted Publisher fails the job loudly (PyPI's own 422 at the mint-token
+# step), because a live, publicly-consumed package should never appear to
+# succeed while quietly not publishing. See the "BEFORE THE FIRST v* TAG"
+# comment below the job for the required PyPI-side setup.
 # ---------------------------------------------------------------------------
 
 ci:pypi-build-dry-run:
@@ -7966,48 +7960,6 @@ api:publish:pypi:
 # nothing is uploaded — this job no longer skips silently when unconfigured
 # (#3943): trueppm-api is a live, publicly-pinned package (trueppm-enterprise
 # pins it), so a quiet no-op here is worse than a loud failure.
-
-web:publish:npm:
-  # @trueppm/web → npm registry. Builds the production bundle and publishes
-  # dist/ (package.json `files` restricts the tarball to the built output).
-  # Distinct from web:publish, which ships the Docker image.
-  stage: publish
-  # node:22 — react-router 8 requires Node >=22.22 (#2362).
-  image: node:22-alpine@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85
-  <<: *rules-release-tag
-  needs:
-    - job: tag:wait-for-main
-  cache:
-    <<: *web-cache
-    policy: pull
-  script:
-    - *retry-fn
-    - |
-      if [ -z "${NPM_TOKEN}" ]; then
-        echo "INFO: NPM_TOKEN not set — skipping npm publish of @trueppm/web"
-        exit 0
-      fi
-    - cd packages/web
-    - retry npm ci --prefer-offline --no-audit --no-fund --quiet
-    # Verify the tag version matches package.json before publishing.
-    - |
-      PKG_VERSION=$(node -p "require('./package.json').version")
-      TAG_VERSION="${CI_COMMIT_TAG#v}"
-      if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-        echo "ERROR: tag version ($TAG_VERSION) does not match packages/web/package.json version ($PKG_VERSION)"
-        echo "Bump the version in packages/web/package.json before tagging."
-        exit 1
-      fi
-      echo "Version check passed: $PKG_VERSION"
-    - npm run build
-    - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
-    - npm publish
-    # Only reached when NPM_TOKEN is set (the skip above exits 0 first) (#4062).
-    - sh "$CI_PROJECT_DIR/scripts/ci-assert-artifacts.sh" packages/web/dist/
-  artifacts:
-    paths:
-      - packages/web/dist/
-    expire_in: 7 days
 
 # ---------------------------------------------------------------------------
 # RELEASE — GitLab Release entry.

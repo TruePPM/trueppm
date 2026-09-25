@@ -156,9 +156,8 @@ for what changed in any given release.
 
 Every `v*` tag publishes this package to PyPI automatically (CI job
 `api:publish:pypi`), alongside the Docker images and the Helm chart. `@trueppm/web`
-on npm is wired to the same tag (`web:publish:npm`) but is not live yet — see the
-[root README's Published artifacts table](https://gitlab.com/trueppm/trueppm#published-artifacts)
-for current status. As of #3943, this job authenticates via **PyPI Trusted
+is not published to npm — it is an application bundle, not a library (see the
+[root README's Published artifacts table](https://gitlab.com/trueppm/trueppm#published-artifacts)). As of #3943, this job authenticates via **PyPI Trusted
 Publishing** (GitLab OIDC) and signs [PEP 740](https://peps.python.org/pep-0740/)
 attestations, the same as `trueppm-scheduler` and `trueppm-mcp` — there is no
 static upload token on the publish path. That release job is unproven until
