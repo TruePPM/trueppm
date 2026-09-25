@@ -475,16 +475,16 @@ against a tag looks for an attestation on the tag's own digest and finds none, w
 is why the example above resolves the platform digest first. Use `architecture=="arm64"`
 to verify the arm64 image.
 
-:::caution[Web image `0.4.0-beta.4` carries no SBOM attestation]
-The `web` image published with `0.4.0-beta.4` is signed (`cosign verify` succeeds)
-but has **no** CycloneDX attestation on any digest, so `cosign verify-attestation`
-fails for it, on the tag and on either platform digest. The SBOM upload was skipped
-during that release cut; the fix is in the release pipeline and takes effect from the
-next tag. The published `0.4.0-beta.4` web image can only be corrected after the fact by the
-manual backfill job described below; until a maintainer has run it, treat it as unattested. The `api`
-image for the same release is attested on both platforms. Releases before
-`0.4.0-beta.4` were single-architecture, and their tag digest carries the attestation
-directly, so the tag form works for them.
+:::note[Web image `0.4.0-beta.4`: verify its SBOM attestation with the backfill identity]
+The `web` image published with `0.4.0-beta.4` is signed by the release tag, so
+`cosign verify` with the tag identity above succeeds. Its CycloneDX attestation is
+different: the tag pipeline skipped the SBOM upload, so the attestation was added
+afterwards by the manual backfill job (see below) and is signed by a `main` pipeline, not
+by the tag. `cosign verify-attestation` with the tag-only regexp therefore fails for
+this one image, on both platform digests, and succeeds with the backfill identity
+shown below. The `api` image for the same release is attested by the tag on both
+platforms. Releases before `0.4.0-beta.4` were single-architecture, and their tag
+digest carries the attestation directly, so the tag form works for them.
 :::
 
 #### Backfilled SBOM attestations
