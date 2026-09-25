@@ -129,6 +129,14 @@ _WEEKDAY_BIT = {"mon": 1, "tue": 2, "wed": 4, "thu": 8, "fri": 16, "sat": 32, "s
 #: is the binding resource once the import is async, so the batch is capped.
 _BULK_BATCH_SIZE = 500
 
+# Stand-in reason for a ``blocked`` cluster that carries no ``reason`` (#4082). The
+# exporter withholds the ADR-0124 private text from anyone but the assignee or an
+# @-mentioned user, but ``blocked_reason`` is the flag-of-record — emptiness means
+# "not blocked". Importing the bare cluster as-is would silently unblock the task
+# and drop the age/type/link triage signal the export deliberately kept, so a
+# present cluster with no reason imports as blocked with this placeholder.
+_PRIVATE_BLOCKER_REASON = "(private)"
+
 # Ceiling for a TaskResource synthesized from a bare ``assignee`` (#2900). The
 # actual units are ``min(this, resource.max_units)`` — a bare assignee means "this
 # person is on this task at their normal availability", so a half-time engineer
@@ -492,6 +500,13 @@ class _SeedImporter:
         to working days, and snapping it forward misstates when it occurred.
         """
         return resolve_date(value, anchor=self.anchor, calendar=self._wc(project_slug), snap=snap)
+
+    @staticmethod
+    def _blocker_reason(blocked: dict[str, Any] | None) -> str:
+        """Reason text for a task's ``blocked`` cluster; ``""`` when not blocked."""
+        if not blocked:
+            return ""
+        return str(blocked.get("reason") or "").strip() or _PRIVATE_BLOCKER_REASON
 
     def _date_opt(
         self, value: str | None, project_slug: str | None, *, snap: bool = True
@@ -1574,7 +1589,7 @@ class _SeedImporter:
             # ``blocked_since`` is stamped by ``Task.save()`` with ``timezone.now()``,
             # which would read "blocked 0 days" on a backdated seed, so it is
             # corrected to the project's own timeline in ``_backdate_blockers``.
-            blocked_reason=(data.get("blocked") or {}).get("reason", ""),
+            blocked_reason=self._blocker_reason(data.get("blocked")),
             blocker_type=(data.get("blocked") or {}).get("type", ""),
             governance_class=data.get("governance_class", "flow"),
             # Couple delivery_mode to the milestone flag (#1773) so seeded

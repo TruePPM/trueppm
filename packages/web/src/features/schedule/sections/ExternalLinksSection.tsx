@@ -212,13 +212,30 @@ interface ExternalLinkRowProps {
   canEdit: boolean;
 }
 
-function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowProps) {
+function ExternalLinkRow({ link: storedLink, projectId, taskId, canEdit }: ExternalLinkRowProps) {
   const refresh = useRefreshTaskLink();
   const remove = useDeleteTaskLink();
   const update = useUpdateTaskLink();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [connectPrompt, setConnectPrompt] = useState<string | null>(null);
   const [refreshFailed, setRefreshFailed] = useState(false);
+  // A non-creator's refresh is not saved to the shared row (#4081): the response
+  // carries the values fetched with *their* credential, shown only to them. It is
+  // pinned to the row version it was fetched against, so any real change to the
+  // row (server_version moves) drops it and the stored values win again.
+  const [transient, setTransient] = useState<TaskExternalLink | null>(null);
+  const link =
+    transient && transient.server_version === storedLink.server_version
+      ? {
+          ...storedLink,
+          status: transient.status,
+          title: transient.title,
+          description: transient.description,
+          thumbnail_url: transient.thumbnail_url,
+          preview_type: transient.preview_type,
+          fetched_at: transient.fetched_at,
+        }
+      : storedLink;
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(link.custom_title);
   const [draftLabels, setDraftLabels] = useState<string[]>(link.labels);
@@ -236,6 +253,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
     refresh.mutate(
       { projectId, taskId, linkId: link.id },
       {
+        onSuccess: (data) => setTransient(data),
         onError: (err: unknown) => {
           const data = (err as { response?: { data?: { code?: string; provider?: string } } })
             .response?.data;

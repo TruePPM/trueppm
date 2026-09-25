@@ -2,7 +2,7 @@
 # Run `make help` for a list of targets.
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod memory-check \
-        migrations-check migrations-numbering migrations-constraint-safety schema-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks e2e-schema-guard-check web-types-drift-check \
+        migrations-check migrations-numbering migrations-constraint-safety schema-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks e2e-schema-guard-check web-types-drift-check api-scheduler-lock-check \
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         mobile-version-check \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
@@ -415,6 +415,11 @@ playwright-pins-check: ## Fail if a Playwright npm pin drifts from the CI image 
 	@# ~1s, no network.
 	@bash scripts/check-playwright-pins.sh
 
+api-scheduler-lock-check: ## Fail if api/uv.lock pins an older scheduler release line than the tree (#4080)
+	@# `uv lock --check` only proves the lock satisfies pyproject.toml; a stale floor
+	@# let it sit at 0.2.0a1, which cannot import the app. Static parse, <1s.
+	@bash scripts/check-api-scheduler-lock.sh
+
 nul-bytes-check: ## Fail if a tracked text=set file contains a literal NUL byte (#3601)
 	@# A NUL byte in a `buildSubgraph.ts` template literal made git classify the
 	@# whole file as binary regardless of .gitattributes — `git diff` printed
@@ -648,6 +653,7 @@ pre-push-checks: sigpipe-readers-check
 pre-push-checks: compose-project-names-check
 pre-push-checks: playwright-pins-check
 pre-push-checks: nul-bytes-check
+pre-push-checks: api-scheduler-lock-check
 pre-push-checks: ci-api-tag-check
 pre-push-checks: web-rule-numbers-check
 pre-push-checks: web-row-vocabulary-check

@@ -228,6 +228,19 @@ class TaskLink(VersionedModel):
     # write. Not added to ``TaskLinkSerializer`` — the sync/mobile shape is
     # unchanged.
     created_at = models.DateTimeField(default=timezone.now, editable=False)
+    # Who added the link (#4081). Provider metadata fetched with a personal
+    # credential is persisted onto this shared row only when the creator refreshes
+    # it. Null for rows that predate the column: no one is then treated as the
+    # creator, so only a credential-free provider persists on refresh (fail closed).
+    # Never exposed by TaskLinkSerializer.
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        editable=False,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
 
     class Meta:
         ordering = ("display_order", "id")

@@ -404,7 +404,9 @@ class TaskLinkViewSet(
         self.check_object_permissions(self.request, task)
         url = serializer.validated_data["url"]
         provider = providers.resolve_provider_key(url, user=self.request.user)
-        instance = serializer.save(task=task, provider=provider)
+        # created_by records whose authority may later persist provider-fetched
+        # metadata onto this shared row (see ``refresh``, #4081).
+        instance = serializer.save(task=task, provider=provider, created_by=self.request.user)
         link_id = str(instance.pk)
         task_id = str(task.pk)
         project_id = str(task.project_id)
@@ -504,6 +506,16 @@ class TaskLinkViewSet(
 
         handler = cast("type[TaskLinkProvider]", handler_cls)()
         metadata = handler.fetch_metadata(link.url, credential)
+        # Confused-deputy guard (#4081): metadata fetched with a credential is
+        # authorized by *this caller's* token but the row is shared with the whole
+        # project. Persist (and broadcast) only when the caller is the link's
+        # creator — who chose the URL — or the provider needs no credential
+        # (public metadata). Anyone else gets the fetched values in the response
+        # body only, so a Member cannot plant a URL and harvest a victim's
+        # private title/status by waiting for them to click Refresh.
+        persist = (not requires_credential) or (
+            link.created_by_id is not None and link.created_by_id == user.pk
+        )
         link.status = metadata.status
         if metadata.title:
             link.title = metadata.title
@@ -515,6 +527,15 @@ class TaskLinkViewSet(
         link.thumbnail_url = metadata.thumbnail_url or ""
         link.preview_type = metadata.preview_type or ""
         link.fetched_at = timezone.now()
+
+        if credential is not None:
+            credential.last_used_at = timezone.now()
+            credential.save(update_fields=["last_used_at"])
+
+        if not persist:
+            # Transient view: the in-memory row is serialized but never saved.
+            return Response(TaskLinkSerializer(link).data)
+
         # VersionedModel.save() bumps server_version atomically; we pass the
         # changed fields only and let it handle the version bump + sync delta.
         link.save(
@@ -527,10 +548,6 @@ class TaskLinkViewSet(
                 "fetched_at",
             ]
         )
-
-        if credential is not None:
-            credential.last_used_at = timezone.now()
-            credential.save(update_fields=["last_used_at"])
 
         link_id = str(link.pk)
         task_id = str(link.task_id)

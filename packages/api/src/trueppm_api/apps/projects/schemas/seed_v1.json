@@ -172,8 +172,7 @@
     "taskBlocker": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["reason"],
-      "description": "The explicit human blocker flag (#1135, ADR-0124). `reason` is the flag-of-record — non-empty means blocked. NOT the derived has-incomplete-predecessors signal, and `blocking_task` is a soft 'waiting on' link that never enters CPM.",
+      "description": "The explicit human blocker flag (#1135, ADR-0124). A present cluster means blocked. `reason` is optional: an export withholds the private reason text from anyone but the task's assignee or an @-mentioned user (#4082), and the importer stamps a placeholder so the task still imports as blocked. NOT the derived has-incomplete-predecessors signal, and `blocking_task` is a soft 'waiting on' link that never enters CPM.",
       "properties": {
         "reason": { "type": "string", "minLength": 1, "maxLength": 100000 },
         "since": { "type": "string", "format": "date" },

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 from typing import Any, ClassVar, cast
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 from django.conf import settings
 
@@ -246,7 +246,9 @@ class GitHubTaskLinkProvider(TaskLinkProvider):
         api_root = f"{base_url.rstrip('/')}/api/v3" if base_url else "https://api.github.com"
         # GitHub's PR endpoint is /pulls/{n}; issues is /issues/{n}.
         api_kind = "pulls" if kind == "pull" else "issues"
-        api_url = f"{api_root}/repos/{owner}/{repo}/{api_kind}/{ref}"
+        api_url = (
+            f"{api_root}/repos/{quote(owner, safe='')}/{quote(repo, safe='')}/{api_kind}/{ref}"
+        )
         payload = _fetch_json(
             api_url,
             {
@@ -434,6 +436,8 @@ OSS_TASK_LINK_PROVIDERS: tuple[type[TaskLinkProvider], ...] = (
 
 # GitHub: https://host/{owner}/{repo}/(pull|issues)/{number}
 _GITHUB_RE = re.compile(r"^/(?P<owner>[^/]+)/(?P<repo>[^/]+)/(?P<kind>pull|issues)/(?P<ref>\d+)")
+# Segments that would re-aim the authenticated API request at another path.
+_DOT_SEGMENTS = frozenset({".", ".."})
 
 
 def _parse_github_url(url: str) -> tuple[str, str, str, str] | None:
@@ -445,7 +449,12 @@ def _parse_github_url(url: str) -> tuple[str, str, str, str] | None:
     match = _GITHUB_RE.match(urlparse(url).path)
     if match is None:
         return None
-    return (match["owner"], match["repo"], match["kind"], match["ref"])
+    owner, repo = match["owner"], match["repo"]
+    # Reject dot-segments, including percent-encoded ones (%2e%2e), so the
+    # victim's token cannot be aimed at a different api.github.com path (#4081).
+    if unquote(owner) in _DOT_SEGMENTS or unquote(repo) in _DOT_SEGMENTS:
+        return None
+    return (owner, repo, match["kind"], match["ref"])
 
 
 def _parse_gitlab_url(url: str) -> tuple[str, str, str] | None:

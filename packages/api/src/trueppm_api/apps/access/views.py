@@ -1209,17 +1209,6 @@ class ProgramUserDefinedMentionGroupViewSet(
 
     def destroy(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         program = self._get_program_or_404()
-        # IsProgramNotClosed bypasses the closed check for any action named
-        # "destroy" (its bypass set exists so a closed Program can be deleted
-        # directly). This nested viewset also names its delete "destroy", so the
-        # closed read-only invariant must be re-asserted explicitly here — every
-        # other write action (create/update/add-member/…) is already blocked by the
-        # permission because it is not in that bypass set. Mirrors the project
-        # sibling's archived re-assertion.
-        if program.is_closed:
-            raise PermissionDenied(
-                "This program is closed and cannot be modified. Reopen it first."
-            )
         self._require_actor_role(request, program.pk, Role.OWNER)
         instance = self.get_object()
         instance.soft_delete()
@@ -1389,16 +1378,6 @@ class ExternalStakeholderViewSet(IdempotencyMixin, viewsets.ModelViewSet[Externa
         serializer.save(program=program, created_by=self.request.user)
 
     def perform_destroy(self, instance: ExternalStakeholder) -> None:
-        # IsProgramNotClosed's bypass set includes "destroy" (so a closed Program can
-        # itself be deleted). This nested viewset also names its delete "destroy", so
-        # re-assert the closed read-only invariant explicitly — mirroring the sibling
-        # ProgramUserDefinedMentionGroupViewSet.destroy. create/update are already
-        # blocked (they are not in the bypass set).
-        program = self._get_program_or_404()
-        if program.is_closed:
-            raise PermissionDenied(
-                "This program is closed and cannot be modified. Reopen it first."
-            )
         # Soft-delete: flip the flag so the email frees up for re-add and the
         # partial-unique constraint stops binding this row.
         instance.is_deleted = True

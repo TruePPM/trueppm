@@ -471,6 +471,27 @@ describe('ExternalLinksSection — refresh', () => {
     );
   });
 
+  it('shows the refresh response transiently even when the server did not save it (#4081)', () => {
+    // A non-creator's refresh returns fetched values but the stored row (and so
+    // the refetched list) is unchanged — the row must still show what came back.
+    const mutate = vi.fn((_vars: unknown, opts: { onSuccess: (d: TaskExternalLink) => void }) =>
+      opts.onSuccess(
+        link({
+          id: 'l1',
+          provider: 'github',
+          title: 'Fetched with my token',
+          status: 'closed',
+          fetched_at: '2026-09-25T12:00:00Z',
+        }),
+      ),
+    );
+    useRefreshMock.mockReturnValue({ mutate, isPending: false });
+    render(<ExternalLinksSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByRole('button', { name: /Refresh status for MR 5/ }));
+    expect(screen.getByText('Fetched with my token')).toBeInTheDocument();
+    expect(screen.getByLabelText('Status: closed')).toBeInTheDocument();
+  });
+
   it('offers a Connect shortcut when refresh needs a credential (422)', () => {
     const mutate = vi.fn<LinkMutate>((_vars, opts) =>
       opts.onError({ response: { data: { code: 'credential_required', provider: 'github' } } }),
