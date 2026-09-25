@@ -36,6 +36,10 @@ TruePPM runs on your infrastructure. No data leaves your network. The community 
 - Valkey (Redis-compatible) for real-time messaging (stateless, no persistent data)
 - JWT authentication with configurable token lifetimes
 - Helm chart for Kubernetes deployment
+- Basic single sign-on (OIDC/OAuth against your own identity provider)
+- An operational audit log of who changed what
+- Read-only share links for a board or schedule, so stakeholders can see status without a login
+- A read-only MCP server, so an agent can answer questions against the live plan
 
 ### API-driven reporting
 

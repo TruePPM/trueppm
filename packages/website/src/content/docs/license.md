@@ -32,7 +32,7 @@ A CI gate (`lint:package-licenses`) enforces this. It also fails if a new direct
 
 ## What "Community Edition" includes
 
-Everything a project manager and their team need to run a program is in the Apache 2.0 Community Edition: the scheduling engine (CPM, Monte Carlo), the schedule view, Kanban boards and sprints, real-time collaboration, offline sync, 5-role RBAC, baseline comparison and in-app baseline capture, time tracking with a weekly timesheet, basic single sign-on (OIDC/OAuth login against your own identity provider), MS Project import/export, the REST and WebSocket API, and the Helm chart. Every one of them is in the open core, not behind the enterprise boundary.
+Everything a project manager and their team need to run a program is in the Apache 2.0 Community Edition: the scheduling engine (CPM, Monte Carlo), the schedule view, Kanban boards and sprints, real-time collaboration, offline sync, 5-role RBAC, baseline comparison and in-app baseline capture, time tracking with a weekly timesheet, basic single sign-on (OIDC/OAuth login against your own identity provider), MS Project import/export, the REST and WebSocket API, a read-only MCP server, an operational audit log, notifications, read-only share links, the integrations (Jira import and a personal Jira source, GitLab/GitHub task links, Git-event automation, outbound webhooks), and the Helm chart. Every one of them is in the open core, not behind the enterprise boundary.
 
 ## The enterprise boundary
 

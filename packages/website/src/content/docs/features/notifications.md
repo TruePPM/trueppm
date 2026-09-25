@@ -105,7 +105,7 @@ than one being a cut-down version of the other. A toggle click debounces
 seconds — there is no separate Save button.
 
 The matrix derives its rows and columns from whatever the server returns, so
-when Enterprise registers an additional channel (Slack DM, Teams DM, SMS)
+when an Enterprise extension point registers an additional channel
 against the `NOTIFICATION_CHANNELS` extension point, it appears as a new
 column automatically — this page needs no change to support it.
 

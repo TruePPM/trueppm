@@ -155,7 +155,7 @@ team's own AI capability is OSS; org-level AI governance is Enterprise.**
 | Natural-language query layer, local-model adapter | Community (OSS) | Planned for 0.5 |
 | MCP write surface (create/update task, move card, log time), engine-as-referee safe writes | Community (OSS) | Planned for 0.6 |
 | Reproducible answers (engine-version + input hash) | Community (OSS) | Planned for 0.9 |
-| AI scheduling, scenario modeling, cross-program agents, audited automation, approval workflows | Enterprise | — |
+| AI scheduling, cross-program and portfolio scenario modeling, cross-program agents, audited automation, approval workflows | Enterprise | — |
 
 The dividing question is the same one the whole product uses: *would a single PM or
 team need this to run their program?* Reading and eventually writing your own

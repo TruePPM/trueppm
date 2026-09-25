@@ -13,8 +13,10 @@ fetches status, it never writes back.
 :::note[Edition]
 Connected accounts and git-aware task links are part of the **Community (OSS)**
 edition. They register against the `TASK_LINK_PROVIDERS` registry (ADR-0049), so
-the Enterprise edition can add richer providers (Jira, ServiceNow, Bitbucket,
-Azure DevOps, …) without any OSS code change.
+the Enterprise edition can add richer git-link providers (ServiceNow, Bitbucket,
+Azure DevOps, …) without any OSS code change. Jira is not part of this registry:
+a personal Jira source ships in the Community edition through a separate
+registry (see below).
 :::
 
 This page covers the two *user-scoped* surfaces. For the *project*- and
