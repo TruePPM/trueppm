@@ -142,7 +142,7 @@ When a future package is migrated from a static token to OIDC, complete this PyP
 
 ## Enterprise release
 
-After pushing the OSS tag, run the enterprise release script in `trueppm-enterprise`:
+After pushing the OSS tag, run the enterprise repo's own `scripts/release.sh` from a `trueppm-enterprise` checkout (the `--oss-tag` flag belongs to that script, not to the OSS `scripts/release.sh`):
 
 ```bash
 cd ../trueppm-enterprise

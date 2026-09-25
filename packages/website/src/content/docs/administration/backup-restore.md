@@ -60,7 +60,7 @@ So treat the key as part of the backup set:
 ```bash
 # Kubernetes: capture the key alongside the dump, into your secret manager —
 # NOT into the same bucket as the dump (that would defeat encrypting the values).
-kubectl -n trueppm get secret trueppm-secrets \
+kubectl -n trueppm get secret trueppm-env \
   -o jsonpath='{.data.INTEGRATION_ENCRYPTION_KEY}' | base64 -d
 
 # Compose: it is the INTEGRATION_ENCRYPTION_KEY line in your .env file.

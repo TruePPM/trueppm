@@ -231,10 +231,10 @@ bakes a public one, so a superuser there had tokens anyone could forge from a
 value printed in the repository. The compose demo no longer creates that account
 (#3187) — do not read this paragraph as saying it still does.
 
-To reach Django admin on a demo release:
+To reach Django admin on a demo release (the names here assume `helm install trueppm`; under another release name the chart prefixes `<release>-trueppm-`):
 
 ```bash
-kubectl port-forward svc/<release>-trueppm-api 8000:8000
+kubectl port-forward svc/trueppm-api 8000:8000
 ```
 
 **Never enable this against an instance holding real data.** The hook runs
@@ -271,7 +271,7 @@ The links are printed by the hook Job and are also derivable from the tokens:
 them later:
 
 ```bash
-kubectl logs job/<release>-trueppm-demo-seed
+kubectl logs job/trueppm-demo-seed
 ```
 
 Things worth knowing before you run it:

@@ -553,11 +553,17 @@ externally-facing object and the TLS termination point. When the web tier is
 disabled (`web.enabled=false`), a `service: web` path falls back to the API.
 
 The default `ingress.hosts` already encodes the `/api`, `/ws` → API and `/` → web
-split, so a typical install only overrides the host, class, and TLS Secret:
+split, so a typical install only overrides the host, class, and TLS Secret. Because
+`values-prod.yaml` disables the bundled datastores, the command also has to
+supply `env.DATABASE_URL` and `env.REDIS_URL`, or the render fails. The
+placeholders below stand in for the URLs (or the `secretKeyRef` form from the
+walkthrough above):
 
 ```bash
 helm install trueppm packages/helm \
   -f packages/helm/values-prod.yaml \
+  --set env.DATABASE_URL='postgres://trueppm:<password>@<host>:5432/trueppm?sslmode=require' \
+  --set env.REDIS_URL='redis://:<password>@<host>:6379' \
   --set ingress.enabled=true \
   --set ingress.className=nginx \
   --set ingress.hosts[0].host=trueppm.example.com \

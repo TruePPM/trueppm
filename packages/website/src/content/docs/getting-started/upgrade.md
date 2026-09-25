@@ -246,10 +246,10 @@ configuration changed. An upgrade that changes the image version restarts every
 pod and is unaffected. An upgrade that changes **only settings** that land in the
 web tier's nginx config (turning on `demo.interactive`, a new `demo.baseUrl` or
 share token, a changed allowlist) updates the ConfigMap but leaves the running
-web pod serving the old configuration. After such an upgrade, restart it:
+web pod serving the old configuration. After such an upgrade, restart it (`trueppm-web` assumes the release is named `trueppm`, as in the install commands; under another name the Deployment is `<release>-trueppm-web`):
 
 ```bash
-kubectl -n <namespace> rollout restart deploy/<release>-trueppm-web
+kubectl -n <namespace> rollout restart deploy/trueppm-web
 ```
 
 Later chart versions restart the pod automatically (#4047).
