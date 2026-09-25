@@ -334,7 +334,7 @@ whether a member is provisioned and policy-controlled from a directory of record
 functional meaning in OSS.
 
 They do **not** describe basic login federation. Pointing TruePPM at your own
-identity provider so your team logs in via OIDC / OAuth2 ships in the OSS core at
+identity provider so your team logs in via OIDC / OAuth2 shipped in the OSS core in
 0.4 — that is login-only federation, not directory governance. For the full
 carve-out (log in via your own IdP → OSS; provision/deprovision/govern from a
 directory → Enterprise) and a dated comparison against the open-core competition,

@@ -443,17 +443,19 @@ verifies. On GHCR `<version>` is
 the bare version, for example `0.4.0-beta.4`. Verify against the GitLab CI OIDC issuer and the release-tag identity:
 
 ```bash
-# API and web images (repeat for web)
+# API and web images (repeat for web) — signature, verified on the tag
 cosign verify \
   --certificate-identity-regexp '^https://gitlab.com/trueppm/trueppm//.gitlab-ci.yml@refs/tags/v.*$' \
   --certificate-oidc-issuer https://gitlab.com \
   ghcr.io/trueppm/api:<version>
 
-# CycloneDX SBOM attestation
+# CycloneDX SBOM attestation — verify against the per-platform digest, not the tag
+DIGEST=$(docker buildx imagetools inspect ghcr.io/trueppm/api:<version> --raw \
+  | jq -r '.manifests[] | select(.platform.os=="linux" and .platform.architecture=="amd64") | .digest')
 cosign verify-attestation --type cyclonedx \
   --certificate-identity-regexp '^https://gitlab.com/trueppm/trueppm//.gitlab-ci.yml@refs/tags/v.*$' \
   --certificate-oidc-issuer https://gitlab.com \
-  ghcr.io/trueppm/api:<version>
+  ghcr.io/trueppm/api@"$DIGEST"
 
 # Helm OCI chart
 cosign verify \
@@ -464,6 +466,48 @@ cosign verify \
 
 A verified signature proves the image came from a TruePPM release tag; the
 attestation lets you pull the exact CycloneDX SBOM for that digest.
+
+The signature is on the multi-arch manifest list, so `cosign verify` works against
+the tag. The SBOM attestation is different: a manifest list has no filesystem and
+therefore no packages, so the attestation is attached to each per-platform image
+digest (`linux/amd64` and `linux/arm64`), not to the list. `cosign verify-attestation`
+against a tag looks for an attestation on the tag's own digest and finds none, which
+is why the example above resolves the platform digest first. Use `architecture=="arm64"`
+to verify the arm64 image.
+
+:::caution[Web image `0.4.0-beta.4` carries no SBOM attestation]
+The `web` image published with `0.4.0-beta.4` is signed (`cosign verify` succeeds)
+but has **no** CycloneDX attestation on any digest, so `cosign verify-attestation`
+fails for it, on the tag and on either platform digest. The SBOM upload was skipped
+during that release cut; the fix is in the release pipeline and takes effect from the
+next tag. The published `0.4.0-beta.4` web image can only be corrected after the fact by the
+manual backfill job described below; until a maintainer has run it, treat it as unattested. The `api`
+image for the same release is attested on both platforms. Releases before
+`0.4.0-beta.4` were single-architecture, and their tag digest carries the attestation
+directly, so the tag form works for them.
+:::
+
+#### Backfilled SBOM attestations
+
+`web:0.4.0-beta.4` was published without its CycloneDX attestation (its tag pipeline
+failed at the attest step), and a tag pipeline cannot be re-run from a fixed CI file.
+Its attestation is added afterwards by the manual `release:backfill-sbom-attestation`
+job, which regenerates the SBOM from each published platform digest with the pinned
+Syft and attests it keyless. That job runs on `main`, not on the release tag, so its
+certificate identity ends in `@refs/heads/main` instead of `@refs/tags/v...` and the
+tag-only regexp above does not match it. Verify a backfilled digest with:
+
+```bash
+cosign verify-attestation --type cyclonedx \
+  --certificate-identity 'https://gitlab.com/trueppm/trueppm//.gitlab-ci.yml@refs/heads/main' \
+  --certificate-oidc-issuer https://gitlab.com \
+  ghcr.io/trueppm/web@<platform-digest>
+```
+
+Maintainers: play the job from a `main` pipeline, set `BACKFILL_IMAGE` and
+`BACKFILL_TAG`, then note the backfill (attestation time versus tag time) on that
+tag's Release page. Locally, `scripts/backfill-sbom-attestation.sh --image web --tag <version> --dry-run`
+resolves the digests read-only; the script refuses to attest outside GitLab CI.
 
 ### Secure by default
 

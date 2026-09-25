@@ -107,7 +107,7 @@ behind it — which is why the Helm chart
 ### Single sign-on (OIDC / OAuth2)
 
 Basic single sign-on — pointing TruePPM at your own identity provider so your
-team logs in through it — ships in the OSS core at 0.4. Nine providers have a
+team logs in through it — shipped in the OSS core in 0.4. Nine providers have a
 built-in preset (Keycloak, Authentik, Zitadel, Okta, Auth0, Microsoft Entra ID,
 Google, GitLab, GitHub), and any other standards-compliant OIDC provider —
 Authelia, for instance — is configured through Generic OIDC with its issuer URL.
