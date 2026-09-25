@@ -14,8 +14,7 @@ the PM to schedule.
 
 It's deliberately **import-only**: status changes you make in TruePPM do **not**
 flow back to the external source. Designate one source of truth for status
-*before* setup — see [Source of truth](#source-of-truth) below. Two-way sync with
-conflict resolution is on the Enterprise roadmap.
+*before* setup — see [Source of truth](#source-of-truth) below. This endpoint is one-way: nothing is written back to the source system.
 
 ## What's in v1
 
@@ -32,7 +31,7 @@ conflict resolution is on the Enterprise roadmap.
 
 - **No write-back to the external source** — TruePPM is downstream. Status, name, and assignee changes you make in TruePPM stay in TruePPM.
 - **No sprint binding from the payload** — every inbound task lands in the project backlog (`status=BACKLOG`, `sprint=null`). The PM places it into a sprint via the normal sprint-planning surface.
-- **No OAuth handshake or HMAC signature verification** — authentication is the bearer token only. If you need stronger guarantees (signed payloads, SSO-gated token issuance) those are Enterprise.
+- **No OAuth handshake or HMAC signature verification** — authentication on this endpoint is the bearer token only. (Git-event webhooks have their own signature authentication; that does not apply here.)
 
 ## Quick start
 

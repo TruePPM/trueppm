@@ -405,4 +405,4 @@ The OSS webhook event set is capped at 19 events: `task.created`,
 agile trio (`sprint.*`) was added in ADR-0147, raising the cap from 11 to 14; the
 risk/baseline/comment domain events were added in ADR-0206, raising it from 14 to
 19. Adding a 20th event requires its own ADR — the cap is the gate against
-per-customer event proliferation, which is the Enterprise upsell line.
+per-customer event proliferation.

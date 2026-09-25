@@ -47,8 +47,8 @@ TruePPM is designed around eight roles that exist in real hybrid-delivery organi
 | **Jordan** | Product Owner | Backlog management, velocity-based release forecasting, sprint scope protection |
 | **Priya** | Team Member / Contributor | Board cards, Sprint backlog, My Work |
 | **David** | Resource Manager | Capacity preflight, Allocation |
-| **Marcus** | PMO Director / Portfolio Manager | Programs, Portfolio (Enterprise) |
-| **Janet** | Executive Sponsor | Monte Carlo confidence, RAG status (Enterprise) |
+| **Marcus** | PMO Director / Portfolio Manager | Programs, operational audit log (portfolio governance in Enterprise) |
+| **Janet** | Executive Sponsor | Monte Carlo confidence per project (portfolio RAG status in Enterprise) |
 | **Theo** | AI-Native Technical Operator | The read-only MCP server — questions to the live plan from an agent |
 
 See [The Story](/the-story/) for an end-to-end walkthrough of how these roles interact on a real hybrid program.
@@ -69,6 +69,10 @@ The **community edition** (Apache 2.0, this repository) includes everything an i
 - Offline-first sync protocol (WatermelonDB-compatible)
 - REST + WebSocket API (OpenAPI 3.0.3 schema)
 - Helm 3 chart for Kubernetes deployment
+- Basic single sign-on — OIDC/OAuth login against your own identity provider
+- Time tracking with a weekly timesheet, and baseline capture and comparison
+- Read-only [MCP server](/features/mcp-server/) for agent questions against the live plan
+- Operational audit log of who changed what, and [read-only share links](/features/board-sharing/) for a board or schedule
 - Integrations — [Jira Server/Data Center import](/features/jira-import/), a personal read-only Jira source for My Work, [GitLab and GitHub task links](/features/connected-accounts/) with live MR/PR/issue status, [Git-event board card automation](/administration/git-event-automation/), and [outbound webhooks](/features/webhooks/)
 
 The **enterprise edition** (separate repository, proprietary) adds features for organizations governing a portfolio across multiple programs:
@@ -77,7 +81,7 @@ The **enterprise edition** (separate repository, proprietary) adds features for 
 - Org identity governance — SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO (basic OIDC/OAuth login is included in the community core since 0.4)
 - Immutable audit trail
 - Cross-program resource leveling and capacity forecasting
-- AI scheduling and scenario modeling
+- AI scheduling and cross-program / portfolio scenario modeling
 - Integration hub: org-wide, bidirectional Jira / GitLab / ServiceNow connectors with writeback and conflict resolution (Jira import, personal Jira and Git links, and Git-event automation are in the community edition)
 - Multi-tenancy
 

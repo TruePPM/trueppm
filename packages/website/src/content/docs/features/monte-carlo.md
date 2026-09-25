@@ -100,15 +100,15 @@ Content-Type: application/json
 ```
 
 The `n_simulations` field is optional; it defaults to the server's
-`MC_SIMULATION_CAP` setting (1,000 on OSS, unlimited on Enterprise). The
+`MC_SIMULATION_CAP` setting (1,000 on OSS; operators can raise it). The
 endpoint is synchronous and fast — under 100 ms for a 200-task project at 10,000
 runs.
 
 The endpoint also enforces a **task cap** (`MC_TASK_CAP`, 5,000 on OSS): a project
 with more tasks than the cap returns HTTP 402 rather than running an unbounded
 simulation. The vectorized engine handles a 5,000-task × 1,000-run simulation in a
-few seconds; operators on constrained hardware can lower the cap, and Enterprise
-removes it.
+few seconds; operators on constrained hardware can lower the cap, and self-hosted
+operators can raise or remove it.
 
 ### Step 3 — Read the output
 
@@ -199,7 +199,7 @@ belongs to the Enterprise edition.
 
 Consistent with the OSS cap philosophy (`MC_SIMULATION_CAP`, `MC_TASK_CAP`), OSS
 will keep the **newest 100 runs per project** (`MC_HISTORY_CAP`); a nightly job
-trims older runs. Enterprise sets the cap to `None` (unlimited history). 100 runs
+trims older runs. Operators can set the cap to `None` (unlimited history). 100 runs
 is ample to read multi-month drift on an actively re-forecast project.
 
 ## What-if analysis
@@ -507,13 +507,12 @@ roughly ±1.4 percentage points, meaning your "P95" line could realistically
 represent anywhere from P93 to P97. P80 is more stable (200 samples in the
 tail), and P50 is very stable (500 samples on each side).
 
-For planning conversations where the tail matters, the Enterprise edition's
-higher run cap produces meaningfully more stable P80 and P95 estimates.
+For planning conversations where the tail matters, a higher run cap
+(`MC_SIMULATION_CAP` is operator-configurable) produces more stable P80 and P95 estimates.
 
 | Edition | Max runs | P50 stability | P80 stability | P95 stability |
 |---|---|---|---|---|
 | Community (OSS) | 1,000 | Good | Acceptable | Noisy (±1.4 pp) |
-| Enterprise | Unlimited | Good | Good | Good at 10,000+ |
 
 ### Task durations are sampled independently
 
@@ -553,15 +552,13 @@ not 1.2× M.
 
 ## OSS edition limits
 
-| Limit | OSS default | Enterprise |
-|---|---|---|
-| Max runs per request (`MC_SIMULATION_CAP`) | 1,000 | Unlimited |
-| Max tasks per project (`MC_TASK_CAP`) | 5,000 | Unlimited |
-| Max run history per project (`MC_HISTORY_CAP`, added in 0.3) | 100 | Unlimited |
+| Limit | OSS default |
+|---|---|
+| Max runs per request (`MC_SIMULATION_CAP`) | 1,000 |
+| Max tasks per project (`MC_TASK_CAP`) | 5,000 |
+| Max run history per project (`MC_HISTORY_CAP`, added in 0.3) | 100 |
 
-Both settings can be changed in `settings/base.py` (or a local override). The
-Enterprise package sets both to `None` (unlimited) in its settings include.
-Self-hosted OSS operators may set any integer or `None` in their local
+Both settings can be changed in `settings/base.py` (or a local override). Self-hosted OSS operators may set any integer or `None` in their local
 settings — the cap is advisory, not license-enforced.
 
 Exceeding either cap returns HTTP 402 with a structured error body:
@@ -588,8 +585,8 @@ estimates.
 
 **Use P95 for hard external commitments.** Contractual deadlines, public launch
 dates, and regulatory submissions warrant a 95th-percentile buffer. At OSS run
-counts the P95 value is noisy; run at the Enterprise edition's higher cap for
-meaningful precision.
+counts the P95 value is noisy; raise `MC_SIMULATION_CAP` and run more
+simulations for meaningful precision.
 
 **Do not commit to P50.** A P50 date has a 50% probability of being missed by
 definition. Committing to it is equivalent to flipping a coin on every project.

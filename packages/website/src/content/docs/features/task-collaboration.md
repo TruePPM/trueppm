@@ -359,7 +359,7 @@ flip from the V2 VoC pass (she didn't want yet another push channel without
 opting in). Changes save automatically 300 ms after each toggle click, with a
 subtle "Saved." indicator that auto-dismisses.
 
-When Enterprise registers additional channels (Slack DM, Teams DM, SMS via
+When an Enterprise extension point registers additional channels (via
 ADR-0049's `NOTIFICATION_CHANNELS` registry), they appear as additional
 columns/rows automatically — the matrix derives its axes from the
 preferences list.

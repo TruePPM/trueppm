@@ -84,7 +84,7 @@ Each webhook renders its payload in one of two OSS formats, set per subscription
 | `generic` (default) | The raw TruePPM event envelope, unchanged (see [Payload shape](#payload-shape)). |
 | `slack` | A Slack incoming-webhook message (`text` + a single attachment). Discord and Mattermost incoming webhooks accept the same shape, so one format covers all three. |
 
-Point a `slack`-format webhook at a Slack/Discord/Mattermost incoming-webhook URL and messages render in-channel with no consumer-side parsing. Richer formats (Slack App, Teams, PagerDuty) are an Enterprise feature and register against the same extension point without an OSS change.
+Point a `slack`-format webhook at a Slack/Discord/Mattermost incoming-webhook URL and messages render in-channel with no consumer-side parsing. The OSS build registers two formats, `generic` and `slack`; an Enterprise extension point can register additional formats without an OSS change.
 
 ## Event types
 
