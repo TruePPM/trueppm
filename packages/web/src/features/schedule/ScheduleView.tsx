@@ -26,7 +26,7 @@ import { findUndatedRow } from './buildMode/undatedNav';
 import { ancestorIdsOf } from './unscheduledSelection';
 import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate, ZOOM_STEP_FACTOR } from './engine';
-import { computeInitialFraming, type RowBar } from './scheduleUtils';
+import { computeInitialFraming, todayLocalIso, type RowBar } from './scheduleUtils';
 import { resolveOutlineLeftReserve, CHART_HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
 import { useCadenceRail, useChartHeaderHeight } from '@/hooks/useChartHeaderHeight';
 import { useRowHeight, useRowMetrics, useComfortableRows } from '@/hooks/useRowHeight';
@@ -62,6 +62,8 @@ import { BuildModeRowMenu, type RowMenuItem } from './buildMode';
 import { ZoomControl } from './ZoomControl';
 import { QuarterModeControl } from './QuarterModeControl';
 import { ScheduleViewModeToggle } from './ScheduleViewModeToggle';
+import { ScheduleLegendToggle } from './ScheduleLegendToggle';
+import { useScheduleLegendCollapsed } from '@/hooks/useScheduleLegendCollapsed';
 import { ScheduleDisplayMenu } from './ScheduleDisplayMenu';
 import { ScheduleSummaryChip } from './ScheduleSummaryChip';
 import { ScheduleAddMilestoneButton } from './ScheduleAddMilestoneButton';
@@ -197,6 +199,9 @@ import {
   type CanvasTeachingInput,
 } from './buildMode';
 import { useScheduleAuthorMode, type ScheduleAuthorMode } from '@/hooks/useScheduleAuthorMode';
+import { useDemoMode } from '@/hooks/useDemoMode';
+import { useDemoTipsStore } from '@/stores/demoTipsStore';
+import { pickDemoHintTarget } from './demoHintTarget';
 import { useAuthorModeLayoutCoupling } from '@/hooks/useAuthorModeLayoutCoupling';
 import {
   useScheduleDisplayOptions,
@@ -1002,6 +1007,12 @@ export function ScheduleView() {
   const { tasks: rawTasks, links: rawLinks, isLoading, error } = useScheduleTasks();
   const { data: mcResult } = useMonteCarloResult(projectIdUndef);
   const allTasks = useMemo(() => rawTasks ?? [], [rawTasks]);
+
+  // The hosted read-only demo (ADR-1197). Everything gated on this is #4050's
+  // first-screen work: five strips collapse into one bar, the tray starts
+  // collapsed, the opening framing is Fit, and the landing mode is Read. A
+  // normal install reads `false` here and renders exactly as it did before.
+  const { isDemoReadOnly } = useDemoMode();
   const allLinks = useMemo(() => rawLinks ?? [], [rawLinks]);
   const { expandedIds, toggle: toggleExpandRaw, expandAll, expand } = useWbsStore();
 
@@ -1242,16 +1253,31 @@ export function ScheduleView() {
     [expandedIds, toggleExpandRaw, childCountById],
   );
 
-  // Auto-expand root-level summary nodes on first load
+  // Auto-expand root-level summary nodes on first load.
+  //
+  // In the demo a phase whose work is FINISHED opens collapsed (#4050 A6b).
+  // Atlas's Migration Tooling opens with Assess and Build both at 100% — nine
+  // completed rows above the fold, all of them dark and none of them the thing
+  // the visitor came to look at. A done phase is a summary line; an open one is
+  // nine rows of history pushing the live work off screen. Everything still in
+  // flight stays expanded, so nothing is hidden that anyone would act on, and a
+  // normal install is untouched: the whole tree expands there exactly as before.
   useEffect(() => {
     if (allTasks.length === 0) return;
     const tree = buildWbsTree(allTasks);
     const rootSummaryIds = tree.filter((n) => n.task.isSummary).map((n) => n.task.id);
-    if (rootSummaryIds.length > 0) {
-      expandAll(collectAllIds(tree));
+    if (rootSummaryIds.length === 0) return;
+    const allIds = collectAllIds(tree);
+    if (!isDemoReadOnly) {
+      expandAll(allIds);
+      return;
     }
+    const doneSummaryIds = new Set(
+      allTasks.filter((t) => t.isSummary && (t.progress ?? 0) >= 100).map((t) => t.id),
+    );
+    expandAll(allIds.filter((id) => !doneSummaryIds.has(id)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allTasks.length]);
+  }, [allTasks.length, isDemoReadOnly]);
 
   const unscheduledTasks = useUnscheduledTasks(allTasks);
 
@@ -1675,7 +1701,17 @@ export function ScheduleView() {
       return { x0: dateToLeft(t.start, scheduleScales), x1: dateToLeft(t.finish, scheduleScales) };
     });
 
-    const framing = computeInitialFraming(todayX, container.clientWidth, maxScroll, bars);
+    // #4050 A4 — the demo always opens on Fit. `computeInitialFraming` is right
+    // for a working session: it frames today at 25% and only falls back to Fit
+    // when that would open on empty canvas. But its input is "what does this
+    // planner want to see next", and a first-time visitor's answer is different
+    // — they have no next, they want the shape of the plan. On the Atlas seed
+    // the today-framing lands mid-Migrate at 25% zoom, which is a sliver of a
+    // multi-year span. Fit resolves to the coarsest unit that still gives each
+    // unit room, which is the readable view A5's label ladder was built for.
+    const framing = isDemoReadOnly
+      ? ({ kind: 'fit' } as const)
+      : computeInitialFraming(todayX, container.clientWidth, maxScroll, bars);
 
     // Past the gates every outcome is a real decision, so disarm before acting on
     // it: a later `visibleTasks` change must not re-frame and steal a viewport the
@@ -1693,7 +1729,7 @@ export function ScheduleView() {
     } else {
       container.scrollLeft = framing.scrollLeft;
     }
-  }, [engine, scheduleScales, visibleTasks, rowHeight]);
+  }, [engine, scheduleScales, visibleTasks, rowHeight, isDemoReadOnly]);
 
   // ADR-0132's data date (#2813): the floor the server applies to every
   // not-yet-finished task on the next CPM run. Resolved HERE rather than inside
@@ -1843,6 +1879,56 @@ export function ScheduleView() {
   // per-project preference layered on top of the server role gate below, not
   // a replacement for it. "Read" mode forces readOnly regardless of role.
   const authorMode = useScheduleAuthorMode(projectIdUndef);
+
+  // ------------------------------------------------------------------
+  // Demo landing hint (#4050 A1/A6) — publish the target, honour "Try it",
+  // advance on a real drag. All three are no-ops off a demo deployment.
+  // ------------------------------------------------------------------
+  const demoTipsTarget = useMemo(
+    () => (isDemoReadOnly ? pickDemoHintTarget(allTasks, todayLocalIso()) : null),
+    [isDemoReadOnly, allTasks],
+  );
+  const setDemoTipsTarget = useDemoTipsStore((s) => s.setTarget);
+  const demoAuthorRequest = useDemoTipsStore((s) => s.authorRequest);
+  const advanceDemoTips = useDemoTipsStore((s) => s.advanceAfterDrag);
+  useEffect(() => {
+    // The bar has no task list of its own, so the Schedule is the only place
+    // this can be derived. The store guards an equal write, so re-publishing on
+    // every poll does not wake the always-mounted bar.
+    setDemoTipsTarget(demoTipsTarget);
+  }, [demoTipsTarget, setDemoTipsTarget]);
+
+  // "Try it": enter Author for the session, then take the visitor to the bar
+  // the sentence names. `setMode` rather than the baseline gate's
+  // `requestToggle` is not a shortcut around the #3748 confirm — under
+  // `isDemoReadOnly` that gate skips the confirm anyway (see
+  // `useBaselinedAuthorGate`), because the sentence it shows is false on a
+  // deployment that saves nothing. Going straight to `setMode` keeps this
+  // idempotent: pressing "Try it" twice must re-scroll, not toggle back to Read.
+  const { setMode: setAuthorMode } = authorMode;
+  const firstAuthorRequest = useRef(demoAuthorRequest);
+  useEffect(() => {
+    if (!isDemoReadOnly) return;
+    if (demoAuthorRequest === firstAuthorRequest.current) return;
+    setAuthorMode('author');
+    // Scroll only. Selecting the row would open the task drawer over the very
+    // bar the hint just asked the visitor to drag — the opposite of taking them
+    // to it.
+    if (demoTipsTarget) scrollToTask(demoTipsTarget.id);
+  }, [isDemoReadOnly, demoAuthorRequest, setAuthorMode, demoTipsTarget, scrollToTask]);
+
+  // A real drag — not the "Try it" click — is what advances to step 2, exactly
+  // as the design asks. `committing` is the phase the FSM enters once the
+  // pointer is released on a moved bar, which is the moment the gesture
+  // succeeded; the write behind it is refused by the demo's middleware and the
+  // preview overlay (ADR-1198) shows the outcome, but the visitor did the thing
+  // the hint asked for and the hint must not pretend otherwise.
+  useEffect(() => {
+    if (!isDemoReadOnly) return;
+    if (dragPhase !== 'committing') return;
+    advanceDemoTips();
+  }, [isDemoReadOnly, dragPhase, advanceDemoTips]);
+
   // Grid is the layout you author in; Timeline is the one you read in. Move the
   // layout with the mode on the transition, and let a manual choice win (#3114).
   useAuthorModeLayoutCoupling({
@@ -1854,6 +1940,9 @@ export function ScheduleView() {
   });
   // Where focus goes when the how-to bar is dismissed (#3134) — see `onDismiss` below.
   const displayTriggerRef = useRef<HTMLButtonElement>(null);
+  // Where focus goes when the legend's own close control unmounts it (#3614)
+  // — same pattern, see `ScheduleLegend`'s `closeFocusRef`.
+  const legendTriggerRef = useRef<HTMLButtonElement>(null);
   const { options: displayOptions, toggle: toggleDisplayOption } =
     useScheduleDisplayOptions(projectIdUndef);
   // Comfortable rows (#3019). The Display menu's toggle persisted this and
@@ -4441,6 +4530,7 @@ export function ScheduleView() {
         displayOptions={displayOptions}
         onToggleDisplayOption={toggleDisplayOption}
         displayTriggerRef={displayTriggerRef}
+        legendTriggerRef={legendTriggerRef}
         isMobile={isMobile}
         projectId={projectId}
         readOnly={readOnly}
@@ -4588,6 +4678,7 @@ export function ScheduleView() {
         projectId={projectId}
         readOnly={readOnly}
         canLinkDependencies={!dependenciesReadOnly}
+        legendTriggerRef={legendTriggerRef}
         canEditRow={canEditRow}
         outlineRendered={outlineRendered}
         scheduleSeeding={scheduleSeeding}
@@ -4702,7 +4793,13 @@ export function ScheduleView() {
           The insert-target statement in the toolbar is NOT a third competitor:
           it is a readout (clause 1) and is exempt. So is the bulk-edit control
           in the strip — a control that performs the act is not a teacher. */}
-      {shouldRenderCoachBar(canvasTeaching) && (
+      {/* #4050 A1 — not rendered in the demo. Everything the coach bar teaches
+          (the hover-only row controls, the gestures) moves into the legend's
+          Gestures group and the demo bar's hint; the bar itself was one of the
+          five strips that left the landing Gantt a third of the viewport. A
+          normal install is unchanged: `shouldRenderCoachBar` still arbitrates,
+          and this conjunct is false there. */}
+      {!isDemoReadOnly && shouldRenderCoachBar(canvasTeaching) && (
         <ScheduleCoachBar
           // Dismiss still writes the stored option and Display ▸ Outline still
           // restores it (#2959). Standing down for the strip is a render
@@ -4771,9 +4868,18 @@ export function ScheduleView() {
           the plan rather than a static checklist. Renders nothing once nothing
           untouched-seeded is worth flagging — safe to mount unconditionally,
           same idiom as the reconcile strip above it. */}
-      <NextStrip tasks={allTasks} links={allLinks} />
+      {/* #4050 A1 — "Worth a look, not required" becomes hint step 2 in the
+          demo bar, so the strip is not rendered here. On a real install it
+          stays: its suggestions are about a plan someone is actually going to
+          finish, which is not what a five-minute evaluation is. */}
+      {!isDemoReadOnly && <NextStrip tasks={allTasks} links={allLinks} />}
 
-      {surfaces.monte_carlo && (
+      {/* #4050 A1 — in the demo the docked bar is NOT mounted; `DemoForecastChip`
+          in the demo bar mounts this same component inside its popover instead.
+          That is what keeps ADR-0144 / web rule 189 true across the move: one
+          forecast surface, percentiles rendered once, and never the chip's P80
+          alongside the popover's P50/P80/P95. */}
+      {surfaces.monte_carlo && !isDemoReadOnly && (
         <ScheduleForecastBar projectId={projectIdUndef} cpmFinish={cpmFinish} tasks={allTasks} />
       )}
 
@@ -5644,10 +5750,28 @@ function buildDemotedItems(ctx: {
   restructurePending: boolean;
   scheduleExport: ReturnType<typeof useScheduleExport>;
   pins: ToolbarPins;
+  legendCollapsed: boolean;
+  onToggleLegend: () => void;
 }): { crowdedOut: ToolbarOverflowItem[]; unpinned: ToolbarOverflowItem[] } {
   // Read hides authoring rows here exactly as it does in the bar (#3748).
   const authoring = ctx.projectId !== null && ctx.hasEditRights && !ctx.readOnly;
   const rows: Array<{ pinned: boolean; item: ToolbarOverflowItem }> = [
+    // Legend has no pin to opt into — it is always "wanted" in the bar, so a
+    // demotion here is always "crowded out", never "turn on in Display"
+    // (#3614).
+    ...(ctx.composition.legend === 'overflow'
+      ? [
+          {
+            pinned: true,
+            item: {
+              kind: 'action' as const,
+              id: 'legend',
+              label: ctx.legendCollapsed ? 'Show legend' : 'Hide legend',
+              onSelect: ctx.onToggleLegend,
+            },
+          },
+        ]
+      : []),
     ...(ctx.composition.today === 'overflow'
       ? [
           {
@@ -5734,6 +5858,13 @@ interface ScheduleToolbarProps {
    * siblings — the toolbar only forwards it.
    */
   displayTriggerRef: RefObject<HTMLButtonElement | null>;
+  /**
+   * Handle on the toolbar's "Legend" button, so the legend panel's own close
+   * control can hand focus back to it when the panel unmounts itself (#3614)
+   * — same pattern as `displayTriggerRef` above. Owned by `ScheduleView`
+   * because the button and the legend panel are siblings there.
+   */
+  legendTriggerRef: RefObject<HTMLButtonElement | null>;
   /** Per-person outline chrome (#2959) — surfaced in the Display menu. */
   displayOptions: ScheduleDisplayOptions;
   onToggleDisplayOption: (key: ScheduleDisplayOptionKey) => void;
@@ -5830,6 +5961,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     displayOptions,
     onToggleDisplayOption,
     displayTriggerRef,
+    legendTriggerRef,
     hasEditRights,
     canLinkDependencies,
     showAddForm,
@@ -5904,6 +6036,10 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const overflowSlotRef = useRef<HTMLButtonElement>(null);
   const demotionLiveRef = useRef<HTMLSpanElement>(null);
+  // Read here too (alongside `ScheduleLegendToggle`'s own subscription, #3614)
+  // only so the demoted overflow row below can state which way the toggle
+  // currently goes — both read the SAME external store, so they cannot drift.
+  const { collapsed: legendCollapsed, toggle: toggleLegend } = useScheduleLegendCollapsed();
   // Everything that changes the bar's NATURAL width without changing its box,
   // so the loop re-measures on a pin toggle, a mode flip, rights resolving, or
   // the trail gaining its first entry — none of which a ResizeObserver can see.
@@ -6119,6 +6255,18 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
 
       {/* Grid↔Timeline layout toggle (issue 1221). */}
       <ScheduleViewModeToggle />
+
+      {/* Legend show/hide (#3614). The legend defaults to open on a user's
+          first-ever visit and closed on every visit after (see
+          useScheduleLegendCollapsed) — this button, and the legend panel's own
+          close control, are the two ways back in once it is closed. Placed
+          beside the Grid/Timeline toggle rather than inside the Display
+          popover: unlike the render/view filters that live there, this does
+          not change what the canvas draws, only whether a reference panel
+          floats over it. Demotes into `···` first on the fit ladder (rung
+          `legend-overflow`, before Export PDF) — the least essential command
+          in the bar, not one of the five pinnable controls. */}
+      {composition.legend === 'bar' && <ScheduleLegendToggle triggerRef={legendTriggerRef} />}
 
       {/* Show cluster (#1741) — the Display popover is the single home for the
           four view/render filters plus (in Grid mode) column visibility. */}
@@ -6366,6 +6514,8 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
               restructurePending,
               scheduleExport,
               pins,
+              legendCollapsed,
+              onToggleLegend: toggleLegend,
             }),
             selectionCount: bulkEditSelectionCount,
             onBulkEdit,
@@ -6404,6 +6554,12 @@ interface ScheduleMainAreaProps {
    * the legend's standing "drag the handle" line goes with the handle itself.
    */
   canLinkDependencies: boolean;
+  /**
+   * Handle on the toolbar's "Legend" button, so the legend panel's own close
+   * control can hand focus back to it when the panel unmounts itself (#3614).
+   * Owned by `ScheduleView` — the toolbar and this surface are siblings there.
+   */
+  legendTriggerRef: RefObject<HTMLButtonElement | null>;
   isMobile: boolean;
   allTasks: Task[];
   projectId: string | null;
@@ -7011,7 +7167,11 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
 
         {/* Floating legend overlay (#474, ADR-0064) — anchored to the bottom-left of
             the canvas viewport. Hidden below `lg` per design rule 12. */}
-        <ScheduleLegend taskListWidth={overlayAnchorWidth} canLink={props.canLinkDependencies} />
+        <ScheduleLegend
+          taskListWidth={overlayAnchorWidth}
+          canLink={props.canLinkDependencies}
+          closeFocusRef={props.legendTriggerRef}
+        />
       </div>
 
       {/* Unscheduled gutter — tasks with no planned/CPM dates (#213). Desktop

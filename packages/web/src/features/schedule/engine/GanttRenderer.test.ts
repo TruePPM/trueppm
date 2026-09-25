@@ -33,7 +33,12 @@ import {
   SUMMARY_BAR_HEIGHT,
   getLastObstacleBoxCount,
 } from './GanttRenderer';
-import { buildScaleData, dateToLeft, dateToRight } from './GanttScaleData';
+import {
+  buildScaleData,
+  buildScaleDataFromPxPerDay,
+  dateToLeft,
+  dateToRight,
+} from './GanttScaleData';
 import { CADENCE_RAIL_HEIGHT, HEADER_HEIGHT } from '../scheduleConstants';
 import type { Task } from '@/types';
 import type { CadenceSegment, SprintBand } from '../sprintBands';
@@ -345,20 +350,44 @@ describe('drawTimelineHeader — fiscal quarters (#755)', () => {
     const { ctx, calls } = makeCtxSpy();
     drawTimelineHeader(ctx, scales, 0, CANVAS_W);
     const labels = labelsFrom(calls);
-    expect(labels.some((l) => /^Q\d 2026$/.test(l))).toBe(true);
+    // Quarter zoom is 0.8 px/day, so a 91-day quarter cell is ~73px — below the
+    // 80px rung that earns the year, above the 28px rung that earns the bare
+    // quarter. That step-down is the point of #4050 A5, not an accident of this
+    // fixture: the label that USED to be drawn here ("Q1 2026") is ~44px of ink
+    // in a cell whose usable width is 67px after padding, and it sat over a year
+    // cell repeating "2026" underneath it.
+    expect(labels.some((l) => /^Q\d$/.test(l))).toBe(true);
     expect(labels.some((l) => l.includes('FY'))).toBe(false);
+    // The minor row is months now, not the year — and at 0.8 px/day a month
+    // cell is ~24px, which earns the single-letter rung and not "Mar".
+    expect(labels).toContain('M');
+    expect(labels.some((l) => /^(19|20)\d\d$/.test(l))).toBe(false);
   });
 
-  it('renders fiscal quarter + fiscal year labels in fiscal mode (April start)', () => {
+  it('renders fiscal quarter labels in fiscal mode (April start)', () => {
     const { ctx, calls } = makeCtxSpy();
     drawTimelineHeader(ctx, scales, 0, CANVAS_W, { startMonth: 4, mode: 'fiscal' });
     const labels = labelsFrom(calls);
-    // Minor row: fiscal quarter labels. Apr–Jun 2026 = Q1 FY27.
-    expect(labels).toContain('Q1 FY27');
-    // Major row: fiscal year label spanning the range.
-    expect(labels).toContain('FY27');
+    // Apr–Jun 2026 = Q1 of FY27 under an April start. At this cell width only
+    // the bare quarter fits.
+    expect(labels).toContain('Q1');
+    // The year is never repeated on a row of its own any more (#4050 A5) — it
+    // rides inside the quarter cell when the cell is wide enough for it.
+    expect(labels.some((l) => /^FY\d\d$/.test(l))).toBe(false);
     // No calendar "Q1 2026" form in fiscal mode.
     expect(labels.some((l) => /^Q\d 20\d\d$/.test(l))).toBe(false);
+  });
+
+  it('carries the fiscal year inside the quarter cell once the cell is wide enough', () => {
+    // 4 px/day → a 91-day quarter is ~364px, comfortably past the 80px rung.
+    const wide = buildScaleDataFromPxPerDay(4, '2026-03-01', '2027-02-01');
+    const { ctx, calls } = makeCtxSpy();
+    drawTimelineHeader(ctx, wide, 0, CANVAS_W, { startMonth: 4, mode: 'fiscal' });
+    const labels = labelsFrom(calls);
+    expect(labels).toContain('FY27 · Q1');
+    // … and the tier below it is months, stated once.
+    expect(labels).toContain('Apr');
+    expect(labels.some((l) => /^FY\d\d$/.test(l))).toBe(false);
   });
 });
 

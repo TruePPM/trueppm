@@ -30,7 +30,9 @@
 #
 # Exit codes:
 #   0  no violations
-#   1  a past/present-tense claim references an unshipped version
+#   1  a past/present-tense claim references an unshipped version, or
+#      future-tense prose ("lands with the 0.X beta", "0.X will add") names a
+#      shipped one (#4058; opt out per line with a `tense-ok` marker)
 #   2  invocation / setup error (e.g. roadmap missing)
 #
 # Modes:
@@ -717,6 +719,37 @@ $extra"
       fi
     done <<< "$stale_hits"
   done <<< "$files"
+
+  # ── Forward-tense prose about a shipped version (#4058) ────────────────────
+  #
+  # (a) above needs the literal "ships in 0.X". Free prose says it many other
+  # ways — "lands with the 0.4 beta", "ships in the OSS core at 0.4", "(lands
+  # 0.4)", "planned for 0.4", "0.4 will add" — and after 0.4 shipped, ~30 such
+  # statements sat on a green pipeline across pages no other gate reads. Only
+  # fires once the NAMED version is shipped, so "planned for 0.6" stays legal.
+  #
+  # Opt-out: a line carrying `tense-ok` is dropped before matching, for a
+  # sentence that is deliberately forward-tense about a shipped version (a
+  # quoted historical statement, say). Keep it rare; explain it on the line.
+  local fwd_verb_re='\b(ships?|lands?|landing|arrives?|coming|planned|scheduled|slated|follows?)[[:space:]]+((in|for|at|with|by)[[:space:]]+)?(the[[:space:]]+)?0\.[0-9]+\b'
+  local fwd_far_re='\b(ships?|lands?|arrives?)[[:space:]]+[^.;|]{0,40}[[:space:]](at|with|in)[[:space:]]+(the[[:space:]]+)?0\.[0-9]+\b'
+  local fwd_will_re='(^|[^0-9.])0\.[0-9]+([[:space:]]+(beta|release))?[[:space:]]+(will|is[[:space:]]+planned|is[[:space:]]+expected|is[[:space:]]+sequenced)\b'
+  local fwd_hits fwd_hit fwd_ver
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    local fwd_text
+    fwd_text="$(grep -v 'tense-ok' "$f" | tr -d '*' | tr '\n' ' ' | tr -s '[:space:]' ' ')"
+    fwd_hits="$(printf '%s' "$fwd_text" | grep -ozEi -e "$fwd_verb_re" -e "$fwd_far_re" -e "$fwd_will_re" 2>/dev/null | tr '\0' '\n' || true)"
+    while IFS= read -r fwd_hit; do
+      [ -z "$fwd_hit" ] && continue
+      fwd_ver="$(printf '%s' "$fwd_hit" | grep -oE '0\.[0-9]+' | tail -n 1)"
+      if [ "$(version_gt "$fwd_ver" "$highest")" != "1" ]; then
+        echo "VIOLATION: $f: future-tense prose about shipped $fwd_ver: \"$fwd_hit\"" >&2
+        echo "    $fwd_ver has shipped — rewrite in past/present tense (or add \`tense-ok\` to the line if deliberate)." >&2
+        stale_violations=$((stale_violations + 1))
+      fi
+    done <<< "$fwd_hits"
+  done <<< "$files"
   violations=$((violations + stale_violations))
 
   # Declaration coverage (#2846) — only when a baseline path is supplied, so the
@@ -1037,6 +1070,33 @@ This page documents functionality added in **TruePPM 0.2**.
 
   fm_case "latest-release-paren-form-current" expect-pass \
     'On `v0.2.0-alpha.1` (the latest release) only the username is matched.' || return 1
+
+  # ── Forward-tense prose about a shipped version (#4058) ────────────────────
+  # Phrasings the literal "ships in 0.X" check cannot see. Each shipped-version
+  # form must be rejected; the same phrasing about an unshipped version, and a
+  # line carrying the tense-ok opt-out, must stay accepted.
+  fm_case "fwd-lands-with-shipped" expect-fail \
+    'The importer lands with the 0.2 beta.' || return 1
+  fm_case "fwd-lands-with-unshipped" expect-pass \
+    'The importer lands with the 0.3 beta.' || return 1
+  fm_case "fwd-ships-at-shipped" expect-fail \
+    'SSO through your own IdP ships in the OSS core at 0.2.' || return 1
+  fm_case "fwd-table-cell-shipped" expect-fail \
+    '| Basic SSO | Community | Login federation (lands 0.2) |' || return 1
+  fm_case "fwd-planned-for-shipped" expect-fail \
+    'The read-only MCP server planned for 0.2 binds to that set.' || return 1
+  fm_case "fwd-planned-for-unshipped" expect-pass \
+    'The read-only MCP server planned for 0.3 binds to that set.' || return 1
+  fm_case "fwd-will-shipped" expect-fail \
+    'Today the column is static, and 0.2 will add a trend arrow.' || return 1
+  fm_case "fwd-will-unshipped" expect-pass \
+    'Today the column is static, and 0.3 will add a trend arrow.' || return 1
+  fm_case "fwd-bold-wrapped-shipped" expect-fail \
+    'Automatic sync (lands in **0.2**) and more.' || return 1
+  fm_case "fwd-past-tense-ok" expect-pass \
+    'The importer shipped with the 0.2 beta and landed in 0.2.' || return 1
+  fm_case "fwd-tense-ok-optout" expect-pass \
+    'The importer lands with the 0.2 beta. <!-- tense-ok: quoted from the original announcement -->' || return 1
 
   # -- Files outside docs_root (#3996) ---------------------------------------
   # README.md is named by the CLAUDE.md rule and was never walked by the scan.

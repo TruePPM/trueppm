@@ -6,6 +6,15 @@ vi.mock('./useCurrentUser', () => ({
   useCurrentUser: vi.fn(),
 }));
 
+// The read-only demo gate (#4050 A6). Mocked rather than driven through
+// `/edition/` because this hook's contract is stated in terms of the FACT, not
+// the fetch: on a demo deployment the mode initializes to Read and the stored
+// preference is neither read nor written.
+const demoMode = vi.hoisted(() => ({
+  value: { isDemoReadOnly: false, loginHint: null, isLoading: false },
+}));
+vi.mock('./useDemoMode', () => ({ useDemoMode: () => demoMode.value }));
+
 import { useCurrentUser } from './useCurrentUser';
 
 const useCurrentUserMock = vi.mocked(useCurrentUser);
@@ -35,6 +44,7 @@ describe('useScheduleAuthorMode (#2727, ADR-0776 §5)', () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.clearAllMocks();
+    demoMode.value = { isDemoReadOnly: false, loginHint: null, isLoading: false };
   });
 
   it('defaults to author mode when no stored preference', async () => {
@@ -85,5 +95,65 @@ describe('useScheduleAuthorMode (#2727, ADR-0776 §5)', () => {
     const { result } = renderHook(() => useScheduleAuthorMode('p1'));
     expect(result.current.isLoading).toBe(true);
     expect(result.current.mode).toBe('author');
+  });
+});
+
+describe('useScheduleAuthorMode \u2014 read-only demo (#4050 A6)', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.clearAllMocks();
+    demoMode.value = { isDemoReadOnly: true, loginHint: null, isLoading: false };
+  });
+
+  it('opens in Read even when the browser holds a stored "author" preference', async () => {
+    // This IS the defect. `atlas-visitor` holds edit rights, so the default
+    // 'author' resolved `readOnly` false and every first visit landed in Author.
+    // A stored 'author' makes it worse: the demo login is shared, so that value
+    // is the LAST visitor's choice being applied to this one.
+    window.localStorage.setItem('trueppm.schedule.authorMode.u1.p1', 'author');
+    useCurrentUserMock.mockReturnValue({ user: makeUser('u1'), isLoading: false });
+    const { result } = renderHook(() => useScheduleAuthorMode('p1'));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.mode).toBe('read');
+  });
+
+  it('opens in Read with no stored preference at all', async () => {
+    useCurrentUserMock.mockReturnValue({ user: makeUser('u1'), isLoading: false });
+    const { result } = renderHook(() => useScheduleAuthorMode('p1'));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.mode).toBe('read');
+  });
+
+  it('setMode() changes the session but writes nothing \u2014 Author is session-only', async () => {
+    useCurrentUserMock.mockReturnValue({ user: makeUser('u1'), isLoading: false });
+    const { result } = renderHook(() => useScheduleAuthorMode('p1'));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    act(() => result.current.setMode('author'));
+    expect(result.current.mode).toBe('author');
+    expect(window.localStorage.getItem('trueppm.schedule.authorMode.u1.p1')).toBeNull();
+  });
+
+  it('a project switch inside one page session starts again in Read', async () => {
+    useCurrentUserMock.mockReturnValue({ user: makeUser('u1'), isLoading: false });
+    const { result, rerender } = renderHook(({ id }) => useScheduleAuthorMode(id), {
+      initialProps: { id: 'p1' },
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    act(() => result.current.setMode('author'));
+    expect(result.current.mode).toBe('author');
+    // The demo bar's switcher navigates between sample projects without a page
+    // load; a visitor who chose to author Migration Tooling has not asked to
+    // author Platform Core.
+    rerender({ id: 'p2' });
+    await waitFor(() => expect(result.current.mode).toBe('read'));
+  });
+
+  it('does not report isLoading once the edition answer is in', () => {
+    // There is no stored preference to hydrate, so holding the Schedule's first
+    // paint on one would be waiting for a read that never happens.
+    useCurrentUserMock.mockReturnValue({ user: undefined, isLoading: true });
+    const { result } = renderHook(() => useScheduleAuthorMode('p1'));
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.mode).toBe('read');
   });
 });

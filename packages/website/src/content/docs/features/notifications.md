@@ -9,7 +9,7 @@ The notification inbox, the bell, and the @-mention preference matrix were
 added in 0.2 (#311, ADR-0075). The project-delete notification, the
 stale-task nudge, and the weekly digests described below were added since.
 Do Not Disturb, per-notification snooze, inline mute, and the category filter
-are called out individually below — they ship in the 0.4 beta.
+are called out individually below — they shipped in the 0.4 beta.
 :::
 
 TruePPM has one notification system, reachable from one place — the bell in the

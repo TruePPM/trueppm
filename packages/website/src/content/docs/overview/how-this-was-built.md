@@ -185,7 +185,7 @@ average is explicitly barred from authorizing a shipping decision. A high score 
 treated as a warning that the panel may be restating its own brief, not as a green light.
 
 The honest summary is that **the product decisions behind this beta were made without
-users.** 0.4 will be the first release to reach any, and from that point a calibration
+users.** 0.4 is the first release to reach any, and from that point a calibration
 pass reconciles what the panel predicted against what users actually report, recorded in
 `.claude/persona-calibration.md`: hits, misses, and false alarms, with misses reported
 first. A persona's grounding tier can only be raised there, by citing a specific real

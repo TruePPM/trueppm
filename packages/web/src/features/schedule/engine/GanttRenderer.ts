@@ -19,19 +19,17 @@
 import type { DeliveryMode, ExternalLinkStatus, Task, TaskLink } from '@/types';
 import type { CadenceSegment, SprintBand } from '../sprintBands';
 import type { RowMode, SingleModeKind } from '../deliveryModePresentation';
-import type { FiscalConfig, GanttScaleData } from './GanttScaleData';
+import type { FiscalConfig, GanttScaleData, HeaderUnit } from './GanttScaleData';
 import {
   CALENDAR_QUARTERS,
-  ZOOM_CONFIGS,
   dateToLeft,
   dateToRight,
   fiscalQuarterKey,
-  fiscalQuarterLabel,
   fiscalYearKey,
-  fiscalYearLabel,
   headerUnitsForPxPerDay,
   parseUTCDate,
 } from './GanttScaleData';
+import { timescaleLabel } from './timescaleLabels';
 import { todayISO } from '@/features/resource/resourceUtils';
 import {
   CADENCE_RAIL_HEIGHT,
@@ -990,23 +988,6 @@ function getUnitKey(
   }
 }
 
-/**
- * Label for a header cell, applying fiscal quarter/year labels in fiscal mode
- * and falling back to the zoom config's calendar formatter otherwise (#755).
- */
-function unitLabel(
-  date: Date,
-  unit: 'day' | 'week' | 'month' | 'quarter' | 'year',
-  calendarFormat: (d: Date) => string,
-  fiscal: FiscalConfig,
-): string {
-  if (fiscal.mode === 'fiscal') {
-    if (unit === 'quarter') return fiscalQuarterLabel(date, fiscal.startMonth);
-    if (unit === 'year') return fiscalYearLabel(date, fiscal.startMonth);
-  }
-  return calendarFormat(date);
-}
-
 /** Draw a single header cell (label + left border) clipped to its bounds. */
 function drawHeaderCell(
   ctx: CanvasRenderingContext2D,
@@ -1042,46 +1023,6 @@ function drawHeaderCell(
   ctx.restore();
 }
 
-type HeaderUnit = 'day' | 'week' | 'month' | 'quarter' | 'year';
-
-/**
- * Calendar formatter for a header unit when it sits on the MAJOR (top) row.
- *
- * The top row carries the coarser/contextual label, so a month on the major
- * row reads "Apr 2026" (year included) while the same month on the minor row
- * reads just "Apr". Fiscal quarter/year labels are applied later by
- * `unitLabel`; these are the calendar fallbacks.
- */
-function majorFormatFor(unit: HeaderUnit): (d: Date) => string {
-  switch (unit) {
-    case 'day':
-      return ZOOM_CONFIGS.day.minorFormat; // day number
-    case 'week':
-      return ZOOM_CONFIGS.week.minorFormat; // "W15"
-    case 'month':
-      return ZOOM_CONFIGS.day.majorFormat; // "Apr 2026"
-    case 'quarter':
-      return ZOOM_CONFIGS.quarter.minorFormat; // "Q2 2026"
-    case 'year':
-      return ZOOM_CONFIGS.year.majorFormat; // "2026"
-  }
-}
-
-/** Calendar formatter for a header unit when it sits on the MINOR (bottom) row. */
-function minorFormatFor(unit: HeaderUnit): (d: Date) => string {
-  switch (unit) {
-    case 'day':
-      return ZOOM_CONFIGS.day.minorFormat; // day number
-    case 'week':
-      return ZOOM_CONFIGS.week.minorFormat; // "W15"
-    case 'month':
-      return ZOOM_CONFIGS.month.minorFormat; // "Apr"
-    case 'quarter':
-      return ZOOM_CONFIGS.quarter.minorFormat; // "Q2 2026"
-    case 'year':
-      return ZOOM_CONFIGS.year.minorFormat; // "2026"
-  }
-}
 
 /** Safety cap on the backward walk in `findCellStart` — the largest possible
  *  header cell is one year (365/366 days, calendar or fiscal), so this bounds
@@ -1142,8 +1083,6 @@ export function drawTimelineHeader(
 ): void {
   const pxPerDay = scales.pxPerMs * 86_400_000;
   const { major: majorUnit, minor: minorUnit } = headerUnitsForPxPerDay(pxPerDay);
-  const majorFormat = majorFormatFor(majorUnit);
-  const minorFormat = minorFormatFor(minorUnit);
   const dayMs = 86_400_000;
   const startMs = scales.start.getTime();
   const endMs = scales.end.getTime();
@@ -1194,7 +1133,7 @@ export function drawTimelineHeader(
         const canvasX = (ms - startMs) * scales.pxPerMs;
         const cellX = cellStartCanvasX - scrollLeft;
         const cellWidth = canvasX - scrollLeft - cellX;
-        const label = unitLabel(cellStartDate, majorUnit, majorFormat, fiscal);
+        const label = timescaleLabel(majorUnit, cellStartDate, cellWidth, fiscal);
         drawHeaderCell(ctx, label, cellX, 0, cellWidth, HEADER_MAJOR_HEIGHT);
 
         cellStartCanvasX = canvasX;
@@ -1214,7 +1153,7 @@ export function drawTimelineHeader(
     {
       const cellX = cellStartCanvasX - scrollLeft;
       const cellWidth = canvasWidth - cellX;
-      const label = unitLabel(cellStartDate, majorUnit, majorFormat, fiscal);
+      const label = timescaleLabel(majorUnit, cellStartDate, cellWidth, fiscal);
       drawHeaderCell(ctx, label, cellX, 0, cellWidth, HEADER_MAJOR_HEIGHT);
     }
   }
@@ -1235,7 +1174,7 @@ export function drawTimelineHeader(
         const canvasX = (ms - startMs) * scales.pxPerMs;
         const cellX = cellStartCanvasX - scrollLeft;
         const cellWidth = canvasX - scrollLeft - cellX;
-        const label = unitLabel(cellStartDate, minorUnit, minorFormat, fiscal);
+        const label = timescaleLabel(minorUnit, cellStartDate, cellWidth, fiscal);
         drawHeaderCell(ctx, label, cellX, HEADER_MAJOR_HEIGHT, cellWidth, HEADER_MINOR_HEIGHT);
 
         cellStartCanvasX = canvasX;
@@ -1252,7 +1191,7 @@ export function drawTimelineHeader(
     {
       const cellX = cellStartCanvasX - scrollLeft;
       const cellWidth = canvasWidth - cellX;
-      const label = unitLabel(cellStartDate, minorUnit, minorFormat, fiscal);
+      const label = timescaleLabel(minorUnit, cellStartDate, cellWidth, fiscal);
       drawHeaderCell(ctx, label, cellX, HEADER_MAJOR_HEIGHT, cellWidth, HEADER_MINOR_HEIGHT);
     }
   }
