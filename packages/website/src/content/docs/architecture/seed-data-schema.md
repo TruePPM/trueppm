@@ -44,9 +44,10 @@ graph (*relates to* / *blocks* / *duplicates*), not external references.
 
 **`tasks[].blocked`** is the explicit human blocker flag (ADR-0124), not the
 derived "has incomplete predecessors" signal the board card owns:
-`{reason, since?, type?, blocking_task?, by?}`. `reason` is the flag of record —
-non-empty means blocked. `blocking_task` is a **soft** "waiting on" link that
-never enters CPM; a scheduling constraint is a `dependencies[]` edge.
+`{reason?, since?, type?, blocking_task?, by?}`. A present cluster means blocked,
+and `reason` is optional: an export includes it only for the task's assignee or an
+@-mentioned user (ADR-0124), and the importer stamps `(private)` when it is absent. `blocking_task` is a
+**soft** "waiting on" link that never enters CPM; a scheduling constraint is a `dependencies[]` edge.
 
 `since` matters more than it looks. `Task.save()` stamps `blocked_since` with
 `timezone.now()`, but the importer inserts through `bulk_create_tasks`, so

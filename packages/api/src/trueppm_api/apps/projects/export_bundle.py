@@ -29,6 +29,7 @@ import json
 import logging
 import tarfile
 import tempfile
+from collections.abc import Callable
 from typing import Any
 
 from django.core.files import File
@@ -63,12 +64,55 @@ def _add_bytes(tar: tarfile.TarFile, name: str, payload: bytes) -> None:
     tar.addfile(info, io.BytesIO(payload))
 
 
-def _add_table(tar: tarfile.TarFile, name: str, qs: QuerySet[Any]) -> int:
+def _task_history_reason_gate(
+    requester: Any, project_ids: list[Any]
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Build a row transform that blanks ``blocked_reason`` a requester may not read.
+
+    ``HistoricalTask`` stores every past ``blocked_reason``, so dumping it raw
+    bypasses the ADR-0124 gate that ``TaskSerializer`` and the history diff feed
+    enforce (#4082). Same rule as ``can_read_blocker_reason``, applied per row:
+    kept only when the row's assignee is the requester or the requester is
+    @-mentioned on the task. Judged on the row's own assignee, not the live one, so
+    a later reassignment cannot hand the new assignee the prior owner's private
+    text. A ``None`` requester (job's ``requested_by`` went NULL) reads nothing.
+    The mention set is fetched once — one query for the whole table, not per row.
+    """
+    from trueppm_api.apps.notifications.models import Mention
+
+    user_pk = getattr(requester, "pk", None) if requester is not None else None
+    mentioned: set[Any] = set()
+    if user_pk is not None:
+        mentioned = set(
+            Mention.objects.filter(
+                mentioned_user_id=user_pk, task_comment__task__project_id__in=project_ids
+            ).values_list("task_comment__task_id", flat=True)
+        )
+
+    def gate(row: dict[str, Any]) -> dict[str, Any]:
+        if not row.get("blocked_reason"):
+            return row
+        if user_pk is not None and (
+            str(row.get("assignee_id")) == str(user_pk) or row.get("id") in mentioned
+        ):
+            return row
+        return {**row, "blocked_reason": ""}
+
+    return gate
+
+
+def _add_table(
+    tar: tarfile.TarFile,
+    name: str,
+    qs: QuerySet[Any],
+    row_transform: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+) -> int:
     """Stream a queryset into the tar as a JSON array; return the row count.
 
     Rows are pulled with ``.iterator()`` and written one at a time into a spooled
     temp file, so an arbitrarily large table (e.g. task history) never lands in
     memory all at once. The tar member size is taken from the finished buffer.
+    ``row_transform`` redacts a row before it is serialized.
     """
     count = 0
     with tempfile.SpooledTemporaryFile(max_size=_SPOOL_MAX_BYTES, mode="w+b") as buf:
@@ -77,6 +121,8 @@ def _add_table(tar: tarfile.TarFile, name: str, qs: QuerySet[Any]) -> int:
         for row in qs.values().iterator(chunk_size=2000):
             if not first:
                 buf.write(b",")
+            if row_transform is not None:
+                row = row_transform(row)
             buf.write(json.dumps(row, cls=DjangoJSONEncoder).encode("utf-8"))
             first = False
             count += 1
@@ -98,6 +144,7 @@ def _add_history(
     *,
     prefix: str = "",
     count_prefix: str = "",
+    requester: Any = None,
 ) -> None:
     """Stream django-simple-history rows scoped to one project.
 
@@ -108,11 +155,16 @@ def _add_history(
     ``prefix`` namespaces the tar member paths (e.g. ``projects/<id>/``) so the
     program bundle can stack every member project's history without collision;
     ``count_prefix`` keeps the per-project counts distinct in ``counts.json``.
+    ``requester`` is the export job's ``requested_by``; task rows' private blocker
+    reasons are withheld from anyone who may not read them (ADR-0124, #4082).
     """
     from trueppm_api.apps.projects.models import Dependency, Project, Risk, Sprint, Task
 
     counts[f"{count_prefix}history.tasks"] = _add_table(
-        tar, f"{prefix}history/tasks.json", Task.history.filter(project_id=project_id)
+        tar,
+        f"{prefix}history/tasks.json",
+        Task.history.filter(project_id=project_id),
+        _task_history_reason_gate(requester, [project_id]),
     )
     counts[f"{count_prefix}history.project"] = _add_table(
         tar, f"{prefix}history/project.json", Project.history.filter(id=project_id)
@@ -250,7 +302,7 @@ def build_and_store_project_archive(job_id: str) -> tuple[str, int]:
             counts["time_entries"] = _add_table(
                 tar, "time_entries.json", TimeEntry.objects.filter(task__project_id=project_id)
             )
-            _add_history(tar, project_id, task_ids, counts)
+            _add_history(tar, project_id, task_ids, counts, requester=job.requested_by)
             _add_attachments(tar, project_id, counts)
             _add_json(tar, "counts.json", counts)
         tmp.flush()
@@ -340,7 +392,15 @@ def build_and_store_program_archive(job_id: str) -> tuple[str, int]:
                     f"{pfx}time_entries.json",
                     TimeEntry.objects.filter(task__project_id=project_id),
                 )
-                _add_history(tar, project_id, task_ids, counts, prefix=pfx, count_prefix=cpfx)
+                _add_history(
+                    tar,
+                    project_id,
+                    task_ids,
+                    counts,
+                    prefix=pfx,
+                    count_prefix=cpfx,
+                    requester=job.requested_by,
+                )
                 _add_attachments(
                     tar, project_id, counts, prefix=pfx, count_key=f"{cpfx}attachments"
                 )
