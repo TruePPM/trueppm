@@ -480,11 +480,34 @@ The `web` image published with `0.4.0-beta.4` is signed (`cosign verify` succeed
 but has **no** CycloneDX attestation on any digest, so `cosign verify-attestation`
 fails for it, on the tag and on either platform digest. The SBOM upload was skipped
 during that release cut; the fix is in the release pipeline and takes effect from the
-next tag, but the published `0.4.0-beta.4` web image cannot be corrected. The `api`
+next tag. The published `0.4.0-beta.4` web image can only be corrected after the fact by the
+manual backfill job described below; until a maintainer has run it, treat it as unattested. The `api`
 image for the same release is attested on both platforms. Releases before
 `0.4.0-beta.4` were single-architecture, and their tag digest carries the attestation
 directly, so the tag form works for them.
 :::
+
+#### Backfilled SBOM attestations
+
+`web:0.4.0-beta.4` was published without its CycloneDX attestation (its tag pipeline
+failed at the attest step), and a tag pipeline cannot be re-run from a fixed CI file.
+Its attestation is added afterwards by the manual `release:backfill-sbom-attestation`
+job, which regenerates the SBOM from each published platform digest with the pinned
+Syft and attests it keyless. That job runs on `main`, not on the release tag, so its
+certificate identity ends in `@refs/heads/main` instead of `@refs/tags/v...` and the
+tag-only regexp above does not match it. Verify a backfilled digest with:
+
+```bash
+cosign verify-attestation --type cyclonedx \
+  --certificate-identity 'https://gitlab.com/trueppm/trueppm//.gitlab-ci.yml@refs/heads/main' \
+  --certificate-oidc-issuer https://gitlab.com \
+  ghcr.io/trueppm/web@<platform-digest>
+```
+
+Maintainers: play the job from a `main` pipeline, set `BACKFILL_IMAGE` and
+`BACKFILL_TAG`, then note the backfill (attestation time versus tag time) on that
+tag's Release page. Locally, `scripts/backfill-sbom-attestation.sh --image web --tag <version> --dry-run`
+resolves the digests read-only; the script refuses to attest outside GitLab CI.
 
 ### Secure by default
 
