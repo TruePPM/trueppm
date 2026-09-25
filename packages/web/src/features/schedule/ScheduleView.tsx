@@ -63,7 +63,11 @@ import { ZoomControl } from './ZoomControl';
 import { QuarterModeControl } from './QuarterModeControl';
 import { ScheduleViewModeToggle } from './ScheduleViewModeToggle';
 import { ScheduleLegendToggle } from './ScheduleLegendToggle';
-import { useScheduleLegendCollapsed } from '@/hooks/useScheduleLegendCollapsed';
+import {
+  useLegendDefaultClosedInDemo,
+  useScheduleLegendCollapsed,
+} from '@/hooks/useScheduleLegendCollapsed';
+import { useDemoMode } from '@/hooks/useDemoMode';
 import { ScheduleDisplayMenu } from './ScheduleDisplayMenu';
 import { ScheduleSummaryChip } from './ScheduleSummaryChip';
 import { ScheduleAddMilestoneButton } from './ScheduleAddMilestoneButton';
@@ -6040,6 +6044,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
   // only so the demoted overflow row below can state which way the toggle
   // currently goes — both read the SAME external store, so they cannot drift.
   const { collapsed: legendCollapsed, toggle: toggleLegend } = useScheduleLegendCollapsed();
+  useLegendDefaultClosedInDemo(useDemoMode().isDemoReadOnly);
   // Everything that changes the bar's NATURAL width without changing its box,
   // so the loop re-measures on a pin toggle, a mode flip, rights resolving, or
   // the trail gaining its first entry — none of which a ResizeObserver can see.

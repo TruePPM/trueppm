@@ -104,11 +104,7 @@ export function ScheduleLegend({ taskListWidth, canLink, closeFocusRef }: Schedu
         aria-label="Legend"
         className="px-3 pb-3 pt-1 border-t border-neutral-border"
       >
-        <ul
-          className="grid grid-cols-3 gap-x-4 gap-y-2 list-none m-0 p-0
-                     text-neutral-text-secondary"
-        >
-          {/* Row 1 — bar variants */}
+        <LegendGroup title="Bars">
           <LegendRow label="Summary rollup">
             <SummarySwatch />
           </LegendRow>
@@ -118,22 +114,18 @@ export function ScheduleLegend({ taskListWidth, canLink, closeFocusRef }: Schedu
           <LegendRow label="Complete">
             <CompleteSwatch />
           </LegendRow>
-          {/* Row 2 — state markers */}
           <LegendRow label="Critical path">
             <CriticalSwatch />
           </LegendRow>
           <LegendRow label="Milestone">
             <MilestoneSwatch />
           </LegendRow>
-          <LegendRow label="Today">
-            <TodaySwatch />
-          </LegendRow>
-          {/* Row 3 — delivery mode (#2727 pt.7, WCAG 1.4.1): gutter + texture,
-              never color alone. Waterfall (the default) draws neither, so it
-              has no swatch here — the same "omission is the baseline" reading
-              GanttRenderer.ts's drawDeliveryModeMark uses. Milestone-mode-on-
-              a-bar is a rare edge case, deliberately left out of the legend to
-              keep this list to the two methodologies a user actually chooses. */}
+          {/* Delivery mode (#2727 pt.7, WCAG 1.4.1): gutter + texture, never color
+              alone. Waterfall (the default) draws neither, so it has no swatch here
+              — the same "omission is the baseline" reading GanttRenderer.ts's
+              drawDeliveryModeMark uses. Milestone-mode-on-a-bar is a rare edge
+              case, deliberately left out to keep this list to the two
+              methodologies a user actually chooses. */}
           <LegendRow label="Scrum">
             <ScrumSwatch />
           </LegendRow>
@@ -142,64 +134,85 @@ export function ScheduleLegend({ taskListWidth, canLink, closeFocusRef }: Schedu
           </LegendRow>
           {/* MIXED (#2737): a phase whose subtree holds more than one delivery
               mode. Outline-only — the canvas draws no summary-bar mark, so this
-              names what the split gutter beside a phase row means rather than
-              a texture on the chart. */}
+              names what the split gutter beside a phase row means. */}
           <LegendRow label="Mixed subtree">
             <MixedSwatch />
           </LegendRow>
-          {/* Sprint window (#2738): the band drawn behind the bars of a
-              sprint-driven subtree. It belongs in THIS list, beside Scrum and
-              Kanban, rather than in a legend of its own — the band and the
-              hatched bars inside it are one statement about one plan, and a
-              second legend would re-introduce the "two views" the band exists
-              to deny. The swatch is the region, not a bar: hatched wash between
-              two edge rules. */}
+          {/* Sprint window (#2738): the band behind the bars of a sprint-driven
+              subtree. It stays in THIS legend, beside Scrum and Kanban — the band
+              and the hatched bars inside it are one statement about one plan. */}
           <LegendRow label="Sprint window">
             <SprintBandSwatch />
           </LegendRow>
-          {/* Row 4 — lines &amp; arrows.
-              No "Planned baseline" entry: ADR-0376 defers the baseline ghost-bar
-              overlay to 0.5, so the canvas draws nothing from baseline dates. A
-              legend names marks that are drawn — reinstate this row with the
-              overlay, not before. */}
+        </LegendGroup>
+        {/* No "Planned baseline" entry: ADR-0376 defers the baseline ghost-bar
+            overlay to 0.5, so the canvas draws nothing from baseline dates. A
+            legend names marks that are drawn — reinstate this row with the
+            overlay, not before. */}
+        <LegendGroup title="Lines">
+          <LegendRow label="Today">
+            <TodaySwatch />
+          </LegendRow>
           <LegendRow label="Finish-to-start">
             <ArrowFsSwatch />
           </LegendRow>
           <LegendRow label="Merged trunk">
             <MergedTrunkSwatch />
           </LegendRow>
-        </ul>
-        {/* Pan discoverability (#491, rule 131). One quiet line — the legend is
-            the established "what do these affordances mean" surface, so the pan
-            hint lives here rather than as a transient toast/coachmark. */}
-        <p className="mt-2 pt-2 border-t border-neutral-border text-xs text-neutral-text-secondary">
-          Hold Space + drag, or middle-drag, to pan
-        </p>
-        <p className="mt-1 text-xs text-neutral-text-secondary">
-          Double-click a task to open its details
-        </p>
-        {/* Drag-to-link discoverability (#1666). The link affordance is the
-            crosshair dot at a bar's right edge; name it here so the gesture is
-            discoverable without a coachmark.
-
-            Absent, not disabled, for a reader who may not author dependency edges
-            (#3053) — the same rule the handle itself follows. Naming a gesture that
-            has been withheld is worse than saying nothing: the dot is genuinely not
-            painted, so the reader concludes the canvas failed to render rather than
-            that they lack a permission. */}
-        {canLink && (
-          <p className="mt-1 text-xs text-neutral-text-secondary">
-            Drag the{' '}
-            <RadioDotIcon
-              aria-hidden="true"
-              filled={false}
-              className="inline-block h-2.5 w-2.5 align-[-0.125em]"
-            />{' '}
-            handle at a bar’s right edge onto another task to link them
+        </LegendGroup>
+        {/* Gestures (#4067): the legend is the established "what do these
+            affordances mean" surface (#491, rule 131), so the pan / open-details /
+            drag-to-link hints live here as text rather than as a transient toast or
+            coach bar. Each is text-only — there is no swatch to label. */}
+        <section aria-labelledby="schedule-legend-gestures" className="mt-2 pt-2 border-t border-neutral-border">
+          <h3
+            id="schedule-legend-gestures"
+            className="m-0 mb-1 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
+          >
+            Gestures
+          </h3>
+          <p className="m-0 text-xs text-neutral-text-secondary">
+            Hold Space + drag, or middle-drag, to pan
           </p>
-        )}
+          <p className="mt-1 mb-0 text-xs text-neutral-text-secondary">
+            Double-click a task to open its details
+          </p>
+          {/* Absent, not disabled, for a reader who may not author dependency
+              edges (#3053) — the same rule the handle itself follows. Naming a
+              gesture that has been withheld is worse than saying nothing: the dot
+              is genuinely not painted, so the reader concludes the canvas failed to
+              render rather than that they lack a permission. */}
+          {canLink && (
+            <p className="mt-1 mb-0 text-xs text-neutral-text-secondary">
+              Drag the{' '}
+              <RadioDotIcon
+                aria-hidden="true"
+                filled={false}
+                className="inline-block h-2.5 w-2.5 align-[-0.125em]"
+              />{' '}
+              handle at a bar’s right edge onto another task to link them
+            </p>
+          )}
+        </section>
       </div>
     </div>
+  );
+}
+
+function LegendGroup({ title, children }: { title: string; children: ReactNode }) {
+  const id = `schedule-legend-${title.toLowerCase()}`;
+  return (
+    <section aria-labelledby={id} className="mt-2 first:mt-0">
+      <h3
+        id={id}
+        className="m-0 mb-1 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
+      >
+        {title}
+      </h3>
+      <ul className="grid grid-cols-3 gap-x-4 gap-y-2 list-none m-0 p-0 text-neutral-text-secondary">
+        {children}
+      </ul>
+    </section>
   );
 }
 

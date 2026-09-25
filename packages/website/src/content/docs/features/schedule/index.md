@@ -171,7 +171,7 @@ Bar labels use `COLOR.text` (`#1A1917` light / palette swap in dark mode). The c
 
 ### Legend
 
-A floating panel over the bottom-left of the timeline (1024px and wider) names every bar type, state marker, delivery-mode gutter, and dependency line the canvas draws, plus the pan and drag-to-link gestures. It is open the first time you ever visit a Schedule view, and closed by default on every visit after — a toolbar toggle (**Legend**, next to the Grid/Timeline switch) and the panel's own close control both show and hide it, and stay in sync with each other. Whichever state you leave it in persists across reloads; at a narrower toolbar width the toggle moves into the **Actions** menu rather than disappearing.
+A floating panel over the bottom-left of the timeline (1024px and wider) names every mark the canvas draws, grouped under **Bars** (task, summary, milestone, critical path, delivery-mode and sprint-window marks), **Lines** (today line and dependency arrows), and **Gestures** (pan, open details, drag-to-link). Every swatch keeps a text label. It is open the first time you ever visit a Schedule view, and closed by default on every visit after (and always on the first visit to the read-only demo) — a toolbar toggle (**Legend**, next to the Grid/Timeline switch) and the panel's own close control both show and hide it, and stay in sync with each other. Whichever state you leave it in persists across reloads; at a narrower toolbar width the toggle moves into the **Actions** menu rather than disappearing.
 
 ## Zoom
 
