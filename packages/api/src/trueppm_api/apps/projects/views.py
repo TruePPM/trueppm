@@ -1625,13 +1625,17 @@ class ProjectViewSet(
             # Admin+ for BOTH the GET sync JSON seed and the POST async .tar.gz
             # bundle (#1957). The seed dumps team-private data raw — story points,
             # committed/completed/capacity velocity, per-member effort — with no
-            # ADR-0104 field-gating (that redaction is deferred to 0.5, #1959), so a
+            # ADR-0104 field-gating (that redaction is not implemented for the seed; the
+            # blocker-reason gate below, #4082, is the only field-level one), so a
             # Viewer/Member reaching it is an ADR-0104 bypass: they could pull raw
             # what the normal API surface gates per audience. Gating the sync seed
             # to Admin+ matches the async bundle (which already required Admin+
             # because it aggregates the full audit history, every member's time
             # entries, and all attachment binaries). Bulk export is an Admin-tier
             # action on either path.
+            # Blocker ``reason`` text is the one field gated even from Admin
+            # (ADR-0124): the exporter withholds it unless the requester is the
+            # task's assignee or @-mentioned on it (#4082).
             return [IsAuthenticated(), IsProjectAdmin()]
         # Export-job list / poll / download (#1266, ADR-0219): Admin+, matching the
         # POST enqueue. Like the sync export these stay available on archived projects

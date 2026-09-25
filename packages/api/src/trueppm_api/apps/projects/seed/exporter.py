@@ -301,6 +301,13 @@ class _Exporter:
         # email is workspace-Admin-only *content*, independent of who can reach
         # the export action at all. See docs/adr/0034 (#3569 amendment) and #3627.
         self._email_visible = self._resolve_email_visibility(requesting_user)
+        # #4082: blocker ``reason`` is ADR-0124 contributor voice, readable only by
+        # the assignee or an @-mentioned user — NOT by an Admin, so the Admin+
+        # endpoint gate does not cover it. Same trust rule as email: the no-HTTP
+        # sentinel (management command) is trusted; everything else, including a
+        # literal None, is gated per task through ``can_read_blocker_reason``.
+        self._blocker_requester = requesting_user
+        self._mentioned_task_ids: set[Any] | None = None
         # v2 event-timeline export (#1109). When on, dates become anchor-relative
         # and an ``events`` array is reconstructed from the history tables.
         self.with_events = with_events
@@ -1042,6 +1049,33 @@ class _Exporter:
             block["delivery_mode"] = task.delivery_mode
         _put(block, "color", task.color)
 
+    def _can_read_blocker_reason(self, task: Task) -> bool:
+        """Apply the ADR-0124 reason gate for the export's requester (#4082).
+
+        Delegates to ``can_read_blocker_reason`` so there is one copy of the
+        rule. That function honors a ``viewer_is_mentioned`` annotation only when
+        it was computed for the same user, so the requester's mentions across the
+        exported projects are fetched once here and stamped on the task, instead
+        of one ``Mention`` query per blocked task.
+        """
+        user = self._blocker_requester
+        if user is _NO_HTTP_CALLER:
+            return True
+        from trueppm_api.apps.notifications.models import Mention
+        from trueppm_api.apps.projects.blocker_services import can_read_blocker_reason
+
+        if user is not None and getattr(user, "is_authenticated", False):
+            if self._mentioned_task_ids is None:
+                self._mentioned_task_ids = set(
+                    Mention.objects.filter(
+                        mentioned_user_id=user.pk,
+                        task_comment__task__project__in=self.projects,
+                    ).values_list("task_comment__task_id", flat=True)
+                )
+            task.viewer_is_mentioned_for = user.pk  # type: ignore[attr-defined]
+            task.viewer_is_mentioned = task.pk in self._mentioned_task_ids  # type: ignore[attr-defined]
+        return can_read_blocker_reason(task, user)
+
     def _put_task_blocker(self, block: dict[str, Any], task: Task) -> None:
         """Emit the blocker cluster when the flag is raised (#3094).
 
@@ -1049,11 +1083,18 @@ class _Exporter:
         derived companions are emitted only when set, and ``blocked_since`` rides
         along as ``since`` — an unstamped blocker renders no age, and age is the
         triage signal the flag exists to carry.
+
+        The free-text ``reason`` is emitted only when the requester may read it
+        (ADR-0124, #4082); ``type``/``since``/``blocking_task``/``by`` are the
+        ungated triage signals and always ride along. A cluster without ``reason``
+        still marks the task blocked — the importer supplies a placeholder.
         """
         reason = (task.blocked_reason or "").strip()
         if not reason:
             return
-        blocked: dict[str, Any] = {"reason": task.blocked_reason}
+        blocked: dict[str, Any] = {}
+        if self._can_read_blocker_reason(task):
+            blocked["reason"] = task.blocked_reason
         if task.blocked_since is not None:
             blocked["since"] = self._date_str(task.blocked_since.date())
         _put(blocked, "type", task.blocker_type)
