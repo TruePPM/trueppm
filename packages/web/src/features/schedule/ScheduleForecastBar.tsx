@@ -21,6 +21,23 @@ interface Props {
    * P80 chip and gate the detail panel's "Risk delta vs CPM" section.
    */
   cpmFinish?: string | null;
+  /**
+   * Where this bar is mounted (#4050 A1).
+   *
+   * `'docked'` (default) is the shipped strip at the bottom of the schedule
+   * column: a top border, hidden below `md`, capped at 40vh so its expanded
+   * body cannot starve the Gantt (#3166).
+   *
+   * `'popover'` is the same component inside the demo's forecast popover. The
+   * panel already owns its border, its width and its scroll, and it is opened
+   * by a deliberate click at every width — so the dock classes would double the
+   * border, and `hidden md:flex` would make the panel empty on a phone. **Only
+   * the outer section's chrome changes.** Every child, derivation and string
+   * stays the same instance of the same component, which is what keeps
+   * ADR-0144's "percentiles rendered once" true across the relocation rather
+   * than re-asserting it about a copy.
+   */
+  variant?: 'docked' | 'popover';
 }
 
 const EXPANDED_KEY = 'schedule.insightsExpanded';
@@ -200,7 +217,7 @@ function ForecastEmptyState({
  * Expanded, it shows the histogram, the sensitivity tornado, and the run-history
  * disclosure. All forecast dates route through `lib/formatUtcDate`.
  */
-export function ScheduleForecastBar({ projectId, tasks, cpmFinish }: Props) {
+export function ScheduleForecastBar({ projectId, tasks, cpmFinish, variant = 'docked' }: Props) {
   const { data: result, isLoading, error, refetch } = useMonteCarloResult(projectId);
   const runMc = useRunMonteCarlo(projectId);
   // Same shaping as the mobile card — one definition, and "Run Monte Carlo"
@@ -262,8 +279,14 @@ export function ScheduleForecastBar({ projectId, tasks, cpmFinish }: Props) {
           this way; this bar and `ScheduleReconcileStrip` were the two that
           missed it. Pinned by `e2e/clipped-content.spec.ts`. */}
       <section
-        className="hidden md:flex md:flex-col flex-shrink-0 max-h-[40vh] border-t border-neutral-border bg-neutral-surface"
-        aria-label="Schedule forecast"
+        className={
+          variant === 'popover'
+            ? 'flex flex-col bg-neutral-surface'
+            : 'hidden md:flex md:flex-col flex-shrink-0 max-h-[40vh] border-t border-neutral-border bg-neutral-surface'
+        }
+        // The popover's own wrapper carries `role="dialog"` and this same name,
+        // so a nested landmark here would announce the region twice.
+        aria-label={variant === 'popover' ? undefined : 'Schedule forecast'}
       >
         {/* Collapsed header row — chips (once) + top driver + the constant
             affordances (toggle / Details), plus Rerun on the stale branch

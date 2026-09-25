@@ -336,8 +336,11 @@ describe('headerUnitsForPxPerDay', () => {
     expect(headerUnitsForPxPerDay(100)).toEqual({ major: 'day', minor: 'day' }); // 'hour' deferred → capped at day
     expect(headerUnitsForPxPerDay(40)).toEqual({ major: 'day', minor: 'week' });
     expect(headerUnitsForPxPerDay(12)).toEqual({ major: 'week', minor: 'month' });
-    expect(headerUnitsForPxPerDay(4)).toEqual({ major: 'month', minor: 'quarter' });
-    expect(headerUnitsForPxPerDay(1)).toEqual({ major: 'quarter', minor: 'year' });
+    // #4050 A5 merged the old month/quarter and quarter/year bands into one
+    // quarter/month band: the year now rides inside the quarter cell instead of
+    // occupying a tier of its own, which is what stopped it being printed twice.
+    expect(headerUnitsForPxPerDay(4)).toEqual({ major: 'quarter', minor: 'month' });
+    expect(headerUnitsForPxPerDay(1)).toEqual({ major: 'quarter', minor: 'month' });
     expect(headerUnitsForPxPerDay(0.3)).toEqual({ major: 'year', minor: 'year' }); // no secondary → minor reuses major
   });
 });
