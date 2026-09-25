@@ -775,10 +775,14 @@ echo "  Regenerated docs/api/openapi.json at info.version $NEW_PEP440"
 # same command run by hand.
 API_VENV_PY="packages/api/.venv/bin/python"
 if [ -x "$API_VENV_PY" ]; then
-  uv pip install --python "$API_VENV_PY" --no-deps -e packages/api -q \
-    && echo "  Refreshed the venv's trueppm-api install to $NEW_PEP440" \
-    || echo "  WARN: could not refresh the venv's trueppm-api install; before pushing run:" \
-            "uv pip install --python $API_VENV_PY --no-deps -e packages/api" >&2
+  # An editable install must run this repo's own build backend, so --no-build /
+  # --only-binary cannot apply; the source is the checkout being released.
+  if uv pip install --python "$API_VENV_PY" --no-deps -e packages/api -q; then # NOSONAR
+    echo "  Refreshed the venv's trueppm-api install to $NEW_PEP440"
+  else
+    echo "  WARN: could not refresh the venv's trueppm-api install; before pushing run:" \
+         "uv pip install --python $API_VENV_PY --no-deps -e packages/api" >&2
+  fi
 else
   echo "  WARN: $API_VENV_PY not found; make pre-push's schema-check may report a stale" \
        "version until trueppm-api is reinstalled in the venv you push from." >&2
