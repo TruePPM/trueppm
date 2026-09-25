@@ -90,7 +90,7 @@ variables:
   #
   # Bump by running `bash scripts/check-ci-api-tag.sh`, which prints the value
   # the current inputs require. Enforced by api:ci-api-tag.
-  CI_API_TAG: "py3.11-5a31b926b85d"
+  CI_API_TAG: "py3.11-9cc45461df17"
 
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
@@ -685,6 +685,8 @@ scripts:test:
         - scripts/tests/release-unpublished.test.sh
         - scripts/release-unpublished-guard.sh
         - scripts/tests/release-readme-pins.test.sh
+        - scripts/tests/release-api-scheduler-floor.test.sh
+        - scripts/bump-api-scheduler-floor.sh
         - scripts/bump-readme-pins.sh
         - scripts/release-default-summary.py
         - scripts/release-page-summary.sh
@@ -729,6 +731,8 @@ scripts:test:
         - scripts/tests/release-unpublished.test.sh
         - scripts/release-unpublished-guard.sh
         - scripts/tests/release-readme-pins.test.sh
+        - scripts/tests/release-api-scheduler-floor.test.sh
+        - scripts/bump-api-scheduler-floor.sh
         - scripts/bump-readme-pins.sh
         - scripts/release-default-summary.py
         - scripts/release-page-summary.sh
@@ -2236,6 +2240,23 @@ web:playwright-pins:
     # "it passed" is not evidence that it can still fail.
     - bash scripts/check-playwright-pins.sh --self-test
     - bash scripts/check-playwright-pins.sh
+
+lint:api-scheduler-lock:
+  extends: .fast-job
+  # packages/api/uv.lock must not pin trueppm-scheduler to an older release line
+  # than the scheduler in this tree (#4080). `api:uv-lock-check` only proves the
+  # lock satisfies pyproject.toml, which a stale >=0.1.0a0 floor let sit at
+  # 0.2.0a1 - a locked install that cannot import the app. Static parse, ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash grep sed gawk coreutils
+  script:
+    - bash scripts/check-api-scheduler-lock.sh --self-test
+    - bash scripts/check-api-scheduler-lock.sh
 
 lint:nul-bytes:
   extends: .fast-job
