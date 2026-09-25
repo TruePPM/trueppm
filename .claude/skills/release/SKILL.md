@@ -262,3 +262,12 @@ If a release tag was pushed and a critical issue surfaces post-tag:
 - **Pre-1.0, 0.3 and earlier** (GitLab-registry only, no public GHCR) — prefer cutting the next patch/pre-release with the fix. Only delete the tag if no consumers have pulled it (typically only true within minutes of push). To delete: `git tag -d vX.Y.Z && git push --delete origin vX.Y.Z`. Confirm with the user before any destructive tag operation.
 - **0.4 and later, pre-1.0** — treat like post-1.0 below: GHCR publish (#939) makes the tag's images public and pullable the moment the pipeline finishes, same as after 1.0. Never delete a tag once its GHCR images have published. Cut the next pre-release/patch with the fix instead.
 - **At-or-post-1.0** — never delete a tag once GHCR images have published or the enterprise release has pinned to it. Cut a patch release with the fix instead. The previous tag remains visible in history; the patch supersedes it for users.
+
+### Superseding a tag whose PyPI publish already ran
+
+When a `v*` tag is withdrawn or superseded after its publish jobs ran (0.4.0-beta.2 → beta.3), the GitLab Release warning alone is not enough: a `pip` user never sees it (#4060). Do both, in the same sitting:
+
+1. **Yank the PyPI versions the tag produced.** By default that is all three — `trueppm-scheduler`, `trueppm-mcp`, `trueppm-api` at the superseded PEP 440 version — because they share the tag's commit. Narrow it only when the defect is provably confined to one wheel, and say why on the Release page. Yank on pypi.org (project → Manage → the release → Yank) with a reason that names the replacement, e.g. `Superseded by 0.4.0b3: <one-line defect>`. This needs the package owner's account; an agent cannot do it, so hand the user the three project URLs. A yank stays installable for anyone pinning the exact version and is reversible (un-yank); a deletion is neither, so never delete.
+2. **Say so on the GitLab Release page** for the superseded tag, naming the replacement and that the PyPI versions are yanked.
+
+Verify with `curl -s https://pypi.org/pypi/<package>/<version>/json` and check `urls[].yanked` is `true`. GHCR images and the Helm chart have no yank concept: judge them separately, and say on the Release page whether they are affected. PyPI versions are immutable and cannot be re-uploaded, so a superseded version number is never reused; the next cut is the next number.
