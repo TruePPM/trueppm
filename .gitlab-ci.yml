@@ -683,7 +683,7 @@ scripts:test:
         - scripts/tests/release-preflight.test.sh
         - scripts/tests/release-summary.test.sh
         - scripts/tests/release-unpublished.test.sh
-        - scripts/check-release-unpublished.sh
+        - scripts/release-unpublished-guard.sh
         - scripts/tests/release-readme-pins.test.sh
         - scripts/bump-readme-pins.sh
         - scripts/release-default-summary.py
@@ -727,7 +727,7 @@ scripts:test:
         - scripts/tests/release-preflight.test.sh
         - scripts/tests/release-summary.test.sh
         - scripts/tests/release-unpublished.test.sh
-        - scripts/check-release-unpublished.sh
+        - scripts/release-unpublished-guard.sh
         - scripts/tests/release-readme-pins.test.sh
         - scripts/bump-readme-pins.sh
         - scripts/release-default-summary.py

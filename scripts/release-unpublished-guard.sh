@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/check-release-unpublished.sh <semver> — refuse to cut a version that
+# scripts/release-unpublished-guard.sh <semver> — refuse to cut a version that
 # is already published anywhere (#4061).
 #
 # release.sh used to guard against a re-cut with `git tag` alone. That reads

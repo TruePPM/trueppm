@@ -6,7 +6,7 @@
 
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-GUARD="$REPO_ROOT/scripts/check-release-unpublished.sh"
+GUARD="$REPO_ROOT/scripts/release-unpublished-guard.sh"
 RELEASE_SH="$REPO_ROOT/scripts/release.sh"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 fail=0
@@ -51,7 +51,7 @@ expect "PyPI 503 fails CLOSED (2)" 2 "unexpected HTTP 503" PYPI_DEFAULT=503
 expect "skip switch is honored and loud" 0 "Skipping" RELEASE_SKIP_REMOTE_CHECK=1 LSR_FAIL=1
 
 # Structural: release.sh calls the guard before touching any manifest.
-g="$(grep -n -m1 'check-release-unpublished.sh' "$RELEASE_SH" | cut -d: -f1)"
+g="$(grep -n -m1 'release-unpublished-guard.sh' "$RELEASE_SH" | cut -d: -f1)"
 b="$(grep -n -m1 '^bump_manifest ' "$RELEASE_SH" | cut -d: -f1)"
 [[ -n "$g" && -n "$b" && "$g" -lt "$b" ]]; check "release.sh runs the guard (line ${g:-?}) before the first bump (${b:-?})" $?
 # shellcheck disable=SC2016  # literal match of release.sh source
