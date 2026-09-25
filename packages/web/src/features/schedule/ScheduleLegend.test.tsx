@@ -110,7 +110,7 @@ describe('ScheduleLegend', () => {
 
   it('groups entries under Bars, Lines and Gestures headings, each swatch keeping its text label (#4067)', () => {
     render(<ScheduleLegend taskListWidth={240} canLink />);
-    const group = (name: string) => screen.getByRole('region', { name });
+    const group = (name: string) => screen.getByRole('group', { name });
     expect(group('Bars')).toHaveTextContent('Summary rollup');
     expect(group('Bars')).toHaveTextContent('Sprint window');
     expect(group('Lines')).toHaveTextContent('Today');

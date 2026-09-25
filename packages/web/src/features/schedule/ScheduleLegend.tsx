@@ -164,7 +164,7 @@ export function ScheduleLegend({ taskListWidth, canLink, closeFocusRef }: Schedu
             affordances mean" surface (#491, rule 131), so the pan / open-details /
             drag-to-link hints live here as text rather than as a transient toast or
             coach bar. Each is text-only — there is no swatch to label. */}
-        <section aria-labelledby="schedule-legend-gestures" className="mt-2 pt-2 border-t border-neutral-border">
+        <div role="group" aria-labelledby="schedule-legend-gestures" className="mt-2 pt-2 border-t border-neutral-border">
           <h3
             id="schedule-legend-gestures"
             className="m-0 mb-1 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
@@ -193,7 +193,7 @@ export function ScheduleLegend({ taskListWidth, canLink, closeFocusRef }: Schedu
               handle at a bar’s right edge onto another task to link them
             </p>
           )}
-        </section>
+        </div>
       </div>
     </div>
   );
@@ -202,7 +202,7 @@ export function ScheduleLegend({ taskListWidth, canLink, closeFocusRef }: Schedu
 function LegendGroup({ title, children }: { title: string; children: ReactNode }) {
   const id = `schedule-legend-${title.toLowerCase()}`;
   return (
-    <section aria-labelledby={id} className="mt-2 first:mt-0">
+    <div role="group" aria-labelledby={id} className="mt-2 first:mt-0">
       <h3
         id={id}
         className="m-0 mb-1 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
@@ -212,7 +212,7 @@ function LegendGroup({ title, children }: { title: string; children: ReactNode }
       <ul className="grid grid-cols-3 gap-x-4 gap-y-2 list-none m-0 p-0 text-neutral-text-secondary">
         {children}
       </ul>
-    </section>
+    </div>
   );
 }
 
