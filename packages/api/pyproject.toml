@@ -34,7 +34,7 @@ dependencies = [
     # refusal paths before we take them. uv resolves to 3.18.0 without this.
     # Tracked in #3323; lift the ceiling there, not here.
     "djangorestframework>=3.17.2,<3.18",
-    "djangorestframework-simplejwt>=5.3,<6.0",
+    "djangorestframework-simplejwt>=5.3.1,<6.0",
     # [socialaccount] is what declares requests/oauthlib/pyjwt, which the
     # openid_connect provider imports at django.setup(). Without it requests
     # arrives only transitively (via the OTLP HTTP exporter, which dropped it in 1.45).
@@ -72,7 +72,7 @@ dependencies = [
     # driver); local dev installs `[binary]` (precompiled wheel, no compiler or
     # system libpq needed). The LGPL §4 relink obligation is over psycopg itself
     # and is met by either extra — both are replaceable wheels. See NOTICES.
-    "psycopg>=3.1,<4.0",
+    "psycopg>=3.1.8,<4.0",
     "django-environ>=0.11,<1.0",
     # BSD-3-Clause (verified against dist-info Classifier for v3.11.0). No copyleft obligation.
     "django-simple-history>=3.7,<4.0",
@@ -183,12 +183,12 @@ dependencies = [
 # an LGPL lever: the §4 relink obligation is over psycopg (a replaceable wheel
 # under either extra), while libpq is permissively licensed. The Dockerfile
 # installs the api package as `[c]`.
-c = ["psycopg[c]>=3.1,<4.0"]
+c = ["psycopg[c]>=3.1.8,<4.0"]
 # Local-dev / quick-start psycopg implementation: a precompiled wheel that
 # bundles its own libpq — no compiler or system libpq needed. NOT for production:
 # the bundled libpq does not receive OS security updates. The `dev` extra pulls
 # this so a plain `pip install -e .[dev]` works on any laptop.
-binary = ["psycopg[binary]>=3.1,<4.0"]
+binary = ["psycopg[binary]>=3.1.8,<4.0"]
 # Dev/toolchain deps are capped on the next major too — an unpinned `ruff` or
 # `mypy` that drifts a major between a local run and CI produces format/type
 # failures that only surface in the pipeline.
@@ -210,7 +210,7 @@ binary = ["psycopg[binary]>=3.1,<4.0"]
 # These three must match packages/api/uv.lock. Same reasoning as the exact
 # `drf-spectacular[sidecar]==0.30.0` pin (#2260).
 dev = [
-    "psycopg[binary]>=3.1,<4.0",
+    "psycopg[binary]>=3.1.8,<4.0",
     "pytest>=8.0,<10.0",
     "pytest-django>=4.8,<5.0",
     "pytest-asyncio>=0.23,<2.0",

@@ -71,6 +71,7 @@ check-known-issues-freshness.sh	resolves every /-/issues/NNNN reference on known
 check-adr-collisions.sh	compares ADR numbers against remote branches
 check-release-images.sh	verifies published release images; release-time only
 check-mermaid-rendered.sh	requires a full astro build of packages/website (minutes, not seconds)
+check-api-wheel-imports.py	installs the built wheel from PyPI into fresh venvs (network, minutes); run it locally with scripts/api-wheel-install-probe.sh wheel|locked|lowest (#4122)
 check-dts-camelcase.sh	reads the wasm-pack .d.ts, which exists only after a wasm build; the wasm tree is covered by pre-push-wasm
 "
 

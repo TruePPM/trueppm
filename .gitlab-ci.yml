@@ -90,7 +90,7 @@ variables:
   #
   # Bump by running `bash scripts/check-ci-api-tag.sh`, which prints the value
   # the current inputs require. Enforced by api:ci-api-tag.
-  CI_API_TAG: "py3.11-9cc45461df17"
+  CI_API_TAG: "py3.11-696e96cf4e33"
 
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
@@ -3388,6 +3388,41 @@ api:uv-lock-check:
   script:
     - cd packages/api
     - uv lock --check
+
+api:wheel-install-probe:
+  extends: .fast-job
+  # Install trueppm-api the way a user does, then import every module (#4122).
+  # `uv lock --check` only proves the lock satisfies pyproject.toml, so #4080 (a
+  # >=0.1.0a0 scheduler floor over a lock pinned to 0.2.0a1, which has no
+  # trueppm_scheduler.derive) stayed green while the install could not load the app.
+  # A published wheel's Requires-Dist is immutable, so this has to fail before a tag.
+  #   wheel  - build the wheel, fresh venv, resolve from PyPI (what `pip install` gets)
+  #   locked - `uv sync --locked`, the reference install
+  #   lowest - every direct dependency at its declared floor (`lowest-direct`); a
+  #            floor is a promise, and only this leg tests it. Pre-fix #4080 fails
+  #            here and on `locked`; `wheel` alone resolves to the newest scheduler.
+  # The probe self-tests first: a clean tree never runs its detection path.
+  stage: analyze
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  needs: []
+  parallel:
+    matrix:
+      - PROBE_MODE: [wheel, locked, lowest]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/api/pyproject.toml
+        - packages/api/uv.lock
+        - packages/api/src/**/*
+        - packages/scheduler/**/*
+        - scripts/check-api-wheel-imports.py
+        - scripts/api-wheel-install-probe.sh
+        - .gitlab-ci.yml
+  before_script:
+    - pip install uv==0.9.5 --quiet
+  script:
+    - python scripts/check-api-wheel-imports.py --self-test
+    - bash scripts/api-wheel-install-probe.sh "$PROBE_MODE"
 
 scheduler:uv-lock-check:
   extends: .fast-job
