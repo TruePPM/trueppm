@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useBaselines } from '@/hooks/useBaselines';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useDemoMode } from '@/hooks/useDemoMode';
 import type { ScheduleAuthorMode } from '@/hooks/useScheduleAuthorMode';
 
 function ackKey(userId: string, projectId: string): string {
@@ -57,6 +58,14 @@ interface BaselinedAuthorGate {
  * A warning predicate that reads `undefined` as "no baseline" is silent in
  * exactly the case it cannot see, and there is no acknowledgment to store, so
  * that branch asks every time until the read lands.
+ *
+ * **The read-only demo skips the confirm entirely (#4050 A6).** The sentence it
+ * shows — you are about to amend the agreed plan — is *false* on a deployment
+ * that refuses every write and resets nightly. Nothing a demo visitor drags is
+ * saved, so warning them that it will be is not caution, it is misinformation,
+ * and it lands on the one click the landing hint asks them to make. The demo bar
+ * already carries the true version ("nothing you change here is saved"), so the
+ * signal is not lost, only corrected.
  */
 export function useBaselinedAuthorGate(
   projectId: string | undefined,
@@ -64,6 +73,7 @@ export function useBaselinedAuthorGate(
   toggle: () => void,
 ): BaselinedAuthorGate {
   const { user } = useCurrentUser();
+  const { isDemoReadOnly } = useDemoMode();
   const { data: baselines, isLoading, isError } = useBaselines(projectId);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -71,6 +81,10 @@ export function useBaselinedAuthorGate(
   const active = baselines?.find((b) => b.is_active);
 
   const requestToggle = useCallback((): boolean => {
+    if (isDemoReadOnly) {
+      toggle();
+      return true;
+    }
     if (mode === 'author' || projectId === undefined) {
       toggle();
       return true;
@@ -85,7 +99,7 @@ export function useBaselinedAuthorGate(
     }
     setConfirmOpen(true);
     return false;
-  }, [mode, projectId, unsettled, active, user, toggle]);
+  }, [mode, projectId, unsettled, active, user, toggle, isDemoReadOnly]);
 
   const confirm = useCallback(() => {
     if (active && user && projectId !== undefined) writeAck(user.id, projectId, active.id);

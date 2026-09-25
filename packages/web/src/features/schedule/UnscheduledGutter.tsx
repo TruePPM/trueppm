@@ -15,6 +15,7 @@ import { ScheduleTaskDialog } from './ScheduleTaskDialog';
 import { Button } from '@/components/Button';
 import { Tooltip } from '@/components/Tooltip';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
+import { useDemoMode } from '@/hooks/useDemoMode';
 import { ROW_HEIGHT_COARSE } from './scheduleConstants';
 import { formatShortDate } from './scheduleUtils';
 
@@ -104,12 +105,28 @@ export function UnscheduledGutter({
   // would otherwise be a ~20px target on a touch tablet, which is ≥768px and
   // therefore renders this desktop gutter.
   const walkTargetSize = useIsCoarsePointer() ? ROW_HEIGHT_COARSE : 32;
+  /**
+   * The read-only demo starts collapsed and keeps nothing (#4050 A3).
+   *
+   * Two separate changes, and both matter. **Collapsed on load**, because an
+   * expanded tray took the bottom half of the schedule pane on a landing screen
+   * whose whole complaint is that the Gantt is a sliver — and "there are N
+   * things nobody has scheduled" is a working-session fact, not a first-
+   * impression one. **Neither read nor written**, because
+   * `trueppm.gantt.unscheduledGutter.collapsed` is per *browser* and the demo
+   * login is shared: a stored `false` is the last visitor's expand, restored
+   * onto someone who never asked for it, which is the same shared-login trap
+   * A6 fixes for author mode. An expand inside a visit therefore lasts for the
+   * session and dies with the page.
+   */
+  const { isDemoReadOnly } = useDemoMode();
   // Absent a persisted choice, default to collapsed when there is nothing
   // unscheduled. Since #3131 the empty tray does not render at all, so this no
   // longer governs anything visible at zero — it governs the frame between the
   // first unscheduled row arriving and the auto-expand effect below firing,
   // which is why it stays.
   const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (isDemoReadOnly) return true;
     try {
       const stored = localStorage.getItem(COLLAPSED_KEY);
       return stored !== null ? stored === 'true' : tasks.length === 0;
@@ -118,14 +135,23 @@ export function UnscheduledGutter({
     }
   });
 
-  // Auto-expand when tasks appear for the first time
+  // Auto-expand when tasks appear for the first time.
+  //
+  // Suppressed in the demo (#4050 A3): the tray's rows arrive with the first
+  // `/tasks/` response, so on a demo landing this effect fires within a frame
+  // of the collapsed initial state and the visitor watches the tray they never
+  // opened unfold over the chart. The auto-expand is right for the case it was
+  // written for — an authoring session where a row you just unscheduled has to
+  // be visibly *somewhere* — and that case does not exist on a deployment that
+  // refuses every write.
   const prevCountRef = useRef(tasks.length);
   useEffect(() => {
+    if (isDemoReadOnly) return;
     if (tasks.length > 0 && prevCountRef.current === 0) {
       setCollapsed(false);
     }
     prevCountRef.current = tasks.length;
-  }, [tasks.length]);
+  }, [tasks.length, isDemoReadOnly]);
 
   /**
    * Hand focus back to the outline when the tray removes itself from under it
@@ -160,10 +186,19 @@ export function UnscheduledGutter({
     document.querySelector<HTMLElement>('[data-row-id][tabindex="0"]')?.focus();
   }, [tasks.length]);
 
-  const persistCollapsed = useCallback((val: boolean) => {
-    setCollapsed(val);
-    try { localStorage.setItem(COLLAPSED_KEY, String(val)); } catch { /* ignore */ }
-  }, []);
+  const persistCollapsed = useCallback(
+    (val: boolean) => {
+      setCollapsed(val);
+      // Session-only in the demo — see the initializer's note on the shared login.
+      if (isDemoReadOnly) return;
+      try {
+        localStorage.setItem(COLLAPSED_KEY, String(val));
+      } catch {
+        /* ignore */
+      }
+    },
+    [isDemoReadOnly],
+  );
 
   // Partition into sections (rule 132, extended #1790). The header count is the
   // sum. No-sprint work keeps the draggable To Do / Backlog sections; sprint-

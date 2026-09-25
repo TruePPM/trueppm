@@ -86,6 +86,52 @@ deliberately, set its password yourself with the
 docker compose exec api python manage.py changepassword atlas-mei
 ```
 
+### The demo landing overlay
+
+:::note[Ships in 0.5]
+The overlay described here lands in 0.5. On 0.4 `load_sample_project` loads the
+fixture and stops, so the interactive demo's landing project reads **At risk**
+with an unconfirmed milestone and a forecast past its commitment.
+:::
+
+On a deployment with `TRUEPPM_DEMO_READ_ONLY=true` — and only there — the command
+applies a small **demo-only overlay** to the landing project after loading the
+default `atlas-platform-launch` sample. The fixture deliberately ships Migration
+Tooling under pressure, which is right for a PM exploring a plan and wrong as the
+first thing an evaluator ever sees:
+
+| Fixture | On a read-only demo |
+|---|---|
+| Health overridden to `AT_RISK` | Override cleared, so the chip reads **On track** |
+| P80 past the commitment date | A final forecast lands P80 a few days ahead of it |
+| "Edited since this run" | Monte Carlo runs **last**, so the run outlives every edit |
+| "Migration complete" unconfirmed | Confirmed |
+| Dry-run migration slipping | 100% and complete |
+| A pile of unscheduled rows | Trimmed to at most two |
+| — | **Performance tuning stays ~10 points behind plan**, on purpose |
+
+That last row is the point: a plan with nothing wrong on it demonstrates nothing.
+One realistic signal remains, on the critical path, with float absorbing it.
+
+Three properties are worth knowing before you run it:
+
+- **`atlas-platform-launch.json` is not modified.** The overlay runs against the
+  imported rows, so the downloadable fixture, the local demo compose stack and a
+  self-hosted `load_sample_project` all still load the project exactly as authored.
+- **It never runs outside a demo.** Without `TRUEPPM_DEMO_READ_ONLY` it is not
+  invoked at all; called directly it refuses. It clears a health override,
+  completes tasks and soft-deletes rows, none of which may happen to a deployment
+  people work in.
+- **A fixture mismatch fails the command.** If a row it is written against has been
+  renamed, `load_sample_project` exits non-zero rather than publishing a demo that
+  is half-fixed. On a Helm install the seed Job's exit status is the release's, so
+  this surfaces as a failed install rather than as a quiet oddity on the landing
+  screen.
+
+It is idempotent across the nightly reset: a second run finds every indicator
+already dealt with and re-records only the forecast, which has to stay newer than
+anything that run wrote.
+
 ## `create_demo_share_link`
 
 Mints (or pins) the public read-only **share links** used by the hosted demo

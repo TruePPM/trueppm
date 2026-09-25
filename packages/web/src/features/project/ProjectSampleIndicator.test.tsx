@@ -60,14 +60,18 @@ describe('ProjectSampleIndicator', () => {
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 
-  it('hides the manage link for the read-only interactive demo (#4049)', () => {
+  it('renders nothing at all in the read-only interactive demo (#4049, #4050 A1)', () => {
+    // #4049 hid only the manage link here. #4050 removes the whole strip on that
+    // deployment: DemoModeBar now says the mode, the provenance and the program,
+    // and offers the project as a switcher — so this would be a second copy of
+    // all four, in one of the five bands the issue exists to reclaim. A
+    // self-hoster's own demo program still gets the strip (the cases below).
     demoMode.value = { isDemoReadOnly: true, loginHint: null, isLoading: false };
     useProject.mockReturnValue({
       data: { is_sample: true, program_detail: { id: 'prog-9', name: 'Atlas Platform Launch' } },
     });
-    renderIndicator();
-    expect(screen.getByText(/Demo project/)).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /manage demo data/i })).not.toBeInTheDocument();
+    const { container } = renderIndicator();
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('shows the manage link outside the read-only demo', () => {

@@ -103,7 +103,6 @@ The `git push origin main v0.2.0` command triggers the CI **publish stage**:
 - `web:publish` — same as above for the web image (`ghcr.io/<user>/web`)
 - `helm:publish` — packages and pushes the Helm chart to `oci://ghcr.io/<user>/charts`, then Cosign-signs the pushed chart digest
 - `api:publish:pypi` — publishes `trueppm-api` to PyPI via Trusted Publishing (see [PyPI Trusted Publishing](#pypi-trusted-publishing-one-time-setup))
-- `web:publish:npm` — publishes `@trueppm/web` to npm (skipped without `NPM_TOKEN`)
 - `release:create` — creates the GitLab release entry
 
 Starting with the 0.4 beta, **GHCR will become the public release target**, not an optional mirror. The image/chart publish jobs will push to GHCR in addition to the internal GitLab container registry, and a missing `GHCR_USER`/`GHCR_TOKEN` will **fail the job** rather than skipping — so a release tag can never appear to succeed without the public artifacts landing. Cosign signing is keyless (Sigstore via the GitLab `SIGSTORE_ID_TOKEN` OIDC audience) and needs no key material. Configure `GHCR_USER` + `GHCR_TOKEN` (Masked + Protected) before pushing the first `v0.4.0-beta*` tag.
@@ -184,6 +183,10 @@ The Helm chart version in `packages/helm/Chart.yaml` is kept in sync manually �
 
 **"Tag vX.Y.Z already exists"** — the tag was already pushed. Check if the CI jobs ran correctly; if the images are already published, no action is needed.
 
+**"already exists on origin" / "already exists on PyPI"** — `release.sh` checks origin's tags and PyPI (`trueppm-scheduler`, `trueppm-mcp`, `trueppm-api`) before bumping anything. A published version is never re-cut: PyPI uploads are immutable, so cut the next version instead. If it says it "could not read" origin or PyPI, it refuses rather than assume the version is free; fix network access and re-run.
+
+**`git fetch --tags` says "would clobber existing tag"** — your clone holds a local tag that differs from `origin`'s published one. Repair each with `git tag -d <tag> && git fetch origin tag <tag>`.
+
 **"Working tree is not clean"** — stash or commit pending changes before running the script.
 
 **"[Unreleased] section is empty"** — add changelog fragments to `changelog.d/` and run `bash scripts/assemble-changelog.sh` to populate `[Unreleased]` before releasing.
@@ -192,4 +195,4 @@ The Helm chart version in `packages/helm/Chart.yaml` is kept in sync manually �
 
 **`scheduler:publish` / `mcp:publish` / `api:publish:pypi` fails `InvalidDistribution: ... has no associated attestations`** — `twine --attestations` is an opt-in gate, not filesystem discovery: it only attaches `.publish.attestation` sidecars that are passed to it as explicit arguments. The `twine upload` command must list the sidecars (`dist/*.publish.attestation`) alongside the dists, or it rejects the upload before anything is published. (Fixed in #1390 for `scheduler:publish`; the same shape applies to any job built on this pattern.)
 
-**CI publish job fails** — the failure is in the build or push itself (Docker build error, registry outage, expired credentials), so read the job log. Starting with the 0.4 beta a *missing* `GHCR_TOKEN`/`GHCR_USER` will **fail** the image/chart publish jobs with an actionable error (GHCR will become the public release target, not optional) — set both in GitLab CI/CD variables (Settings → CI/CD → Variables, Masked + Protected) with a PAT that has `write:packages` scope before tagging. The npm job (`web:publish:npm`) still exits 0 when `NPM_TOKEN` is absent. `api:publish:pypi` no longer has a token to be absent (#3943) — it now fails loudly at the `mint-token` step if the Trusted Publisher isn't registered, per the entry above.
+**CI publish job fails** — the failure is in the build or push itself (Docker build error, registry outage, expired credentials), so read the job log. Starting with the 0.4 beta a *missing* `GHCR_TOKEN`/`GHCR_USER` will **fail** the image/chart publish jobs with an actionable error (GHCR will become the public release target, not optional) — set both in GitLab CI/CD variables (Settings → CI/CD → Variables, Masked + Protected) with a PAT that has `write:packages` scope before tagging. `api:publish:pypi` no longer has a token to be absent (#3943) — it now fails loudly at the `mint-token` step if the Trusted Publisher isn't registered, per the entry above.
