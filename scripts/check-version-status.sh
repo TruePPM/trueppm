@@ -96,7 +96,12 @@ EXTRA_SCAN_DEFAULT="README.md"
 # the failure this ratchet exists to make noisy — every guide told the reader to
 # sign in with logins the loader had stopped creating, and nothing in the
 # pipeline said a word.
-DECLARATION_DIRS="features administration getting-started overview guides"
+# `architecture/` joined at #4074 on the same "explains design, not features"
+# argument #2893 rejected for overview/: those pages state concrete behavior a
+# self-hoster reads as what their install does (auth flows, RBAC roles, sync and
+# WebSocket protocol, seed data), and the tense scan alone cannot see undeclared
+# unreleased behavior.
+DECLARATION_DIRS="features administration getting-started overview guides architecture"
 
 # Individual pages that sit at the docs root rather than in a tree, and so are
 # invisible to the directory walk above, but describe user-visible product
@@ -105,11 +110,13 @@ DECLARATION_DIRS="features administration getting-started overview guides"
 # the-story.md is the eight-step narrative walkthrough: it makes concrete,
 # version-anchored product claims and ships a runnable `load_sample_project`
 # setup with sign-in instructions, so a self-hoster reads it as "what my install
-# does" — the same test that put overview/ in scope at #2893. Its sibling root
-# pages are deliberately out: about.md (company background), license.md
-# (licensing terms), and index.mdx (the splash page) make no behavior claims a
-# release can falsify.
-DECLARATION_EXTRA_PAGES="the-story.md"
+# does" — the same test that put overview/ in scope at #2893. index.mdx (the
+# docs homepage) joined at #4074: it is the highest-traffic claim surface, and
+# its feature cards and hero copy are exactly where an unreleased capability
+# would be advertised in plain present tense. Its sibling root pages stay
+# deliberately out: about.md (company background) and license.md (licensing
+# terms) make no behavior claims a release can falsify.
+DECLARATION_EXTRA_PAGES="the-story.md index.mdx"
 
 # Pages under DECLARATION_DIRS that the ratchet deliberately never asks about,
 # relative to docs_root.
@@ -1315,6 +1322,21 @@ This page documents functionality added in **TruePPM 0.2**.
       > "$1/baseline.txt"
   }
   ratchet_overview_case "extra-page-recorded" expect-pass _rt_extra_recorded || return 1
+
+  # architecture/ and index.mdx joined at #4074: an undeclared, unbaselined page
+  # in either must fail, so a typo in the variables cannot silently un-cover them.
+  _rt_arch_unrecorded() {
+    mkdir -p "$1/architecture"
+    printf 'The API fans board events out over WebSockets.\n' > "$1/architecture/sync.md"
+    printf '# baseline\n' > "$1/baseline.txt"
+  }
+  ratchet_overview_case "architecture-unrecorded" expect-fail _rt_arch_unrecorded || return 1
+
+  _rt_index_unrecorded() {
+    printf -- '---\ntitle: TruePPM\n---\nTruePPM does everything.\n' > "$1/index.mdx"
+    printf '# baseline\n' > "$1/baseline.txt"
+  }
+  ratchet_overview_case "index-mdx-unrecorded" expect-fail _rt_index_unrecorded || return 1
 
   # And a root page NOT named in DECLARATION_EXTRA_PAGES stays out of scope —
   # the opt-in must be a list, not a sweep of the docs root.
