@@ -194,7 +194,13 @@ test.describe('Read-only demo — the refusal and the preview (ADR-1197 D3/D4)',
     await page.goto(BASE_URL);
     const bar = page.getByRole('complementary', { name: 'Demo mode' });
     await expect(bar).toBeVisible();
-    await expect(bar).toContainText('Read-only demo — nothing you change here is saved.');
+    await expect(bar).toContainText('Read-only demo');
+    // Since #4050 A1 the consequence rides on the chip's `title` rather than a
+    // second line of chrome: the bar absorbed four other strips and is a fixed
+    // 44px, so the sentence is one hover or focus away instead of permanently
+    // occupying a band of the Gantt. It is NOT deleted, which is what this
+    // asserts — the demo still says what read-only means.
+    await expect(bar.getByTitle(/nothing you change here is saved/i)).toBeVisible();
   });
 
   test('shows no connection fault — /ws/ is 404 by design (#4048)', async ({ page }) => {
@@ -264,7 +270,7 @@ test.describe('Read-only demo — the refusal and the preview (ADR-1197 D3/D4)',
   });
 });
 
-test.describe('Read-only demo — sample project indicator hides its link (#4049)', () => {
+test.describe('Read-only demo — the sample strip is absent entirely (#4049, #4050 A1)', () => {
   // Self-contained: its own fixture project and its own beforeEach, so this block
   // stays a small, isolated addition alongside the other demo-read-only cases.
   const SAMPLE_PROJECT_ID = 'e2e-demo-00000000-0000-0000-0000-000000004049';
@@ -280,9 +286,7 @@ test.describe('Read-only demo — sample project indicator hides its link (#4049
     },
   ];
 
-  test('the "Manage demo data" link is hidden, not just inert, for the read-only visitor', async ({
-    page,
-  }) => {
+  test('the strip does not render at all, and nothing it said is lost', async ({ page }) => {
     await setupAuth(page);
     await setupCatchAll(page);
     await setupApiMocks(page, {
@@ -296,10 +300,17 @@ test.describe('Read-only demo — sample project indicator hides its link (#4049
     await page.setViewportSize({ width: 1280, height: 800 });
 
     await page.goto(`/projects/${SAMPLE_PROJECT_ID}/schedule`);
-    const sampleBar = page.getByRole('note', { name: 'This is sample data' });
-    await expect(sampleBar).toBeVisible();
-    await expect(sampleBar).toContainText('Atlas Platform Launch');
-    await expect(sampleBar.getByRole('link', { name: /manage demo data/i })).toHaveCount(0);
+    // #4049 hid only the "Manage demo data" link here. #4050 A1 removes the
+    // whole strip on a demo deployment: it was one of five bands that left the
+    // landing Gantt a third of the viewport, and every word of it — the mode,
+    // the sample-data provenance, the program name, the project — is now in the
+    // one 44px demo bar, with the project as a switcher rather than a caption.
+    await expect(page.getByRole('note', { name: 'This is sample data' })).toHaveCount(0);
+    const bar = page.getByRole('complementary', { name: 'Demo mode' });
+    await expect(bar).toBeVisible();
+    await expect(page.getByTestId('demo-project-switcher')).toContainText('Sample Demo Project');
+    // …and still no route to the teardown page for a visitor who cannot use it.
+    await expect(page.getByRole('link', { name: /manage demo data/i })).toHaveCount(0);
   });
 });
 

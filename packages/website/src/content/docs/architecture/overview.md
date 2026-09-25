@@ -98,12 +98,10 @@ The principle is sequenced across the roadmap as one capability with four parts 
 
 - **Compute / cite — provenance graph** (#1058) — every computed date, float, and
   P80 carries the derivation an agent can cite, so an answer is explainable, not
-  asserted. It lands with the 0.4 read-only [MCP server](/features/mcp-server/) and
-  is already merged to `main`.
+  asserted. It shipped with the 0.4 read-only [MCP server](/features/mcp-server/).
 - **Reproduce — agent-action audit foundation** (#1805, [ADR-0112](/architecture/decisions/)
   Accepted) — every agent read and every verdict is recorded in a hash-chained,
-  `audit_verify`-checkable log; it also lands with the 0.4 beta and is already in
-  `main`. A signed engine-version + input-hash answer stamp (#1065) follows at 0.9.
+  `audit_verify`-checkable log; it also shipped with the 0.4 beta. A signed engine-version + input-hash answer stamp (#1065) follows at 0.9.
 - **Natural-language query layer** (#1060 #1061, planned for 0.5) — compiles a
   question into engine calls, never into an answer; the model translates, the
   engine answers.
@@ -112,7 +110,7 @@ The principle is sequenced across the roadmap as one capability with four parts 
   human write; this is the *refuse* verb reaching the write side.
 
 The deterministic engine behind all four verbs is shipped today; the compute, cite,
-and reproduce foundations land with the 0.4 beta and are already in `main`. The dates
+and reproduce foundations shipped with the 0.4 beta. The dates
 above are targets, not commitments — the [roadmap](/overview/roadmap/) is the source
 of record for what has shipped versus what is planned.
 
@@ -198,7 +196,7 @@ make enterprise-boundary-check   # OK: no trueppm-enterprise imports in packages
 
 A plain `grep -r "trueppm_enterprise" packages/` is **not** the check. The tree legitimately names the package in extension-point docstrings and ADR pointers — that grep returns 12 lines across 8 files on a clean tree. The gate matches import syntax and quoted module paths, and ignores comments (#2603).
 
-**Community:** scheduling engine, CPM, Monte Carlo, Schedule (Gantt-style) UI, Board, Sprints workspace, program management (coordinating multiple projects within a program), baseline comparison, offline sync, real-time, 5-role RBAC, REST/WS API, Helm chart, MS Project import/export. On the Community roadmap but not yet shipped: basic single sign-on (OIDC/OAuth login against your own identity provider), time tracking with a weekly timesheet, and in-app baseline capture all landed in 0.4; the installable PWA lands in 0.5 and the native Android app in 0.6.
+**Community:** scheduling engine, CPM, Monte Carlo, Schedule (Gantt-style) UI, Board, Sprints workspace, program management (coordinating multiple projects within a program), baseline comparison, offline sync, real-time, 5-role RBAC, REST/WS API, Helm chart, MS Project import/export. Also in the Community edition since 0.4: basic single sign-on (OIDC/OAuth login against your own identity provider), time tracking with a weekly timesheet, and in-app baseline capture. Still on the Community roadmap: the installable PWA lands in 0.5 and the native Android app in 0.6.
 
 **Enterprise (separate repo):** portfolio analytics and health scores, cross-program resource leveling, org identity governance (SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO), immutable audit trail, custom roles, approval workflows, the org-wide Jira/GitLab/ServiceNow integration hub, AI scheduling, scenario modeling, multi-tenancy.
 

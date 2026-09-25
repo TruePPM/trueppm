@@ -1,6 +1,9 @@
-import { useId, type ReactNode } from 'react';
-import { useScheduleLegendCollapsed } from '@/hooks/useScheduleLegendCollapsed';
-import { RadioDotIcon } from '@/components/Icons';
+import type { ReactNode, RefObject } from 'react';
+import {
+  useMarkScheduleLegendSeen,
+  useScheduleLegendCollapsed,
+} from '@/hooks/useScheduleLegendCollapsed';
+import { CloseIcon, RadioDotIcon } from '@/components/Icons';
 import { gutterBackground } from './deliveryModePresentation';
 
 interface ScheduleLegendProps {
@@ -21,25 +24,45 @@ interface ScheduleLegendProps {
    * is louder than the silent no-op it replaced.
    */
   canLink: boolean;
+  /**
+   * The toolbar "Legend" button (#3614). The close control below moves focus
+   * there after it removes this panel from the DOM — the same "own control
+   * removed the focused element, so return focus to what reopens it" pattern
+   * `displayTriggerRef` follows for the how-to bar (#3134). Optional and safe
+   * to omit or leave unmounted: a `null` ref is just not focused.
+   */
+  closeFocusRef?: RefObject<HTMLButtonElement | null>;
 }
 
 /**
- * Floating legend overlay for the Schedule (Gantt) view (#474, ADR-0064).
+ * Floating legend overlay for the Schedule (Gantt) view (#474, ADR-0064;
+ * toolbar-toggled default-closed behavior added #3614).
  *
  * Mounted as a sibling of the canvas scroll container with `position: absolute`,
  * inside the timeline wrapper. Suppressed below the `lg` breakpoint (1024px) —
- * narrow viewports risk obscuring the first task row. Collapsed state persists
- * across sessions and tabs via `useScheduleLegendCollapsed`.
+ * narrow viewports risk obscuring the first task row.
+ *
+ * Visibility (open/closed) is the SAME state `ScheduleLegendToggle` (the
+ * toolbar "Legend" button) reads and writes via `useScheduleLegendCollapsed` —
+ * one boolean, two entry points, so the toolbar button and this panel's own
+ * close control can never disagree. Unmounts entirely when closed (returns
+ * `null`) rather than collapsing to a header chip: a 280×300px panel with no
+ * dismiss control was occluding most of a ~320px Gantt pane at 1280
+ * permanently (#3614), and a chip-only remainder still would have. Open on
+ * the user's first-ever visit, closed on every visit after (see the hook).
  *
  * The PDF-export question (VoC: Sarah blocks if it appears on client PDFs) is
  * resolved structurally: the legend is a DOM sibling of the canvas, not inside
  * it, so any future canvas export pipeline starts from "explicitly include"
  * rather than "explicitly exclude".
  */
-export function ScheduleLegend({ taskListWidth, canLink }: ScheduleLegendProps) {
-  const { collapsed, toggle } = useScheduleLegendCollapsed();
-  const headerId = useId();
-  const bodyId = `${headerId}-body`;
+export function ScheduleLegend({ taskListWidth, canLink, closeFocusRef }: ScheduleLegendProps) {
+  const { collapsed, setCollapsed } = useScheduleLegendCollapsed();
+  // This IS the "seen" signal (#3614) — see the hook's own doc comment for
+  // why the toolbar toggle must not also drive it.
+  useMarkScheduleLegendSeen(!collapsed);
+
+  if (collapsed) return null;
 
   return (
     <div
@@ -49,41 +72,36 @@ export function ScheduleLegend({ taskListWidth, canLink }: ScheduleLegendProps) 
                  bg-neutral-surface-raised border border-neutral-border rounded-card
                  text-xs text-neutral-text-primary"
     >
-      <button
-        type="button"
-        id={headerId}
-        data-testid="schedule-legend-chip"
-        aria-expanded={!collapsed}
-        aria-controls={bodyId}
-        onClick={toggle}
-        className="flex items-center gap-2 px-3 min-h-[44px] w-full text-left
+      <div
+        className="flex items-center gap-2 pl-3 pr-1.5 min-h-[44px]
                    font-semibold tracking-widest uppercase
-                   text-neutral-text-secondary
-                   hover:bg-neutral-surface
-                   focus-visible:outline-none focus-visible:ring-2
-                   focus-visible:ring-brand-primary focus-visible:ring-offset-1
-                   focus-visible:rounded-control
-                  "
+                   text-neutral-text-secondary"
       >
-        <span
-          aria-hidden="true"
-          className={[
-            'inline-block w-2 text-xs transition-transform duration-150 ease-out',
-            'motion-reduce:transition-none',
-            collapsed ? 'rotate-0' : 'rotate-90',
-          ].join(' ')}
+        <span className="flex-1">Legend</span>
+        <button
+          type="button"
+          data-testid="schedule-legend-close"
+          aria-label="Close legend"
+          onClick={() => {
+            setCollapsed(true);
+            // This click's own target is about to unmount — hand focus to
+            // the control that can reopen it rather than letting it fall to
+            // <body> (#3614).
+            closeFocusRef?.current?.focus();
+          }}
+          className="shrink-0 p-1.5 rounded-control normal-case tracking-normal font-normal
+                     text-neutral-text-secondary hover:bg-neutral-surface hover:text-neutral-text-primary
+                     focus-visible:outline-none focus-visible:ring-2
+                     focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
-          ▶
-        </span>
-        <span>Legend</span>
-      </button>
+          <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      </div>
 
       <div
-        id={bodyId}
         data-testid="schedule-legend-body"
         role="region"
-        aria-labelledby={headerId}
-        hidden={collapsed}
+        aria-label="Legend"
         className="px-3 pb-3 pt-1 border-t border-neutral-border"
       >
         <ul

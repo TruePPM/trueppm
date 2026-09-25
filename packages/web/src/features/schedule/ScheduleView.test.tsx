@@ -707,6 +707,7 @@ vi.mock('./ScheduleViewModeToggle', () => ({ ScheduleViewModeToggle: () => null 
 vi.mock('./QuarterModeControl', () => ({ QuarterModeControl: () => null }));
 vi.mock('./ZoomControl', () => ({ ZoomControl: () => null }));
 vi.mock('./ScheduleLegend', () => ({ ScheduleLegend: () => null }));
+vi.mock('./ScheduleLegendToggle', () => ({ ScheduleLegendToggle: () => null }));
 vi.mock('./MonteCarloGanttMarkers', () => ({ MonteCarloGanttMarkers: () => null }));
 vi.mock('./MilestonePulseOverlay', () => ({ MilestonePulseOverlay: () => null }));
 vi.mock('./MilestoneDeltaTooltip', () => ({ MilestoneDeltaTooltip: () => null }));

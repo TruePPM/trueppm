@@ -49,7 +49,7 @@ TruePPM lets you add three-point estimates (optimistic, most likely, pessimistic
 
 ### Baselines
 
-Capture a baseline to freeze the planned dates at a point in time. **Capture baseline** and **Baselines…** ship in the Schedule toolbar's **Actions** menu with the 0.4 beta, gated at **Project Manager** or above; the REST API remains available and is the way to script it. Once a baseline is active, the task detail drawer shows a read-only baseline-vs-current comparison so you can see schedule variance. Multiple baselines are supported for rebaseline events. See [Baselines](/features/baselines/) for both the in-app and API workflows.
+Capture a baseline to freeze the planned dates at a point in time. **Capture baseline** and **Baselines…** shipped in the Schedule toolbar's **Actions** menu with the 0.4 beta, gated at **Project Manager** or above; the REST API remains available and is the way to script it. Once a baseline is active, the task detail drawer shows a read-only baseline-vs-current comparison so you can see schedule variance. Multiple baselines are supported for rebaseline events. See [Baselines](/features/baselines/) for both the in-app and API workflows.
 
 ### Working calendars
 

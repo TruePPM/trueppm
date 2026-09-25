@@ -77,7 +77,7 @@ The task list is [Schedule build mode](/features/schedule-build-mode/) — a key
 
 ### Float and free float
 
-The engine computes two kinds of slack for every task, and 0.4 will put both in
+The engine computes two kinds of slack for every task, and 0.4 put both in
 the outline as their own columns:
 
 | Column | Reads | Answers |
@@ -124,7 +124,7 @@ it was. Drag the divider if you would rather spend the width the other way.
 Worth knowing what that costs in practice, because the numbers are not obvious. At
 1280px with the left rail expanded the eight-column outline already asks for more
 room than the clamp can give it, so the Owner column has always been the first to
-clip there. The two float columns 0.4 will add are the rightmost pair, which puts them
+clip there. The two float columns added in 0.4 are the rightmost pair, which puts them
 first in line: at 1440px and above the full ten-column set fits, and below that you
 will want to hide a column you are not reading, collapse the rail, or drag the
 divider. That order is deliberate — float is the pair a planner consults rather
@@ -169,6 +169,10 @@ for what capturing a baseline does today and when the overlay itself lands.
 
 Bar labels use `COLOR.text` (`#1A1917` light / palette swap in dark mode). The canvas font is set once at engine init to the Tailwind `font-sans` stack so labels match the task list typography.
 
+### Legend
+
+A floating panel over the bottom-left of the timeline (1024px and wider) names every bar type, state marker, delivery-mode gutter, and dependency line the canvas draws, plus the pan and drag-to-link gestures. It is open the first time you ever visit a Schedule view, and closed by default on every visit after — a toolbar toggle (**Legend**, next to the Grid/Timeline switch) and the panel's own close control both show and hide it, and stay in sync with each other. Whichever state you leave it in persists across reloads; at a narrower toolbar width the toggle moves into the **Actions** menu rather than disappearing.
+
 ## Zoom
 
 You can zoom smoothly from hour-level detail all the way out to a multi-year overview — there are no fixed steps to click through. As you zoom, the two-row date header automatically changes the unit it emphasizes (day → week → month → quarter → year) so the timeline always stays readable.
@@ -182,6 +186,31 @@ Three ways to zoom:
 - **How-to bar** — the teaching band under the plan shows a short how-to while nothing in the outline is selected, and hands the band to the [build-mode hint strip](/features/schedule-build-mode/) as soon as you focus a row. **Display → Outline → How-to bar** turns the how-to half off once you no longer need it, and turns it back on — dismissing it with its own **×** is never a one-way door, which matters because it is the surface that explains the keyboard.
 - **Enter creates a new row** — by default, pressing `Enter` in the outline commits the row you are on **and** inserts a new one below it, which is the motion for typing a plan in one pass. When you are editing rows that already exist — renaming one, fixing a typo — that extra blank row is something to delete every time. **Display → Outline → Enter creates a new row** turns the insert off: `Enter` then commits the field and leaves the cursor in the name cell of the row you were on. `Shift`+`Enter` (sibling above) and `⌘`/`Ctrl`+`Enter` (child) still insert either way, because a modifier is an explicit request for a row.
 - **Keyboard** — `⌘/Ctrl` + `=` zooms in, `-` zooms out, and `0` fits the project to the viewport.
+
+### Timescale labels
+
+:::note[Ships in 0.5]
+On **0.4** the two header rows at quarter zoom read `Q2 FY26` over `FY26` — the
+fiscal year twice, the upper copy cut off mid-word in a cell too narrow for it.
+The step-down described here lands in 0.5.
+:::
+
+The date header is two rows, and each row carries **one label per cell** with no
+wrapping. Because a canvas label cannot reflow, the header instead **steps down**
+to a shorter form as cells narrow, and shows nothing at all rather than a cut-off
+stub — the cell's own rule still marks the boundary:
+
+| Unit | Wide | Narrow | Too narrow |
+|---|---|---|---|
+| Quarter | `FY26 · Q4` (≥ 80px) | `Q4` (≥ 28px) | blank |
+| Month | `Sep` (≥ 30px) | `S` (≥ 14px) | blank |
+
+The fiscal year rides **inside** the quarter cell rather than occupying a row of
+its own, which is what frees the lower row for months. So across the whole
+quarter range the header reads `FY26 · Q3` over `Jul` — each fact stated once.
+In [calendar-quarter mode](/features/schedule/dates/) the same shape reads
+`2026 · Q3`, because "FY" would be a claim about a fiscal year that is not in
+use.
 
 ## Interaction
 
@@ -259,12 +288,44 @@ If you are a viewer, or you are not in build mode, none of this changes: `Enter`
 
 The [Advancing-to-Milestone card](/features/sprints/) on the Sprints view links into this Schedule view scrolled to a specific milestone task via the URL hash (`#task-<uuid>`). That's how the Sprints workspace bridges back to the Schedule without forcing the user to find the milestone manually.
 
+## On the hosted interactive demo
+
+:::note[Ships in 0.5]
+Everything in this section ships in 0.5, on the **hosted read-only demo**
+(`try.trueppm.com`). Today that demo lands in Author mode, with the legend open,
+the unscheduled tray expanded, and five bands of chrome above the chart. Your own install is not
+affected either way — none of this applies to a deployment that is not running
+in demo mode.
+:::
+
+A deployment running as a [read-only interactive demo](/administration/security/#interactive-demo-mode)
+opens the Schedule differently, because a first-time visitor is not a planner
+mid-session:
+
+- **One 44px demo bar** replaces the five separate bands — read-only notice,
+  sample-project strip, how-to bar, suggestions strip and docked forecast bar.
+  It carries the mode, the edition and its **What's included** link, a
+  sample-project switcher, and a two-step "try this" hint. The forecast moves to
+  a chip on that bar; clicking it opens the same forecast panel, with the same
+  numbers, in a popover.
+- **Read mode, every time.** The demo opens in **Read** even if someone on that
+  browser previously chose Author — the demo login is shared, so a stored
+  preference is the last visitor's choice, not yours. Switch to Author with the
+  mode chip, `⌥A`, or the hint's **Try it** button; the choice lasts for the page
+  and is never written down.
+- **The whole plan in view.** The opening framing is **Fit** rather than
+  today-at-25%, the unscheduled tray starts collapsed to a single line with its
+  count, and phases that are already 100% complete open collapsed.
+- **Nothing is saved.** Every write is refused server-side; a drag shows you what
+  would happen and says so.
+
 ## Related ADRs
 
 - [ADR-0030](/architecture/decisions/) — Schedule rename (Gantt → Schedule), tab order
 - [ADR-0040](/architecture/decisions/) — Wave/3 Schedule: bar render, task drawer, unscheduled gutter, canvas rationale
 - [ADR-0027](/architecture/decisions/) — Incremental CPM recompute (subgraph delta strategy)
 - [ADR-0752](/architecture/decisions/) — Task span (`scheduled_start`) vs. the remaining-work window (`early_start`); the bar/Duration-chip treatment above
+- [ADR-1197](/architecture/decisions/) — Read-only interactive demo as a deployment mode, not a role — what the demo landing above is gated on
 - [ADR-0803](/architecture/decisions/) — Sprint window bands on the schedule canvas — row attribution, the shared delivery-mode vocabulary, why it is not a second view, and (amended by #3012) why the window's name moved from the band onto the time axis
 
 ## If you are…
