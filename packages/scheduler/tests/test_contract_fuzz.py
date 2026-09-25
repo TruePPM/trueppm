@@ -165,14 +165,24 @@ _weird_floats = st.floats()
 # #1453), plus floats/bools that are likewise non-conforming and must be rejected.
 _seeds = st.none() | st.integers(min_value=-(10**6), max_value=10**6) | st.floats() | st.booleans()
 _opt_date = st.none() | st.dates()
+_bad_task_ids = st.one_of(
+    st.none(),
+    st.integers(),
+    st.floats(),
+    st.booleans(),
+    st.lists(st.integers(), max_size=2),
+    st.dictionaries(st.text(max_size=3), st.integers(), max_size=2),
+)
 _opt_td = st.none() | _day_ints.map(lambda d: timedelta(days=d))
 
 
 @st.composite
-def _tasks(draw: st.DrawFn, ids: list[str]) -> Task:
+def _tasks(draw: st.DrawFn, ids: list[str], bad_ids: bool = False) -> Task:
     aset = draw(st.none() | st.dates())
     return Task(
-        id=draw(st.sampled_from(ids)),
+        # With bad_ids, occasionally a non-string one (int/None/list/dict): must
+        # raise InvalidScheduleInput, not a bare TypeError/ValueError (#4130).
+        id=draw(st.sampled_from(ids) | _bad_task_ids if bad_ids else st.sampled_from(ids)),  # type: ignore[arg-type]
         name=draw(st.text(max_size=12)),
         duration=timedelta(days=draw(_day_ints)),
         planned_start=draw(_opt_date),
@@ -208,10 +218,10 @@ def _calendars(draw: st.DrawFn) -> Calendar:
 
 
 @st.composite
-def _projects(draw: st.DrawFn) -> Project:
+def _projects(draw: st.DrawFn, bad_ids: bool = False) -> Project:
     n = draw(st.integers(min_value=1, max_value=8))
     ids = [f"t{i}" for i in range(n)]
-    tasks = [draw(_tasks(ids)) for _ in range(n)]
+    tasks = [draw(_tasks(ids, bad_ids)) for _ in range(n)]
 
     deps = []
     for _ in range(draw(st.integers(min_value=0, max_value=12))):
@@ -262,7 +272,7 @@ _json_values = st.recursive(
 # ---------------------------------------------------------------------------
 
 
-@given(project=_projects(), seed=_seeds)
+@given(project=_projects(bad_ids=True), seed=_seeds)
 def test_direct_object_api_conforms(project: Project, seed: object) -> None:
     """schedule() and monte_carlo() on a fuzzed Project either return or raise a
     documented SchedulerError — never a bare ValueError/TypeError/OverflowError,
