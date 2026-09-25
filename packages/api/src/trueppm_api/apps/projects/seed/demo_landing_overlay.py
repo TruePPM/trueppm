@@ -250,7 +250,7 @@ def _confirm_milestone(project: Project) -> bool:
 def _finish_dry_run(project: Project) -> bool:
     """Dry-run migration is done and on plan."""
     task = _task(project, DRY_RUN_TASK_NAME)
-    if task.percent_complete == 100.0 and task.status == TaskStatus.COMPLETE:
+    if task.percent_complete >= 100.0 and task.status == TaskStatus.COMPLETE:
         return False
     task.percent_complete = 100.0
     task.status = TaskStatus.COMPLETE
