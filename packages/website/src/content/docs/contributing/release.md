@@ -184,6 +184,10 @@ The Helm chart version in `packages/helm/Chart.yaml` is kept in sync manually �
 
 **"Tag vX.Y.Z already exists"** — the tag was already pushed. Check if the CI jobs ran correctly; if the images are already published, no action is needed.
 
+**"already exists on origin" / "already exists on PyPI"** — `release.sh` checks origin's tags and PyPI (`trueppm-scheduler`, `trueppm-mcp`, `trueppm-api`) before bumping anything. A published version is never re-cut: PyPI uploads are immutable, so cut the next version instead. If it says it "could not read" origin or PyPI, it refuses rather than assume the version is free; fix network access and re-run.
+
+**`git fetch --tags` says "would clobber existing tag"** — your clone holds a local tag that differs from `origin`'s published one. Repair each with `git tag -d <tag> && git fetch origin tag <tag>`.
+
 **"Working tree is not clean"** — stash or commit pending changes before running the script.
 
 **"[Unreleased] section is empty"** — add changelog fragments to `changelog.d/` and run `bash scripts/assemble-changelog.sh` to populate `[Unreleased]` before releasing.
