@@ -210,7 +210,9 @@ Poll `glab api "projects/trueppm%2Ftrueppm/pipelines?ref=main&sha=$(git rev-pars
 2. When the new `main` HEAD's own pipeline is green, delete the local tags (`git tag -d <three tags>`) and recreate them **on that commit by hand**, with the same messages the script uses (`Release vX.Y.Z`, `Release trueppm-scheduler <pep440>`, `Release trueppm-mcp <pep440>`). Do not re-run `release.sh`: the manifests and changelog are already bumped and rotated, and it would rebuild and rescan the image for nothing.
 3. Then push the tags as below.
 
-A `git fetch --tags` that rejects tags with "would clobber existing tag" means a local tag from an earlier re-cut is stale (0.4.0-beta.2 was re-cut). It is not a blocker for this release; verify the version you are cutting exists nowhere (`git tag -l`, `git ls-remote --tags origin`) and leave the stale one alone.
+**Once a version is published, there is no re-cut: the next cut is the next version.** PyPI uploads are immutable, so moving a tag under a published version only reds the publish jobs. `release.sh` enforces this via `scripts/check-release-unpublished.sh`, which refuses when any of the three tags exists on `origin` or when `trueppm-scheduler`, `trueppm-mcp` or `trueppm-api` already has that version on PyPI, and fails closed when it cannot read either. The by-hand tag recreation above is only for a release commit whose tags were **never pushed**.
+
+A `git fetch --tags` that rejects tags with "would clobber existing tag" means this clone holds a local tag that diverges from `origin` (0.4.0-beta.2 was cut twice). Repair it per tag with `git tag -d <tag> && git fetch origin tag <tag>`; `origin` is the published one.
 
 Then watch all three tag pipelines to completion (`glab api "projects/trueppm%2Ftrueppm/pipelines?ref=<tag>"`). Publish jobs sit behind `tag:wait-for-main`. Report every publish job's final status. If a publish job fails, read its log first and never delete a tag whose images have published (Step 5).
 

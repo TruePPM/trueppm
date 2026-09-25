@@ -505,6 +505,13 @@ grep -qxF "$TAG" <<<"$(git tag)" && die "Tag $TAG already exists."
 grep -qxF "$SCHEDULER_TAG" <<<"$(git tag)" && die "Tag $SCHEDULER_TAG already exists."
 grep -qxF "$MCP_TAG" <<<"$(git tag)" && die "Tag $MCP_TAG already exists."
 
+# The local list is not the source of truth for what is PUBLISHED (#4061): a
+# deleted local tag makes it answer "no" for a live version. Ask origin and
+# PyPI too, before anything is modified. Exit 1 = published, 2 = could not tell
+# (fails closed).
+bash scripts/check-release-unpublished.sh "$NEW_VERSION" \
+  || die "Refusing to cut v${NEW_VERSION} — see above. Once published, the next cut is the next version; there is no re-cut."
+
 # ---------------------------------------------------------------------------
 # Release summary — resolved BEFORE anything is modified
 # ---------------------------------------------------------------------------
