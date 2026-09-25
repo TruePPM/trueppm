@@ -127,7 +127,7 @@ export function pinsFromDisplayOptions(o: {
  * cost table so the very first re-widen has a number to compare against;
  * once a rung has actually been applied, its *observed* cost replaces this.
  */
-interface LadderRung {
+export interface LadderRung {
   id: string;
   apply: (draft: ToolbarComposition) => void;
   estimate: number;
@@ -179,6 +179,20 @@ export const TOOLBAR_LADDER: readonly LadderRung[] = [
 export const MAX_LADDER_STEP = TOOLBAR_LADDER.length;
 
 /**
+ * The read-only demo's ladder: identical, except Legend demotes last.
+ *
+ * The default ladder gives Legend up first because a new user has already
+ * met the panel open on their first visit, so the button is a way back to
+ * something they know exists. The demo opens with the legend closed (#4067),
+ * which makes the button the only way an evaluator learns there is a legend —
+ * and the demo's wider mode chip is enough to demote it at 1280.
+ */
+export const DEMO_TOOLBAR_LADDER: readonly LadderRung[] = [
+  ...TOOLBAR_LADDER.filter((r) => r.id !== 'legend-overflow'),
+  ...TOOLBAR_LADDER.filter((r) => r.id === 'legend-overflow'),
+];
+
+/**
  * The composition before any rung is applied — a pure function of the pins.
  *
  * An unpinned *command* starts in `···`; an unpinned *readout* is `hidden`
@@ -202,10 +216,14 @@ export function baseComposition(pins: ToolbarPins): ToolbarComposition {
 }
 
 /** Apply the first `step` rungs of the ladder to the pins' base composition. */
-export function resolveComposition(pins: ToolbarPins, step: number): ToolbarComposition {
+export function resolveComposition(
+  pins: ToolbarPins,
+  step: number,
+  ladder: readonly LadderRung[] = TOOLBAR_LADDER,
+): ToolbarComposition {
   const draft = baseComposition(pins);
-  const applied = Math.max(0, Math.min(step, MAX_LADDER_STEP));
-  for (let i = 0; i < applied; i += 1) TOOLBAR_LADDER[i].apply(draft);
+  const applied = Math.max(0, Math.min(step, ladder.length));
+  for (let i = 0; i < applied; i += 1) ladder[i].apply(draft);
   return draft;
 }
 
@@ -232,6 +250,8 @@ export interface FitStepInput {
    * "142 items · 9 critical" and "3 items · 0 critical" are not the same width.
    */
   costs: ReadonlyArray<number | undefined>;
+  /** The ladder `step` indexes into; `costs` must have been learned on it. */
+  ladder?: readonly LadderRung[];
 }
 
 /**
@@ -247,18 +267,19 @@ export function nextFitStep({
   contentWidth,
   availableWidth,
   costs,
+  ladder = TOOLBAR_LADDER,
 }: FitStepInput): number {
   // An unmeasured bar (display:none, detached, first paint before layout)
   // reports 0 and must not be read as "infinitely cramped".
   if (availableWidth <= 0) return step;
 
   if (contentWidth > availableWidth) {
-    return step < MAX_LADDER_STEP ? step + 1 : step;
+    return step < ladder.length ? step + 1 : step;
   }
 
   if (step > 0) {
     const rung = step - 1;
-    const cost = costs[rung] ?? TOOLBAR_LADDER[rung].estimate;
+    const cost = costs[rung] ?? ladder[rung].estimate;
     if (availableWidth - contentWidth >= cost + FIT_HYSTERESIS_PX) return step - 1;
   }
 

@@ -17,8 +17,10 @@
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import {
   MAX_LADDER_STEP,
+  TOOLBAR_LADDER,
   measureToolbarContent,
   nextFitStep,
+  type LadderRung,
 } from './toolbarLadder';
 
 /**
@@ -65,11 +67,14 @@ export interface UseToolbarFitResult {
  *   `ResizeObserver` cannot see any of those (the box is identical), so without
  *   this the loop would keep a composition chosen for an inventory that no
  *   longer exists — too compact after unpinning, or clipped after pinning.
+ * @param ladder The rung order to walk. Must be a stable reference; the
+ *   caller resolves the composition against the same one.
  */
 export function useToolbarFit(
   ref: RefObject<HTMLElement | null>,
   enabled = true,
   inventorySignature = '',
+  ladder: readonly LadderRung[] = TOOLBAR_LADDER,
 ): UseToolbarFitResult {
   const [step, setStep] = useState(() =>
     typeof window === 'undefined' ? 0 : firstPaintStep(window.innerWidth),
@@ -81,6 +86,7 @@ export function useToolbarFit(
   // difference the two and learn what the rung it just applied actually saved.
   const lastMeasure = useRef<{ step: number; content: number } | null>(null);
   const adjustments = useRef(0);
+  const costsLadder = useRef(ladder);
   const [tick, setTick] = useState(0);
 
   const remeasure = useCallback(() => {
@@ -94,6 +100,13 @@ export function useToolbarFit(
     if (!enabled) return;
     const el = ref.current;
     if (!el) return;
+
+    // Costs are indexed by rung position, so a reordered ladder invalidates them.
+    if (costsLadder.current !== ladder) {
+      costsLadder.current = ladder;
+      costs.current = [];
+      lastMeasure.current = null;
+    }
 
     const content = measureToolbarContent(el);
     const available = el.clientWidth;
@@ -126,6 +139,7 @@ export function useToolbarFit(
       contentWidth: content,
       availableWidth: available,
       costs: costs.current,
+      ladder,
     });
 
     if (next !== step) {
@@ -139,7 +153,7 @@ export function useToolbarFit(
     // re-runs on every render, which happens to work and hides WHICH changes
     // the loop actually depends on. `step` and `tick` drive the iteration;
     // `inventorySignature` is the one a ResizeObserver cannot supply.
-  }, [enabled, ref, step, tick, inventorySignature]);
+  }, [enabled, ref, step, tick, inventorySignature, ladder]);
 
   useLayoutEffect(() => {
     if (!enabled) return;

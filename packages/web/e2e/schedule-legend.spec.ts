@@ -174,8 +174,9 @@ test.describe('Schedule legend in the read-only demo (#4067)', () => {
   test('opens closed on the first-ever visit; the toggle opens it grouped and close returns focus', async ({
     page,
   }) => {
-    // The demo's wider "Read only · Switch to Author" chip demotes Legend to ··· at 1280.
-    await page.setViewportSize({ width: 1440, height: 800 });
+    // 1280 on purpose: the demo's wider mode chip is enough to push the toolbar
+    // down its ladder here, and the demo ladder must keep Legend in the bar.
+    await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(BASE_URL);
     const toggle = page.getByRole('button', { name: 'Legend', exact: true });
     await expect(toggle).toBeVisible();

@@ -140,6 +140,8 @@ import {
   type ToolbarOverflowSection,
 } from '@/components/toolbar/ToolbarOverflowMenu';
 import {
+  DEMO_TOOLBAR_LADDER,
+  TOOLBAR_LADDER,
   pinFooterSentence,
   pinsFromDisplayOptions,
   placementLabel,
@@ -6043,7 +6045,9 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
   // only so the demoted overflow row below can state which way the toggle
   // currently goes — both read the SAME external store, so they cannot drift.
   const { collapsed: legendCollapsed, toggle: toggleLegend } = useScheduleLegendCollapsed();
-  useLegendDefaultClosedInDemo(useDemoMode().isDemoReadOnly);
+  const isDemoReadOnly = useDemoMode().isDemoReadOnly;
+  useLegendDefaultClosedInDemo(isDemoReadOnly);
+  const ladder = isDemoReadOnly ? DEMO_TOOLBAR_LADDER : TOOLBAR_LADDER;
   // Everything that changes the bar's NATURAL width without changing its box,
   // so the loop re-measures on a pin toggle, a mode flip, rights resolving, or
   // the trail gaining its first entry — none of which a ResizeObserver can see.
@@ -6062,7 +6066,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     pendingCount > 0,
     visibleTasks.length,
   ].join('|');
-  const { step: fitStep } = useToolbarFit(toolbarRef, !isMobile, inventorySignature);
+  const { step: fitStep } = useToolbarFit(toolbarRef, !isMobile, inventorySignature, ladder);
   useDemotionAnnounce({
     toolbarRef,
     overflowTriggerRef: overflowSlotRef,
@@ -6071,7 +6075,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     overflowLabel: 'Project actions',
   });
   const pins = pinsFromDisplayOptions(displayOptions);
-  const composition = resolveComposition(pins, fitStep);
+  const composition = resolveComposition(pins, fitStep, ladder);
   // Structure is edit-rights gated independently of the pin: without rights the
   // apparatus is absent, not demoted (web rule 302), so it never reaches `···`.
   // Absent in Read too (#3748): the mode chip leads the bar and says how to get
