@@ -97,7 +97,7 @@ export function pickDemoHintTarget(
   const best = pool.reduce((a, b) => {
     if (b.behind !== a.behind) return b.behind > a.behind ? b : a;
     return b.task.id < a.task.id ? b : a;
-  });
+  }, pool[0]);
   if (best.behind <= 0) return null;
   return { id: best.task.id, name: best.task.name };
 }
