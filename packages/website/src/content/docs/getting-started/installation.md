@@ -279,7 +279,7 @@ On Compose:
 docker compose exec celery celery -A trueppm_api.celery inspect ping
 ```
 
-On Helm / Kubernetes:
+On Helm / Kubernetes (`<release>-trueppm-*` collapses to `trueppm-*` when the release name already contains "trueppm", so `helm install trueppm` yields `trueppm-celery-worker`):
 
 ```bash
 kubectl exec -n <ns> deploy/<release>-trueppm-celery-worker -c celery-worker -- celery -A trueppm_api.celery inspect ping
