@@ -1651,12 +1651,28 @@ class TestIsProgramNotClosed:
     ) -> None:
         program.is_closed = True
         program.save(update_fields=["is_closed"])
-        view = _program_view(program.pk)
+        from trueppm_api.apps.projects.program_views import ProgramViewSet
+
+        view = ProgramViewSet()
+        view.kwargs = {"program_pk": str(program.pk)}
         view.action = action
         perm = IsProgramNotClosed()
         req = _plain_request(user, method="POST")
         assert perm.has_permission(req, view) is True
         assert perm.has_object_permission(req, view, program) is True
+
+    @pytest.mark.parametrize("action", ["reopen", "destroy", "close", "remove_sample"])
+    def test_bypass_actions_do_not_pass_on_other_viewsets(
+        self, user: object, program: Program, action: str
+    ) -> None:
+        program.is_closed = True
+        program.save(update_fields=["is_closed"])
+        view = _program_view(program.pk)
+        view.action = action
+        perm = IsProgramNotClosed()
+        req = _plain_request(user, method="POST")
+        assert perm.has_permission(req, view) is False
+        assert perm.has_object_permission(req, view, program) is False
 
     def test_top_level_route_defers(self, user: object) -> None:
         view = _program_view()

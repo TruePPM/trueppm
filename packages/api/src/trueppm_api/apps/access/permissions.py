@@ -1549,7 +1549,11 @@ class IsProgramNotClosed(BasePermission):
     they retain their own lifecycle and continue to accept writes.
 
     The ``POST /programs/<pk>/reopen/`` action bypasses the check; ``destroy``
-    also bypasses (an Owner can delete a closed program directly).
+    also bypasses (an Owner can delete a closed program directly). The bypass is
+    scoped to ``ProgramViewSet`` by class, not by action name alone (#4014): every
+    ModelViewSet mints a ``destroy``, so a name-only match let backlog items,
+    ceremony templates, memberships, mention groups and stakeholders be deleted
+    from a closed program.
     """
 
     message = "This program is closed and cannot be modified. Reopen it first."
@@ -1558,10 +1562,26 @@ class IsProgramNotClosed(BasePermission):
         {"reopen", "destroy", "close", "remove_sample"}
     )
 
+    @staticmethod
+    def _bypasses_close_check(view: APIView) -> bool:
+        """Is this the program-lifecycle escape hatch, rather than a same-named action?
+
+        ``isinstance`` (not ``type(view) is``) so an edition-specific subclass of
+        ``ProgramViewSet`` keeps the ability to reopen/delete a closed program.
+        Imported inside the function because ``projects.program_views`` imports this
+        module; the action-name test runs first so the import is reached only on
+        the four lifecycle actions.
+        """
+        if getattr(view, "action", None) not in IsProgramNotClosed._CLOSE_BYPASS_ACTIONS:
+            return False
+        from trueppm_api.apps.projects.program_views import ProgramViewSet
+
+        return isinstance(view, ProgramViewSet)
+
     def has_permission(self, request: Request, view: APIView) -> bool:
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return True
-        if getattr(view, "action", None) in self._CLOSE_BYPASS_ACTIONS:
+        if self._bypasses_close_check(view):
             return True
         program_pk = _program_pk_from_view(view)
         if program_pk is None:
@@ -1571,7 +1591,7 @@ class IsProgramNotClosed(BasePermission):
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return True
-        if getattr(view, "action", None) in self._CLOSE_BYPASS_ACTIONS:
+        if self._bypasses_close_check(view):
             return True
         from trueppm_api.apps.projects.models import Program
 
