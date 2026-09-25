@@ -112,9 +112,12 @@ def test_completed_start_pin_matches_schedule_early_start() -> None:
 def test_weekend_actual_finish_with_fs_lag_anchors_off_verbatim_date() -> None:
     """FS + non-zero lag off a Saturday finish (#2461).
 
-    ``schedule()`` computes ``next_working_day(Sat 3/7 + 1 + 2d) == Tue 3/10``. The
-    old offset path read the Saturday as the preceding Friday and produced Mon 3/9.
-    Zero lag happens to agree, which is why #1929 looked complete.
+    ``schedule()`` measures from the end of Sat 3/7: ``Sat 3/7 + 1 + 2d == Tue 3/10``
+    is where a successor could begin, so the zero-duration ``B`` is the instant at
+    the end of Mon 3/9 (#4079 — a milestone no longer occupies the Tuesday). The
+    old offset path read the Saturday as the preceding Friday, which lands ``B`` on
+    Fri 3/6 and the project finish back on the Saturday. Zero lag happens to agree,
+    which is why #1929 looked complete.
     """
     project = _project(
         [
@@ -123,7 +126,7 @@ def test_weekend_actual_finish_with_fs_lag_anchors_off_verbatim_date() -> None:
         ],
         [Dependency("A", "B", DependencyType.FS, timedelta(days=2))],
     )
-    assert _assert_mc_matches_cpm(project) == date(2026, 3, 10)
+    assert _assert_mc_matches_cpm(project) == date(2026, 3, 9)
 
 
 def test_weekend_actual_finish_with_ss_successor() -> None:

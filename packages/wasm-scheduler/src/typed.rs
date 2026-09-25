@@ -146,7 +146,7 @@ fn run_passes(
     // Per-task calendars (ADR-0120 D3); uniform = single-calendar fast path.
     let cals = crate::calendar::PassCalendars::resolve(project);
 
-    forward_pass(
+    let instants = forward_pass(
         scratch,
         &pg.topo_order,
         pg,
@@ -162,13 +162,14 @@ fn run_passes(
         .max()
         .ok_or("No tasks with early_finish after forward pass")?;
 
-    backward_pass(
+    let late_instants = backward_pass(
         scratch,
         &pg.topo_order,
         pg,
         &project.dependencies,
         project_finish,
         &cals,
+        &instants,
     )?;
 
     compute_floats(
@@ -177,6 +178,8 @@ fn run_passes(
         pg,
         &project.dependencies,
         &cals,
+        &instants,
+        &late_instants,
     )?;
 
     Ok(project_finish)

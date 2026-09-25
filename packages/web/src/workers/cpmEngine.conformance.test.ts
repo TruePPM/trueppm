@@ -67,6 +67,8 @@ const IN_SCOPE_FIXTURES = [
   'sf_lag_weekend',
   'ss_lag_weekend',
   'ss_connected_critical',
+  // #4079: milestones as instants across every link type and lags around them.
+  'milestone_instant_links',
 ] as const;
 
 /**
@@ -117,6 +119,9 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // gap, not for a missing capability.
   progress_non_working_actual_duration_walk: 'adapter: does not thread actuals/status date',
   progress_non_working_milestone_late_window: 'adapter: does not thread actuals/status date',
+  // #4079. Covered on a Mon-Fri week by `milestone_instant_links` (in scope);
+  // this one adds a holiday and an SNET milestone for the two server engines.
+  milestone_instants_all_link_types: 'engine gap: CalendarException holidays not modeled',
   // A genuine forward-pass divergence, unrelated to calendars or the adapter.
   fs_negative_lag_floored: 'engine gap: negative lag is not floored at the project start',
 };

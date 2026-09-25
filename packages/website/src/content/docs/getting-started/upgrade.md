@@ -283,6 +283,41 @@ Three more things to check for this upgrade:
   result themselves, such as Argo CD, never run this check. Set the selector
   before you sync.
 
+### Milestone date shift after recalculation
+
+Upgrading from `0.4.0-beta.4` or earlier changes how the scheduler places
+zero-duration milestones (#4079). No migration runs and no stored date changes
+during the upgrade itself; the new dates appear the next time each project's
+schedule recalculates, which happens on the next edit that affects the schedule.
+
+Earlier versions gave every milestone a working day of its own, so each milestone
+on a path pushed everything after it back by one working day. The scheduler now
+follows the MS Project and Primavera P6 convention: a milestone is a point in
+time. A milestone that follows work sits on the day that work finishes, and the
+next task starts on the following working day, exactly as if the milestone were
+not there. A milestone with no predecessor, such as a project-start milestone,
+sits at the start of its day and does not delay the work after it.
+
+What you will see after recalculation:
+
+- **Dates move earlier.** Downstream tasks, forecasts, and the project finish move
+  earlier by one working day for every milestone on their path. A milestone that
+  follows work is now shown on its predecessor's finish day rather than the day
+  after it.
+- **Float and the critical path can change.** A milestone no longer adds a day to
+  the paths it sits on, so float on parallel paths is recomputed against the
+  shorter path.
+- **Monte Carlo forecasts move with the schedule.** P50/P80/P95 use the same
+  convention, so a plan with fixed durations still simulates to its CPM finish.
+- **Imported MS Project plans now match their source file.** Recalculated dates
+  for an imported plan no longer drift one day per milestone from the dates in
+  the `.xml` file.
+
+Baselines captured before the upgrade keep the old dates, so the first comparison
+after recalculation can show milestone-driven variance that reflects the
+convention change, not a schedule change. To compare like with like, capture a new
+baseline after the project recalculates.
+
 ---
 
 ## Upgrading to 0.3
