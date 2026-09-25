@@ -62,6 +62,8 @@ import { BuildModeRowMenu, type RowMenuItem } from './buildMode';
 import { ZoomControl } from './ZoomControl';
 import { QuarterModeControl } from './QuarterModeControl';
 import { ScheduleViewModeToggle } from './ScheduleViewModeToggle';
+import { ScheduleLegendToggle } from './ScheduleLegendToggle';
+import { useScheduleLegendCollapsed } from '@/hooks/useScheduleLegendCollapsed';
 import { ScheduleDisplayMenu } from './ScheduleDisplayMenu';
 import { ScheduleSummaryChip } from './ScheduleSummaryChip';
 import { ScheduleAddMilestoneButton } from './ScheduleAddMilestoneButton';
@@ -1854,6 +1856,9 @@ export function ScheduleView() {
   });
   // Where focus goes when the how-to bar is dismissed (#3134) — see `onDismiss` below.
   const displayTriggerRef = useRef<HTMLButtonElement>(null);
+  // Where focus goes when the legend's own close control unmounts it (#3614)
+  // — same pattern, see `ScheduleLegend`'s `closeFocusRef`.
+  const legendTriggerRef = useRef<HTMLButtonElement>(null);
   const { options: displayOptions, toggle: toggleDisplayOption } =
     useScheduleDisplayOptions(projectIdUndef);
   // Comfortable rows (#3019). The Display menu's toggle persisted this and
@@ -4441,6 +4446,7 @@ export function ScheduleView() {
         displayOptions={displayOptions}
         onToggleDisplayOption={toggleDisplayOption}
         displayTriggerRef={displayTriggerRef}
+        legendTriggerRef={legendTriggerRef}
         isMobile={isMobile}
         projectId={projectId}
         readOnly={readOnly}
@@ -4588,6 +4594,7 @@ export function ScheduleView() {
         projectId={projectId}
         readOnly={readOnly}
         canLinkDependencies={!dependenciesReadOnly}
+        legendTriggerRef={legendTriggerRef}
         canEditRow={canEditRow}
         outlineRendered={outlineRendered}
         scheduleSeeding={scheduleSeeding}
@@ -5644,10 +5651,28 @@ function buildDemotedItems(ctx: {
   restructurePending: boolean;
   scheduleExport: ReturnType<typeof useScheduleExport>;
   pins: ToolbarPins;
+  legendCollapsed: boolean;
+  onToggleLegend: () => void;
 }): { crowdedOut: ToolbarOverflowItem[]; unpinned: ToolbarOverflowItem[] } {
   // Read hides authoring rows here exactly as it does in the bar (#3748).
   const authoring = ctx.projectId !== null && ctx.hasEditRights && !ctx.readOnly;
   const rows: Array<{ pinned: boolean; item: ToolbarOverflowItem }> = [
+    // Legend has no pin to opt into — it is always "wanted" in the bar, so a
+    // demotion here is always "crowded out", never "turn on in Display"
+    // (#3614).
+    ...(ctx.composition.legend === 'overflow'
+      ? [
+          {
+            pinned: true,
+            item: {
+              kind: 'action' as const,
+              id: 'legend',
+              label: ctx.legendCollapsed ? 'Show legend' : 'Hide legend',
+              onSelect: ctx.onToggleLegend,
+            },
+          },
+        ]
+      : []),
     ...(ctx.composition.today === 'overflow'
       ? [
           {
@@ -5734,6 +5759,13 @@ interface ScheduleToolbarProps {
    * siblings — the toolbar only forwards it.
    */
   displayTriggerRef: RefObject<HTMLButtonElement | null>;
+  /**
+   * Handle on the toolbar's "Legend" button, so the legend panel's own close
+   * control can hand focus back to it when the panel unmounts itself (#3614)
+   * — same pattern as `displayTriggerRef` above. Owned by `ScheduleView`
+   * because the button and the legend panel are siblings there.
+   */
+  legendTriggerRef: RefObject<HTMLButtonElement | null>;
   /** Per-person outline chrome (#2959) — surfaced in the Display menu. */
   displayOptions: ScheduleDisplayOptions;
   onToggleDisplayOption: (key: ScheduleDisplayOptionKey) => void;
@@ -5830,6 +5862,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     displayOptions,
     onToggleDisplayOption,
     displayTriggerRef,
+    legendTriggerRef,
     hasEditRights,
     canLinkDependencies,
     showAddForm,
@@ -5904,6 +5937,10 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const overflowSlotRef = useRef<HTMLButtonElement>(null);
   const demotionLiveRef = useRef<HTMLSpanElement>(null);
+  // Read here too (alongside `ScheduleLegendToggle`'s own subscription, #3614)
+  // only so the demoted overflow row below can state which way the toggle
+  // currently goes — both read the SAME external store, so they cannot drift.
+  const { collapsed: legendCollapsed, toggle: toggleLegend } = useScheduleLegendCollapsed();
   // Everything that changes the bar's NATURAL width without changing its box,
   // so the loop re-measures on a pin toggle, a mode flip, rights resolving, or
   // the trail gaining its first entry — none of which a ResizeObserver can see.
@@ -6119,6 +6156,18 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
 
       {/* Grid↔Timeline layout toggle (issue 1221). */}
       <ScheduleViewModeToggle />
+
+      {/* Legend show/hide (#3614). The legend defaults to open on a user's
+          first-ever visit and closed on every visit after (see
+          useScheduleLegendCollapsed) — this button, and the legend panel's own
+          close control, are the two ways back in once it is closed. Placed
+          beside the Grid/Timeline toggle rather than inside the Display
+          popover: unlike the render/view filters that live there, this does
+          not change what the canvas draws, only whether a reference panel
+          floats over it. Demotes into `···` first on the fit ladder (rung
+          `legend-overflow`, before Export PDF) — the least essential command
+          in the bar, not one of the five pinnable controls. */}
+      {composition.legend === 'bar' && <ScheduleLegendToggle triggerRef={legendTriggerRef} />}
 
       {/* Show cluster (#1741) — the Display popover is the single home for the
           four view/render filters plus (in Grid mode) column visibility. */}
@@ -6366,6 +6415,8 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
               restructurePending,
               scheduleExport,
               pins,
+              legendCollapsed,
+              onToggleLegend: toggleLegend,
             }),
             selectionCount: bulkEditSelectionCount,
             onBulkEdit,
@@ -6404,6 +6455,12 @@ interface ScheduleMainAreaProps {
    * the legend's standing "drag the handle" line goes with the handle itself.
    */
   canLinkDependencies: boolean;
+  /**
+   * Handle on the toolbar's "Legend" button, so the legend panel's own close
+   * control can hand focus back to it when the panel unmounts itself (#3614).
+   * Owned by `ScheduleView` — the toolbar and this surface are siblings there.
+   */
+  legendTriggerRef: RefObject<HTMLButtonElement | null>;
   isMobile: boolean;
   allTasks: Task[];
   projectId: string | null;
@@ -7011,7 +7068,11 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
 
         {/* Floating legend overlay (#474, ADR-0064) — anchored to the bottom-left of
             the canvas viewport. Hidden below `lg` per design rule 12. */}
-        <ScheduleLegend taskListWidth={overlayAnchorWidth} canLink={props.canLinkDependencies} />
+        <ScheduleLegend
+          taskListWidth={overlayAnchorWidth}
+          canLink={props.canLinkDependencies}
+          closeFocusRef={props.legendTriggerRef}
+        />
       </div>
 
       {/* Unscheduled gutter — tasks with no planned/CPM dates (#213). Desktop

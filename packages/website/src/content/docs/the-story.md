@@ -8,7 +8,7 @@ sidebar:
 
 Most P3M tools force a choice. Jira speaks Agile and translates poorly to a Gantt chart. MS Project speaks Waterfall and ignores the team's actual cadence. **TruePPM is built so a Scrum Master and a Program Manager look at the same data — and each sees the view they need.**
 
-This is the end-to-end flow, the personas it serves, and the gaps still on the roadmap. And it ends with the payoff planned for the 0.4 beta: because the whole plan is *computed* on one data model, an AI client will be able to ask it real questions and get answers the engine stands behind rather than a language model's guess — **computed, not guessed**.
+This is the end-to-end flow, the personas it serves, and the gaps still on the roadmap. And it ends with the payoff that arrived with the 0.4 beta: because the whole plan is *computed* on one data model, an AI client can ask it real questions and get answers the engine stands behind rather than a language model's guess — **computed, not guessed**.
 
 ## The two worlds problem
 
@@ -85,7 +85,7 @@ None of them is a demo login. `load_sample_project --with-personas` creates the 
 - **Won't tolerate:** an app that's slow on her phone or asks her to "fill in the WBS code"
 - **Reads next:** [Sprint backlog](/features/sprint-backlog/), [WIP overload detection](/features/wip-overload/)
 
-And with the 0.4 beta, a seventh actor will join the six — not a human, and not one of the demo logins:
+And with the 0.4 beta, a seventh actor joined the six — not a human, and not one of the demo logins:
 
 ### The AI client — the new actor (0.4 beta)
 > "What's on the critical path, and are we still going to make October 15th?"
@@ -93,7 +93,7 @@ And with the 0.4 beta, a seventh actor will join the six — not a human, and no
 - **Is:** any Model Context Protocol (MCP) client — Claude Desktop, Cursor, Zed, an engineer's agent, a scripted assistant — connected **read-only** to your own instance
 - **Cares about:** the same truths the humans do — critical path, the P80 date, sprint status, the risk register, My Work — asked in natural language
 - **Won't tolerate:** a made-up number. It gets an engine-computed answer or none; the model translates the question and phrases the result, but never invents it (*computed, not guessed*)
-- **Not a demo login:** unlike the six above, this actor is a connection rather than a seeded persona; the read-only MCP server it talks to lands in the 0.4 beta; plan mode (`dry_run` proposals — verdict and impact, nothing commits) follows at 0.5, and committing write tools are deliberately held to 0.6
+- **Not a demo login:** unlike the six above, this actor is a connection rather than a seeded persona; the read-only MCP server it talks to shipped in the 0.4 beta; plan mode (`dry_run` proposals — verdict and impact, nothing commits) follows at 0.5, and committing write tools are deliberately held to 0.6
 - **Reads next:** [Computed, not guessed](/architecture/overview/#computed-not-guessed)
 
 ## The hybrid flow — eight steps from charter to close
@@ -204,7 +204,7 @@ Mid-program, Sarah runs a Monte Carlo on the milestone forecast. The simulation 
 
 **P50: Oct 12. P80: Oct 22. P95: Nov 1.** Janet opens her exec view on her phone (roadmap: phone access arrives with the installable PWA at 0.5). She sees a single sentence: *"82% likely to make Oct 15. Risk: velocity has been declining 4 sprints running."* No watermelon. No false precision. A defensible probability backed by the team's actual history.
 
-And Sarah is no longer the only one who can run that question. With the read-only MCP server that lands in the 0.4 beta, an engineer can put the same what-if to an agent — *"slip the migration three days, do we still make October 15th?"* — and get the identical distribution, because the agent calls the same Monte Carlo the button does. The model phrases the answer; the engine computes it.
+And Sarah is no longer the only one who can run that question. With the read-only MCP server that shipped in the 0.4 beta, an engineer can put the same what-if to an agent — *"slip the migration three days, do we still make October 15th?"* — and get the identical distribution, because the agent calls the same Monte Carlo the button does. The model phrases the answer; the engine computes it.
 
 → See [Velocity panel](/features/velocity/), [Scheduler engine](/features/scheduler/), [Computed, not guessed](/architecture/overview/#computed-not-guessed)
 
@@ -232,11 +232,11 @@ TruePPM has one Postgres row per task, one permissions check per request, one `s
 
 ## Computed, not guessed — the same truth, now answerable by an agent
 
-The single data model has a second payoff, and it is what the 0.4 beta will lead with. Because every date, float value, and P80 is *computed* by one scheduling engine over one task hierarchy — not stored as an opinion, not reconciled from a second system — there is a single authoritative answer to any question about the plan. That is exactly what an AI agent needs.
+The single data model has a second payoff, and it is what the 0.4 beta led with. Because every date, float value, and P80 is *computed* by one scheduling engine over one task hierarchy — not stored as an opinion, not reconciled from a second system — there is a single authoritative answer to any question about the plan. That is exactly what an AI agent needs.
 
-The 0.4 beta lands a **read-only MCP server**: point any Model Context Protocol client (Claude Desktop, Cursor, Zed) at your self-hosted instance and ask the live schedule real questions — *"what's on the critical path?"*, *"slip the migration three days, do we still make Oct 15?"*, *"how is Sprint 7 tracking?"* Every answer is produced by the same CPM and Monte Carlo engine that draws Sarah's Gantt and Alex's burndown. The language model translates the question into an engine call and the result into a sentence; it never invents the number. This is the principle we call **computed, not guessed**, and it is the rule for everything AI-facing on the roadmap.
+The 0.4 beta shipped a **read-only MCP server**: point any Model Context Protocol client (Claude Desktop, Cursor, Zed) at your self-hosted instance and ask the live schedule real questions — *"what's on the critical path?"*, *"slip the migration three days, do we still make Oct 15?"*, *"how is Sprint 7 tracking?"* Every answer is produced by the same CPM and Monte Carlo engine that draws Sarah's Gantt and Alex's burndown. The language model translates the question into an engine call and the result into a sentence; it never invents the number. This is the principle we call **computed, not guessed**, and it is the rule for everything AI-facing on the roadmap.
 
-This is only possible because of the bridge. An "AI for project management" bolted onto two drifting systems has to guess which database is right and interpolate the fields neither one has. TruePPM has one row per task, one engine, and — with the provenance graph that also lands at 0.4 — a server-side derivation behind every computed value, so an agent's answer is not just fluent, it is *auditable*: it can cite how the date was reached, not assert a plausible one. Read-only by design in the beta; plan-mode dry runs arrive at 0.5 (an agent proposes, the engine answers with verdict and impact, nothing commits) and the committing write surface at 0.6 with the engine as referee, so an agent can act on the plan without ever being able to create an impossible one.
+This is only possible because of the bridge. An "AI for project management" bolted onto two drifting systems has to guess which database is right and interpolate the fields neither one has. TruePPM has one row per task, one engine, and — with the provenance graph that also shipped in 0.4 — a server-side derivation behind every computed value, so an agent's answer is not just fluent, it is *auditable*: it can cite how the date was reached, not assert a plausible one. Read-only by design in the beta; plan-mode dry runs arrive at 0.5 (an agent proposes, the engine answers with verdict and impact, nothing commits) and the committing write surface at 0.6 with the engine as referee, so an agent can act on the plan without ever being able to create an impossible one.
 
 → See [Computed, not guessed](/architecture/overview/#computed-not-guessed), [Scheduler engine](/features/scheduler/)
 
@@ -263,7 +263,7 @@ docker compose exec api python manage.py load_sample_project --with-personas
 
 Then sign in as one of the sample's own accounts — `atlas-alex` (Alex Rivera, Program Manager — Project Admin on all three projects), `atlas-jordan` (Jordan Blake, Product Owner — Project Admin on GTM Readiness), `atlas-sam` (Sam Okafor, Project Scheduler — Resource Manager), `atlas-priya` (Priya Nair, Engineering Lead — Project Manager on Platform Core), `atlas-tom` (Tom Becker, Engineer — Team Member), or `atlas-ada` (Ada Boyega, Executive Sponsor — Viewer) — and walk the story end-to-end on your own machine. The command prints the full list and the shared password when it finishes; on a local Docker stack (`DEBUG=True`) that password is `demo`.
 
-Prefer not to install at all? A hosted read-only demo lands with the 0.4 beta — the same sample program, preloaded, one click from the docs. And once your own instance is running, the read-only MCP server (0.4 beta) will let you point Claude Desktop or any MCP client at it and ask the story's questions in your own words.
+Prefer not to install at all? A hosted read-only demo shipped with the 0.4 beta — the same sample program, preloaded, one click from the docs. And once your own instance is running, the read-only MCP server (0.4 beta) lets you point Claude Desktop or any MCP client at it and ask the story's questions in your own words.
 
 ## The wedge — why this is the bet
 

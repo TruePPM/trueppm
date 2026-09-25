@@ -77,7 +77,7 @@ The task list is [Schedule build mode](/features/schedule-build-mode/) — a key
 
 ### Float and free float
 
-The engine computes two kinds of slack for every task, and 0.4 will put both in
+The engine computes two kinds of slack for every task, and 0.4 put both in
 the outline as their own columns:
 
 | Column | Reads | Answers |
@@ -124,7 +124,7 @@ it was. Drag the divider if you would rather spend the width the other way.
 Worth knowing what that costs in practice, because the numbers are not obvious. At
 1280px with the left rail expanded the eight-column outline already asks for more
 room than the clamp can give it, so the Owner column has always been the first to
-clip there. The two float columns 0.4 will add are the rightmost pair, which puts them
+clip there. The two float columns added in 0.4 are the rightmost pair, which puts them
 first in line: at 1440px and above the full ten-column set fits, and below that you
 will want to hide a column you are not reading, collapse the rail, or drag the
 divider. That order is deliberate — float is the pair a planner consults rather
@@ -168,6 +168,10 @@ for what capturing a baseline does today and when the overlay itself lands.
 :::
 
 Bar labels use `COLOR.text` (`#1A1917` light / palette swap in dark mode). The canvas font is set once at engine init to the Tailwind `font-sans` stack so labels match the task list typography.
+
+### Legend
+
+A floating panel over the bottom-left of the timeline (1024px and wider) names every bar type, state marker, delivery-mode gutter, and dependency line the canvas draws, plus the pan and drag-to-link gestures. It is open the first time you ever visit a Schedule view, and closed by default on every visit after — a toolbar toggle (**Legend**, next to the Grid/Timeline switch) and the panel's own close control both show and hide it, and stay in sync with each other. Whichever state you leave it in persists across reloads; at a narrower toolbar width the toggle moves into the **Actions** menu rather than disappearing.
 
 ## Zoom
 

@@ -264,7 +264,7 @@ public Extension SDK for 0.9.
 - [Computed, not guessed](/overview/computed-not-guessed/) — why the engine, not a model, answers
 - [Roadmap](/overview/roadmap/) — the authoritative Shipped / Underway / Planned record
 
-[^sso]: Basic OIDC / OAuth2 login federation ships in the OSS core at 0.4. See
+[^sso]: Basic OIDC / OAuth2 login federation shipped in the OSS core in 0.4. See
     [SSO is not an enterprise feature](/overview/sso-is-not-enterprise/) for the full
     OSS-versus-enterprise carve-out.
 
