@@ -193,6 +193,38 @@ class TestMonteCarloEndpoint:
         assert r.status_code == 402
         assert r.data["error"] == "simulation_cap_exceeded"
 
+    def test_lag_delta_table_over_request_cap_returns_400(
+        self,
+        member_client: APIClient,
+        project: Project,
+        settings: object,
+    ) -> None:
+        """Many distinct lags x span exceeds MC_LAG_DELTA_CELL_CAP -> clean 400 (#4129).
+
+        The table is bounded by distinct-lag keys x working-day span, which no other
+        request cap bounds, so an under-cap project can still demand it.
+        """
+        from trueppm_api.apps.projects.models import Dependency
+
+        tasks = [Task.objects.create(project=project, name=f"T{i}", duration=5) for i in range(6)]
+        for i in range(1, len(tasks)):
+            Dependency.objects.create(predecessor=tasks[i - 1], successor=tasks[i], lag=i)
+        settings.MC_LAG_DELTA_CELL_CAP = 10  # type: ignore[attr-defined]
+        r = member_client.post(
+            f"/api/v1/projects/{project.pk}/monte-carlo/",
+            {"n_simulations": 10},
+            format="json",
+        )
+        assert r.status_code == 400
+        assert "lag-delta table would exceed 10 cells" in r.data["detail"]
+
+    def test_lag_delta_cap_default_is_bounded(self, settings: object) -> None:
+        """The shipped request cap sits far below the library's 50M-cell default."""
+        from trueppm_scheduler.engine import MAX_LAG_DELTA_CELLS
+
+        cap = settings.MC_LAG_DELTA_CELL_CAP  # type: ignore[attr-defined]
+        assert cap is not None and cap <= MAX_LAG_DELTA_CELLS // 10
+
     def test_defaults_to_cap_when_n_simulations_omitted(
         self,
         member_client: APIClient,

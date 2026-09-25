@@ -212,3 +212,77 @@ def test_monte_carlo_large_run_performance() -> None:
         f"monte_carlo() on 1,000 tasks x 10,000 runs took {elapsed:.3f}s — budget is 8.0s. "
         "This indicates a Monte Carlo throughput regression; profile with cProfile."
     )
+
+
+def _make_distinct_lag_project(n_tasks: int, n_lags: int, task_days: int) -> Project:
+    """A serial chain of ``n_tasks`` with ``n_lags`` distinct FS lag values.
+
+    The lag-delta table holds one array per distinct ``(dep_type, lag)`` key and
+    each array is ``index_size`` (the whole working-day span) cells long, so the
+    table scales with distinct lags x span and NOT with ``runs`` (#4129).
+    """
+    tasks = [
+        Task(id=f"t{i}", name=f"Task {i}", duration=timedelta(days=task_days))
+        for i in range(n_tasks)
+    ]
+    deps = [
+        Dependency(
+            predecessor_id=f"t{i - 1}",
+            successor_id=f"t{i}",
+            dep_type=DependencyType.FS,
+            lag=timedelta(days=1 + (i % n_lags)),
+        )
+        for i in range(1, n_tasks)
+    ]
+    return Project(
+        id="bench-lag",
+        name="Bench Lag Project",
+        start_date=date(2026, 1, 5),
+        tasks=tasks,
+        dependencies=deps,
+        calendar=Calendar(working_days=31, hours_per_day=8.0, timezone="UTC"),
+    )
+
+
+def test_monte_carlo_lag_delta_table_peak_memory() -> None:
+    """The lag-delta table is int32 and its footprint is asserted, not just its time (#4129).
+
+    150 distinct FS lags over a 1,000 x 8-day chain is 150 x index_size cells. Measured
+    with ``tracemalloc`` (numpy allocations are traced; portable where RSS is not):
+    float64 storage peaked at ~112 MB, int32 at ~63 MB. The 85 MB bound sits between
+    the two, so reverting to float64 fails it while allocator noise does not.
+    """
+    import tracemalloc
+
+    project = _make_distinct_lag_project(1_000, 150, 8)
+
+    tracemalloc.start()
+    try:
+        result = monte_carlo(project, runs=50, seed=4129)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert result.p50 <= result.p80 <= result.p95
+    assert peak < 85_000_000, (
+        f"peak {peak / 1e6:.1f} MB — the lag-delta table is no longer int32 "
+        "(float64 storage peaks at ~112 MB on this shape)."
+    )
+
+
+def test_monte_carlo_max_lag_delta_cells_rejects_before_allocating() -> None:
+    """A request-scoped ``max_lag_delta_cells`` rejects an over-cap table (#4129)."""
+    import tracemalloc
+
+    from trueppm_scheduler import InvalidScheduleInput
+
+    project = _make_distinct_lag_project(400, 60, 5)
+
+    tracemalloc.start()
+    try:
+        with pytest.raises(InvalidScheduleInput, match="lag-delta table would exceed 10,000"):
+            monte_carlo(project, runs=10, seed=1, max_lag_delta_cells=10_000)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 5_000_000
