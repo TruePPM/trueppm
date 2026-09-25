@@ -67,7 +67,6 @@ import {
   useLegendDefaultClosedInDemo,
   useScheduleLegendCollapsed,
 } from '@/hooks/useScheduleLegendCollapsed';
-import { useDemoMode } from '@/hooks/useDemoMode';
 import { ScheduleDisplayMenu } from './ScheduleDisplayMenu';
 import { ScheduleSummaryChip } from './ScheduleSummaryChip';
 import { ScheduleAddMilestoneButton } from './ScheduleAddMilestoneButton';
