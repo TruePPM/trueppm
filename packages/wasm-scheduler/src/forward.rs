@@ -12,10 +12,118 @@ use petgraph::Direction;
 
 use crate::calendar::{
     advance_calendar_days, checked_offset_days, finish_from_start, next_working_day,
-    start_from_finish, PassCalendars,
+    prev_working_day, start_from_finish, PassCalendars,
 };
 use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, Task};
+
+/// A zero-duration milestone's position (#4079): `(instant, start_display)`.
+///
+/// `instant` is the midnight the milestone sits on — the end of one day is the
+/// start of the next — and is the only thing links measure from. `start_display`
+/// only chooses the day it is shown on. Mirrors the Python engine's `_Instant`;
+/// see the `trueppm_scheduler.engine` module docstring for the convention.
+pub type Instant = (NaiveDate, bool);
+
+/// Whether a dependency type bounds its successor's *start* (FS/SS).
+pub(crate) fn start_anchored(dep_type: DependencyType) -> bool {
+    matches!(dep_type, DependencyType::FS | DependencyType::SS)
+}
+
+/// The raw date a predecessor's constraint on its successor is measured from.
+///
+/// Every forward constraint is `next_working_day(anchor + lag)` on the successor's
+/// calendar. Ordinary work (`instant` is `None`) anchors FS on the day after its
+/// inclusive finish, SS/SF on its start and FF on its finish. A milestone is one
+/// instant: FS/SS measure from the instant, FF/SF from the last working day
+/// before it. Mirrors the Python `_edge_anchor` (#4079).
+pub(crate) fn edge_anchor(
+    dep_type: DependencyType,
+    start: NaiveDate,
+    finish: NaiveDate,
+    instant: Option<NaiveDate>,
+    pred_cal: &Calendar,
+) -> Result<NaiveDate, String> {
+    match instant {
+        None => match dep_type {
+            DependencyType::FS => checked_offset_days(finish, 1),
+            DependencyType::FF => Ok(finish),
+            DependencyType::SS | DependencyType::SF => Ok(start),
+        },
+        Some(x) if start_anchored(dep_type) => Ok(x),
+        Some(x) => prev_working_day(checked_offset_days(x, -1)?, pred_cal),
+    }
+}
+
+/// The day an instant is shown on: the first working day at or after it for a
+/// start-of-day reading, the last working day before it otherwise. Mirrors the
+/// Python `_instant_day`.
+pub(crate) fn instant_day(
+    instant: NaiveDate,
+    start_display: bool,
+    cal: &Calendar,
+) -> Result<NaiveDate, String> {
+    if start_display {
+        next_working_day(instant, cal)
+    } else {
+        prev_working_day(checked_offset_days(instant, -1)?, cal)
+    }
+}
+
+/// Place a zero-duration task as an instant: `((instant, start_display), day)`.
+///
+/// Every floor and incoming link proposes a raw midnight and the latest wins, a
+/// start-of-day reading winning a tie (floors are offered first, so a floor keeps
+/// its verbatim day on a tie). Floors propose the start of their day; FS/SS links
+/// propose `anchor + lag`, shown at the end of the previous working day after FS
+/// from work, at the start of the day after SS from work, and as the predecessor
+/// is shown after another milestone; FF/SF links propose the end of the finish day
+/// `next_wd(anchor + lag)`. Mirrors the Python `_place_milestone` (#4079).
+fn place_milestone(
+    idx: NodeIndex,
+    tasks: &[Task],
+    pg: &ProjectGraph,
+    deps: &[Dependency],
+    cals: &PassCalendars,
+    floors: &[NaiveDate],
+    instants: &[Option<Instant>],
+) -> Result<(Instant, NaiveDate), String> {
+    let cal = cals.for_node(idx.index());
+    let mut best: Option<(NaiveDate, bool, NaiveDate)> = None;
+    let mut offer = |candidate: (NaiveDate, bool, NaiveDate)| match best {
+        Some(b) if (candidate.0, candidate.1) <= (b.0, b.1) => {}
+        _ => best = Some(candidate),
+    };
+    for &floor in floors {
+        offer((floor, true, floor));
+    }
+    for edge in pg.graph.edges_directed(idx, Direction::Incoming) {
+        let dep = &deps[*edge.weight()];
+        let p = edge.source().index();
+        let pred = &tasks[p];
+        let pred_instant = instants[p];
+        let anchor = edge_anchor(
+            dep.dep_type,
+            pred.early_start.unwrap(),
+            pred.early_finish.unwrap(),
+            pred_instant.map(|i| i.0),
+            cals.for_node(p),
+        )?;
+        let raw = checked_offset_days(anchor, dep.lag_days())?;
+        if start_anchored(dep.dep_type) {
+            let start_display = match pred_instant {
+                Some(i) => i.1,
+                None => dep.dep_type == DependencyType::SS,
+            };
+            offer((raw, start_display, instant_day(raw, start_display, cal)?));
+        } else {
+            let finish_day = next_working_day(raw, cal)?;
+            offer((checked_offset_days(finish_day, 1)?, false, finish_day));
+        }
+    }
+    let (x, start_display, day) = best.expect("floors always carry the project-start floor");
+    Ok(((x, start_display), day))
+}
 
 /// The (un-floored, floored) start pair for one calendar, memoized.
 ///
@@ -98,6 +206,11 @@ fn apply_ef_constraints(
 /// Returns `Err` (instead of panicking) when a calendar walk cannot reach a
 /// working day within the scan bound — see `calendar::next_working_day` (#908).
 ///
+/// Zero-duration tasks scheduled through the network are placed as instants
+/// (#4079, `place_milestone`); the returned vector holds each one's [`Instant`] by
+/// node index (`None` for ordinary work and for tasks pinned by actuals), which
+/// the backward pass and float computation read to invert the same rule.
+///
 /// Tasks are carried in a `Vec<Task>` indexed by node position (#1535); each
 /// node's predecessors are read by iterating its incoming edges directly
 /// (`edge.source()` is the predecessor, `deps[*edge.weight()]` its dependency),
@@ -111,9 +224,10 @@ pub fn forward_pass(
     project_start: NaiveDate,
     cals: &PassCalendars,
     status_date: Option<NaiveDate>,
-) -> Result<(), String> {
+) -> Result<Vec<Option<Instant>>, String> {
     // Memoized per distinct calendar — see `start_floors_for`.
     let mut floors_by_cal: HashMap<*const Calendar, (NaiveDate, NaiveDate)> = HashMap::new();
+    let mut instants: Vec<Option<Instant>> = vec![None; tasks.len()];
 
     for &idx in topo_order {
         let i = idx.index();
@@ -158,8 +272,18 @@ pub fn forward_pass(
         if let Some(ps) = tasks[i].planned_start {
             es_constraints.push(next_working_day(ps, node_cal)?);
         }
+        if duration_days == 0 {
+            let (instant, day) =
+                place_milestone(idx, tasks, pg, deps, cals, &es_constraints, &instants)?;
+            instants[i] = Some(instant);
+            let task = &mut tasks[i];
+            task.early_start = Some(day);
+            task.early_finish = Some(day);
+            task.scheduled_start = Some(compute_scheduled_start(task, node_cal)?);
+            continue;
+        }
         let (pred_es_constraints, ef_constraints) =
-            edge_constraints(idx, tasks, pg, deps, node_cal)?;
+            edge_constraints(idx, tasks, pg, deps, cals, &instants)?;
         es_constraints.extend(pred_es_constraints);
 
         // ES = latest of all ES constraints.
@@ -181,7 +305,7 @@ pub fn forward_pass(
         task.early_finish = Some(ef);
         task.scheduled_start = Some(compute_scheduled_start(task, node_cal)?);
     }
-    Ok(())
+    Ok(instants)
 }
 
 /// The task's span start (ADR-0752), as distinct from `early_start`.
@@ -260,44 +384,39 @@ fn pinned_placement(
 /// Split a node's incoming edges into early-start and early-finish constraints.
 ///
 /// FS/SS constrain when the successor may *start*; FF/SF constrain when it may
-/// *finish*. The predecessor's dates are unwrapped unconditionally because
-/// topological order guarantees every predecessor was scheduled on an earlier
-/// iteration of the pass.
+/// *finish*. Each bound is `next_working_day(anchor + lag)` on the successor's
+/// calendar, with the anchor from `edge_anchor` — a milestone predecessor's
+/// instant rather than a day it occupies (#4079). The predecessor's dates are
+/// unwrapped unconditionally because topological order guarantees every
+/// predecessor was scheduled on an earlier iteration of the pass.
 fn edge_constraints(
     idx: NodeIndex,
     tasks: &[Task],
     pg: &ProjectGraph,
     deps: &[Dependency],
-    calendar: &Calendar,
+    cals: &PassCalendars,
+    instants: &[Option<Instant>],
 ) -> Result<(Vec<NaiveDate>, Vec<NaiveDate>), String> {
+    let calendar = cals.for_node(idx.index());
     let mut es_constraints: Vec<NaiveDate> = Vec::new();
     let mut ef_constraints: Vec<NaiveDate> = Vec::new();
 
     for edge in pg.graph.edges_directed(idx, Direction::Incoming) {
         let dep = &deps[*edge.weight()];
-        let lag_days = dep.lag_days();
-
-        let pred = &tasks[edge.source().index()];
-        let pred_es = pred.early_start.unwrap();
-        let pred_ef = pred.early_finish.unwrap();
-
-        match dep.dep_type {
-            DependencyType::FS => {
-                // Successor cannot start until the day after predecessor finishes + lag.
-                es_constraints.push(next_working_day(
-                    checked_offset_days(pred_ef, 1 + lag_days)?,
-                    calendar,
-                )?);
-            }
-            DependencyType::SS => {
-                es_constraints.push(advance_calendar_days(pred_es, lag_days, calendar)?);
-            }
-            DependencyType::FF => {
-                ef_constraints.push(advance_calendar_days(pred_ef, lag_days, calendar)?);
-            }
-            DependencyType::SF => {
-                ef_constraints.push(advance_calendar_days(pred_es, lag_days, calendar)?);
-            }
+        let p = edge.source().index();
+        let pred = &tasks[p];
+        let anchor = edge_anchor(
+            dep.dep_type,
+            pred.early_start.unwrap(),
+            pred.early_finish.unwrap(),
+            instants[p].map(|i| i.0),
+            cals.for_node(p),
+        )?;
+        let bound = advance_calendar_days(anchor, dep.lag_days(), calendar)?;
+        if start_anchored(dep.dep_type) {
+            es_constraints.push(bound);
+        } else {
+            ef_constraints.push(bound);
         }
     }
     Ok((es_constraints, ef_constraints))

@@ -1,0 +1,228 @@
+{
+  "project_id": "p-milestone-instants",
+  "project_start": "2026-01-05",
+  "project_finish": "2026-01-21",
+  "tasks": [
+    {
+      "id": "M0",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-05",
+      "late_start": "2026-01-05",
+      "late_finish": "2026-01-05",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-05"
+    },
+    {
+      "id": "A",
+      "early_start": "2026-01-07",
+      "early_finish": "2026-01-13",
+      "late_start": "2026-01-07",
+      "late_finish": "2026-01-13",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-07"
+    },
+    {
+      "id": "G1",
+      "early_start": "2026-01-13",
+      "early_finish": "2026-01-13",
+      "late_start": "2026-01-13",
+      "late_finish": "2026-01-13",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-13"
+    },
+    {
+      "id": "B",
+      "early_start": "2026-01-16",
+      "early_finish": "2026-01-20",
+      "late_start": "2026-01-16",
+      "late_finish": "2026-01-20",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-16"
+    },
+    {
+      "id": "G2",
+      "early_start": "2026-01-12",
+      "early_finish": "2026-01-12",
+      "late_start": "2026-01-20",
+      "late_finish": "2026-01-20",
+      "total_float": 432000.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-01-12"
+    },
+    {
+      "id": "C",
+      "early_start": "2026-01-12",
+      "early_finish": "2026-01-13",
+      "late_start": "2026-01-20",
+      "late_finish": "2026-01-21",
+      "total_float": 432000.0,
+      "free_float": 432000.0,
+      "is_critical": false,
+      "scheduled_start": "2026-01-12"
+    },
+    {
+      "id": "G3",
+      "early_start": "2026-01-20",
+      "early_finish": "2026-01-20",
+      "late_start": "2026-01-20",
+      "late_finish": "2026-01-20",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-20"
+    },
+    {
+      "id": "D",
+      "early_start": "2026-01-20",
+      "early_finish": "2026-01-21",
+      "late_start": "2026-01-20",
+      "late_finish": "2026-01-21",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-20"
+    },
+    {
+      "id": "G4",
+      "early_start": "2026-01-20",
+      "early_finish": "2026-01-20",
+      "late_start": "2026-01-20",
+      "late_finish": "2026-01-20",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-20"
+    },
+    {
+      "id": "E",
+      "early_start": "2026-01-21",
+      "early_finish": "2026-01-21",
+      "late_start": "2026-01-21",
+      "late_finish": "2026-01-21",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-21"
+    },
+    {
+      "id": "F",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-05",
+      "late_start": "2026-01-20",
+      "late_finish": "2026-01-20",
+      "total_float": 864000.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-01-05"
+    },
+    {
+      "id": "G5",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-05",
+      "late_start": "2026-01-20",
+      "late_finish": "2026-01-20",
+      "total_float": 864000.0,
+      "free_float": 864000.0,
+      "is_critical": false,
+      "scheduled_start": "2026-01-05"
+    },
+    {
+      "id": "Z",
+      "early_start": "2026-01-21",
+      "early_finish": "2026-01-21",
+      "late_start": "2026-01-21",
+      "late_finish": "2026-01-21",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-21"
+    }
+  ],
+  "critical_path": [
+    "M0",
+    "A",
+    "G1",
+    "B",
+    "G3",
+    "D",
+    "G4",
+    "E",
+    "Z"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "A",
+      "successor_id": "G1",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "A",
+      "successor_id": "G2",
+      "dep_type": "SS"
+    },
+    {
+      "predecessor_id": "B",
+      "successor_id": "G3",
+      "dep_type": "FF"
+    },
+    {
+      "predecessor_id": "D",
+      "successor_id": "Z",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "E",
+      "successor_id": "Z",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "F",
+      "successor_id": "G5",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "G1",
+      "successor_id": "B",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "G2",
+      "successor_id": "C",
+      "dep_type": "SS"
+    },
+    {
+      "predecessor_id": "G3",
+      "successor_id": "D",
+      "dep_type": "FF"
+    },
+    {
+      "predecessor_id": "G3",
+      "successor_id": "G4",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "G4",
+      "successor_id": "E",
+      "dep_type": "SF"
+    },
+    {
+      "predecessor_id": "M0",
+      "successor_id": "A",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "M0",
+      "successor_id": "F",
+      "dep_type": "SS"
+    }
+  ]
+}

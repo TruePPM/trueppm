@@ -7,10 +7,12 @@ use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use petgraph::Direction;
 
+use crate::backward::{milestone_latest, milestone_refs};
 use crate::calendar::{
     checked_offset_days, prev_working_day, retreat_calendar_days, working_days_between,
     PassCalendars, WorkingDayCounter,
 };
+use crate::forward::Instant;
 use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, DrivingEdge, Task};
 
@@ -81,12 +83,19 @@ fn free_float_anchor(
 /// Returns the [`DrivingEdge`]s discovered as a side output of the free-float
 /// slack loop — links whose relationship free float is zero (#2095), sorted by
 /// `(predecessor_id, successor_id, dep_type_str)` to match the Python engine.
+///
+/// Milestones (#4079): a milestone's spans run between *instants* — its early
+/// instant from `forward_pass` and its late instant from `backward_pass` — and a
+/// milestone successor offers its early instant (`milestone_refs`). Mirrors the
+/// Python `_compute_floats` / `_link_slack`, including a milestone's signed slack.
 pub fn compute_floats(
     tasks: &mut [Task],
     topo_order: &[NodeIndex],
     pg: &ProjectGraph,
     deps: &[Dependency],
     cals: &PassCalendars,
+    instants: &[Option<Instant>],
+    late_instants: &[Option<NaiveDate>],
 ) -> Result<Vec<DrivingEdge>, String> {
     let calendar = cals.default_calendar();
     let spans = SpanCounter {
@@ -105,8 +114,12 @@ pub fn compute_floats(
         // snapped on the same calendar, mirroring the backward pass (ADR-0120 D3).
         let node_cal = cals.for_node(i);
 
-        // Total float: working days between ES and LS.
-        let tf_days = spans.between(es, ls, node_cal)?;
+        // Total float: working days between ES and LS — between the early and late
+        // instants for a milestone (#4079).
+        let tf_days = match (instants[i], late_instants[i]) {
+            (Some(early), Some(late)) => spans.between(early.0, late, node_cal)?,
+            _ => spans.between(es, ls, node_cal)?,
+        };
         // A completed task is never on the critical path. The backward pass pins a
         // done task to late == early (ADR-0132/0136), mechanically yielding zero
         // total float — but a finished task has no remaining work and no slack to
@@ -137,15 +150,32 @@ pub fn compute_floats(
                 continue;
             }
             let dep = &deps[*edge.weight()];
-            let (anchor, latest) = free_float_anchor(
-                dep,
-                es,
-                ef,
-                succ.early_start.unwrap(),
-                succ.early_finish.unwrap(),
-                node_cal,
-            )?;
-            let slack = spans.between(anchor, latest, node_cal)?;
+            let s = edge.target().index();
+            let (succ_start, succ_finish) = match instants[s] {
+                Some(x) => milestone_refs(x.0, cals.for_node(s))?,
+                None => (succ.early_start.unwrap(), succ.early_finish.unwrap()),
+            };
+            let slack = match instants[i] {
+                Some(own) => {
+                    let latest = milestone_latest(
+                        dep.dep_type,
+                        dep.lag_days(),
+                        succ_start,
+                        succ_finish,
+                        node_cal,
+                    )?;
+                    if latest < own.0 {
+                        -spans.between(latest, own.0, node_cal)?
+                    } else {
+                        spans.between(own.0, latest, node_cal)?
+                    }
+                }
+                None => {
+                    let (anchor, latest) =
+                        free_float_anchor(dep, es, ef, succ_start, succ_finish, node_cal)?;
+                    spans.between(anchor, latest, node_cal)?
+                }
+            };
             ff_days = ff_days.min(slack.max(0));
             // Zero relationship free float ⇒ this link drives the successor's early
             // date (#2095). The forward pass guarantees slack >= 0, so the exact

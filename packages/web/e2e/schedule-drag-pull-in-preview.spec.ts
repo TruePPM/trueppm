@@ -244,7 +244,9 @@ const CHAIN_TASKS = [
     planned_start: '2026-04-06',
   }),
   task('pull-successor', 'Framing', '2', '2026-04-13', '2026-04-17'),
-  task('pull-milestone', 'Structure complete', '3', '2026-04-20', '2026-04-20', {
+  // A milestone after work sits on that work's finish day (#4079): Framing ends
+  // Fri 04-17, so the server places Structure complete on 04-17, not Mon 04-20.
+  task('pull-milestone', 'Structure complete', '3', '2026-04-17', '2026-04-17', {
     is_milestone: true,
     duration: 0,
   }),
@@ -323,7 +325,7 @@ test.describe('Drag preview propagates a pull-in downstream (#3535 mechanism 1)'
     // this polite region is the ONLY channel that reaches a screen reader. The
     // magnitude is in calendar days, which is what `deltaDays` measures: a
     // five-working-day pull spans the weekend and moves the milestone from
-    // 2026-04-20 to 2026-04-13.
+    // 2026-04-17 to 2026-04-10.
     await expect(page.getByTestId('schedule-act-live')).toHaveText(
       'Structure complete moves 7 days earlier',
     );

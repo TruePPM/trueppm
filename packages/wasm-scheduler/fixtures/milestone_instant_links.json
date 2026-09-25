@@ -1,0 +1,35 @@
+{
+  "id": "p-milestone-instant-links",
+  "name": "Milestone instants on a Mon-Fri week, one source (#4079)",
+  "start_date": "2026-01-05",
+  "tasks": [
+    {"id": "M0", "name": "Kickoff", "duration": 0.0},
+    {"id": "A", "name": "Design", "duration": 432000.0},
+    {"id": "G1", "name": "Design gate", "duration": 0.0},
+    {"id": "B", "name": "Build", "duration": 259200.0},
+    {"id": "G2", "name": "SS gate", "duration": 0.0},
+    {"id": "C", "name": "Parallel", "duration": 172800.0},
+    {"id": "G3", "name": "FF gate", "duration": 0.0},
+    {"id": "D", "name": "Finish-to-finish", "duration": 172800.0},
+    {"id": "E", "name": "Start-to-finish", "duration": 86400.0},
+    {"id": "Z", "name": "Done", "duration": 0.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "M0", "successor_id": "A", "dep_type": "FS", "lag": 172800.0},
+    {"predecessor_id": "A", "successor_id": "G1", "dep_type": "FS", "lag": 86400.0},
+    {"predecessor_id": "G1", "successor_id": "B", "dep_type": "FS", "lag": 86400.0},
+    {"predecessor_id": "A", "successor_id": "G2", "dep_type": "SS", "lag": 432000.0},
+    {"predecessor_id": "G2", "successor_id": "C", "dep_type": "SS", "lag": 0.0},
+    {"predecessor_id": "B", "successor_id": "G3", "dep_type": "FF", "lag": 0.0},
+    {"predecessor_id": "G3", "successor_id": "D", "dep_type": "FF", "lag": 86400.0},
+    {"predecessor_id": "G3", "successor_id": "E", "dep_type": "SF", "lag": 86400.0},
+    {"predecessor_id": "E", "successor_id": "Z", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "D", "successor_id": "Z", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

@@ -16,7 +16,20 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **A zero-duration milestone is an instant, not a one-day task (#4079).**
+  `schedule()` gave every zero-duration task a working day of its own, so each
+  milestone on a path delayed its successors by one working day, unlike MS Project
+  and Primavera P6. A milestone now sits on its driving predecessor's finish day
+  (or at the start of its floor day when nothing drives it), and links out of it
+  measure from that instant, so `A -FS(l1)-> M -FS(l2)-> B` schedules exactly as
+  `A -FS(l1+l2)-> B` for non-negative lags. The backward pass, total and free
+  float, driving edges, `derive_value()`, and `monte_carlo()` follow the same
+  rule; with deterministic durations every percentile still equals the CPM
+  finish. The convention is documented in the `trueppm_scheduler.engine` module
+  docstring. Behavior change: schedules containing milestones finish earlier by
+  one working day per milestone on the critical path.
 
 ## [0.4.0b4] - 2026-09-23
 
