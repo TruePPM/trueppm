@@ -387,7 +387,10 @@ class TestResolvedExporterEndpoint:
     def test_timeout_is_still_honored_on_the_http_path(self) -> None:
         """The canary probe's short timeout must survive the endpoint rewrite."""
         exporter = provider.build_span_exporter(timeout=3)
-        assert exporter._timeout == 3
+        # otel-exporter-otlp-proto-http 1.45 moved the timeout from the exporter
+        # onto its internal HTTP client; both are private, so accept either home.
+        holder = getattr(exporter, "_client", exporter)
+        assert getattr(holder, "_timeout", getattr(exporter, "_timeout", None)) == 3
         assert self._resolved(exporter) == f"{self._HTTP_BASE}/v1/traces"
 
 

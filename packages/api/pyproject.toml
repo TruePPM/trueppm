@@ -35,7 +35,10 @@ dependencies = [
     # Tracked in #3323; lift the ceiling there, not here.
     "djangorestframework>=3.17.2,<3.18",
     "djangorestframework-simplejwt>=5.3,<6.0",
-    "django-allauth>=65.18.0,<66.0",
+    # [socialaccount] is what declares requests/oauthlib/pyjwt, which the
+    # openid_connect provider imports at django.setup(). Without it requests
+    # arrives only transitively (via the OTLP HTTP exporter, which dropped it in 1.45).
+    "django-allauth[socialaccount]>=65.18.0,<66.0",
     "defusedxml>=0.7,<0.8",
     "channels>=4.0,<5.0",
     "channels-redis>=4.0,<5.0",
