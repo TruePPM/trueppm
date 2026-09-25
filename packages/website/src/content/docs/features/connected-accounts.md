@@ -268,6 +268,14 @@ resolves an MR, PR, or issue and shows its current status badge.
   and branches stay *unknown*. The fetch is SSRF-guarded (it refuses any host
   that resolves to a private/loopback/link-local/cloud-metadata address) and does
   not follow redirects.
+- **Who a refresh is saved for** — a preview fetched with a personal access
+  token is saved to the task, and shown to the rest of the project, only when the
+  **person who added the link** refreshes it. If anyone else refreshes a git link,
+  they see the fetched title and status on their own screen until the row next
+  changes, but nothing is saved or broadcast, so your token can never publish a
+  private issue's title to people who lack access to it. Links added before this
+  rule have no recorded creator, so a git link refresh never saves for them.
+  Cloud-file previews need no credential and are saved whoever refreshes.
 - **Connect prompt** — if the link's provider needs a personal access token you
   haven't connected, refresh points you to **User → Settings → Connected
   Accounts** to connect one, rather than failing silently. Generic links need no

@@ -20,7 +20,7 @@ authors = [
 # currently resolves; patch/minor security fixes within the current major are
 # still allowed.
 dependencies = [
-    "trueppm-scheduler>=0.1.0a0,<1",
+    "trueppm-scheduler>=0.4.0b4,<0.5",
     "django>=5.2.17,<6.0",
     # Floor is 3.17.2, not 3.15: every earlier release is affected by
     # GHSA-g47c-3xmw-q6m2 (AdminRenderer leaks GET-protected data) and

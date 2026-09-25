@@ -209,7 +209,7 @@ def test_refresh_updates_status_with_credential(
 ) -> None:
     IntegrationCredential.upsert(user=member, provider="github", secret="ghp-x")
     link = TaskLink.objects.create(
-        task=task, url="https://github.com/acme/api/pull/5", provider="github"
+        task=task, url="https://github.com/acme/api/pull/5", provider="github", created_by=member
     )
 
     def _fake_get(url: str, **kwargs: object) -> http.EgressResponse:
@@ -454,6 +454,7 @@ def test_refresh_preserves_custom_title(
         url="https://github.com/acme/api/pull/5",
         provider="github",
         custom_title="My name for it",
+        created_by=member,
     )
 
     def _fake_get(url: str, **kwargs: object) -> http.EgressResponse:
@@ -694,3 +695,170 @@ def test_refresh_throttle_caps_per_user(monkeypatch: pytest.MonkeyPatch) -> None
 
     monkeypatch.setattr(throttles, "_client", _boom)
     assert throttle.allow_request(req, object()) is True  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Confused-deputy guard (#4081) — whose credential may write the shared row
+# ---------------------------------------------------------------------------
+
+
+def _fake_github(monkeypatch: pytest.MonkeyPatch, seen: list[str] | None = None) -> None:
+    def _fake_get(url: str, **kwargs: object) -> http.EgressResponse:
+        if seen is not None:
+            seen.append(url)
+        body = json.dumps({"state": "closed", "title": "Private issue title"}).encode()
+        return http.EgressResponse(status=200, body=body, headers={})
+
+    monkeypatch.setattr(http, "get", _fake_get)
+
+
+def test_non_creator_refresh_returns_metadata_without_persisting_or_broadcasting(
+    member: object,
+    viewer: object,
+    project: Project,
+    task: Task,
+    memberships: None,
+    monkeypatch: pytest.MonkeyPatch,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """A different user's PAT fetches the metadata, but it is transient: the
+    shared row is untouched and nothing is broadcast to the project."""
+    IntegrationCredential.upsert(user=viewer, provider="github", secret="ghp-v")
+    link = TaskLink.objects.create(
+        task=task,
+        url="https://github.com/acme/private/issues/42",
+        provider="github",
+        created_by=member,
+    )
+    _fake_github(monkeypatch)
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as bcast,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        r = _client(viewer).post(_refresh_url(project, task, link.pk))
+    assert r.status_code == 200
+    assert r.json()["title"] == "Private issue title"
+    assert r.json()["status"] == "closed"
+    link.refresh_from_db()
+    assert link.title == ""
+    assert link.status == "unknown"
+    assert link.fetched_at is None
+    bcast.assert_not_called()
+
+
+def test_link_without_creator_never_persists_credentialed_refresh(
+    member: object, project: Project, task: Task, memberships: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pre-existing row (created_by NULL) fails closed: nobody is its creator."""
+    IntegrationCredential.upsert(user=member, provider="github", secret="ghp-x")
+    link = TaskLink.objects.create(
+        task=task, url="https://github.com/acme/api/issues/1", provider="github"
+    )
+    _fake_github(monkeypatch)
+    r = _client(member).post(_refresh_url(project, task, link.pk))
+    assert r.status_code == 200
+    assert r.json()["title"] == "Private issue title"
+    link.refresh_from_db()
+    assert link.title == ""
+
+
+def test_creator_refresh_persists_and_broadcasts(
+    member: object,
+    project: Project,
+    task: Task,
+    memberships: None,
+    monkeypatch: pytest.MonkeyPatch,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    IntegrationCredential.upsert(user=member, provider="github", secret="ghp-x")
+    r = _client(member).post(
+        _list_url(project, task), {"url": "https://github.com/acme/api/issues/1"}, format="json"
+    )
+    assert r.status_code == 201
+    link = TaskLink.objects.get(pk=r.json()["id"])
+    assert link.created_by == member
+    _fake_github(monkeypatch)
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as bcast,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        r = _client(member).post(_refresh_url(project, task, link.pk))
+    assert r.status_code == 200
+    link.refresh_from_db()
+    assert link.title == "Private issue title"
+    assert link.status == "closed"
+    assert bcast.call_args.args[1] == "task_link_updated"
+
+
+def test_viewer_refresh_of_credential_free_provider_persists(
+    viewer: object,
+    member: object,
+    project: Project,
+    task: Task,
+    memberships: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Public (no-credential) metadata is not caller-authorized, so any reader
+    who refreshes it persists it."""
+    link = TaskLink.objects.create(
+        task=task,
+        url="https://docs.google.com/spreadsheets/d/abc/edit",
+        provider="google_drive",
+        created_by=member,
+    )
+
+    def _fake_get(url: str, **kwargs: object) -> http.EgressResponse:
+        body = b'<html><head><meta property="og:title" content="Q3 Budget"></head></html>'
+        return http.EgressResponse(status=200, body=body, headers={"content-type": "text/html"})
+
+    monkeypatch.setattr(http, "get", _fake_get)
+    r = _client(viewer).post(_refresh_url(project, task, link.pk))
+    assert r.status_code == 200
+    link.refresh_from_db()
+    assert link.title == "Q3 Budget"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://github.com/../acme/issues/1",
+        "https://github.com/acme/../issues/1",
+        "https://github.com/%2e%2e/acme/issues/1",
+        "https://github.com/acme/%2E%2E/issues/1",
+    ],
+)
+def test_github_dot_segments_are_not_fetched(
+    member: object,
+    project: Project,
+    task: Task,
+    memberships: None,
+    monkeypatch: pytest.MonkeyPatch,
+    url: str,
+) -> None:
+    IntegrationCredential.upsert(user=member, provider="github", secret="ghp-x")
+    link = TaskLink.objects.create(task=task, url=url, provider="github", created_by=member)
+    seen: list[str] = []
+    _fake_github(monkeypatch, seen)
+    r = _client(member).post(_refresh_url(project, task, link.pk))
+    assert r.status_code == 200
+    assert seen == []
+    assert r.json()["status"] == "unknown"
+
+
+def test_github_owner_repo_are_percent_encoded_in_api_path(
+    member: object, project: Project, task: Task, memberships: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    IntegrationCredential.upsert(user=member, provider="github", secret="ghp-x")
+    link = TaskLink.objects.create(
+        task=task,
+        url="https://github.com/ac%3Fme/re%23po/issues/7",
+        provider="github",
+        created_by=member,
+    )
+    seen: list[str] = []
+    _fake_github(monkeypatch, seen)
+    _client(member).post(_refresh_url(project, task, link.pk))
+    assert len(seen) == 1
+    assert seen[0].startswith("https://api.github.com/repos/")
+    assert "?" not in seen[0] and "#" not in seen[0]
+    assert seen[0].endswith("/issues/7")

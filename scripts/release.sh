@@ -737,7 +737,20 @@ command -v uv >/dev/null 2>&1 || die \
   "uv not found — required to regenerate uv.lock after the version bump.
    Install uv (https://docs.astral.sh/uv/) and retry."
 ( cd packages/scheduler && uv lock ) || die "Failed to regenerate packages/scheduler/uv.lock"
-( cd packages/api && uv lock ) || die "Failed to regenerate packages/api/uv.lock"
+# The API's trueppm-scheduler floor moves with the scheduler (#4080): the API
+# imports symbols that only exist in the scheduler tagged beside it, and a stale
+# floor let the lock sit at 0.2.0a1, which cannot import the app. The new
+# scheduler is not on PyPI until AFTER this commit's pipeline is green, so the api
+# lock may be unable to resolve the raised floor yet. Then fall back to the floor
+# of the release being left (already published) rather than committing a lock that
+# `uv lock --check` rejects and reds main; raise it in a follow-up once published.
+bash scripts/bump-api-scheduler-floor.sh "$NEW_PEP440" || die "Failed to raise the API's trueppm-scheduler floor"
+if ! ( cd packages/api && uv lock ); then
+  echo "  WARN: trueppm-scheduler $NEW_PEP440 is not resolvable yet; keeping the API floor at $CURRENT_PEP440." \
+       "Raise it after the scheduler publishes." >&2
+  bash scripts/bump-api-scheduler-floor.sh "$CURRENT_PEP440" || die "Failed to restore the API's trueppm-scheduler floor"
+  ( cd packages/api && uv lock ) || die "Failed to regenerate packages/api/uv.lock"
+fi
 # packages/mcp joined the re-lock list with mcp:publish (#2809): its SBOM step
 # runs `uv sync --frozen`, which hard-fails on a lock whose self-entry still
 # claims the previous version, and mcp:uv-lock-check would go red on main.
