@@ -88,9 +88,12 @@ truth.
 
 ## Upgrading to 0.4
 
-**Migration behavior:** includes destructive ops (see below). Downtime: none beyond
-the migrate run, plus the transient-500 rollout windows described per-migration below
-on multi-replica installs.
+**Migration behavior:** includes destructive ops (see below). Downtime: a
+maintenance window sized to your task count, because `projects.0148` blocks all
+reads and writes on the task table while it builds a constraint (see the
+`projects.0148` caution below), plus the rest of the migrate run and the
+transient-500 rollout windows described per-migration below on multi-replica
+installs.
 
 0.4 (tagged `v0.4.0-beta.1` on 2026-09-15) carries **five** migrations with a
 `RemoveField`, `DeleteModel`, or raw `DROP TABLE` — four of them are destructive
@@ -109,6 +112,34 @@ stability §current deprecations](/api/stability/#deprecation-window--notice)
 for the full removal analysis), and the migration's own docstring says a
 database that needs the tables back should "restore from a backup." Once you
 have run this migration, the data is gone; there is no post-hoc remediation.
+:::
+
+:::caution[projects.0148 locks the task table and needs the btree_gist extension]
+`projects.0148_task_unique_task_wbs_path_per_project_live` adds a database
+constraint that guarantees no two live tasks in a project share a WBS path.
+Three things about it are operator-visible:
+
+- **Table lock.** Building the constraint takes an `ACCESS EXCLUSIVE` lock on
+  `projects_task`, so **reads and writes on tasks block** for the whole build.
+  PostgreSQL cannot build this kind of constraint concurrently, and the duration
+  grows with the number of task rows. Schedule a maintenance window proportional
+  to your task count; a large install should not run this migration on live
+  traffic.
+- **New extension: `btree_gist`.** The migration runs
+  `CREATE EXTENSION IF NOT EXISTS btree_gist`, which 0.3 did not require. On a
+  managed or external PostgreSQL that restricts extensions (an extension
+  allow-list) or where the migration's database role cannot create extensions,
+  that statement fails with a permission-class error, and because migrations run
+  on container start this shows up as a crash-loop. Before upgrading, allow-list
+  the extension if your provider requires it and pre-create it as a privileged
+  role with `CREATE EXTENSION IF NOT EXISTS btree_gist;`. See [Backup &
+  restore](/administration/backup-restore/#why-the-ltree--pg_trgm--btree_gist-extension-ordering-matters)
+  for why the extensions must exist up front.
+- **Duplicate WBS paths are renumbered.** Before adding the constraint, the
+  migration moves any duplicate live `(project, wbs_path)` rows onto free paths
+  and logs a `WARNING` naming each task it moved. This is **irreversible**: the
+  original duplicate state is not restored on rollback. If your WBS held
+  duplicates, expect some tasks to appear under different WBS codes afterward.
 :::
 
 **Known transient-500 windows on multi-replica installs.** Three of the five
