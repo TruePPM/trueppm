@@ -133,8 +133,7 @@ It is idempotent across the scheduled reset (once a day by default — see
 a second run finds every indicator already dealt with and re-records only the
 forecast, which has to stay newer than anything that run wrote.
 
-:::note[Ships in 0.5]
-The published demo account's front door also changes in 0.5 (#4151). The account
+The published demo account lands on this overlay's project. The account
 holds a Member role, which the ordinary role policy sends to My Work — the same
 screen a real team member with no deadlines lands on, and empty of the schedule
 this overlay just spent a seed pass making healthy. `resolve_landing` special-cases
@@ -144,7 +143,6 @@ is not archived or soft-deleted, and is readable by the account — otherwise it
 falls through to the ordinary policy, exactly as it would for any other user. An
 explicit `default_landing` preference still wins over this, as it does over every
 other landing rule.
-:::
 
 ## `create_demo_share_link`
 
