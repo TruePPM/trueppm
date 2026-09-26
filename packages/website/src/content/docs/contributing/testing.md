@@ -126,14 +126,27 @@ the fraction of mutants the suite killed, excluding mutants on lines no test cov
 (that is a coverage gap, which the coverage gate already owns, not an
 assertion-strength gap).
 
-In CI this runs as **`scheduler:mutation`** — schedule-only, so it never blocks a
-merge request, but **gating**: `MUTATION_MIN` is `0.92`, set from the observed
-nightly baseline of 93.0–93.1% under mutmut 3.7 (the suite scores 96.8% under the
-pinned mutmut 3.8.0), and a nightly that scores below it goes red and
-stays red until the survivor is killed. Unlike the fuzz jobs it does *not* carry
-`allow_failure`, because a mutation score crossing a fixed floor is one
-deterministic number rather than an open-ended stochastic finding. Ratchet the
-floor down as the score improves; never up to quiet a red.
+In CI this runs as **`scheduler:mutation`**. The nightly run is **gating**:
+`MUTATION_MIN` is `0.92`, set from the observed nightly baseline of 93.0–93.1%
+under mutmut 3.7 (the suite scores 96.8% under the pinned mutmut 3.8.0), and a
+nightly that scores below it goes red and stays red until the survivor is
+killed. Unlike the fuzz jobs it does *not* carry job-level `allow_failure`,
+because a mutation score crossing a fixed floor is one deterministic number
+rather than an open-ended stochastic finding. Ratchet the floor down as the
+score improves; never up to quiet a red.
+
+It also runs on two merge request shapes, not only on the nightly schedule.
+An MR that changes the measuring instrument (`packages/scheduler/pyproject.toml`
+or `scripts/check_mutation_score.py`) **gates**, the same as the nightly — the
+new pin or floor is measured before it merges. An MR that changes the measured
+code itself (`models.py`, `derive.py`, `cli.py`) also runs the full suite, but
+**informationally**: that rule carries a per-rule `allow_failure: true`, so the
+score is reported and attributed to the diff that moved it without blocking an
+ordinary scheduler change on a full mutation re-triage. This closed the gap
+that let two 2026-09-25 merge requests each drop the nightly score by a few
+points with nothing catching it pre-merge (#4147). An MR that does not touch
+any of these five files does not run this job at all and still waits for the
+nightly.
 
 `check_mutation_score.py` exits `0` when the score meets the floor, `1` when it is
 measured and below, and **`2` when it could not be measured at all** — a missing,
