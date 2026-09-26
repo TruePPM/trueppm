@@ -93,3 +93,35 @@ Object.defineProperty(window, 'matchMedia', {
     dispatchEvent: () => false,
   }),
 });
+
+// Identity route resolver (ADR-1237 §7). A `:projectId` / `:programId` segment that
+// is not a UUID is now a KEY, resolved over `GET /resolve/` before any id reaches a
+// component — and nearly every unit test routes with a readable fake id (`p1`,
+// `prog-1`) that was never meant as a key, often with no QueryClientProvider at
+// all. Resolving each such ref to itself keeps those tests exercising the component
+// they were written for. This is the unit-test twin of the e2e
+// `setupIdentityResolver` fixture, and like it, it does not stand in for key
+// behavior: `useResolveRef.test.ts` and `RefBoundary.test.tsx` restore the real
+// hook with their own `vi.mock(..., importOriginal)`.
+vi.mock('@/hooks/useResolveRef', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useResolveRef')>();
+  return {
+    ...actual,
+    useResolveRef: (kind: 'project' | 'program', ref: string | undefined) => ({
+      data: ref
+        ? {
+            type: kind,
+            id: ref,
+            project_id: kind === 'project' ? ref : null,
+            program_id: kind === 'program' ? ref : null,
+            key: null,
+            canonical_ref: ref,
+          }
+        : undefined,
+      error: null,
+      isError: false,
+      status: ref ? 'success' : 'pending',
+      fetchStatus: 'idle',
+    }),
+  };
+});

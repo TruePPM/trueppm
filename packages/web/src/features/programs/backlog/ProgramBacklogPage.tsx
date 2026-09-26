@@ -11,15 +11,16 @@
  * swap is local to `./hooks`.
  */
 
-import { Link, useParams } from 'react-router';
+import { Link } from 'react-router';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { BacklogDesktop } from './components/BacklogDesktop';
 import { MobileBacklogPage } from './components/mobile/MobileBacklogPage';
 import { useBacklogController } from './hooks/useBacklogController';
+import { useProgramId } from '@/hooks/useProgramId';
 
 export function ProgramBacklogPage() {
-  const { programId } = useParams<{ programId: string }>();
+  const programId = useProgramId();
   const breakpoint = useBreakpoint();
   const controller = useBacklogController(programId);
 

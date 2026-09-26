@@ -187,12 +187,14 @@ test.describe('Project Settings → General', () => {
     await page.goto(`/projects/${PROJECT_ID}/settings/general`);
 
     // Scope to the General section: all sections mount at once on the
-    // consolidated page (ADR-0146), so unscoped labels like "Project code"
-    // collide with the lifecycle "Type ATLAS to confirm" delete input.
+    // consolidated page (ADR-0146), so unscoped labels could collide with the
+    // lifecycle "Type ATLAS to confirm" delete input.
     const section = page.locator('[data-settings-section="general"]');
     await expect(section.getByRole('heading', { name: 'General' })).toBeVisible();
     await expect(section.getByLabel('Project name')).toHaveValue('Atlas Migration');
-    await expect(section.getByLabel('Project code')).toHaveValue('ATLAS');
+    await expect(section.getByLabel('Project key')).toHaveValue('ATLAS');
+    // The project has a key, so the settings URL was rewritten to it (ADR-1237 §7).
+    await expect(page).toHaveURL(/\/projects\/ATLAS\/settings#general$/);
     await expect(section.getByLabel('Description')).toHaveValue(
       'Migrate the data warehouse to the new platform.',
     );
@@ -225,34 +227,58 @@ test.describe('Project Settings → General', () => {
     });
   });
 
-  test('surfaces a server-side validation error from a leading-hyphen code', async ({ page }) => {
+  test('refuses a hyphenated new key client-side, before any request (ADR-1237 §2)', async ({
+    page,
+  }) => {
     const captures: Captures = {};
-    await setup(page, captures, {
-      patchStatus: 400,
-      patchBody: {
-        code: [
-          'Project code must use uppercase letters, digits, and hyphens only, and may not start or end with a hyphen.',
-        ],
-      },
+    await setup(page, captures);
+    const keyChecks: string[] = [];
+    await page.route(/\/api\/v1\/keys\/(\?|$)/, async (route) => {
+      keyChecks.push(route.request().url());
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
     });
     await page.goto(`/projects/${PROJECT_ID}/settings/general`);
 
-    // Scope to General — the lifecycle confirm input also matches "project code".
     const section = page.locator('[data-settings-section="general"]');
-    // Client uppercases on input but does NOT pre-filter leading hyphens —
-    // the user can type "-ATLAS" and only the server rejects it. This is
-    // the reachable validation-error path from the UI today.
-    await section.getByLabel('Project code').fill('-ATLAS');
-    await expect(section.getByLabel('Project code')).toHaveValue('-ATLAS');
+    const key = section.getByLabel('Project key');
+    await key.fill('-atlas');
+    await expect(key).toHaveValue('-ATLAS');
+    await expect(
+      section.getByText('Letters and digits only, starting with a letter, 2–10 characters'),
+    ).toBeVisible();
+    expect(keyChecks).toHaveLength(0);
+  });
+
+  test('shows the server’s key rejection verbatim in the key status line', async ({ page }) => {
+    const captures: Captures = {};
+    await setup(page, captures, {
+      patchStatus: 400,
+      patchBody: { code: ['This key is already in use.'] },
+    });
+    // The availability check said free — the server lost the race on save.
+    await page.route(/\/api\/v1\/keys\/(\?|$)/, async (route) => {
+      const key = new URL(route.request().url()).searchParams.get('key') ?? '';
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ available: true, reason: null, suggestion: key }),
+      });
+    });
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+
+    const section = page.locator('[data-settings-section="general"]');
+    await section.getByLabel('Project key').fill('acme');
+    await expect(section.getByLabel('Project key')).toHaveValue('ACME');
+    // A rename explains that old links keep working (UX §2).
+    await expect(section.getByText(/Old links using ATLAS will keep working/)).toBeVisible();
+    await expect(section.getByRole('status').filter({ hasText: 'Available' })).toBeVisible();
 
     await page.getByRole('button', { name: /Save changes/i }).click();
-
-    // PATCH fires with the invalid value; the server's 400 keeps the user on
-    // the page with the save bar still visible so they can correct and retry.
-    // Inline error rendering is a follow-up — today the contract is just
-    // "bar stays armed, no navigation away".
     await expect.poll(() => captures.patch).toBeDefined();
-    expect(captures.patch).toMatchObject({ code: '-ATLAS' });
+    expect(captures.patch).toMatchObject({ code: 'ACME' });
+    await expect(
+      section.getByRole('status').filter({ hasText: 'This key is already in use.' }),
+    ).toBeVisible();
     await expect(page.getByRole('button', { name: /Save changes/i })).toBeVisible();
   });
 

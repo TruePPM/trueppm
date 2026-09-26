@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 
 import type { Task } from '@/types';
-import { TaskDetailPage } from './TaskDetailPage';
+import { TaskDetailPage, findTaskByRef } from './TaskDetailPage';
 
 let TASKS: Partial<Task>[] = [];
 let LOADING = false;
@@ -140,5 +140,63 @@ describe('TaskDetailPage', () => {
     expect(screen.queryByRole('button', { name: 'Description' })).not.toBeInTheDocument();
     expect(sectionListSpy).toHaveBeenCalledWith(expect.objectContaining({ canEdit: false }));
     expect(mutate).not.toHaveBeenCalled();
+  });
+
+  // ----- Task references (ADR-1237 §7) -----------------------------------------
+
+  function Where() {
+    const location = useLocation();
+    return <span data-testid="where">{location.pathname}</span>;
+  }
+
+  function renderAt(path: string) {
+    return render(
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route
+            path="/projects/:projectId/tasks/:taskId"
+            element={
+              <>
+                <TaskDetailPage />
+                <Where />
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  it('opens a task by its display reference under a keyed project', () => {
+    TASKS = [{ id: 't1', name: 'Foundation', shortId: '0000000A', shortIdDisplay: 'T-10' }];
+    renderAt('/projects/PLAT/tasks/T-10');
+    expect(screen.getByRole('heading', { level: 1, name: /Foundation/ })).toBeInTheDocument();
+    expect(screen.getByTestId('where')).toHaveTextContent('/projects/PLAT/tasks/T-10');
+    expect(screen.getByRole('link', { name: /Back to schedule/ })).toHaveAttribute(
+      'href',
+      '/projects/PLAT/schedule',
+    );
+  });
+
+  it('rewrites a UUID or raw hex task segment to the display reference', () => {
+    TASKS = [{ id: 't1', name: 'Foundation', shortId: '0000000A', shortIdDisplay: 'T-10' }];
+    renderAt('/projects/PLAT/tasks/t1');
+    expect(screen.getByTestId('where')).toHaveTextContent('/projects/PLAT/tasks/T-10');
+  });
+
+  it('shows the task-not-found state for an unknown reference inside the project', () => {
+    TASKS = [{ id: 't1', name: 'Foundation', shortIdDisplay: 'T-10' }];
+    renderAt('/projects/PLAT/tasks/T-999');
+    expect(screen.getByText('Task not found.')).toBeInTheDocument();
+  });
+
+  it('matches only server-formatted values — it never decodes a reference', () => {
+    const tasks = [
+      { id: 't1', shortId: '0000000A', shortIdDisplay: 'T-10' },
+    ] as unknown as Parameters<typeof findTaskByRef>[0];
+    expect(findTaskByRef(tasks, 't-10')?.id).toBe('t1');
+    expect(findTaskByRef(tasks, '0000000a')?.id).toBe('t1');
+    expect(findTaskByRef(tasks, 'T-0010')).toBeUndefined();
+    expect(findTaskByRef(tasks, '10')).toBeUndefined();
   });
 });

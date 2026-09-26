@@ -8,16 +8,16 @@
  * Same managers as the project page, scoped to the program.
  */
 
-import { useParams } from 'react-router';
 import type { IntegrationScope } from '@/hooks/useWebhooks';
 import { SettingsPageTitle, DocsLink } from '../SettingsShell';
 import { registry } from '@/lib/widget-registry';
 import { WebhooksManager } from '../components/integrations/WebhooksManager';
 import { ApiTokensManager } from '../components/integrations/ApiTokensManager';
 import { ConnectorRoadmapCard } from '../ConnectorRoadmapCard';
+import { useProgramId } from '@/hooks/useProgramId';
 
 export function ProgramIntegrationsPage() {
-  const { programId } = useParams<{ programId: string }>();
+  const programId = useProgramId();
   if (!programId) return null;
 
   const scope: IntegrationScope = { kind: 'program', id: programId };

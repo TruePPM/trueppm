@@ -19,6 +19,10 @@ import { VIEW_TAB_META } from '@/features/shell/viewMeta';
 export interface MoreSheetProps {
   isOpen: boolean;
   onClose: () => void;
+  /**
+   * The project's URL segment (its key, or UUID when keyless — ADR-1237), used
+   * only to build the view links so they match the address bar.
+   */
   projectId: string;
   /** Overflow view keys, already ordered (settings last). */
   views: string[];

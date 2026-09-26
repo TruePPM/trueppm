@@ -22,6 +22,9 @@ import { setupCatchAll } from './fixtures/api-mocks';
  */
 
 const PROJECT_ID = 'e2e-project-00000000-0000-0000-0000-000000002969';
+// The fixture project's key. The app rewrites a project URL to its key form
+// (ADR-1237 §7), so every URL assertion expects the key, not the id we navigated to.
+const PROJECT_KEY = 'ATLAS';
 const SECTION = 'how-this-team-works';
 
 const pj = (data: unknown) => JSON.stringify(data);
@@ -161,7 +164,7 @@ async function setup(page: Page) {
 
 /** The section really rendered — not merely "the URL changed". */
 async function expectLanded(page: Page) {
-  await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/settings#${SECTION}$`));
+  await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_KEY}/settings#${SECTION}$`));
   await expect(page.getByRole('heading', { level: 2, name: 'How this team works' })).toBeVisible();
 }
 
@@ -279,7 +282,7 @@ test.describe('Project settings — retired anchors redirect (#2969)', () => {
     // still answers on its own id.
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings/general`);
-    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/settings#general$`));
+    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_KEY}/settings#general$`));
     await expect(page.getByRole('heading', { level: 2, name: 'General' })).toBeVisible();
   });
 
@@ -288,7 +291,7 @@ test.describe('Project settings — retired anchors redirect (#2969)', () => {
     // working deep link, which is worse than landing at the top of the page.
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings#not-a-section`);
-    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/settings#not-a-section$`));
+    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_KEY}/settings#not-a-section$`));
     await expect(page.getByRole('heading', { level: 1, name: 'Project settings' })).toBeVisible();
   });
 });

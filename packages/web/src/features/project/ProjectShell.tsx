@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Outlet } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProjectUnavailable } from '@/hooks/useProjectUnavailable';
@@ -10,10 +11,34 @@ import { ProjectSampleIndicator } from './ProjectSampleIndicator';
 import { RecalculatingBadge } from './RecalculatingBadge';
 
 /**
+ * The ProjectShell's own frame — the full-height column and its scroll-locked body.
+ *
+ * Exported so the key-route boundary (ADR-1237 UX §3) can paint exactly this frame,
+ * empty, while a key URL resolves: the shell skeleton, with no spinner and no blank
+ * page, and no layout shift when the real shell replaces it.
+ */
+export function ProjectShellFrame({
+  header,
+  children,
+}: {
+  header?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      {header}
+      <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
+    </div>
+  );
+}
+
+/**
  * Layout shell for all project-scoped views.
  *
- * Reads the active projectId from the URL path param `:projectId` (ADR-0030)
- * and opens the project WebSocket. Each view (Overview, Gantt, WBS, Board …)
+ * Reads the active project's UUID from `useProjectId()` — resolved from the
+ * `:projectId` param (a key, retired key or UUID) by `ProjectRefBoundary`, which
+ * wraps this shell in the router (ADR-0030, ADR-1237) — and opens the project
+ * WebSocket. Each view (Overview, Gantt, WBS, Board …)
  * is rendered as a child route via <Outlet />.
  */
 export function ProjectShell() {
@@ -55,22 +80,24 @@ export function ProjectShell() {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Demo-data indicator — present on every project-level view of a sample
-          program so the "this is demo data" cue survives navigation (#1053). */}
-      <ProjectSampleIndicator projectId={projectId} />
+    <ProjectShellFrame
+      header={
+        <>
+          {/* Demo-data indicator — present on every project-level view of a sample
+              program so the "this is demo data" cue survives navigation (#1053). */}
+          <ProjectSampleIndicator projectId={projectId} />
 
-      {/* RecalculatingBadge strip — visible while CPM is running (issue #40) */}
-      {isRecalculating && (
-        <div className="flex justify-end px-4 py-1 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0">
-          <RecalculatingBadge isVisible={isRecalculating} />
-        </div>
-      )}
-
+          {/* RecalculatingBadge strip — visible while CPM is running (issue #40) */}
+          {isRecalculating && (
+            <div className="flex justify-end px-4 py-1 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0">
+              <RecalculatingBadge isVisible={isRecalculating} />
+            </div>
+          )}
+        </>
+      }
+    >
       {/* Active view — rendered by the matched child route */}
-      <div className="flex-1 min-h-0 overflow-hidden">
-        <Outlet />
-      </div>
-    </div>
+      <Outlet />
+    </ProjectShellFrame>
   );
 }

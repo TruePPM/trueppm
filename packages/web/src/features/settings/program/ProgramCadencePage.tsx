@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useParams } from 'react-router';
 import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import { SettingsPageTitle, SettingsCard } from '../SettingsShell';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
@@ -16,6 +15,7 @@ import { formatCadence, formatDuration } from '@/features/programs/cadence/caden
 import { ROLE_ADMIN } from '@/lib/roles';
 import type { CeremonyTemplate } from '@/api/types';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { useProgramId } from '@/hooks/useProgramId';
 
 const GRID = '1.6fr 1.4fr 90px 1fr 60px 44px';
 
@@ -272,7 +272,7 @@ function CeremonyRow({
  * gated to ADMIN+ both client-side (UX) and server-side (security).
  */
 export function ProgramCadencePage() {
-  const { programId } = useParams<{ programId: string }>();
+  const programId = useProgramId();
   const { data: program } = useProgram(programId);
   const { data: ceremonies = [], isLoading, isError } = useProgramCeremonies(programId);
 

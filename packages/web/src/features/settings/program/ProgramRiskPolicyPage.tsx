@@ -1,11 +1,11 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProgram } from '@/hooks/useProgram';
 import { ROLE_ADMIN } from '@/lib/roles';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { useProgramId } from '@/hooks/useProgramId';
 import {
   useProgramRiskPolicy,
   useSaveProgramRiskPolicy,
@@ -83,7 +83,7 @@ function MatrixCell({ probability, impact }: { probability: number; impact: numb
  * (``useDirtyForm`` contract, rule 115 / #536).
  */
 export function ProgramRiskPolicyPage() {
-  const { programId } = useParams<{ programId: string }>();
+  const programId = useProgramId();
   const { data: program } = useProgram(programId);
   const { data: policy, isLoading, isError, refetch } = useProgramRiskPolicy(programId);
   const savePolicy = useSaveProgramRiskPolicy(programId ?? '');

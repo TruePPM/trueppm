@@ -148,8 +148,21 @@ export interface ApiProjectDetail {
    */
   default_member_role: number;
   default_member_role_label: string;
-  /** Optional short code (uppercase A-Z, 0-9, hyphen; ≤12 chars). Empty when unset. */
+  /**
+   * The project **key** (ADR-1237) — unique across the workspace, case-insensitive,
+   * and the form the project takes in URLs (`/projects/PLAT/…`) and references
+   * (`PLAT-T-10`). New keys are `[A-Z][A-Z0-9]{1,9}`; pre-0.4 hyphenated codes are
+   * grandfathered. The wire name stays `code`. Empty only on a project created by a
+   * pre-0.4 pod during a rolling upgrade, which is then addressable by UUID alone.
+   */
   code: string;
+  /**
+   * How many keys this project has retired (ADR-1237 threat model: at most 10).
+   * The settings page makes the key read-only at the cap rather than letting a
+   * rename reach a 400 the server will certainly return. Optional because it is
+   * on the detail response only.
+   */
+  retired_key_count?: number;
   /** PM health override; AUTO defers to the (future) rollup. */
   health: ProjectHealth;
   /** Workspace or private listing scope. */

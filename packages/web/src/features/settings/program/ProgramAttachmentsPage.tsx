@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { InheritableToggleField } from '../components/InheritableToggleField';
 import { InheritableMultiSelectField } from '../components/InheritableMultiSelectField';
@@ -8,6 +7,7 @@ import { useProgram } from '@/hooks/useProgram';
 import { useUpdateProgram } from '@/hooks/useProgramMutations';
 import { ROLE_ADMIN } from '@/lib/roles';
 import { ATTACHMENT_TYPE_CATALOG, DENIED_ATTACHMENT_TYPES } from '@/lib/attachmentTypes';
+import { useProgramId } from '@/hooks/useProgramId';
 
 /**
  * Program > Attachments settings section (ADR-0153, issue 976).
@@ -18,7 +18,7 @@ import { ATTACHMENT_TYPE_CATALOG, DENIED_ATTACHMENT_TYPES } from '@/lib/attachme
  * program; the server is authoritative.
  */
 export function ProgramAttachmentsPage() {
-  const { programId } = useParams<{ programId: string }>();
+  const programId = useProgramId();
   const { data: program } = useProgram(programId);
   const updateProgram = useUpdateProgram();
 

@@ -7,6 +7,7 @@ import { safeLandingPath } from '@/features/me/landing';
 import { lensDefaultView } from '@/features/shell/lensOrder';
 import { AppShell } from '@/features/shell/AppShell';
 import { ProjectShell } from '@/features/project/ProjectShell';
+import { ProgramRefBoundary, ProjectRefBoundary } from '@/router/RefBoundary';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { RequireAuth } from '@/features/auth/RequireAuth';
 import { RequireAdminSettings } from '@/features/settings/RequireAdminSettings';
@@ -573,7 +574,14 @@ export const routes: RouteObject[] = [
               // Project-scoped routes — projectId in path for shareable URLs (ADR-0030)
               {
                 path: 'projects/:projectId',
-                element: <ProjectShell />,
+                // The param is a key, a retired key or a UUID (ADR-1237 §7): the
+                // boundary resolves it, provides the UUID to `useProjectId()`, and
+                // rewrites the URL to the current key.
+                element: (
+                  <ProjectRefBoundary>
+                    <ProjectShell />
+                  </ProjectRefBoundary>
+                ),
                 // Shell-preserving boundary (issue 1654): a single project view failing
                 // (e.g. a stale lazy chunk) is caught here, so AppShell's sidebar stays
                 // painted and the user can navigate away rather than losing the whole app.
@@ -983,10 +991,13 @@ export const routes: RouteObject[] = [
               },
               {
                 path: 'programs/:programId',
+                // Key or UUID (ADR-1237 §7) — see the ProjectRefBoundary note.
                 element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <ProgramShell />
-                  </Suspense>
+                  <ProgramRefBoundary>
+                    <Suspense fallback={<RouteLoadingFallback />}>
+                      <ProgramShell />
+                    </Suspense>
+                  </ProgramRefBoundary>
                 ),
                 // Shell-preserving boundary (issue 1654) — see the ProjectShell note.
                 errorElement: <RouteErrorBoundary />,

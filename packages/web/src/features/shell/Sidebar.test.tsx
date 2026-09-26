@@ -1262,7 +1262,8 @@ describe('Sidebar rail — Tier 3 create / import / overflow actions', () => {
     renderRail();
     openSwitcher();
     fireEvent.click(screen.getByRole('button', { name: 'Artemis' }));
-    expect(navigateSpy).toHaveBeenCalledWith('/programs/prog1/overview');
+    // The program carries a key, so the link is the key URL (ADR-1237 §7).
+    expect(navigateSpy).toHaveBeenCalledWith('/programs/ART/overview');
   });
 
   it('navigates to a project opened from inside an expanded program', () => {
@@ -1311,7 +1312,8 @@ describe('Sidebar rail — pinned-band navigation and pin writes', () => {
     mockPinned = [{ kind: 'program', id: 'prog1', name: 'Artemis', code: 'ART' }];
     renderRail();
     fireEvent.click(screen.getByRole('button', { name: 'Artemis' }));
-    expect(navigateSpy).toHaveBeenCalledWith('/programs/prog1/overview');
+    // A pinned program with a key opens on its key URL (ADR-1237 §7).
+    expect(navigateSpy).toHaveBeenCalledWith('/programs/ART/overview');
   });
 
   it('navigates to a pinned project from the pinned band', () => {

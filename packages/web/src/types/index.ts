@@ -632,6 +632,12 @@ export type BoardCadence = 'sprint' | 'continuous';
 export interface Project {
   id: string;
   name: string;
+  /**
+   * The project key (ADR-1237) — the wire field `code`. Links built with
+   * `projectPath()` use it so they land on the key URL directly; absent on list
+   * shapes and fixtures that do not carry it, in which case links use the UUID.
+   */
+  code?: string;
   /** Hex color for the 8px project dot, e.g. '#3E8C6D' */
   colorDot: string;
   healthState: HealthState;

@@ -200,7 +200,8 @@ test.describe('Program JSON import', () => {
       buffer: SAMPLE_SEED,
     });
 
-    await expect(page).toHaveURL(new RegExp(`/programs/${PROGRAM_ID}/overview`));
+    // Lands on the new program at its key URL (`code: 'atlas'`, ADR-1237 §7).
+    await expect(page).toHaveURL(/\/programs\/atlas\/overview/);
     // Assert the overview actually rendered rather than crashing into the root
     // error boundary post-navigation (issue 1572): the heading names the
     // imported program, and the health hero (fed by the rollup fixture above)
@@ -277,7 +278,8 @@ test.describe('Program JSON import', () => {
 
     await confirm.getByRole('button', { name: 'Replace program' }).click();
 
-    await expect(page).toHaveURL(new RegExp(`/programs/${PROGRAM_ID}/overview`));
+    // Lands on the new program at its key URL (`code: 'atlas'`, ADR-1237 §7).
+    await expect(page).toHaveURL(/\/programs\/atlas\/overview/);
     expect(importBodies).toHaveLength(2);
     expect(importBodies[0]).not.toContain('name="replace"');
     expect(importBodies[1]).toContain('name="expected_program_id"');

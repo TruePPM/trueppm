@@ -16,8 +16,9 @@
  *     silently dropped.
  */
 import { useMemo } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { LabelPill } from '@/components/LabelPill';
+import { useProgramId } from '@/hooks/useProgramId';
 import {
   useProgramLabelCatalog,
   useProgramLabelTasks,
@@ -55,7 +56,7 @@ function countOf(n: number, noun: string): string {
 }
 
 export function ProgramLabelsPage() {
-  const { programId } = useParams<{ programId: string }>();
+  const programId = useProgramId();
   const [searchParams, setSearchParams] = useSearchParams();
   const selected = searchParams.get(LABEL_PARAM) ?? '';
 

@@ -128,12 +128,11 @@ test.describe('Program Settings → General', () => {
     await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
 
     // All sections mount on one page (ADR-0146) — scope to the general section so
-    // shared labels (e.g. "Program code" also appears in the lifecycle delete-confirm
-    // field) don't trip strict mode.
+    // shared labels (e.g. the lifecycle delete-confirm field) don't trip strict mode.
     const general = page.locator('[data-settings-section="general"]');
     await expect(general.getByRole('heading', { name: 'General' })).toBeVisible();
     await expect(general.getByLabel('Program name')).toHaveValue('Phase 2 Modernization');
-    await expect(general.getByLabel('Program code')).toHaveValue('PH2');
+    await expect(general.getByLabel('Program key')).toHaveValue('PH2');
     await expect(general.getByLabel('Description')).toHaveValue('Q3 platform rebuild');
 
     // Lead block renders the username from lead_detail (no hardcoded "Anika Krishnan").

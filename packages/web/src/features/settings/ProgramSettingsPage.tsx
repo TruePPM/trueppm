@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import { useParams } from 'react-router';
 import type { ProgramHealth } from '@/api/types';
 import { useIsWorkspaceAdmin } from '@/hooks/useIsWorkspaceAdmin';
 import { useProgram } from '@/hooks/useProgram';
@@ -22,6 +21,7 @@ import { ProgramRiskPolicyPage } from './program/ProgramRiskPolicyPage';
 import { ProgramIntegrationsPage } from './program/ProgramIntegrationsPage';
 import { ProgramAttachmentsPage } from './program/ProgramAttachmentsPage';
 import { ProgramArchivePage } from './program/ProgramArchivePage';
+import { useProgramId } from '@/hooks/useProgramId';
 import {
   FolderIcon,
   ResourcesIcon,
@@ -200,7 +200,7 @@ export function buildProgramSettingsNav(): SettingsNavGroup[] {
 }
 
 export function ProgramSettingsPage() {
-  const { programId } = useParams<{ programId: string }>();
+  const programId = useProgramId();
   const { data: program } = useProgram(programId);
   const { data: programs } = usePrograms();
   const { data: projects } = useProjects();

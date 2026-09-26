@@ -5,10 +5,11 @@
  *   resources/allocation → ResourceView (existing utilization/timeline)
  */
 import { NavLink, Outlet, useLocation } from 'react-router';
-import { useProjectId } from '@/hooks/useProjectId';
+import { useProjectRef } from '@/hooks/useProjectRef';
 
 export function TeamView() {
-  const projectId = useProjectId() ?? '';
+  // The URL segment (key or UUID, ADR-1237), so the NavLinks match the address bar.
+  const projectId = useProjectRef() ?? '';
   const location = useLocation();
 
   const isRoster = location.pathname.endsWith('/roster') || location.pathname.endsWith('/resources');

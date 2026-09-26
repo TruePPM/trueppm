@@ -1,7 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import type { ProgramMethodology } from '@/api/types';
 import { useCreateProgram } from '@/hooks/useProgramMutations';
 import { getFocusable } from '@/hooks/useFocusTrap';
+import { extractFieldErrors } from '@/lib/apiError';
+import { KeyStatusLine } from '@/features/keys/KeyStatusLine';
+import { useCreateKeyField } from '@/features/keys/useCreateKeyField';
+import { KEY_MAX_LENGTH } from '@/features/keys/keyFormat';
 
 interface Props {
   onClose: () => void;
@@ -36,6 +40,11 @@ export function NewProgramModal({ onClose, onCreated }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const nameRef = useRef<HTMLInputElement>(null);
+  const keyRef = useRef<HTMLInputElement>(null);
+  // The program key (ADR-1237 UX §1): a slug that follows Name until typed in.
+  const keyField = useCreateKeyField('program', name);
+  const keyStatusId = useId();
+  const keyHintId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<Element | null>(null);
 
@@ -83,15 +92,29 @@ export function NewProgramModal({ onClose, onCreated }: Props) {
       nameRef.current?.focus();
       return;
     }
+    if (keyField.blocksSubmit) {
+      keyRef.current?.focus();
+      return;
+    }
     setError(null);
     try {
       const program = await createProgram.mutateAsync({
         name: name.trim(),
         description: description.trim(),
         methodology,
+        // Blank is legal: the server derives the key from the name (ADR-1237 §1).
+        code: keyField.value || undefined,
       });
       onCreated(program.id);
     } catch (err) {
+      // A 400 on `code` belongs to the key field: its status line shows the
+      // server's words and focus moves there; nothing else resets (UX §1).
+      const codeError = extractFieldErrors(err).code;
+      if (codeError) {
+        keyField.setServerError(codeError);
+        keyRef.current?.focus();
+        return;
+      }
       const message =
         err instanceof Error && err.message ? err.message : 'Failed to create program.';
       setError(message);
@@ -134,6 +157,37 @@ export function NewProgramModal({ onClose, onCreated }: Props) {
               className="mt-1 block w-full rounded-control border border-neutral-border bg-neutral-surface px-3 py-2 text-sm
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label htmlFor="program-key" className="block text-sm font-medium text-neutral-text-primary">
+              Key
+            </label>
+            <input
+              id="program-key"
+              ref={keyRef}
+              type="text"
+              value={keyField.value}
+              onChange={(e) => keyField.onInput(e.target.value)}
+              maxLength={KEY_MAX_LENGTH.program}
+              autoComplete="off"
+              spellCheck={false}
+              aria-describedby={`${keyStatusId} ${keyHintId}`}
+              aria-invalid={keyField.blocksSubmit || undefined}
+              className="tppm-mono block w-full rounded-control border border-neutral-border bg-neutral-surface px-3 py-2 text-sm
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            />
+            <KeyStatusLine
+              id={keyStatusId}
+              status={keyField.status}
+              onUseSuggestion={(next) => {
+                keyField.applySuggestion(next);
+                keyRef.current?.focus();
+              }}
+            />
+            <p id={keyHintId} className="text-xs text-neutral-text-secondary">
+              Used in this program&rsquo;s link. You can change it later.
+            </p>
           </div>
 
           <div>
@@ -215,7 +269,7 @@ export function NewProgramModal({ onClose, onCreated }: Props) {
             </button>
             <button
               type="submit"
-              disabled={createProgram.isPending}
+              disabled={createProgram.isPending || keyField.blocksSubmit}
               className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-neutral-text-inverse
                 hover:bg-brand-primary/90 disabled:opacity-60
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"

@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useParams } from 'react-router';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
 import { MemberPicker } from '../components/MemberPicker';
@@ -40,6 +39,9 @@ import type {
 import { MC_HISTORY_RETENTION_MAX, MC_HISTORY_RETENTION_MIN } from '@/api/types';
 import { PROGRAM_ACCENT_SWATCHES, contrastText } from '@/features/programs/programColor';
 import { HEALTH_BAND_LABEL } from '@/lib/healthBand';
+import { useProgramId } from '@/hooks/useProgramId';
+import { KeySettingsRow } from '@/features/keys/KeySettingsRow';
+import { extractFieldErrors } from '@/lib/apiError';
 
 // The three band words come from the one health vocabulary (lib/healthBand,
 // #3502), mapped onto this SCREAMING-case override enum at the edge. `Auto`
@@ -181,7 +183,7 @@ function leadToControl(lead: number | null | undefined): string | null {
  * does not blow away the user's in-progress edits.
  */
 export function ProgramGeneralPage() {
-  const { programId } = useParams<{ programId: string }>();
+  const programId = useProgramId();
   const { data: program } = useProgram(programId);
   const { data: ws } = useWorkspaceSettings();
   const exportSeed = useExportProgramSeed();
@@ -236,6 +238,9 @@ export function ProgramGeneralPage() {
   const [initialName, setInitialName] = useState('');
   const [initialDescription, setInitialDescription] = useState('');
   const [initialCode, setInitialCode] = useState('');
+  // The server's `400` on `code` from the last save, shown verbatim in the key
+  // row's status line (ADR-1237 UX §2); cleared as soon as the key is edited.
+  const [codeError, setCodeError] = useState<string | null>(null);
   const [initialHealth, setInitialHealth] = useState<ProgramHealth>('AUTO');
   const [initialTargetDate, setInitialTargetDate] = useState('');
   const [initialMethodology, setInitialMethodology] = useState<ProgramMethodology>('HYBRID');
@@ -395,36 +400,44 @@ export function ProgramGeneralPage() {
 
   const handleSave = useCallback(async () => {
     if (!programId) return;
-    await updateProgram.mutateAsync({
-      programId,
-      patch: {
-        name,
-        description,
-        code,
-        health,
-        // '' clears the target date — the program becomes open-ended (issue 560).
-        target_date: targetDate || null,
-        methodology,
-        // null clears the override (inherit); blank custom normalizes to null (ADR-0116).
-        iteration_label: iterationLabel === null ? null : iterationLabel.trim() || null,
-        // null clears the sharing override so the program inherits the workspace value (ADR-0135).
-        public_sharing: publicSharing,
-        allow_guests: allowGuests,
-        // null clears the forecast-history override so the program inherits the workspace value (ADR-0144).
-        mc_history_enabled: mcHistoryEnabled,
-        mc_history_retention_cap: mcHistoryRetentionCap,
-        mc_history_attribution_audience: mcHistoryAttributionAudience,
-        // null clears the duration-change override so the program inherits the workspace value (ADR-0151).
-        task_duration_change_percent_policy: taskDurationChangePercentPolicy,
-        // null clears the estimation-scale override so the program inherits the workspace value (ADR-0510).
-        estimation_scale: estimationScale,
-        // null clears the sprint-picker override so the program inherits the workspace value (ADR-0758).
-        sprint_picker_ready_only_default: sprintPickerReadyOnlyDefault,
-        visibility,
-        color,
-        lead: lead == null ? null : Number(lead),
-      },
-    });
+    try {
+      await updateProgram.mutateAsync({
+        programId,
+        patch: {
+          name,
+          description,
+          code,
+          health,
+          // '' clears the target date — the program becomes open-ended (issue 560).
+          target_date: targetDate || null,
+          methodology,
+          // null clears the override (inherit); blank custom normalizes to null (ADR-0116).
+          iteration_label: iterationLabel === null ? null : iterationLabel.trim() || null,
+          // null clears the sharing override so the program inherits the workspace value (ADR-0135).
+          public_sharing: publicSharing,
+          allow_guests: allowGuests,
+          // null clears the forecast-history override so the program inherits the workspace value (ADR-0144).
+          mc_history_enabled: mcHistoryEnabled,
+          mc_history_retention_cap: mcHistoryRetentionCap,
+          mc_history_attribution_audience: mcHistoryAttributionAudience,
+          // null clears the duration-change override so the program inherits the workspace value (ADR-0151).
+          task_duration_change_percent_policy: taskDurationChangePercentPolicy,
+          // null clears the estimation-scale override so the program inherits the workspace value (ADR-0510).
+          estimation_scale: estimationScale,
+          // null clears the sprint-picker override so the program inherits the workspace value (ADR-0758).
+          sprint_picker_ready_only_default: sprintPickerReadyOnlyDefault,
+          visibility,
+          color,
+          lead: lead == null ? null : Number(lead),
+        },
+      });
+    } catch (err) {
+      // A key rejection belongs in the key row's status line; the save bar still
+      // reports the failed save.
+      setCodeError(extractFieldErrors(err).code ?? null);
+      throw err;
+    }
+    setCodeError(null);
     // Bump the snapshot — dirty flips back to false and the save bar collapses.
     setInitialName(name);
     setInitialDescription(description);
@@ -475,6 +488,7 @@ export function ProgramGeneralPage() {
   ]);
 
   const handleReset = useCallback(() => {
+    setCodeError(null);
     setName(initialName);
     setDescription(initialDescription);
     setCode(initialCode);
@@ -605,8 +619,8 @@ export function ProgramGeneralPage() {
       {/* Below Admin the whole form is read-only (issue 1084): StubFieldset disables
           every native control with the rule-122 recipe, and the custom pickers /
           toggles get canEdit={canEdit} so they render their own read-only view. */}
-      <StubFieldset disabled={!canEdit}>
-        <div className="px-6 pb-8 max-w-[720px]">
+      <div className="px-6 pb-8 max-w-[720px]">
+        <StubFieldset disabled={!canEdit}>
           <FieldRow label="Program name">
             <input
               type="text"
@@ -616,18 +630,25 @@ export function ProgramGeneralPage() {
               className="w-full max-w-[420px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             />
           </FieldRow>
+        </StubFieldset>
 
-          <FieldRow label="Program code" hint="Used as a prefix for task IDs and exports.">
-            <input
-              type="text"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              aria-label="Program code"
-              maxLength={40}
-              className="w-[140px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-            />
-          </FieldRow>
+        {/* Outside the fieldset on purpose: read-only callers get a copy-link
+            button here, and a disabled <fieldset> would disable it (ADR-1237 UX §2). */}
+        <KeySettingsRow
+          kind="program"
+          objectId={programId}
+          value={code}
+          onChange={(next) => {
+            setCodeError(null);
+            setCode(next);
+          }}
+          savedKey={initialCode}
+          retiredKeyCount={program?.retired_key_count}
+          canEdit={canEdit}
+          serverError={codeError}
+        />
 
+        <StubFieldset disabled={!canEdit}>
           <FieldRow
             label="Accent color"
             hint="Tints this program's identity square in lists and its rollup-chart accents. Optional."
@@ -1155,8 +1176,8 @@ export function ProgramGeneralPage() {
           >
             {programId ? <ExportProgramBundle programId={programId} code={program?.code} /> : null}
           </FieldRow>
-        </div>
-      </StubFieldset>
+        </StubFieldset>
+      </div>
 
       {/* Destructive actions live on the Archive / Delete page (#977). */}
       <DangerZoneLink to="#lifecycle" />

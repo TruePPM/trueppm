@@ -1,4 +1,3 @@
-import { useParams } from 'react-router';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useProgram } from '@/hooks/useProgram';
 import { useProgramMembers } from '../hooks/useProgramMembers';
@@ -10,6 +9,7 @@ import { ProgramInviteForm } from './ProgramInviteForm';
 import { ProgramMemberRow } from './ProgramMemberRow';
 import { ROLE_OWNER } from '@/lib/roles';
 import { isSameUser } from '@/lib/userId';
+import { useProgramId } from '@/hooks/useProgramId';
 
 /**
  * /programs/:programId/members — manage program membership (ADR-0070).
@@ -19,8 +19,7 @@ import { isSameUser } from '@/lib/userId';
  * because that is exactly where the gotcha is most likely to bite.
  */
 export function ProgramMembersTab() {
-  const params = useParams<{ programId: string }>();
-  const programId = params.programId;
+  const programId = useProgramId();
   const { user } = useCurrentUser();
   const { data: program } = useProgram(programId);
   const { data: members = [], isLoading, isError } = useProgramMembers(programId);

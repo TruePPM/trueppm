@@ -246,7 +246,7 @@ describe('ProgramGeneralPage (settings)', () => {
     renderPage();
     expect(screen.getByLabelText('Program name')).toHaveValue('Phase 2 Modernization');
     expect(screen.getByLabelText('Description')).toHaveValue('Q3 platform rebuild');
-    expect(screen.getByLabelText('Program code')).toHaveValue('PH2');
+    expect(screen.getByLabelText('Program key')).toHaveValue('PH2');
     expect(screen.getByRole('button', { name: 'Auto', pressed: true })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'Hybrid', checked: true })).toBeInTheDocument();
   });
@@ -394,7 +394,7 @@ describe('ProgramGeneralPage (settings)', () => {
     rerender(tree());
 
     expect(screen.getByLabelText('Program name')).toHaveValue('Apollo Program');
-    expect(screen.getByLabelText('Program code')).toHaveValue('APOLLO');
+    expect(screen.getByLabelText('Program key')).toHaveValue('APOLLO');
   });
 
   it('renders the lead username + initials when lead_detail is present', () => {
@@ -662,7 +662,11 @@ describe('ProgramGeneralPage (settings)', () => {
     renderPage();
 
     expect(screen.getByLabelText('Program name')).toBeDisabled();
-    expect(screen.getByLabelText('Program code')).toBeDisabled();
+    // Read-only key: plain text plus a copy-link button, not a disabled input
+    // (ADR-1237 UX §2). The button stays operable — it sits outside the fieldset.
+    expect(screen.queryByLabelText('Program key')).not.toBeInTheDocument();
+    expect(screen.getByText('PH2')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy program link' })).toBeEnabled();
     expect(screen.getByLabelText('Description')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Auto' })).toBeDisabled();
     expect(screen.getByRole('radio', { name: 'Hybrid' })).toBeDisabled();
@@ -781,7 +785,7 @@ describe('ProgramGeneralPage (settings)', () => {
     });
     renderPage();
     expect(screen.getByLabelText('Description')).toHaveValue('');
-    expect(screen.getByLabelText('Program code')).toHaveValue('');
+    expect(screen.getByLabelText('Program key')).toHaveValue('');
   });
 
   it('refuses every program-scoped action when the route carries no program id', async () => {
@@ -812,13 +816,14 @@ describe('ProgramGeneralPage (settings)', () => {
     useProgram.mockReturnValue({ data: makeProgram() });
     renderPage();
 
-    const code = screen.getByLabelText('Program code');
+    const code = screen.getByLabelText('Program key');
     await user.clear(code);
+    // Program keys are slugs: the field lowercases as typed (ADR-1237 UX §1).
     await user.type(code, 'APOLLO');
     const description = screen.getByLabelText('Description');
     await user.clear(description);
     await user.type(description, 'Rebuilt on the new stack');
-    expect(code).toHaveValue('APOLLO');
+    expect(code).toHaveValue('apollo');
 
     await act(async () => {
       await useSettingsSaveStore.getState().triggerSave();
@@ -826,7 +831,7 @@ describe('ProgramGeneralPage (settings)', () => {
     const saved = mutateAsync.mock.calls.at(-1)?.[0] as {
       patch: { code: string; description: string };
     };
-    expect(saved.patch.code).toBe('APOLLO');
+    expect(saved.patch.code).toBe('apollo');
     expect(saved.patch.description).toBe('Rebuilt on the new stack');
   });
 
@@ -1078,8 +1083,8 @@ describe('ProgramGeneralPage — methodology align offer (#3293)', () => {
     useProgram.mockReturnValue({ data: makeProgram() });
     renderPage();
 
-    await user.clear(screen.getByLabelText('Program code'));
-    await user.type(screen.getByLabelText('Program code'), 'PH3');
+    await user.clear(screen.getByLabelText('Program key'));
+    await user.type(screen.getByLabelText('Program key'), 'PH3');
     await act(async () => {
       await useSettingsSaveStore.getState().triggerSave();
     });

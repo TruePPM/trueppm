@@ -4,6 +4,8 @@ import { MoreHorizontalIcon } from '@/components/Icons';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProjectRef } from '@/hooks/useProjectRef';
+import { segmentAfterRef } from '@/lib/refPath';
 import { useProjectUnavailable } from '@/hooks/useProjectUnavailable';
 import { useProject } from '@/hooks/useProject';
 import { groupedVisibleViewsForUser, surfaceHiddenViews } from '@/features/shell/methodologyTabs';
@@ -45,12 +47,12 @@ export function BottomNav() {
   // Derive the active view from the segment immediately after the projectId —
   // identical to ViewTabs (ADR-0030). The last segment would misfire on nested
   // routes (e.g. /board/<cardId>), leaving no tab active.
-  const pathSegments = location.pathname.split('/');
-  const projectIdIndex = pathSegments.indexOf(projectId ?? '');
-  const currentView =
-    (projectIdIndex >= 0 ? pathSegments[projectIdIndex + 1] : undefined) ?? 'overview';
-  const isSettingsActive =
-    projectId !== null && location.pathname.includes(`/projects/${projectId}/settings`);
+  // Positional, not `indexOf(projectId)`: the segment is a key on key URLs
+  // (ADR-1237), so the UUID is never in the path to find.
+  const currentView = segmentAfterRef(location.pathname, 'project') ?? 'overview';
+  const isSettingsActive = projectId !== undefined && currentView === 'settings';
+  // Links are built from the key-or-UUID segment so they match the address bar.
+  const projectRef = useProjectRef() ?? projectId;
 
   // Default to HYBRID (all tabs visible) until the project loads; read the
   // server-resolved methodology (ADR-0107) so the rail mirrors ViewTabs.
@@ -127,8 +129,8 @@ export function BottomNav() {
           // active match uses the pathname so aria-current holds across sections.
           const isSettings = view === 'settings';
           const to = isSettings
-            ? `/projects/${projectId}/settings`
-            : `/projects/${projectId}/${view}`;
+            ? `/projects/${projectRef}/settings`
+            : `/projects/${projectRef}/${view}`;
           const isActive = isSettings ? isSettingsActive : currentView === view;
           const { Icon } = meta;
           const label = view === 'sprints' ? sprintsLabel : meta.label;
@@ -188,7 +190,7 @@ export function BottomNav() {
             // the trigger so keyboard users land back on the More button.
             moreButtonRef.current?.focus();
           }}
-          projectId={projectId}
+          projectId={projectRef ?? projectId}
           views={overflow}
           barViews={customizablePrimary}
           pinnedViews={pinnedMobileViews}

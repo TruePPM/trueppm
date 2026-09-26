@@ -208,7 +208,9 @@ test.describe('Project Settings → Template divergence', () => {
     await setup(page, { role: 1 });
     await page.goto(URL);
 
-    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/settings`));
+    // Still on this project's settings — at its key URL, which the app rewrites to
+    // from the id (ADR-1237 §7).
+    await expect(page).toHaveURL(/\/projects\/ATLAS\/settings/);
     await expect(page.getByRole('heading', { name: 'Template divergence' })).toBeVisible();
   });
 
