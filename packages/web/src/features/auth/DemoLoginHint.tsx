@@ -1,81 +1,75 @@
-import { useState } from 'react';
+import { useId } from 'react';
 import { useDemoAccessGate, type DemoLoginHint as DemoLoginHintValue } from '@/hooks/useEdition';
 
 interface Props {
   hint: DemoLoginHintValue;
-  /** Fill the sign-in form with the hint values. Must NOT submit it. */
-  onFill: () => void;
-  /** Mirrors the form's own controls so nothing stays live mid-submit. */
+  /** Sign in with the hint values (ADR-1197 Amendment 2026-09-26, #4153). */
+  onExplore: () => void;
+  /** True while any sign-in is in flight — mirrors the form's own controls. */
   disabled: boolean;
+  /** True while THIS control's sign-in is the one in flight. */
+  isSigningIn: boolean;
 }
 
 /**
- * The read-only demo's shared credential, inside the sign-in form (ADR-1197 D3).
+ * The read-only demo's one-click entry, inside the sign-in form (ADR-1197 D3, amended
+ * 2026-09-26 by #4153).
+ *
+ * "Explore the demo" signs the visitor in with the published credential in one click.
+ * It replaced a "Fill in demo login" control that deliberately stopped short of
+ * submitting, so a visitor who pressed a button to *look* was never signed in
+ * unawares. That consent argument binds the button's **label**, not the click count:
+ * the copy directly above the button says, before the click, that it signs in to one
+ * shared read-only account — so pressing it is the decision to proceed. The button is
+ * `aria-describedby` that copy so a screen-reader user hears the same disclosure with
+ * the name.
+ *
+ * The credential stays printed (`select-all` on each value) for anyone who prefers the
+ * form or an API client: one click is the fast path, not the only one.
  *
  * Rendered at **every** width, unlike the marketing-panel note beside it (`hidden
- * md:flex`): the panel is an announcement a phone can do without, the credential is
- * the one thing a visitor on a phone cannot proceed without.
- *
- * `select-all` on each value so one click takes the whole token — a copy button would
- * be a second affordance for what the Fill control already does in one step.
- *
- * The live region is mounted permanently and empty rather than conditionally
- * rendered: a region that appears *with* its text is announced inconsistently, so the
- * text is injected into a node already in the tree. It hides while empty with
- * `empty:sr-only`, **not** `empty:hidden` — `display:none` removes a node from the
- * accessibility tree, which would make the "permanently mounted" pattern behave
- * exactly like the conditional rendering it exists to avoid (web rule 429).
+ * md:flex`): the panel is an announcement a phone can do without, this is the one
+ * thing a visitor on a phone cannot proceed without.
  */
-export function DemoLoginHint({ hint, onFill, disabled }: Props) {
-  const [filledNotice, setFilledNotice] = useState('');
+export function DemoLoginHint({ hint, onExplore, disabled, isSigningIn }: Props) {
+  const disclosureId = useId();
   // Null on every normal install and on a demo with no gate declared, which is what
   // keeps this disclosure conditional rather than a blanket claim (#3969).
   const accessGate = useDemoAccessGate();
 
-  function handleFill() {
-    onFill();
-    setFilledNotice('Demo credentials filled in. Select Sign in to continue.');
-  }
-
   return (
     <div className="rounded-card border border-neutral-border bg-neutral-surface-raised p-3 flex flex-col gap-2">
-      <p className="text-xs font-medium text-neutral-text-primary">
-        Read-only demo — sign in with the shared account below. Nothing you change is saved.
+      <p id={disclosureId} className="text-xs font-medium text-neutral-text-primary">
+        Read-only demo — one click signs you in to the shared account below. Everyone uses the same
+        account, and nothing you change is saved.
       </p>
+      <button
+        type="button"
+        onClick={onExplore}
+        disabled={disabled}
+        aria-describedby={disclosureId}
+        // The page's primary action in demo mode (the bare origin lands here), so it
+        // takes the primary recipe and the password form's Sign in drops to secondary
+        // — one primary button per screen. Rule 4's `focus:` ring, not
+        // `focus-visible:`: Firefox and desktop Safari do not match `:focus-visible` on
+        // a pointer-initiated button focus.
+        className="
+          h-11 w-full rounded bg-brand-primary text-neutral-text-inverse
+          text-sm font-semibold
+          hover:bg-brand-primary-dark
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
+          disabled:opacity-50 disabled:cursor-not-allowed
+          transition-colors
+        "
+      >
+        {isSigningIn ? 'Opening the demo…' : 'Explore the demo'}
+      </button>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
         <dt className="text-neutral-text-secondary">Email</dt>
         <dd className="tppm-mono text-neutral-text-primary select-all">{hint.username}</dd>
         <dt className="text-neutral-text-secondary">Password</dt>
         <dd className="tppm-mono text-neutral-text-primary select-all">{hint.password}</dd>
       </dl>
-      <button
-        type="button"
-        onClick={handleFill}
-        disabled={disabled}
-        aria-label="Fill in the demo email and password"
-        // Visually the SSO secondary recipe, but with rule 4's `focus:` ring rather
-        // than the `focus-visible:` those buttons carry: this is a standalone trigger,
-        // and Firefox and desktop Safari do not match `:focus-visible` on a
-        // pointer-initiated button focus, so the ring would simply never paint there.
-        className="
-          h-11 w-full rounded border border-neutral-border
-          bg-neutral-surface-raised text-neutral-text-primary
-          text-sm font-medium
-          hover:bg-neutral-surface-sunken
-          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
-          disabled:opacity-50 disabled:cursor-not-allowed
-          transition-colors
-        "
-      >
-        Fill in demo login
-      </button>
-      <p
-        role="status"
-        aria-live="polite"
-        className="text-xs text-neutral-text-secondary empty:sr-only"
-      >
-        {filledNotice}
-      </p>
       {accessGate && (
         // The email-capture disclosure (ADR-1197 D8 resolution, #3969).
         //
@@ -93,12 +87,10 @@ export function DemoLoginHint({ hint, onFill, disabled }: Props) {
           data-testid="demo-access-gate-notice"
           className="text-xs text-neutral-text-secondary border-t border-neutral-border pt-2"
         >
-          <strong className="font-medium text-neutral-text-primary">
-            {accessGate.provider}
-          </strong>{' '}
-          gates this demo host and collected your email address before you reached this
-          page. TruePPM does not store it, and a TruePPM instance you host yourself has
-          no such check unless you add one.
+          <strong className="font-medium text-neutral-text-primary">{accessGate.provider}</strong>{' '}
+          gates this demo host and collected your email address before you reached this page.
+          TruePPM does not store it, and a TruePPM instance you host yourself has no such check
+          unless you add one.
           {accessGate.privacy_url && (
             <>
               {' '}
