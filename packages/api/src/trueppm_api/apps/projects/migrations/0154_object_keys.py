@@ -157,6 +157,14 @@ class Migration(migrations.Migration):
         # the old pod's insert succeeds and the new code heals the blank on its
         # next touch. 0.5 drops the condition and adds CheckConstraint(code <> '')
         # after one full release in which no code path writes a blank.
+        #
+        # Residual gap, accepted (ADR-1237 §4): only the BLANK case is covered.
+        # An old pod (no assign_key()) can still save two case-insensitively
+        # identical NON-blank codes during the window; the index still catches
+        # it, but as an unhandled IntegrityError (500) rather than a graceful
+        # 400. Needs two users typing the same code inside a minutes-long
+        # rollout, self-resolves once every pod is on the new image, and an old
+        # pod cannot be patched retroactively to catch it more gracefully.
         migrations.AddConstraint(
             model_name="program",
             constraint=models.UniqueConstraint(

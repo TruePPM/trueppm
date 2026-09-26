@@ -1520,6 +1520,67 @@ def test_project_list_open_task_count_has_no_n_plus_one(owner: object, calendar:
 
 
 @pytest.mark.django_db
+def test_projects_list_has_no_n_plus_one_from_retired_keys(
+    owner: object, calendar: Calendar
+) -> None:
+    """``retired_key_count`` is retrieve-only (ADR-1237 §3 cap; perf-check 🟡) —
+    listing projects that each carry several retired keys must not add queries.
+    """
+    from trueppm_api.apps.projects.models import ObjectKeySource
+    from trueppm_api.apps.projects.services import assign_key
+
+    def seed(name: str, n_projects: int) -> None:
+        for i in range(n_projects):
+            p = _make_project(owner, calendar, name=f"{name}-{i}")
+            # Each rename retires the previous current key, so 4 calls leave 3
+            # retired ObjectKey rows on the project.
+            for j in range(4):
+                assign_key(p, f"{name}{i}k{j}", source=ObjectKeySource.USER)
+
+    seed("one", 1)
+
+    def list_query_count() -> int:
+        with CaptureQueriesContext(connection) as ctx:
+            r = _client(owner).get("/api/v1/projects/")
+            assert r.status_code == 200, r.content
+        return len(ctx.captured_queries)
+
+    list_query_count()
+    baseline = list_query_count()
+    seed("many", 5)
+    assert list_query_count() == baseline
+
+
+@pytest.mark.django_db
+def test_programs_list_has_no_n_plus_one_from_retired_keys(owner: object) -> None:
+    """Same guard as above for ``GET /api/v1/programs/`` — the annotation is
+    retrieve/update-only (program_views.py), so the directory list must not pay
+    a per-row query regardless of how many programs carry retired keys.
+    """
+    from trueppm_api.apps.projects.models import ObjectKeySource
+    from trueppm_api.apps.projects.services import assign_key
+
+    def seed(name: str, n_programs: int) -> None:
+        for i in range(n_programs):
+            program = _create_program(_client(owner), name=f"{name}-{i}")
+            for j in range(4):
+                assign_key(program, f"{name}{i}k{j}", source=ObjectKeySource.USER)
+
+    seed("one", 1)
+
+    def list_query_count() -> int:
+        with CaptureQueriesContext(connection) as ctx:
+            r = _client(owner).get("/api/v1/programs/")
+            assert r.status_code == 200, r.content
+        return len(ctx.captured_queries)
+
+    list_query_count()
+    baseline = list_query_count()
+    seed("many", 5)
+    assert list_query_count() == baseline
+
+
+@pytest.mark.django_db
 def test_serializer_exposes_real_health(owner: object, calendar: Calendar) -> None:
     # The list row carries the project's health enum so the sidebar dot can color
     # from server data rather than hardcoding 'unknown'.

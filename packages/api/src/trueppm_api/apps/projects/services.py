@@ -23,6 +23,16 @@ from typing import TYPE_CHECKING, Any
 from django.db import transaction
 from django.utils import timezone
 
+# Re-exported (not just used internally) so every existing ``from
+# trueppm_api.apps.projects.services import KeyAssignmentError`` keeps working.
+# Defined in ``keys.py``, not here, because ``next_free_key``'s suffix-attempt
+# cap (ADR-1237, security-review/perf-check) must be able to raise it, and
+# that module is deliberately import-light — nothing there may depend on this
+# one. Safe as a module-level import: ``keys.py`` has no Django/ORM imports.
+# The ``as KeyAssignmentError`` (not a plain import) is required under
+# mypy --strict: a plain re-import is not treated as an explicit re-export.
+from trueppm_api.apps.projects.keys import KeyAssignmentError as KeyAssignmentError
+
 if TYPE_CHECKING:
     from django.db.models import QuerySet
 
@@ -6971,12 +6981,10 @@ def clear_all_uncommitted_cpm_output(
 # ---------------------------------------------------------------------------
 
 
-class KeyAssignmentError(ValueError):
-    """A key write refused for a caller-correctable reason; always a ``400`` on ``code``.
-
-    The message never names the object holding a taken key — the existence oracle
-    ADR-1237 §6 accepts leaks *that* a key is taken, never *by what*.
-    """
+# KeyAssignmentError is imported at module top (re-exported so every existing
+# ``from trueppm_api.apps.projects.services import KeyAssignmentError`` keeps
+# working unchanged) — see the import block's comment for why it now lives in
+# ``keys.py`` instead of here.
 
 
 def _key_kind(obj: Any) -> str:

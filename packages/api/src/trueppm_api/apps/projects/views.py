@@ -1719,6 +1719,24 @@ class ProjectViewSet(
                     Subquery(unresolved, output_field=IntegerField()), 0
                 )
             )
+            # The key-rename cap (ADR-1237): the settings page reads this to make
+            # the key field read-only at 10. A live .count() per detail retrieve
+            # was the perf-check finding; fold it into the row as a correlated
+            # subquery, mirroring the Program equivalent (program_views.py) and
+            # unresolved_assignee_count above. Retrieve only, so list never pays
+            # a per-row count.
+            from trueppm_api.apps.projects.models import ObjectKey
+
+            retired = (
+                ObjectKey.objects.filter(project=OuterRef("pk"), is_current=False)
+                .order_by()
+                .values("project")
+                .annotate(c=Count("pk"))
+                .values("c")
+            )
+            qs = qs.annotate(
+                _retired_key_count=Coalesce(Subquery(retired, output_field=IntegerField()), 0)
+            )
         if self.action == "list":
             # Per-project open-task count for the sidebar row badge (#960):
             # non-deleted tasks that are not yet COMPLETE. A LEFT JOIN + Count
@@ -2542,14 +2560,28 @@ class ProjectViewSet(
                 # successor (ADR-1237); give the restored original a fresh one
                 # rather than bringing it back unaddressable.
                 from trueppm_api.apps.projects.models import ObjectKeySource
-                from trueppm_api.apps.projects.services import assign_key, derive_key
-
-                assign_key(
-                    project,
-                    derive_key(project.name, "project", exclude=project),
-                    source=ObjectKeySource.DERIVED,
-                    actor=request.user,
+                from trueppm_api.apps.projects.services import (
+                    KeyAssignmentError,
+                    assign_key,
+                    derive_key,
                 )
+
+                try:
+                    assign_key(
+                        project,
+                        derive_key(project.name, "project", exclude=project),
+                        source=ObjectKeySource.DERIVED,
+                        actor=request.user,
+                    )
+                except KeyAssignmentError as exc:
+                    # next_free_key's suffix-attempt cap (security-review Low,
+                    # perf-check Low): astronomically unlikely for a real
+                    # project name, but a 400 the caller can act on beats an
+                    # unhandled 500 mid-restore. Roll back the restore() above —
+                    # returning from inside `with transaction.atomic()` commits
+                    # unless told otherwise.
+                    transaction.set_rollback(True)
+                    return Response({"code": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
             cascade_project_children_restore(project)
             _record_project_audit_event(
                 event_type="project_restored",

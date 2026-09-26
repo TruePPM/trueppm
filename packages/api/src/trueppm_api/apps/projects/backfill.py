@@ -300,10 +300,16 @@ class RewrittenKey(NamedTuple):
 def _creation_order(model: Any, historical_model: Any | None) -> dict[Any, Any]:
     """Map each row's pk to a sortable "when was it created" value.
 
-    ``Program`` carries ``created_at``. ``Project`` does not, so its earliest
-    history row stands in — the closest thing to a creation timestamp the table
-    has. A row with neither sorts last, by pk, which is deterministic if not
-    meaningful.
+    ``Program`` carries ``created_at``. ``Project`` does not, so its history
+    stands in — the closest thing to a creation timestamp the table has. A row
+    with neither sorts last, by pk, which is deterministic if not meaningful.
+
+    Prefers the single ``history_type="+"`` (creation) row per project
+    (perf-check Low): that turns the lookup into an equality-indexed filter
+    instead of a ``Min(history_date)`` aggregate over every historical revision
+    of every project. A project can lack a ``+`` row (data older than
+    history-tracking, or a squashed/rebuilt history table) — those fall back to
+    ``Min(history_date)`` over that project's own rows only, not the whole table.
     """
     from django.db.models import Min
 
@@ -311,11 +317,18 @@ def _creation_order(model: Any, historical_model: Any | None) -> dict[Any, Any]:
         return dict(model.objects.values_list("pk", "created_at"))
     if historical_model is None:
         return {}
-    return dict(
-        historical_model.objects.values("id")
-        .annotate(first=Min("history_date"))
-        .values_list("id", "first")
+    order: dict[Any, Any] = dict(
+        historical_model.objects.filter(history_type="+").values_list("id", "history_date")
     )
+    missing = set(model.objects.values_list("pk", flat=True)) - set(order)
+    if missing:
+        order.update(
+            historical_model.objects.filter(id__in=missing)
+            .values("id")
+            .annotate(first=Min("history_date"))
+            .values_list("id", "first")
+        )
+    return order
 
 
 def repair_object_keys(

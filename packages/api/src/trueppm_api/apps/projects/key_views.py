@@ -30,6 +30,7 @@ from drf_spectacular.utils import (
     inline_serializer,
 )
 from rest_framework import serializers, status
+from rest_framework.authentication import BaseAuthentication
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -248,7 +249,36 @@ def _resolve_child(project: Project, marker: str, number: int) -> dict[str, Any]
     return _child_body(project, "sprint", sprint, "SP", number) if sprint else None
 
 
-class ResolveView(APIView):
+class _TokenReachableView(APIView):
+    """Accept a project/program-scoped API token ahead of the default auth stack.
+
+    ``readable_projects``/``readable_programs`` (above) already intersect a
+    project- or program-scoped ``ApiToken`` against its own ``project_id``/
+    ``program_id`` — that IS the #1712 confused-deputy defense for this surface.
+    Without this override, such a token never reaches that code at all: the
+    default auth stack's ``OwnerScopedApiTokenAuthentication`` accepts only
+    owner-scoped (personal) tokens and 401s every project/program token before
+    the view runs, so ``readable_projects``'/``readable_programs``' token
+    branches were dead in production (rbac-check finding, security-review Low).
+
+    This mirrors ``McpReadableViewMixin.get_authenticators`` — prepend
+    ``ProjectApiTokenAuthentication`` so a ``tppm_`` bearer authenticates before
+    JWT/the owner-scoped class get a turn — but deliberately WITHOUT that
+    mixin's ``TokenIsOwnerScoped`` guard, which *rejects* project/program
+    tokens outright for the unscoped MCP collection reads (#1712). Rejecting
+    them here would be the opposite bug: ADR-1237 §5 is written for exactly a
+    project/program token narrowing the resolver to its own scope, so the
+    guard that protects the MCP surface would 401 the very callers this
+    endpoint exists to admit.
+    """
+
+    def get_authenticators(self) -> list[BaseAuthentication]:
+        from trueppm_api.apps.projects.authentication import ProjectApiTokenAuthentication
+
+        return [ProjectApiTokenAuthentication(), *super().get_authenticators()]
+
+
+class ResolveView(_TokenReachableView):
     """Resolve a key, retired key, UUID, or ``PLAT-T-10`` reference to UUIDs (ADR-1237 §5).
 
     Read-only, no side effects, no audit event. Anything the caller cannot read
@@ -330,7 +360,7 @@ class ResolveView(APIView):
         return _resolve_child(project, match["marker"].upper(), int(match["n"]))
 
 
-class KeySuggestionView(APIView):
+class KeySuggestionView(_TokenReachableView):
     """Suggest a key from a name, or check one key's availability (ADR-1237 §6).
 
     **This is an existence oracle, and that is accepted.** A workspace-unique
@@ -369,42 +399,54 @@ class KeySuggestionView(APIView):
         },
     )
     def get(self, request: Request) -> Response:
-        from trueppm_api.apps.projects.services import derive_key, is_key_taken, suggest_free_key
+        from trueppm_api.apps.projects.services import (
+            KeyAssignmentError,
+            derive_key,
+            is_key_taken,
+            suggest_free_key,
+        )
 
         kind = _kind(request)
         if kind is None:
             return _bad_request("kind must be 'project' or 'program'.")
         raw_key = (request.query_params.get("key") or "").strip()
         name = (request.query_params.get("name") or "").strip()
-        if raw_key:
-            if len(raw_key) > _MAX_REF_LENGTH:
-                return _bad_request("key is too long.")
-            key = normalize_key(raw_key, kind)
-            problem = key_format_error(key, kind)
-            if problem is not None:
-                reserved = is_reserved(key)
-                base = key if reserved else base_key_for(raw_key, kind)
-                return Response(
-                    {
-                        "available": False,
-                        "reason": "reserved" if reserved else "invalid",
-                        "suggestion": suggest_free_key(base, kind),
-                    }
-                )
-            exclude = self._renamed_object(request, kind)
-            if is_key_taken(kind, key, exclude=exclude):
-                return Response(
-                    {
-                        "available": False,
-                        "reason": "taken",
-                        "suggestion": suggest_free_key(key, kind),
-                    }
-                )
-            return Response({"available": True, "reason": None, "suggestion": key})
-        if name:
-            if len(name) > 255:
-                return _bad_request("name is too long.")
-            return Response({"suggestion": derive_key(name, kind)})
+        try:
+            if raw_key:
+                if len(raw_key) > _MAX_REF_LENGTH:
+                    return _bad_request("key is too long.")
+                key = normalize_key(raw_key, kind)
+                problem = key_format_error(key, kind)
+                if problem is not None:
+                    reserved = is_reserved(key)
+                    base = key if reserved else base_key_for(raw_key, kind)
+                    return Response(
+                        {
+                            "available": False,
+                            "reason": "reserved" if reserved else "invalid",
+                            "suggestion": suggest_free_key(base, kind),
+                        }
+                    )
+                exclude = self._renamed_object(request, kind)
+                if is_key_taken(kind, key, exclude=exclude):
+                    return Response(
+                        {
+                            "available": False,
+                            "reason": "taken",
+                            "suggestion": suggest_free_key(key, kind),
+                        }
+                    )
+                return Response({"available": True, "reason": None, "suggestion": key})
+            if name:
+                if len(name) > 255:
+                    return _bad_request("name is too long.")
+                return Response({"suggestion": derive_key(name, kind)})
+        except KeyAssignmentError as exc:
+            # Namespace-squatting cap (security-review Low, perf-check Low):
+            # next_free_key() gives up after MAX_SUFFIX_ATTEMPTS rather than
+            # looping forever. A 400 the caller can act on (pick their own key),
+            # never a 500.
+            return _bad_request(str(exc))
         return _bad_request("Send name or key.")
 
     def _renamed_object(self, request: Request, kind: str) -> Any:

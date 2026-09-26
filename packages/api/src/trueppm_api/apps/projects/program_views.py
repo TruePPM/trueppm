@@ -2127,10 +2127,16 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             load_sample,
             prepare_sample_for_user,
         )
+        from trueppm_api.apps.projects.services import KeyAssignmentError
 
         key = object_body(request).get("sample", DEFAULT_SAMPLE)
         try:
             program = load_sample(key, owner=request.user, create_users=True)
+        except KeyAssignmentError as exc:
+            # next_free_key's suffix-attempt cap (security-review Low,
+            # perf-check Low): reachable here if this sample were loaded far
+            # more times than any real workspace would — a 400, not a 500.
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except SeedReplaceAmbiguous as exc:
             # The demo loader reloads in place, so it passes replace=True — but
             # Program.code is non-unique, and two live sample programs sharing
@@ -2461,6 +2467,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         Body: ``{"splits": [{"name": str, "project_ids": [uuid]}, ...]}``
         """
         from trueppm_api.apps.access.services import split_program
+        from trueppm_api.apps.projects.services import KeyAssignmentError
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         # Owner-only object check (also confirms the program exists).
@@ -2504,6 +2511,10 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 {"detail": detail},  # codeql[py/stack-trace-exposure]
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except KeyAssignmentError as exc:
+            # A sub-program's derived key hit next_free_key's suffix-attempt cap
+            # (security-review Low, perf-check Low) — a 400, not a 500.
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         program_id = str(program.pk)
         sub_ids = [str(sub.pk) for sub in sub_programs]

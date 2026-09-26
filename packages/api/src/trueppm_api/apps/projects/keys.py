@@ -47,6 +47,17 @@ _UUID_SHAPED = re.compile(
 #: otherwise reserve keys forever.
 MAX_RETIRED_KEYS = 10
 
+#: Cap on how many candidates :func:`next_free_key` will probe (security-review
+#: Low, perf-check Low). Without a bound, namespace squatting — deliberately
+#: registering every key in a popular name's suffix run (``PLAT``, ``PLAT2``,
+#: ``PLAT3``, …) — turns another user's create or rename into an unbounded
+#: loop of 1-2 queries per candidate. 1000 is far past any real collision run
+#: (the suffix cap already trims the base to fit ``PROJECT_KEY_MAX``/
+#: ``PROGRAM_KEY_MAX``, so exhausting it needs 1000 deliberately-squatted keys
+#: for one base) and still resolves in well under the ``resolve`` throttle's
+#: per-request budget.
+MAX_SUFFIX_ATTEMPTS = 1000
+
 # The en dash matches the UX copy (ADR-1237 UX spec §1) the web renders verbatim.
 PROJECT_FORMAT_MESSAGE = "Letters and digits only, starting with a letter, 2–10 characters."  # noqa: RUF001
 PROGRAM_FORMAT_MESSAGE = "Lowercase letters, digits and hyphens, up to 40 characters."
@@ -59,6 +70,24 @@ CAP_MESSAGE = (
 
 _PROJECT_FALLBACK = "PROJ"
 _PROGRAM_FALLBACK = "program"
+
+SUFFIX_EXHAUSTED_MESSAGE = "Couldn't find a free key from this name — please choose one."
+
+
+class KeyAssignmentError(ValueError):
+    """A key write refused for a caller-correctable reason; always a ``400`` on ``code``.
+
+    Defined here rather than in ``services.py`` (its main call site and the
+    module every existing ``except KeyAssignmentError`` imports it from)
+    because :func:`next_free_key` below must be able to raise it, and this
+    module is deliberately import-light (see the module docstring) — nothing
+    here may depend on ``services.py``. ``services.py`` re-exports this name,
+    so every existing ``from trueppm_api.apps.projects.services import
+    KeyAssignmentError`` keeps working unchanged.
+
+    The message never names the object holding a taken key — the existence
+    oracle ADR-1237 §6 accepts leaks *that* a key is taken, never *by what*.
+    """
 
 
 def is_uuid_shaped(value: str) -> bool:
@@ -153,10 +182,24 @@ def next_free_key(base: str, kind: str, is_taken: Callable[[str], bool]) -> str:
     ``is_taken`` is asked about each candidate; reserved and UUID-shaped
     candidates are skipped without asking. The suffix trims the base rather than
     exceeding the length cap, so ``ABCDEFGHIJ`` steps to ``ABCDEFGHI2``.
+
+    Raises:
+        KeyAssignmentError: after :data:`MAX_SUFFIX_ATTEMPTS` candidates are all
+            reserved or taken (security-review Low, perf-check Low). Without a
+            bound, namespace squatting — pre-registering every suffix of a
+            popular base — turns another caller's create or rename into an
+            unbounded loop of 1-2 queries per candidate. Every caller of this
+            function already sits behind (or is wrapped to sit behind) a
+            ``KeyAssignmentError`` handler that turns it into a ``400`` on
+            ``code``, so this is a caller-correctable refusal, not a crash.
     """
     candidate = base
     n = 1
+    attempts = 1
     while is_reserved(candidate) or is_taken(candidate):
+        if attempts >= MAX_SUFFIX_ATTEMPTS:
+            raise KeyAssignmentError(SUFFIX_EXHAUSTED_MESSAGE)
         n += 1
         candidate = _suffixed(base, n, kind)
+        attempts += 1
     return candidate

@@ -1073,6 +1073,13 @@ class Program(VersionedModel):
             # program with ``code=""`` after this constraint lands; a full index
             # would 500 its second such create. 0.5 drops the condition and adds a
             # ``code <> ''`` check, after one release in which nothing writes a blank.
+            # Residual gap, accepted (ADR-1237 §4): this only covers a BLANK code.
+            # An old pod can still save two case-insensitively identical NON-blank
+            # codes during the window — the index still catches it, but as an
+            # unhandled IntegrityError (500), not the new pod's graceful 400. Needs
+            # two users typing the same code inside a minutes-long rollout; it
+            # self-resolves once every pod is on the new image, and an old pod
+            # cannot be patched retroactively to catch it more gracefully.
             models.UniqueConstraint(
                 Upper("code"),
                 condition=~Q(code=""),
@@ -1738,7 +1745,10 @@ class Project(VersionedModel):
         ]
         constraints = [
             # ROLLING-UPGRADE WINDOW — same reason as ``Program.Meta`` (migration
-            # rule 8, ADR-1237 §4). 0.5 drops the blank exclusion.
+            # rule 8, ADR-1237 §4). 0.5 drops the blank exclusion. Same residual
+            # gap too: an old pod saving two identical NON-blank codes during the
+            # window still 500s (IntegrityError) rather than getting a graceful
+            # 400 — accepted, see ``Program.Meta`` above for why.
             models.UniqueConstraint(
                 Upper("code"),
                 condition=~Q(code=""),

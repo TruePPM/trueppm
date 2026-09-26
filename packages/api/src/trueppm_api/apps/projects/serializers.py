@@ -530,12 +530,15 @@ def _create_with_key(serializer: Any, validated_data: dict[str, Any]) -> Any:
     kind = "program" if serializer.Meta.model is Program else "project"
     code = validated_data.get("code") or ""
     source = ObjectKeySource.USER
-    if not code:
-        code = derive_key(validated_data.get("name", ""), kind)
-        source = ObjectKeySource.DERIVED
-    validated_data["code"] = code
     request = serializer.context.get("request")
     try:
+        if not code:
+            # Inside the try: derive_key's next_free_key can raise
+            # KeyAssignmentError past the suffix-attempt cap (security-review
+            # Low, perf-check Low) — a caller-correctable 400, not a 500.
+            code = derive_key(validated_data.get("name", ""), kind)
+            source = ObjectKeySource.DERIVED
+        validated_data["code"] = code
         with transaction.atomic():
             instance = serializers.ModelSerializer.create(serializer, validated_data)
             # save=False: ``code`` is already in the INSERT above, so a second
@@ -570,13 +573,15 @@ def _assign_key_on_update(serializer: Any, instance: Any, validated_data: dict[s
     kind = "program" if isinstance(instance, Program) else "project"
     code = validated_data["code"] or ""
     source = ObjectKeySource.USER
-    if not code:
-        if instance.code:
-            raise serializers.ValidationError({"code": ["A key is required."]})
-        code = derive_key(validated_data.get("name") or instance.name, kind, exclude=instance)
-        source = ObjectKeySource.DERIVED
     request = serializer.context.get("request")
     try:
+        if not code:
+            if instance.code:
+                raise serializers.ValidationError({"code": ["A key is required."]})
+            # Inside the try: next_free_key's suffix-attempt cap (ADR-1237,
+            # security-review Low, perf-check Low) can raise KeyAssignmentError.
+            code = derive_key(validated_data.get("name") or instance.name, kind, exclude=instance)
+            source = ObjectKeySource.DERIVED
         assign_key(instance, code, source=source, actor=getattr(request, "user", None), save=False)
     except KeyAssignmentError as exc:
         raise serializers.ValidationError({"code": [str(exc)]}) from exc
@@ -10721,16 +10726,17 @@ class ProjectDetailSerializer(ProjectSerializer):
             "retired_key_count",
         ]
 
-    def get_retired_key_count(self, obj: Project) -> int:
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_retired_key_count(self, obj: Project) -> int | None:
         """Retired keys this project holds (ADR-1237 threat model: cap of 10).
 
         The settings page makes the key field read-only at the cap rather than
-        letting the user type a rename the server will refuse. Detail only — one
-        indexed count per retrieve, never on the list.
+        letting the user type a rename the server will refuse. Backed by the
+        viewset's retrieve-only ``_retired_key_count`` Subquery annotation
+        (perf-check: a live ``.count()`` per detail retrieve) — ``None`` if the
+        annotation is absent, so this never issues a query of its own.
         """
-        from trueppm_api.apps.projects.services import retired_key_count
-
-        return retired_key_count(obj)
+        return getattr(obj, "_retired_key_count", None)
 
     def get_my_facets(self, obj: Project) -> dict[str, bool]:
         """The requesting user's own team facets on this project (#1095).

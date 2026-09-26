@@ -152,6 +152,16 @@ the first `assign_key()` touch (or the next release's repair step) derives its k
 blank exclusion is dropped, and a `CheckConstraint(code <> "")` is added, in 0.5, after
 one full release in which no code writes a blank.
 
+**Residual gap, accepted (migration-check 🟡):** the window is covered for a *blank*
+code, not for a *typed, non-blank* one. An old pod (pre-0.4 image, no `assign_key()`)
+can still save two case-insensitively identical non-blank codes during the window —
+the partial index does not exclude those, so the second `INSERT`/`UPDATE` surfaces as
+an unhandled `IntegrityError` (a 500), not the graceful 400 a new pod's serializer
+gives. Accepted rather than closed further: it needs two users to type the *same*
+non-blank code inside a minutes-long rollout window, which self-resolves the moment
+every pod is on the new image — and an old pod cannot be patched retroactively to
+catch it gracefully.
+
 ### 5. Resolver
 
 `GET /api/v1/resolve/?ref=<ref>&kind=project|program` →

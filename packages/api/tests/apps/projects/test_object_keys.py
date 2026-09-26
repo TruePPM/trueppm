@@ -12,6 +12,7 @@ import copy
 import uuid
 from datetime import date
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -19,9 +20,11 @@ from django.db import IntegrityError, transaction
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
+from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
 from trueppm_api.apps.projects.backfill import repair_object_keys
 from trueppm_api.apps.projects.key_views import KeySuggestionView, ResolveView
-from trueppm_api.apps.projects.keys import MAX_RETIRED_KEYS, base_key_for
+from trueppm_api.apps.projects.keys import MAX_RETIRED_KEYS, MAX_SUFFIX_ATTEMPTS, base_key_for
+from trueppm_api.apps.projects.keys import next_free_key as _next_free_key
 from trueppm_api.apps.projects.models import (
     ApiToken,
     HistoricalProject,
@@ -77,6 +80,34 @@ def _project(owner: Any, name: str = "Platform", code: str = "", **extra: Any) -
     resp = _client(owner).post(PROJECTS_URL, body, format="json")
     assert resp.status_code == 201, resp.content
     return Project.objects.get(pk=resp.data["id"])
+
+
+def _mint_project_token(project: Project, creator: Any) -> tuple[ApiToken, str]:
+    """A real project-scoped ``ApiToken`` with a known raw value, for a genuine Bearer header.
+
+    Mirrors ``test_inbound_task_sync.py``'s ``_mint_token`` — a token minted this
+    way exercises the real ``ProjectApiTokenAuthentication`` path (unlike
+    ``force_authenticate(token=...)``, which sets ``request.auth`` directly and
+    never touches the authenticator that gates whether the token reaches the
+    view at all).
+    """
+    import secrets
+
+    raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+    token = ApiToken.objects.create(
+        project=project,
+        name="t",
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+        created_by=creator,
+    )
+    return token, raw
+
+
+def _bearer_client(raw_token: str) -> APIClient:
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
+    return client
 
 
 def _raw_project(name: str, code: str = "", member: Any = None) -> Project:
@@ -172,6 +203,56 @@ class TestRepair:
         _raw_project("One", code="DUP")
         with pytest.raises(IntegrityError), transaction.atomic():
             _raw_project("Two", code="dup")
+
+
+class TestCreationOrder:
+    """``_creation_order`` (perf-check Low): prefer the indexed ``history_type="+"``
+    row, falling back to ``Min(history_date)`` only for a project that has none.
+    """
+
+    def test_prefers_the_creation_row(self) -> None:
+        from trueppm_api.apps.projects.backfill import _creation_order
+
+        p = _raw_project("Alpha")
+        plus_row = HistoricalProject.objects.get(id=p.pk, history_type="+")
+        order = _creation_order(Project, HistoricalProject)
+        assert order[p.pk] == plus_row.history_date
+
+    def test_falls_back_to_min_history_date_with_no_creation_row(self) -> None:
+        """A project whose ``+`` row is gone (older-than-history-tracking data, or
+        a squashed/rebuilt history table) still gets an order, from whatever
+        history it does have.
+        """
+        from trueppm_api.apps.projects.backfill import _creation_order
+
+        p = _raw_project("Alpha")
+        p.name = "Alpha Renamed"
+        p.save(update_fields=["name"])  # a "~" row, so one remains after the delete below
+        HistoricalProject.objects.filter(id=p.pk, history_type="+").delete()
+        remaining = HistoricalProject.objects.get(id=p.pk)
+        order = _creation_order(Project, HistoricalProject)
+        assert order[p.pk] == remaining.history_date
+
+    def test_mixed_batch_uses_each_projects_best_available_order(self) -> None:
+        """A project with a ``+`` row and one without are ordered correctly
+        against each other in the same call — the fallback query must not
+        clobber or ignore the indexed-path results.
+        """
+        from trueppm_api.apps.projects.backfill import _creation_order
+
+        with_plus = _raw_project("HasPlus")
+        without_plus = _raw_project("NoPlus")
+        without_plus.name = "NoPlus Renamed"
+        without_plus.save(update_fields=["name"])
+        HistoricalProject.objects.filter(id=without_plus.pk, history_type="+").delete()
+
+        order = _creation_order(Project, HistoricalProject)
+        assert (
+            order[with_plus.pk]
+            == HistoricalProject.objects.get(id=with_plus.pk, history_type="+").history_date
+        )
+        no_plus_row = HistoricalProject.objects.get(id=without_plus.pk)
+        assert order[without_plus.pk] == no_plus_row.history_date
 
 
 # ---------------------------------------------------------------------------
@@ -345,6 +426,22 @@ class TestCreateAndRename:
         with pytest.raises(KeyAssignmentError):
             assign_key(other, "ALPHA", source=ObjectKeySource.USER)
 
+    def test_scheduler_cannot_change_a_project_key(self, owner: Any) -> None:
+        """``code`` inherits the PATCH endpoint's existing permission gate (ADR-1237
+        §3) — it is not in ``_SCHEDULER_WRITABLE_FIELDS``, so a sub-Admin Scheduler
+        is rejected exactly like any other Admin-only field (rbac-check Low).
+        Mirrors ``test_project_lead.py::test_scheduler_cannot_set_lead``.
+        """
+        p = _project(owner, "Alpha", code="ALPHA")
+        sched = User.objects.create_user(username="sched-alpha", email="sched-alpha@example.com")
+        ProjectMembership.objects.create(project=p, user=sched, role=Role.SCHEDULER)
+        resp = _client(sched).patch(f"{PROJECTS_URL}{p.pk}/", {"code": "NEWKEY"}, format="json")
+        assert resp.status_code == 400
+        assert "Project Manager role" in str(resp.data)
+        p.refresh_from_db()
+        assert p.code == "ALPHA"
+        assert ObjectKey.objects.filter(project=p).count() == 1
+
     def test_assign_key_heals_a_keyless_project(self) -> None:
         # What a pre-0.4 pod writes during the rolling upgrade.
         p = _raw_project("Old Pod")
@@ -456,6 +553,12 @@ class TestResolve:
 
         The tripwire for the ADR-1237 top risk: a "fast path" that looks a key up
         before checking access reintroduces the hidden/missing distinction.
+
+        The token case sends a REAL ``Authorization: Bearer`` header through a
+        genuinely minted project-scoped token — not ``force_authenticate(token=...)``,
+        which sets ``request.auth`` directly and bypasses the authenticator that,
+        before ``_TokenReachableView``, 401'd every project/program token before the
+        view's own scoping ever ran (rbac-check finding).
         """
         # Hidden: a project the caller is not a member of.
         _project(outsider, "Hidden", code="HIDDEN")
@@ -465,26 +568,24 @@ class TestResolve:
         # Out of token scope: the caller IS a member, but the token is bound elsewhere.
         mine = _project(owner, "Mine", code="MINE")
         bound = _project(owner, "Bound", code="BOUND")
-        token = ApiToken.objects.create(
-            project=bound,
-            name="t",
-            token_prefix="abcd1234",
-            token_hash=uuid.uuid4().hex,
-            created_by=owner,
-        )
+        _, raw = _mint_project_token(bound, owner)
+        token_client = _bearer_client(raw)
 
         responses = [
             _resolve(_client(owner), "NOSUCH"),
             _resolve(_client(owner), "HIDDEN"),
-            _resolve(_client(owner, token=token), "MINE"),
+            _resolve(token_client, "MINE"),
             _resolve(_client(owner), "OLDKEY"),
             _resolve(_client(owner), str(uuid.uuid4())),
         ]
         assert {r.status_code for r in responses} == {404}
         assert len({r.content for r in responses}) == 1
         assert responses[0].json() == {"detail": "Not found."}
-        # Sanity: the token does resolve its own project, and the owner sees MINE.
-        assert _resolve(_client(owner, token=token), "BOUND").status_code == 200
+        # Sanity: the real token authenticates and resolves its own bound project,
+        # and the owner's own session sees MINE.
+        in_scope = _resolve(token_client, "BOUND")
+        assert in_scope.status_code == 200
+        assert in_scope.data["id"] == str(bound.pk)
         assert _resolve(_client(owner), "MINE").data["id"] == str(mine.pk)
 
     def test_a_trashed_project_does_not_resolve(self, owner: Any) -> None:
@@ -579,6 +680,30 @@ class TestKeys:
 
     def test_unauthenticated_is_refused(self) -> None:
         assert APIClient().get(KEYS_URL, {"kind": "project", "name": "x"}).status_code == 401
+
+    def test_suffix_attempts_are_capped(self) -> None:
+        """next_free_key gives up after MAX_SUFFIX_ATTEMPTS rather than looping
+        forever (security-review Low, perf-check Low): a stubbed ``is_taken``
+        that never returns False must not spin — namespace squatting (every
+        suffix of a base pre-registered) must fail fast for the next caller.
+        """
+        calls: list[str] = []
+
+        def _always_taken(candidate: str) -> bool:
+            calls.append(candidate)
+            return True
+
+        with pytest.raises(KeyAssignmentError):
+            _next_free_key("PLAT", "project", _always_taken)
+        assert len(calls) == MAX_SUFFIX_ATTEMPTS
+
+    def test_the_view_returns_400_when_the_suffix_cap_is_hit(self, owner: Any) -> None:
+        """The stubbed-``is_taken`` cap (above) surfaces as a 400, not a 500,
+        from a real request through the suggestion view.
+        """
+        with patch("trueppm_api.apps.projects.services.is_key_taken", return_value=True):
+            r = _client(owner).get(KEYS_URL, {"kind": "project", "name": "Platform"})
+        assert r.status_code == 400
 
 
 # ---------------------------------------------------------------------------

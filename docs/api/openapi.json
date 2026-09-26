@@ -5136,6 +5136,9 @@
                 ],
                 "security": [
                     {
+                        "projectApiTokenAuth": []
+                    },
+                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -37253,6 +37256,9 @@
                 ],
                 "security": [
                     {
+                        "projectApiTokenAuth": []
+                    },
+                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -66881,7 +66887,7 @@
                     },
                     "retired_key_count": {
                         "type": "integer",
-                        "description": "Retired keys this project holds (ADR-1237 threat model: cap of 10).\n\nThe settings page makes the key field read-only at the cap rather than\nletting the user type a rename the server will refuse. Detail only — one\nindexed count per retrieve, never on the list.",
+                        "nullable": true,
                         "readOnly": true
                     }
                 },
