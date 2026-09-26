@@ -3,7 +3,8 @@
  * (ADR-1197 D3/D4, #3926).
  *
  * Three surfaces, one deployment fact (`demo_read_only` on `/edition/`):
- *  - the login screen announces the mode and publishes the shared credential;
+ *  - the login screen announces the mode, publishes the shared credential, and
+ *    signs the visitor in with one click (#4153);
  *  - the shell carries a persistent indicator;
  *  - a refused write gets the mode's own affordance, and a refused *date* write
  *    leaves the bar where the visitor put it.
@@ -114,7 +115,7 @@ test.describe('Read-only demo — login announcement (ADR-1197 D3)', () => {
     });
   });
 
-  test('announces the mode, publishes the credential, and fills without submitting', async ({
+  test('announces the mode and publishes the credential beside a one-click entry', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -138,23 +139,59 @@ test.describe('Read-only demo — login announcement (ADR-1197 D3)', () => {
     // The credential block inside the form.
     await expect(
       page.getByText(
-        'Read-only demo — sign in with the shared account below. Nothing you change is saved.',
+        'Read-only demo — one click signs you in to the shared account below. Everyone uses the same account, and nothing you change is saved.',
       ),
     ).toBeVisible();
     await expect(page.getByText(DEMO_HINT.username)).toBeVisible();
     await expect(page.getByText(DEMO_HINT.password)).toBeVisible();
-
-    await page.getByRole('button', { name: 'Fill in the demo email and password' }).click();
-
-    // `getByRole('textbox')` and not `getByLabel`: the Fill button's accessible name
-    // also carries the word "email".
-    await expect(page.getByRole('textbox', { name: 'Email' })).toHaveValue(DEMO_HINT.username);
-    await expect(page.getByLabel('Password', { exact: true })).toHaveValue(DEMO_HINT.password);
-    // Fill must never sign the visitor in — the decision to proceed stays theirs.
-    await expect(page).toHaveURL(/\/login$/);
+    // The disclosure travels with the button, so the click is an informed one.
     await expect(
-      page.getByText('Demo credentials filled in. Select Sign in to continue.'),
-    ).toBeVisible();
+      page.getByRole('button', { name: 'Explore the demo' }),
+    ).toHaveAccessibleDescription(/signs you in to the shared account/);
+  });
+
+  test('bare origin → one click → the landing path', async ({ page }) => {
+    const landingPath = `/projects/${FIXTURE_PROJECT_ID}/schedule`;
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: FIXTURE_TASKS,
+      demoReadOnly: true,
+      demoLoginHint: DEMO_HINT,
+      user: {
+        id: 'e2e-demo-visitor',
+        username: DEMO_HINT.username,
+        display_name: 'Atlas Visitor',
+        initials: 'AV',
+        email: DEMO_HINT.username,
+        // A concrete preference keeps the first-login landing prompt out of the way;
+        // what matters here is that the client follows the server's `landing.path`.
+        default_landing: 'project_overview',
+        landing: { intent: 'project_overview', path: landingPath, resolved_by: 'preference' },
+        hidden_views: [],
+        role_context: 'unified',
+      },
+    });
+    const tokenBodies: unknown[] = [];
+    await page.route('**/api/v1/auth/token/', async (route) => {
+      tokenBodies.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ access: 'mock-demo-access-token' }),
+      });
+    });
+
+    // The interactive demo serves `/` to the SPA; unauthenticated, that is the login
+    // screen — so the one-click entry is the bare origin's primary action.
+    await page.goto('/');
+    await expect(page).toHaveURL(/\/login/);
+    await page.getByRole('button', { name: 'Explore the demo' }).click();
+
+    await expect(page).toHaveURL(new RegExp(`${landingPath}$`));
+    expect(tokenBodies).toEqual([
+      { username: DEMO_HINT.username, password: DEMO_HINT.password, remember_me: false },
+    ]);
   });
 
   test('renders no credential block on a normal install', async ({ page }) => {
@@ -166,9 +203,7 @@ test.describe('Read-only demo — login announcement (ADR-1197 D3)', () => {
     await page.goto('/login');
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
     await expect(page.getByText(/^◆\s*Read-only demo$/)).toHaveCount(0);
-    await expect(
-      page.getByRole('button', { name: 'Fill in the demo email and password' }),
-    ).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Explore the demo' })).toHaveCount(0);
   });
 });
 

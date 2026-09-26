@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useId, type FormEvent } from 'react';
+import { useEffect, useState, useId, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import axios from 'axios';
 import { useAuthStore } from '@/stores/authStore';
@@ -137,8 +137,8 @@ export function LoginPage() {
 
   const setAccessToken = useAuthStore((s) => s.setAccessToken);
   const navigate = useNavigate();
-  const submitRef = useRef<HTMLButtonElement>(null);
-  const [pendingSubmitFocus, setPendingSubmitFocus] = useState(false);
+  // Which control's sign-in is in flight — so only that button says it is busy.
+  const [demoSigningIn, setDemoSigningIn] = useState(false);
 
   // Read-only demo mode (ADR-1197 D3). Both facts, never either alone: no published
   // credential means nothing for a visitor to sign in with, so a panel announcing a
@@ -148,36 +148,6 @@ export function LoginPage() {
   // one public GET on this route and warms the cache the post-login shell reads.
   const { isDemoReadOnly, loginHint } = useDemoMode();
   const demoHint = isDemoReadOnly ? loginHint : null;
-
-  /**
-   * Put the published demo credential into the form — and stop there.
-   *
-   * Deliberately does not submit: a visitor who lands on a login screen and finds
-   * themselves signed in by a button they pressed to *look* at something has lost the
-   * one moment where they decide to proceed. Focus moves to Sign in so that decision
-   * is one keystroke away.
-   */
-  function fillDemoCredentials() {
-    if (!demoHint) return;
-    setEmail(demoHint.username);
-    setPassword(demoHint.password);
-    setPendingSubmitFocus(true);
-  }
-
-  // Focus is handed over in an effect, not inline above: Sign in is `disabled` until
-  // both fields hold a value, and a disabled element cannot take focus — a synchronous
-  // `focus()` in the click handler runs before React has re-rendered the button as
-  // enabled, so it silently does nothing and the keyboard user is left on Fill.
-  // Cleared unconditionally, including on the bail path. This effect is keyed on the
-  // field VALUES, so a flag left armed (Sign in still disabled because a submit is in
-  // flight) would fire on the visitor's next keystroke and yank focus out of the field
-  // mid-typing. Not moving focus is the lesser failure.
-  useEffect(() => {
-    if (!pendingSubmitFocus) return;
-    const btn = submitRef.current;
-    setPendingSubmitFocus(false);
-    if (btn && !btn.disabled) btn.focus();
-  }, [pendingSubmitFocus, email, password]);
 
   // Discover the enabled providers once on mount so the screen can render a
   // sign-in button per provider. `discoverSsoProviders` never throws — a failure
@@ -192,16 +162,21 @@ export function LoginPage() {
     };
   }, []);
 
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  /**
+   * Obtain a token, resolve the landing, and navigate. Shared by the password form
+   * and the demo's one-click "Explore the demo" (#4153), which posts the published
+   * credential to the SAME endpoint — no demo-only auth path exists, so D2's
+   * allowlist, D1's method fence and D6's throttles apply to it unchanged.
+   */
+  async function signIn(username: string, pass: string, remember: boolean) {
     setError(null);
     setIsSubmitting(true);
 
     try {
       const response = await axios.post<TokenResponse>('/api/v1/auth/token/', {
-        username: email,
-        password,
-        remember_me: rememberMe,
+        username,
+        password: pass,
+        remember_me: remember,
       });
       setAccessToken(response.data.access);
       queryClient.clear();
@@ -238,7 +213,24 @@ export function LoginPage() {
       }
     } finally {
       setIsSubmitting(false);
+      setDemoSigningIn(false);
     }
+  }
+
+  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    void signIn(email, password, rememberMe);
+  }
+
+  /**
+   * One click from the demo's front door to the demo (ADR-1197 Amendment 2026-09-26).
+   * Session-only (`remember_me: false`): the account is shared, and a 30-day refresh
+   * cookie on a borrowed machine is not something the visitor chose.
+   */
+  function exploreDemo() {
+    if (!demoHint) return;
+    setDemoSigningIn(true);
+    void signIn(demoHint.username, demoHint.password, false);
   }
 
   /**
@@ -289,13 +281,20 @@ export function LoginPage() {
         )}
 
         {/* Form */}
-        <form
-          onSubmit={(e) => {
-            void handleSubmit(e);
-          }}
-          noValidate
-          className="flex flex-col gap-4"
-        >
+        <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+          {/* Read-only demo entry (ADR-1197 D3, amended by #4153) — FIRST in the form
+              and visible at every width: on the demo the bare origin lands on this
+              screen, and one click into the demo is its primary action. The password
+              form below stays usable for anyone who prefers it. */}
+          {demoHint && (
+            <DemoLoginHint
+              hint={demoHint}
+              onExplore={exploreDemo}
+              disabled={isSubmitting}
+              isSigningIn={demoSigningIn}
+            />
+          )}
+
           {/* Email */}
           <div className="flex flex-col gap-1">
             <label htmlFor={emailId} className="text-sm font-medium text-neutral-text-primary">
@@ -408,27 +407,30 @@ export function LoginPage() {
             </p>
           )}
 
-          {/* Read-only demo credential (ADR-1197 D3) — immediately above Sign in, and
-              visible at every width, because it is what a visitor needs to proceed. */}
-          {demoHint && (
-            <DemoLoginHint hint={demoHint} onFill={fillDemoCredentials} disabled={isSubmitting} />
-          )}
-
           {/* Sign in button */}
+          {/* In demo mode "Explore the demo" is the primary action, so Sign in takes
+              the secondary recipe — one primary button per screen. */}
           <button
-            ref={submitRef}
             type="submit"
             disabled={!canSubmit}
-            className="
-              h-11 w-full rounded bg-brand-primary text-neutral-text-inverse
+            className={
+              demoHint
+                ? `h-11 w-full rounded border border-neutral-border
+              bg-neutral-surface-raised text-neutral-text-primary
+              text-sm font-medium
+              hover:bg-neutral-surface-sunken
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+              disabled:opacity-50 disabled:cursor-not-allowed
+              transition-colors`
+                : `h-11 w-full rounded bg-brand-primary text-neutral-text-inverse
               text-sm font-semibold
               hover:bg-brand-primary-dark
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               disabled:opacity-50 disabled:cursor-not-allowed
-              transition-colors
-            "
+              transition-colors`
+            }
           >
-            {isSubmitting ? 'Signing in…' : 'Sign in'}
+            {isSubmitting && !demoSigningIn ? 'Signing in…' : 'Sign in'}
           </button>
 
           {/* SSO — basic OIDC/OAuth login against the operator's own IdP(s)
