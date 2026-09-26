@@ -237,6 +237,7 @@
     {
       "slug": "helios",
       "name": "Helios CRM",
+      "code": "HELIOS",
       "methodology": "HYBRID",
       "start_date": "A-81",
       "calendar": "helios-core",
