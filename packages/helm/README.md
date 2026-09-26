@@ -245,8 +245,8 @@ project sharing the demo name, or a resource assigned to real work, is left alon
 a demo deployment also publishes unauthenticated read-only share links, so it belongs on
 its own instance regardless.
 
-`demo.reset.enabled` (on in `values-demo.yaml`) adds a CronJob that repeats that seed every
-six hours so the sample's dates do not age. It is not a security control. Each run leaves the
+`demo.reset.enabled` (on in `values-demo.yaml`) adds a CronJob that repeats that seed once a
+day so the sample's dates do not age. It is not a security control. Each run leaves the
 share URLs returning 404 for a few seconds, and project and program ids should be assumed to
 change, so a bookmark on `/projects/<id>` does not survive one. See the `demo.reset` block in
 `values.yaml`.

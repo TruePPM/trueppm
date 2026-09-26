@@ -724,7 +724,7 @@ for evaluation, not production. Keep it on its own instance.
 ### Scheduled reset
 
 With `demo.reset.enabled` the chart adds a CronJob that repeats the install hook's seed
-every six hours, so the sample keeps reading as a program in flight (the seed anchors its
+once a day, so the sample keeps reading as a program in flight (the seed anchors its
 dates to the day it runs, so without a refresh it ages). `values-demo.yaml` turns it on.
 It is **not a security control**: it changes how long stale data can stay visible, nothing
 more.
