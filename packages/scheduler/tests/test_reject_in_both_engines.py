@@ -203,3 +203,37 @@ def test_out_of_sequence_actuals_vs_predecessor_still_allowed() -> None:
     b = next(t for t in result.tasks if t.id == "B")
     assert b.early_start == date(2026, 4, 1)
     assert b.early_finish == date(2026, 4, 2)
+
+
+# --- #4130: non-string task id / name ----------------------------------------
+
+
+@pytest.mark.parametrize("bad", [7, None, [1], {"a": 1}, 1.5, True])
+def test_from_dict_rejects_non_string_task_id(bad: object) -> None:
+    base = {"id": "p", "name": "p", "start_date": "2026-01-05"}
+    doc = {**base, "tasks": [{"id": bad, "name": "a", "duration": 86400}]}
+    with pytest.raises(InvalidScheduleInput, match="id must be a string"):
+        Project.from_dict(doc)
+    with pytest.raises(InvalidScheduleInput, match="id must be a string"):
+        Task.from_dict({"id": bad, "name": "a", "duration": 86400})
+
+
+@pytest.mark.parametrize("bad", [7, None, ["x"]])
+def test_from_dict_rejects_non_string_task_and_project_name(bad: object) -> None:
+    with pytest.raises(InvalidScheduleInput, match="name must be a string"):
+        Task.from_dict({"id": "a", "name": bad, "duration": 86400})
+    with pytest.raises(InvalidScheduleInput, match="name must be a string"):
+        Project.from_dict({"id": "p", "name": bad, "start_date": "2026-01-05"})
+    with pytest.raises(InvalidScheduleInput, match="id must be a string"):
+        Project.from_dict({"id": bad, "name": "p", "start_date": "2026-01-05"})
+
+
+@pytest.mark.parametrize("bad", [7, None, [1], {"a": 1}])
+def test_direct_object_rejects_non_string_task_id(bad: object) -> None:
+    p = _project([_task(bad, timedelta(days=1))], [])  # type: ignore[arg-type]
+    with pytest.raises(InvalidScheduleInput, match="Task id must be a string"):
+        schedule(p)
+
+
+def test_string_ids_still_schedule() -> None:
+    assert schedule(_project([_task("A", timedelta(days=1))], [])).tasks[0].id == "A"

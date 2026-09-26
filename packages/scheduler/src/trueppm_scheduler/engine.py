@@ -2285,6 +2285,13 @@ def _validate_project_shape(project: Project) -> None:
         )
     if not isinstance(project.tasks, list) or any(not isinstance(t, Task) for t in project.tasks):
         raise InvalidScheduleInput(f"Project tasks must be a list of Task, got {project.tasks!r}.")
+    # Task.id keys every lookup; a non-str id is unhashable (TypeError), None (bare
+    # networkx ValueError), or an int the Rust engine's String serde rejects (#4130).
+    for t in project.tasks:
+        if not isinstance(t.id, str):
+            raise InvalidScheduleInput(
+                f"Task id must be a string, got {type(t.id).__name__}: {t.id!r}."
+            )
     if not isinstance(project.dependencies, list) or any(
         not isinstance(d, Dependency) for d in project.dependencies
     ):
