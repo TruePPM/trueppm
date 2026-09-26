@@ -31,7 +31,7 @@ const PROJECT_DETAIL = {
 interface Landing {
   intent: 'my_work' | 'project_overview' | 'portfolio';
   path: string;
-  resolved_by: 'preference' | 'role_policy' | 'fallback';
+  resolved_by: 'preference' | 'role_policy' | 'fallback' | 'demo_landing';
 }
 
 interface MeOptions {
@@ -228,6 +228,25 @@ test.describe('Role-based landing redirect (#1181, ADR-0129)', () => {
     await page.goto('/');
     await page.waitForURL(new RegExp(`/projects/${PROJECT_ID}/overview`), { timeout: 10_000 });
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/overview`));
+  });
+
+  test('the demo visitor lands on the Schedule, not the Overview (#4151)', async ({ page }) => {
+    await setupAuth(page);
+    await mockShell(
+      page,
+      {
+        maxProjectRole: 100,
+        landing: {
+          intent: 'project_overview',
+          path: `/projects/${PROJECT_ID}/schedule`,
+          resolved_by: 'demo_landing',
+        },
+      },
+      [PROJECT_DETAIL],
+    );
+    await page.goto('/');
+    await page.waitForURL(new RegExp(`/projects/${PROJECT_ID}/schedule`), { timeout: 10_000 });
+    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/schedule`));
   });
 
   test('a saved preference overrides — landing.path is honored', async ({ page }) => {

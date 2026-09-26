@@ -126,9 +126,7 @@ test.describe('Demo access-gate disclosure (ADR-1197 D8, #3969)', () => {
     await serveEditionWithGate(page, { demoReadOnly: true, accessGate: null });
     await page.goto('/login');
 
-    await expect(
-      page.getByRole('button', { name: 'Fill in the demo email and password' }),
-    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Explore the demo' })).toBeVisible();
     await expect(page.locator(NOTICE)).toHaveCount(0);
   });
 

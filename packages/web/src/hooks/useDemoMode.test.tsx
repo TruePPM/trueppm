@@ -35,6 +35,25 @@ describe('useDemoMode', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.isDemoReadOnly).toBe(false);
     expect(result.current.loginHint).toBeNull();
+    expect(result.current.resetSchedule).toBeNull();
+  });
+
+  it('surfaces the reset schedule when present (#4152)', async () => {
+    getMock.mockResolvedValue({
+      data: { edition: 'community', demo_read_only: true, demo_reset_schedule: '0 8 * * *' },
+    });
+    const { result } = renderHook(() => useDemoMode(), { wrapper: makeWrapper(newClient()) });
+    await waitFor(() => expect(result.current.isDemoReadOnly).toBe(true));
+    expect(result.current.resetSchedule).toBe('0 8 * * *');
+  });
+
+  it('reads a null reset schedule (reset disabled) without inventing one', async () => {
+    getMock.mockResolvedValue({
+      data: { edition: 'community', demo_read_only: true, demo_reset_schedule: null },
+    });
+    const { result } = renderHook(() => useDemoMode(), { wrapper: makeWrapper(newClient()) });
+    await waitFor(() => expect(result.current.isDemoReadOnly).toBe(true));
+    expect(result.current.resetSchedule).toBeNull();
   });
 
   it('surfaces the mode and the published credential when present', async () => {

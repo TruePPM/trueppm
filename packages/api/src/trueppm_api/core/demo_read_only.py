@@ -226,6 +226,34 @@ def parse_demo_access_gate(
     return {"provider": provider, "privacy_url": privacy_url or None}
 
 
+def parse_demo_reset_schedule(raw: str | None) -> str | None:
+    """Parse ``TRUEPPM_DEMO_RESET_SCHEDULE`` into the cadence the demo bar states (#4152).
+
+    The chart renders the CronJob's own ``demo.reset.schedule`` cron expression onto
+    this variable — empty when ``demo.reset.enabled`` is false (ADR-1197 D9) — so the
+    login page and the shell's demo bar can state the cadence from the one value the
+    CronJob is actually driven by, rather than a hardcoded number that silently drifts
+    the moment an operator retunes the schedule.
+
+    Deliberately **not** validated as a cron expression here. Unlike
+    :func:`parse_demo_read_only`, a malformed value here is cosmetic, not a safety
+    guarantee: the worst case is the web falling back to "resets periodically" (see
+    ``DemoModeBar``'s daily-cadence parser), never a control that looks armed and is
+    not. The CronJob's own schedule field is what Kubernetes validates.
+
+    Args:
+        raw: The raw environment value, or ``None``/empty when unset or when the reset
+            is disabled.
+
+    Returns:
+        The stripped cron expression, or ``None`` when unset, empty, or whitespace-only.
+    """
+    if raw is None:
+        return None
+    value = raw.strip()
+    return value or None
+
+
 def _is_api_path(path_info: str) -> bool:
     """Whether ``path_info`` addresses the API, ignoring any run of leading slashes.
 

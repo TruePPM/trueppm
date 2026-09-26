@@ -3006,7 +3006,7 @@ helm:template:
         --set networkPolicy.ingressControllerConfirmed=true > /tmp/rendered-demo-interactive.yaml
       kubeconform -strict -summary -ignore-missing-schemas /tmp/rendered-demo-interactive.yaml
       api_env="$(yq ea 'select(.kind == "Deployment" and (.metadata.name | test("-api$"))) | .spec.template.spec.containers[] | select(.name == "api") | .env[] | .name + "=" + (.value // "")' /tmp/rendered-demo-interactive.yaml)"
-      for want in 'TRUEPPM_DEMO_READ_ONLY=true' 'TRUEPPM_DEMO_LOGIN_HINT=atlas-visitor:ci-visitor-password' 'TRUEPPM_DEMO_RESET_SCHEDULE=0 */6 * * *'; do
+      for want in 'TRUEPPM_DEMO_READ_ONLY=true' 'TRUEPPM_DEMO_LOGIN_HINT=atlas-visitor:ci-visitor-password' 'TRUEPPM_DEMO_RESET_SCHEDULE=0 8 * * *'; do
         printf '%s\n' "$api_env" | grep -qxF -- "$want" \
           || { echo "DEMO REGRESSION: the api Deployment does not carry '$want' in interactive mode (#3925)"; printf '%s\n' "$api_env"; exit 1; }
       done

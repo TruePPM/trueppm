@@ -677,6 +677,7 @@
     {
       "slug": "platform-core",
       "name": "Platform Core",
+      "code": "PLAT",
       "description": "The agile build stream — the platform itself, delivered sprint by sprint.",
       "methodology": "AGILE",
       "start_date": "A-90",
@@ -2075,6 +2076,7 @@
     {
       "slug": "migration-tooling",
       "name": "Migration Tooling",
+      "code": "MIGR",
       "description": "The waterfall stream — CPM-scheduled data migration with three-point estimates.",
       "methodology": "WATERFALL",
       "start_date": "A-90",
@@ -2875,6 +2877,7 @@
     {
       "slug": "gtm-readiness",
       "name": "GTM Readiness",
+      "code": "GTM",
       "description": "The hybrid stream — gated launch planning with agile enablement content.",
       "methodology": "HYBRID",
       "start_date": "A-50",

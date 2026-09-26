@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 from django.contrib.auth import get_user_model
 
+from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Health, Project, Task, TaskStatus
 from trueppm_api.apps.projects.seed.demo_landing_overlay import (
     BEHIND_PLAN_GAP_POINTS,
@@ -29,6 +30,7 @@ from trueppm_api.apps.projects.seed.demo_landing_overlay import (
     MAX_UNSCHEDULED,
     DemoOverlayRefused,
     apply_demo_landing_overlay,
+    landing_project_for_demo_visitor,
 )
 from trueppm_api.apps.projects.seed.samples import load_sample
 from trueppm_api.apps.scheduling.models import MonteCarloRun
@@ -253,3 +255,33 @@ def test_the_overlay_does_not_touch_the_other_sample_projects(
 
     for project in Project.objects.filter(pk__in=before):
         assert (project.health, project.last_sync_version) == before[project.pk]
+
+
+# ---------------------------------------------------------------------------
+# landing_project_for_demo_visitor (#4151)
+# ---------------------------------------------------------------------------
+
+
+def test_landing_project_for_demo_visitor_finds_it_when_readable(program: Any) -> None:
+    visitor = User.objects.create_user(username="atlas-visitor-lp", email="v@example.com")
+    project = _landing(program)
+    ProjectMembership.objects.create(project=project, user=visitor, role=Role.MEMBER)
+
+    assert landing_project_for_demo_visitor(visitor) == project
+
+
+def test_landing_project_for_demo_visitor_none_without_membership(program: Any) -> None:
+    """The project exists, but this visitor has no membership on it — must not leak."""
+    visitor = User.objects.create_user(username="atlas-visitor-unreadable", email="u@example.com")
+
+    assert landing_project_for_demo_visitor(visitor) is None
+
+
+def test_landing_project_for_demo_visitor_none_when_archived(program: Any) -> None:
+    visitor = User.objects.create_user(username="atlas-visitor-archived", email="a@example.com")
+    project = _landing(program)
+    ProjectMembership.objects.create(project=project, user=visitor, role=Role.MEMBER)
+    project.is_archived = True
+    project.save(update_fields=["is_archived"])
+
+    assert landing_project_for_demo_visitor(visitor) is None

@@ -226,18 +226,20 @@ spec:
             # TRUEPPM_DEMO_LOGIN_HINT is read: #3926 (merged) surfaces it as
             # `demo_login_hint` on the public GET /api/v1/edition/ response,
             # gated on demo_read_only being true (packages/api/src/trueppm_api/
-            # urls.py). TRUEPPM_DEMO_RESET_SCHEDULE below has no reader yet —
-            # ADR-1197 D9 says the login page should state the cadence from it,
-            # but #3926 did not wire that up; still RENDERED BUT UNREAD.
+            # urls.py). TRUEPPM_DEMO_RESET_SCHEDULE below is read the same way
+            # (#4152): `demo_reset_schedule` on that same response, so the shell's
+            # demo bar can state "resets daily at HH:MM UTC" from the value that
+            # actually drives the CronJob.
             #
             # The displayed credential, assembled from demo.loginHint and from
             # nothing else. Never from $TRUEPPM_DEMO_PASSWORD: see trueppm.demoGuards.
             - name: TRUEPPM_DEMO_LOGIN_HINT
               value: {{ include "trueppm.demoLoginHint" . | quote }}
-            # The reset cadence, so the login page can state it instead of hardcoding
+            # The reset cadence, so the demo bar can state it instead of hardcoding
             # a number that drifts from the CronJob the moment an operator retunes it
-            # (ADR-1197 D9). Empty when demo.reset is off — a login page must then say
-            # nothing about refreshes rather than imply a schedule that does not run.
+            # (ADR-1197 D9, #4152). Empty when demo.reset is off — the bar must then
+            # say nothing about refreshes rather than imply a schedule that does not
+            # run.
             - name: TRUEPPM_DEMO_RESET_SCHEDULE
               value: {{ (and .Values.demo.enabled .Values.demo.reset.enabled) | ternary (.Values.demo.reset.schedule | toString) "" | quote }}
             {{- /*

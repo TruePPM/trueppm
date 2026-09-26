@@ -9,7 +9,11 @@ from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 from rest_framework.test import APIClient
 
-from trueppm_api.core.demo_read_only import parse_demo_access_gate, parse_demo_login_hint
+from trueppm_api.core.demo_read_only import (
+    parse_demo_access_gate,
+    parse_demo_login_hint,
+    parse_demo_reset_schedule,
+)
 
 
 @pytest.mark.django_db
@@ -197,6 +201,49 @@ class TestParseDemoAccessGate:
         """
         with pytest.raises(ImproperlyConfigured):
             parse_demo_access_gate("Cloudflare Access", url)
+
+
+@pytest.mark.django_db
+class TestEditionDemoResetSchedule:
+    """The reset cadence the demo bar states (#4152, ADR-1197 D9)."""
+
+    def test_absent_by_default(self) -> None:
+        r = APIClient().get("/api/v1/edition/")
+        assert r.status_code == 200
+        assert r.data["demo_reset_schedule"] is None
+
+    def test_emitted_in_demo_mode_when_set(self) -> None:
+        with override_settings(DEMO_READ_ONLY=True, DEMO_RESET_SCHEDULE="0 8 * * *"):
+            r = APIClient().get("/api/v1/edition/")
+        assert r.data["demo_reset_schedule"] == "0 8 * * *"
+
+    def test_demo_mode_with_reset_disabled_is_null(self) -> None:
+        """The chart renders the variable empty when demo.reset.enabled is false."""
+        with override_settings(DEMO_READ_ONLY=True, DEMO_RESET_SCHEDULE=None):
+            r = APIClient().get("/api/v1/edition/")
+        assert r.data["demo_read_only"] is True
+        assert r.data["demo_reset_schedule"] is None
+
+    def test_withheld_when_demo_mode_is_off(self) -> None:
+        """A stale schedule on a live install must not be broadcast."""
+        with override_settings(DEMO_READ_ONLY=False, DEMO_RESET_SCHEDULE="0 8 * * *"):
+            r = APIClient().get("/api/v1/edition/")
+        assert r.data["demo_reset_schedule"] is None
+
+
+class TestParseDemoResetSchedule:
+    """`TRUEPPM_DEMO_RESET_SCHEDULE` parsing (#4152)."""
+
+    @pytest.mark.parametrize("raw", [None, "", "   "])
+    def test_unset_or_empty_is_none(self, raw: str | None) -> None:
+        assert parse_demo_reset_schedule(raw) is None
+
+    def test_strips_surrounding_whitespace(self) -> None:
+        assert parse_demo_reset_schedule("  0 8 * * *  ") == "0 8 * * *"
+
+    def test_passes_through_verbatim_otherwise(self) -> None:
+        """Not validated as a cron expression — the CronJob's own field is (#4152)."""
+        assert parse_demo_reset_schedule("not-a-cron") == "not-a-cron"
 
 
 class TestParseDemoLoginHint:
