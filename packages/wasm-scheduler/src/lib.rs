@@ -978,12 +978,19 @@ mod tests {
 
     #[test]
     fn test_sf_dependency() {
-        // A(5d) -SF-> B(3d): B cannot finish before A starts
+        // A(5d, pinned Mon 2026-04-06) -SF-> B(2d), lag 0. MS Project and P6 finish
+        // an SF successor at the START of its predecessor's start day, so B's last
+        // working day is Fri 2026-04-03 — the working day BEFORE A starts (#4145),
+        // not A's start day itself. An absolute oracle, not the `>=` bound the
+        // pre-#4145 version asserted: that held for both readings and so could not
+        // tell them apart. The old anchor would give B 04-03..04-06 instead.
+        let mut a = make_task("A", 5);
+        a.planned_start = Some(NaiveDate::from_ymd_opt(2026, 4, 6).unwrap());
         let project = Project {
             id: "p1".to_string(),
             name: "Test".to_string(),
             start_date: NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
-            tasks: vec![make_task("A", 5), make_task("B", 3)],
+            tasks: vec![a, make_task("B", 2)],
             dependencies: vec![Dependency {
                 predecessor_id: "A".to_string(),
                 successor_id: "B".to_string(),
@@ -1000,8 +1007,9 @@ mod tests {
         let result = schedule_impl(&project).unwrap();
         let a = result.tasks.iter().find(|t| t.id == "A").unwrap();
         let b = result.tasks.iter().find(|t| t.id == "B").unwrap();
-        // B's EF >= A's ES (SF constraint)
-        assert!(b.early_finish >= a.early_start);
+        assert_eq!(a.early_start, NaiveDate::from_ymd_opt(2026, 4, 6).unwrap());
+        assert_eq!(b.early_finish, NaiveDate::from_ymd_opt(2026, 4, 3).unwrap());
+        assert_eq!(b.early_start, NaiveDate::from_ymd_opt(2026, 4, 2).unwrap());
     }
 
     #[test]

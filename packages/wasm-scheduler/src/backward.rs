@@ -46,6 +46,23 @@ pub(crate) fn milestone_latest(
     next_working_day(checked_offset_days(last, 1)?, node_cal)
 }
 
+/// Latest start day an ordinary task may take without moving an SF successor's finish.
+///
+/// The inverse of `edge_anchor`'s SF anchor for ordinary work (#4145): the forward
+/// bound is measured from `prev_wd(start - 1)`, so the largest allowed anchor is
+/// `prev_wd(W - lag)` and the largest start day is the first working day after it.
+/// Deliberately the same expression as [`milestone_latest`]'s finish-anchored
+/// branch — a start instant and a milestone instant invert identically. Mirrors the
+/// Python `_sf_latest_start`.
+pub(crate) fn sf_latest_start(
+    succ_finish: NaiveDate,
+    lag_days: i64,
+    node_cal: &Calendar,
+) -> Result<NaiveDate, String> {
+    let last = prev_working_day(checked_offset_days(succ_finish, -lag_days)?, node_cal)?;
+    next_working_day(checked_offset_days(last, 1)?, node_cal)
+}
+
 /// The instant the project ends: the latest task finish, milestones as their
 /// instants. Every late date is seeded from it; without milestones it is the day
 /// after `project_finish`, the old seed. Mirrors the Python `_finish_instant`.
@@ -300,7 +317,10 @@ fn successor_constraints(
                 lf_constraints.push(retreat_calendar_days(succ_lf, lag_days, node_cal)?);
             }
             DependencyType::SF => {
-                ls_constraints.push(retreat_calendar_days(succ_lf, lag_days, node_cal)?);
+                // The predecessor's SF anchor is the working day *before* its
+                // start, so it may start one working day past the retreated
+                // bound (#4145).
+                ls_constraints.push(sf_latest_start(succ_lf, lag_days, node_cal)?);
             }
         }
     }

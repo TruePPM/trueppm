@@ -64,7 +64,6 @@ const IN_SCOPE_FIXTURES = [
   'fs_negative_lag_weekend',
   'max_duration_boundary',
   'ff_lag_weekend',
-  'sf_lag_weekend',
   'ss_lag_weekend',
   'ss_connected_critical',
   // #4079: milestones as instants across every link type and lags around them.
@@ -100,6 +99,11 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // The engine applies SNET (#3535) but the harness seeds every task at the
   // project start, which is not how a fixture's own planned_start reads.
   planned_start_snet: 'adapter: seeds all tasks at project start, overriding SNET',
+  // #4145. Both pin a source task with planned_start so an SF successor has room
+  // to finish before it; the SF-from-work rule itself is asserted in
+  // `cpmEngine.test.ts`, where the drag date is set directly.
+  sf_lag_weekend: 'adapter: seeds all tasks at project start, overriding SNET',
+  sf_from_work_vs_milestone: 'adapter: seeds all tasks at project start, overriding SNET',
   // Progress fixtures need actuals and a status date threaded through the
   // adapter; the engine implements the floors (#2813), the harness does not
   // feed them. Tracked as the next widening step.

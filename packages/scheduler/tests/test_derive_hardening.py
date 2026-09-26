@@ -63,8 +63,14 @@ def _contribs(project: Project, task_id: str, q: Quantity) -> list[dict[str, obj
     return [c.to_dict() for c in d.contributions]
 
 
-def _fwd(dep_type: DependencyType) -> Project:
-    """P →(dep_type, lag 2) S — explain S's forward values."""
+def _fwd(dep_type: DependencyType, lag_days: int = 2) -> Project:
+    """P →(dep_type, lag) S — explain S's forward values.
+
+    ``lag_days`` is 2 for FS/SS/FF. SF needs a longer one: its anchor is the working
+    day *before* P's start (#4145) — Fri 2026-02-27, before the project even opens —
+    so a 2-day lag lands under S's own duration-driven finish and the SF term would
+    not bind at all, leaving nothing to assert.
+    """
     return Project(
         id="pr",
         name="Pr",
@@ -73,13 +79,17 @@ def _fwd(dep_type: DependencyType) -> Project:
             Task(id="P", name="Pred", duration=timedelta(days=3)),
             Task(id="S", name="Succ", duration=timedelta(days=2)),
         ],
-        dependencies=[Dependency("P", "S", dep_type=dep_type, lag=timedelta(days=2))],
+        dependencies=[Dependency("P", "S", dep_type=dep_type, lag=timedelta(days=lag_days))],
         calendar=Calendar(),
     )
 
 
-def _bwd(dep_type: DependencyType) -> Project:
-    """T →(dep_type, lag 2) S — explain T's backward values."""
+def _bwd(dep_type: DependencyType, lag_days: int = 2) -> Project:
+    """T →(dep_type, lag) S — explain T's backward values.
+
+    SF takes a longer lag for the same reason as :func:`_fwd`; with lag 2 its bound
+    ties the project-finish anchor's and the term is no longer the strict driver.
+    """
     return Project(
         id="pr",
         name="Pr",
@@ -88,7 +98,7 @@ def _bwd(dep_type: DependencyType) -> Project:
             Task(id="T", name="Targ", duration=timedelta(days=2)),
             Task(id="S", name="Succ", duration=timedelta(days=3)),
         ],
-        dependencies=[Dependency("T", "S", dep_type=dep_type, lag=timedelta(days=2))],
+        dependencies=[Dependency("T", "S", dep_type=dep_type, lag=timedelta(days=lag_days))],
         calendar=Calendar(),
     )
 
@@ -178,14 +188,16 @@ def test_forward_ff_imposes_finish_and_pulls_start_back() -> None:
 
 
 def test_forward_sf_imposes_finish_and_pulls_start_back() -> None:
-    p = _fwd(DependencyType.SF)
+    # P starts Mon 03-02, so the SF anchor is Fri 02-27 — the last working day before
+    # it (#4145) — and + lag 6 lands on Thu 03-05 with no snap.
+    p = _fwd(DependencyType.SF, lag_days=6)
     sf = _c(
         "predecessor_sf",
         source_task_id="P",
         source_task_name="Pred",
         dep_type="SF",
-        lag_days=2,
-        imposed_date="2026-03-04",
+        lag_days=6,
+        imposed_date="2026-03-05",
         calendar_days_added=0,
     )
     assert _contribs(p, "S", Quantity.EARLY_FINISH) == [
@@ -200,8 +212,8 @@ def test_forward_sf_imposes_finish_and_pulls_start_back() -> None:
             source_task_id="P",
             source_task_name="Pred",
             dep_type="SF",
-            lag_days=2,
-            imposed_date="2026-03-03",
+            lag_days=6,
+            imposed_date="2026-03-04",
             is_binding=True,
         ),
     ]
@@ -333,16 +345,19 @@ def test_backward_ff() -> None:
 
 
 def test_backward_sf_pulls_finish_via_late_start_duration() -> None:
-    p = _bwd(DependencyType.SF)
-    pf = _c("project_finish", imposed_date="2026-03-04")
+    # The inverse of the forward anchor (#4145): S's late finish Thu 03-05 retreats
+    # 6 calendar days to Fri 02-27, and T may start the first working day AFTER that
+    # — Mon 03-02 — because T's own SF anchor is the working day before its start.
+    p = _bwd(DependencyType.SF, lag_days=6)
+    pf = _c("project_finish", imposed_date="2026-03-05")
     sf = _c(
         "successor_sf",
         source_task_id="S",
         source_task_name="Succ",
         dep_type="SF",
-        lag_days=2,
+        lag_days=6,
         imposed_date="2026-03-02",
-        calendar_days_added=0,
+        calendar_days_added=3,
     )
     assert _contribs(p, "T", Quantity.LATE_START) == [pf, {**sf, "is_binding": True}]
     assert _contribs(p, "T", Quantity.LATE_FINISH) == [
@@ -353,7 +368,7 @@ def test_backward_sf_pulls_finish_via_late_start_duration() -> None:
             source_task_id="S",
             source_task_name="Succ",
             dep_type="SF",
-            lag_days=2,
+            lag_days=6,
             imposed_date="2026-03-03",
             slack_days=2,
             is_binding=True,

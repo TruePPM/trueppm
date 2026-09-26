@@ -34,9 +34,15 @@ pub(crate) fn start_anchored(dep_type: DependencyType) -> bool {
 ///
 /// Every forward constraint is `next_working_day(anchor + lag)` on the successor's
 /// calendar. Ordinary work (`instant` is `None`) anchors FS on the day after its
-/// inclusive finish, SS/SF on its start and FF on its finish. A milestone is one
-/// instant: FS/SS measure from the instant, FF/SF from the last working day
-/// before it. Mirrors the Python `_edge_anchor` (#4079).
+/// inclusive finish, SS on its start, FF on its finish and SF on the last working
+/// day *before* its start. A milestone is one instant: FS/SS measure from the
+/// instant, FF/SF from the last working day before it. Mirrors the Python
+/// `_edge_anchor` (#4079, #4145).
+///
+/// SF (#4145) is the finish-anchored instant rule applied to the predecessor's
+/// start instant: MS Project and P6 finish an SF successor at the start of its
+/// predecessor's start day, so its last working day is the day before — which is
+/// also where a zero-duration milestone standing at that same midnight puts it.
 pub(crate) fn edge_anchor(
     dep_type: DependencyType,
     start: NaiveDate,
@@ -48,7 +54,8 @@ pub(crate) fn edge_anchor(
         None => match dep_type {
             DependencyType::FS => checked_offset_days(finish, 1),
             DependencyType::FF => Ok(finish),
-            DependencyType::SS | DependencyType::SF => Ok(start),
+            DependencyType::SS => Ok(start),
+            DependencyType::SF => prev_working_day(checked_offset_days(start, -1)?, pred_cal),
         },
         Some(x) if start_anchored(dep_type) => Ok(x),
         Some(x) => prev_working_day(checked_offset_days(x, -1)?, pred_cal),

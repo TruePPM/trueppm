@@ -25,6 +25,17 @@ engine now follows the MS Project / Primavera P6 convention:
   project ends (:func:`_finish_instant`), so a milestone on the critical path
   carries zero float.
 
+Start-to-Finish from ordinary work (#4145)
+------------------------------------------
+An SF link anchors on the last working day *before* its predecessor's start day,
+not on the start day itself: MS Project and P6 finish the successor at the start of
+that day, so with lag 0 the successor's last working day is the day before. That is
+the same rule the milestone branch above applies to an instant, so an SF link from a
+1-day task starting on day D and one from a zero-duration milestone standing at D's
+opening midnight now schedule identically — before #4145 the two disagreed by one
+working day, and the work branch scheduled one day later than the source plan an MS
+Project import came from.
+
 Tasks pinned out of network logic by recorded actuals (ADR-0136) keep their
 recorded dates and are treated as ordinary work by their successors. ``monte_carlo``
 carries each run's milestone instant as a date (:func:`_mc_milestone_bounds`), and
@@ -673,20 +684,31 @@ def _edge_anchor(
     Every forward constraint is ``_next_working_day(anchor + lag)`` on the
     successor's calendar; only the anchor depends on the dependency type and on
     whether the predecessor is a milestone. For ordinary work (``instant`` is
-    ``None``) the anchors are the classic CPM ones: FS measures from the day after
-    the inclusive finish, SS/SF from the start, FF from the finish.
+    ``None``) FS measures from the day after the inclusive finish, SS from the
+    start, FF from the finish, and SF from the last working day *before* the start.
 
     A milestone is one instant, so its start and its finish are the same point:
     FS and SS measure from the instant itself, FF and SF from the last working day
     before it. This is what lets a milestone sit on its driving predecessor's
     finish without delaying anything behind it.
+
+    SF (#4145) is the finish-anchored rule applied to the predecessor's *start*
+    instant, which is why the two branches agree: MS Project and P6 finish an SF
+    successor at the start of its predecessor's start day, so its last working day
+    is the day before — exactly where a zero-duration milestone standing at that
+    same midnight puts it. Anchoring on the start day itself (the pre-#4145
+    behavior) scheduled the successor one working day later than either.
     """
     if instant is None:
         if dep_type == DependencyType.FS:
             return _safe_offset(finish, _ONE_DAY)
         if dep_type == DependencyType.FF:
             return finish
-        return start
+        if dep_type == DependencyType.SS:
+            return start
+        # SF: the predecessor's start instant is the midnight its start day opens
+        # on, so fall through to the finish-anchored rule below with that instant.
+        instant = start
     if dep_type in _START_ANCHORED:
         return instant
     return _prev_working_day(_safe_offset(instant, -_ONE_DAY), pred_cal)
@@ -735,6 +757,24 @@ def _milestone_latest(
     if dep_type in _START_ANCHORED:
         return _safe_offset(start_ref, -lag)
     last = _prev_working_day(_safe_offset(finish_ref, -lag), node_cal)
+    return _scan_for_working_day(last, node_cal, forward=True)
+
+
+def _sf_latest_start(succ_finish: date, lag: timedelta, node_cal: Calendar) -> date:
+    """Latest start day an ordinary task may take without moving an SF successor's finish.
+
+    The inverse of :func:`_edge_anchor`'s SF anchor for ordinary work (#4145). The
+    forward bound is measured from ``prev_wd(start - 1)``, so inverting
+    ``next_wd(anchor + lag) <= W`` gives the largest allowed anchor
+    ``A = prev_wd(W - lag)`` — and the largest *start day* whose anchor is still at
+    or before ``A`` is the first working day after ``A``, since any later start day
+    would drag the anchor past it.
+
+    This is deliberately the same expression as :func:`_milestone_latest`'s
+    finish-anchored branch: a start instant and a milestone instant invert
+    identically, which is the consistency #4145 restored.
+    """
+    last = _prev_working_day(_safe_offset(succ_finish, -lag), node_cal)
     return _scan_for_working_day(last, node_cal, forward=True)
 
 
@@ -1609,8 +1649,11 @@ def _append_successor_constraint(
         # Predecessor must finish no later than successor's late finish minus lag.
         lf_constraints.append(_retreat_calendar_days(succ_finish, lag, node_cal))
     elif dep.dep_type == DependencyType.SF:
-        # Predecessor must start no later than successor's late finish minus lag.
-        ls_constraints.append(_retreat_calendar_days(succ_finish, lag, node_cal))
+        # Predecessor must start no later than the first working day after the
+        # successor's late finish minus lag: its SF anchor is the working day
+        # *before* its start, so it may start one working day beyond that bound
+        # (#4145).
+        ls_constraints.append(_sf_latest_start(succ_finish, lag, node_cal))
 
 
 def _apply_late_dates(
@@ -1924,8 +1967,9 @@ def _link_slack(
     if dep.dep_type == DependencyType.FF:
         latest = _retreat_calendar_days(succ_finish, lag, node_cal)
         return _wd_span(task.early_finish, latest, node_cal, wd_counter, calendar)
-    # SF: successor finish is bounded by this task's start + lag
-    latest = _retreat_calendar_days(succ_finish, lag, node_cal)
+    # SF: the successor's finish is bounded by the working day before this task's
+    # start, so the latest start is one working day past the retreated bound (#4145).
+    latest = _sf_latest_start(succ_finish, lag, node_cal)
     return _wd_span(task.early_start, latest, node_cal, wd_counter, calendar)
 
 
@@ -3545,15 +3589,22 @@ def _build_lag_delta(
     k_arange: np.ndarray,
     index_size: int,
     last_off_succ: int,
+    pred_prev_ord: int,
 ) -> np.ndarray:
     """Per-anchor-offset lag delta array for one ``(dep_type, lag, pred_cal, succ_cal)`` key.
 
     Vectorised equivalent of the former per-cell loop (#1205): for each anchor
     offset k the delta is the snapped successor offset minus the plain-add
     baseline. FS/FF anchor on the *previous* working day (wd_index[k-1]), so their
-    k=0 cell stays 0 and the array is filled from index 1; SS/SF anchor on
+    k=0 cell stays 0 and the array is filled from index 1; SS anchors on
     wd_index[k] over the full range. This reproduces the scalar ``_offset_after``
     arithmetic exactly (asserted byte-for-byte in the tests).
+
+    SF also anchors on wd_index[k-1] (#4145), but unlike FS/FF its k is an
+    inclusive *start* offset, so k=0 is reachable: a predecessor starting on the
+    index's first working day anchors on the working day before the index begins,
+    which ``pred_prev_ord`` supplies as an ordinal. FS/FF cannot reach k=0 — their
+    k is an exclusive-EF offset, which is at least 1 for any task with duration.
 
     Per-task calendars (ADR-0120 D3, #1385): the anchor is read in the
     *predecessor's* working-day space (``wd_ord_pred``) and the snap lands in the
@@ -3581,13 +3632,18 @@ def _build_lag_delta(
         # Start-anchored ES constraint; both sides are inclusive starts.
         arr[:] = _snapped_offsets(wd_ord_succ, last_off_succ, wd_ord_pred, lag_days) - k_arange
     else:  # SF
-        # Start-anchored EF constraint: succ.EF (exclusive) must clear the snapped
-        # predecessor-start+lag day (inclusive), so +1 converts the inclusive
-        # constraint day to the exclusive EF offset. FF gets this +1 for free via
-        # its exclusive-EF anchor; SF does not, and dropping it finished SF
-        # successors one working day early (#824).
+        # Start-anchored EF constraint measured from the working day BEFORE the
+        # predecessor's start (#4145 — MS Project / P6 finish the successor at the
+        # start of that day). succ.EF (exclusive) must clear the snapped
+        # anchor+lag day (inclusive), so +1 converts the inclusive constraint day
+        # to the exclusive EF offset. FF gets this +1 for free via its exclusive-EF
+        # anchor; SF does not, and dropping it finished SF successors one working
+        # day early (#824).
+        anchor_ords = np.empty(index_size, dtype=np.int64)
+        anchor_ords[0] = pred_prev_ord
+        anchor_ords[1:] = wd_ord_pred[:-1]
         arr[:] = (
-            _snapped_offsets(wd_ord_succ, last_off_succ, wd_ord_pred, lag_days) + 1.0 - k_arange
+            _snapped_offsets(wd_ord_succ, last_off_succ, anchor_ords, lag_days) + 1.0 - k_arange
         )
     # Every cell is a whole working-day offset difference, bounded by
     # MAX_LAG_DAYS + MAX_CALENDAR_SCAN_DAYS (~73k), so int32 is exact and halves
@@ -3601,6 +3657,7 @@ def _build_lag_delta_table(
     wd_ord_by_cal: dict[int, np.ndarray],
     index_size: int,
     cal_key_of: dict[str, int],
+    prev_ord_of: Callable[[int], int],
     milestone_ids: frozenset[str] = frozenset(),
     max_cells: int = MAX_LAG_DELTA_CELLS,
 ) -> dict[tuple[DependencyType, timedelta, int, int], np.ndarray | None]:
@@ -3661,6 +3718,9 @@ def _build_lag_delta_table(
             k_arange,
             index_size,
             len(wd_ord_succ) - 1,
+            # Only SF reads it, and resolving it walks the predecessor's calendar
+            # backwards off the index — so it is asked for lazily, per calendar.
+            prev_ord_of(pred_key) if dep_type == DependencyType.SF else 0,
         )
 
     for u, v, data in g.edges(data=True):
@@ -4258,8 +4318,8 @@ def _mc_milestone_bounds(
             continue
         elif dep.dep_type == DependencyType.FF:
             anchor = index.ordinal_at(p, ef_mat[:, p] - 1.0)
-        else:  # SF
-            anchor = index.ordinal_at(p, es_mat[:, p])
+        else:  # SF — the working day before the predecessor's start (#4145)
+            anchor = index.prev_wd_ordinal(p, index.ordinal_at(p, es_mat[:, p]) - 1)
         # FF/SF propose the end of the finish day next_wd(anchor + lag).
         offer(index.next_wd_ordinal(col, anchor + lag) + 1, False)
 
@@ -4666,6 +4726,20 @@ def monte_carlo(
     proj_cal_key = id(calendar)
     wd_index = wd_index_by_cal[proj_cal_key]
 
+    # The working day *before* a calendar's first indexed day — the SF anchor for a
+    # predecessor that starts on it (#4145). Resolved lazily and memoized: it walks
+    # the calendar backwards off the index, which a project with no SF edge should
+    # neither pay for nor be able to fail on.
+    _prev_ord_cache: dict[int, int] = {}
+
+    def prev_ord_of(cal_key: int) -> int:
+        if cal_key not in _prev_ord_cache:
+            first = wd_index_by_cal[cal_key][0]
+            _prev_ord_cache[cal_key] = _prev_working_day(
+                _safe_offset(first, -_ONE_DAY), distinct_cals[cal_key]
+            ).toordinal()
+        return _prev_ord_cache[cal_key]
+
     # One shared lag-delta array per distinct (dep_type, lag, pred_cal, succ_cal)
     # key, then a per-edge lookup mapping each edge to its (possibly shared,
     # possibly None) array.
@@ -4680,7 +4754,7 @@ def monte_carlo(
         and not dur_matrix[:, col].any()
     )
     delta_by_key = _build_lag_delta_table(
-        g, wd_ord_by_cal, index_size, cal_key_of, milestone_ids, max_lag_delta_cells
+        g, wd_ord_by_cal, index_size, cal_key_of, prev_ord_of, milestone_ids, max_lag_delta_cells
     )
     edge_lag_delta: dict[tuple[str, str], np.ndarray | None] = {
         (u, v): delta_by_key[(data["dep"].dep_type, data["dep"].lag, cal_key_of[u], cal_key_of[v])]

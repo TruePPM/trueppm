@@ -1,0 +1,21 @@
+{
+  "id": "p-sf-from-work-vs-milestone",
+  "name": "SF from ordinary work lands where an SF from a milestone at the same instant does (#4145)",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {"id": "A", "name": "Work pinned to Mon 03-09", "duration": 432000.0, "planned_start": "2026-03-09"},
+    {"id": "B", "name": "SF successor of the work", "duration": 259200.0},
+    {"id": "M", "name": "Milestone pinned to Mon 03-09", "duration": 0.0, "planned_start": "2026-03-09"},
+    {"id": "C", "name": "SF successor of the milestone", "duration": 259200.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "SF", "lag": 0.0},
+    {"predecessor_id": "M", "successor_id": "C", "dep_type": "SF", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

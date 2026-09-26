@@ -53,6 +53,7 @@ from trueppm_scheduler.engine import (
     _resolve_task_calendars,
     _retreat_calendar_days,
     _safe_offset,
+    _sf_latest_start,
     _start_from_finish,
     _working_days_between,
     schedule,
@@ -786,6 +787,11 @@ def _backward_successor_terms(
 
         terms, kind, label = bounds[dep_type]
         imposed = _prev_working_day(raw, cal)
+        if dep_type == DependencyType.SF:
+            # An SF link anchors on the working day *before* this task's start
+            # (#4145), so the latest start it allows is one working day past the
+            # retreated bound — ``engine._sf_latest_start``, not a bare retreat.
+            imposed = _sf_latest_start(succ_finish, lag, cal)
         if milestone_day is not None:
             # This task is a milestone (#4079): the bound is on its instant, and
             # every bound lands in the one LF list.
@@ -1019,8 +1025,9 @@ def _inverse_link_constraint(
     if dep_type == DependencyType.FF:
         latest = _retreat_calendar_days(succ_finish, lag, cal)
         return latest, _working_days_between(task.early_finish, latest, cal)
-    # SF: successor finish is bounded by this task's start + lag
-    latest = _retreat_calendar_days(succ_finish, lag, cal)
+    # SF: the successor's finish is bounded by the working day before this task's
+    # start, so the latest start is one working day past the retreat (#4145).
+    latest = _sf_latest_start(succ_finish, lag, cal)
     return latest, _working_days_between(task.early_start, latest, cal)
 
 
