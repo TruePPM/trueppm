@@ -251,21 +251,25 @@ class TestScheduleDependencyTypes:
         assert by_id["B"].early_start == date(2026, 3, 5)
 
     def test_sf_dependency(self) -> None:
-        """SF: B finishes after A starts (rare but must be handled)."""
+        """SF: B finishes at the START of A's start day — the MSP/P6 reading (#4145)."""
         p = make_project(
-            tasks=[task("A", "A", 5), task("B", "B", 3)],
+            tasks=[task("A", "A", 5, planned_start=date(2026, 3, 9)), task("B", "B", 3)],
             dependencies=[Dependency("A", "B", dep_type=DependencyType.SF, lag=timedelta(days=4))],
         )
         r = schedule(p)
         by_id = {t.id: t for t in r.tasks}
-        # SF: B.EF constraint = A.ES + lag, snapped forward on B's calendar.
-        # A starts Mon 2-Mar; + lag 4 calendar days = Fri 6-Mar (a working day, no
-        # snap) → B must FINISH exactly Fri 6-Mar (the minimum the constraint allows).
-        # B is 3 working days, so it STARTS Wed 4-Mar (Wed/Thu/Fri = 4,5,6-Mar).
+        # A is pinned to Mon 9-Mar (an SNET, so it is off the project-start floor and
+        # the SF bound can actually bind). MS Project and P6 finish an SF successor
+        # at the *start* of the predecessor's start day, so the anchor is the last
+        # working day BEFORE that start — Fri 6-Mar, not Mon 9-Mar (#4145).
+        # + lag 4 calendar days = Tue 10-Mar (a working day, no snap) → B must FINISH
+        # exactly Tue 10-Mar; B is 3 working days, so it STARTS Fri 6-Mar.
         # Absolute oracle (not just the >= bound): pins both endpoints so an
         # off-by-one in either the SF anchor or the back-derived start would fail.
-        assert by_id["B"].early_start == date(2026, 3, 4)  # Wed
-        assert by_id["B"].early_finish == date(2026, 3, 6)  # Fri
+        # Anchoring on Mon 9-Mar instead (the pre-#4145 behavior) finishes B on Wed
+        # 11-Mar — one working day later than the plan it was imported from.
+        assert by_id["B"].early_start == date(2026, 3, 6)  # Fri
+        assert by_id["B"].early_finish == date(2026, 3, 10)  # Tue
 
 
 # ---------------------------------------------------------------------------
@@ -339,13 +343,14 @@ class TestFreeFloatAllDependencyTypes:
         assert by_id["A"].total_float > by_id["A"].free_float
 
     def test_free_float_sf_link(self) -> None:
-        # A ─SF(lag=4)─► B: B must finish no earlier than A starts + 4 cal days.
-        # A starts Mon 2-Mar; B finishes Wed 11-Mar (pinned by planned_start). A can
-        # slip 4 working days — to Fri 6-Mar, whose +4cd lower bound is Tue 10-Mar —
-        # before the bound crosses 11-Mar and pushes B's finish. (A 5th day of slip
-        # lands A on Mon 9-Mar, whose +4cd = Fri 13-Mar > 11-Mar.) The calendar-day
-        # lag spans a weekend, so the true slack is 4, not the 3 the old
-        # forward-imposed-date proxy reported (#1828).
+        # A ─SF(lag=4)─► B: B must finish no earlier than the working day before A
+        # starts, + 4 cal days (#4145). A starts Mon 2-Mar; B finishes Wed 11-Mar
+        # (pinned by planned_start). A can slip 5 working days — to Mon 9-Mar, whose
+        # anchor is Fri 6-Mar and whose +4cd bound is Tue 10-Mar — before the bound
+        # crosses 11-Mar and pushes B's finish. (A 6th day of slip lands A on Tue
+        # 10-Mar, anchor Mon 9-Mar, +4cd = Fri 13-Mar > 11-Mar.) The calendar-day lag
+        # spans a weekend, so the true slack is a whole-working-day count, not the
+        # gap the old forward-imposed-date proxy measured (#1828).
         p = make_project(
             tasks=[
                 task("A", "A", 1),
@@ -357,7 +362,7 @@ class TestFreeFloatAllDependencyTypes:
             ],
         )
         by_id = {t.id: t for t in schedule(p).tasks}
-        assert by_id["A"].free_float == timedelta(days=4)
+        assert by_id["A"].free_float == timedelta(days=5)
         assert by_id["A"].total_float > by_id["A"].free_float
 
     def test_free_float_never_exceeds_total_float(self) -> None:

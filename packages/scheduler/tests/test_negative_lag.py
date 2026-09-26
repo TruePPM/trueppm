@@ -115,12 +115,15 @@ def test_ff_lead_snaps_the_finish_constraint_forward() -> None:
 
 
 def test_sf_lead_landing_on_a_weekend_snaps_forward_not_back() -> None:
-    # SF anchors B.EF on A.ES (Mon 3-09). A 2-day lead lands on Sat 3-07 and snaps
-    # forward to Mon 3-09 — identical to lag 0 (the lead is absorbed by the
-    # weekend). B is 2 days ⇒ finishes Mon 3-09, starts Fri 3-06. Backward snapping
-    # would (wrongly) finish Fri 3-06; pinning Mon 3-09 fixes the direction.
-    lag0 = _chain(0, dep_type=DependencyType.SF, a_planned_start=PS)
-    lead = _chain(-2, dep_type=DependencyType.SF, a_planned_start=PS)
+    # SF anchors B.EF on the working day BEFORE A.ES (#4145), so A is pinned to Tue
+    # 3-10 here to put that anchor on Mon 3-09 — the position this case needs. A
+    # 2-day lead lands on Sat 3-07 and snaps forward to Mon 3-09 — identical to
+    # lag 0 (the lead is absorbed by the weekend). B is 2 days ⇒ finishes Mon 3-09,
+    # starts Fri 3-06. Backward snapping would (wrongly) finish Fri 3-06; pinning
+    # Mon 3-09 fixes the direction.
+    tue = date(2026, 3, 10)  # one day past PS, so the SF anchor is PS itself
+    lag0 = _chain(0, dep_type=DependencyType.SF, a_planned_start=tue)
+    lead = _chain(-2, dep_type=DependencyType.SF, a_planned_start=tue)
     assert lag0["B"].early_finish == date(2026, 3, 9)  # Mon
     assert lag0["B"].early_start == date(2026, 3, 6)  # Fri
     assert lead["B"].early_finish == lag0["B"].early_finish  # lead absorbed by the weekend

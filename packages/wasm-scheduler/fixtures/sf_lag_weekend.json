@@ -3,7 +3,7 @@
   "name": "SF positive lag crossing a weekend",
   "start_date": "2026-03-02",
   "tasks": [
-    {"id": "A", "name": "Task A", "duration": 172800.0},
+    {"id": "A", "name": "Task A", "duration": 172800.0, "planned_start": "2026-03-10"},
     {"id": "B", "name": "Task B", "duration": 172800.0}
   ],
   "dependencies": [

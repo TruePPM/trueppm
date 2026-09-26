@@ -678,16 +678,24 @@ class TestLateWindowFloorDerivation:
         explanation that named a pullback which had not produced the date.
 
         Here ``A``'s ``actual_start`` is a Sunday, so its early finish walks to the
-        Thursday, while the SF-lag-5 edge retreats its late start to the preceding
+        Thursday, while the SS-lag-5 edge retreats its late start to the preceding
         Friday and pulls the late finish back to the Wednesday. Both legs are
         floored, and the finish leg is floored onto a **working** day.
+
+        The edge was SF until #4145. It cannot be any more: an SF successor's finish
+        is *driven by* this task's start, and the corrected inverse retreats to the
+        first working day after ``prev_wd(succ.LF - lag)`` — which for any lag is at
+        or after this task's own start instant. So an SF edge can no longer pull a
+        predecessor's late start below its own early start, and cannot reach the floor
+        at all. SS reproduces the scenario with the same dates and exercises the same
+        branch; nothing about the floor logic is SF-specific.
         """
         p = make_project(
             [
                 task("A", "A", 5, percent_complete=37.0, actual_start=date(2027, 2, 28)),
                 task("B", "B", 11, percent_complete=58.0),
             ],
-            dependencies=[Dependency("A", "B", dep_type=DependencyType.SF, lag=timedelta(days=5))],
+            dependencies=[Dependency("A", "B", dep_type=DependencyType.SS, lag=timedelta(days=5))],
             start=date(2027, 2, 1),
         )
         scheduled = {t.id: t for t in schedule(p).tasks}["A"]

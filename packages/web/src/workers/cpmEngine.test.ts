@@ -178,10 +178,11 @@ describe('runCpmForwardPass', () => {
   });
 
   it('propagates SF dependency correctly', () => {
-    // A (5d) → SF → B (3d): B finishes no earlier than A starts.
-    // Drag A to Jan 13 (Mon) → the finish-side constraint (Jan 13) walked
-    // back 3 working days lands B's earlyStart on Jan 9 (Thu) — skipping the
-    // weekend in between (issue #1493) — finishing Jan 13.
+    // A (5d) → SF → B (3d): B finishes no later than the working day before A
+    // starts (MS Project / P6 reading, #4145 — the same one milestones use).
+    // Drag A to Jan 14 (Tue) → B finishes Mon Jan 13; walking 3 working days
+    // back lands B's earlyStart on Jan 9 (Thu) — skipping the weekend in
+    // between (issue #1493).
     const tasks: CpmTask[] = [
       task('A', '2025-01-06', '2025-01-10'),
       task('B', '2025-01-06', '2025-01-08'), // 3 days, starts before the constraint
@@ -190,7 +191,7 @@ describe('runCpmForwardPass', () => {
       tasks,
       [edge('A', 'B', 'SF')],
       'A',
-      '2025-01-13',
+      '2025-01-14',
     );
     const b = results.find((r) => r.taskId === 'B')!;
     expect(b.earlyStart).toBe('2025-01-09');

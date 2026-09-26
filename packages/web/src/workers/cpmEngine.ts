@@ -268,9 +268,15 @@ function advanceCalendarDays(ms: number, lagDays: number): number {
 /**
  * The raw date a predecessor's constraint is measured from: every bound is
  * `nextWorkingDay(anchor + lag)`. Ordinary work anchors FS on the day after its
- * finish, SS/SF on its start and FF on its finish; a milestone anchors FS/SS on
- * its instant and FF/SF on the last working day before it. Mirrors the server
- * engines' `_edge_anchor` / `edge_anchor` (#4079).
+ * finish, SS on its start, FF on its finish and SF on the last working day
+ * *before* its start; a milestone anchors FS/SS on its instant and FF/SF on the
+ * last working day before it. Mirrors the server engines' `_edge_anchor` /
+ * `edge_anchor` (#4079, #4145).
+ *
+ * SF (#4145) is the finish-anchored instant rule applied to the predecessor's
+ * start instant: MS Project and P6 finish an SF successor at the start of its
+ * predecessor's start day, so its last working day is the day before — the same
+ * place a zero-duration milestone at that midnight puts it.
  */
 function edgeAnchor(edge: CpmEdge, source: TaskState): number {
   const startAnchored = edge.type === 'FS' || edge.type === 'SS';
@@ -283,8 +289,9 @@ function edgeAnchor(edge: CpmEdge, source: TaskState): number {
     case 'FF':
       return source.earlyFinishMs;
     case 'SS':
-    case 'SF':
       return source.earlyStartMs;
+    case 'SF':
+      return prevWorkingDay(source.earlyStartMs - MS_PER_DAY);
   }
 }
 

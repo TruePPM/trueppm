@@ -40,6 +40,13 @@ jupyter notebook packages/scheduler/notebooks/
 
 Negative lag (lead) is supported on every type.
 
+`FF` and `SF` constrain the successor's **finish**, and a finish is the *end* of
+its last working day. An `SF` link with zero lag therefore lets the successor
+finish at the *start* of the predecessor's first day, which puts the
+successor's last working day on the working day **before** the predecessor
+starts. This is the MS Project and Primavera P6 reading, and it is the same for
+a task predecessor and a milestone predecessor.
+
 #### Lag is in calendar days, durations are in working days
 
 The two inputs are counted in different units, which is the single most common

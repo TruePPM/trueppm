@@ -7,7 +7,7 @@ use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use petgraph::Direction;
 
-use crate::backward::{milestone_latest, milestone_refs};
+use crate::backward::{milestone_latest, milestone_refs, sf_latest_start};
 use crate::calendar::{
     checked_offset_days, prev_working_day, retreat_calendar_days, working_days_between,
     PassCalendars, WorkingDayCounter,
@@ -66,7 +66,10 @@ fn free_float_anchor(
         ),
         DependencyType::SS => (es, retreat_calendar_days(succ_es, lag_days, node_cal)?),
         DependencyType::FF => (ef, retreat_calendar_days(succ_ef, lag_days, node_cal)?),
-        DependencyType::SF => (es, retreat_calendar_days(succ_ef, lag_days, node_cal)?),
+        // SF bounds the successor's finish from the working day *before* this
+        // task's start, so the latest start is one working day past the retreat
+        // (#4145).
+        DependencyType::SF => (es, sf_latest_start(succ_ef, lag_days, node_cal)?),
     })
 }
 

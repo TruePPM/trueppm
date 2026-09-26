@@ -206,9 +206,23 @@ def test_lag_is_counted_on_successor_calendar() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _xcal(dep_type: DependencyType, lag_days: int, *, succ_seven: bool) -> dict[str, Task]:
-    """pred(5) ─dep(lag)─► succ(2). One task on the 7-day week, the other Mon-Fri."""
-    pred_cal = None if succ_seven else "seven"
+def _xcal(
+    dep_type: DependencyType,
+    lag_days: int,
+    *,
+    succ_seven: bool,
+    pred_seven: bool | None = None,
+) -> dict[str, Task]:
+    """pred(5) ─dep(lag)─► succ(2). One task on the 7-day week, the other Mon-Fri.
+
+    ``pred_seven`` overrides the predecessor's calendar independently. SF needs it:
+    its anchor is the working day *before* the predecessor's start and so is resolved
+    on the *predecessor's* calendar (#4145), which means flipping both calendars at
+    once would move the anchor as well as the snap and stop isolating the snap.
+    """
+    if pred_seven is None:
+        pred_seven = not succ_seven
+    pred_cal = "seven" if pred_seven else None
     succ_cal = "seven" if succ_seven else None
     project = Project(
         id="p",
@@ -237,10 +251,17 @@ def test_ff_lag_snaps_on_successor_calendar() -> None:
 
 
 def test_sf_lag_snaps_on_successor_calendar() -> None:
-    # SF: succ.EF = pred.ES (Mon 01-05) + 5 cal days = Sat 01-10.
+    # SF anchors on the working day BEFORE pred.ES, on the PREDECESSOR's calendar
+    # (#4145) — so the predecessor is held on Mon-Fri in both arms and only the
+    # successor's calendar is flipped. Anchor = prev_wd(Sun 01-04, Mon-Fri) =
+    # Fri 01-02; + 8 cal days = Sat 01-10.
     # 7-day successor finishes Sat 01-10; Mon-Fri successor snaps to Mon 01-12.
-    assert _xcal(DependencyType.SF, 5, succ_seven=True)["succ"].early_finish == date(2026, 1, 10)
-    assert _xcal(DependencyType.SF, 5, succ_seven=False)["succ"].early_finish == date(2026, 1, 12)
+    assert _xcal(DependencyType.SF, 8, succ_seven=True, pred_seven=False)[
+        "succ"
+    ].early_finish == date(2026, 1, 10)
+    assert _xcal(DependencyType.SF, 8, succ_seven=False, pred_seven=False)[
+        "succ"
+    ].early_finish == date(2026, 1, 12)
 
 
 # ---------------------------------------------------------------------------
