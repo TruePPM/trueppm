@@ -1,4 +1,4 @@
-import { render, screen, act, within } from '@testing-library/react';
+import { render, screen, act, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
@@ -508,6 +508,45 @@ describe('ProgramGeneralPage (settings)', () => {
         sprint_picker_ready_only_default: null,
       },
     });
+  });
+
+  it('moves focus to the key field on a server rejection of `code` (ADR-1237 UX §2)', async () => {
+    useProgram.mockReturnValue({ data: makeProgram() });
+    const err = Object.assign(new Error('rejected'), {
+      isAxiosError: true,
+      response: { status: 400, data: { code: ['That key is already in use.'] } },
+    });
+    mutateAsync.mockRejectedValueOnce(err);
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText('Program key'), { target: { value: 'taken' } });
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(await screen.findByText('That key is already in use.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Program key')).toHaveFocus();
+  });
+
+  it('does not steal focus from another field on a rejection unrelated to `code`', async () => {
+    useProgram.mockReturnValue({ data: makeProgram() });
+    const err = Object.assign(new Error('rejected'), {
+      isAxiosError: true,
+      response: { status: 400, data: { name: ['This field may not be blank.'] } },
+    });
+    mutateAsync.mockRejectedValueOnce(err);
+    renderPage();
+
+    const nameInput = screen.getByLabelText('Program name');
+    fireEvent.change(nameInput, { target: { value: 'Renamed' } });
+    nameInput.focus();
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(screen.getByLabelText('Program key')).not.toHaveFocus();
   });
 
   it('seeds, edits, and saves the target date as an ISO string (#560)', async () => {

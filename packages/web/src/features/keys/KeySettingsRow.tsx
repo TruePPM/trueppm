@@ -1,4 +1,4 @@
-import { useCallback, useId, useState } from 'react';
+import { useCallback, useId, useState, type Ref } from 'react';
 import { CopyIcon } from '@/components/Icons';
 import { FieldRow } from '@/features/settings/SettingsShell';
 import { programPath, projectPath, type RefKind } from '@/lib/refPath';
@@ -32,6 +32,13 @@ interface KeySettingsRowProps {
   canEdit: boolean;
   /** The last `400` on `code` from the save, verbatim; cleared by the page on edit. */
   serverError: string | null;
+  /**
+   * Attached to the editable input so the calling page can focus the field when a
+   * save is rejected on `code` — mirroring `NewProjectModal`'s key field, which
+   * focuses on the same rejection so a keyboard/AT user lands where the error is,
+   * rather than at whatever control they last used before Save.
+   */
+  inputRef?: Ref<HTMLInputElement>;
 }
 
 /**
@@ -58,6 +65,7 @@ export function KeySettingsRow({
   retiredKeyCount,
   canEdit,
   serverError,
+  inputRef,
 }: KeySettingsRowProps) {
   const noun = kind === 'project' ? 'project' : 'program';
   const label = kind === 'project' ? 'Project key' : 'Program key';
@@ -114,6 +122,7 @@ export function KeySettingsRow({
       {({ hintId }) => (
         <div className="flex flex-col gap-1">
           <input
+            ref={inputRef}
             type="text"
             value={value}
             onChange={(e) => onChange(normalizeKeyInput(kind, e.target.value))}

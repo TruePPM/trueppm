@@ -106,6 +106,10 @@ export function ProjectGeneralPage() {
   // state and its own PATCH, so a program 400 never touches the shared save bar.
   const moveProgram = useUpdateProject(projectId);
   const { role } = useCurrentUserRole(projectId);
+  // Focused on a `code` rejection from handleSave (ADR-1237 UX §2), mirroring
+  // NewProjectModal's key field: a keyboard/AT user lands on the field the error
+  // is about, not on whatever control they last used before Save.
+  const keyInputRef = useRef<HTMLInputElement>(null);
 
   // Move-to-program dialog (#2089). The `program` FK is deliberately NOT part of
   // `values`/`initialValues` above, so the shared save bar never sees it — the
@@ -388,8 +392,13 @@ export function ProjectGeneralPage() {
       });
     } catch (err) {
       // A key rejection (taken, reserved, format, the rename cap) belongs in the
-      // key row's status line; the save bar still reports the failed save.
-      setCodeError(extractFieldErrors(err).code ?? null);
+      // key row's status line; the save bar still reports the failed save. Focus
+      // follows the error to the key field only when the rejection was actually
+      // about `code` — an unrelated 400 must not steal focus from the field the
+      // user was on.
+      const nextCodeError = extractFieldErrors(err).code ?? null;
+      setCodeError(nextCodeError);
+      if (nextCodeError) keyInputRef.current?.focus();
       throw err;
     }
     setCodeError(null);
@@ -570,6 +579,7 @@ export function ProjectGeneralPage() {
           retiredKeyCount={project?.retired_key_count}
           canEdit={canEdit}
           serverError={codeError}
+          inputRef={keyInputRef}
         />
 
         <StubFieldset disabled={!canEdit}>

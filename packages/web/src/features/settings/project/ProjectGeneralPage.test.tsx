@@ -330,6 +330,46 @@ describe('ProjectGeneralPage', () => {
     expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('calendar');
   });
 
+  it('moves focus to the key field on a server rejection of `code` (ADR-1237 UX §2)', async () => {
+    const err = Object.assign(new Error('rejected'), {
+      isAxiosError: true,
+      response: { status: 400, data: { code: ['That key is already in use.'] } },
+    });
+    mutateAsync.mockRejectedValueOnce(err);
+    renderPage();
+
+    // Edit the key so the section is dirty and the save actually runs.
+    fireEvent.change(screen.getByRole('textbox', { name: 'Project key' }), {
+      target: { value: 'TAKEN' },
+    });
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(await screen.findByText('That key is already in use.')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Project key' })).toHaveFocus();
+  });
+
+  it('does not steal focus from another field on a rejection unrelated to `code`', async () => {
+    const err = Object.assign(new Error('rejected'), {
+      isAxiosError: true,
+      response: { status: 400, data: { name: ['This field may not be blank.'] } },
+    });
+    mutateAsync.mockRejectedValueOnce(err);
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText('Project name'), { target: { value: '' } });
+    const nameInput = screen.getByLabelText('Project name');
+    nameInput.focus();
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(screen.getByRole('textbox', { name: 'Project key' })).not.toHaveFocus();
+  });
+
   it('seeds and persists the scheduling, backlog, and threshold fields (#2018)', async () => {
     renderPage();
 

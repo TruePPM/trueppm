@@ -1,6 +1,6 @@
 import { useEffect, useMemo, type ReactNode } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
-import { NotFoundPage } from '@/components/NotFoundPage';
+import { NotFoundPage, PROGRAM_LINK_NEEDS_CONNECTION } from '@/components/NotFoundPage';
 import { ProjectNotFound, PROJECT_LINK_NEEDS_CONNECTION } from '@/features/project/ProjectNotFound';
 import { ProjectShellFrame } from '@/features/project/ProjectShell';
 import { replaceRefSegment, type RefKind } from '@/lib/refPath';
@@ -77,7 +77,10 @@ export function ProjectRefBoundary({ children }: { children: ReactNode }) {
  * Route boundary for `/programs/:programId/*` — the program twin of
  * {@link ProjectRefBoundary}. A program ref is a key or a UUID only. Its
  * not-found is the app's existing `NotFoundPage` (programs have no dedicated
- * one), and it renders an empty frame while resolving.
+ * one); offline-never-resolved renders that same shell with the
+ * `PROGRAM_LINK_NEEDS_CONNECTION` body rather than the generic 404 copy, so a
+ * merely-offline visitor is not told their link is broken. It renders an empty
+ * frame while resolving.
  */
 export function ProgramRefBoundary({ children }: { children: ReactNode }) {
   const { programId: param } = useParams<{ programId: string }>();
@@ -89,7 +92,8 @@ export function ProgramRefBoundary({ children }: { children: ReactNode }) {
   );
 
   if (route.error) throw route.error;
-  if (route.status === 'not-found' || route.status === 'offline') return <NotFoundPage />;
+  if (route.status === 'not-found') return <NotFoundPage />;
+  if (route.status === 'offline') return <NotFoundPage body={PROGRAM_LINK_NEEDS_CONNECTION} />;
   if (!value) return <div className="flex h-full flex-col bg-neutral-surface" />;
   return <ProgramRefContext.Provider value={value}>{children}</ProgramRefContext.Provider>;
 }

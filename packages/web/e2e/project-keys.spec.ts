@@ -1,6 +1,6 @@
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { setupAuth, setupApiMocks, setupCatchAll, openCommandPalette, paletteSearch } from './fixtures';
 
 /**
  * Project keys in URLs and on the create sheet (ADR-1237 §7, UX §1 and §3, #4148).
@@ -175,6 +175,36 @@ test.describe('Project key URLs (ADR-1237 UX §3)', () => {
     await expect(page.getByRole('heading', { name: /This project isn.t available/ })).toBeVisible();
     // No rewrite: there is nothing to rewrite to.
     await expect(page).toHaveURL(/\/projects\/NOPE\/overview$/);
+  });
+
+  // ADR-1237 §7 "offline, never resolved": a key URL opened with no connection and
+  // nothing cached for it cannot be told apart from a deleted project by the client
+  // — the honest answer is "this needs a connection", not the generic 404 body. The
+  // resolver must stay genuinely uncached: going offline BEFORE the first navigation
+  // to this key (via a client-side jump, never `page.goto` — a document load would
+  // hit the real, disconnected network) means TanStack's `networkMode: 'online'`
+  // default pauses the `/resolve/` query rather than ever sending it.
+  test('a key URL opened offline with nothing cached says the link needs a connection', async ({
+    page,
+    context,
+  }) => {
+    const state = await setupRoutes(page);
+    await page.goto('/me/work');
+    // Page-rendered signal: the palette trigger only mounts once the shell is up.
+    await expect(page.getByRole('button', { name: /command palette/i })).toBeVisible();
+
+    await context.setOffline(true);
+    const { search } = await openCommandPalette(page);
+    await search.fill(NAME);
+    await expect(page.getByRole('option', { name: `${NAME} Project`, exact: true })).toBeVisible();
+    await search.press('Enter');
+
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/overview$`));
+    await expect(page.getByText('This link needs a connection the first time it’s opened.')).toBeVisible();
+    // Distinct from the generic not-found body — this is not a deleted project.
+    await expect(page.getByText(/This project isn.t available/)).toHaveCount(0);
+    // Genuinely never sent: the query paused before the request went out.
+    expect(state.resolveRefs).toHaveLength(0);
   });
 });
 

@@ -283,4 +283,16 @@ describe('ProgramRefBoundary', () => {
     renderAt('/programs/nope/overview');
     expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeInTheDocument();
   });
+
+  it('says the link needs a connection for an unresolved program key opened offline', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    getMock.mockImplementation(() => new Promise(() => undefined));
+    renderAt('/programs/atlas/overview');
+    expect(
+      await screen.findByText('This link needs a connection the first time it’s opened.'),
+    ).toBeInTheDocument();
+    // Distinct from the generic 404 body — a merely-offline visitor is not told
+    // their link is broken (ADR-1237 §7).
+    expect(screen.queryByText(/We couldn.t find that page/)).not.toBeInTheDocument();
+  });
 });

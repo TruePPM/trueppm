@@ -188,6 +188,10 @@ export function ProgramGeneralPage() {
   const { data: ws } = useWorkspaceSettings();
   const exportSeed = useExportProgramSeed();
   const updateProgram = useUpdateProgram();
+  // Focused on a `code` rejection from handleSave (ADR-1237 UX §2), mirroring
+  // NewProjectModal's key field: a keyboard/AT user lands on the field the error
+  // is about, not on whatever control they last used before Save.
+  const keyInputRef = useRef<HTMLInputElement>(null);
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -433,8 +437,12 @@ export function ProgramGeneralPage() {
       });
     } catch (err) {
       // A key rejection belongs in the key row's status line; the save bar still
-      // reports the failed save.
-      setCodeError(extractFieldErrors(err).code ?? null);
+      // reports the failed save. Focus follows the error to the key field only
+      // when the rejection was actually about `code` — an unrelated 400 must not
+      // steal focus from the field the user was on.
+      const nextCodeError = extractFieldErrors(err).code ?? null;
+      setCodeError(nextCodeError);
+      if (nextCodeError) keyInputRef.current?.focus();
       throw err;
     }
     setCodeError(null);
@@ -646,6 +654,7 @@ export function ProgramGeneralPage() {
           retiredKeyCount={program?.retired_key_count}
           canEdit={canEdit}
           serverError={codeError}
+          inputRef={keyInputRef}
         />
 
         <StubFieldset disabled={!canEdit}>
