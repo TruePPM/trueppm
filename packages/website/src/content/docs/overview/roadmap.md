@@ -9,7 +9,7 @@ TruePPM is pre-GA and is built part-time. Through 1.0 we aim for a point release
 
 **Two things shape every decision past 0.6**, added 2026-09-23: we increasingly plan TruePPM's own development inside TruePPM itself — a real, adversarial workload for the scheduling engine and the MCP surface, not a demo — and we build for two kinds of worker on the same plan, not one replacing the other. AI augments a delivery team; it does not remove the PM, the Scrum Master, or the person the plan is actually for. So the roadmap holds two things to the same bar: the plan a human runs day to day, and the grounded, citable, refusable facts an agent acts on beside them. Work that serves neither waits in Unsequenced until real usage — ours or a self-hoster's — asks for it specifically.
 
-- **The 0.4 beta period and 0.5** each carry a two-week window. The target is the midpoint. The window says when in that fortnight the tag gets cut — it is not a claim that we are confident to ±7 days.
+- **The 0.4 beta period** carries a target close date. **0.5** carries a two-week delivery window whose target is the midpoint. The window says when in that fortnight the tag gets cut — it is not a claim that we are confident to ±7 days.
 - **0.6** is named and scoped, but carries no date.
 - **Everything beyond 0.6** sits under **Direction** below: committed in intent, uncommitted in position, unassigned in time. The full backlog lives in [GitLab](https://gitlab.com/trueppm/trueppm/-/issues).
 
@@ -227,7 +227,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 
 ### Now: the 0.4 beta period
 
-**Target close: Oct 26 – Nov 9, 2026.** 0.4 is the first TruePPM release we have advertised, and the first we have asked anyone to run a real project on. So before 0.5 development starts, there is a **beta period**: a stretch of time given over to what beta users actually hit, rather than to the next release's features. It is a phase of the 0.4 line, not a version of its own.
+**Target close: Oct 15, 2026**, about two weeks after the beta is advertised with `v0.4.0-beta.5`. 0.4 is the first TruePPM release we have advertised, and the first we have asked anyone to run a real project on. So before 0.5 development starts, there is a **beta period**: a stretch of time given over to what beta users actually hit, rather than to the next release's features. It is a phase of the 0.4 line, not a version of its own.
 
 **What ships during it.** Further `v0.4.0-beta.N` tags, roughly every one to two weeks while reports are coming in. A `beta.N` tag carries **fixes, hardening, documentation, and the launch items already described under 0.4** — nothing from 0.5. If a report turns out to need a new feature, it is filed against 0.5 or later and says so, rather than growing the beta.
 
@@ -235,12 +235,12 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 
 **How it ends.** The beta period closes when **both** of these hold:
 
-- no open issue reported by a beta user blocks installing, upgrading, or running a real project, and none has been opened for two weeks; and
-- the upgrade path from the advertised beta tag to the closing tag has been exercised end to end, following the published [upgrade notes](/getting-started/upgrade/).
+- no open issue reported by a beta user blocks installing, upgrading, or running a real project, and none has been opened in the last week; and
+- the upgrade path from the advertised beta tag (`v0.4.0-beta.5`) to the closing tag has been exercised end to end, following the published [upgrade notes](/getting-started/upgrade/).
 
 Then the line is tagged `v0.4.0` (or `v0.4.0-rc.1`, if a candidate is warranted) and 0.5 planning begins. The window above is a target, not a promise. If the criteria are not met by then, the period runs on and the 0.5 date moves with it. A beta that ends on a date instead of a state is not a beta.
 
-### 0.5 — plan & people (target: Jan 18 – Feb 1, 2027)
+### 0.5 — plan & people (target: Jan 4 – 18, 2027)
 
 **For the resource manager — and anyone who has to staff a plan, whether the workers are people, or people and AI agents.** The tool warns you'd put someone at 130% *before* you save the assignment, not six weeks later from a burned-out engineer — and the same allocation model takes its first step toward treating an AI agent as a schedulable resource, because for software teams "who does the work" now spans both. Resource allocation and the hybrid human/AI first cut share one engine seam (a worker profile on the resource), so they land together as one story rather than two features. The installable PWA below is TruePPM's mobile story — through 1.0, not only for this release (see [the note under 0.6](#06--open--portable-no-date--next-after-05)) — so the milestone concentrates on the staffing charter instead of opening a greenfield native platform alongside it.
 
