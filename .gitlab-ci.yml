@@ -8156,3 +8156,5 @@ mcp:release:
         - name: 'CycloneDX SBOM (sbom.cdx.json)'
           url: '$MCP_SBOM_URL'
           link_type: package
+
+# rc.1 publish dry-run trigger — throwaway, do not merge.
