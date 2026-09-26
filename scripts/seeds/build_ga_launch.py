@@ -418,6 +418,7 @@ def _build_ga_launch_v20() -> dict:
     platform_project = {
         "slug": "ga-platform",
         "name": "Platform Hardening & Scale",
+        "code": "HARDEN",
         "description": "Make the platform carry GA load: capacity, autoscaling, failover, "
         "and the observability to prove it.",
         "methodology": "WATERFALL",
@@ -517,6 +518,7 @@ def _build_ga_launch_v20() -> dict:
     soc2_project = {
         "slug": "ga-soc2",
         "name": "SOC 2 Type II Readiness",
+        "code": "SOC2",
         "description": "Reach audit-ready: control gaps closed, policies written, evidence "
         "collected, and an internal readiness review passed.",
         "methodology": "WATERFALL",
@@ -606,6 +608,7 @@ def _build_ga_launch_v20() -> dict:
     security_project = {
         "slug": "ga-security",
         "name": "Security Pen-Test & Remediation",
+        "code": "PENTEST",
         "description": "Third-party pen test, triage, remediation of the criticals, and a "
         "verified sign-off the launch and the audit both gate on.",
         "methodology": "HYBRID",
@@ -688,6 +691,7 @@ def _build_ga_launch_v20() -> dict:
     marketing_project = {
         "slug": "ga-marketing",
         "name": "GA Marketing & Launch",
+        "code": "LAUNCH",
         "description": "Positioning, the launch site, blog and docs, press outreach, and the "
         "go-live itself — gated on the platform and the security sign-off.",
         "methodology": "AGILE",

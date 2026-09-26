@@ -277,6 +277,7 @@
     {
       "slug": "bayside-sitework",
       "name": "Sitework & Structure",
+      "code": "SITE",
       "description": "The below-grade and structural scope — site prep, foundation, and framing up to a topped-out structure.",
       "methodology": "WATERFALL",
       "start_date": "A-90",
@@ -907,6 +908,7 @@
     {
       "slug": "bayside-building",
       "name": "Building & Fit-out",
+      "code": "BLDG",
       "description": "The interior scope — MEP rough-in, finishes, and commissioning through to a certificate of occupancy. Every task is gated on the structure passing framing inspection.",
       "methodology": "WATERFALL",
       "start_date": "A-90",

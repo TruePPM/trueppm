@@ -1120,6 +1120,7 @@ def _build_aurora_v20() -> dict:
             {
                 "slug": "aurora",
                 "name": "Aurora App",
+                "code": "AURORA",
                 "methodology": "AGILE",
                 "start_date": D(0),
                 "calendar": "aurora-core",
@@ -2144,6 +2145,7 @@ def _build_bayside_v20() -> dict:
     sitework_project = {
         "slug": "bayside-sitework",
         "name": "Sitework & Structure",
+        "code": "SITE",
         "description": "The below-grade and structural scope — site prep, foundation, and framing "
         "up to a topped-out structure.",
         "methodology": "WATERFALL",
@@ -2318,6 +2320,7 @@ def _build_bayside_v20() -> dict:
     building_project = {
         "slug": "bayside-building",
         "name": "Building & Fit-out",
+        "code": "BLDG",
         "description": "The interior scope — MEP rough-in, finishes, and commissioning through to a "
         "certificate of occupancy. Every task is gated on the structure passing framing inspection.",
         "methodology": "WATERFALL",
@@ -3164,6 +3167,7 @@ def _build_helios_v20() -> dict:
             {
                 "slug": "helios",
                 "name": "Helios CRM",
+                "code": "HELIOS",
                 "methodology": "HYBRID",
                 "start_date": D(0),
                 "calendar": "helios-core",
