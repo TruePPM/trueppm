@@ -3730,26 +3730,46 @@ scheduler:mutation:
   # test; mutmut proves the tests would FAIL if that line were wrong by corrupting
   # the code and checking whether the suite catches it.
   #
-  # GATING POSTURE: this job GATES on the mutation score. A nightly whose score
-  # falls below MUTATION_MIN goes RED and stays red until someone kills the mutant
-  # or moves the floor (#3215). It runs on an MR only when that MR changes the
-  # measuring instrument itself — see the rules below.
+  # GATING POSTURE: the nightly GATES on the mutation score — a nightly whose
+  # score falls below MUTATION_MIN goes RED and stays red until someone kills
+  # the mutant or moves the floor (#3215). An MR that changes the measuring
+  # instrument itself GATES too, for the same reason as the nightly: measured
+  # before it merges, not the night after. An MR that changes the MEASURED
+  # code (the only_mutate beachhead — models.py, derive.py, cli.py) also runs
+  # this job now, but per-rule `allow_failure: true` — informational, not
+  # blocking (#4147; see "WHY allow_failure IS PER-RULE" below). See the
+  # rules below for exactly which MR shape hits which posture.
   #
   # Read "report first, gate later" as done, not as ongoing. Three mechanisms used
   # to stack here — MUTATION_MIN: "0", an early `if args.min <= 0: return 0` in the
   # check, and `allow_failure: true` — and any one alone made the score incapable
   # of affecting a verdict. That was the right posture while no baseline existed.
-  # A baseline exists now, so it is gone: the floor is real and allow_failure is
-  # off.
+  # A baseline exists now, so it is gone: the floor is real and the nightly and
+  # instrument-change rules are job-level gating.
   #
-  # WHY allow_failure CAME OFF, given fuzz-deep and api:fuzz keep it. Their reason
-  # does not transfer. A fuzz finding is stochastic and open-ended, so redding the
-  # shared nightly schedule (Renovate + SonarCloud) on one trains maintainers to
-  # ignore nightly red. A mutation score crossing a fixed floor is neither: it is
-  # one deterministic number, measured the same way every night, and a drop means
-  # a specific assertion got weaker. The survivor list in the artifact says which.
-  # That is a `lint:design-system-v2`-shaped ratchet, and a ratchet nobody can see
-  # breach is not a ratchet.
+  # WHY allow_failure CAME OFF (job-level), given fuzz-deep and api:fuzz keep it.
+  # Their reason does not transfer to the job as a whole. A fuzz finding is
+  # stochastic and open-ended, so redding the shared nightly schedule (Renovate +
+  # SonarCloud) on one trains maintainers to ignore nightly red. A mutation score
+  # crossing a fixed floor is neither: it is one deterministic number, measured
+  # the same way every night, and a drop means a specific assertion got weaker.
+  # The survivor list in the artifact says which. That is a
+  # `lint:design-system-v2`-shaped ratchet, and a ratchet nobody can see breach
+  # is not a ratchet. The nightly rule and the instrument-change MR rule both
+  # stay gating for this reason.
+  #
+  # WHY allow_failure IS PER-RULE, NOT PER-JOB, ON THE MEASURED-CODE MR RULE
+  # (#4147). That rule's `allow_failure: true` is not the fuzz argument above —
+  # it is not shielding a shared schedule from a cause the run can't attribute.
+  # Here the cause IS the triggering MR: it touched the exact files being
+  # measured, so a drop is attributable to that diff, not to drift since the
+  # last nightly. Making it gating would turn every ordinary scheduler change
+  # into a full-suite MR blocker; making it informational still surfaces the
+  # number, on the diff that moved it, before merge — strictly more than the
+  # prior posture caught. That prior posture is what let #4079 (0606ade8d) and
+  # #4130 (6ca34d03e) merge green on 2026-09-25 while quietly dropping the
+  # nightly score 96.6% -> 90.6% against the 92.0% floor, redding main for a
+  # day once the nightly caught up (#4146).
   #
   # WHERE MUTATION_MIN COMES FROM. Observed, not chosen: 1042-1043 killed of 1120
   # considered — 93.0%-93.1% — on every nightly artifact from 2026-08-11 to
@@ -3780,13 +3800,29 @@ scheduler:mutation:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     # An MR that changes the measuring instrument — the exact mutmut pin and
     # [tool.mutmut] both live in pyproject.toml — is measured before it merges,
-    # not the night after. That is the only MR shape this runs on: an ordinary
-    # scheduler change still waits for the nightly, so this cannot turn every
-    # survivor into an MR blocker. ~30 s of CI.
+    # not the night after, and GATES like the nightly. Listed FIRST because
+    # GitLab rules are first-match: an MR touching both the instrument and the
+    # measured files below must still gate, not fall through to the
+    # informational rule.
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/scheduler/pyproject.toml
         - packages/scheduler/scripts/check_mutation_score.py
+    # An MR that changes the MEASURED code itself — the only_mutate beachhead
+    # in [tool.mutmut]: models.py, derive.py, cli.py — now runs this job too
+    # (#4147), so a score drop is caught and attributed to the diff that moved
+    # it instead of surfacing on the nightly a day later (see #4146). Per-rule
+    # allow_failure: this is informational, not a merge blocker — an ordinary
+    # scheduler change still does not wait on a survivor to be re-triaged
+    # before it can merge. It runs the identical script as every other rule
+    # here: the full mutmut suite, ~2100 mutants, ~14 min locally — there is
+    # no cheaper "just the changed lines" mode.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/scheduler/src/trueppm_scheduler/models.py
+        - packages/scheduler/src/trueppm_scheduler/derive.py
+        - packages/scheduler/src/trueppm_scheduler/cli.py
+      allow_failure: true
   variables:
     MUTATION_MIN: "0.92"
   script:
