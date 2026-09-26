@@ -727,6 +727,7 @@ def build_platform_core() -> dict:
     return {
         "slug": "platform-core",
         "name": "Platform Core",
+        "code": "PLAT",
         "description": "The agile build stream — the platform itself, delivered sprint by sprint.",
         "methodology": "AGILE",
         "start_date": d(0),
@@ -1066,6 +1067,7 @@ def build_migration_tooling() -> dict:
     return {
         "slug": "migration-tooling",
         "name": "Migration Tooling",
+        "code": "MIGR",
         "description": "The waterfall stream — CPM-scheduled data migration with three-point estimates.",
         "methodology": "WATERFALL",
         "start_date": d(0),
@@ -1401,6 +1403,7 @@ def build_gtm_readiness() -> dict:
     return {
         "slug": "gtm-readiness",
         "name": "GTM Readiness",
+        "code": "GTM",
         "description": "The hybrid stream — gated launch planning with agile enablement content.",
         "methodology": "HYBRID",
         "start_date": d(40),

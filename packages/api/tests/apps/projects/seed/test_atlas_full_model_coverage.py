@@ -223,10 +223,14 @@ def test_the_health_override_survives_an_export_import_round_trip(owner):
     exported = export_program(program)
     validate_seed(exported)
 
+    # The exporter prefers a project's `code` over its `name` when deriving the
+    # export slug (exporter.py `build()`), and every Atlas project now carries
+    # one (#4149) — so the exported slug is the lowercased code, not the seed's
+    # original name-derived slug.
     by_slug = {p["slug"]: p for p in exported["projects"]}
-    assert by_slug["migration-tooling"]["health"] == "AT_RISK"
-    assert "health" not in by_slug["platform-core"]
-    assert "health" not in by_slug["gtm-readiness"]
+    assert by_slug["migr"]["health"] == "AT_RISK"
+    assert "health" not in by_slug["plat"]
+    assert "health" not in by_slug["gtm"]
 
     reimported = import_seed(exported, owner=owner, create_users=True, replace=True)
     round_tripped = {p.name: p.health for p in Project.objects.filter(program=reimported)}

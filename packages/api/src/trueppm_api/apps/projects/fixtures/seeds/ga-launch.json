@@ -286,6 +286,7 @@
     {
       "slug": "ga-platform",
       "name": "Platform Hardening & Scale",
+      "code": "HARDEN",
       "description": "Make the platform carry GA load: capacity, autoscaling, failover, and the observability to prove it.",
       "methodology": "WATERFALL",
       "start_date": "A-45",
@@ -553,6 +554,7 @@
     {
       "slug": "ga-soc2",
       "name": "SOC 2 Type II Readiness",
+      "code": "SOC2",
       "description": "Reach audit-ready: control gaps closed, policies written, evidence collected, and an internal readiness review passed.",
       "methodology": "WATERFALL",
       "start_date": "A-45",
@@ -816,6 +818,7 @@
     {
       "slug": "ga-security",
       "name": "Security Pen-Test & Remediation",
+      "code": "PENTEST",
       "description": "Third-party pen test, triage, remediation of the criticals, and a verified sign-off the launch and the audit both gate on.",
       "methodology": "HYBRID",
       "start_date": "A-45",
@@ -1102,6 +1105,7 @@
     {
       "slug": "ga-marketing",
       "name": "GA Marketing & Launch",
+      "code": "LAUNCH",
       "description": "Positioning, the launch site, blog and docs, press outreach, and the go-live itself — gated on the platform and the security sign-off.",
       "methodology": "AGILE",
       "start_date": "A-45",
