@@ -1,6 +1,6 @@
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll, openCommandPalette, paletteSearch } from './fixtures';
+import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 /**
  * Project keys in URLs and on the create sheet (ADR-1237 §7, UX §1 and §3, #4148).
@@ -133,7 +133,7 @@ async function setupRoutes(page: Page): Promise<State> {
 
 /** The Overview rendered for THIS project — not the not-found body. */
 async function expectOverviewRendered(page: Page) {
-  await expect(page.getByText(/This project isn.t available/)).toHaveCount(0);
+  await expect(page.getByText(/It may have been deleted/)).toHaveCount(0);
   // The location switcher names the project and the view; on an unavailable project it
   // says "Project unavailable" instead (#3469), so this cannot pass on the 404 body.
   const location = page.getByRole('navigation', { name: 'Location' });
@@ -194,15 +194,18 @@ test.describe('Project key URLs (ADR-1237 UX §3)', () => {
     await expect(page.getByRole('button', { name: /command palette/i })).toBeVisible();
 
     await context.setOffline(true);
-    const { search } = await openCommandPalette(page);
-    await search.fill(NAME);
-    await expect(page.getByRole('option', { name: `${NAME} Project`, exact: true })).toBeVisible();
-    await search.press('Enter');
+    // A key no cached project carries (the palette would list the mocked project and
+    // seed the resolver from the cache, defeating the premise) reached by a
+    // client-side history jump, which React Router picks up via popstate.
+    await page.evaluate(() => {
+      window.history.pushState({}, '', '/projects/NEVERSEEN/overview');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
 
-    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/overview$`));
+    await expect(page).toHaveURL(/\/projects\/NEVERSEEN\/overview$/);
     await expect(page.getByText('This link needs a connection the first time it’s opened.')).toBeVisible();
     // Distinct from the generic not-found body — this is not a deleted project.
-    await expect(page.getByText(/This project isn.t available/)).toHaveCount(0);
+    await expect(page.getByText(/It may have been deleted/)).toHaveCount(0);
     // Genuinely never sent: the query paused before the request went out.
     expect(state.resolveRefs).toHaveLength(0);
   });
