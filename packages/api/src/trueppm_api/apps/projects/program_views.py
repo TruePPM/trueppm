@@ -3141,12 +3141,13 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         results: list[dict[str, Any]] = []
         for task_row in rows:
             project_name, project_code = readable[str(task_row["project_id"])]
-            # Same decode + qualify rule as TaskSerializer (#2430) — this row is
-            # hand-built rather than serialized through TaskSerializer (the
-            # queryset above is a search projection, not a Task instance list),
-            # so it must apply the rule itself rather than inherit it.
+            # Same decode + qualify rule as TaskSerializer (#2430, ADR-1237) —
+            # this row is hand-built rather than serialized through
+            # TaskSerializer (the queryset above is a search projection, not a
+            # Task instance list), so it must apply the rule itself rather
+            # than inherit it.
             display = format_short_id_display(task_row["short_id"], "T")
-            qualified = f"{project_code}-{display[2:]}" if project_code and display else display
+            qualified = f"{project_code}-{display}" if project_code and display else display
             results.append(
                 {
                     "id": str(task_row["id"]),

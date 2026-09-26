@@ -135,7 +135,7 @@ def test_search_decodes_the_hex_sequence_and_qualifies_by_project_code(
     # Raw identity is preserved (no migration) — only the display forms decode.
     assert row_a["short_id"] == "0000000A"
     assert row_a["short_id_display"] == "T-10"
-    assert row_a["qualified_id"] == "SEC-10"
+    assert row_a["qualified_id"] == "SEC-T-10"
 
     row_b = by_id[str(b1.pk)]
     assert row_b["short_id_display"] == "T-1"

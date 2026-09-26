@@ -77,7 +77,7 @@ const BASE: MyWorkTask = {
   // nice identifier, so a render bug dumping the raw field passed silently).
   short_id: '00000001',
   short_id_display: 'T-1',
-  qualified_id: 'PRJ-1',
+  qualified_id: 'PRJ-T-1',
   name: 'Build login',
   project_id: 'p1',
   project_name: 'App',
@@ -104,7 +104,7 @@ const BASE: MyWorkTask = {
 describe('MyWorkTaskRow reference (#2671)', () => {
   it('renders the server-decoded reference, never the raw hex short_id', () => {
     wrap(<MyWorkTaskRow task={BASE} />);
-    expect(screen.getByText('PRJ-1')).toBeInTheDocument();
+    expect(screen.getByText('PRJ-T-1')).toBeInTheDocument();
     expect(screen.queryByText('00000001')).not.toBeInTheDocument();
   });
 });
@@ -163,7 +163,7 @@ describe('MyWorkTaskRow quick-log time (#1234)', () => {
     const trigger = screen.getByRole('button', { name: 'Log time on Build login' });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     fireEvent.click(trigger);
-    expect(screen.getByRole('dialog', { name: /Log time · PRJ-1/ })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /Log time · PRJ-T-1/ })).toBeInTheDocument();
   });
 
   it('renders the logged-today chip only when time is logged', () => {

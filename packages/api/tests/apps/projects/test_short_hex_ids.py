@@ -285,7 +285,7 @@ def test_qualified_id_uses_the_project_code_settings_promises(
 
     r = client.get(f"/api/v1/tasks/?project={project.pk}")
     row = next(item for item in r.data.get("results", r.data) if item["id"] == str(t.pk))
-    assert row["qualified_id"] == "ENG-2026-1"
+    assert row["qualified_id"] == "ENG-2026-T-1"
     assert row["short_id_display"] == "T-1"
 
 
@@ -352,7 +352,7 @@ def test_qualified_id_costs_one_project_query_for_a_whole_list(project: Project)
     with CaptureQueriesContext(connection) as captured:
         refs = [TaskSerializer(t, context=ctx).data["qualified_id"] for t in tasks]
 
-    assert refs == [f"ENG-{i}" for i in range(1, 7)]
+    assert refs == [f"ENG-T-{i}" for i in range(1, 7)]
     # Scoped to the code lookup this field owns — the broader per-row project load
     # this bare queryset also provokes predates #2430 and does not fire on the real
     # endpoints (their perf tests pin that separately).
@@ -433,12 +433,11 @@ def test_sprint_display_ref_decodes_the_hex_sequence(
 def test_sprint_qualified_id_keeps_the_sp_marker(
     client: APIClient, project: Project, membership: ProjectMembership
 ) -> None:
-    """Unlike Task, a sprint's qualified form keeps its ``SP-`` marker.
+    """A sprint's qualified form keeps its ``SP-`` marker, matching Task's ``T-``.
 
-    Sprint and Task share the same hex counter, so a bare ``ENG-2026-3``
-    (Task's own qualifying convention, which drops the ``T-`` marker) would be
-    ambiguous between "task 3" and "sprint 3" once both entity kinds are
-    qualified with the same project code.
+    Sprint and Task share the same hex counter, so a bare ``ENG-2026-3`` would
+    be ambiguous between "task 3" and "sprint 3" once both entity kinds are
+    qualified with the same project code (ADR-1237).
     """
     project.code = "ENG-2026"
     project.save(update_fields=["code"])

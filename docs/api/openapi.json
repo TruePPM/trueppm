@@ -57762,7 +57762,7 @@
                     },
                     "qualified_id": {
                         "type": "string",
-                        "description": "Project-qualified reference, same fallback rule as TaskSerializer.\n\n``project`` is ``select_related`` on ``MeWorkView.get_queryset``, so\nreading ``.code`` here is not an N+1.",
+                        "description": "Project-qualified reference, same form and fallback rule as TaskSerializer.\n\n``project`` is ``select_related`` on ``MeWorkView.get_queryset``, so\nreading ``.code`` here is not an N+1.",
                         "readOnly": true
                     },
                     "name": {
@@ -71844,7 +71844,7 @@
                     },
                     "qualified_id": {
                         "type": "string",
-                        "description": "Project-qualified sprint reference — ``ENG-2026-SP-3`` (#2671).\n\nSprint had no qualified reference at all before this, unlike Task\n(#2430) and Risk (#929). Unlike Task's ``get_qualified_id`` — which\ndrops the ``T-`` marker because a task's qualified form is unambiguous\non its own surfaces — this keeps the ``SP-`` marker: Sprint and Task\nshare the same hex counter, so a bare ``ENG-2026-3`` could otherwise be\nmisread as either a task or a sprint reference. Falls back to the\ncompact form when the project has no code (#520).",
+                        "description": "Project-qualified sprint reference — ``PLAT-SP-3`` (#2671, ADR-1237).\n\nSprint had no qualified reference at all before this, unlike Task\n(#2430) and Risk (#929). Keeps the ``SP-`` marker, matching Task's own\n``T-`` marker and Risk's ``R-`` marker: Sprint and Task share the same\nhex counter, so a bare ``PLAT-3`` would otherwise be ambiguous between\n\"task 3\" and \"sprint 3\" once both entity kinds are qualified with the\nsame project code. Falls back to the compact form when the project has\nno code (#520).",
                         "readOnly": true
                     },
                     "project": {
@@ -74520,7 +74520,7 @@
                     },
                     "qualified_id": {
                         "type": "string",
-                        "description": "Project-qualified task reference — ``ENG-2026-8`` (#2430).\n\nSettings → General collects a ``Project code`` whose own help text promises\nit is \"used as a prefix for task IDs and exports\" — a promise nothing kept.\nThis is the field that keeps it, and the one board cards render. Falls back\nto the compact ``T-8`` form when the project has no code (it is optional,\n#520), so the reference is never empty just because a code is unset.",
+                        "description": "Project-qualified task reference — ``PLAT-T-8`` (#2430, ADR-1237).\n\nSettings → General collects a ``Project code`` whose own help text promises\nit is \"used as a prefix for task IDs and exports\" — a promise nothing kept.\nThis is the field that keeps it, and the one board cards render. Falls back\nto the compact ``T-8`` form when the project has no code (it is optional,\n#520), so the reference is never empty just because a code is unset. This\nis the same form ``GET /api/v1/resolve/`` accepts back as ``ref``.",
                         "readOnly": true
                     },
                     "project": {
@@ -78012,7 +78012,7 @@
                     },
                     "qualified_id": {
                         "type": "string",
-                        "description": "Project-qualified task reference — ``ENG-2026-8`` (#2430).\n\nSettings → General collects a ``Project code`` whose own help text promises\nit is \"used as a prefix for task IDs and exports\" — a promise nothing kept.\nThis is the field that keeps it, and the one board cards render. Falls back\nto the compact ``T-8`` form when the project has no code (it is optional,\n#520), so the reference is never empty just because a code is unset.",
+                        "description": "Project-qualified task reference — ``PLAT-T-8`` (#2430, ADR-1237).\n\nSettings → General collects a ``Project code`` whose own help text promises\nit is \"used as a prefix for task IDs and exports\" — a promise nothing kept.\nThis is the field that keeps it, and the one board cards render. Falls back\nto the compact ``T-8`` form when the project has no code (it is optional,\n#520), so the reference is never empty just because a code is unset. This\nis the same form ``GET /api/v1/resolve/`` accepts back as ``ref``.",
                         "readOnly": true
                     },
                     "project": {

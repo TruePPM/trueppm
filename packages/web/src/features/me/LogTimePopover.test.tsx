@@ -27,12 +27,13 @@ vi.mock('@/components/Toast', () => ({
 
 const TASK = {
   id: 'task-a',
-  // A real 8-hex-digit value, never a pretty fake like the old 'RIV-1' — that
-  // shape is exactly what hid the #2671 raw-hex leak (it already looks like a
-  // nice identifier, so a render bug dumping the raw field passed silently).
+  // A real 8-hex-digit value, never a pretty fake like the old 'RIV-T-1' —
+  // that shape is exactly what hid the #2671 raw-hex leak (it already looks
+  // like a nice identifier, so a render bug dumping the raw field passed
+  // silently).
   short_id: '00000001',
   short_id_display: 'T-1',
-  qualified_id: 'RIV-1',
+  qualified_id: 'RIV-T-1',
   name: 'Foundation',
   project_id: 'proj-1',
   project_name: 'Riverside',
@@ -48,7 +49,7 @@ beforeEach(() => {
 describe('LogTimePopover', () => {
   it('renders the server-decoded reference in the header, never the raw hex short_id (#2671)', () => {
     render(<LogTimePopover task={TASK} onClose={vi.fn()} />);
-    expect(screen.getByText('Log time · RIV-1')).toBeInTheDocument();
+    expect(screen.getByText('Log time · RIV-T-1')).toBeInTheDocument();
     expect(screen.queryByText(/00000001/)).not.toBeInTheDocument();
   });
 
@@ -81,7 +82,7 @@ describe('LogTimePopover', () => {
     expect(createMutate).toHaveBeenCalledTimes(1);
     expect(createMutate.mock.calls[0][0]).toMatchObject({ taskId: 'task-a', minutes: 120 });
     expect(toastAction).toHaveBeenCalledTimes(1);
-    expect(toastAction.mock.calls[0][0]).toBe('Logged 2:00 to RIV-1');
+    expect(toastAction.mock.calls[0][0]).toBe('Logged 2:00 to RIV-T-1');
     expect(onClose).toHaveBeenCalled();
 
     // Invoke the Undo action the toast was given.

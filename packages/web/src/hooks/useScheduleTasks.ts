@@ -177,7 +177,7 @@ export interface ApiTask {
   short_id?: string;
   /** Server-formatted compact reference, e.g. "T-8" (#2430). */
   short_id_display?: string;
-  /** Server-formatted project-qualified reference, e.g. "ENG-2026-8" (#2430). */
+  /** Server-formatted project-qualified reference, e.g. "ENG-2026-T-8" (#2430, ADR-1237). */
   qualified_id?: string;
   assignments?: Array<{
     resource_id: string;

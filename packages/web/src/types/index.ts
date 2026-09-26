@@ -435,9 +435,10 @@ export interface Task {
   /** Server-formatted compact task reference, e.g. `"T-8"` (#2430). */
   shortIdDisplay?: string;
   /**
-   * Server-formatted project-qualified task reference, e.g. `"ENG-2026-8"` —
+   * Server-formatted project-qualified task reference, e.g. `"ENG-2026-T-8"` —
    * honoring the project code Settings → General promises prefixes task IDs.
-   * Falls back to the compact form when the project has no code (#2430).
+   * Falls back to the compact form when the project has no code (#2430,
+   * ADR-1237).
    */
   qualifiedId?: string;
   /** Sprint scope-change audit rows — populated when subtasks are added to an in-sprint task (ADR-0060). */

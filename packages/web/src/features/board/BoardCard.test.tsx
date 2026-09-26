@@ -1281,11 +1281,11 @@ describe('BoardCard v2 identity meta (issue 1230)', () => {
         ...baseTask,
         shortId: '00000008',
         shortIdDisplay: 'T-8',
-        qualifiedId: 'ENG-2026-8',
+        qualifiedId: 'ENG-2026-T-8',
       },
     });
-    expect(screen.getByText('ENG-2026-8')).toBeInTheDocument();
-    expect(screen.getByLabelText('Task reference ENG-2026-8')).toBeInTheDocument();
+    expect(screen.getByText('ENG-2026-T-8')).toBeInTheDocument();
+    expect(screen.getByLabelText('Task reference ENG-2026-T-8')).toBeInTheDocument();
   });
 
   it('falls back to the compact reference when the project has no code', () => {
@@ -1299,7 +1299,7 @@ describe('BoardCard v2 identity meta (issue 1230)', () => {
         ...baseTask,
         shortId: '0000000A',
         shortIdDisplay: 'T-10',
-        qualifiedId: 'ENG-2026-10',
+        qualifiedId: 'ENG-2026-T-10',
       },
     });
     expect(screen.queryByText('0000000A')).not.toBeInTheDocument();

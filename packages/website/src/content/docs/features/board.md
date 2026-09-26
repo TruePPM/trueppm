@@ -138,7 +138,7 @@ Neither column collapse nor lane focus has a keyboard shortcut.
 
 Each card shows:
 
-- **Task name** and **task reference** — `ENG-2026-8`, using the
+- **Task name** and **task reference** — `ENG-2026-T-8`, using the
   [project key](/administration/project-settings/#project-key) from Settings → General
   as the prefix. Without a key it reads `T-8`. The reference is
   formatted server-side, so the web app, a PDF export, and an MCP client all show the

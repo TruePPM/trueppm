@@ -3786,17 +3786,18 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         return memo[obj.project_id]
 
     def get_qualified_id(self, obj: Task) -> str:
-        """Project-qualified task reference — ``ENG-2026-8`` (#2430).
+        """Project-qualified task reference — ``PLAT-T-8`` (#2430, ADR-1237).
 
         Settings → General collects a ``Project code`` whose own help text promises
         it is "used as a prefix for task IDs and exports" — a promise nothing kept.
         This is the field that keeps it, and the one board cards render. Falls back
         to the compact ``T-8`` form when the project has no code (it is optional,
-        #520), so the reference is never empty just because a code is unset.
+        #520), so the reference is never empty just because a code is unset. This
+        is the same form ``GET /api/v1/resolve/`` accepts back as ``ref``.
         """
         display = self.get_short_id_display(obj)
         code = self._project_code(obj)
-        return f"{code}-{display[2:]}" if code and display else display
+        return f"{code}-{display}" if code and display else display
 
     # Computed: actual_finish - early_finish in days.  Positive = late, negative = early.
     schedule_variance_days = serializers.SerializerMethodField()
@@ -8758,15 +8759,15 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
         return format_short_id_display(obj.short_id, "SP")
 
     def get_qualified_id(self, obj: Sprint) -> str:
-        """Project-qualified sprint reference — ``ENG-2026-SP-3`` (#2671).
+        """Project-qualified sprint reference — ``PLAT-SP-3`` (#2671, ADR-1237).
 
         Sprint had no qualified reference at all before this, unlike Task
-        (#2430) and Risk (#929). Unlike Task's ``get_qualified_id`` — which
-        drops the ``T-`` marker because a task's qualified form is unambiguous
-        on its own surfaces — this keeps the ``SP-`` marker: Sprint and Task
-        share the same hex counter, so a bare ``ENG-2026-3`` could otherwise be
-        misread as either a task or a sprint reference. Falls back to the
-        compact form when the project has no code (#520).
+        (#2430) and Risk (#929). Keeps the ``SP-`` marker, matching Task's own
+        ``T-`` marker and Risk's ``R-`` marker: Sprint and Task share the same
+        hex counter, so a bare ``PLAT-3`` would otherwise be ambiguous between
+        "task 3" and "sprint 3" once both entity kinds are qualified with the
+        same project code. Falls back to the compact form when the project has
+        no code (#520).
         """
         display = self.get_short_id_display(obj)
         code = obj.project.code if obj.project_id else ""
@@ -10499,14 +10500,14 @@ class MeWorkTaskSerializer(serializers.Serializer[Any]):
         return format_short_id_display(obj.short_id, "T")
 
     def get_qualified_id(self, obj: Any) -> str:
-        """Project-qualified reference, same fallback rule as TaskSerializer.
+        """Project-qualified reference, same form and fallback rule as TaskSerializer.
 
         ``project`` is ``select_related`` on ``MeWorkView.get_queryset``, so
         reading ``.code`` here is not an N+1.
         """
         display = self.get_short_id_display(obj)
         code = obj.project.code if obj.project_id else ""
-        return f"{code}-{display[2:]}" if code and display else display
+        return f"{code}-{display}" if code and display else display
 
     def get_project_name(self, obj: Any) -> str:
         return str(obj.project.name)

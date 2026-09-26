@@ -45,7 +45,7 @@ function makeEpic(overrides: Partial<Task> = {}): Task {
     // a nice identifier, so a render bug dumping the raw field passed silently).
     shortId: '00000005',
     shortIdDisplay: 'T-5',
-    qualifiedId: 'PROJ-5',
+    qualifiedId: 'PROJ-T-5',
     taskType: 'epic',
     canEdit: true,
     ...overrides,
@@ -81,7 +81,7 @@ describe('EpicDetailDrawer (#1346)', () => {
 
   it('renders the server-decoded reference in the header, never the raw hex short_id (#2671)', () => {
     renderDrawer(makeEpic());
-    expect(screen.getByText('PROJ-5')).toBeInTheDocument();
+    expect(screen.getByText('PROJ-T-5')).toBeInTheDocument();
     expect(screen.queryByText('00000005')).not.toBeInTheDocument();
   });
 

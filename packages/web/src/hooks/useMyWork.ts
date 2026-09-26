@@ -39,8 +39,9 @@ export interface MyWorkTask {
    *  a fixture built before #2671 still type-checks; a real API response always
    *  carries it. */
   short_id_display?: string;
-  /** Server-formatted project-qualified task reference, e.g. `"ENG-2026-8"` —
-   *  falls back to the compact form when the project has no code (#2671). */
+  /** Server-formatted project-qualified task reference, e.g. `"ENG-2026-T-8"` —
+   *  falls back to the compact form when the project has no code (#2671,
+   *  ADR-1237). */
   qualified_id?: string;
   name: string;
   project_id: string;
