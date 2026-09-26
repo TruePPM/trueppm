@@ -203,6 +203,22 @@ test.describe('Read-only demo — the refusal and the preview (ADR-1197 D3/D4)',
     await expect(bar.getByTitle(/nothing you change here is saved/i)).toBeVisible();
   });
 
+  test('states the reset cadence when the server publishes a schedule (#4152)', async ({
+    page,
+  }) => {
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: FIXTURE_TASKS,
+      demoReadOnly: true,
+      demoLoginHint: DEMO_HINT,
+      demoResetSchedule: '0 8 * * *',
+    });
+    await page.goto(BASE_URL);
+    const bar = page.getByRole('complementary', { name: 'Demo mode' });
+    await expect(bar).toContainText('Sample data · resets daily at 08:00 UTC');
+  });
+
   test('shows no connection fault — /ws/ is 404 by design (#4048)', async ({ page }) => {
     // The real deployment's nginx 404s the socket; mirror that so a client that still
     // tried to connect would land in the fault states this test forbids.

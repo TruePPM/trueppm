@@ -54,7 +54,12 @@ def health(_request: Request) -> Response:
         "the operator has declared in front of a demo host, so the app can disclose "
         "that the visitor's email was collected before they reached it (#3969, "
         "ADR-1197 D8). It is an operator **assertion** — nothing verifies it — and, "
-        "like the login hint, it is emitted only while `demo_read_only` is on."
+        "like the login hint, it is emitted only while `demo_read_only` is on.\n\n"
+        "`demo_reset_schedule` (#4152) carries the reset CronJob's own cron "
+        "expression, so the shell can state the cadence ('resets daily at 08:00 "
+        "UTC') from the value that actually drives the reset rather than a "
+        "hardcoded number. `null` when the reset is disabled or `demo_read_only` "
+        "is false."
     ),
     responses={
         200: inline_serializer(
@@ -82,6 +87,7 @@ def health(_request: Request) -> Response:
                     allow_null=True,
                     required=False,
                 ),
+                "demo_reset_schedule": serializers.CharField(allow_null=True, required=False),
             },
         )
     },
@@ -130,6 +136,12 @@ def edition(request: Request) -> Response:
             # took their email.
             "demo_access_gate": (
                 getattr(settings, "DEMO_ACCESS_GATE", None) if demo_read_only else None
+            ),
+            # Gated on the MODE for the same reason as the hint and the access gate:
+            # a leftover TRUEPPM_DEMO_RESET_SCHEDULE on a normal install must not
+            # announce a reset cadence that does not apply to it (#4152).
+            "demo_reset_schedule": (
+                getattr(settings, "DEMO_RESET_SCHEDULE", None) if demo_read_only else None
             ),
         }
     )

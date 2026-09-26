@@ -4062,7 +4062,7 @@
         "/api/v1/edition/": {
             "get": {
                 "operationId": "v1_edition_retrieve",
-                "description": "Returns `{\"edition\": \"community\" | \"enterprise\"}` from the TRUEPPM_EDITION Django setting. No authentication required. The React shell calls this once at startup to decide the post-login redirect target (ADR-0029, ADR-0030).\n\nAlso carries the deployment's read-only demo mode (ADR-1197 D3/D4): `demo_read_only` is always present, and `demo_login_hint` carries the published shared credential when — and only when — that mode is on.\n\n`demo_access_gate` names an external identity gate (e.g. Cloudflare Access) the operator has declared in front of a demo host, so the app can disclose that the visitor's email was collected before they reached it (#3969, ADR-1197 D8). It is an operator **assertion** — nothing verifies it — and, like the login hint, it is emitted only while `demo_read_only` is on.",
+                "description": "Returns `{\"edition\": \"community\" | \"enterprise\"}` from the TRUEPPM_EDITION Django setting. No authentication required. The React shell calls this once at startup to decide the post-login redirect target (ADR-0029, ADR-0030).\n\nAlso carries the deployment's read-only demo mode (ADR-1197 D3/D4): `demo_read_only` is always present, and `demo_login_hint` carries the published shared credential when — and only when — that mode is on.\n\n`demo_access_gate` names an external identity gate (e.g. Cloudflare Access) the operator has declared in front of a demo host, so the app can disclose that the visitor's email was collected before they reached it (#3969, ADR-1197 D8). It is an operator **assertion** — nothing verifies it — and, like the login hint, it is emitted only while `demo_read_only` is on.\n\n`demo_reset_schedule` (#4152) carries the reset CronJob's own cron expression, so the shell can state the cadence ('resets daily at 08:00 UTC') from the value that actually drives the reset rather than a hardcoded number. `null` when the reset is disabled or `demo_read_only` is false.",
                 "summary": "Running edition",
                 "tags": [
                     "meta"
@@ -55000,6 +55000,10 @@
                                 "$ref": "#/components/schemas/DemoAccessGate"
                             }
                         ],
+                        "nullable": true
+                    },
+                    "demo_reset_schedule": {
+                        "type": "string",
                         "nullable": true
                     }
                 },

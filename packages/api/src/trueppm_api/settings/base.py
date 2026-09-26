@@ -14,6 +14,7 @@ from trueppm_api.core.demo_read_only import (
     parse_demo_access_gate,
     parse_demo_login_hint,
     parse_demo_read_only,
+    parse_demo_reset_schedule,
 )
 from trueppm_api.core.ratelimit import apply_rate_limit_disable, resolve_rate_limit_enabled
 from trueppm_api.core.refresh_cookie_policy import resolve_refresh_cookie_samesite
@@ -362,6 +363,17 @@ if not DEMO_READ_ONLY and _demo_login_hint_raw and _demo_login_hint_raw.strip():
         "value is IGNORED and never served, but a published credential is sitting in "
         "this install's environment. Unset it unless this really is a demo."
     )
+
+# The reset CronJob's own cadence, restated so the demo bar and login page can say
+# "resets daily at HH:MM" from the value that actually drives the CronJob rather than
+# a hardcoded number (#4152, ADR-1197 D9). The chart renders this empty whenever
+# demo.reset is disabled, so `None` here already means "no schedule to state" without
+# a second demo-mode gate — but /api/v1/edition/ still gates emission on DEMO_READ_ONLY,
+# like the hint and the access gate, so the field says nothing on a normal install even
+# if the variable were somehow left set.
+DEMO_RESET_SCHEDULE: str | None = parse_demo_reset_schedule(
+    os.environ.get("TRUEPPM_DEMO_RESET_SCHEDULE")
+)
 
 # Origins trusted for cross-origin POST / CSRF — required when the web app is
 # served from a different origin than the API (split dev setup or subdomain

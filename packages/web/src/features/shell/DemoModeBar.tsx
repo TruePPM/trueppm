@@ -1,4 +1,5 @@
 import { useDemoMode } from '@/hooks/useDemoMode';
+import { parseDemoResetLine } from './demoResetSchedule';
 import { DemoForecastChip } from './DemoForecastChip';
 import { DemoProjectSwitcher } from './DemoProjectSwitcher';
 import { DemoTipsHint } from './DemoTipsHint';
@@ -44,6 +45,10 @@ export function DemoModeBar() {
   // straight back.
   const demo = useDemoMode();
   if (demo.isLoading || !demo.isDemoReadOnly) return null;
+
+  // #4152: null whenever the reset is disabled or the server predates the field —
+  // rendering nothing is correct in both cases, never a guessed cadence.
+  const resetLine = parseDemoResetLine(demo.resetSchedule);
 
   return (
     <aside
@@ -94,6 +99,18 @@ export function DemoModeBar() {
       <span className="hidden md:contents">
         <DemoForecastChip />
       </span>
+
+      {/* The reset cadence (#4152) — one line inside the existing row, never a
+          second strip. `sr-only` below `lg` rather than `hidden`, for the same
+          reason the edition disclosure is: `display:none` removes it from the
+          accessibility tree too, and a screen-reader visitor on a narrow viewport
+          is owed the same fact a sighted desktop visitor gets for free. Null
+          (reset disabled, or a pre-0.5 server) renders nothing — never a guess. */}
+      {resetLine && (
+        <span className="sr-only truncate whitespace-nowrap lg:not-sr-only lg:inline">
+          {resetLine}
+        </span>
+      )}
 
       <DemoTipsHint />
     </aside>
