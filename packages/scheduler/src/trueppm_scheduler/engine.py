@@ -168,10 +168,14 @@ MAX_CALENDAR_EXCEPTIONS = 100_000
 # ``MAX_PROJECT_SPAN_DAYS`` caps Σlag and the total span, but an SF dependency with
 # zero lag contributes 0 to Σlag while still needing a full delta array, so a wide
 # fan-out of such edges slips the span guard entirely. 50M cells is ~400 MB of
-# float64 — generous for any real network (a handful of distinct lags over a span
-# of tens of thousands of days) and far below the multi-GB blowup a hostile graph
-# would otherwise force. Checked incrementally as keys are discovered, before the
-# offending array is materialised.
+# float64 (200 MB now that the arrays are stored as int32, #4129) — generous for
+# any real network (a handful of distinct lags over a span of tens of thousands of
+# days) and far below the multi-GB blowup a hostile graph would otherwise force.
+# Checked incrementally as keys are discovered, before the offending array is
+# materialised. This is the *library* default: it protects a batch caller that
+# owns the whole machine. A request-scoped embedder (a synchronous web endpoint
+# sharing a pod with other requests) should pass a much smaller
+# ``max_lag_delta_cells`` to :func:`monte_carlo`.
 MAX_LAG_DELTA_CELLS = 50_000_000
 # Ceiling on the per-run sprint horizon of the velocity sampler (#1202). The
 # bootstrap draw matrix is ``runs x max_sprints`` floats, and ``max_sprints`` scales
@@ -3585,7 +3589,11 @@ def _build_lag_delta(
         arr[:] = (
             _snapped_offsets(wd_ord_succ, last_off_succ, wd_ord_pred, lag_days) + 1.0 - k_arange
         )
-    return arr
+    # Every cell is a whole working-day offset difference, bounded by
+    # MAX_LAG_DAYS + MAX_CALENDAR_SCAN_DAYS (~73k), so int32 is exact and halves
+    # the table's footprint (#4129). The float64 scratch above is one array at a
+    # time; only the int32 copy is retained.
+    return arr.astype(np.int32)
 
 
 def _build_lag_delta_table(
@@ -3594,6 +3602,7 @@ def _build_lag_delta_table(
     index_size: int,
     cal_key_of: dict[str, int],
     milestone_ids: frozenset[str] = frozenset(),
+    max_cells: int = MAX_LAG_DELTA_CELLS,
 ) -> dict[tuple[DependencyType, timedelta, int, int], np.ndarray | None]:
     """One shared lag-delta array per *distinct* ``(dep_type, lag, pred_cal, succ_cal)`` key.
 
@@ -3637,9 +3646,9 @@ def _build_lag_delta_table(
         # Reject before materialising the offending array: distinct keys x
         # index_size cells is the cost the span guard does not bound (#1201).
         non_null = sum(1 for arr in delta_by_key.values() if arr is not None) + 1
-        if non_null * index_size > MAX_LAG_DELTA_CELLS:
+        if non_null * index_size > max_cells:
             raise InvalidScheduleInput(
-                f"Monte Carlo lag-delta table would exceed {MAX_LAG_DELTA_CELLS:,} "
+                f"Monte Carlo lag-delta table would exceed {max_cells:,} "
                 "cells (distinct dependency type/lag combinations x schedule span). "
                 "The dependency network has too many distinct lag values for the "
                 "span involved — reduce the variety of lags or split the project."
@@ -4446,6 +4455,7 @@ def monte_carlo(
     max_runs: int | None = None,
     max_tasks: int | None = None,
     sensitivity_cap: int = MC_SENSITIVITY_CAP,
+    max_lag_delta_cells: int = MAX_LAG_DELTA_CELLS,
 ) -> MonteCarloResult:
     """Run Monte Carlo probabilistic scheduling on a project.
 
@@ -4563,6 +4573,14 @@ def monte_carlo(
                    is ranked over the first ``MC_SENSITIVITY_SUBSAMPLE`` runs, so
                    its cost stays flat as ``runs`` grows; P50/P80/P95 always use
                    every run.
+        max_lag_delta_cells: Ceiling on the lag-delta precompute, counted as
+                   (distinct dependency type/lag/calendar-pair keys) x (working-day
+                   index span) cells, each stored as a 4-byte int32. Default
+                   ``MAX_LAG_DELTA_CELLS`` (50M cells, ~200 MB), sized for a batch
+                   caller that owns the machine. An embedder serving concurrent
+                   requests should pass a smaller value; a table above it raises
+                   :class:`InvalidScheduleInput` before the offending array is
+                   allocated. It does not change any computed value.
 
     Returns:
         MonteCarloResult with P50, P80, P95 completion dates, the full sorted
@@ -4661,7 +4679,9 @@ def monte_carlo(
         and not _is_complete(task_map[tid])
         and not dur_matrix[:, col].any()
     )
-    delta_by_key = _build_lag_delta_table(g, wd_ord_by_cal, index_size, cal_key_of, milestone_ids)
+    delta_by_key = _build_lag_delta_table(
+        g, wd_ord_by_cal, index_size, cal_key_of, milestone_ids, max_lag_delta_cells
+    )
     edge_lag_delta: dict[tuple[str, str], np.ndarray | None] = {
         (u, v): delta_by_key[(data["dep"].dep_type, data["dep"].lag, cal_key_of[u], cal_key_of[v])]
         for u, v, data in g.edges(data=True)

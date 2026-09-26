@@ -376,6 +376,7 @@ edition raises or removes them.
 |---------|---------------|----------------|
 | `MC_SIMULATION_CAP` | `1000` | Maximum simulation runs (iterations) per request. The Monte Carlo run endpoint rejects an `n_simulations` above this. |
 | `MC_TASK_CAP` | `5000` | Largest project — by task count — Monte Carlo will run on. The vectorized NumPy path handles 5000 tasks × 1000 runs in a few seconds; a larger project is refused rather than run unbounded. |
+| `MC_LAG_DELTA_CELL_CAP` | `5000000` | Ceiling on the lag-delta table a synchronous Monte Carlo request may build: distinct dependency type/lag combinations × the project's working-day span, at 4 bytes per cell (5M cells is about 20 MB). A project with too many distinct lag values for its span is refused with HTTP 400 rather than allowed to spike API memory. Set to `None` to fall back to the scheduler library's 50M-cell default. |
 | `MC_HISTORY_CAP` | `100` | Forecast-history rows kept per project. The nightly purge trims each project to its newest `MC_HISTORY_CAP` `MonteCarloRun` rows. |
 
 :::note[Added in 0.3]

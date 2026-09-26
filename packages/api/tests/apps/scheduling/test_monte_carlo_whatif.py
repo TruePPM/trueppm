@@ -19,6 +19,7 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     Calendar,
     DeliveryMode,
+    Dependency,
     Project,
     Sprint,
     SprintState,
@@ -88,6 +89,31 @@ def _url(project: Project) -> str:
 # ---------------------------------------------------------------------------
 # Happy path
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestWhatIfLagDeltaCap:
+    def test_lag_delta_table_over_request_cap_returns_400(
+        self,
+        member_client: APIClient,
+        project: Project,
+        long_task: Task,
+        short_task: Task,
+        settings: object,
+    ) -> None:
+        """Both what-if simulations run under MC_LAG_DELTA_CELL_CAP (#4129)."""
+        tasks = [long_task, short_task]
+        for i in range(4):
+            tasks.append(Task.objects.create(project=project, name=f"X{i}", duration=5))
+        for i in range(1, len(tasks)):
+            Dependency.objects.create(predecessor=tasks[i - 1], successor=tasks[i], lag=i)
+        settings.MC_LAG_DELTA_CELL_CAP = 10  # type: ignore[attr-defined]
+        r = member_client.get(
+            _url(project),
+            {"task_id": str(long_task.pk), "duration_delta": 1, "n_simulations": 10},
+        )
+        assert r.status_code == 400, r.data
+        assert "lag-delta table would exceed 10 cells" in str(r.data)
 
 
 @pytest.mark.django_db

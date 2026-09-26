@@ -447,6 +447,15 @@ def _persist_mc_run_if_authorized(
         result_dict["run_id"] = str(run.id)
 
 
+def _mc_lag_delta_kwargs() -> dict[str, int]:
+    """Request-path ``monte_carlo()`` kwargs bounding the lag-delta table (#4129).
+
+    Empty when ``MC_LAG_DELTA_CELL_CAP`` is ``None`` so the library default applies.
+    """
+    cap = getattr(settings, "MC_LAG_DELTA_CELL_CAP", None)
+    return {} if cap is None else {"max_lag_delta_cells": cap}
+
+
 class MonteCarloRunThrottle(ScopedRateThrottle):
     """Caps synchronous Monte Carlo runs per member (#1552) to bound DoS.
 
@@ -574,12 +583,19 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     because *every* multiplicative cost factor the run depends on is now bounded
     by the engine — tasks (MC_TASK_CAP), simulation runs (MC_SIMULATION_CAP),
     raw dependency edges (MAX_DEPENDENCIES), expanded edges (MAX_EXPANDED_EDGES),
-    the distinct-lag delta arrays (MAX_LAG_DELTA_CELLS), and the velocity horizon
-    (MAX_VELOCITY_SPRINTS) — and #1201 vectorised the previously O(edges x span)
+    the distinct-lag delta arrays (MC_LAG_DELTA_CELL_CAP, 5M int32 cells = ~20 MB —
+    the library's 50M-cell MAX_LAG_DELTA_CELLS is a batch-caller default), and the
+    velocity horizon (MAX_VELOCITY_SPRINTS) — and #1201 vectorised the previously O(edges x span)
     per-edge lag precompute. With the input space bounded and the hot path
     vectorised, the worst-case wall time stays within the request budget, so
     moving to a Celery job (extra latency, result polling, a new failure surface)
-    would add cost without removing a real risk. A project that breaches the edge
+    would add cost without removing a real risk. The argument is about memory as
+    well as wall time (#4129): the lag-delta table scales with distinct lags x
+    span, not with runs, and was the one factor no request cap bounded (a project
+    inside every other cap peaked near 630 MB), so it is now capped at
+    MC_LAG_DELTA_CELL_CAP and the table stays at ~20 MB per simulation.
+    Concurrent-request admission across a pod is a separate concern (#2839).
+    A project that breaches the edge
     cap is rejected as InvalidScheduleInput (a ValueError) and surfaces below as a
     clean 400 rather than a stalled worker.
 
@@ -742,6 +758,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
                 runs=n_simulations,
                 max_runs=cap,
                 max_tasks=settings.MC_TASK_CAP,
+                **_mc_lag_delta_kwargs(),
             )
     except SimulationCapExceeded as exc:
         return Response(
@@ -1330,6 +1347,7 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                     seed=WHATIF_MC_SEED,
                     max_runs=cap,
                     max_tasks=settings.MC_TASK_CAP,
+                    **_mc_lag_delta_kwargs(),
                 )
                 perturbed_mc = monte_carlo(
                     _make_project(perturbed_tasks, mc_status_date),
@@ -1337,6 +1355,7 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                     seed=WHATIF_MC_SEED,
                     max_runs=cap,
                     max_tasks=settings.MC_TASK_CAP,
+                    **_mc_lag_delta_kwargs(),
                 )
         except SimulationCapExceeded as exc:
             return Response(

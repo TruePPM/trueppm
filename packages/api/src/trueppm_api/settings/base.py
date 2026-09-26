@@ -1280,6 +1280,16 @@ MC_SIMULATION_CAP: int | None = 1_000
 # lower this; Enterprise overrides it in enterprise settings.
 MC_TASK_CAP: int | None = 5_000
 
+# Request-path ceiling on the Monte Carlo lag-delta table (#4129):
+# (distinct dependency type/lag/calendar-pair keys) x (working-day span) cells, each a
+# 4-byte int32, so 5M cells is ~20 MB per simulation (the what-if endpoint runs two
+# in sequence, never concurrently). The scheduler library default is 50M cells
+# (~200 MB) because a batch caller owns the machine; a synchronous endpoint shares a
+# pod with concurrent requests and MC_TASK_CAP / MC_SIMULATION_CAP do not bound this
+# product, so a project that passed every other cap could peak near 630 MB. Above the
+# cap the run is refused as a 400 naming the lag variety. None = the library default.
+MC_LAG_DELTA_CELL_CAP: int | None = 5_000_000
+
 # Project Monte Carlo run-history retention (ADR-0175, #961): the nightly purge
 # keeps the newest MC_HISTORY_CAP MonteCarloRun rows per project so a PM can read
 # finish-date forecast drift over time. None = unlimited (Enterprise overrides it
