@@ -18,6 +18,14 @@ import { editionQueryOptions, type DemoLoginHint, type EditionResponse } from '.
 export function useDemoMode(): {
   isDemoReadOnly: boolean;
   loginHint: DemoLoginHint | null;
+  /**
+   * The reset CronJob's own cron expression (#4152, ADR-1197 D9), or `null` when
+   * unset, when the reset is disabled, or when the mode itself is off. Raw rather
+   * than pre-formatted so `DemoModeBar` derives its copy from `parseDemoResetLine`
+   * (which needs the caller's clock/timezone) instead of baking a server-rendered
+   * string that could not vary per visitor.
+   */
+  resetSchedule: string | null;
   isLoading: boolean;
 } {
   const { data, isLoading, isError } = useQuery(editionQueryOptions);
@@ -31,6 +39,7 @@ export function useDemoMode(): {
   return {
     isDemoReadOnly: resolved?.demo_read_only ?? false,
     loginHint: resolved?.demo_login_hint ?? null,
+    resetSchedule: resolved?.demo_reset_schedule ?? null,
     isLoading,
   };
 }

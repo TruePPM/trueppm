@@ -153,24 +153,24 @@ spec:
           # success, not only on the presence of a failure.
           expr: >-
             time() - max(kube_cronjob_status_last_successful_time{cronjob=~"{{ include "trueppm.fullname" . }}-demo-reset"})
-            > {{ .Values.alerts.thresholds.demoReset.staleAfterSeconds | default 43200 }}
+            > {{ .Values.alerts.thresholds.demoReset.staleAfterSeconds | default 93600 }}
           for: {{ .Values.alerts.thresholds.demoReset.staleFor | default "30m" | quote }}
           labels:
             severity: warning
           annotations:
             summary: "TruePPM demo has not been reset recently"
-            description: "No successful demo reset has completed within {{ .Values.alerts.thresholds.demoReset.staleAfterSeconds | default 43200 }}s, so the sample dates are aging. Check that the CronJob is not suspended and that its Jobs are being scheduled."
+            description: "No successful demo reset has completed within {{ .Values.alerts.thresholds.demoReset.staleAfterSeconds | default 93600 }}s, so the sample dates are aging. Check that the CronJob is not suspended and that its Jobs are being scheduled."
         - alert: TruePPMDemoResetNeverSucceeded
           # Deliberately separate from the staleness rule: kube-state-metrics publishes
           # last_successful_time only after a first success, so an `or absent(...)` on
           # the staleness rule would alert on every fresh install.
           expr: absent(kube_cronjob_status_last_successful_time{cronjob=~"{{ include "trueppm.fullname" . }}-demo-reset"})
-          for: {{ .Values.alerts.thresholds.demoReset.neverSucceededFor | default "7h" | quote }}
+          for: {{ .Values.alerts.thresholds.demoReset.neverSucceededFor | default "26h" | quote }}
           labels:
             severity: warning
           annotations:
             summary: "TruePPM demo has never completed a scheduled reset"
-            description: "demo.reset.enabled is true but no successful reset Job has been recorded in {{ .Values.alerts.thresholds.demoReset.neverSucceededFor | default "7h" }}. Either the CronJob is not running (suspended, or its Jobs are not being scheduled) or kube-state-metrics is not being scraped."
+            description: "demo.reset.enabled is true but no successful reset Job has been recorded in {{ .Values.alerts.thresholds.demoReset.neverSucceededFor | default "26h" }}. Either the CronJob is not running (suspended, or its Jobs are not being scheduled) or kube-state-metrics is not being scraped."
 {{- end }}
 {{- if .Values.backup.enabled }}
     - name: trueppm.backup

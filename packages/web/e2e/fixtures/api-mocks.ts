@@ -151,6 +151,11 @@ export interface ApiMockOptions {
   demoReadOnly?: boolean;
   /** Published demo credential on `/edition/`. Defaults to `null` (no credential). */
   demoLoginHint?: { username: string; password: string } | null;
+  /**
+   * Reset cadence cron expression on `/edition/` (#4152). Defaults to `null` — the
+   * demo bar's secondary reset line renders nothing when a spec does not opt in.
+   */
+  demoResetSchedule?: string | null;
 }
 
 // -----------------------------------------------------------------------------
@@ -394,6 +399,7 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
         edition: opts.edition ?? 'community',
         demo_read_only: opts.demoReadOnly ?? false,
         demo_login_hint: opts.demoLoginHint ?? null,
+        demo_reset_schedule: opts.demoResetSchedule ?? null,
       }),
     ),
   );

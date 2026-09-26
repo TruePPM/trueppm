@@ -363,6 +363,129 @@ def test_portfolio_seam_resolves_when_enterprise_and_entitled(
         services._portfolio_path_provider = None
 
 
+# ---------------------------------------------------------------------------
+# Interactive demo landing (#4151, ADR-1197)
+# ---------------------------------------------------------------------------
+
+
+def _arm_demo(settings: pytest.FixtureRequest, username: str = "atlas-visitor") -> None:
+    settings.DEMO_READ_ONLY = True
+    settings.DEMO_LOGIN_HINT = {"username": username, "password": "irrelevant"}
+
+
+@pytest.mark.django_db
+def test_demo_visitor_lands_on_landing_project_schedule(settings: pytest.FixtureRequest) -> None:
+    from trueppm_api.apps.projects.seed.demo_landing_overlay import LANDING_PROJECT_NAME
+
+    _arm_demo(settings)
+    user = _user("atlas-visitor")
+    proj = _project(LANDING_PROJECT_NAME)
+    ProjectMembership.objects.create(project=proj, user=user, role=Role.MEMBER)
+
+    landing = resolve_landing(user)
+    assert landing.intent == "project_overview"
+    assert landing.path == f"/projects/{proj.pk}/schedule"
+    assert landing.resolved_by == "demo_landing"
+
+
+@pytest.mark.django_db
+def test_demo_visitor_falls_back_when_landing_project_missing(
+    settings: pytest.FixtureRequest,
+) -> None:
+    """No project named the landing project exists → ordinary role policy."""
+    _arm_demo(settings)
+    user = _user("atlas-visitor")
+    ProjectMembership.objects.create(project=_project("Other Project"), user=user, role=Role.MEMBER)
+
+    landing = resolve_landing(user)
+    assert landing.resolved_by != "demo_landing"
+    assert landing.intent == "my_work"
+
+
+@pytest.mark.django_db
+def test_demo_visitor_falls_back_when_landing_project_archived(
+    settings: pytest.FixtureRequest,
+) -> None:
+    from trueppm_api.apps.projects.seed.demo_landing_overlay import LANDING_PROJECT_NAME
+
+    _arm_demo(settings)
+    user = _user("atlas-visitor")
+    cal = Calendar.objects.create(name="Cal-Archived-Landing")
+    proj = Project.objects.create(
+        name=LANDING_PROJECT_NAME, start_date=date(2026, 1, 1), calendar=cal, is_archived=True
+    )
+    ProjectMembership.objects.create(project=proj, user=user, role=Role.MEMBER)
+
+    landing = resolve_landing(user)
+    assert landing.resolved_by != "demo_landing"
+
+
+@pytest.mark.django_db
+def test_demo_visitor_falls_back_when_landing_project_not_readable(
+    settings: pytest.FixtureRequest,
+) -> None:
+    """The landing project exists but this account holds no membership on it — the
+    landing must never route to a project the visitor cannot open (RBAC)."""
+    from trueppm_api.apps.projects.seed.demo_landing_overlay import LANDING_PROJECT_NAME
+
+    _arm_demo(settings)
+    user = _user("atlas-visitor")
+    _project(LANDING_PROJECT_NAME)  # exists, but user has no membership on it
+
+    landing = resolve_landing(user)
+    assert landing.resolved_by != "demo_landing"
+    assert landing.intent == "my_work"
+    assert landing.resolved_by == "fallback"
+
+
+@pytest.mark.django_db
+def test_demo_mode_off_unaffected_even_with_matching_username(
+    settings: pytest.FixtureRequest,
+) -> None:
+    """Demo read-only is off → the special-case never fires, even for an account
+    whose username happens to match a stale DEMO_LOGIN_HINT."""
+    from trueppm_api.apps.projects.seed.demo_landing_overlay import LANDING_PROJECT_NAME
+
+    settings.DEMO_READ_ONLY = False
+    settings.DEMO_LOGIN_HINT = {"username": "atlas-visitor", "password": "irrelevant"}
+    user = _user("atlas-visitor")
+    proj = _project(LANDING_PROJECT_NAME)
+    ProjectMembership.objects.create(project=proj, user=user, role=Role.MEMBER)
+
+    landing = resolve_landing(user)
+    assert landing.resolved_by != "demo_landing"
+
+
+@pytest.mark.django_db
+def test_non_demo_user_unaffected_when_demo_mode_on(settings: pytest.FixtureRequest) -> None:
+    """Demo mode is on, but this is not the published account — unaffected."""
+    from trueppm_api.apps.projects.seed.demo_landing_overlay import LANDING_PROJECT_NAME
+
+    _arm_demo(settings, username="atlas-visitor")
+    user = _user("someone-else")
+    proj = _project(LANDING_PROJECT_NAME)
+    ProjectMembership.objects.create(project=proj, user=user, role=Role.MEMBER)
+
+    landing = resolve_landing(user)
+    assert landing.resolved_by != "demo_landing"
+
+
+@pytest.mark.django_db
+def test_demo_visitor_preference_still_wins(settings: pytest.FixtureRequest) -> None:
+    """An explicit default_landing preference is honored before the demo override."""
+    from trueppm_api.apps.projects.seed.demo_landing_overlay import LANDING_PROJECT_NAME
+
+    _arm_demo(settings)
+    user = _user("atlas-visitor")
+    proj = _project(LANDING_PROJECT_NAME)
+    ProjectMembership.objects.create(project=proj, user=user, role=Role.MEMBER)
+    _set_pref(user, DefaultLanding.MY_WORK)
+
+    landing = resolve_landing(user)
+    assert landing.intent == "my_work"
+    assert landing.resolved_by == "preference"
+
+
 @pytest.mark.django_db
 def test_portfolio_seam_inert_in_community_even_if_registered(
     settings: pytest.FixtureRequest,

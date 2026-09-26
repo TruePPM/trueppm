@@ -42,6 +42,14 @@ export interface EditionResponse {
    * true; `null` or absent on every normal install and on a demo with no gate.
    */
   demo_access_gate?: DemoAccessGate | null;
+  /**
+   * The reset CronJob's own cron expression (#4152, ADR-1197 D9), so the demo bar can
+   * state "resets daily at HH:00 UTC" from the value that actually drives the reset
+   * rather than a hardcoded number. Non-null only while `demo_read_only` is true AND
+   * the reset is enabled; `null` on every normal install, on a demo with the reset
+   * disabled, and on a pre-0.5 server that does not send the field.
+   */
+  demo_reset_schedule?: string | null;
 }
 
 /**
