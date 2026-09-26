@@ -38,6 +38,7 @@ from trueppm_scheduler import (
 from trueppm_scheduler.models import (
     _parse_timedelta,
     _reject_duplicate_keys,
+    _require_str,
     _serialize,
 )
 
@@ -288,3 +289,103 @@ def test_project_to_json_forwards_keyword_arguments() -> None:
     pretty = p.to_json(indent=2)
     assert pretty == json.dumps(p.to_dict(), indent=2)
     assert pretty != p.to_json()
+
+
+# ---------------------------------------------------------------------------
+# _require_str field/message hardening (#4146, for the #4130 rejection)
+# ---------------------------------------------------------------------------
+#
+# The #4130 rejection tests live in ``test_reject_in_both_engines.py``, which the
+# mutation gate excludes (it reads the shared ``fixtures/`` tree, absent from
+# mutmut's sandbox). So every ``_require_str`` call was executed but unasserted
+# *inside the measured suite*: swapping the field name to ``"XXidXX"`` or the
+# owner label to ``"PROJECT"`` changed nothing any measured test could see, and
+# the score fell 96.6% -> 90.6% on the nightly. These assert the offending field
+# **and** the exact message, so the owner label, the field label, the type name
+# and the repr of the rejected value are all pinned.
+
+
+def test_task_from_dict_non_string_id_message_is_exact() -> None:
+    with pytest.raises(InvalidScheduleInput) as exc:
+        Task.from_dict({"id": 7, "name": "a", "duration": 86400})
+    assert str(exc.value) == "task id must be a string (got int: 7)."
+
+
+def test_task_from_dict_non_string_name_message_is_exact() -> None:
+    with pytest.raises(InvalidScheduleInput) as exc:
+        Task.from_dict({"id": "a", "name": None, "duration": 86400})
+    assert str(exc.value) == "task name must be a string (got NoneType: None)."
+
+
+def test_task_from_dict_unhashable_id_message_names_the_container_type() -> None:
+    # A list id used to leak a bare TypeError out of the graph (#4130); the type
+    # name and the repr both have to survive into the message.
+    with pytest.raises(InvalidScheduleInput) as exc:
+        Task.from_dict({"id": ["x"], "name": "a", "duration": 86400})
+    assert str(exc.value) == "task id must be a string (got list: ['x'])."
+
+
+def test_project_from_dict_non_string_id_message_is_exact() -> None:
+    with pytest.raises(InvalidScheduleInput) as exc:
+        Project.from_dict({"id": 7, "name": "P", "start_date": "2026-04-02"})
+    assert str(exc.value) == ("Invalid project document: project id must be a string (got int: 7).")
+
+
+def test_project_from_dict_non_string_name_message_is_exact() -> None:
+    with pytest.raises(InvalidScheduleInput) as exc:
+        Project.from_dict({"id": "p", "name": 1.5, "start_date": "2026-04-02"})
+    assert str(exc.value) == (
+        "Invalid project document: project name must be a string (got float: 1.5)."
+    )
+
+
+def test_project_from_dict_reports_a_nested_task_id_with_the_task_owner_label() -> None:
+    # The owner label discriminates the two call sites: a bad id inside ``tasks``
+    # is a *task* id, not the project's, and the message must say so.
+    with pytest.raises(InvalidScheduleInput) as exc:
+        Project.from_dict(
+            {
+                "id": "p",
+                "name": "P",
+                "start_date": "2026-04-02",
+                "tasks": [{"id": 7, "name": "a", "duration": 86400}],
+            }
+        )
+    assert str(exc.value) == ("Invalid project document: task id must be a string (got int: 7).")
+
+
+def test_require_str_accepts_a_string_and_ignores_a_missing_key() -> None:
+    # Both halves of the guard's condition: a present *string* must pass (a
+    # mutant dropping the ``not`` rejects every valid document), and a *missing*
+    # key must be left to the caller's own KeyError/TypeError path rather than
+    # indexed here (a mutant flipping ``in`` to ``not in`` raises KeyError from
+    # inside the guard, which the caller then reports as the wrong failure).
+    _require_str({"id": "a"}, "id", "task")  # a present string: no rejection
+    _require_str({}, "id", "task")  # absent: not this guard's business
+    with pytest.raises(InvalidScheduleInput) as exc:
+        Task.from_dict({"name": "a", "duration": 86400})
+    assert str(exc.value) == (
+        "Invalid task document: Task.__init__() missing 1 required positional argument: 'id'"
+    )
+
+
+def test_require_str_owner_and_field_labels_are_not_interchangeable() -> None:
+    # Same value, two owners and two fields: four distinct messages. A mutant
+    # that upper-cases, sentinel-wraps, or nulls either label collapses them.
+    def msg(call: object) -> str:
+        with pytest.raises(InvalidScheduleInput) as exc:
+            call()  # type: ignore[operator]
+        return str(exc.value)
+
+    assert msg(lambda: _require_str({"id": 1}, "id", "task")) == (
+        "task id must be a string (got int: 1)."
+    )
+    assert msg(lambda: _require_str({"name": 1}, "name", "task")) == (
+        "task name must be a string (got int: 1)."
+    )
+    assert msg(lambda: _require_str({"id": 1}, "id", "project")) == (
+        "project id must be a string (got int: 1)."
+    )
+    assert msg(lambda: _require_str({"name": 1}, "name", "project")) == (
+        "project name must be a string (got int: 1)."
+    )
