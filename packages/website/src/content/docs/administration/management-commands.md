@@ -128,9 +128,23 @@ Three properties are worth knowing before you run it:
   this surfaces as a failed install rather than as a quiet oddity on the landing
   screen.
 
-It is idempotent across the nightly reset: a second run finds every indicator
-already dealt with and re-records only the forecast, which has to stay newer than
-anything that run wrote.
+It is idempotent across the scheduled reset (once a day by default — see
+[`demo.reset.schedule`](/administration/helm-values/#public-read-only-demo-mode)):
+a second run finds every indicator already dealt with and re-records only the
+forecast, which has to stay newer than anything that run wrote.
+
+:::note[Ships in 0.5]
+The published demo account's front door also changes in 0.5 (#4151). The account
+holds a Member role, which the ordinary role policy sends to My Work — the same
+screen a real team member with no deadlines lands on, and empty of the schedule
+this overlay just spent a seed pass making healthy. `resolve_landing` special-cases
+that one published account: while `TRUEPPM_DEMO_READ_ONLY` is on, it lands on this
+overlay's project's **Schedule** instead, and only when that project still exists,
+is not archived or soft-deleted, and is readable by the account — otherwise it
+falls through to the ordinary policy, exactly as it would for any other user. An
+explicit `default_landing` preference still wins over this, as it does over every
+other landing rule.
+:::
 
 ## `create_demo_share_link`
 

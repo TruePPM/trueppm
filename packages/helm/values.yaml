@@ -1436,13 +1436,15 @@ alerts:
       # finishes, so keep this above demo.reset.activeDeadlineSeconds (900s = 15m).
       jobFailedFor: "20m"
       # No successful reset within this many seconds fires TruePPMDemoResetStale.
-      # 43200 = 12h = 2x the default 6-hour schedule, so one missed run is tolerated
-      # and two are not. RAISE THIS if you lengthen demo.reset.schedule.
-      staleAfterSeconds: 43200
+      # 93600 = 26h = one full day plus two hours of slack over the default daily
+      # (#4151) schedule, so one missed run is tolerated and TruePPMDemoResetStale
+      # does not fire every day against its own cadence. RAISE THIS if you lengthen
+      # demo.reset.schedule.
+      staleAfterSeconds: 93600
       staleFor: "30m"
       # Must exceed one full schedule period plus slack, or a fresh install alerts
-      # before its first scheduled run can happen. 7h suits the 6-hour default.
-      neverSucceededFor: "7h"
+      # before its first scheduled run can happen. 26h suits the daily default.
+      neverSucceededFor: "26h"
     # Free space below this percentage on ANY claim in the namespace (database,
     # Valkey, backups, media) fires TruePPMVolumeFillingUp. A full PostgreSQL
     # PVC is silent until it is an outage.
@@ -1907,10 +1909,15 @@ demo:
   reset:
     enabled: false
     # Five-field cron, evaluated by the CronJob controller in ITS time zone (UTC on
-    # managed clusters), or an @hourly/@daily/@weekly/@monthly/@yearly macro. Every 6
-    # hours by default. If you lengthen it, raise
-    # alerts.thresholds.demoReset.staleAfterSeconds and neverSucceededFor with it.
-    schedule: "0 */6 * * *"
+    # managed clusters), or an @hourly/@daily/@weekly/@monthly/@yearly macro. Once a
+    # day by default (#4151) — the demo's real job is re-anchoring the sample's dates
+    # so it keeps reading as "a program in flight" (ADR-1197 D9), and D2's write
+    # refusal already leaves almost nothing for the reset to clean up, so a shorter
+    # interval buys little beyond a visitor's page 404ing more often (D9 notes every
+    # reset changes project/program ids). If you shorten or lengthen it, raise or
+    # lower alerts.thresholds.demoReset.staleAfterSeconds and neverSucceededFor with
+    # it — they are sized for this default and do not track it automatically.
+    schedule: "0 8 * * *"
     # A run that cannot start within this many seconds of its slot is skipped rather
     # than queued, so a controller outage does not fire a burst of resets afterward.
     startingDeadlineSeconds: 600

@@ -77,6 +77,14 @@ demo:
   # seed runs. Read the demo.reset block in values.yaml before changing this.
   reset:
     enabled: true
+    # Pinned explicitly (#4151) rather than left to inherit values.yaml's default, so
+    # this reference deployment's actual cadence is visible here and does not
+    # silently move if that default is ever retuned. Matches values.yaml's default —
+    # once a day, not every 6 hours (D9): D2's write refusal already leaves almost
+    # nothing for the reset to clean up, so the reset's real job is re-anchoring the
+    # sample's dates, which a daily cadence does just as well as a 6-hourly one while
+    # 404ing a sitting visitor's page a quarter as often.
+    schedule: "0 8 * * *"
 
   # ───────────────────────────────────────────────────────────────────────────
   # Interactive read-only mode (ADR-1197, #3925) — DELIBERATELY LEFT OFF HERE.

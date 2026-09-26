@@ -50,7 +50,7 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import transaction
@@ -150,6 +150,38 @@ def _landing_project(program: Program) -> Project:
             "LANDING_PROJECT_NAME rather than letting the overlay skip."
         )
     return project
+
+
+def landing_project_for_demo_visitor(user: Any) -> Project | None:
+    """The demo's landing project for ``user``, or ``None`` if there isn't one (#4151).
+
+    Reuses this module's identification of the landing project by name
+    (:data:`LANDING_PROJECT_NAME`) rather than letting ``resolve_landing`` hardcode a
+    second copy of it — a duplicate name literal is exactly the drift this project's
+    memory warns about (two derivations of one fact).
+
+    Scoped to a project that is still **live** (not soft-deleted, not archived) and
+    **directly readable by `user`** (a live :class:`ProjectMembership`) — mirroring
+    ``most_recent_project``'s own readability filter in ``profiles.services`` — rather
+    than trusting that "the overlay ran on some program" implies access. The overlay
+    could have been applied to a program this particular caller was never granted, and
+    a landing must never route to a project the visitor cannot open (RBAC).
+
+    One indexed query. Returns ``None`` (never raises) so ``resolve_landing`` can fall
+    through to the normal role policy — a missing or unreadable landing project is a
+    reason to fall back, not a 500 on the front door.
+    """
+    return (
+        Project.objects.filter(
+            name=LANDING_PROJECT_NAME,
+            is_deleted=False,
+            is_archived=False,
+            memberships__user=user,
+            memberships__is_deleted=False,
+        )
+        .distinct()
+        .first()
+    )
 
 
 def _live_tasks(project: Project) -> list[Task]:
