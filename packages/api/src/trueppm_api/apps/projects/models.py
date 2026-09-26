@@ -836,7 +836,7 @@ class Program(VersionedModel):
     #
     # Unique, case-insensitively, across the install. #2025 made it non-unique
     # because the model had no workspace to scope a constraint to; ``Workspace`` is
-    # now a singleton and hosted multi-tenancy is schema-per-tenant (ADR-0189), so
+    # now a singleton and hosted multi-tenancy is schema-per-tenant, so
     # "unique across the install" is "unique per workspace" and that reason no
     # longer holds. The constraint excludes ``""`` for one release (see
     # ``Meta.constraints``) so a pre-0.4 pod can still insert a blank during a
