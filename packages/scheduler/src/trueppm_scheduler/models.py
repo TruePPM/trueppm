@@ -245,6 +245,8 @@ class Task:
 
         try:
             d = dict(data)
+            _require_str(d, "id", "task")
+            _require_str(d, "name", "task")
             d["duration"] = _parse_timedelta(d["duration"])
             d["total_float"] = _parse_timedelta(d.get("total_float", 0))
             d["free_float"] = _parse_timedelta(d.get("free_float", 0))
@@ -258,6 +260,24 @@ class Task:
             raise
         except (KeyError, ValueError, TypeError, AttributeError) as err:
             raise InvalidScheduleInput(f"Invalid task document: {err}") from err
+
+
+def _require_str(d: dict[str, Any], field_name: str, owner: str) -> None:
+    """Reject a non-string ``id``/``name`` on the ``from_dict`` path (#4130).
+
+    The Rust engine's ``id``/``name`` are ``String`` under serde, so an integer id
+    fails to parse there; Python used to accept it, scheduling the task as an
+    isolated node (a dependency endpoint is string-checked, so it can never match),
+    while an unhashable id (list/dict) or ``None`` leaked a bare TypeError/ValueError
+    from the graph. A missing key is left to the caller's existing KeyError path.
+    """
+    if field_name in d and not isinstance(d[field_name], str):
+        from trueppm_scheduler.engine import InvalidScheduleInput
+
+        raise InvalidScheduleInput(
+            f"{owner} {field_name} must be a string (got {type(d[field_name]).__name__}: "
+            f"{d[field_name]!r})."
+        )
 
 
 def _check_finite(d: dict[str, Any], field_name: str) -> None:
@@ -751,6 +771,8 @@ class Project:
                 if calendars_data is not None
                 else None
             )
+            _require_str(data, "id", "project")
+            _require_str(data, "name", "project")
             return cls(
                 id=data["id"],
                 name=data["name"],
