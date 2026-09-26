@@ -7,8 +7,10 @@ would destroy is a consent decision (#2581), and both are answered here so the
 import view, the dry run, and the importer itself cannot disagree about either.
 
 The single most important line in this module is the ``pk__in=owned_program_ids``
-filter: ``Program.code`` is user-assigned and carries no uniqueness constraint,
-so collisions between unrelated users are realistic and enumerable. Scoping
+filter: ``Program.code`` is user-assigned, so a seed can name a slug another
+user's program holds. Since ADR-1237 codes are unique, which makes the
+multi-candidate paths unreachable, but the ownership scope is still the only
+thing standing between a crafted seed and a stranger's program. Scoping
 candidates to programs the importer holds a live OWNER ``ProgramMembership`` on
 is what stops a crafted seed from reaching a stranger's program.
 """

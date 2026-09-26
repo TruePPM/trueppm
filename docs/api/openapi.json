@@ -5091,6 +5091,100 @@
                 "summary": "Git webhook project"
             }
         },
+        "/api/v1/keys/": {
+            "get": {
+                "operationId": "v1_keys_retrieve",
+                "description": "Send `name` to get `{suggestion}` derived from it (`Platform` → `PLAT`, then `PLAT2` when taken). Send `key` to get `{available, reason, suggestion}`. A key is taken if any project (or program) holds or ever held it — keys are never reissued. The response never names the holder. `object_id` (optional, with `key`) is the project/program being renamed: its own current and retired keys are reported available, because renaming back is allowed. Throttle scope `resolve`.",
+                "summary": "Suggest a project/program key, or check one for availability",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "key",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "kind",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "program",
+                                "project"
+                            ]
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "name",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "object_id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "keys"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/KeySuggestionResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/KeyRequestError"
+                                }
+                            }
+                        },
+                        "description": "Missing kind, or neither name nor key."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/me/active-sprints/": {
             "get": {
                 "operationId": "v1_me_active_sprints_retrieve",
@@ -16373,7 +16467,7 @@
                                 }
                             }
                         },
-                        "description": "A live program you own already holds this seed's slug. Re-send with `replace=true` to confirm; optionally pin the target with `expected_program_id`. The replaced program's projects move to Trash individually as standalone projects; the program shell itself is not recoverable. `code` is `seed_replace_required`, `seed_replace_mismatch`, or `seed_replace_ambiguous`."
+                        "description": "A live program you own already holds this seed's slug. Re-send with `replace=true` to confirm; optionally pin the target with `expected_program_id`. The replaced program's projects move to Trash individually as standalone projects; the program shell itself is not recoverable. `code` is `seed_replace_required`, `seed_replace_mismatch`, or `seed_replace_ambiguous` — or `seed_slug_taken` when the slug is the key of a program you cannot replace (another user's, or one in Trash); keys are never reissued, so change `program.slug` and re-import."
                     },
                     "429": {
                         "content": {
@@ -37127,6 +37221,97 @@
                 "summary": "Delete recurrence rule"
             }
         },
+        "/api/v1/resolve/": {
+            "get": {
+                "operationId": "v1_resolve_retrieve",
+                "description": "`ref` is a current key, a retired key, a UUID, or `<KEY>-<T|SP|R>-<n>` (project kind only). A hyphenated legacy key parses on the rightmost marker: `GA-SEC-T-10` is task 10 of `GA-SEC`. `key` and `canonical_ref` are always the CURRENT form, so a client holding a retired key learns the new one.\n\nVisibility is the lookup: only projects/programs the caller is a live member of, intersected with a project/program token's scope, can match. Everything else — missing, hidden, out of token scope — is `404 {\"detail\": \"Not found.\"}`, byte-identical. Throttle scope `resolve`.",
+                "summary": "Resolve a project/program key or reference to its ids",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "kind",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "program",
+                                "project"
+                            ]
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "ref",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "resolve"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ResolveResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/KeyRequestError"
+                                }
+                            }
+                        },
+                        "description": "Missing or invalid kind/ref."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/KeyRequestError"
+                                }
+                            }
+                        },
+                        "description": "Nothing the caller can read matches `ref`."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/resource-skills/": {
             "get": {
                 "operationId": "v1_resource_skills_list",
@@ -56571,6 +56756,54 @@
                 "type": "string",
                 "description": "* `HISTORY_RETENTION_DAYS` - HISTORY_RETENTION_DAYS\n* `TASK_RUN_RETENTION_DAYS` - TASK_RUN_RETENTION_DAYS\n* `TRUEPPM_WEBHOOK_RETENTION_DAYS` - TRUEPPM_WEBHOOK_RETENTION_DAYS\n* `TRUEPPM_IMPORT_RETENTION_DAYS` - TRUEPPM_IMPORT_RETENTION_DAYS\n* `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` - TRUEPPM_SYNC_BATCH_RETENTION_HOURS\n* `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` - TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS"
             },
+            "KeyRequestError": {
+                "type": "object",
+                "properties": {
+                    "detail": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "detail"
+                ]
+            },
+            "KeySuggestionResponse": {
+                "type": "object",
+                "properties": {
+                    "available": {
+                        "type": "boolean",
+                        "description": "Present only when `key` was sent. Whether that key can be used."
+                    },
+                    "reason": {
+                        "nullable": true,
+                        "description": "Present only when `key` was sent. Why it is unavailable: `taken` (held now or before by some project/program — never says which), `reserved` (`new`, `settings`, `trash`, or UUID-shaped), or `invalid` (does not match the format). Null when available.\n\n* `taken` - taken\n* `reserved` - reserved\n* `invalid` - invalid",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/KeySuggestionResponseReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "suggestion": {
+                        "type": "string",
+                        "description": "A free key: derived from `name`, or the next free suffix of `key` (`PLAT` → `PLAT2`). Free at the time of the call only."
+                    }
+                },
+                "required": [
+                    "suggestion"
+                ]
+            },
+            "KeySuggestionResponseReasonEnum": {
+                "enum": [
+                    "taken",
+                    "reserved",
+                    "invalid"
+                ],
+                "type": "string",
+                "description": "* `taken` - taken\n* `reserved` - reserved\n* `invalid` - invalid"
+            },
             "KindEnum": {
                 "enum": [
                     "file",
@@ -63390,6 +63623,11 @@
                         "type": "string",
                         "maxLength": 40
                     },
+                    "retired_key_count": {
+                        "type": "integer",
+                        "nullable": true,
+                        "readOnly": true
+                    },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
                     },
@@ -63775,6 +64013,7 @@
                     "my_role_label",
                     "name",
                     "project_count",
+                    "retired_key_count",
                     "risk_escalation_days",
                     "risk_slip_propagation",
                     "rollup_aggregation_policy",
@@ -66639,6 +66878,11 @@
                         },
                         "description": "The requesting user's own team facets on this project (#1095).\n\nReturns ``{\"is_scrum_master\": bool, \"is_product_owner\": bool}`` — the\ncaller's two-axis RBAC facets (ADR-0078) resolved against the project's\ndefault team. The web uses this to render-gate Product-Owner / Scrum-Master\ncontrols (e.g. the backlog auto-rank + reorder affordances) without a\nseparate round-trip. Both False for an anonymous caller, a non-member, or a\nmember whose project access was revoked (#3386) — the render-gate therefore\nmatches what the write gates will actually allow, which is the ADR-0133\n\"one rule, called twice\" property applied to the facet axis.\n\nDetail-only (never on the list serializer) to keep the project list cheap —\none membership lookup per project would be an N+1 on a list response.",
                         "readOnly": true
+                    },
+                    "retired_key_count": {
+                        "type": "integer",
+                        "description": "Retired keys this project holds (ADR-1237 threat model: cap of 10).\n\nThe settings page makes the key field read-only at the cap rather than\nletting the user type a rename the server will refuse. Detail only — one\nindexed count per retrieve, never on the list.",
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -66696,6 +66940,7 @@
                     "percent_complete",
                     "program_detail",
                     "recalculated_at",
+                    "retired_key_count",
                     "server_date",
                     "server_version",
                     "start_date",
@@ -69512,6 +69757,56 @@
                 "type": "string",
                 "description": "* `unresolved` - Unresolved\n* `auto_resolved` - Auto-resolved"
             },
+            "ResolveResponse": {
+                "type": "object",
+                "properties": {
+                    "type": {
+                        "$ref": "#/components/schemas/ResolveResponseTypeEnum"
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "program_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "key": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "The CURRENT key of the project (or program) the ref belongs to — a retired key resolves, and this is what it was renamed to. Null for a project that has no key yet (addressable by UUID only)."
+                    },
+                    "canonical_ref": {
+                        "type": "string",
+                        "description": "The current reference form: `PLAT`, `atlas-platform-launch`, `PLAT-T-10`, `PLAT-SP-3`, `PLAT-R-7`. The UUID when the owning project has no key."
+                    }
+                },
+                "required": [
+                    "canonical_ref",
+                    "id",
+                    "key",
+                    "program_id",
+                    "project_id",
+                    "type"
+                ]
+            },
+            "ResolveResponseTypeEnum": {
+                "enum": [
+                    "project",
+                    "program",
+                    "task",
+                    "sprint",
+                    "risk"
+                ],
+                "type": "string",
+                "description": "* `project` - project\n* `program` - program\n* `task` - task\n* `sprint` - sprint\n* `risk` - risk"
+            },
             "Resource": {
                 "type": "object",
                 "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on the workspace ADMIN role (#891, mirrors #815's\nUserSearchView fix; raised from org-admin in #3569): the resource catalog is\nreadable by any authenticated user, so echoing ``email`` on every row let a\nsingle low-privilege account paginate the catalog to harvest the whole org's\nemail list. ``to_representation`` strips ``email`` for every caller below\nworkspace ADMIN, while still letting the caller see their own email (is_me) so\nself-view is unaffected. ``validate`` mirrors the same floor on the write side\n(#3625): setting ``email`` below workspace ADMIN is rejected outright, closing\nthe asymmetry where a fresh account could overwrite an address it could not\nread back.",
@@ -71023,7 +71318,6 @@
                 },
                 "required": [
                     "code",
-                    "conflict",
                     "detail"
                 ]
             },

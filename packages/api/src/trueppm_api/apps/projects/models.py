@@ -16,7 +16,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.db.models import Exists, F, OuterRef, Q
-from django.db.models.functions import Lower
+from django.db.models.functions import Lower, Upper
 from django.utils import timezone
 from simple_history.models import HistoricalRecords
 
@@ -828,20 +828,19 @@ class Program(VersionedModel):
 
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
-    # Short identifier used in exports, breadcrumbs, and as a future task-ID prefix.
-    # Optional — programs created before #523 have no code and the UI shows an empty
-    # field.
+    # The program KEY (ADR-1237) — the wire name stays ``code``. A slug
+    # (``atlas-platform-launch``) addressing this program in URLs, and the natural
+    # key seed re-import upserts on. Written only through
+    # ``services.assign_key()``, which also records it as an ``ObjectKey`` row;
+    # the column is the denormalized *current* key.
     #
-    # Intentionally NOT unique — no DB constraint and no ``validate_code`` (#2025).
-    # A DB uniqueness constraint was considered and rejected: (a) ``code`` is
-    # workspace-agnostic on the model (there is no workspace FK to scope a partial
-    # unique index against), so the only constraint expressible here is global,
-    # which is wrong — two workspaces may legitimately both run a program coded
-    # "PLAT"; and (b) a retroactive unique constraint would fail to apply on any
-    # existing install that already has duplicate codes. Uniqueness, if a given
-    # organization wants it, is a workspace-*policy* concern enforced above the
-    # model, not a hard invariant. ``Project.code`` (below) is non-unique for the
-    # same reason.
+    # Unique, case-insensitively, across the install. #2025 made it non-unique
+    # because the model had no workspace to scope a constraint to; ``Workspace`` is
+    # now a singleton and hosted multi-tenancy is schema-per-tenant (ADR-0189), so
+    # "unique across the install" is "unique per workspace" and that reason no
+    # longer holds. The constraint excludes ``""`` for one release (see
+    # ``Meta.constraints``) so a pre-0.4 pod can still insert a blank during a
+    # rolling upgrade; the service heals it on the next touch.
     code = models.CharField(max_length=40, blank=True, default="")
     methodology = models.CharField(
         max_length=16,
@@ -1067,6 +1066,19 @@ class Program(VersionedModel):
     class Meta:
         db_table = "projects_program"
         ordering = ["name"]
+        constraints = [
+            # ROLLING-UPGRADE WINDOW (migration rule 8, ADR-1237 §4). The blank
+            # exclusion exists because ``values-prod.yaml`` runs two API replicas
+            # under the default RollingUpdate, so a pre-0.4 pod can still create a
+            # program with ``code=""`` after this constraint lands; a full index
+            # would 500 its second such create. 0.5 drops the condition and adds a
+            # ``code <> ''`` check, after one release in which nothing writes a blank.
+            models.UniqueConstraint(
+                Upper("code"),
+                condition=~Q(code=""),
+                name="program_code_upper_uniq",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -1337,13 +1349,13 @@ class Project(VersionedModel):
         null=True,
         blank=True,
     )
-    # Short identifier used as a task-ID prefix and on exports (issue #520).
-    # Uppercase alphanumeric + hyphen, max 12 chars; format validated by the
-    # serializer. Optional — projects created before this field have an empty
-    # code and the UI shows a blank input. Intentionally NOT unique at the DB
-    # level (format-validated only) — uniqueness is a workspace-policy concern,
-    # not a hard invariant, for the same reasons documented on Program.code
-    # above (#523, #2025).
+    # The project KEY (ADR-1237) — the wire name stays ``code``. Prefixes every
+    # human reference (``PLAT-T-10``, ``PLAT-R-7``) and addresses the project in
+    # URLs. New keys are ``[A-Z][A-Z0-9]{1,9}``; pre-0.4 hyphenated codes (<=12)
+    # are grandfathered as-is. Written only through ``services.assign_key()``,
+    # which also records it as an ``ObjectKey`` row; this column is the
+    # denormalized *current* key. Unique case-insensitively across the install,
+    # for the reason given on ``Program.code`` above (#2025 no longer holds).
     code = models.CharField(max_length=12, blank=True, default="")
     # PM override for the project health chip (issue #520). Defaults to AUTO so
     # existing rows render via the (future) rollup rather than implying a
@@ -1724,6 +1736,15 @@ class Project(VersionedModel):
             # the retention cutoff — ``WHERE is_deleted AND deleted_at <= cutoff``.
             models.Index(fields=["is_deleted", "deleted_at"], name="proj_isdel_deletedat_idx"),
         ]
+        constraints = [
+            # ROLLING-UPGRADE WINDOW — same reason as ``Program.Meta`` (migration
+            # rule 8, ADR-1237 §4). 0.5 drops the blank exclusion.
+            models.UniqueConstraint(
+                Upper("code"),
+                condition=~Q(code=""),
+                name="project_code_upper_uniq",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -1808,6 +1829,91 @@ class Project(VersionedModel):
         self.deleted_at = None
         self.deleted_by = None
         super().restore()
+
+
+class ObjectKeyKind(models.TextChoices):
+    PROJECT = "project", "Project"
+    PROGRAM = "program", "Program"
+
+
+class ObjectKeySource(models.TextChoices):
+    """Why a key exists — answers "why is my project PLAT2?" from the row itself."""
+
+    USER = "user", "Typed by a user"
+    DERIVED = "derived", "Derived from the name"
+    BACKFILL = "backfill", "Rewritten by the 0.4 upgrade"
+
+
+class ObjectKey(models.Model):
+    """Every key a project or program has ever held (ADR-1237 §3).
+
+    One row per key. ``is_current`` marks the key ``code`` currently mirrors;
+    the rest are retired aliases the resolver still honors, so a renamed
+    project's old links keep opening it. The unique index spans current AND
+    retired rows, which is what makes the namespace a database invariant rather
+    than a service-layer check across two tables — and what makes a key never
+    reusable: a purged owner's rows survive as ``SET_NULL`` tombstones, so an old
+    link 404s instead of opening a different project.
+
+    Rows are written only by ``services.assign_key()`` (and the upgrade repair).
+    Not a ``VersionedModel``: keys are resolved server-side and never synced.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    kind = models.CharField(max_length=8, choices=ObjectKeyKind.choices)
+    key = models.CharField(max_length=40)
+    project = models.ForeignKey(
+        Project,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="object_keys",
+    )
+    program = models.ForeignKey(
+        Program,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="object_keys",
+    )
+    is_current = models.BooleanField(default=True)
+    source = models.CharField(max_length=8, choices=ObjectKeySource.choices)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "projects_objectkey"
+        constraints = [
+            # The namespace: one key per kind, case-insensitively, forever.
+            models.UniqueConstraint(F("kind"), Upper("key"), name="objectkey_kind_key_uniq"),
+            # A project key never points at a program and vice versa; after a
+            # purge both are NULL (a tombstone), which this still admits.
+            models.CheckConstraint(
+                condition=(Q(kind="project") & Q(program__isnull=True))
+                | (Q(kind="program") & Q(project__isnull=True)),
+                name="objectkey_owner_matches_kind",
+            ),
+            # At most one current key per owner.
+            models.UniqueConstraint(
+                fields=["project"],
+                condition=Q(is_current=True, project__isnull=False),
+                name="objectkey_one_current_per_project",
+            ),
+            models.UniqueConstraint(
+                fields=["program"],
+                condition=Q(is_current=True, program__isnull=False),
+                name="objectkey_one_current_per_program",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.kind}:{self.key}{'' if self.is_current else ' (retired)'}"
 
 
 def _allocate_cascade_seq(project_id: uuid.UUID | str) -> int:

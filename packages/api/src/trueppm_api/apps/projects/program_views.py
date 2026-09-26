@@ -309,6 +309,24 @@ def _seed_concurrency_refusal(user: Any) -> Response | None:
     )
 
 
+def _seed_slug_taken_response(slug: str) -> Response:
+    """``409 seed_slug_taken``: the document's program slug is another program's key.
+
+    Names only the key the caller sent — never the program holding it, which the
+    caller may not be able to see (ADR-1237 §6).
+    """
+    return Response(
+        {
+            "detail": (
+                f'The program key "{slug}" is already in use. Change program.slug in '
+                "the document and import it again."
+            ),
+            "code": "seed_slug_taken",
+        },
+        status=status.HTTP_409_CONFLICT,
+    )
+
+
 def _discard_seed_payload(path: str) -> None:
     """Drop a stored seed payload whose import never produced a job row.
 
@@ -432,7 +450,7 @@ class SeedValidateThrottle(UserRateThrottle):
     scope = "seed_validate"
 
 
-def _seed_replace_conflict(*, allow_null: bool = False) -> Any:
+def _seed_replace_conflict(*, allow_null: bool = False, required: bool = True) -> Any:
     """A fresh schema for "the program a confirmed re-import would tear down".
 
     A factory rather than a module constant because the same shape is nested
@@ -458,6 +476,7 @@ def _seed_replace_conflict(*, allow_null: bool = False) -> Any:
             "task_count": serializers.IntegerField(),
         },
         allow_null=allow_null,
+        required=required,
     )
 
 
@@ -466,7 +485,9 @@ SEED_REPLACE_CONFLICT_RESPONSE = inline_serializer(
     {
         "detail": serializers.CharField(),
         "code": serializers.CharField(),
-        "conflict": _seed_replace_conflict(),
+        # Absent on ``seed_slug_taken`` (ADR-1237): that refusal names no program,
+        # because the one holding the key may be invisible to the caller.
+        "conflict": _seed_replace_conflict(required=False),
     },
 )
 
@@ -974,6 +995,22 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             )
             .order_by("name")
         )
+        if getattr(self, "action", None) in ("retrieve", "partial_update", "update"):
+            # The key-rename cap (ADR-1237): the settings page reads this to make
+            # the key field read-only at 10. Detail responses only, so the list
+            # never pays a per-row count.
+            from trueppm_api.apps.projects.models import ObjectKey
+
+            retired_sq = (
+                ObjectKey.objects.filter(program=OuterRef("pk"), is_current=False)
+                .order_by()
+                .values("program")
+                .annotate(c=Count("pk"))
+                .values("c")
+            )
+            qs = qs.annotate(
+                _retired_key_count=Coalesce(Subquery(retired_sq, output_field=IntegerField()), 0)
+            )
         # `is_pinned` for THIS caller (#2390, ADR-0627). Bound positionally to
         # `user`, so it can answer "did I pin it" and never "who pinned it".
         return annotate_is_pinned(qs, user, field="program")
@@ -991,13 +1028,22 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
 
         # Service-layer call wraps the Program + OWNER membership in a single
         # transaction — see ADR-0070 §Durable Execution.
-        program = create_program(
-            name=write.validated_data["name"],
-            description=write.validated_data.get("description", ""),
-            methodology=write.validated_data.get("methodology", Methodology.HYBRID),
-            created_by=request.user,
-            lead=write.validated_data.get("lead"),
-        )
+        from trueppm_api.apps.projects.services import KeyAssignmentError
+
+        try:
+            program = create_program(
+                name=write.validated_data["name"],
+                description=write.validated_data.get("description", ""),
+                methodology=write.validated_data.get("methodology", Methodology.HYBRID),
+                created_by=request.user,
+                lead=write.validated_data.get("lead"),
+                # Blank or omitted derives a key from the name (ADR-1237 §1).
+                code=write.validated_data.get("code", ""),
+            )
+        except KeyAssignmentError as exc:
+            # A key taken between validation and insert (ADR-1237 §6): the same
+            # field error validation would have given, never naming the holder.
+            return Response({"code": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
 
         # Re-fetch through the get_queryset so the response includes my_role
         # and the count annotations.
@@ -1230,7 +1276,10 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                     "`expected_program_id`. The replaced program's projects move to "
                     "Trash individually as standalone projects; the program shell "
                     "itself is not recoverable. `code` is `seed_replace_required`, "
-                    "`seed_replace_mismatch`, or `seed_replace_ambiguous`."
+                    "`seed_replace_mismatch`, or `seed_replace_ambiguous` — or "
+                    "`seed_slug_taken` when the slug is the key of a program you "
+                    "cannot replace (another user's, or one in Trash); keys are "
+                    "never reissued, so change `program.slug` and re-import."
                 ),
             ),
             429: OpenApiResponse(
@@ -1290,12 +1339,18 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         import json as _json
 
         from trueppm_api.apps.access.services import create_program
+        from trueppm_api.apps.projects.models import ObjectKeySource
         from trueppm_api.apps.projects.seed import SeedValidationError, validate_seed
         from trueppm_api.apps.projects.seed.replace import (
             resolve_replace_candidates,
         )
         from trueppm_api.apps.projects.services import (
+            KeyAssignmentError,
+            adopt_released_keys,
+            assign_key,
             enqueue_program_import,
+            is_key_taken,
+            release_keys_for_replace,
             soft_delete_program_subtree,
             store_seed_payload,
         )
@@ -1342,6 +1397,14 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         )
         if refusal is not None:
             return refusal
+        # A slug held by a program this caller cannot replace — someone else's, or
+        # one of their own that is already in Trash — can never become this
+        # program's key (ADR-1237: keys are unique and never reissued). Refused
+        # here, before anything is stored, rather than as an IntegrityError 500
+        # at the shell insert. The body names the key the caller sent, never the
+        # holder (ADR-1237 §6).
+        if not resolve_replace_candidates(request.user, slug) and is_key_taken("program", slug):
+            return _seed_slug_taken_response(slug)
 
         # Past the refusals: persist the payload OUTSIDE the transaction. On an
         # S3-backed deployment this is a multi-megabyte network PUT, and the block
@@ -1377,18 +1440,30 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                     return refusal
 
                 replaced_program_id = candidates[0].pk
+                # The replaced shell is unrecoverable, so its keys move to the new
+                # one: same slug, and links to the old program keep resolving.
+                released_keys = release_keys_for_replace(candidates[0])
                 soft_delete_program_subtree(
                     candidates[0], actor=request.user, reason="seed_replace"
                 )
+            else:
+                released_keys = []
 
             program = create_program(
                 name=seed_program["name"],
                 description=seed_program.get("description", ""),
                 methodology=seed_program["methodology"],
                 created_by=request.user,
+                code=None,
             )
-            program.code = slug
-            program.save(update_fields=["code"])
+            if not adopt_released_keys(program, released_keys):
+                try:
+                    assign_key(program, slug, source=ObjectKeySource.USER, actor=request.user)
+                except KeyAssignmentError:
+                    # Taken between the unlocked check above and here.
+                    transaction.set_rollback(True)
+                    _discard_seed_payload(payload_path)
+                    return _seed_slug_taken_response(slug)
 
             job = enqueue_program_import(
                 program=program,

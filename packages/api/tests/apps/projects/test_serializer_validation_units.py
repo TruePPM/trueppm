@@ -957,15 +957,21 @@ class TestProjectSettingsValidation:
         assert ProjectSerializer().validate_code("") == ""
 
     def test_an_over_long_project_code_is_rejected(self) -> None:
-        with pytest.raises(serializers.ValidationError, match="12 characters or fewer"):
-            ProjectSerializer().validate_code("ENGINEERING-2026")
+        with pytest.raises(serializers.ValidationError, match="2–10 characters"):  # noqa: RUF001
+            ProjectSerializer().validate_code("ENGINEERING")
 
-    def test_a_hyphen_edged_project_code_is_rejected(self) -> None:
-        with pytest.raises(serializers.ValidationError, match="may not start or end"):
-            ProjectSerializer().validate_code("-ENG")
+    def test_a_hyphenated_new_project_code_is_rejected(self) -> None:
+        """New keys lose hyphens so a reference is ``-``-separated (ADR-1237 §2)."""
+        with pytest.raises(serializers.ValidationError, match="Letters and digits only"):
+            ProjectSerializer().validate_code("ENG-2026")
 
-    def test_a_conforming_project_code_is_accepted(self) -> None:
-        assert ProjectSerializer().validate_code("ENG-2026") == "ENG-2026"
+    def test_a_digit_led_project_code_is_rejected(self) -> None:
+        with pytest.raises(serializers.ValidationError, match="starting with a letter"):
+            ProjectSerializer().validate_code("2026ENG")
+
+    @pytest.mark.django_db
+    def test_a_conforming_project_code_is_accepted_and_uppercased(self) -> None:
+        assert ProjectSerializer().validate_code("eng2026") == "ENG2026"
 
     @pytest.mark.parametrize("bad", [0, 366])
     def test_stale_task_threshold_outside_one_year_is_rejected(self, bad: int) -> None:

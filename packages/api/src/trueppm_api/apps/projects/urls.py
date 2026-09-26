@@ -23,6 +23,7 @@ from trueppm_api.apps.projects.ceremony_views import (
     ProjectGuardrailPolicyView,
 )
 from trueppm_api.apps.projects.decisions_views import ProjectDecisionsPolicyView
+from trueppm_api.apps.projects.key_views import KeySuggestionView, ResolveView
 from trueppm_api.apps.projects.poker_views import (
     PokerCancelView,
     PokerCommitView,
@@ -750,6 +751,10 @@ urlpatterns = [
         MeRecentProjectsView.as_view(),
         name="me-recent-projects",
     ),
+    # Project/program keys (ADR-1237): resolve a key or PLAT-T-10 ref to UUIDs,
+    # and suggest/check a key for the create and settings forms.
+    path("resolve/", ResolveView.as_view(), name="resolve"),
+    path("keys/", KeySuggestionView.as_view(), name="keys"),
     # Global cross-program Epic/Story omni-search — ⌘K palette (ADR-0508 D4, #2103)
     path(
         "me/search/",

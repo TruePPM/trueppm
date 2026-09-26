@@ -6964,3 +6964,234 @@ def clear_all_uncommitted_cpm_output(
     if cleared:
         logger.info("cleared CPM output on %d task(s) outside the committed set", cleared)
     return cleared
+
+
+# ---------------------------------------------------------------------------
+# Project and program keys (ADR-1237)
+# ---------------------------------------------------------------------------
+
+
+class KeyAssignmentError(ValueError):
+    """A key write refused for a caller-correctable reason; always a ``400`` on ``code``.
+
+    The message never names the object holding a taken key — the existence oracle
+    ADR-1237 §6 accepts leaks *that* a key is taken, never *by what*.
+    """
+
+
+def _key_kind(obj: Any) -> str:
+    from trueppm_api.apps.projects.keys import KIND_PROGRAM, KIND_PROJECT
+    from trueppm_api.apps.projects.models import Program
+
+    return KIND_PROGRAM if isinstance(obj, Program) else KIND_PROJECT
+
+
+def is_key_taken(kind: str, key: str, *, exclude: Any = None) -> bool:
+    """Whether ``key`` is held by anything of ``kind`` other than ``exclude``.
+
+    "Held" spans current *and retired* ``ObjectKey`` rows, tombstones of purged
+    objects included — that is the never-reuse rule — plus the ``code`` column
+    itself, which covers a code written by a pre-0.4 pod during a rolling upgrade
+    that has no ``ObjectKey`` row yet. A key ``exclude`` holds (its current key,
+    or one of its own retired keys) is not taken *for it*: renaming back is
+    allowed and reclaims the alias.
+    """
+    from trueppm_api.apps.projects.keys import KIND_PROGRAM
+    from trueppm_api.apps.projects.models import ObjectKey, Program, Project
+
+    fk = "program" if kind == KIND_PROGRAM else "project"
+    rows = ObjectKey.objects.filter(kind=kind, key__iexact=key)
+    model: Any = Program if kind == KIND_PROGRAM else Project
+    codes = model.objects.filter(code__iexact=key)
+    if exclude is not None and exclude.pk is not None:
+        rows = rows.exclude(**{f"{fk}_id": exclude.pk})
+        codes = codes.exclude(pk=exclude.pk)
+    return rows.exists() or codes.exists()
+
+
+def derive_key(name: str, kind: str, *, exclude: Any = None) -> str:
+    """Suggest a free key for ``name`` (ADR-1237 §1): ``PLAT``, then ``PLAT2``…
+
+    Project keys are the name's initials (or the first four characters of a
+    one-word name), uppercased; program keys are the slugified name. A taken,
+    reserved or UUID-shaped candidate steps to the next numeric suffix. The
+    result is free *now*; a concurrent create can still take it first, which the
+    unique index turns into a ``400`` rather than two rows.
+    """
+    from trueppm_api.apps.projects.keys import base_key_for, next_free_key
+
+    base = base_key_for(name, kind)
+    return next_free_key(base, kind, lambda c: is_key_taken(kind, c, exclude=exclude))
+
+
+def suggest_free_key(key: str, kind: str) -> str:
+    """The first free key at or after ``key`` in suffix order, for the "try PM2" hint."""
+    from trueppm_api.apps.projects.keys import next_free_key
+
+    return next_free_key(key, kind, lambda c: is_key_taken(kind, c))
+
+
+def assign_key(
+    obj: Any,
+    key: str,
+    *,
+    source: str,
+    actor: Any = None,
+    save: bool = True,
+) -> Any:
+    """Make ``key`` the current key of ``obj`` (a ``Project`` or ``Program``). ADR-1237 §3.
+
+    The single write path for ``code``. In one transaction it retires the
+    current ``ObjectKey`` row, makes ``key`` current (inserting a row, or
+    re-activating one of ``obj``'s own retired rows when the user renames back),
+    and sets ``obj.code``.
+
+    * **No-op** when ``key`` is already current (case-insensitively).
+    * **Heals** an object with no current row (a blank-coded project a pre-0.4
+      pod created during the rolling upgrade, or a freshly created one) by
+      inserting its first row.
+    * Refuses with :class:`KeyAssignmentError` when the key is held by anything
+      else — current, retired, or a purged tombstone — and when the rename would
+      leave ``obj`` with more than ``MAX_RETIRED_KEYS`` retired keys.
+
+    Format is **not** checked here: callers validate user input first, and the
+    importers pass keys they derived or grandfathered. That keeps one rule set
+    (``keys.key_format_error``) in the serializers rather than two.
+
+    Args:
+        obj: a saved ``Project`` or ``Program``.
+        key: the new key; normalized to the kind's case.
+        source: an ``ObjectKeySource`` value recorded on the row.
+        actor: the user responsible, recorded as ``created_by``.
+        save: when ``False`` only ``obj.code`` is set in memory, for a caller
+            (a serializer ``update``) that saves the object itself — one save,
+            one history row, one ``server_version`` bump.
+
+    Returns:
+        The current ``ObjectKey`` row.
+    """
+    from django.db import IntegrityError
+
+    from trueppm_api.apps.projects.keys import (
+        CAP_MESSAGE,
+        IN_USE_MESSAGE,
+        KIND_PROGRAM,
+        MAX_RETIRED_KEYS,
+        normalize_key,
+    )
+    from trueppm_api.apps.projects.models import ObjectKey
+
+    kind = _key_kind(obj)
+    key = normalize_key(key, kind)
+    if not key:
+        raise KeyAssignmentError("A key is required.")
+    fk = "program" if kind == KIND_PROGRAM else "project"
+    owner = {fk: obj}
+
+    with transaction.atomic():
+        current = ObjectKey.objects.select_for_update().filter(**owner, is_current=True).first()
+        if current is not None and current.key.upper() == key.upper():
+            if obj.code != current.key:
+                obj.code = current.key
+                if save:
+                    obj.save(update_fields=["code"])
+            return current
+
+        own_retired = ObjectKey.objects.filter(**owner, is_current=False, key__iexact=key).first()
+        if own_retired is None and is_key_taken(kind, key, exclude=obj):
+            raise KeyAssignmentError(IN_USE_MESSAGE)
+
+        retired = ObjectKey.objects.filter(**owner, is_current=False).count()
+        after = retired + (1 if current is not None else 0) - (1 if own_retired else 0)
+        if after > MAX_RETIRED_KEYS:
+            raise KeyAssignmentError(CAP_MESSAGE)
+
+        try:
+            # Savepoint: under ATOMIC_REQUESTS a lost race must surface as a 400,
+            # not poison the request's transaction.
+            with transaction.atomic():
+                if current is not None:
+                    current.is_current = False
+                    current.save(update_fields=["is_current"])
+                if own_retired is not None:
+                    own_retired.is_current = True
+                    own_retired.save(update_fields=["is_current"])
+                    row = own_retired
+                else:
+                    row = ObjectKey.objects.create(
+                        kind=kind,
+                        key=key,
+                        is_current=True,
+                        source=source,
+                        created_by=actor if getattr(actor, "is_authenticated", False) else None,
+                        **owner,
+                    )
+        except IntegrityError as exc:
+            raise KeyAssignmentError(IN_USE_MESSAGE) from exc
+
+        obj.code = row.key
+        if save:
+            try:
+                with transaction.atomic():
+                    obj.save(update_fields=["code"])
+            except IntegrityError as exc:
+                raise KeyAssignmentError(IN_USE_MESSAGE) from exc
+        return row
+
+
+def retired_key_count(obj: Any) -> int:
+    """How many retired keys ``obj`` holds — the web greys out the key field at the cap."""
+    from trueppm_api.apps.projects.models import ObjectKey
+
+    fk = "program" if _key_kind(obj) == "program" else "project"
+    return ObjectKey.objects.filter(**{fk: obj}, is_current=False).count()
+
+
+def release_keys_for_replace(obj: Any) -> list[Any]:
+    """Detach every key row ``obj`` holds so a seed replacement can adopt them.
+
+    A seed re-import tears a program down and rebuilds it from the same document
+    — the same program to its owner, so its links should keep working and the
+    rebuilt program must get its slug back. Without this, the never-reuse rule
+    would hand the rebuild ``atlas-platform-launch-2`` (the old rows survive the
+    delete as tombstones) and the *next* re-import, which looks candidates up by
+    slug, would no longer find it.
+
+    Only for objects that are unrecoverable after the replace: the program shell
+    (never restorable) and hard-deleted sample projects. A soft-deleted project
+    in Trash keeps its key, because restore must never collide (ADR-1237 §3).
+
+    Clears ``code`` in the database so the soft-delete that follows (which saves
+    every column from a freshly locked row) does not write it back. Returns the
+    detached row ids, to hand to :func:`adopt_released_keys`.
+    """
+    from trueppm_api.apps.projects.models import ObjectKey
+
+    fk = "program" if _key_kind(obj) == "program" else "project"
+    ids = list(ObjectKey.objects.filter(**{fk: obj}).values_list("pk", flat=True))
+    ObjectKey.objects.filter(pk__in=ids).update(**{fk: None})
+    type(obj).objects.filter(pk=obj.pk).update(code="")
+    obj.code = ""
+    return ids
+
+
+def adopt_released_keys(obj: Any, key_ids: list[Any], *, save: bool = True) -> bool:
+    """Attach rows detached by :func:`release_keys_for_replace` to ``obj``.
+
+    The row that was current stays current, so ``obj.code`` becomes the key the
+    replaced object had. Returns ``False`` (adopting nothing) when there is no
+    current row among ``key_ids`` or ``obj`` already has a key.
+    """
+    from trueppm_api.apps.projects.models import ObjectKey
+
+    fk = "program" if _key_kind(obj) == "program" else "project"
+    if not key_ids or ObjectKey.objects.filter(**{fk: obj}).exists():
+        return False
+    current = ObjectKey.objects.filter(pk__in=key_ids, is_current=True).first()
+    if current is None:
+        return False
+    ObjectKey.objects.filter(pk__in=key_ids).update(**{fk: obj})
+    obj.code = current.key
+    if save:
+        obj.save(update_fields=["code"])
+    return True

@@ -7,6 +7,7 @@ without coupling to migration file names, which break on squash (CLAUDE.md rule 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any, NamedTuple
 
 from django.db.models import Count, F
@@ -284,4 +285,162 @@ def _log_repairs(repaired: list[RepairedWbsPath]) -> None:
                 if row.stranded_descendants
                 else ""
             ),
+        )
+
+
+class RewrittenKey(NamedTuple):
+    """One code the ADR-1237 repair changed, for the upgrade log and for tests."""
+
+    kind: str
+    object_id: Any
+    old_code: str
+    new_code: str
+
+
+def _creation_order(model: Any, historical_model: Any | None) -> dict[Any, Any]:
+    """Map each row's pk to a sortable "when was it created" value.
+
+    ``Program`` carries ``created_at``. ``Project`` does not, so its earliest
+    history row stands in — the closest thing to a creation timestamp the table
+    has. A row with neither sorts last, by pk, which is deterministic if not
+    meaningful.
+    """
+    from django.db.models import Min
+
+    if any(f.name == "created_at" for f in model._meta.get_fields()):
+        return dict(model.objects.values_list("pk", "created_at"))
+    if historical_model is None:
+        return {}
+    return dict(
+        historical_model.objects.values("id")
+        .annotate(first=Min("history_date"))
+        .values_list("id", "first")
+    )
+
+
+def repair_object_keys(
+    project_model: Any,
+    program_model: Any,
+    object_key_model: Any,
+    *,
+    historical_project_model: Any | None = None,
+) -> list[RewrittenKey]:
+    """Give every project and program a unique key and an ``ObjectKey`` row (ADR-1237 §4).
+
+    Runs before ``AddConstraint(Upper("code"))`` so the constraint can validate
+    (migration rule 7). For each kind, in creation order:
+
+    * a non-blank code that no older row already holds (case-insensitively) is
+      **kept** as-is — including a grandfathered hyphenated project code — and
+      recorded with ``source="user"``;
+    * a duplicate is **suffixed** (``PLAT`` → ``PLAT2``), so the oldest holder
+      keeps the key its links already use;
+    * a blank code is **derived** from the name.
+
+    Both rewrites are recorded with ``source="backfill"`` and logged at WARNING,
+    and the upgrade notes tell operators to list them with
+    ``ObjectKey.objects.filter(source="backfill")``.
+
+    Idempotent: an object that already has a current ``ObjectKey`` row is left
+    alone, and every existing ``ObjectKey`` key is treated as taken, so a re-run
+    neither duplicates rows nor reissues a retired key.
+
+    Model classes are parameters so the migration can pass historical models and
+    a test can pass the real ones (migration rule 3).
+    """
+    from trueppm_api.apps.projects.keys import (
+        KIND_PROGRAM,
+        KIND_PROJECT,
+        PROJECT_KEY_RE,
+        base_key_for,
+        next_free_key,
+    )
+
+    def taken_in(taken: set[str]) -> Callable[[str], bool]:
+        return lambda candidate: candidate.upper() in taken
+
+    rewritten: list[RewrittenKey] = []
+    for kind, model, fk, historical in (
+        (KIND_PROJECT, project_model, "project", historical_project_model),
+        (KIND_PROGRAM, program_model, "program", None),
+    ):
+        taken = {
+            k.upper()
+            for k in object_key_model.objects.filter(kind=kind).values_list("key", flat=True)
+        }
+        keyed = set(
+            object_key_model.objects.filter(
+                kind=kind, is_current=True, **{f"{fk}__isnull": False}
+            ).values_list(f"{fk}_id", flat=True)
+        )
+        order = _creation_order(model, historical)
+        rows = [r for r in model.objects.all().only("pk", "name", "code") if r.pk not in keyed]
+        # Rows that already carry a key keep claiming it; they are not re-ordered.
+        for code in model.objects.filter(pk__in=keyed).values_list("code", flat=True):
+            if code:
+                taken.add(code.upper())
+        rows.sort(key=lambda r: (order.get(r.pk) is None, order.get(r.pk) or 0, str(r.pk)))
+
+        new_rows: list[Any] = []
+        changed: list[Any] = []
+        pending: list[Any] = []
+        for row in rows:
+            code = (row.code or "").strip()
+            if code and code.upper() not in taken:
+                taken.add(code.upper())
+                new_rows.append(
+                    object_key_model(
+                        kind=kind, key=code, is_current=True, source="user", **{fk: row}
+                    )
+                )
+            else:
+                pending.append(row)
+
+        # Rewrites run after every keeper has claimed its code, so a blank or
+        # duplicate row can never be handed a code an older, kept row holds.
+        for row in pending:
+            old = (row.code or "").strip()
+            if old and kind == KIND_PROJECT and PROJECT_KEY_RE.fullmatch(old.upper()):
+                base = old.upper()
+            elif old and kind == KIND_PROGRAM:
+                base = base_key_for(old, kind)
+            else:
+                base = base_key_for(row.name, kind)
+            new = next_free_key(base, kind, taken_in(taken))
+            taken.add(new.upper())
+            row.code = new
+            changed.append(row)
+            new_rows.append(
+                object_key_model(
+                    kind=kind, key=new, is_current=True, source="backfill", **{fk: row}
+                )
+            )
+            rewritten.append(RewrittenKey(kind, row.pk, old, new))
+
+        if changed:
+            model.objects.bulk_update(changed, ["code"], batch_size=1000)
+        if new_rows:
+            object_key_model.objects.bulk_create(new_rows, batch_size=1000)
+
+    _log_key_rewrites(rewritten)
+    return rewritten
+
+
+def _log_key_rewrites(rewritten: list[RewrittenKey]) -> None:
+    """Report every rewritten code at WARNING. See :func:`repair_object_keys`."""
+    if not rewritten:
+        return
+    logger.warning(
+        "key repair (ADR-1237): %d project/program code(s) were blank or duplicated and "
+        "have been rewritten so keys can be unique. List them later with "
+        "ObjectKey.objects.filter(source='backfill').",
+        len(rewritten),
+    )
+    for row in rewritten:
+        logger.warning(
+            "key repair (ADR-1237): %s=%s code %r -> %r",
+            row.kind,
+            row.object_id,
+            row.old_code,
+            row.new_code,
         )

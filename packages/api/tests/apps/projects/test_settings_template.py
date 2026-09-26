@@ -117,7 +117,8 @@ def test_copy_seeds_all_allowlisted_settings_from_source(source: Project, owner:
     # Identity / lifecycle / relationship fields are NOT copied.
     assert new.name == "New From Template"
     assert new.start_date == date(2026, 6, 1)
-    assert new.code == ""  # source.code "SRC" not copied
+    # source.code "SRC" is not copied; the new project derives its own key (ADR-1237).
+    assert new.code not in ("", "SRC")
     assert new.program_id is None  # source.program (Apollo) not copied
     assert new.lead_id is None
     assert new.object_sequence == 0

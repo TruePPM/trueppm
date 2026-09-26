@@ -252,21 +252,27 @@ def test_importer_refuses_without_replace_at_the_service_layer(seed_owner: Any) 
 
 
 def test_a_non_owners_same_code_program_is_never_touched(seed_owner: Any, stranger: Any) -> None:
-    """#994: Program.code is user-assigned and non-unique — collisions are real."""
+    """#994: a stranger's program holding the slug is never a replace candidate.
+
+    Since ADR-1237 the slug is also that program's unique key, so the import is
+    refused with a clean ``409 seed_slug_taken`` — naming neither the program nor
+    its owner — rather than creating a second program under the same key.
+    """
     victim = import_seed(_seed(), owner=stranger, create_users=False)
     victim_projects = list(Project.objects.filter(program=victim).values_list("pk", flat=True))
 
-    # `seed_owner` owns nothing with this code, so there is no collision for them at
-    # all: the import proceeds and creates a second, independent program.
     resp = _import_via_api(_client(seed_owner), _seed(), replace=True)
-    assert resp.status_code == 202, resp.content
+    assert resp.status_code == 409, resp.content
+    assert resp.data["code"] == "seed_slug_taken"
+    assert "conflict" not in resp.data
+    assert victim.name not in str(resp.data)
 
     victim.refresh_from_db()
     assert victim.is_deleted is False
     assert Project.objects.filter(pk__in=victim_projects, is_deleted=False).count() == len(
         victim_projects
     )
-    assert Program.objects.filter(code="atlas", is_deleted=False).count() == 2
+    assert Program.objects.filter(code="atlas", is_deleted=False).count() == 1
 
 
 def test_a_program_the_caller_only_admins_is_not_replaceable(
@@ -279,7 +285,8 @@ def test_a_program_the_caller_only_admins_is_not_replaceable(
     )
 
     resp = _import_via_api(_client(seed_owner), _seed(), replace=True)
-    assert resp.status_code == 202, resp.content
+    assert resp.status_code == 409, resp.content
+    assert resp.data["code"] == "seed_slug_taken"
 
     victim.refresh_from_db()
     assert victim.is_deleted is False
@@ -299,8 +306,9 @@ def test_sample_reload_refuses_a_program_holding_a_real_project(seed_owner: Any)
     assert program.is_deleted is False
     real.refresh_from_db()
     assert real.is_deleted is False
-    # A second, separate sample program was created alongside it.
-    assert Program.objects.filter(code="atlas", is_deleted=False).count() == 2
+    # A second, separate sample program was created alongside it, under a
+    # suffixed key because the real program keeps "atlas" (ADR-1237).
+    assert Program.objects.filter(code="atlas-2", is_deleted=False).count() == 1
 
 
 def test_sample_replace_stays_a_hard_delete(seed_owner: Any) -> None:
@@ -730,45 +738,38 @@ def test_multipart_import_carries_the_filename_onto_the_job(seed_owner: Any) -> 
 # --- guarded set == destroyed set (multi-candidate) --------------------------
 
 
-def test_two_owned_programs_sharing_a_code_are_never_replaced_blind(seed_owner: Any) -> None:
-    """``Program.code`` is non-unique, so a caller can own two under one slug.
+def test_two_live_programs_can_no_longer_share_a_code(seed_owner: Any) -> None:
+    """The ``seed_replace_ambiguous`` state is unreachable since ADR-1237.
 
-    A single ``conflict`` object can describe only one of them, so a bare
-    ``replace=true`` must not tear down the other — the caller would never have
-    been shown its counts, and no audit field would record it.
+    ``Program.code`` is unique case-insensitively, so a caller can no longer own
+    two live programs under one slug and the two-candidate refusal paths cannot
+    fire. They stay in place until a follow-up retires them; this pins the reason.
     """
+    from django.db import IntegrityError, transaction
+
     first = import_seed(_seed(), owner=seed_owner, create_users=False)
-    second = import_seed(_seed(), owner=seed_owner, create_users=False, replace=True)
-    # Resurrect the first so both are live under code "atlas".
-    Program.objects.filter(pk=first.pk).update(is_deleted=False)
-    assert Program.objects.filter(code="atlas", is_deleted=False).count() == 2
-
-    resp = _client(seed_owner).post(IMPORT_URL, data={**_seed(), "replace": True}, format="json")
-
-    assert resp.status_code == 409, resp.content
-    assert resp.data["code"] == "seed_replace_ambiguous"
-    named = {c["program_id"] for c in resp.data["conflicts"]}
-    assert named == {str(first.pk), str(second.pk)}
-    # Both survive untouched.
-    assert Program.objects.filter(code="atlas", is_deleted=False).count() == 2
+    assert first.code == "atlas"
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Program.objects.create(name="Copy", code="ATLAS")
 
 
-def test_expected_program_id_narrows_the_teardown_to_the_named_program(seed_owner: Any) -> None:
-    """Naming one of two resolves the ambiguity — and spares the other."""
+def test_a_confirmed_api_replace_keeps_the_slug_and_old_links(seed_owner: Any) -> None:
+    """The replaced shell hands its key to the new one (ADR-1237).
+
+    The shell is unrecoverable, so the rebuild is the same program to its owner:
+    it gets the slug back, and the old program's key rows now resolve to it.
+    """
+    from trueppm_api.apps.projects.models import ObjectKey
+
     first = import_seed(_seed(), owner=seed_owner, create_users=False)
-    second = import_seed(_seed(), owner=seed_owner, create_users=False, replace=True)
-    Program.objects.filter(pk=first.pk).update(is_deleted=False)
-
-    resp = _import_via_api(
-        _client(seed_owner), _seed(), replace=True, expected_program_id=str(first.pk)
-    )
+    resp = _import_via_api(_client(seed_owner), _seed(), replace=True)
     assert resp.status_code == 202, resp.content
-    assert resp.data["replaced_program_id"] == str(first.pk)
-
+    new = Program.objects.get(pk=resp.data["program_id"])
+    assert new.code == "atlas"
     first.refresh_from_db()
-    second.refresh_from_db()
     assert first.is_deleted is True
-    assert second.is_deleted is False, "the unnamed program must survive"
+    assert first.code == ""
+    assert ObjectKey.objects.get(kind="program", key="atlas").program_id == new.pk
 
 
 # --- the sample hard-delete path must still tell connected clients ----------

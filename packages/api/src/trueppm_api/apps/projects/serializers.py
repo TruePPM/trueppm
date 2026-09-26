@@ -490,6 +490,99 @@ def _reject_conflicting_settings_sources(attrs: dict[str, Any]) -> None:
         )
 
 
+def _validate_key_field(serializer: Any, value: str, kind: str) -> str:
+    """Shared ``validate_code`` body for the project and program serializers (ADR-1237)."""
+    from trueppm_api.apps.projects.keys import IN_USE_MESSAGE, key_format_error, normalize_key
+    from trueppm_api.apps.projects.services import is_key_taken
+
+    raw = (value or "").strip()
+    if raw == "":
+        return ""
+    instance = serializer.instance
+    stored = str(instance.code or "") if instance is not None else ""
+    if stored and raw.upper() == stored.upper():
+        # Unchanged (case-insensitively): grandfathered as stored, never re-validated.
+        return stored
+    key = normalize_key(raw, kind)
+    problem = key_format_error(key, kind)
+    if problem is not None:
+        raise serializers.ValidationError(problem)
+    if is_key_taken(kind, key, exclude=instance):
+        raise serializers.ValidationError(IN_USE_MESSAGE)
+    return key
+
+
+def _create_with_key(serializer: Any, validated_data: dict[str, Any]) -> Any:
+    """``ModelSerializer.create`` plus the object's first key (ADR-1237 §1).
+
+    A create that omits ``code`` or sends ``""`` gets one derived from the name
+    (``source=derived``) — ``code`` is not required, so every existing caller and
+    importer keeps working and now gets a key back. The object and its
+    ``ObjectKey`` row are written in one transaction; a key lost to a concurrent
+    create between validation and insert is a ``400`` on ``code``.
+    """
+    from django.db import IntegrityError, transaction
+
+    from trueppm_api.apps.projects.keys import IN_USE_MESSAGE
+    from trueppm_api.apps.projects.models import ObjectKeySource, Program
+    from trueppm_api.apps.projects.services import KeyAssignmentError, assign_key, derive_key
+
+    kind = "program" if serializer.Meta.model is Program else "project"
+    code = validated_data.get("code") or ""
+    source = ObjectKeySource.USER
+    if not code:
+        code = derive_key(validated_data.get("name", ""), kind)
+        source = ObjectKeySource.DERIVED
+    validated_data["code"] = code
+    request = serializer.context.get("request")
+    try:
+        with transaction.atomic():
+            instance = serializers.ModelSerializer.create(serializer, validated_data)
+            # save=False: ``code`` is already in the INSERT above, so a second
+            # save would only cost a history row and a version bump.
+            assign_key(
+                instance, code, source=source, actor=getattr(request, "user", None), save=False
+            )
+    except IntegrityError as exc:
+        raise serializers.ValidationError({"code": [IN_USE_MESSAGE]}) from exc
+    except KeyAssignmentError as exc:
+        raise serializers.ValidationError({"code": [str(exc)]}) from exc
+    return instance
+
+
+def _assign_key_on_update(serializer: Any, instance: Any, validated_data: dict[str, Any]) -> None:
+    """Retire the old key and record the new one before the serializer saves (ADR-1237 §3).
+
+    Runs in the request's transaction, and ``assign_key(save=False)`` leaves the
+    single ``save()`` to ``ModelSerializer.update`` — so a rename is one history
+    row and one ``server_version`` bump, and it inherits the endpoint's existing
+    permission class and agent write gate rather than defining its own.
+
+    A blank ``code`` on update heals a blank-coded object (one a pre-0.4 pod
+    created during the rolling upgrade) with a derived key, and is otherwise
+    refused: a key, once assigned, is never removed.
+    """
+    from trueppm_api.apps.projects.models import ObjectKeySource, Program
+    from trueppm_api.apps.projects.services import KeyAssignmentError, assign_key, derive_key
+
+    if "code" not in validated_data:
+        return
+    kind = "program" if isinstance(instance, Program) else "project"
+    code = validated_data["code"] or ""
+    source = ObjectKeySource.USER
+    if not code:
+        if instance.code:
+            raise serializers.ValidationError({"code": ["A key is required."]})
+        code = derive_key(validated_data.get("name") or instance.name, kind, exclude=instance)
+        source = ObjectKeySource.DERIVED
+    request = serializer.context.get("request")
+    try:
+        assign_key(instance, code, source=source, actor=getattr(request, "user", None), save=False)
+    except KeyAssignmentError as exc:
+        raise serializers.ValidationError({"code": [str(exc)]}) from exc
+    validated_data["code"] = instance.code
+
+
 class ProjectSerializer(serializers.ModelSerializer[Project]):
     """Read/write serializer for projects.
 
@@ -1045,7 +1138,12 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
                 from .services import apply_program_defaults
 
                 apply_program_defaults(validated_data, program)
-        return super().create(validated_data)
+        return cast("Project", _create_with_key(self, validated_data))
+
+    def update(self, instance: Project, validated_data: dict[str, Any]) -> Project:
+        """Route a ``code`` change through ``assign_key`` (ADR-1237 §3)."""
+        _assign_key_on_update(self, instance, validated_data)
+        return super().update(instance, validated_data)
 
     def get_member_count(self, obj: Project) -> int | None:
         """Active membership count — only annotated on the ungrouped list
@@ -1307,25 +1405,21 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         return stripped
 
     def validate_code(self, value: str) -> str:
-        """Project code format: uppercase A-Z, 0-9, and hyphen, ≤12 chars.
+        """The project key (ADR-1237 §2): format, reserved words, uniqueness.
 
-        Empty string is allowed (the field is optional and the UI shows a
-        blank input for projects created before the field existed). When
-        non-empty, the format is enforced server-side rather than client-side
-        so MS Project / P6 importers and direct API callers cannot bypass it
-        by skipping the General page. Hyphen-only or leading/trailing hyphens
-        are rejected to avoid ambiguous task-ID prefixes (e.g. "-001").
+        ``""`` passes through: on create the service derives a key from the name,
+        and on update ``create``/``update`` below decide what a blank means.
+        An *unchanged* value passes as-is, so a grandfathered pre-0.4 code
+        (``GA-SEC``, <=12, hyphens) survives an unrelated PATCH that echoes it
+        back. Any new value must be ``[A-Z][A-Z0-9]{1,9}``; input is uppercased,
+        because comparison is case-insensitive and the UI uppercases as typed.
+
+        Uniqueness is checked here so the common case gets a field error before
+        any write; the unique index is what actually decides a race, and
+        ``assign_key`` turns that into the same ``400``. The message never names
+        the holder (ADR-1237 §6).
         """
-        if value == "":
-            return value
-        if len(value) > 12:
-            raise serializers.ValidationError("Project code must be 12 characters or fewer.")
-        if not re.fullmatch(r"[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?", value):
-            raise serializers.ValidationError(
-                "Project code must use uppercase letters, digits, and hyphens "
-                "only, and may not start or end with a hyphen."
-            )
-        return value
+        return _validate_key_field(self, value, "project")
 
     def validate_lead(self, value: Any) -> Any:
         """Lead must hold an active ProjectMembership on this project (#966).
@@ -2217,6 +2311,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     # True when the program is bundled demo data (any project is_sample). Backed
     # by the viewset's ``_is_sample`` annotation to avoid an N+1 on list.
     is_sample = serializers.SerializerMethodField()
+    retired_key_count = serializers.SerializerMethodField()
     # Demo date drift (#3481, ADR-1175). ``sample_anchor_date`` is the day this
     # sample's relative dates were resolved against; ``sample_days_stale`` is the
     # drift since, as a SERVER fact rather than a client subtraction — the program
@@ -2310,6 +2405,9 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "name",
             "description",
             "code",
+            # How many retired keys the program holds; the key field is read-only
+            # at the cap of 10 (ADR-1237). Retrieve only; null on list.
+            "retired_key_count",
             "methodology",
             # Read-only server-resolved methodology + the value inherited when the
             # program's own value is ignored (ADR-0107).
@@ -2498,6 +2596,29 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         # Backed by the viewset's ``_is_sample`` annotation (Exists over
         # is_sample projects); defensive False when the annotation is absent.
         return bool(getattr(obj, "_is_sample", False))
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_retired_key_count(self, obj: Program) -> int | None:
+        """Retired keys this program holds (ADR-1237 threat model: cap of 10).
+
+        Backed by the viewset's retrieve-only ``_retired_key_count`` annotation;
+        ``None`` on list and on any path that did not annotate, so a list never
+        pays a per-row count.
+        """
+        return getattr(obj, "_retired_key_count", None)
+
+    def validate_code(self, value: str) -> str:
+        """The program key (ADR-1237 §2): a slug, ≤40, unique case-insensitively.
+
+        Input is lowercased. An unchanged value passes as stored, so a pre-0.4
+        program code that is not slug-shaped is grandfathered.
+        """
+        return _validate_key_field(self, value, "program")
+
+    def update(self, instance: Program, validated_data: dict[str, Any]) -> Program:
+        """Route a ``code`` change through ``assign_key`` (ADR-1237 §3)."""
+        _assign_key_on_update(self, instance, validated_data)
+        return super().update(instance, validated_data)
 
     def validate_iteration_label(self, value: str | None) -> str | None:
         """Strip the program override, or clear it to inherit the workspace (ADR-0116).
@@ -10586,6 +10707,7 @@ class ProjectDetailSerializer(ProjectSerializer):
     is_sample = serializers.BooleanField(read_only=True)
     program_detail = serializers.SerializerMethodField()
     my_facets = serializers.SerializerMethodField()
+    retired_key_count = serializers.SerializerMethodField()
 
     class Meta(ProjectSerializer.Meta):
         fields = [
@@ -10596,7 +10718,19 @@ class ProjectDetailSerializer(ProjectSerializer):
             "is_sample",
             "program_detail",
             "my_facets",
+            "retired_key_count",
         ]
+
+    def get_retired_key_count(self, obj: Project) -> int:
+        """Retired keys this project holds (ADR-1237 threat model: cap of 10).
+
+        The settings page makes the key field read-only at the cap rather than
+        letting the user type a rename the server will refuse. Detail only — one
+        indexed count per retrieve, never on the list.
+        """
+        from trueppm_api.apps.projects.services import retired_key_count
+
+        return retired_key_count(obj)
 
     def get_my_facets(self, obj: Project) -> dict[str, bool]:
         """The requesting user's own team facets on this project (#1095).

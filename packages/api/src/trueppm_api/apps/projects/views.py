@@ -2537,6 +2537,19 @@ class ProjectViewSet(
 
         with transaction.atomic():
             project.restore()
+            if not project.code:
+                # A seed re-import handed this project's key to its rebuilt
+                # successor (ADR-1237); give the restored original a fresh one
+                # rather than bringing it back unaddressable.
+                from trueppm_api.apps.projects.models import ObjectKeySource
+                from trueppm_api.apps.projects.services import assign_key, derive_key
+
+                assign_key(
+                    project,
+                    derive_key(project.name, "project", exclude=project),
+                    source=ObjectKeySource.DERIVED,
+                    actor=request.user,
+                )
             cascade_project_children_restore(project)
             _record_project_audit_event(
                 event_type="project_restored",

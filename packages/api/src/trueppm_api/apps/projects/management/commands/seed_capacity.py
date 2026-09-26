@@ -273,8 +273,9 @@ class Command(BaseCommand):
             raise CommandError(f"reset failed: {remaining} capacity project(s) still present")
 
     def _build_program(self, owner: Any) -> Program:
-        # ``Program.code`` is deliberately non-unique at the DB level (#2025), so
-        # this lookup cannot be constraint-backed.
+        # ``Program.code`` is unique case-insensitively since ADR-1237, so this
+        # lookup is constraint-backed. The harness writes the code directly and
+        # records no ObjectKey row; ``assign_key`` heals that on the next rename.
         # get-or-create-ok: local capacity harness, fixed constant code, single-writer CLI
         program, _ = Program.objects.get_or_create(
             code=CAPACITY_PROGRAM_CODE,

@@ -1612,6 +1612,12 @@ REST_FRAMEWORK = {
         # every epic/story title the account can see, loose enough that live typing
         # never trips it.
         "omni_search": env("TRUEPPM_THROTTLE_OMNI_SEARCH_RATE", default=_STANDARD_RATE),
+        # Project/program key resolver + key suggestion (ADR-1237 §5-§6). One
+        # per-user bucket for both: the resolver runs once per cold key-URL load
+        # and the suggestion once per debounced keystroke on a create form, so
+        # 120/min never trips a person — and it bounds using either endpoint as a
+        # scan engine over the key namespace (the accepted existence oracle).
+        "resolve": env("TRUEPPM_THROTTLE_RESOLVE_RATE", default="120/min"),
         # WebSocket connection tickets (#818, ADR-0141). One ticket is minted per
         # socket open (and per reconnect, since tickets are single-use); 120/min
         # covers aggressive reconnect storms without letting one account flood

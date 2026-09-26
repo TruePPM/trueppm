@@ -386,7 +386,10 @@ class _Exporter:
 
     def build(self) -> dict[str, Any]:
         for project in self.projects:
-            self.project_slugs[project.pk] = self.project_slug.take(project.code or project.name)
+            # From the name, not the key: since ADR-1237 every project has a key
+            # (``PC`` for "Platform Core"), and a file-local slug is for a human
+            # reading the document. The key itself round-trips in ``code``.
+            self.project_slugs[project.pk] = self.project_slug.take(project.name)
 
         # Pre-pass: index every task and sprint across ALL projects before
         # emitting any block, so cross-project dependency and risk refs resolve
@@ -495,7 +498,8 @@ class _Exporter:
             proj = self.synthetic_program
             assert proj is not None  # always set when self.program is None
             block: dict[str, Any] = {
-                "slug": _slugify(proj.code or proj.name),
+                # From the name, for the same reason as project slugs (ADR-1237).
+                "slug": _slugify(proj.name),
                 "name": proj.name,
                 "methodology": proj.methodology,
             }

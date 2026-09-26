@@ -130,6 +130,86 @@ Writing a MIME type that is permanently security-denied (`text/html`,
 [Task collaboration](/features/task-collaboration/) for how the resolved policy
 governs uploads.
 
+## Project and program keys
+
+Every project and program has a **key**, the short name that appears in its links
+and IDs. The API field is still named `code`. Project keys are 2 to 10 letters and
+digits and start with a letter (`PLAT`). Program keys are lowercase slugs of up to
+40 characters (`atlas-platform-launch`). Keys are unique across the workspace for
+each kind, compared case-insensitively, and a key is **never reissued**: renaming
+a project keeps its old key as an alias that still resolves to it. After a
+project is permanently deleted, its keys stay reserved, so an old link returns
+`404` rather than opening a different project. A project reference is
+`<KEY>-T-<n>` for a task, `<KEY>-SP-<n>` for a sprint, and `<KEY>-R-<n>` for a
+risk.
+
+- **Create.** `code` is optional on `POST /projects/` and `POST /programs/`. If
+  you leave it out or send `""`, the server derives a key from the name (`PLAT`,
+  or `PLAT2` when `PLAT` is taken) and returns it.
+- **Rename.** Send a new `code` in a `PATCH` to rename. You need the same role you
+  need to edit the General settings. The old key is retired. An object can have
+  at most **10** retired keys; the next rename returns `400`. Project and program
+  detail responses include `retired_key_count`.
+- **Errors.** A `400` on `code` is one of: `This key is already in use.` (held now
+  or in the past by any project, including one you can't see; the holder is
+  never named), `That word is reserved.` (`new`, `settings`, `trash`, or a
+  UUID-shaped value), or a format message.
+- **Existing codes.** A project code created before keys were introduced may
+  contain hyphens and be up to 12 characters (`GA-SEC`). It is kept and still
+  resolves, and a `PATCH` that sends the unchanged value is accepted. A new value
+  must use the current format.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/resolve/?kind=project\|program&ref=<ref>` | Resolve a key, a retired key, a UUID, or a `<KEY>-<T\|SP\|R>-<n>` reference to ids |
+| GET | `/api/v1/keys/?kind=project\|program&name=<name>` | Suggest a free key for a name: `{suggestion}` |
+| GET | `/api/v1/keys/?kind=project\|program&key=<key>[&object_id=<uuid>]` | Check a key: `{available, reason, suggestion}` |
+
+Both endpoints require authentication and share the per-user `resolve` rate limit
+(120/min, `TRUEPPM_THROTTLE_RESOLVE_RATE`).
+
+### Resolve
+
+`ref` can be a current key, a retired key, a UUID, or (for `kind=project`) a
+reference such as `PLAT-T-10`. The server reads the reference from its **last**
+marker, so a hyphenated key still works: `GA-SEC-T-10` is task 10 of `GA-SEC`.
+
+```json
+{
+  "type": "task",
+  "id": "5b0f…",
+  "project_id": "9c1e…",
+  "program_id": "2d44…",
+  "key": "PLAT",
+  "canonical_ref": "PLAT-T-10"
+}
+```
+
+`type` is `project`, `program`, `task`, `sprint`, or `risk`. `key` and
+`canonical_ref` are always the **current** form, so a client that holds a retired
+key gets the new one back. A project with no key yet has `key: null` and uses
+its UUID as `canonical_ref`.
+
+The lookup only searches projects you're an active member of (and programs you
+belong to). With a project- or program-scoped API token, it is further limited to
+that token's scope. If nothing you can read matches, the response is
+`404 {"detail": "Not found."}`. That response is the same whether the key doesn't
+exist, belongs to a project you can't see, is outside your token's scope, or is a
+retired key of a hidden project.
+
+### Key suggestion and availability
+
+With `name`, the response is `{"suggestion": "PLAT"}`. With `key`, it is
+`{"available": false, "reason": "taken", "suggestion": "PLAT2"}`. `reason` is
+`taken`, `reserved`, `invalid`, or `null` when the key is available. Pass
+`object_id` when you're renaming: that object's own current and retired keys
+are reported as available, because renaming back is allowed. An `object_id` you
+can't read is ignored.
+
+This endpoint tells you whether **some** project holds a key, even one you can't
+see. That is by design: a workspace-wide unique name can't be refused without
+saying it's taken. It never says which project holds the key.
+
 ## Project members
 
 | Method | Path | Description |

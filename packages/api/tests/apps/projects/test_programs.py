@@ -1134,7 +1134,8 @@ def test_retrieve_includes_new_general_fields_with_safe_defaults(owner: object) 
     assert resp.status_code == 200
     # New fields are present and carry the migration defaults so an
     # un-migrated UI can still bind to them without checking for undefined.
-    assert resp.data["code"] == ""
+    # A create that omits ``code`` gets one derived from the name (ADR-1237 §1).
+    assert resp.data["code"] == "phase-2"
     assert resp.data["health"] == "AUTO"
     assert resp.data["visibility"] == "WORKSPACE"
     assert resp.data["lead"] is None
@@ -1185,7 +1186,8 @@ def test_patch_persists_general_settings_fields(owner: object) -> None:
     )
     assert resp.status_code == 200, resp.content
     program.refresh_from_db()
-    assert program.code == "PH2"
+    # Program keys are slugs; input is lowercased (ADR-1237 §2).
+    assert program.code == "ph2"
     assert program.health == "AT_RISK"
     assert program.visibility == "PRIVATE"
 

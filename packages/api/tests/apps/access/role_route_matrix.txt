@@ -207,6 +207,7 @@
 -------  GET api/v1/health/system/::get
 -++++++  GET api/v1/import-templates/csv/::get
 -----++  GET api/v1/integrations/projects/<uuid:project_pk>/git-automation/::get
+-++++++  GET api/v1/keys/::get
 -++++++  GET api/v1/me/active-sprints/::get
 -++++++  GET api/v1/me/api-token-audit/::get
 -++++++  GET api/v1/me/api-tokens/::list
@@ -311,6 +312,7 @@
 --+++++  GET api/v1/projects/<uuid:project_pk>/mention-groups/<uuid:pk>/::retrieve
 --+++++  GET api/v1/projects/<uuid:project_pk>/teams/::list
 +++++++  GET api/v1/readyz::get
+-++++++  GET api/v1/resolve/::get
 +++++++  GET api/v1/share/board/<token>/::get
 +++++++  GET api/v1/share/schedule/<token>/::get
 -++++++  GET api/v1/sprints/<pk>/::retrieve
