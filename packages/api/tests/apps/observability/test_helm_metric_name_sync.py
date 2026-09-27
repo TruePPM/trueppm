@@ -149,6 +149,12 @@ def test_checker_rejects_a_sum_over_a_cluster_wide_gauge(checker: ModuleType) ->
     assert checker.find_summed_metric_names(
         "sum by (trueppm_outbox_name, trueppm_outbox_state) (trueppm_outbox_depth)"
     ) == {"trueppm_outbox_depth"}
+    # `without` is PromQL's other grouping modifier, syntactically identical to
+    # `by` — a detector that only recognized `by` would silently pass a chart
+    # expression written with `without` (#4186 completeness-check gap).
+    assert checker.find_summed_metric_names("sum without (pod) (trueppm_outbox_depth)") == {
+        "trueppm_outbox_depth"
+    }
     assert (
         checker.find_summed_metric_names("max by (trueppm_outbox_name) (trueppm_outbox_depth)")
         == set()

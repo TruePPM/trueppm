@@ -63,6 +63,11 @@ through ``max``), never ``sum``. The cluster-wide set is read from
 added to that constant is covered here automatically without a second,
 hand-maintained list drifting out of sync with it.
 
+The ``sum(...)`` detector recognizes the bare form (``sum(metric)``), the
+``by (...)`` grouping modifier, and PromQL's ``without (...)`` grouping modifier
+(``sum without (pod) (metric)``) — both are prefix modifiers on ``sum`` with
+identical syntax, so a name wrapped in either one is caught the same way.
+
 Usage::
 
     python3 scripts/check-helm-metric-names.py [repo_root]
@@ -99,12 +104,15 @@ _CHART_TOKEN = re.compile(r"\btrueppm_[a-z0-9_]+\b")
 # dotted OTLP form or the already-underscored Prometheus form.
 _TRUEPPM_CONSTANT = re.compile(r"^trueppm[._-][a-z0-9_.\-]+$")
 
-# A `sum(...)` or `sum by (labels) (...)` PromQL aggregation directly wrapping a
-# single trueppm_* series (with an optional `{label="..."}` matcher). The chart's
-# expressions never nest a sum() inside another aggregation's argument, so this
-# does not need balanced-paren parsing.
+# A `sum(...)`, `sum by (labels) (...)`, or `sum without (labels) (...)` PromQL
+# aggregation directly wrapping a single trueppm_* series (with an optional
+# `{label="..."}` matcher). `by` and `without` are PromQL's two grouping modifiers
+# and share identical syntax, so both must be recognized — missing `without` would
+# let a chart expression escape this gate on a syntax alone, not a real difference
+# in what it aggregates. The chart's expressions never nest a sum() inside another
+# aggregation's argument, so this does not need balanced-paren parsing.
 _SUM_AGG_PATTERN = re.compile(
-    r"\bsum\s*(?:by\s*\([^)]*\)\s*)?\(\s*(trueppm_[a-z0-9_]+)(?:\{[^}]*\})?\s*\)"
+    r"\bsum\s*(?:(?:by|without)\s*\([^)]*\)\s*)?\(\s*(trueppm_[a-z0-9_]+)(?:\{[^}]*\})?\s*\)"
 )
 
 
@@ -394,6 +402,9 @@ def _self_test() -> int:
     assert find_summed_metric_names(
         "sum by (trueppm_outbox_name) (trueppm_outbox_depth)"
     ) == {"trueppm_outbox_depth"}
+    assert find_summed_metric_names("sum without (pod) (trueppm_outbox_depth)") == {
+        "trueppm_outbox_depth"
+    }
     assert (
         find_summed_metric_names("max by (trueppm_outbox_name) (trueppm_outbox_depth)")
         == set()
