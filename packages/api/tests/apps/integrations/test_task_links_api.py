@@ -995,3 +995,40 @@ def test_github_owner_repo_are_percent_encoded_in_api_path(
     assert seen[0].startswith("https://api.github.com/repos/")
     assert "?" not in seen[0] and "#" not in seen[0]
     assert seen[0].endswith("/issues/7")
+
+
+def test_refresh_does_not_persist_when_the_link_is_repointed_mid_fetch(
+    member: object,
+    other_member: object,
+    project: Project,
+    task: Task,
+    memberships: None,
+    monkeypatch: pytest.MonkeyPatch,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """A repoint that lands while the creator's refresh is fetching must win (#4081).
+
+    Otherwise the old target's title is stamped onto the row that now points at
+    the new URL (and is owned by the editor), and broadcast to the project.
+    """
+    IntegrationCredential.upsert(user=member, provider="github", secret="ghp-creator")
+    link = _creator_owned_refreshed_link(task, member)
+
+    def _repoint_during_fetch(url: str, **kwargs: object) -> http.EgressResponse:
+        TaskLink.objects.filter(pk=link.pk).update(
+            url="https://github.com/acme/api/issues/2", created_by=other_member, title=""
+        )
+        body = json.dumps({"state": "closed", "title": "Old target title"}).encode()
+        return http.EgressResponse(status=200, body=body, headers={})
+
+    monkeypatch.setattr(http, "get", _repoint_during_fetch)
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as bcast,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        r = _client(member).post(_refresh_url(project, task, link.pk))
+    assert r.status_code == 200
+    link.refresh_from_db()
+    assert link.url == "https://github.com/acme/api/issues/2"
+    assert link.title == ""
+    bcast.assert_not_called()

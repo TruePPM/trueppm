@@ -554,18 +554,35 @@ class TaskLinkViewSet(
             # Transient view: the in-memory row is serialized but never saved.
             return Response(TaskLinkSerializer(link).data)
 
-        # VersionedModel.save() bumps server_version atomically; we pass the
-        # changed fields only and let it handle the version bump + sync delta.
-        link.save(
-            update_fields=[
-                "status",
-                "title",
-                "description",
-                "thumbnail_url",
-                "preview_type",
-                "fetched_at",
-            ]
-        )
+        with transaction.atomic():
+            # The fetch above can take seconds. If another member repointed the
+            # link meanwhile, its url and owner moved on; writing this result
+            # would stamp the old target's metadata onto the new URL and broadcast
+            # it. Re-check under a row lock and fall back to the transient view.
+            current = (
+                TaskLink.objects.select_for_update()
+                .filter(pk=link.pk)
+                .values("url", "created_by_id")
+                .first()
+            )
+            if (
+                current is None
+                or current["url"] != link.url
+                or current["created_by_id"] != link.created_by_id
+            ):
+                return Response(TaskLinkSerializer(link).data)
+            # VersionedModel.save() bumps server_version atomically; we pass the
+            # changed fields only and let it handle the version bump + sync delta.
+            link.save(
+                update_fields=[
+                    "status",
+                    "title",
+                    "description",
+                    "thumbnail_url",
+                    "preview_type",
+                    "fetched_at",
+                ]
+            )
 
         link_id = str(link.pk)
         task_id = str(link.task_id)
