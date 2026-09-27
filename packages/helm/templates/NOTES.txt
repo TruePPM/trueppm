@@ -10,6 +10,7 @@ TruePPM {{ .Chart.AppVersion }} — release {{ .Release.Name }} in namespace {{ 
 
 {{ include "trueppm.bootGuardNotice" . }}
 {{ include "trueppm.csrfOriginNotice" . }}
+{{ include "trueppm.frontendBaseUrlNotice" . }}
 
 Watch the rollout:
 

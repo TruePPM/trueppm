@@ -180,6 +180,13 @@ services:
       TRUEPPM_ALLOW_DEV_SETTINGS: "1"
       SECRET_KEY: dev-secret-key-change-in-prod
       PYTHONPATH: /app/src
+      # Read by workspace/notifications email builders (#4188): without it,
+      # invite-accept, export-ready, and mention-notification emails the worker
+      # sends omit their deep-links (or, before that issue's fix, emitted a bare
+      # relative path no mail client could follow). Mirrors the `api` service's
+      # pin above — the worker, not `api`, is what actually renders and sends
+      # these emails.
+      TRUEPPM_FRONTEND_BASE_URL: http://localhost:5173
       # Plain Docker Compose has NO mechanism that restarts a container on
       # healthcheck failure — `restart: unless-stopped` fires only on process
       # EXIT, unlike the Helm chart's `celery inspect ping` livenessProbe,
@@ -229,6 +236,9 @@ services:
       TRUEPPM_ALLOW_DEV_SETTINGS: "1"
       SECRET_KEY: dev-secret-key-change-in-prod
       PYTHONPATH: /app/src
+      # See the `celery` service's comment above (#4188) — Beat schedules the
+      # same drain tasks the worker executes, so it needs this to match.
+      TRUEPPM_FRONTEND_BASE_URL: http://localhost:5173
     volumes:
       - ./packages/api/src:/app/src
     depends_on:

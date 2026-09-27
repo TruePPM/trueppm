@@ -690,15 +690,42 @@ class TestRenderEmail:
         assert "@scrum-team" in subject
 
     @pytest.mark.django_db
-    def test_body_includes_snippet_and_settings_link(
-        self, recipient: object, project: Project, comment: TaskComment, author: object
+    def test_body_includes_snippet_and_absolute_settings_link_when_configured(
+        self,
+        recipient: object,
+        project: Project,
+        comment: TaskComment,
+        author: object,
+        settings: object,
     ) -> None:
+        settings.FRONTEND_BASE_URL = "https://ppm.example.com"
         notif = _make_pending_notification(
             recipient=recipient, project=project, comment=comment, author=author
         )
         _, body = _render_email(notif)
         assert "Hello @alice please review" in body
-        assert "/me/settings/notifications/" in body
+        assert "https://ppm.example.com/me/settings/notifications/" in body
+
+    @pytest.mark.django_db
+    def test_body_never_emits_a_relative_settings_link_when_unconfigured(
+        self,
+        recipient: object,
+        project: Project,
+        comment: TaskComment,
+        author: object,
+        settings: object,
+    ) -> None:
+        """#4188: a bare '/me/settings/notifications/' is not a valid URL and is not
+        reachable from an email — the footer must fall back to prose instead."""
+        settings.FRONTEND_BASE_URL = ""
+        notif = _make_pending_notification(
+            recipient=recipient, project=project, comment=comment, author=author
+        )
+        _, body = _render_email(notif)
+        assert "Hello @alice please review" in body
+        for line in body.splitlines():
+            assert not line.strip().startswith("/"), f"relative link leaked into email: {line!r}"
+        assert "Account settings" in body
 
     @pytest.mark.django_db
     def test_soft_deleted_comment_returns_empty(
