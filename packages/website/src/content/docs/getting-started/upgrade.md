@@ -349,6 +349,44 @@ after recalculation can show milestone-driven variance that reflects the
 convention change, not a schedule change. To compare like with like, capture a new
 baseline after the project recalculates.
 
+### Project and program keys (`projects.0154`)
+
+Upgrading from `0.4.0-beta.4` or earlier makes every project and program **key**
+(the `code` field; see [Project and program keys](/api/reference/projects/#project-and-program-keys))
+unique across the workspace, compared case-insensitively. Migration
+`projects.0154_object_keys` repairs existing data before it adds the uniqueness
+constraint:
+
+- A project or program with **no code** gets one derived from its name. Platform
+  Migration becomes `PM`, and a program called Office Move becomes `office-move`.
+- When several projects (or several programs) share a code, **the oldest keeps
+  it** and each of the others gets a numeric suffix: `PLAT2`, `PLAT3` for projects,
+  `atlas-2` for programs.
+- Every other code is kept exactly as it is, including an existing hyphenated
+  project code such as `GA-SEC`. New project keys can't contain hyphens, but
+  existing ones are never rewritten.
+
+Each code the migration changed is logged at `WARNING` during `migrate` with the
+prefix `key repair (ADR-1237)`. The log is optional: the database records every
+rewrite too. To list them later, run this in `python manage.py shell`:
+
+```python
+from trueppm_api.apps.projects.models import ObjectKey
+
+for row in ObjectKey.objects.filter(source="backfill").select_related("project", "program"):
+    owner = row.project or row.program
+    print(row.kind, row.key, owner.name if owner else "(deleted)")
+```
+
+If a rewritten key isn't what your team wants, rename it on the project's or
+program's **General** settings page. The old key keeps working in links and
+now opens the renamed project.
+
+**Rolling upgrades.** The constraint excludes blank codes for this release. While
+an older API pod is still running during a rolling update, it can create a
+project with an empty code without failing. The new version gives that project a
+key the next time it is edited. The exclusion is planned to be removed in 0.5.
+
 ---
 
 ## Upgrading to 0.3

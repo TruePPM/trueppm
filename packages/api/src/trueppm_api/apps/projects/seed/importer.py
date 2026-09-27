@@ -63,6 +63,7 @@ from trueppm_api.apps.projects.models import (
     DorState,
     EstimateStatus,
     Label,
+    ObjectKeySource,
     Program,
     Project,
     Risk,
@@ -334,6 +335,11 @@ class _SeedImporter:
         #: Program this run tore down, for the caller's audit record. None when
         #: nothing collided.
         self.replaced_program_id: str | None = None
+        #: Key rows released by the program (and, on the sample hard-delete path,
+        #: the projects) this run replaced, so the rebuild adopts them instead of
+        #: minting suffixed keys (ADR-1237). Project rows are keyed by name.
+        self.released_program_keys: list[Any] = []
+        self.released_project_keys: dict[str, list[Any]] = {}
         self.users: dict[str, Any] = {}
         self.calendars: dict[str, Calendar] = {}
         self.resources: dict[str, Resource] = {}
@@ -756,7 +762,10 @@ class _SeedImporter:
         ``_meta`` rather than the hand-written list that rotted in #2364.
         """
         from trueppm_api.apps.access.services import hard_delete_program
-        from trueppm_api.apps.projects.services import soft_delete_program_subtree
+        from trueppm_api.apps.projects.services import (
+            release_keys_for_replace,
+            soft_delete_program_subtree,
+        )
 
         slug = self.payload["program"]["slug"]
         candidates = resolve_replace_candidates(self.owner, slug, lock=True)
@@ -798,6 +807,19 @@ class _SeedImporter:
 
         target = candidates[0]
         self.replaced_program_id = str(target.pk)
+        # The program shell is unrecoverable on both paths, so its keys move to the
+        # rebuild — the same program to its owner, with its slug and old links
+        # intact (ADR-1237). Released before the teardown locks and saves the row.
+        self.released_program_keys = release_keys_for_replace(target)
+        # Each replaced project's keys move to the rebuilt project of the same
+        # name, so a re-import reproduces the keys (and the #616 round trip stays
+        # byte-identical) instead of minting PLAT2. On the soft path the trashed
+        # original is left without a key; restoring it derives a fresh one
+        # (``ProjectViewSet.restore``), so a restore still never collides.
+        for doomed_project in Project.objects.filter(program=target, is_deleted=False):
+            self.released_project_keys.setdefault(doomed_project.name, []).extend(
+                release_keys_for_replace(doomed_project)
+            )
         if self.is_sample:
             # Capture the doomed project ids before the rows go: a hard delete
             # leaves no tombstone, so the broadcast is the only signal a client
@@ -1053,9 +1075,11 @@ class _SeedImporter:
                 description=data.get("description", ""),
                 methodology=data["methodology"],
                 created_by=self.owner,
+                # The importer assigns the key itself, below.
+                code=None,
             )
         # Persist the slug as the natural key + carry display fields.
-        program.code = data["slug"]
+        self._assign_program_key(program, data["slug"])
         if data.get("color"):
             program.color = data["color"]
         lead = self.users.get(data["lead"]) if data.get("lead") else None
@@ -1094,6 +1118,76 @@ class _SeedImporter:
         )
         self._grant_program_memberships(program)
         return program
+
+    def _assign_program_key(self, program: Program, slug: str) -> None:
+        """Give the program its key: adopted, the seed's slug, or a suffixed slug (ADR-1237).
+
+        In order: an adopted shell that already carries a key (the async path's
+        view assigned it) keeps it; a replacement adopts the replaced program's
+        keys; otherwise the slug is used when free. When the slug is held by a
+        program this run does not replace — another user's copy of the same
+        sample, or a trashed program — the key is suffixed
+        (``atlas-platform-launch-2``) rather than failing: an import is not an
+        interactive form, and the interactive ``POST /programs/import/`` refuses
+        that case with a ``409`` before it ever reaches here.
+
+        ``save=False`` throughout: :meth:`_create_program` saves ``code`` with the
+        other display fields in one write.
+        """
+        from trueppm_api.apps.projects.services import (
+            adopt_released_keys,
+            assign_key,
+            is_key_taken,
+            suggest_free_key,
+        )
+
+        if program.code:
+            return
+        if self.released_program_keys and adopt_released_keys(
+            program, self.released_program_keys, save=False
+        ):
+            return
+        if is_key_taken("program", slug, exclude=program):
+            assign_key(
+                program,
+                suggest_free_key(slug, "program"),
+                source=ObjectKeySource.DERIVED,
+                actor=self.owner,
+                save=False,
+            )
+        else:
+            assign_key(program, slug, source=ObjectKeySource.USER, actor=self.owner, save=False)
+
+    def _assign_project_key(self, project: Project, data: dict[str, Any]) -> None:
+        """Give an imported project its key (ADR-1237), never failing the import.
+
+        A sample reload adopts the key of the hard-deleted project of the same
+        name. Otherwise the seed's own ``code`` is used when it is free and a
+        valid new key; a taken one is suffixed (``PLAT`` → ``PLAT2``,
+        ``source=derived``) — loading the same sample twice must not collide —
+        and a document without one derives from the project name.
+        """
+        from trueppm_api.apps.projects.keys import key_format_error, normalize_key
+        from trueppm_api.apps.projects.services import (
+            adopt_released_keys,
+            assign_key,
+            derive_key,
+            is_key_taken,
+            suggest_free_key,
+        )
+
+        released = self.released_project_keys.pop(project.name, None)
+        if released and adopt_released_keys(project, released):
+            return
+        code = normalize_key(data.get("code") or "", "project")
+        if code and key_format_error(code, "project") is None:
+            if not is_key_taken("project", code, exclude=project):
+                assign_key(project, code, source=ObjectKeySource.USER, actor=self.owner)
+                return
+            key = suggest_free_key(code, "project")
+        else:
+            key = derive_key(project.name, "project", exclude=project)
+        assign_key(project, key, source=ObjectKeySource.DERIVED, actor=self.owner)
 
     def _grant_program_memberships(self, program: Program) -> None:
         for account in self.payload.get("accounts", []):
@@ -1187,7 +1281,9 @@ class _SeedImporter:
             start_date=self._date(data["start_date"], slug),
             calendar=calendar,
             methodology=data["methodology"],
-            code=data.get("code", ""),
+            # Assigned by ``_assign_project_key`` right after the INSERT, which
+            # suffixes a taken seed code instead of colliding (ADR-1237).
+            code="",
             default_view=data.get("default_view", "SCHEDULE"),
             estimation_mode=data.get("estimation_mode", "open"),
             # PM health override (#520). Seeds may pin a project off AUTO so the
@@ -1198,6 +1294,7 @@ class _SeedImporter:
             # work on a later reload (#994).
             is_sample=self.is_sample,
         )
+        self._assign_project_key(project, data)
         # Workstream lead (#3098). Distinct from both the program lead and the
         # OWNER membership: on a program of parallel workstreams the lead is who
         # the program manager asks about this project, and it is what the project

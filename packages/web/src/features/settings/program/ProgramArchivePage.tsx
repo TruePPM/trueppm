@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useNavigate } from 'react-router';
 import { useProgram } from '@/hooks/useProgram';
 import {
   useCloseProgram,
@@ -12,6 +12,7 @@ import { SettingsPageTitle } from '../SettingsShell';
 import { LifecycleCard } from '../components/LifecycleCard';
 import { TransferOwnershipDialog } from '../components/TransferOwnershipDialog';
 import { SplitProgramDialog } from '../components/SplitProgramDialog';
+import { useProgramId } from '@/hooks/useProgramId';
 
 /** A React-Query/Axios error's message, or null for non-Error rejections. */
 function errorMessage(err: unknown): string | null {
@@ -100,7 +101,7 @@ function DeleteProgramCard({
 
 /** Program > Archive / Transfer / Close settings page. */
 export function ProgramArchivePage() {
-  const { programId } = useParams<{ programId: string }>();
+  const programId = useProgramId();
   const { data: program } = useProgram(programId);
   const navigate = useNavigate();
 

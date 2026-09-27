@@ -36,6 +36,8 @@ export interface UseProjectsResult {
 interface ApiProject {
   id: string;
   name: string;
+  /** The project key (ADR-1237). Absent on older fixtures. */
+  code?: string;
   description: string;
   start_date: string;
   calendar: string;
@@ -70,6 +72,8 @@ function mapProject(p: ApiProject, index: number): Project {
   return {
     id: p.id,
     name: p.name,
+    // Carried so list-built links can use the key URL (ADR-1237); '' → undefined.
+    code: p.code || undefined,
     // Server health enum → dot state; AUTO/unset stays hollow ('unknown').
     healthState: toHealthState(p.health),
     openTaskCount: p.open_task_count ?? null,

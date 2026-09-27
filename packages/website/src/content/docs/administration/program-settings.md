@@ -1,6 +1,7 @@
 ---
 title: Program Settings
 description: Configure a program's identity, delivery model, rollup KPIs, cadence, risk policy, and lifecycle — and how each setting inherits from the workspace or is overridden per program.
+documentedFor: "0.4"
 ---
 
 :::note[Added in 0.2 (alpha)]
@@ -71,7 +72,7 @@ here affect every project in the program.
 | Field | Description |
 |---|---|
 | Program name | Display name shown across the program's views. |
-| Program code | Short prefix used for task IDs and exports (e.g. `APOLLO-123`). |
+| Program key | The program's short name in its link, such as `/programs/atlas-platform-launch/overview`: lowercase letters, digits and hyphens, up to 40 characters, unique across the workspace. The **New program** dialog suggests one from the name and checks that it's available. When you rename it, links that use the old key keep working and switch to the new one, and the old key stays reserved for this program. A program can be renamed at most 10 times. |
 | Accent color | Program accent swatch used in nav and health chrome. |
 | Description | Free-text summary of the program's purpose. |
 | Target date | The program's headline target finish date. |
