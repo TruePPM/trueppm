@@ -58,6 +58,7 @@ from trueppm_api.apps.projects.models import (
     three_point_estimates_ordered,
 )
 from trueppm_api.apps.scheduling.calendars import compose_project_calendar
+from trueppm_api.apps.scheduling.finish_reading import finish_shift_days, schedule_result_finish
 from trueppm_api.apps.scheduling.forecast_staleness import (
     forecast_staleness_facts,
     forecast_staleness_for_payload,
@@ -255,6 +256,20 @@ def _date_delta_days(later: _date | None, earlier: _date | None) -> int | None:
     if later is None or earlier is None:
         return None
     return (later - earlier).days
+
+
+def _cpm_finish_delta_days(earlier: Any, later: Any, calendar: Any) -> int | None:
+    """Signed shift of ``ScheduleResult.project_finish`` between two CPM passes, in working time.
+
+    Unlike :func:`_date_delta_days`, this reads each finish with its edge of the
+    day, so the shown day hopping a weekend with no working-time move is 0
+    (:mod:`.finish_reading`, #4178). Still reported in calendar days.
+    """
+    before = schedule_result_finish(earlier)
+    after = schedule_result_finish(later)
+    if before is None or after is None:
+        return None
+    return finish_shift_days(before, after, calendar)
 
 
 def _confidence_curve(histogram: list[dict[str, object]], total: int) -> list[dict[str, object]]:
@@ -1153,7 +1168,9 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                     "{p50, p80, p95, cpm_finish (ISO-8601 or null), critical_path ([task_id])}); "
                     "critical_path_changed (bool — did the set of critical tasks change); "
                     "delta_vs_current ({p50, p80, p95, cpm_finish} signed calendar-day shifts, "
-                    "positive = later/worse, null when a date is missing); runs (n_simulations); "
+                    "positive = later/worse, null when a date is missing; cpm_finish is measured "
+                    "in working time, so a milestone finish that only moves from the end of a "
+                    "Friday to the start of the next Monday is 0); runs (n_simulations); "
                     "seed (fixed RNG seed shared by both runs so the delta isolates the change); "
                     "cpm_status_date and mc_status_date (ADR-0132/#2638, floor armed on the "
                     "CPM path by ADR-0752 §4) — the resolved data dates (project.status_date, "
@@ -1406,8 +1423,12 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                     "p50": _date_delta_days(perturbed_mc.p50, baseline_mc.p50),
                     "p80": _date_delta_days(perturbed_mc.p80, baseline_mc.p80),
                     "p95": _date_delta_days(perturbed_mc.p95, baseline_mc.p95),
-                    "cpm_finish": _date_delta_days(
-                        perturbed_cpm.project_finish, baseline_cpm.project_finish
+                    # Measured in working time (#4178): a what-if that only moves
+                    # a milestone finish between the end of a Friday and the start
+                    # of the next Monday is no shift, and one that moves it from the
+                    # start of Monday to the end of Monday is a real one.
+                    "cpm_finish": _cpm_finish_delta_days(
+                        baseline_cpm, perturbed_cpm, sched_calendar
                     ),
                 },
                 "runs": n_simulations,

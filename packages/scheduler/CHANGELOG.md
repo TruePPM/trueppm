@@ -105,6 +105,12 @@ change between releases. Pin an exact version (e.g.
   on a 200-task project took "well under 100 ms"; measured, it is about 60–100 ms
   on a current laptop CPU and more on a CI runner. A loose benchmark in
   `tests/test_bench.py` now keeps the figure from drifting.
+- **Milestone display rule stated (#4178).** `ScheduleResult` and `Task` now say
+  that `project_finish` and a milestone's `early_finish` are the day the finish
+  is *shown* on, which edge of it `milestone_at_day_end` names, and that the
+  shown day can move across a weekend or holiday while the working-time finish
+  does not. Compute slip in working time, not as a calendar-day difference of two
+  finishes. The docstring example runs as a test. No engine change.
 
 - **The test suite passes on Python 3.14 (#3787).**
   `test_project_from_json_deep_nesting_message_is_exact` nested its payload

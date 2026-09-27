@@ -17,8 +17,14 @@ causes is never flagged here — only the cross-project ripple is the firewall's
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
 from typing import TYPE_CHECKING, Any
+
+from trueppm_api.apps.scheduling.finish_reading import (
+    task_finish_at_day_start,
+    working_time_end_day,
+)
 
 if TYPE_CHECKING:
     from trueppm_api.apps.projects.program_schedule import ProgramScheduleGraph
@@ -121,7 +127,7 @@ def detect_and_upsert_slip_conflicts(graph: ProgramScheduleGraph) -> list[Any]:
         db_task = db_task_by_id.get(task_id)
         if db_task is None:
             continue
-        slip = _boundary_slip(task_id, db_task, result_map)
+        slip = _boundary_slip(task_id, db_task, result_map, graph.calendars)
         if slip is None:
             continue
         sprint, early_finish = slip
@@ -156,7 +162,10 @@ def detect_and_upsert_slip_conflicts(graph: ProgramScheduleGraph) -> list[Any]:
 
 
 def _boundary_slip(
-    task_id: str, db_task: Any, result_map: dict[str, Any]
+    task_id: str,
+    db_task: Any,
+    result_map: dict[str, Any],
+    calendars: Mapping[str, Any] | None = None,
 ) -> tuple[Any, date] | None:
     """Return ``(sprint, early_finish)`` if ``db_task`` slips past its sprint boundary.
 
@@ -166,6 +175,11 @@ def _boundary_slip(
     (2) have a program-true ``early_finish`` strictly past the sprint's inclusive
     ``finish_date`` (a task finishing *on* the boundary is on time, not a slip).
     Returns ``None`` when any condition fails.
+
+    The finish is compared in working time (#4178): a milestone shown at the start
+    of the Monday after a sprint that ends on Friday sits at the end of that Friday
+    in working time, so it is on time. ``calendars`` maps a project id to its
+    composed scheduler calendar; without one the shown day is compared.
     """
     from trueppm_api.apps.projects.models import SprintState
 
@@ -177,7 +191,15 @@ def _boundary_slip(
 
     sched = result_map.get(task_id)
     early_finish = getattr(sched, "early_finish", None) if sched is not None else None
-    if early_finish is None or not (early_finish > sprint.finish_date):
+    if early_finish is None:
+        return None
+    cal = calendars.get(str(db_task.project_id)) if calendars is not None else None
+    finish_end = (
+        working_time_end_day((early_finish, task_finish_at_day_start(sched)), cal)
+        if cal is not None
+        else early_finish
+    )
+    if not (finish_end > sprint.finish_date):
         return None
     return sprint, early_finish
 

@@ -386,7 +386,22 @@ class ProjectForecastSnapshotSerializer(serializers.ModelSerializer[ProjectForec
 
     Server-generated history; the endpoint is list-only, so every field is
     read-only and there is no create/update path.
+
+    ``cpm_finish_at_day_start`` is published so a client diffing ``cpm_finish``
+    across snapshots can do it in working time (#4178): a start-of-day finish on
+    a Monday is the same finish as the end of the Friday before it.
     """
+
+    cpm_finish_at_day_start = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when cpm_finish is the START of that day: every task finishing on "
+            "it is a milestone shown at the start of its day. The start of a day is "
+            "the same point in working time as the end of the working day before "
+            "it, so compare finishes in working time, not as a date difference. "
+            "False on snapshots captured before this field existed."
+        ),
+    )
 
     class Meta:
         model = ProjectForecastSnapshot
@@ -395,6 +410,7 @@ class ProjectForecastSnapshotSerializer(serializers.ModelSerializer[ProjectForec
             "captured_at",
             "triggered_by",
             "cpm_finish",
+            "cpm_finish_at_day_start",
             "total_float_days",
             "mc_p50_finish",
             "mc_p80_finish",

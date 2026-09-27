@@ -20870,7 +20870,7 @@
                                 }
                             }
                         },
-                        "description": "What-if forecast. Keys: task_id; applied ({base_duration_days, duration_delta_days, new_duration_days}); current and whatif (each {p50, p80, p95, cpm_finish (ISO-8601 or null), critical_path ([task_id])}); critical_path_changed (bool — did the set of critical tasks change); delta_vs_current ({p50, p80, p95, cpm_finish} signed calendar-day shifts, positive = later/worse, null when a date is missing); runs (n_simulations); seed (fixed RNG seed shared by both runs so the delta isolates the change); cpm_status_date and mc_status_date (ADR-0132/#2638, floor armed on the CPM path by ADR-0752 §4) — the resolved data dates (project.status_date, or today when unset) fed to the deterministic and Monte Carlo passes respectively, shared by both current and whatif since this view runs both in one call; this view never persists, so these are the only provenance a caller gets for how the forecast was computed."
+                        "description": "What-if forecast. Keys: task_id; applied ({base_duration_days, duration_delta_days, new_duration_days}); current and whatif (each {p50, p80, p95, cpm_finish (ISO-8601 or null), critical_path ([task_id])}); critical_path_changed (bool — did the set of critical tasks change); delta_vs_current ({p50, p80, p95, cpm_finish} signed calendar-day shifts, positive = later/worse, null when a date is missing; cpm_finish is measured in working time, so a milestone finish that only moves from the end of a Friday to the start of the next Monday is 0); runs (n_simulations); seed (fixed RNG seed shared by both runs so the delta isolates the change); cpm_status_date and mc_status_date (ADR-0132/#2638, floor armed on the CPM path by ADR-0752 §4) — the resolved data dates (project.status_date, or today when unset) fed to the deterministic and Monte Carlo passes respectively, shared by both current and whatif since this view runs both in one call; this view never persists, so these are the only provenance a caller gets for how the forecast was computed."
                     },
                     "400": {
                         "content": {
@@ -67081,7 +67081,7 @@
             },
             "ProjectForecastSnapshot": {
                 "type": "object",
-                "description": "Read-only serializer for a project-grain forecast snapshot (ADR-0154, #388).\n\nServer-generated history; the endpoint is list-only, so every field is\nread-only and there is no create/update path.",
+                "description": "Read-only serializer for a project-grain forecast snapshot (ADR-0154, #388).\n\nServer-generated history; the endpoint is list-only, so every field is\nread-only and there is no create/update path.\n\n``cpm_finish_at_day_start`` is published so a client diffing ``cpm_finish``\nacross snapshots can do it in working time (#4178): a start-of-day finish on\na Monday is the same finish as the end of the Friday before it.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -67106,6 +67106,11 @@
                         "format": "date",
                         "readOnly": true,
                         "nullable": true
+                    },
+                    "cpm_finish_at_day_start": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "True when cpm_finish is the START of that day: every task finishing on it is a milestone shown at the start of its day. The start of a day is the same point in working time as the end of the working day before it, so compare finishes in working time, not as a date difference. False on snapshots captured before this field existed."
                     },
                     "total_float_days": {
                         "type": "integer",
@@ -67148,6 +67153,7 @@
                     "captured_at",
                     "completed_task_count",
                     "cpm_finish",
+                    "cpm_finish_at_day_start",
                     "id",
                     "mc_iterations",
                     "mc_p50_finish",

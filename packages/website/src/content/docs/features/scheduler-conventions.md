@@ -57,6 +57,7 @@ one-day task and place an SF successor one working day later.
 | `total_float` is the working-day span from the early start to the late start, and `is_critical` means exactly `total_float == 0`. | — | — |
 | `free_float` inverts the forward constraint across **all four** link types, anchored on each successor's early date, and is capped at total float. A task with no live successor falls back to its total float, and completed successors are skipped. | Same definition. | [#1828](https://gitlab.com/trueppm/trueppm/-/issues/1828) |
 | The order of `ScheduleResult.tasks` is **unspecified**. Look tasks up by `id`, never by position. | — | [#1862](https://gitlab.com/trueppm/trueppm/-/issues/1862) |
+| `ScheduleResult.project_finish` and a milestone's `early_finish` are the **day the finish is shown on**, not an instant, and `milestone_at_day_end` says which edge of that day it is. The end of a Friday and the start of the following Monday are the same point in working time, so the shown day can move across a weekend or holiday while the working-time finish does not. To measure a slip, compare in working time and read a start-of-day milestone finish as the end of the working day before it. Never subtract two shown days. TruePPM's project end-date shift notification and its activity feed measure a finish shift this way. | — | [#4178](https://gitlab.com/trueppm/trueppm/-/issues/4178) |
 
 ## Monte Carlo
 
