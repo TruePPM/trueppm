@@ -678,7 +678,7 @@ for the full design. Four layers combine to make it safe to expose:
    trips, so it cannot protect any one of them. This is a shared-fate
    resource-consumption tradeoff, not a per-visitor fairness guarantee: the real
    bounds are the api pod's capacity and whatever edge sits in front of the host
-   (see the Cloudflare Access caveat below). The demo's login page tells
+   (an edge rate limit such as a Cloudflare WAF rule). The demo's login page tells
    visitors the limits are lifted for the demo account only. See the `demo.throttle.*` keys
    in [Helm values](/administration/helm-values/#public-read-only-demo-mode).
 
