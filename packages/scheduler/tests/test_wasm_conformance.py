@@ -33,9 +33,25 @@ PARSE_REJECTS_DIR = FIXTURES_DIR / "parse_rejects"
 #   REGEN_EXPECTED=1 pytest packages/scheduler/tests/test_wasm_conformance.py
 REGEN_EXPECTED = os.environ.get("REGEN_EXPECTED") == "1"
 
-# Module-level hard guards (#1506). A path break — a standalone/PyPI-sdist run of
-# the separable trueppm-scheduler package, or a directory rename — must fail
-# loudly at import, not silently collect zero parametrized tests and pass green.
+# The fixtures live in the sibling packages/wasm-scheduler tree, which exists only
+# inside the monorepo — the published sdist ships tests/ but not that tree, so an
+# unconditional guard made its whole suite error out at collection (#3856).
+# TRUEPPM_MONOREPO=1 (set globally in .gitlab-ci.yml and by `make test-scheduler`)
+# declares that the fixtures MUST be present; without it, their absence skips this
+# module so a downstream verify-from-source run collects the rest of the suite.
+IN_MONOREPO = os.environ.get("TRUEPPM_MONOREPO") == "1"
+
+if not IN_MONOREPO and not FIXTURES_DIR.is_dir():
+    pytest.skip(
+        f"Python<->WASM conformance fixtures not found at {FIXTURES_DIR}; they live in "
+        "the TruePPM monorepo (packages/wasm-scheduler/fixtures) and are not shipped in "
+        "the trueppm-scheduler sdist. Set TRUEPPM_MONOREPO=1 to make this a hard failure.",
+        allow_module_level=True,
+    )
+
+# Module-level hard guards (#1506). Inside the monorepo a path break — a directory
+# rename, or a CI checkout that lost the fixtures — must fail loudly at import, not
+# silently collect zero parametrized tests and pass green.
 # fixture_names()/invalid_fixture_names() feed pytest params; without these an
 # empty result yields an empty-but-green suite that never checks either engine.
 assert FIXTURES_DIR.is_dir(), (
