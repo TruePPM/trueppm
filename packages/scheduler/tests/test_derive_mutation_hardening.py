@@ -56,10 +56,13 @@ them:
   ``result.project_finish`` → ``None``: ``_backward_successor_terms`` reads it only
   when ``finish_instant`` is falsy, and ``_milestone_context`` always supplies one.
   ``next(..., )`` without a default: every derivation branch flags a binding.
-
-NOT listed, and not killed: ``_milestone_context``'s ``if any(zero-duration) or
-True`` is *not* equivalent. It exposes a production defect, reported rather than
-fixed on this branch — see the #4146 follow-up.
+* ``_milestone_context`` ``if any(zero-duration) or True``: the replay is keyed
+  on the whole project since #4157, so the mutant only adds it to a project with
+  no milestone — where ``engine._finish_instant`` over no instants is
+  ``project_finish + 1``, the seed the original computes directly. Before #4157
+  the replay was keyed on the target's neighbors, and this mutant was the one
+  that exposed a terminal milestone's finish instant going unseen
+  (``test_milestone_instant``'s #4157 tests now pin that defect).
 """
 
 from __future__ import annotations
@@ -570,6 +573,6 @@ def test_milestone_context_early_refs_refuse_an_unscheduled_successor() -> None:
     project = _project([_task("A", 1)], [])
     result = schedule(project)
     task = result.tasks[0]
-    mctx = _milestone_context(project, result, task, [], [], Calendar(), Calendar())
+    mctx = _milestone_context(project, result, task, [], Calendar(), Calendar())
     with pytest.raises(AssertionError):
         mctx.early_refs(_half("S", early_finish=_D), DependencyType.FS)
