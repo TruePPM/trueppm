@@ -1491,8 +1491,8 @@ reset_doc() {
 rc="$(reset_doc)"
 [ "$(yq '.spec.concurrencyPolicy' <<<"$rc")" = "Forbid" ] \
   || fail "demo-reset concurrencyPolicy is not Forbid — the seed is destructive, so overlapping runs would delete each other's rows"
-[ "$(yq '.spec.schedule' <<<"$rc")" = "0 */6 * * *" ] \
-  || fail "demo-reset default schedule is not '0 */6 * * *' (every 6 hours)"
+[ "$(yq '.spec.schedule' <<<"$rc")" = "0 8 * * *" ] \
+  || fail "demo-reset default schedule is not '0 8 * * *' (once a day, #4151)"
 [ "$(yq '.spec.jobTemplate.spec.activeDeadlineSeconds > 0' <<<"$rc")" = "true" ] \
   || fail "demo-reset has no activeDeadlineSeconds — a hung seed would hold the Forbid slot forever and block every later run"
 [ "$(yq '.spec.startingDeadlineSeconds > 0' <<<"$rc")" = "true" ] \
@@ -1573,6 +1573,25 @@ for a in TruePPMDemoResetFailed TruePPMDemoResetStale TruePPMDemoResetNeverSucce
     fail "$a rendered while demo.reset.enabled is false — the reset alerts must follow the reset switch"
   fi
 done
+# The thresholds must track the reset cadence (#4151). N+7.b pins the default schedule
+# to once a day, so both thresholds must exceed one day (86400 s): at or under it,
+# TruePPMDemoResetStale fires between every pair of healthy runs and
+# TruePPMDemoResetNeverSucceeded fires before a fresh install's first run. The rules
+# must also render the values.yaml defaults, so retuning values.yaml moves the rules.
+demo_rule() { yq "select(.kind==\"PrometheusRule\") | .spec.groups[] | select(.name==\"trueppm.demo\") | .rules[] | select(.alert==\"$1\") | .$2" <<<"$rules_on"; }
+reset_period=86400
+stale_after="$(demo_rule TruePPMDemoResetStale expr | grep -oE '> *[0-9]+' | tr -dc '0-9')"
+stale_default="$(yq '.alerts.thresholds.demoReset.staleAfterSeconds' "$CHART/values.yaml")"
+[[ "$stale_after" == "$stale_default" ]] \
+  || fail "TruePPMDemoResetStale renders '${stale_after}s' but values.yaml sets staleAfterSeconds=${stale_default} — the rule must follow the value"
+[[ "$stale_after" =~ ^[0-9]+$ ]] && (( stale_after > reset_period )) \
+  || fail "TruePPMDemoResetStale threshold '${stale_after}s' does not exceed the daily reset period (${reset_period}s) — it would fire between healthy runs"
+never_for="$(demo_rule TruePPMDemoResetNeverSucceeded for)"
+never_default="$(yq '.alerts.thresholds.demoReset.neverSucceededFor' "$CHART/values.yaml")"
+[[ "$never_for" == "$never_default" ]] \
+  || fail "TruePPMDemoResetNeverSucceeded renders for '$never_for' but values.yaml sets neverSucceededFor=$never_default — the rule must follow the value"
+[[ "$never_for" =~ ^([0-9]+)h$ ]] && (( BASH_REMATCH[1] * 3600 > reset_period )) \
+  || fail "TruePPMDemoResetNeverSucceeded 'for' '$never_for' does not exceed the daily reset period — a fresh install would alert before its first run"
 
 # N+7.f. Interactive demo edge hardening (ADR-1197 D1/D6/D7, #3925 MR 2): the third
 #        nginx server block, the api/celery-worker egress-deny NetworkPolicy, the

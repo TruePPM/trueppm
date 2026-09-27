@@ -484,6 +484,9 @@ describe('LoginPage — read-only demo (ADR-1197 D3, #3926)', () => {
 
   beforeEach(() => {
     editionPayload = { edition: 'community', demo_read_only: true, demo_login_hint: HINT };
+    // This block sits outside the main describe, so its beforeEach does not run here.
+    mockNavigate.mockClear();
+    mockedAxios.post.mockReset();
   });
 
   it('renders nothing demo-related on a server that emits a hint but is not a demo', async () => {
@@ -493,9 +496,7 @@ describe('LoginPage — read-only demo (ADR-1197 D3, #3926)', () => {
     renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeVisible());
     expect(screen.queryByText(HINT.password)).toBeNull();
-    expect(
-      screen.queryByRole('button', { name: 'Fill in the demo email and password' }),
-    ).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Explore the demo' })).toBeNull();
   });
 
   it('renders nothing demo-related when there is no published credential', async () => {
@@ -505,9 +506,7 @@ describe('LoginPage — read-only demo (ADR-1197 D3, #3926)', () => {
     renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeVisible());
     expect(screen.queryByText('Read-only demo')).toBeNull();
-    expect(
-      screen.queryByRole('button', { name: 'Fill in the demo email and password' }),
-    ).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Explore the demo' })).toBeNull();
   });
 
   it('renders the panel note and the credential block with their exact copy', async () => {
@@ -520,46 +519,82 @@ describe('LoginPage — read-only demo (ADR-1197 D3, #3926)', () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Everything else — boards, backlogs, sprints and resource plans — is real sample data to browse, not to try changes on. You can look, but nothing outside the Schedule responds to what you do.",
+        'Everything else — boards, backlogs, sprints and resource plans — is real sample data to browse, not to try changes on. You can look, but nothing outside the Schedule responds to what you do.',
       ),
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        'Read-only demo — sign in with the shared account below. Nothing you change is saved.',
+        'Read-only demo — one click signs you in to the shared account below. Everyone uses the same account, and nothing you change is saved.',
       ),
     ).toBeInTheDocument();
     expect(screen.getByText(HINT.username)).toBeInTheDocument();
     expect(screen.getByText(HINT.password)).toBeInTheDocument();
   });
 
-  it('Fill puts the credential in the form, moves focus to Sign in, and does NOT submit', async () => {
-    const user = userEvent.setup();
+  it('Explore the demo discloses the shared account in its description', async () => {
     renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
-    const fill = await screen.findByRole('button', {
-      name: 'Fill in the demo email and password',
-    });
-    expect(fill).toHaveTextContent('Fill in demo login');
-
-    await user.click(fill);
-
-    expect(screen.getByLabelText('Email')).toHaveValue(HINT.username);
-    expect(screen.getByLabelText('Password')).toHaveValue(HINT.password);
-    expect(screen.getByRole('button', { name: 'Sign in' })).toHaveFocus();
-    // The token endpoint is a POST; filling a form must never issue one.
-    // eslint-disable-next-line @typescript-eslint/unbound-method -- mockedAxios.post is a vi.mocked mock, not a bound method
-    expect(mockedAxios.post).not.toHaveBeenCalled();
-    expect(mockNavigate).not.toHaveBeenCalled();
-    expect(
-      screen.getByText('Demo credentials filled in. Select Sign in to continue.'),
-    ).toBeInTheDocument();
+    const explore = await screen.findByRole('button', { name: 'Explore the demo' });
+    // The consent argument (ADR-1197 Amendment 2026-09-26): the click is the decision
+    // to proceed only because the disclosure travels with the button.
+    expect(explore).toHaveAccessibleDescription(
+      'Read-only demo — one click signs you in to the shared account below. Everyone uses the same account, and nothing you change is saved.',
+    );
+    // The form's own Sign in stays available, and is no longer the primary action.
+    expect(screen.getByRole('button', { name: 'Sign in' })).not.toHaveClass('bg-brand-primary');
+    expect(explore).toHaveClass('bg-brand-primary');
   });
 
-  it('the fill confirmation lives in a permanently-mounted polite region', async () => {
+  it('one click signs in with the published credential and lands on me.landing.path', async () => {
+    const user = userEvent.setup();
+    mockedAxios.post.mockResolvedValueOnce({ data: { access: 'demo-access' } });
+    meHandler = () =>
+      Promise.resolve({
+        data: makeCurrentUser({
+          username: HINT.username,
+          landing: {
+            intent: 'project_overview',
+            path: '/projects/p-1/schedule',
+            resolved_by: 'role_policy',
+          },
+        }),
+      });
     renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
-    await screen.findByRole('button', { name: 'Fill in the demo email and password' });
-    // Mounted and empty before the click — a region that appears WITH its text is
-    // announced inconsistently.
-    const regions = screen.getAllByRole('status');
-    expect(regions.some((r) => r.getAttribute('aria-live') === 'polite')).toBe(true);
+
+    await user.click(await screen.findByRole('button', { name: 'Explore the demo' }));
+
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- mockedAxios.post is a vi.mocked mock, not a bound method
+    expect(mockedAxios.post).toHaveBeenCalledWith('/api/v1/auth/token/', {
+      username: HINT.username,
+      password: HINT.password,
+      // Session-only: a shared account must not mint a 30-day cookie unasked.
+      remember_me: false,
+    });
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith('/projects/p-1/schedule', { replace: true }),
+    );
+    expect(useAuthStore.getState().accessToken).toBe('demo-access');
+  });
+
+  it('a refused demo sign-in shows the existing error and stays on the page', async () => {
+    const user = userEvent.setup();
+    mockedAxios.post.mockRejectedValueOnce(
+      Object.assign(new Error('Unauthorized'), {
+        isAxiosError: true,
+        response: { status: 401 },
+      }),
+    );
+    vi.spyOn(axios, 'isAxiosError').mockReturnValue(true);
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+
+    const explore = await screen.findByRole('button', { name: 'Explore the demo' });
+    await user.click(explore);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Invalid email or password. You can also sign in with your username.',
+    );
+    expect(mockNavigate).not.toHaveBeenCalled();
+    // Re-enabled, so the visitor can try again.
+    expect(explore).toBeEnabled();
+    expect(explore).toHaveTextContent('Explore the demo');
   });
 });

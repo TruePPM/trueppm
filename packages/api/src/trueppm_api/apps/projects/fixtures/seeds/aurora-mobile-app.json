@@ -320,6 +320,7 @@
     {
       "slug": "aurora",
       "name": "Aurora App",
+      "code": "AURORA",
       "methodology": "AGILE",
       "start_date": "A-63",
       "calendar": "aurora-core",

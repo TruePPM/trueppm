@@ -134,3 +134,32 @@ describe('ProgramMemberRow — program vocabulary', () => {
     expect(screen.getByText('Program Manager')).toBeInTheDocument();
   });
 });
+
+describe('ProgramMemberRow — closed program (#4014)', () => {
+  // The server refuses role changes and removing another member on a closed
+  // program, but still lets a member leave it themselves.
+  it('hides Remove and the role picker on another member when the program is closed', () => {
+    renderRow(makeMembership(), { isClosed: true });
+    expect(screen.queryByRole('button', { name: 'Remove alice' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
+
+  it('still offers Leave on your own row when the program is closed', () => {
+    renderRow(makeMembership(), { isClosed: true, isSelf: true });
+    expect(screen.getByRole('button', { name: 'Leave program' })).toBeInTheDocument();
+  });
+
+  it('keeps the sole-owner guard on a closed program', () => {
+    renderRow(makeMembership({ role: ROLE_OWNER }), {
+      isClosed: true,
+      isSelf: true,
+      isSoleOwner: true,
+    });
+    expect(screen.queryByRole('button', { name: 'Leave program' })).not.toBeInTheDocument();
+  });
+
+  it('offers Remove on another member while the program is open', () => {
+    renderRow(makeMembership());
+    expect(screen.getByRole('button', { name: 'Remove alice' })).toBeInTheDocument();
+  });
+});

@@ -35,6 +35,11 @@ export interface CreateProjectPayload {
   name: string;
   start_date: string;
   description?: string;
+  /**
+   * The project key (ADR-1237). Omitted (or blank) → the server derives one from
+   * the name (`PLAT`, `PLAT2`); the server uppercases what it is sent.
+   */
+  code?: string;
   /** Project planning methodology (ADR-0041). Server defaults to HYBRID when omitted. */
   methodology?: Methodology;
   // `agile_features` is intentionally not settable: it is derived server-side from

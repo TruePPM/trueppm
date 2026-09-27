@@ -11,9 +11,13 @@ The policy, in order:
    *when reachable*; an unreachable preference (e.g. ``project_overview`` after
    losing access to every project) falls through rather than producing a dead
    route.
-2. A user with no project/program membership lands on My Work (its onboarding
+2. The published interactive-demo visitor lands on the demo's teaching project's
+   Schedule (#4151, ADR-1197) — only while the deployment is actually a read-only
+   demo, only for the one published account, and only when that project still
+   exists and is readable; otherwise this step is skipped entirely.
+3. A user with no project/program membership lands on My Work (its onboarding
    empty state) — never pushed into project creation.
-3. Otherwise the role policy: PMO/Exec (portfolio-entitled, Enterprise) →
+4. Otherwise the role policy: PMO/Exec (portfolio-entitled, Enterprise) →
    Portfolio; PM-type (``max_project_role >= SCHEDULER``) → most-recent project
    Overview; contributor (MEMBER/VIEWER) → My Work.
 
@@ -55,7 +59,7 @@ class Landing:
 
     intent: str  # "my_work" | "project_overview" | "portfolio"
     path: str
-    resolved_by: str  # "preference" | "role_policy" | "fallback"
+    resolved_by: str  # "preference" | "role_policy" | "fallback" | "demo_landing"
 
 
 # --- Enterprise portfolio-access seam -------------------------------------
@@ -326,12 +330,81 @@ def _resolve_landing(user: Any, *, pref: Any = _UNSET, max_role: Any = _UNSET) -
     if preferred is not None:
         return preferred
 
-    # 2. No memberships at all → onboarding via My Work's empty state.
+    # 2. The published interactive-demo visitor lands on the demo's teaching
+    #    project's Schedule (#4151) — a preference above still wins over this.
+    demo_landing = _landing_for_demo_visitor(user)
+    if demo_landing is not None:
+        return demo_landing
+
+    # 3. No memberships at all → onboarding via My Work's empty state.
     if not _has_any_membership(user):
         return Landing("my_work", MY_WORK_PATH, "fallback")
 
-    # 3. AUTO role policy.
+    # 4. AUTO role policy.
     return _landing_from_role_policy(user, enterprise, max_role)
+
+
+def _is_demo_visitor(user: Any) -> bool:
+    """Whether ``user`` is the interactive demo's one published account (#4151).
+
+    Deliberately cheap when the answer is "no", which is every request on every
+    normal install: ``settings.DEMO_READ_ONLY`` is a plain attribute read, and
+    ``DEMO_LOGIN_HINT`` is parsed once at process start — neither costs a query, so
+    this check adds nothing to the ``/auth/me/`` hot path outside an actual demo
+    deployment.
+
+    Identifies the account by comparing ``user.username`` against
+    ``settings.DEMO_LOGIN_HINT["username"]`` — the same published credential
+    ``GET /api/v1/edition/`` serves to the login screen (ADR-1197 D3) — rather than
+    re-reading ``TRUEPPM_DEMO_LOGIN_USERNAME`` from the environment a second time.
+    That env var is the *seed job's* input (``load_sample_project``); the hint is
+    the runtime fact both the login page and this resolver need, and reading one
+    settings value keeps the two from silently drifting apart.
+    """
+    if not settings.DEMO_READ_ONLY:
+        return False
+    hint = getattr(settings, "DEMO_LOGIN_HINT", None)
+    if not hint:
+        return False
+    username = hint.get("username")
+    return bool(username) and getattr(user, "username", None) == username
+
+
+def _landing_for_demo_visitor(user: Any) -> Landing | None:
+    """Land the published demo account on its teaching project's Schedule, or
+    ``None`` to fall through to the normal policy (#4151, ADR-1197).
+
+    The demo seeds one Member account (ADR-1197 D5) and the role policy would
+    therefore send it to My Work like any other contributor — the same screen a
+    real team member without deadlines lands on, and empty of the demo-ready
+    schedule ``demo_landing_overlay`` spent an entire seed pass making healthy
+    (#4050). A first-time visitor who never sees a schedule has not seen the
+    product this demo exists to show.
+
+    Uses ``"project_overview"`` as the ``intent`` (a project-scoped landing,
+    exactly what that intent already means to the frontend) but resolves the
+    concrete Schedule path directly rather than ``_overview_path`` — the point of
+    this landing is the schedule view, not the dashboard — and tags
+    ``resolved_by="demo_landing"`` so it is distinguishable from an ordinary
+    role-policy resolution (and, deliberately, so ``LandingContextHint``'s
+    role_policy/fallback copy does not fire for it — the demo bar already explains
+    the mode).
+
+    Returns ``None`` — not a 500, not a stale link — whenever the landing project
+    is missing, archived, soft-deleted, or simply not readable by this user; the
+    caller falls through to the ordinary policy in that case.
+    """
+    if not _is_demo_visitor(user):
+        return None
+
+    from trueppm_api.apps.projects.seed.demo_landing_overlay import (
+        landing_project_for_demo_visitor,
+    )
+
+    project = landing_project_for_demo_visitor(user)
+    if project is None:
+        return None
+    return Landing("project_overview", f"/projects/{project.pk}/schedule", "demo_landing")
 
 
 def _landing_from_preference(user: Any, pref: Any, enterprise: bool) -> Landing | None:

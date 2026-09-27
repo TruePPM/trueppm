@@ -6,7 +6,12 @@ import { useDemoTipsStore } from '@/stores/demoTipsStore';
 import { DEMO_TIPS_KEY } from './demoTips';
 
 const demoMode = vi.hoisted(() => ({
-  value: { isDemoReadOnly: false, loginHint: null, isLoading: false },
+  value: {
+    isDemoReadOnly: false,
+    loginHint: null as { username: string; password: string } | null,
+    resetSchedule: null as string | null,
+    isLoading: false,
+  },
 }));
 vi.mock('@/hooks/useDemoMode', () => ({ useDemoMode: () => demoMode.value }));
 
@@ -22,12 +27,17 @@ vi.mock('./DemoForecastChip', () => ({
 }));
 
 function asDemo() {
-  demoMode.value = { isDemoReadOnly: true, loginHint: null, isLoading: false };
+  demoMode.value = { isDemoReadOnly: true, loginHint: null, resetSchedule: null, isLoading: false };
 }
 
 describe('DemoModeBar', () => {
   beforeEach(() => {
-    demoMode.value = { isDemoReadOnly: false, loginHint: null, isLoading: false };
+    demoMode.value = {
+      isDemoReadOnly: false,
+      loginHint: null,
+      resetSchedule: null,
+      isLoading: false,
+    };
     window.localStorage.clear();
     useDemoTipsStore.setState({ state: 'step1', target: null, authorRequest: 0 });
   });
@@ -39,7 +49,7 @@ describe('DemoModeBar', () => {
 
   it('renders nothing while the edition query is unsettled', () => {
     // No flash of a banner the next tick takes back.
-    demoMode.value = { isDemoReadOnly: true, loginHint: null, isLoading: true };
+    demoMode.value = { isDemoReadOnly: true, loginHint: null, resetSchedule: null, isLoading: true };
     const { container } = render(<DemoModeBar />);
     expect(container).toBeEmptyDOMElement();
   });
@@ -94,6 +104,48 @@ describe('DemoModeBar', () => {
   it('renders no edition disclosure on a normal install', () => {
     render(<DemoModeBar />);
     expect(screen.queryByRole('link', { name: "What's included" })).toBeNull();
+  });
+});
+
+describe('DemoModeBar — reset schedule (#4152)', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    useDemoTipsStore.setState({ state: 'step1', target: null, authorRequest: 0 });
+  });
+
+  it('shows nothing about the reset when the server sends no schedule', () => {
+    demoMode.value = {
+      isDemoReadOnly: true,
+      loginHint: null,
+      resetSchedule: null,
+      isLoading: false,
+    };
+    render(<DemoModeBar />);
+    expect(screen.queryByText(/resets/i)).toBeNull();
+  });
+
+  it('states a simple daily cadence', () => {
+    demoMode.value = {
+      isDemoReadOnly: true,
+      loginHint: null,
+      resetSchedule: '0 8 * * *',
+      isLoading: false,
+    };
+    render(<DemoModeBar />);
+    const bar = screen.getByRole('complementary', { name: 'Demo mode' });
+    expect(bar).toHaveTextContent('Sample data · resets daily at 08:00 UTC');
+  });
+
+  it('falls back to "resets periodically" for a non-daily cron', () => {
+    demoMode.value = {
+      isDemoReadOnly: true,
+      loginHint: null,
+      resetSchedule: '0 */6 * * *',
+      isLoading: false,
+    };
+    render(<DemoModeBar />);
+    const bar = screen.getByRole('complementary', { name: 'Demo mode' });
+    expect(bar).toHaveTextContent('Sample data · resets periodically');
   });
 });
 

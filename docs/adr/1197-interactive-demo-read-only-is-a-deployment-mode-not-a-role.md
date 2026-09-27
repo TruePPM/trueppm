@@ -6,7 +6,8 @@ Accepted — status corrected 2026-09-21 as the D1/D6/D7 slice (#3925 MR 2) land
 D3/D4 (#3926) and #3925 MR 1, matching the convention established by the #2539 audit
 (verified: D2's middleware merged as `trueppm_api.core.demo_read_only` in #3924, and
 `load_sample_project` now cites D5 by name). Proposed 2026-09-19; amended 2026-09-20 and
-2026-09-21 — see **Amendment 2026-09-20** and the dated notes on D9 below. Resolves #3912.
+2026-09-21 — see **Amendment 2026-09-20** and the dated notes on D9 below — and 2026-09-26
+(**Amendment 2026-09-26**, one-click sign-in, #4153). Resolves #3912.
 Amends ADR-0658 — which continues to govern the share-link demo **unchanged** — for one new
 mode only.
 
@@ -474,6 +475,57 @@ were not run in a browser.
    in with the hinted login and expects a 200, then attempts `POST /projects/` and expects
    403 `demo_read_only`. The chart refuses to render when `demo.loginHint` is set and
    read-only is off, because that publishes a working login to a writable instance.
+
+## Amendment 2026-09-26 — one-click "Explore the demo" (#4153)
+
+**Decision.** The login screen's demo control signs the visitor in with one click instead
+of filling the form and stopping. It is a narrow change to D3's *presentation*, not to any
+security decision, so this amendment is Accepted rather than a new ADR.
+
+**Why "fill and stop" existed.** #3926 (`174acfbe6`) gave one reason, in
+`fillDemoCredentials()`'s docstring: *"a visitor who lands on a login screen and finds
+themselves signed in by a button they pressed to look at something has lost the one
+moment where they decide to proceed."* That is a consent argument about a button
+**labeled as a fill action** ("Fill in demo login"). It was not a security argument: the
+credential is published on the same screen, and the throttle was not cited.
+
+**Why it no longer requires two clicks.** The consent argument binds the *label*, not the
+click count. A button that says what it does — **"Explore the demo"**, with adjacent copy
+naming the shared read-only account it signs in as and that nothing is saved — makes the
+click itself the decision to proceed. The visitor is not surprised into a session; they
+chose it in words. The credential stays printed beside the button (transparency, and for
+anyone who wants to use the form or an API client by hand), and the ordinary form stays
+usable.
+
+**The throttle (T2) is already solved and needs no change.** A one-click flow puts every
+visitor on one username, which is exactly T2. But D6 already re-aimed it: in this mode the
+chart renders `TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE` from `demo.throttle.loginAccountRate`
+(`"1000/min"`, #3998), and the per-IP `login` scope (10/min) is untouched and remains the
+per-visitor bound on sign-in. A one-click visitor issues **one** token request, the same
+request a form visitor issues, so the per-username bucket sees no more traffic per visitor
+than before — only more visitors, which is the load D6 was sized for. A dedicated demo
+sign-in endpoint (minting a session server-side when `DEMO_READ_ONLY` is armed) was
+considered and **rejected**: it would add a fourth POST to D2's allowlist and to D1's
+nginx fence — the allowlist this ADR calls "the whole guarantee" — plus a new auth path to
+threat-model, to buy nothing the existing token endpoint does not already do.
+
+**Invariants, unchanged.** Same endpoint (`POST /api/v1/auth/token/`), same credential,
+same Member account, same D2 fence and D1 method fence, same D6 throttles; no new route, no
+server change. The control renders only when `demo_read_only` **and** `demo_login_hint`
+are both present — the existing gate — so it cannot appear on a normal install, and the
+server already withholds the hint unless read-only is armed. After sign-in the redirect is
+the existing `me.landing.path` (ADR-0129); where the demo account lands is decided
+server-side (#4151), not here.
+
+**Bare origin.** The interactive block serves `/` to the SPA (no redirect), and an
+unauthenticated `/` reaches the login screen, so that screen *is* the bare-origin
+experience. In demo mode "Explore the demo" is therefore the screen's primary action —
+placed first in the form with the primary button style — and the password form's Sign in
+drops to the secondary style, so there is one primary action on the page.
+
+**Stale comment corrected on the way.** `values-demo.yaml` still said `login_account`
+throttles the shared username at 5/min and that the method fence was "MR 2"; both were
+overtaken by #3925 MR 2 and #3998 and are corrected in the same change.
 
 ## Alternatives Considered
 

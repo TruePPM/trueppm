@@ -151,6 +151,11 @@ export interface ApiMockOptions {
   demoReadOnly?: boolean;
   /** Published demo credential on `/edition/`. Defaults to `null` (no credential). */
   demoLoginHint?: { username: string; password: string } | null;
+  /**
+   * Reset cadence cron expression on `/edition/` (#4152). Defaults to `null` — the
+   * demo bar's secondary reset line renders nothing when a spec does not opt in.
+   */
+  demoResetSchedule?: string | null;
 }
 
 // -----------------------------------------------------------------------------
@@ -316,6 +321,42 @@ export async function setupCatchAll(page: Page): Promise<void> {
   // a project, which is both noise and a false failure signal. Specs that need
   // seeded pins call `setupPinned` AFTER this so their route wins.
   await page.route('**/api/v1/auth/me/pinned/', (route) => route.fulfill(jsonResponse([], 200)));
+  await setupIdentityResolver(page);
+}
+
+/**
+ * Default `GET /resolve/` (ADR-1237 §5): echo the ref back as the object's id.
+ *
+ * The app now treats a non-UUID route segment as a KEY and resolves it before
+ * rendering, and most fixtures use readable non-UUID ids (`proj-1`,
+ * `e2e-project-…`) that were never meant as keys. Echoing the ref makes each such
+ * id resolve to itself — a keyless object addressed by its id — so those specs
+ * keep exercising the page they were written for instead of the not-found state.
+ *
+ * It does NOT stand in for key behavior: a fixture whose project/program carries a
+ * `code` still has its URL rewritten to that key by the app (from the cached
+ * detail, no request), and `e2e/project-keys.spec.ts` registers real resolver
+ * answers — including the 404 — AFTER this, so they win.
+ */
+export async function setupIdentityResolver(page: Page): Promise<void> {
+  await page.route(/\/api\/v1\/resolve\/(\?|$)/, (route) => {
+    const url = new URL(route.request().url());
+    const kind = url.searchParams.get('kind') === 'program' ? 'program' : 'project';
+    const ref = url.searchParams.get('ref') ?? '';
+    return route.fulfill(
+      jsonResponse(
+        {
+          type: kind,
+          id: ref,
+          project_id: kind === 'project' ? ref : null,
+          program_id: kind === 'program' ? ref : null,
+          key: null,
+          canonical_ref: ref,
+        },
+        200,
+      ),
+    );
+  });
 }
 
 /** One entry of `GET /auth/me/pinned/` — the merged project+program wire shape. */
@@ -394,6 +435,7 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
         edition: opts.edition ?? 'community',
         demo_read_only: opts.demoReadOnly ?? false,
         demo_login_hint: opts.demoLoginHint ?? null,
+        demo_reset_schedule: opts.demoResetSchedule ?? null,
       }),
     ),
   );

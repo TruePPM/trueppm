@@ -17,7 +17,7 @@ export type { DateFormatStyle } from '@/lib/dateFormatStyle';
  */
 export type DefaultLanding = 'auto' | 'my_work' | 'project_overview' | 'portfolio';
 export type LandingIntent = 'my_work' | 'project_overview' | 'portfolio';
-export type LandingResolvedBy = 'preference' | 'role_policy' | 'fallback';
+export type LandingResolvedBy = 'preference' | 'role_policy' | 'fallback' | 'demo_landing';
 /**
  * Active role-context "lens" (issue 412, ADR-0162). A presentation-only preference:
  * it picks a dual-hat user's default project view and the view-tab emphasis. It

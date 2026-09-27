@@ -6,6 +6,11 @@ export interface CreateProgramInput {
   name: string;
   description?: string;
   methodology?: ProgramMethodology;
+  /**
+   * The program key (ADR-1237). Omitted (or blank) → the server derives one from
+   * the name; the server lowercases what it is sent.
+   */
+  code?: string;
 }
 
 /**
@@ -23,6 +28,7 @@ export function useCreateProgram(): UseMutationResult<Program, Error, CreateProg
         name: input.name,
         description: input.description ?? '',
         methodology: input.methodology ?? 'HYBRID',
+        ...(input.code ? { code: input.code } : {}),
       });
       return res.data;
     },

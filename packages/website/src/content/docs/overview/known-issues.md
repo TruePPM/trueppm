@@ -115,8 +115,12 @@ relationship for a human to read; it does not reach the engine.
   `engine.py` still has no `RiskDriver` concept). **The implementation has no open
   tracking issue as of this writing**; filing one is follow-up from #3628.
 - **Cost impact is a separate axis and lands later.** ADR-0711 treats schedule and
-  cost as the two axes a simulation can answer. Only schedule is in scope for 0.5:
-  TruePPM has no cost data model yet, and resource costs are a 1.0 item
+  cost as the two axes a simulation can answer. TruePPM has no cost data model yet.
+  0.5 plans a labor cost model
+  ([#754](https://gitlab.com/trueppm/trueppm/-/issues/754)) whose Monte Carlo will
+  report a P80 cost beside the P80 date. That cost comes from duration uncertainty
+  priced at resource rates, not from risk-register impacts, which stay
+  schedule-only. Non-labor direct costs follow later
   ([#2557](https://gitlab.com/trueppm/trueppm/-/issues/2557)). Risk impact on scope,
   quality, safety, and compliance is recorded but deliberately never simulated or
   folded into a combined score.

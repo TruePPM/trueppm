@@ -118,7 +118,7 @@ exists in TruePPM at all.
 | Documents and file space | Yes | **No** — attachments hang off tasks only |
 | Meetings with agendas and minutes | Yes | **No** |
 | Forums and news | Yes | **No** |
-| Budgets and cost reporting | Yes | **No** — no cost model at all (EV-lite planned 0.8) |
+| Budgets and cost reporting | Yes | **No** — no cost model yet (budget and labor cost planned 0.5, EV-lite 0.8) |
 | Project hierarchy | Arbitrary trees with inheritance | Two levels — program → project |
 | Languages | 30+ | **English only** — no i18n framework wired in |
 | Time in market | Shipping since 2012 | First commit March 2026 |
@@ -157,7 +157,7 @@ TruePPM's own [What TruePPM doesn't do yet](/overview/what-it-does-not-do/) list
 | Capability | LibrePlan | TruePPM |
 |---|---|---|
 | Automatic resource reallocation to reduce overload | Yes, in the core [^libreplan] | **No** — a single-program leveling engine is sequenced for 0.6 |
-| Earned value management | Yes, in the core [^libreplan] | **No** — no cost model at all (EV-lite planned 0.8) |
+| Earned value management | Yes, in the core [^libreplan] | **No** — no cost model yet (budget and labor cost planned 0.5, EV-lite 0.8) |
 | Time in market | Scheduling sources carry 2009–2010 copyright headers [^libreplan] | First commit March 2026 |
 
 Those are not small. Resource leveling and earned value are the two items most often
@@ -199,7 +199,7 @@ This is where the honest losses are.
 | Monte Carlo risk | **In the core** | Separate product (Primavera Risk Analysis) | Separate product (third-party) |
 | **Resource leveling** | **No** (a single-program engine is sequenced for 0.6) | Yes | Yes |
 | **Constraint types** | **1** (start-no-earlier-than; a deadline with negative float is planned for 0.5) | Full set | 8 + deadlines |
-| **Cost / earned value** | **No** (EV-lite planned 0.8) | Yes | Yes |
+| **Cost / earned value** | **No** (cost model planned 0.5, EV-lite 0.8) | Yes | Yes |
 | **Tested task ceiling** | **~2,000 in the Schedule view** (~1,000 on 0.4.0-beta.1; 16,000 takes ~40 s to open, and 100,000 is out of reach — see [where each part runs out](/administration/sizing/#toward-100000-tasks)) | Very large (100k+ activities in practice) | Large |
 | Sub-day scheduling | No (planned 0.6) | Yes | Yes |
 | Agile board / sprints | Yes, on the same objects | No | No |

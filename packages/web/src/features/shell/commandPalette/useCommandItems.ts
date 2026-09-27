@@ -30,6 +30,7 @@ import { buildWorkspaceNavGroups } from '@/features/settings/workspace/workspace
 import { ME_SETTINGS_LINKS } from '@/features/me/MeSettingsSubNav';
 import { useFeedbackStore } from '@/stores/feedbackStore';
 import { useWorkspaceSettings } from '@/features/settings/hooks/useWorkspaceSettings';
+import { programPath, projectPath } from '@/lib/refPath';
 
 const THEME_CYCLE: Record<Theme, Theme> = { light: 'dark', dark: 'auto', auto: 'light' };
 
@@ -306,7 +307,7 @@ function buildJumps(
         name: program.name,
         pinned: program.is_pinned,
       },
-      run: go(`/programs/${program.id}/overview`),
+      run: go(programPath(program, 'overview')),
     });
   }
   for (const project of projects ?? []) {
@@ -322,7 +323,7 @@ function buildJumps(
         pinned: project.isPinned ?? false,
       },
       // Overview is the one view present for every methodology — a safe default.
-      run: go(`/projects/${project.id}/overview`),
+      run: go(projectPath(project, 'overview')),
     });
   }
   // Cold-visible top-level landings (#2298). Workspace settings + Trash are
@@ -446,7 +447,7 @@ function buildBacklogAndBoard(
         group: 'backlog',
         tag: 'Backlog',
         keywords: 'product backlog',
-        run: go(`/projects/${project.id}/product-backlog`),
+        run: go(projectPath(project, 'product-backlog')),
       });
     }
     board.push({
@@ -455,7 +456,7 @@ function buildBacklogAndBoard(
       group: 'board',
       tag: 'Board',
       keywords: 'kanban sprint board',
-      run: go(`/projects/${project.id}/board`),
+      run: go(projectPath(project, 'board')),
     });
   }
   return { backlog, board };

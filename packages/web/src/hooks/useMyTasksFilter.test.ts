@@ -30,6 +30,7 @@ describe('useMyTasksFilter', () => {
     useDemoModeMock.mockReturnValue({
       isDemoReadOnly: false,
       loginHint: null,
+      resetSchedule: null,
       isLoading: false,
     });
   });
@@ -183,7 +184,12 @@ describe('useMyTasksFilter', () => {
       isLoading: false,
     });
     useCurrentUserRoleMock.mockReturnValue({ role: 100, isLoading: false });
-    useDemoModeMock.mockReturnValue({ isDemoReadOnly: false, loginHint: null, isLoading: true });
+    useDemoModeMock.mockReturnValue({
+      isDemoReadOnly: false,
+      loginHint: null,
+      resetSchedule: null,
+      isLoading: true,
+    });
     const { result } = renderHook(() => useMyTasksFilter('p1'));
     expect(result.current.isLoading).toBe(true);
   });
@@ -212,7 +218,12 @@ describe('useMyTasksFilter', () => {
         isLoading: false,
       });
       useCurrentUserRoleMock.mockReturnValue({ role: 100, isLoading: false });
-      useDemoModeMock.mockReturnValue({ isDemoReadOnly: true, loginHint: null, isLoading: false });
+      useDemoModeMock.mockReturnValue({
+        isDemoReadOnly: true,
+        loginHint: null,
+        resetSchedule: null,
+        isLoading: false,
+      });
       const { result } = renderHook(() => useMyTasksFilter('p1'));
       await waitFor(() => expect(result.current.isLoading).toBe(false));
       // MEMBER role would normally default on — the demo carve-out suppresses it.
@@ -242,7 +253,12 @@ describe('useMyTasksFilter', () => {
         isLoading: false,
       });
       useCurrentUserRoleMock.mockReturnValue({ role: 200, isLoading: false });
-      useDemoModeMock.mockReturnValue({ isDemoReadOnly: true, loginHint: null, isLoading: false });
+      useDemoModeMock.mockReturnValue({
+        isDemoReadOnly: true,
+        loginHint: null,
+        resetSchedule: null,
+        isLoading: false,
+      });
       const { result } = renderHook(() => useMyTasksFilter('p1'));
       await waitFor(() => expect(result.current.isLoading).toBe(false));
       expect(result.current.enabled).toBe(false);
@@ -272,7 +288,12 @@ describe('useMyTasksFilter', () => {
         isLoading: false,
       });
       useCurrentUserRoleMock.mockReturnValue({ role: 100, isLoading: false });
-      useDemoModeMock.mockReturnValue({ isDemoReadOnly: true, loginHint: null, isLoading: false });
+      useDemoModeMock.mockReturnValue({
+        isDemoReadOnly: true,
+        loginHint: null,
+        resetSchedule: null,
+        isLoading: false,
+      });
       const { result } = renderHook(() => useMyTasksFilter('p1'));
       await waitFor(() => expect(result.current.isLoading).toBe(false));
       // Stored '1' beats the demo-off default.

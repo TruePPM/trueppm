@@ -68,6 +68,9 @@ _TOP_TAG: dict[str, str] = {
     "import-templates": "import-export",
     "readyz": "meta",
     "integrations": "integrations",
+    # ADR-1237: project/program key lookups, folded under `projects` rather than
+    # minting a top-level tag for two small read-only endpoints.
+    "keys": "projects",
     "me": "me",
     "paste-many-operations": "projects",
     "poker": "sprints",
@@ -77,6 +80,7 @@ _TOP_TAG: dict[str, str] = {
     "projects": "projects",
     "recurrence-rules": "tasks",
     "resource-skills": "resources",
+    "resolve": "projects",
     "resources": "resources",
     "retro-items": "sprints",
     "scope-changes": "sprints",
