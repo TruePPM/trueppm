@@ -55626,6 +55626,11 @@
                         "readOnly": true,
                         "nullable": true,
                         "description": "Critical-path membership. Read-only engine output. Null when the task is outside the schedulable set (BACKLOG status, EPIC type, a recurring template or occurrence, or soft-deleted) or has not been scheduled yet."
+                    },
+                    "milestone_at_day_end": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "True when a milestone sits at the END of its early_start day (it follows work); False for every other task and for a floor-held milestone."
                     }
                 },
                 "required": [
@@ -55635,6 +55640,7 @@
                     "id",
                     "is_critical",
                     "is_milestone",
+                    "milestone_at_day_end",
                     "project_id",
                     "project_name",
                     "title"
@@ -65187,7 +65193,7 @@
                     "milestone_at_day_end": {
                         "type": "boolean",
                         "readOnly": true,
-                        "description": "Full branch only (#4079): True when a milestone sits at the END of its early_start day (it follows work). Absent on a redacted row, which is drawn at the start of its day."
+                        "description": "#4079: True when a milestone sits at the END of its early_start day (it follows work). Present on full and redacted rows alike — it only says which edge of an already-disclosed day the milestone is on."
                     }
                 },
                 "required": [

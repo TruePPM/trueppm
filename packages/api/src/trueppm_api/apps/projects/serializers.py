@@ -3179,9 +3179,9 @@ class ProgramScheduleTaskSerializer(serializers.Serializer[dict[str, Any]]):
         read_only=True,
         required=False,
         help_text=(
-            "Full branch only (#4079): True when a milestone sits at the END of its "
-            "early_start day (it follows work). Absent on a redacted row, which is "
-            "drawn at the start of its day."
+            "#4079: True when a milestone sits at the END of its early_start day "
+            "(it follows work). Present on full and redacted rows alike — it only "
+            "says which edge of an already-disclosed day the milestone is on."
         ),
     )
 
@@ -7430,6 +7430,15 @@ class ExternalTaskCardSerializer(serializers.Serializer[Any]):
         read_only=True,
         allow_null=True,
         help_text=CPM_OUTPUT_HELP.format(what="Critical-path membership"),
+    )
+    # #4079: which edge of its early_start day a milestone sits on. Carried on the
+    # card because it discloses nothing beyond the date the card already shows.
+    milestone_at_day_end = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when a milestone sits at the END of its early_start day (it follows "
+            "work); False for every other task and for a floor-held milestone."
+        ),
     )
 
 

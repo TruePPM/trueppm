@@ -169,3 +169,45 @@ def test_export_writes_an_end_of_day_milestone_at_the_calendar_finish_time(
     # The same instant the <Calendars> block declares as the end of the day.
     to_times = {el.text for el in root.iter(f"{{{_NS}}}ToTime")}
     assert to_times == {"16:00:00"}
+
+
+def _exported_dates(
+    project: Project,
+) -> tuple[dict[str | None, tuple[str | None, str | None]], ET.Element]:
+    from trueppm_api.apps.msproject.exporter import export_project_xml
+
+    root = ET.fromstring(export_project_xml(str(project.pk)))
+    ns = {"m": _NS}
+    dates = {
+        el.findtext("m:Name", namespaces=ns): (
+            el.findtext("m:Start", namespaces=ns),
+            el.findtext("m:Finish", namespaces=ns),
+        )
+        for el in root.findall("m:Tasks/m:Task", ns)
+    }
+    return dates, root
+
+
+@pytest.mark.django_db
+def test_export_without_a_calendar_uses_ms_project_standard_day_end(project: Project) -> None:
+    """#4079: no applied calendar -> no ``<Calendars>`` block -> MS Project schedules
+    the file on its own Standard calendar, whose day ends at 17:00 — not the 16:00
+    an 08:00 start plus the engine's 8-hour default would give."""
+    _recalculated(project)
+    Project.objects.filter(pk=project.pk).update(calendar=None)
+    dates, root = _exported_dates(project)
+    assert root.find(f"{{{_NS}}}Calendars") is None
+    assert dates["Design gate"] == ("2026-01-09T17:00:00", "2026-01-09T17:00:00")
+    assert dates["Kickoff"] == ("2026-01-05T00:00:00", "2026-01-05T00:00:00")
+
+
+@pytest.mark.django_db
+def test_export_clamps_a_midnight_day_end_to_the_last_minute(project: Project) -> None:
+    """#4079: a 16-hour day runs 08:00-24:00. ``T24:00:00`` is not a time of day
+    MS Project accepts, so the end-of-day milestone is written at 23:59."""
+    _recalculated(project)
+    assert project.calendar is not None
+    Calendar.objects.filter(pk=project.calendar.pk).update(hours_per_day=16)
+    dates, _root = _exported_dates(project)
+    assert dates["Design gate"] == ("2026-01-09T23:59:00", "2026-01-09T23:59:00")
+    assert dates["Release"] == ("2026-01-14T23:59:00", "2026-01-14T23:59:00")

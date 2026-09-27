@@ -197,6 +197,39 @@ describe('transformProgramSchedule', () => {
     expect(ext?.duration).toBe(10);
   });
 
+  it('draws a redacted work-driven milestone at the end of its day (#4079)', () => {
+    const card = {
+      title: 'Locked gate',
+      hex_id: 'B-7',
+      project_id: 'proj-b',
+      project_name: 'Helios Mobile',
+      is_milestone: true,
+      is_external: true as const,
+      early_start: '2026-04-10',
+      early_finish: '2026-04-10',
+      is_critical: false,
+    };
+    const schedule = makeSchedule({
+      projects: [
+        { id: 'proj-a', name: 'Helios Platform', accessible: true, duration: 20 },
+        { id: 'proj-b', name: 'Helios Mobile', accessible: false, duration: 8 },
+      ],
+      tasks: [
+        { ...card, id: 'm-end', milestone_at_day_end: true },
+        { ...card, id: 'm-start', milestone_at_day_end: false },
+        { ...card, id: 't-work', is_milestone: false, milestone_at_day_end: true },
+      ],
+      links: [],
+      critical_path: [],
+    });
+    const { tasks } = transformProgramSchedule(schedule);
+    const byId = new Map(tasks.map((t) => [t.id, t]));
+    expect(byId.get('m-end')?.milestoneAtDayEnd).toBe(true);
+    expect(byId.get('m-start')?.milestoneAtDayEnd).toBe(false);
+    // The flag is only meaningful on a milestone.
+    expect(byId.get('t-work')?.milestoneAtDayEnd).toBe(false);
+  });
+
   it('keeps a lane row even when the project has no tasks', () => {
     const schedule = makeSchedule({ tasks: [], links: [], critical_path: [] });
     const { tasks } = transformProgramSchedule(schedule);

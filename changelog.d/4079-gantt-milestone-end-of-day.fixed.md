@@ -8,7 +8,12 @@
   start, a start-no-earlier-than date, the data date, or a recorded start). The
   API stores it as the read-only task field `milestone_at_day_end`. The Schedule
   view uses it to draw the diamond, dependency arrows, hit targets, and the
-  drag preview, and so do the program timeline, the public schedule share
-  page, and the PDF export. MS Project export writes an end-of-day milestone at
-  the calendar's finish time instead of midnight. Existing milestones pick the
+  drag preview, and so do the program timeline (including milestones in
+  projects you cannot open), the public schedule share page, and the PDF
+  export, whose content fingerprint now changes with it. Dragging such a
+  milestone and releasing it where it was is not a move; dragging or
+  keyboard-nudging it proposes the date the diamond was moved to. MS Project
+  export writes an end-of-day milestone at the calendar's finish time instead
+  of midnight: 17:00 when the project has no calendar (MS Project's Standard
+  calendar), and 23:59 when the working day runs to midnight. Existing milestones pick the
   value up the next time their project recalculates.

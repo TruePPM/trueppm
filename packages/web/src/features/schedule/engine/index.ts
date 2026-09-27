@@ -31,6 +31,7 @@ export {
   dateToLeft,
   dateToRight,
   milestoneX,
+  dragDropStartIso,
   leftToDate,
   parseUTCDate,
 } from './GanttScaleData';

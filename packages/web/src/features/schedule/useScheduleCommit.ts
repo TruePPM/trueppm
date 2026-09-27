@@ -7,7 +7,7 @@ import { isDemoReadOnlyRefusal } from '@/lib/demoReadOnly';
 import { isDemoReadOnlySync } from '@/hooks/useDemoMode';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import type { GanttEngine } from './engine';
-import { dateToLeft, leftToDate } from './engine';
+import { dateToLeft, dragDropStartIso, leftToDate } from './engine';
 import { CHART_HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
 import type { Task, ApiSprint } from '@/types';
 import type { CommitAction } from './ScheduleCommitPopover';
@@ -77,7 +77,7 @@ export interface BeforeStartPromptState {
   /** The effective floor (first working day, ISO) — the snap target (#884). */
   effectiveFloorDate: string;
   /** Original bar position so Cancel can revert the engine preview. */
-  revert: { start: string; finish: string; duration: number };
+  revert: { start: string; finish: string; duration: number; milestoneAtDayEnd?: boolean };
   /** Inline error from a failed snap/move mutation, or null. */
   error: string | null;
 }
@@ -309,13 +309,19 @@ export function useScheduleCommit({
       if (!scales) return;
       const task = allTasksRef.current.find((t) => t.id === id);
       if (!task) return;
-      const newStartIso = leftToDate(left, scales).toISOString().slice(0, 10);
+      // `dragDropStartIso`, not a bare `leftToDate`: an end-of-day milestone's
+      // anchor is the start of the NEXT day, so released in place it would read
+      // as a one-day move (#4079).
+      const newStartIso = dragDropStartIso(left, task, scales);
       if (newStartIso === task.start) return; // No net move — skip popover.
       const proposed = computeRescheduleResize(newStartIso, task.duration);
-      // Move the bar visually so the user sees where the change will land.
+      // Move the bar visually so the user sees where the change will land. A
+      // dropped milestone becomes floor-held by its new SNET — the start of the
+      // day, where the pointer let go — as the confirmed write will draw it (#4079).
       engine.updateTask(id, {
         start: proposed.newStart,
         finish: proposed.newFinish,
+        ...(task.isMilestone ? { milestoneAtDayEnd: false } : {}),
       });
       const newBarRight = dateToLeft(proposed.newFinish, scales);
       const anchor = computeAnchor(id, left, newBarRight);
@@ -438,6 +444,7 @@ export function useScheduleCommit({
         start: s.originalStart,
         finish: s.originalFinish,
         duration: s.originalDuration,
+        milestoneAtDayEnd: s.task.milestoneAtDayEnd,
       });
     },
     [engine],
@@ -510,7 +517,12 @@ export function useScheduleCommit({
           duration: task.duration,
           projectStartDate: projectStartDate ?? floor,
           effectiveFloorDate: floor,
-          revert: { start: task.start, finish: task.finish, duration: task.duration },
+          revert: {
+            start: task.start,
+            finish: task.finish,
+            duration: task.duration,
+            milestoneAtDayEnd: task.milestoneAtDayEnd,
+          },
           error: null,
         });
         if (ariaAssertiveRef.current) {
@@ -585,6 +597,7 @@ export function useScheduleCommit({
           start: state.originalStart,
           finish: state.originalFinish,
           duration: state.originalDuration,
+          milestoneAtDayEnd: state.task.milestoneAtDayEnd,
         },
         error: null,
       });
@@ -706,7 +719,14 @@ export function useScheduleCommit({
     const snappedStart = p.effectiveFloorDate;
     const snappedFinish = computeNewFinishIso(snappedStart, p.duration);
     // Move the preview bar from the attempted (before-start) position to the floor.
-    if (engine) engine.updateTask(p.taskId, { start: snappedStart, finish: snappedFinish });
+    // An SNET holds a milestone at the start of its day (#4079).
+    if (engine) {
+      engine.updateTask(p.taskId, {
+        start: snappedStart,
+        finish: snappedFinish,
+        ...(p.revert.milestoneAtDayEnd ? { milestoneAtDayEnd: false } : {}),
+      });
+    }
     setBeforeStartPrompt((prev) => (prev ? { ...prev, error: null } : prev));
     rescheduleTask.mutate(
       {

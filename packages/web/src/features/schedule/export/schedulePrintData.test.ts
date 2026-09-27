@@ -608,6 +608,24 @@ describe('scheduleContentSha', () => {
     expect(hard).not.toBe(soft);
   });
 
+  it('shifts when a milestone moves to the other edge of its day (#4079)', () => {
+    // Same dates, different diamond position: the printed sheet differs, so the
+    // stamp must too.
+    const gate = (atEnd: boolean) =>
+      build({
+        tasks: [
+          task('m', {
+            wbs: '1',
+            start: '2026-04-10',
+            finish: '2026-04-10',
+            isMilestone: true,
+            milestoneAtDayEnd: atEnd,
+          }),
+        ],
+      }).footer.contentSha;
+    expect(gate(true)).not.toBe(gate(false));
+  });
+
   it('exposes the same hex via the standalone helper as via the built footer', () => {
     const data = build(cfg());
     expect(scheduleContentSha(data.rows, data.links, data.kpis)).toBe(data.footer.contentSha);

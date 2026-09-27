@@ -506,6 +506,17 @@ function applyDrag(
   statusDate: string | null | undefined,
 ): void {
   if (!dragged || dragged.isPinned) return;
+  // An end-of-day milestone "dropped" on its own day has not moved: the drag
+  // reading (`dragDropStartIso`) reports an in-place release as `start`, and
+  // re-placing it at the start of that day would preview a jump the commit
+  // never makes (#4079).
+  if (
+    dragged.instantMs !== null &&
+    !dragged.startDisplay &&
+    toMs(newStartIso) === dragged.earlyStartMs
+  ) {
+    return;
+  }
 
   // Snap the drop target to a working day (mirrors the server's SNET handling
   // of planned_start), then raise it to the ES floors: the data date, and —

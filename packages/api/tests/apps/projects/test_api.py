@@ -11,6 +11,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Dependency, Program, Project, Task
+from trueppm_api.apps.projects.serializers import ExternalTaskCardSerializer
 
 
 @pytest.fixture
@@ -1015,6 +1016,11 @@ class TestCrossProjectDependency:
         assert "description" not in card and "assignee" not in card
         assert card["title"] == "Sign-off"
         assert card["project_name"] == "Security"
+        # #4079: the card says which edge of its (disclosed) day a milestone is on.
+        assert card["milestone_at_day_end"] is False
+        pred.milestone_at_day_end = True
+        pred.save(update_fields=["milestone_at_day_end"])
+        assert ExternalTaskCardSerializer(pred).data["milestone_at_day_end"] is True
 
     def test_same_project_edge_has_no_card(
         self,

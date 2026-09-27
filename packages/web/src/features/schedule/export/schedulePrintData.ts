@@ -596,7 +596,8 @@ function fnv1aHex(input: string): string {
  * Content fingerprint for the export's integrity stamp (issue 1437).
  *
  * NOT a cryptographic digest — a deterministic fingerprint of the rendered
- * schedule state (row dates/progress/critical flags, link topology + hardness,
+ * schedule state (row dates/progress/critical flags, which edge of its day a
+ * milestone is drawn on (#4079), link topology + hardness,
  * the KPI cells) so two PDFs printed from the same schedule carry the *same*
  * stamp, and any schedule change shifts it. It lets a reader confirm a printed
  * artifact matches a live schedule at a glance; it is not a tamper-proof seal.
@@ -611,7 +612,7 @@ export function scheduleContentSha(
     .map(
       (r) =>
         `${r.id}|${r.wbsCode}|${r.start ?? ''}|${r.finish ?? ''}|${r.pctComplete}|` +
-        `${r.isCritical ? 1 : 0}|${r.isMilestone ? 1 : 0}`,
+        `${r.isCritical ? 1 : 0}|${r.isMilestone ? 1 : 0}|${r.milestoneAtDayEnd ? 1 : 0}`,
     )
     .join(';');
   const linkPart = links.map((l) => `${l.id}>${l.fromId}>${l.toId}>${l.hard ? 1 : 0}`).join(';');

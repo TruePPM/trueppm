@@ -887,6 +887,21 @@ describe('runCpmForwardPass — zero-duration milestones are instants (#4079)', 
     expect(followed.results.find((r) => r.taskId === 'A')!.milestoneAtDayEnd).toBe(false);
   });
 
+  it('leaves an end-of-day milestone in place when it is dragged onto its own day', () => {
+    // `dragDropStartIso` reports an end-of-day milestone released in place as
+    // its own start. The preview must not re-place it at the START of that day
+    // (a backward jump the commit never makes), and its successor stays put.
+    const tasks: CpmTask[] = [
+      { ...milestone('M', '2026-01-09'), milestoneAtDayEnd: true },
+      task('B', '2026-01-12', '2026-01-12'),
+    ];
+    const { results } = runCpmForwardPass(tasks, [edge('M', 'B')], 'M', '2026-01-09');
+    const m = results.find((r) => r.taskId === 'M')!;
+    expect(m.earlyStart).toBe('2026-01-09');
+    expect(m.milestoneAtDayEnd).toBe(true);
+    expect(results.find((r) => r.taskId === 'B')!.earlyStart).toBe('2026-01-12');
+  });
+
   it("reads a milestone's instant from the server flag, not from its subgraph links", () => {
     // M follows work OUTSIDE the subgraph (end of Fri 01-09, per the server), so
     // its successor B may not start before Mon 01-12. Without the flag the

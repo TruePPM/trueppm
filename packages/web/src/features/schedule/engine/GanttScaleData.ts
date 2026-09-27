@@ -463,6 +463,33 @@ export function milestoneX(
 }
 
 /**
+ * The start date a move-drag proposes when it drops a bar's anchor at canvas
+ * `left` (a snapped day boundary) — the one reading the drop preview and the
+ * commit share (#4079).
+ *
+ * For every bar it is the day that begins at `left`, and a dropped milestone
+ * becomes floor-held, drawn at the start of that day — so the diamond lands
+ * exactly where it was let go. The one exception is an end-of-day milestone
+ * dropped where it already is: its anchor ({@link milestoneX}) is the end of
+ * its day D, which is the start of D+1, so the plain reading would propose an
+ * SNET of D+1 for a gesture that did not move (a Friday milestone released in
+ * place became Saturday, then Monday). That drop returns `task.start`, which
+ * every caller treats as no net move. A drop one day to the left also reads
+ * as D: an SNET of D is a floor below an instant already at the end of D, so
+ * it would not move the milestone either.
+ */
+export function dragDropStartIso(
+  left: number,
+  task: { start: string; isMilestone?: boolean; milestoneAtDayEnd?: boolean },
+  scales: GanttScaleData,
+): string {
+  const dropIso = leftToDate(left, scales).toISOString().slice(0, 10);
+  if (!task.isMilestone || !task.milestoneAtDayEnd || !task.start) return dropIso;
+  const dayAfterMs = new Date(task.start + 'T00:00:00Z').getTime() + MS_PER_DAY;
+  return dropIso === new Date(dayAfterMs).toISOString().slice(0, 10) ? task.start : dropIso;
+}
+
+/**
  * Convert a canvas x-coordinate to a UTC Date.
  *
  * Inverse of dateToLeft. `canvasX` is from the canvas origin — do NOT

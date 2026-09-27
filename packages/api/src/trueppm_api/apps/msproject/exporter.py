@@ -121,12 +121,7 @@ def export_project_xml(project_id: str) -> bytes:
     _add_summary_task(tasks_el, project)
 
     pert_task_pks = {str(t.pk) for t in pert_tasks}
-    # The instant an end-of-day milestone sits on (#4079), in the working day the
-    # emitted calendar describes — or the engine's default day when none is.
-    start_minute, shift_minutes = _shift_window(
-        applied_calendars[0].hours_per_day if applied_calendars else HOURS_PER_WORKING_DAY
-    )
-    day_end_time = _minutes_to_time(start_minute + shift_minutes)
+    day_end_time = _milestone_day_end_time(applied_calendars)
     for task in tasks:
         _add_task_element(
             tasks_el,
@@ -203,7 +198,8 @@ def _add_task_dates(task_el: ET.Element, task: Any, day_end_time: str = "00:00:0
     of its ``early_start`` day, and MS Project places it there too — at the
     calendar's finish time, not at midnight. Writing midnight would put it at the
     start of the day, before its own predecessor finishes. ``day_end_time`` is
-    the end of the working day the emitted ``<Calendars>`` block declares.
+    the end of the working day MS Project will schedule the file on
+    (:func:`_milestone_day_end_time`).
     """
     at_day_end = bool(task.is_milestone and getattr(task, "milestone_at_day_end", False))
     time_of_day = day_end_time if at_day_end else "00:00:00"
@@ -397,6 +393,31 @@ def _shift_window(hours_per_day: float) -> tuple[int, int]:
     if start_minute + shift_minutes > 24 * 60:
         start_minute = 0
     return start_minute, shift_minutes
+
+
+# MS Project's built-in "Standard" calendar works 08:00-12:00 and 13:00-17:00.
+_MSP_STANDARD_DAY_END = "17:00:00"
+# The last representable time of day. ``T24:00:00`` is not a valid xs:dateTime
+# for MS Project, which would reject or misplace the milestone.
+_LAST_MINUTE_OF_DAY = 24 * 60 - 1
+
+
+def _milestone_day_end_time(applied_calendars: list[Any]) -> str:
+    """The time of day an end-of-day milestone is written at (#4079).
+
+    It must be the end of the working day of the calendar MS Project will actually
+    schedule the file on. With an applied calendar that is the synthesized shift
+    the ``<Calendars>`` block declares (:func:`_shift_window`). With none, no
+    ``<Calendars>`` block is emitted and MS Project falls back to its own Standard
+    calendar, whose day ends at 17:00 — not at the 16:00 the engine's 8-hour
+    default would give from an 08:00 start. A shift that runs to midnight
+    (``hours_per_day`` >= 16 makes it start at 00:00 and end at 24:00, or a
+    24-hour day) is clamped to 23:59, the last time of day xs:dateTime can say.
+    """
+    if not applied_calendars:
+        return _MSP_STANDARD_DAY_END
+    start_minute, shift_minutes = _shift_window(applied_calendars[0].hours_per_day)
+    return _minutes_to_time(min(start_minute + shift_minutes, _LAST_MINUTE_OF_DAY))
 
 
 def _merge_applied_calendars(

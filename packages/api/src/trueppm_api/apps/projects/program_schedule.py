@@ -734,6 +734,8 @@ def _task_payload(
     # withholding list is scoped to non-schedule facts (description, assignee,
     # status, points) — widening it is a redaction-policy decision this fix does
     # not make. The redacted card keeps its pre-#3597 client-derived approximation.
+    # ``milestone_at_day_end`` IS on the card (#4079): it is a schedule fact about
+    # a date the card already discloses, not one of D5's withheld facts.
     return {
         "id": tid,
         "title": db_task.name,
@@ -745,4 +747,8 @@ def _task_payload(
         "early_start": sched_task.early_start,
         "early_finish": sched_task.early_finish,
         "is_critical": sched_task.is_critical,
+        # #4079: which edge of the already-disclosed early_start day a milestone
+        # sits on. It reveals nothing the dates do not — only where on that day
+        # to draw the diamond — so the card carries it like the dates themselves.
+        "milestone_at_day_end": bool(getattr(sched_task, "milestone_at_day_end", False)),
     }

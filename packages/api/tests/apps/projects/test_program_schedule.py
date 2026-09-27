@@ -161,6 +161,35 @@ def test_schedule_redacts_inaccessible_project_tasks(calendar: Calendar) -> None
 
 
 @pytest.mark.django_db
+def test_redacted_milestone_carries_its_day_edge(calendar: Calendar) -> None:
+    """#4079: a redacted milestone that follows work reports ``milestone_at_day_end``.
+
+    The card already discloses the milestone's day (``early_start``); the flag only
+    says which edge of it the diamond sits on, so the program timeline can draw a
+    redacted gate where the merged pass placed it instead of on its predecessor's
+    last day. A redacted ordinary task carries False.
+    """
+    program, proj_a, proj_b, _a1, b1 = _program_with_cross_edge(calendar, accepted=True)
+    b1.duration = 0
+    b1.is_milestone = True
+    b1.save(update_fields=["duration", "is_milestone"])
+    b2 = Task.objects.create(project=proj_b, name="Hand-off", duration=2)
+    user = User.objects.create_user(username="partial-ms", password="pw")
+    ProgramMembership.objects.create(program=program, user=user, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=proj_a, user=user, role=Role.MEMBER)
+
+    resp = _client(user).get(f"/api/v1/programs/{program.pk}/schedule/")
+    assert resp.status_code == 200, resp.data
+    tasks = _by_id(resp.data)
+    gate = tasks[str(b1.pk)]
+    assert gate["is_external"] is True
+    # A1 runs Mon 03-02..Fri 03-06; the gate is shown Friday, at its END.
+    assert gate["early_start"] == date(2026, 3, 6)
+    assert gate["milestone_at_day_end"] is True
+    assert tasks[str(b2.pk)]["milestone_at_day_end"] is False
+
+
+@pytest.mark.django_db
 def test_schedule_excludes_pending_cross_edge(calendar: Calendar) -> None:
     """A pending (unconsented) cross edge is not a modeled constraint: it is absent
     from links and does not push the successor."""
