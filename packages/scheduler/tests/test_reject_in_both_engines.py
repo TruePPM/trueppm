@@ -14,6 +14,7 @@ the good paths — that a whole-day project (including a whole-day negative lead
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, timedelta
 
 import pytest
@@ -25,6 +26,8 @@ from trueppm_scheduler import (
     InvalidScheduleInput,
     Project,
     Task,
+    derive_value,
+    monte_carlo,
     schedule,
 )
 
@@ -233,6 +236,72 @@ def test_direct_object_rejects_non_string_task_id(bad: object) -> None:
     p = _project([_task(bad, timedelta(days=1))], [])  # type: ignore[arg-type]
     with pytest.raises(InvalidScheduleInput, match="Task id must be a string"):
         schedule(p)
+
+
+def _run_schedule(p: Project) -> object:
+    return schedule(p)
+
+
+def _run_monte_carlo(p: Project) -> object:
+    return monte_carlo(p, runs=2, seed=1)
+
+
+def _run_derive_value(p: Project) -> object:
+    return derive_value(p, "A", "early_start")
+
+
+_ENTRY_POINTS = [
+    pytest.param(_run_schedule, id="schedule"),
+    pytest.param(_run_monte_carlo, id="monte_carlo"),
+    pytest.param(_run_derive_value, id="derive_value"),
+]
+
+
+@pytest.mark.parametrize("entry", _ENTRY_POINTS)
+@pytest.mark.parametrize("bad", [5, None, ["x"]])
+def test_direct_object_rejects_non_string_task_name(
+    entry: Callable[[Project], object], bad: object
+) -> None:
+    """A non-str Task.name used to schedule on the direct-object path while Rust's
+    ``String`` serde rejects it — every public entry point must refuse it (#4130)."""
+    p = _project([Task(id="A", name=bad, duration=timedelta(days=1))], [])  # type: ignore[arg-type]
+    with pytest.raises(InvalidScheduleInput, match="Task 'A' name must be a string"):
+        entry(p)
+
+
+@pytest.mark.parametrize("entry", _ENTRY_POINTS)
+@pytest.mark.parametrize("field_name", ["id", "name"])
+@pytest.mark.parametrize("bad", [5, None, ["x"]])
+def test_direct_object_rejects_non_string_project_id_and_name(
+    entry: Callable[[Project], object], field_name: str, bad: object
+) -> None:
+    p = _project([_task("A", timedelta(days=1))], [])
+    setattr(p, field_name, bad)
+    with pytest.raises(InvalidScheduleInput, match=f"Project {field_name} must be a string"):
+        entry(p)
+
+
+@pytest.mark.parametrize("entry", _ENTRY_POINTS)
+@pytest.mark.parametrize("bad", [7, None])
+def test_direct_object_rejects_non_string_task_id_every_entry_point(
+    entry: Callable[[Project], object], bad: object
+) -> None:
+    p = _project([_task(bad, timedelta(days=1))], [])  # type: ignore[arg-type]
+    with pytest.raises(InvalidScheduleInput, match="Task id must be a string"):
+        entry(p)
+
+
+@pytest.mark.parametrize("entry", _ENTRY_POINTS)
+def test_empty_string_names_still_accepted(entry: Callable[[Project], object]) -> None:
+    """Only the *type* is checked — an empty name is a valid ``String`` in Rust too."""
+    p = Project(
+        id="",
+        name="",
+        start_date=date(2026, 4, 1),
+        tasks=[Task(id="A", name="", duration=timedelta(days=1))],
+        dependencies=[],
+    )
+    entry(p)
 
 
 def test_string_ids_still_schedule() -> None:
