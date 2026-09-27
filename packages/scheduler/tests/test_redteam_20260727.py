@@ -227,9 +227,13 @@ def test_deterministic_projects_with_actuals_simulate_to_the_cpm_finish(seed: in
     now covers that space with the strict assertion, and it fails on the pre-#3963
     engine (318 of 2,000 generated projects).
 
-    Two narrow residuals genuinely remain, and only these justify keeping actuals
-    off in-progress tasks *here*, where the generator draws every dependency type
-    and zero-duration tasks:
+    **Superseded (#4175):** the two residuals below were closed — Monte Carlo now
+    reads both from the verbatim date, and
+    ``tests/test_monte_carlo_live_actual_start.py`` fuzzes the space this generator
+    still leaves out with the strict assertion. They were also never bounded by
+    "one working day": a calendar-day lag re-landing across a weekend carried a
+    2-3 working-day gap to the finish. Kept for the record of why this generator
+    was drawn the way it was:
 
     * **Zero remaining duration** — a milestone, or in-progress work whose
       ``percent_complete`` burns the duration to 0. Its ``early_finish`` *is* the
@@ -316,7 +320,9 @@ def test_in_progress_non_working_actual_start_simulates_to_the_cpm_finish(seed: 
     seed 8, so the 30 below are not a coincidence); on the fixed engine, 0.
 
     The space is deliberately bounded to what the fix actually made exact, so a
-    failure here means a regression and never a known trade-off:
+    failure here means a regression and never a known trade-off. (#4175 has since
+    made both exclusions below exact too; ``test_monte_carlo_live_actual_start.py``
+    covers them.)
 
     * **remaining duration >= 1** — the pct roll is reset to 0 when it would burn
       the duration to nothing, because a zero-remaining task's ``early_finish``
