@@ -19250,8 +19250,10 @@ class ProgramApiTokenViewSet(ProjectApiTokenViewSet):
     A program-scoped token authorizes inbound writes into any project within the
     program (ADR-0076). Reuses the one-time-reveal create, soft-delete revoke,
     and audit substrate from ProjectApiTokenViewSet via the scope hooks; only the
-    scope resolution and RBAC ladder change. Reads: Program Member+; create/revoke:
-    Program Admin+ on a non-closed program.
+    scope resolution and RBAC ladder change. Reads: Program Member+; create:
+    Program Admin+ on a non-closed program; revoke: Program Admin+ even on a
+    closed program, because a leaked token keeps its read access and must stay
+    killable.
     """
 
     _scope_field = "program"

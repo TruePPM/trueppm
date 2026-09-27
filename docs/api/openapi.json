@@ -11743,7 +11743,7 @@
         "/api/v1/programs/{program_pk}/api-tokens/": {
             "get": {
                 "operationId": "v1_programs_api_tokens_list",
-                "description": "``/api/v1/programs/{program_pk}/api-tokens/`` — program-scoped token CRUD.\n\nA program-scoped token authorizes inbound writes into any project within the\nprogram (ADR-0076). Reuses the one-time-reveal create, soft-delete revoke,\nand audit substrate from ProjectApiTokenViewSet via the scope hooks; only the\nscope resolution and RBAC ladder change. Reads: Program Member+; create/revoke:\nProgram Admin+ on a non-closed program.",
+                "description": "``/api/v1/programs/{program_pk}/api-tokens/`` — program-scoped token CRUD.\n\nA program-scoped token authorizes inbound writes into any project within the\nprogram (ADR-0076). Reuses the one-time-reveal create, soft-delete revoke,\nand audit substrate from ProjectApiTokenViewSet via the scope hooks; only the\nscope resolution and RBAC ladder change. Reads: Program Member+; create:\nProgram Admin+ on a non-closed program; revoke: Program Admin+ even on a\nclosed program, because a leaked token keeps its read access and must stay\nkillable.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -11979,7 +11979,7 @@
         "/api/v1/programs/{program_pk}/api-tokens/{id}/": {
             "get": {
                 "operationId": "v1_programs_api_tokens_retrieve",
-                "description": "``/api/v1/programs/{program_pk}/api-tokens/`` — program-scoped token CRUD.\n\nA program-scoped token authorizes inbound writes into any project within the\nprogram (ADR-0076). Reuses the one-time-reveal create, soft-delete revoke,\nand audit substrate from ProjectApiTokenViewSet via the scope hooks; only the\nscope resolution and RBAC ladder change. Reads: Program Member+; create/revoke:\nProgram Admin+ on a non-closed program.",
+                "description": "``/api/v1/programs/{program_pk}/api-tokens/`` — program-scoped token CRUD.\n\nA program-scoped token authorizes inbound writes into any project within the\nprogram (ADR-0076). Reuses the one-time-reveal create, soft-delete revoke,\nand audit substrate from ProjectApiTokenViewSet via the scope hooks; only the\nscope resolution and RBAC ladder change. Reads: Program Member+; create:\nProgram Admin+ on a non-closed program; revoke: Program Admin+ even on a\nclosed program, because a leaked token keeps its read access and must stay\nkillable.",
                 "parameters": [
                     {
                         "in": "path",
