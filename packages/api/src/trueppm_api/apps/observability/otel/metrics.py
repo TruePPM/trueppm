@@ -111,6 +111,21 @@ WS_BROADCAST_COUNT = "trueppm.ws.broadcast.count"
 TASK_DURATION_SECONDS = "trueppm.task.duration_seconds"
 RATELIMIT_ENABLED = "trueppm.ratelimit.enabled"
 
+# The gauges documented above as "Cluster-wide — aggregate with max/last, never
+# sum": every process running ready() reads the same shared PostgreSQL/Valkey
+# state and re-emits the whole-cluster figure as its own series. Kept as a real
+# constant (not just the docstring's prose) so scripts/check-helm-metric-names.py
+# can derive, rather than hand-maintain, the set of names a chart PromQL expression
+# must never wrap in sum() — a second hardcoded copy is exactly how #4186 (the
+# dashboard and TruePPMOutboxDepthRising overcounting by process count) could
+# recur silently for a gauge added after this one. Deliberately excludes the two
+# synchronous WS instruments (per-process counts, sum normally) and
+# RATELIMIT_ENABLED (a static per-process config echo, not a probe of shared
+# state, and never aggregated in any shipped chart expression today).
+CLUSTER_WIDE_GAUGES: frozenset[str] = frozenset(
+    {OUTBOX_DEPTH, OUTBOX_OLDEST_AGE, DB_CONNECTIONS, BROKER_QUEUE_DEPTH}
+)
+
 # Server-side statement timeout for the pg_stat_activity probe, so a slow or
 # contended database can never stall the exporter's collection thread. It is set
 # on the metrics thread's dedicated connection only.

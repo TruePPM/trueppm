@@ -47,6 +47,22 @@ Known limits (deliberate, documented rather than guessed at)
   ``/api/v1/health/dead-letter/`` and needs its own scrape job, which is a docs
   matter (see docs → Administration → Observability).
 
+Aggregation safety (#4186)
+---------------------------
+A second, independent check: no chart expression may wrap a **cluster-wide**
+gauge — one ``otel/metrics.py`` documents and lists in its
+``CLUSTER_WIDE_GAUGES`` constant — in a PromQL ``sum()``. Every process that runs
+``ready()`` (web, Celery worker, Celery beat) registers these gauges against the
+*same* shared PostgreSQL/Valkey state, so each re-emits the whole-cluster figure as
+its own series; summing across instances multiplies the true value by the process
+count instead of reporting it. This shipped as ``TruePPMOutboxDepthRising`` firing
+at roughly 10x real outbox depth and the dashboard's outbox/DB-connections panels
+overcounting the same way. The fix is ``max by (...)`` (or ``last_over_time`` piped
+through ``max``), never ``sum``. The cluster-wide set is read from
+``CLUSTER_WIDE_GAUGES`` via the same AST scan used for emitted names, so a gauge
+added to that constant is covered here automatically without a second,
+hand-maintained list drifting out of sync with it.
+
 Usage::
 
     python3 scripts/check-helm-metric-names.py [repo_root]
@@ -82,6 +98,14 @@ _CHART_TOKEN = re.compile(r"\btrueppm_[a-z0-9_]+\b")
 # Only string constants in the TruePPM namespace are candidates, in either the
 # dotted OTLP form or the already-underscored Prometheus form.
 _TRUEPPM_CONSTANT = re.compile(r"^trueppm[._-][a-z0-9_.\-]+$")
+
+# A `sum(...)` or `sum by (labels) (...)` PromQL aggregation directly wrapping a
+# single trueppm_* series (with an optional `{label="..."}` matcher). The chart's
+# expressions never nest a sum() inside another aggregation's argument, so this
+# does not need balanced-paren parsing.
+_SUM_AGG_PATTERN = re.compile(
+    r"\bsum\s*(?:by\s*\([^)]*\)\s*)?\(\s*(trueppm_[a-z0-9_]+)(?:\{[^}]*\})?\s*\)"
+)
 
 
 def to_prometheus_name(otlp_name: str) -> str:
@@ -188,6 +212,151 @@ def collect_chart_names(repo_root: Path) -> dict[str, list[str]]:
     return sites
 
 
+def find_summed_metric_names(text: str) -> set[str]:
+    """Return every ``trueppm_*`` metric name directly wrapped in a PromQL ``sum()``.
+
+    Args:
+        text: Raw contents of a PrometheusRule template or dashboard JSON file.
+
+    Returns:
+        The set of metric names appearing as the sole argument (optionally with a
+        ``{label="..."}`` matcher) of a ``sum(...)`` or ``sum by (...) (...)`` call.
+    """
+    return set(_SUM_AGG_PATTERN.findall(text))
+
+
+def _assign_targets(node: ast.Assign | ast.AnnAssign) -> list[ast.expr]:
+    """Return the target(s) of a module-level ``Assign`` or ``AnnAssign`` node."""
+    return node.targets if isinstance(node, ast.Assign) else [node.target]
+
+
+def _module_string_constants(tree: ast.Module) -> dict[str, str]:
+    """Map every module-level ``NAME = "trueppm..."`` constant to its value."""
+    name_to_value: dict[str, str] = {}
+    for node in tree.body:
+        if not isinstance(node, ast.Assign | ast.AnnAssign):
+            continue
+        value = node.value
+        if not (
+            isinstance(value, ast.Constant)
+            and isinstance(value.value, str)
+            and _TRUEPPM_CONSTANT.match(value.value)
+        ):
+            continue
+        for target in _assign_targets(node):
+            if isinstance(target, ast.Name):
+                name_to_value[target.id] = value.value
+    return name_to_value
+
+
+def _find_cluster_wide_gauges_set(tree: ast.Module) -> ast.Set | None:
+    """Return the ``ast.Set`` node backing a module's ``CLUSTER_WIDE_GAUGES`` constant.
+
+    Accepts ``frozenset({...})``, a bare ``{...}`` set literal, or ``None`` when the
+    module defines no such constant or its shape isn't one of those two.
+    """
+    for node in tree.body:
+        if not isinstance(node, ast.Assign | ast.AnnAssign):
+            continue
+        if not any(
+            isinstance(t, ast.Name) and t.id == "CLUSTER_WIDE_GAUGES"
+            for t in _assign_targets(node)
+        ):
+            continue
+        value = node.value
+        if (
+            isinstance(value, ast.Call)
+            and getattr(value.func, "id", None) == "frozenset"
+        ):
+            container = value.args[0] if value.args else None
+        else:
+            container = value
+        return container if isinstance(container, ast.Set) else None
+    return None
+
+
+def _extract_cluster_wide_gauge_constant(source: str) -> set[str]:
+    """Resolve a module's ``CLUSTER_WIDE_GAUGES`` frozenset to its string values.
+
+    Walks the AST rather than importing the module, matching this script's
+    existing approach for emitted names: the scan must not require a configured
+    Django environment. Resolves each element of the set — whether a ``Name``
+    reference to another module-level constant or an inline string literal —
+    against a map of every ``NAME = "trueppm..."`` constant in the module.
+
+    Args:
+        source: Contents of one Python module.
+
+    Returns:
+        The dotted OTLP-form names in that module's ``CLUSTER_WIDE_GAUGES``
+        constant, or an empty set if the module defines none.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+
+    gauges_set = _find_cluster_wide_gauges_set(tree)
+    if gauges_set is None:
+        return set()
+
+    name_to_value = _module_string_constants(tree)
+    resolved: set[str] = set()
+    for elt in gauges_set.elts:
+        if isinstance(elt, ast.Name) and elt.id in name_to_value:
+            resolved.add(name_to_value[elt.id])
+        elif isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+            resolved.add(elt.value)
+    return resolved
+
+
+def collect_cluster_wide_gauge_names(app_root: Path) -> set[str]:
+    """Collect the Prometheus-form names of every gauge classified cluster-wide.
+
+    Args:
+        app_root: Path to ``packages/api/src/trueppm_api``.
+
+    Returns:
+        Prometheus-form names (translated via :func:`to_prometheus_name`) of every
+        gauge listed in some module's ``CLUSTER_WIDE_GAUGES`` constant — today just
+        ``otel/metrics.py``, but the scan is not hardcoded to that one file.
+    """
+    otlp_names: set[str] = set()
+    for path in sorted(app_root.rglob("*.py")):
+        otlp_names |= _extract_cluster_wide_gauge_constant(
+            path.read_text(encoding="utf-8")
+        )
+    return {to_prometheus_name(name) for name in otlp_names}
+
+
+def find_summed_cluster_wide_gauges(repo_root: Path) -> dict[str, list[str]]:
+    """Return chart sites that ``sum()`` a gauge classified cluster-wide.
+
+    Args:
+        repo_root: Repository root.
+
+    Returns:
+        ``{metric name: [chart file, ...]}`` for every cluster-wide gauge found
+        inside a ``sum(...)``/``sum by (...) (...)`` expression; empty when the
+        chart aggregates every such gauge with ``max``/``last`` instead.
+
+    Raises:
+        FileNotFoundError: If a file listed in ``CHART_PROMQL_FILES`` is missing.
+    """
+    cluster_wide = collect_cluster_wide_gauge_names(repo_root / APP_SOURCE_ROOT)
+    violations: dict[str, list[str]] = {}
+    for rel in CHART_PROMQL_FILES:
+        path = repo_root / rel
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"{rel} not found — update CHART_PROMQL_FILES if the chart moved"
+            )
+        summed = find_summed_metric_names(path.read_text(encoding="utf-8"))
+        for name in sorted(summed & cluster_wide):
+            violations.setdefault(name, []).append(rel)
+    return violations
+
+
 def find_unknown_names(repo_root: Path) -> dict[str, list[str]]:
     """Return chart identifiers that no application source constant accounts for.
 
@@ -222,6 +391,19 @@ def _self_test() -> int:
     assert to_prometheus_name("trueppm.outbox.oldest_age_seconds") == (
         "trueppm_outbox_oldest_age_seconds"
     )
+    assert find_summed_metric_names(
+        "sum by (trueppm_outbox_name) (trueppm_outbox_depth)"
+    ) == {"trueppm_outbox_depth"}
+    assert (
+        find_summed_metric_names("max by (trueppm_outbox_name) (trueppm_outbox_depth)")
+        == set()
+    )
+    bogus_cluster_wide = _extract_cluster_wide_gauge_constant(
+        'OUTBOX_DEPTH = "trueppm.outbox.depth"\n'
+        'DB_CONNECTIONS = "trueppm.db.connections"\n'
+        "CLUSTER_WIDE_GAUGES = frozenset({OUTBOX_DEPTH, DB_CONNECTIONS})\n"
+    )
+    assert bogus_cluster_wide == {"trueppm.outbox.depth", "trueppm.db.connections"}
     print("self-test: OK")
     return 0
 
@@ -233,23 +415,40 @@ def main(argv: list[str]) -> int:
 
     repo_root = Path(argv[1]).resolve() if len(argv) > 1 else Path.cwd()
     unknown = find_unknown_names(repo_root)
-    if not unknown:
+    summed_cluster_wide = find_summed_cluster_wide_gauges(repo_root)
+    if not unknown and not summed_cluster_wide:
         return 0
 
-    print(
-        "FAIL: the Helm chart queries trueppm_* series the application never emits.\n"
-        "A PromQL name with no matching series is not an error — the alert silently\n"
-        "never fires and the panel is silently blank.\n",
-        file=sys.stderr,
-    )
-    for name, files in unknown.items():
-        print(f"  {name}\n    referenced by: {', '.join(files)}", file=sys.stderr)
-    print(
-        "\nEmitted names come from module-level trueppm.* / trueppm_* string constants\n"
-        f"under {APP_SOURCE_ROOT} (otel/metrics.py, otel/attributes.py, and the\n"
-        "text-exposition constants in apps/observability/views.py).",
-        file=sys.stderr,
-    )
+    if unknown:
+        print(
+            "FAIL: the Helm chart queries trueppm_* series the application never emits.\n"
+            "A PromQL name with no matching series is not an error — the alert silently\n"
+            "never fires and the panel is silently blank.\n",
+            file=sys.stderr,
+        )
+        for name, files in unknown.items():
+            print(f"  {name}\n    referenced by: {', '.join(files)}", file=sys.stderr)
+        print(
+            "\nEmitted names come from module-level trueppm.* / trueppm_* string constants\n"
+            f"under {APP_SOURCE_ROOT} (otel/metrics.py, otel/attributes.py, and the\n"
+            "text-exposition constants in apps/observability/views.py).",
+            file=sys.stderr,
+        )
+
+    if summed_cluster_wide:
+        print(
+            "\nFAIL: the Helm chart sum()s a cluster-wide gauge (otel/metrics.py's\n"
+            "CLUSTER_WIDE_GAUGES). Every process emits the same whole-cluster figure as\n"
+            "its own series, so sum() multiplies the true value by the process count —\n"
+            "use max by (...) or last instead.\n",
+            file=sys.stderr,
+        )
+        for name, files in summed_cluster_wide.items():
+            print(
+                f"  sum(...{name}...)\n    referenced by: {', '.join(files)}",
+                file=sys.stderr,
+            )
+
     return 1
 
 

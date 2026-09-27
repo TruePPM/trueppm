@@ -102,3 +102,59 @@ def test_otlp_instrument_names_translate_to_the_chart_form(checker: ModuleType) 
 def test_checker_self_test_passes(checker: ModuleType) -> None:
     """The script's own --self-test path stays green."""
     assert checker._self_test() == 0
+
+
+def test_cluster_wide_gauge_set_matches_metrics_module(checker: ModuleType) -> None:
+    """The checker's AST-derived cluster-wide gauge names match otel/metrics.py.
+
+    Guards the checker's own extraction against silently drifting from the
+    constant it is supposed to mirror (a real import here, not the AST scan the
+    checker itself must use to stay Django-free).
+    """
+    from trueppm_api.apps.observability.otel import metrics
+
+    expected = {checker.to_prometheus_name(name) for name in metrics.CLUSTER_WIDE_GAUGES}
+    assert expected == {
+        "trueppm_outbox_depth",
+        "trueppm_outbox_oldest_age_seconds",
+        "trueppm_db_connections",
+        "trueppm_broker_queue_depth",
+    }
+    actual = checker.collect_cluster_wide_gauge_names(REPO_ROOT / checker.APP_SOURCE_ROOT)
+    assert actual == expected
+
+
+def test_no_chart_expression_sums_a_cluster_wide_gauge(checker: ModuleType) -> None:
+    """No PrometheusRule alert or dashboard panel `sum()`s a cluster-wide gauge.
+
+    Every process running ``ready()`` (web, Celery worker, Celery beat) emits the
+    same whole-cluster figure for these gauges as its own series (see the
+    "Cluster-wide" section of ``otel/metrics.py``'s module docstring) — `sum()`
+    multiplies the true value by the process count instead of reporting it. This
+    is the #4186 bug: ``TruePPMOutboxDepthRising`` fired at ~10x real outbox
+    depth, and the dashboard's outbox-depth and DB-connections panels overcounted
+    the same way. This pins the *aggregation*, not just the metric name — the
+    older ``test_chart_promql_names_are_all_emitted`` above would stay green on
+    this bug forever, since `sum(trueppm_outbox_depth)` names a real series.
+    """
+    violations = checker.find_summed_cluster_wide_gauges(REPO_ROOT)
+    assert not violations, (
+        "Helm chart sum()s a cluster-wide gauge — use max by (...) instead: "
+        + "; ".join(f"{name} ({', '.join(files)})" for name, files in violations.items())
+    )
+
+
+def test_checker_rejects_a_sum_over_a_cluster_wide_gauge(checker: ModuleType) -> None:
+    """Mutation test: the gate must fail on the exact aggregation bug that shipped."""
+    assert checker.find_summed_metric_names(
+        "sum by (trueppm_outbox_name, trueppm_outbox_state) (trueppm_outbox_depth)"
+    ) == {"trueppm_outbox_depth"}
+    assert (
+        checker.find_summed_metric_names("max by (trueppm_outbox_name) (trueppm_outbox_depth)")
+        == set()
+    )
+    # find_summed_cluster_wide_gauges must actually flag the intersection, not
+    # merely a set of names each half correctly computes on its own.
+    assert "trueppm_outbox_depth" in checker.collect_cluster_wide_gauge_names(
+        REPO_ROOT / checker.APP_SOURCE_ROOT
+    )
