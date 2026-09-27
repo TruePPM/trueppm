@@ -527,12 +527,31 @@ class Calendar:
             return False
         if not self.exceptions:
             return True
+        # Inlined rather than delegated to _exception_run: this is the per-day hot
+        # path of every calendar walk, and the extra call cost ~14% of schedule().
         starts, ends = self._exception_intervals()
         o = d.toordinal()
         # The intervals are merged and disjoint, so d is an exception iff it falls
         # within the single interval whose start is the rightmost <= d.
         i = bisect.bisect_right(starts, o) - 1
         return not (i >= 0 and o <= ends[i])
+
+    def _exception_run(self, o: int) -> tuple[int, int] | None:
+        """The merged exception interval containing ordinal ``o``, or ``None``.
+
+        Returned as inclusive ``(start, end)`` ordinals. The engine's snap helpers
+        use it to cross a whole exception run in one step instead of testing every
+        day inside it (#4161).
+        """
+        if not self.exceptions:
+            return None
+        starts, ends = self._exception_intervals()
+        # The intervals are merged and disjoint, so o is an exception iff it falls
+        # within the single interval whose start is the rightmost <= o.
+        i = bisect.bisect_right(starts, o) - 1
+        if i >= 0 and o <= ends[i]:
+            return starts[i], ends[i]
+        return None
 
     def _exception_intervals(self) -> tuple[list[int], list[int]]:
         """Sorted, merged exception intervals as parallel ordinal lists (#1206).

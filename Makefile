@@ -88,7 +88,7 @@ typecheck-web: ## Type-check packages/web (tsc)
 test: test-scheduler test-api test-web ## Run all package test suites
 
 test-scheduler: ## Run packages/scheduler tests (pytest)
-	cd packages/scheduler && pytest --tb=short -q
+	cd packages/scheduler && TRUEPPM_MONOREPO=1 pytest --tb=short -q
 
 test-api: ## Run packages/api tests (pytest — requires running DB + Redis)
 	cd packages/api && pytest --tb=short -q

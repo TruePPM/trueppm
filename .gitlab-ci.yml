@@ -59,6 +59,10 @@ variables:
   NPM_CONFIG_FETCH_RETRIES: "5"
   NPM_CONFIG_FETCH_RETRY_MINTIMEOUT: "20000"
   NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT: "120000"
+  # Declares the checkout is the full monorepo, so the scheduler's Python<->WASM
+  # conformance suite hard-fails on missing packages/wasm-scheduler/fixtures
+  # (#1506) instead of skipping the way it does in the published sdist (#3856).
+  TRUEPPM_MONOREPO: "1"
   POSTGRES_DB: trueppm_test
   POSTGRES_USER: trueppm
   POSTGRES_PASSWORD: trueppm

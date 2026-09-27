@@ -27,6 +27,14 @@ pytest -v                       # verbose
 pytest tests/test_engine.py -x  # stop on first failure
 ```
 
+`tests/test_wasm_conformance.py` checks the Python engine against the shared
+Python↔WASM fixtures in `packages/wasm-scheduler/fixtures`. That tree is only in
+the TruePPM monorepo, not in the sdist, so when you run the suite from an
+unpacked sdist the module is skipped and every other test runs. Inside a
+monorepo checkout a missing fixture still fails the run: the module recognizes
+the checkout's layout, and `TRUEPPM_MONOREPO=1` (set by CI and
+`make test-scheduler`) enforces the same thing independently.
+
 ### Performance benchmarks
 
 The bench suite asserts hard time budgets. Run it before submitting a MR
