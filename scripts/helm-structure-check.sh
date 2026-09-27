@@ -1573,6 +1573,15 @@ for a in TruePPMDemoResetFailed TruePPMDemoResetStale TruePPMDemoResetNeverSucce
     fail "$a rendered while demo.reset.enabled is false — the reset alerts must follow the reset switch"
   fi
 done
+# The thresholds must track the reset cadence (#4151): at a daily schedule, anything at
+# or under one day makes TruePPMDemoResetStale fire between every pair of healthy runs.
+demo_rule() { yq "select(.kind==\"PrometheusRule\") | .spec.groups[] | select(.name==\"trueppm.demo\") | .rules[] | select(.alert==\"$1\") | .$2" <<<"$rules_on"; }
+stale_after="$(demo_rule TruePPMDemoResetStale expr | grep -oE '> *[0-9]+' | tr -dc '0-9')"
+[[ "$stale_after" == "93600" ]] \
+  || fail "TruePPMDemoResetStale threshold is '${stale_after}s', expected 93600s (26h) for the daily reset — it must exceed one reset period"
+never_for="$(demo_rule TruePPMDemoResetNeverSucceeded for)"
+[[ "$never_for" == "26h" ]] \
+  || fail "TruePPMDemoResetNeverSucceeded 'for' is '$never_for', expected 26h for the daily reset — it must exceed one reset period"
 
 # N+7.f. Interactive demo edge hardening (ADR-1197 D1/D6/D7, #3925 MR 2): the third
 #        nginx server block, the api/celery-worker egress-deny NetworkPolicy, the
