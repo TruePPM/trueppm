@@ -255,7 +255,7 @@ convention. The same list, with the comparison spelled out, is on
 
 - An **FF/SF**-driven task stays contiguous and right-aligned on its pinned finish, so its start moves back — the MS Project convention. Consequence: CPM is non-monotone in duration on an FF/SF network (a longer task can start earlier). ([#3806](https://gitlab.com/trueppm/trueppm/-/issues/3806), decided: keep)
 - An **SF** link finishes the successor at the start of the predecessor's start day — with zero lag, its last working day is the day before. ([#4145](https://gitlab.com/trueppm/trueppm/-/issues/4145))
-- A zero-duration **milestone** is an instant: at the end of its driver's finish day, or the start of the day a floor holds it to. ([#4079](https://gitlab.com/trueppm/trueppm/-/issues/4079))
+- A zero-duration **milestone** is an instant: at the end of its driver's finish day, or the start of the day a floor holds it to. A lag that lands it on a weekend or holiday shows it at the start of the next working day. ([#4079](https://gitlab.com/trueppm/trueppm/-/issues/4079), [#4173](https://gitlab.com/trueppm/trueppm/-/issues/4173))
 - The **only** date constraint is start-no-earlier-than, via `planned_start`; `planned_finish` is reserved and inert — no deadline, finish, must-start-on or ALAP constraint. **Differs.** ([#3345](https://gitlab.com/trueppm/trueppm/-/issues/3345), [#804](https://gitlab.com/trueppm/trueppm/-/issues/804))
 - An **SS or SF link from a summary task** is rejected (FS/FF from a summary expand to its leaves). **Differs** — MS Project accepts it. ([ADR-0370](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0370-reject-ss-sf-from-summary-tasks.md))
 

@@ -902,6 +902,33 @@ describe('runCpmForwardPass — zero-duration milestones are instants (#4079)', 
     expect(results.find((r) => r.taskId === 'B')!.earlyStart).toBe('2026-01-12');
   });
 
+  it('shows a lag landing after a weekend at the next working start, whichever link wins (#4173)', () => {
+    // A (Mon-Wed) -SS+6-> M lands on Sunday midnight; B (Mon-Thu) -FS+3-> M on
+    // Monday midnight — the same working-time position. The FS link wins on the
+    // later midnight, and reading it at the end of the working day before put M
+    // on FRIDAY: a longer B moved M a working day earlier. It is Monday's start.
+    const tasks: CpmTask[] = [
+      task('A', '2026-01-05', '2026-01-07', { durationDays: 3 }),
+      task('B', '2026-01-05', '2026-01-08', { durationDays: 4 }),
+      milestone('M', '2026-01-12'),
+    ];
+    const edges = [edge('A', 'M', 'SS', 6), edge('B', 'M', 'FS', 3)];
+    const { results } = runCpmForwardPass(tasks, edges, 'B', '2026-01-05');
+    const m = results.find((r) => r.taskId === 'M')!;
+    expect(m.earlyStart).toBe('2026-01-12');
+    expect(m.milestoneAtDayEnd).toBe(false);
+    // A lag ending ON a working day keeps the end-of-day reading: FS+1 from a
+    // Thursday finish is the end of Friday.
+    const onFriday = runCpmForwardPass(
+      [tasks[1], milestone('M', '2026-01-09')],
+      [edge('B', 'M', 'FS', 1)],
+      'B',
+      '2026-01-05',
+    ).results.find((r) => r.taskId === 'M')!;
+    expect(onFriday.earlyStart).toBe('2026-01-09');
+    expect(onFriday.milestoneAtDayEnd).toBe(true);
+  });
+
   it("reads a milestone's instant from the server flag, not from its subgraph links", () => {
     // M follows work OUTSIDE the subgraph (end of Fri 01-09, per the server), so
     // its successor B may not start before Mon 01-12. Without the flag the
