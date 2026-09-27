@@ -3481,19 +3481,31 @@ api:image-lock-check:
   # forgets to re-export after a pyproject bump fails HERE, on the MR that
   # made the change, which is #4078's second acceptance criterion.
   #
-  # Two checks, in order (plus its own --self-test first, run in this same
-  # job/image per #3194 — a check that only proves itself elsewhere is
-  # evidence about that other place, not this one):
+  # Three checks, in order (each self-tests in this same job/image, per
+  # #3194 — a check that only proves itself elsewhere is evidence about that
+  # other place, not this one):
   #   1. scripts/check-api-image-lock.py — diffs /app/requirements-locked.txt
   #      (baked into the image from the lock at build time, see the
   #      Dockerfile's own comments) against `importlib.metadata` inside the
   #      built image.
-  #   2. An import smoke (`django.setup()`) run as the actual non-root
-  #      runtime user against the shipped runtime image — the Dockerfile
-  #      already runs an equivalent check in the builder stage on every
-  #      build (local, compose, CI, release); this repeats it here against
-  #      the final image for full fidelity and so this job fails standalone
-  #      even if that builder-stage step were ever removed.
+  #   2. scripts/check-api-wheel-imports.py, run against the built image's
+  #      installed trueppm_api as the actual non-root runtime user — a
+  #      bare `django.setup()` only proves the settings module and its own
+  #      imports load; #4080 shipped an installed api that could not import
+  #      a scheduler symbol several call-frames deep, and `django.setup()`
+  #      alone stayed green through it. This walks every module in the
+  #      installed package (module-scope imports) and separately resolves
+  #      every `trueppm_scheduler` reference anywhere in its sources
+  #      (including function-local imports django.setup() never executes)
+  #      against the scheduler actually installed. The Dockerfile's own
+  #      builder-stage smoke (`django.setup()` + a bare `import
+  #      trueppm_scheduler`) still runs on every build, local and CI alike;
+  #      this is the deeper, CI-only check against the final shipped image.
+  #   3. `manage.py check` — Django's system-check framework, which loads
+  #      the URLconf, every registered view/viewset, and every serializer
+  #      it touches; cheap (no DB, no Valkey) and catches a class of
+  #      misconfiguration neither of the checks above would, since it walks
+  #      URL resolution specifically rather than a package's module tree.
   #
   # Scoped to the files that can move the image's resolved dependency set,
   # same `changes:` shape as ci:build-api-image, plus the weekly scheduled
@@ -3519,6 +3531,7 @@ api:image-lock-check:
         - packages/api/uv.lock
         - packages/scheduler/pyproject.toml
         - scripts/check-api-image-lock.py
+        - scripts/check-api-wheel-imports.py
         - .gitlab-ci.yml
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
@@ -3527,6 +3540,7 @@ api:image-lock-check:
         - packages/api/uv.lock
         - packages/scheduler/pyproject.toml
         - scripts/check-api-image-lock.py
+        - scripts/check-api-wheel-imports.py
         - .gitlab-ci.yml
   script:
     - set -euo pipefail
@@ -3537,13 +3551,22 @@ api:image-lock-check:
     - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-api-image-lock.py --self-test
     - echo "--- diff the image's installed set against packages/api/uv.lock ---"
     - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-api-image-lock.py
-    - echo "--- boot smoke, as the actual runtime (non-root) user ---"
+    - echo "--- boot smoke self-test first (scripts/check-api-wheel-imports.py, same job per #3194) ---"
+    - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-api-wheel-imports.py --self-test
+    - echo "--- boot smoke — walk every trueppm_api module + resolve every trueppm_scheduler symbol reference, as the actual runtime (non-root) user ---"
+    - |
+      docker run --rm -i \
+        -e DJANGO_SETTINGS_MODULE=trueppm_api.settings.dev \
+        -e TRUEPPM_ALLOW_DEV_SETTINGS=1 \
+        -e SECRET_KEY=ci-image-lock-check-smoke \
+        "$IMAGE" /venv/bin/python - < scripts/check-api-wheel-imports.py
+    - echo "--- boot smoke — manage.py check (loads the URLconf, views, and serializers) ---"
     - |
       docker run --rm \
         -e DJANGO_SETTINGS_MODULE=trueppm_api.settings.dev \
         -e TRUEPPM_ALLOW_DEV_SETTINGS=1 \
         -e SECRET_KEY=ci-image-lock-check-smoke \
-        "$IMAGE" /venv/bin/python -c "import django; import trueppm_scheduler; django.setup(); print('runtime boot smoke: OK')"
+        "$IMAGE" /venv/bin/python manage.py check
 
 scheduler:uv-lock-check:
   extends: .fast-job

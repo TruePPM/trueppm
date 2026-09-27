@@ -86,7 +86,10 @@ ARG PSYCOPG_EXTRA=c
 # are NOT excluded: they stay pinned to the exact versions the lock resolved,
 # so the locally-built scheduler still runs against the same numeric stack CI
 # tested, rather than whatever its own unpinned pyproject ranges would
-# resolve fresh.
+# resolve fresh. That claim is not yet ENFORCED, though: nothing checks that
+# the lock's pinned networkx/numpy actually satisfy the LOCAL scheduler's
+# declared floors in packages/scheduler/pyproject.toml (both installs use
+# --no-deps, so pip cannot catch a mismatch either) — tracked in #4185.
 #
 # --require-hashes verifies every downloaded artifact against the hash uv
 # recorded at lock time — the supply-chain hardening the previous unpinned
