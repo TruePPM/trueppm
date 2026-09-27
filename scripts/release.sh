@@ -621,6 +621,27 @@ bump_manifest packages/api/pyproject.toml \
   "s/^version = \"${CURRENT_ESCAPED}\"/version = \"${NEW_VERSION}\"/" \
   "version = \"${NEW_VERSION}\""
 
+# The API's trueppm-scheduler range (#4080). The API imports scheduler symbols
+# that only exist in the scheduler tagged beside it, so the floor has to follow
+# the scheduler - but it cannot follow it HERE: the api lock resolves the
+# scheduler from PyPI, the release-unpublished guard has already proven
+# $NEW_PEP440 is not there, and it publishes only after this commit's main
+# pipeline is green (tag:wait-for-main). A floor of $NEW_PEP440 could never lock.
+# So the floor moves to the release being left (published) and the CEILING to
+# the release being cut: at a minor boundary (0.4.x -> 0.5.0a1) a `<0.5` ceiling
+# would exclude the scheduler this very commit ships - the api image pip-installs
+# the in-tree scheduler and then the api, so pip would resolve it back onto 0.4,
+# and the published wheel's immutable Requires-Dist could never co-install with
+# its own scheduler. check-api-scheduler-lock.sh tolerates the lock trailing one
+# line on exactly this commit; the raise to $NEW_PEP440 lands right after the
+# scheduler publishes (release skill, Step 4).
+#
+# Before the CI_API_TAG restamp below on purpose: packages/api/pyproject.toml is
+# one of that digest's inputs, so a rewrite after it leaves the tag stale and
+# reds api:ci-api-tag on the release commit.
+bash scripts/bump-api-scheduler-floor.sh "$CURRENT_PEP440" "$NEW_PEP440" \
+  || die "Failed to set the API's trueppm-scheduler range"
+
 bump_manifest packages/web/package.json \
   "s/\"version\": \"${CURRENT_ESCAPED}\"/\"version\": \"${NEW_VERSION}\"/" \
   "\"version\": \"${NEW_VERSION}\""
@@ -737,20 +758,9 @@ command -v uv >/dev/null 2>&1 || die \
   "uv not found — required to regenerate uv.lock after the version bump.
    Install uv (https://docs.astral.sh/uv/) and retry."
 ( cd packages/scheduler && uv lock ) || die "Failed to regenerate packages/scheduler/uv.lock"
-# The API's trueppm-scheduler floor moves with the scheduler (#4080): the API
-# imports symbols that only exist in the scheduler tagged beside it, and a stale
-# floor let the lock sit at 0.2.0a1, which cannot import the app. The new
-# scheduler is not on PyPI until AFTER this commit's pipeline is green, so the api
-# lock may be unable to resolve the raised floor yet. Then fall back to the floor
-# of the release being left (already published) rather than committing a lock that
-# `uv lock --check` rejects and reds main; raise it in a follow-up once published.
-bash scripts/bump-api-scheduler-floor.sh "$NEW_PEP440" || die "Failed to raise the API's trueppm-scheduler floor"
-if ! ( cd packages/api && uv lock ); then
-  echo "  WARN: trueppm-scheduler $NEW_PEP440 is not resolvable yet; keeping the API floor at $CURRENT_PEP440." \
-       "Raise it after the scheduler publishes." >&2
-  bash scripts/bump-api-scheduler-floor.sh "$CURRENT_PEP440" || die "Failed to restore the API's trueppm-scheduler floor"
-  ( cd packages/api && uv lock ) || die "Failed to regenerate packages/api/uv.lock"
-fi
+# The api lock resolves trueppm-scheduler from PyPI, so it stays on the published
+# floor set above; the post-publish raise moves it (#4080, release skill Step 4).
+( cd packages/api && uv lock ) || die "Failed to regenerate packages/api/uv.lock"
 # packages/mcp joined the re-lock list with mcp:publish (#2809): its SBOM step
 # runs `uv sync --frozen`, which hard-fails on a lock whose self-entry still
 # claims the previous version, and mcp:uv-lock-check would go red on main.
@@ -986,6 +996,13 @@ echo "Next steps:"
 echo "  git push origin main $TAG          # triggers Docker + Helm publish"
 echo "  git push origin $SCHEDULER_TAG     # triggers trueppm-scheduler PyPI publish"
 echo "  git push origin $MCP_TAG           # triggers trueppm-mcp PyPI publish"
+echo ""
+echo "  # Once trueppm-scheduler $NEW_PEP440 is on PyPI, raise the api's floor and lock"
+echo "  # in a chore/ MR (release skill, Step 4) - at a minor boundary every commit after"
+echo "  # this one fails lint:api-scheduler-lock until it lands:"
+echo "  #   bash scripts/bump-api-scheduler-floor.sh $NEW_PEP440"
+echo "  #   (cd packages/api && uv lock --upgrade-package trueppm-scheduler)"
+echo "  #   + restamp CI_API_TAG (bash scripts/check-ci-api-tag.sh --print-expected)"
 echo ""
 echo "  # First mcp-v* tag only: the PyPI Trusted Publisher for 'trueppm-mcp' must"
 echo "  # already exist (GitLab / trueppm / trueppm / .gitlab-ci.yml / environment"

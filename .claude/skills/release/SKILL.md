@@ -165,7 +165,7 @@ The script, in order:
 1. Refuses to run unless the tree is clean, the branch is `main`, and none of the three tags exist
 2. Resolves the summary and aborts if there is none, all before touching anything
 3. Builds and Trivy-scans the api image (linux/amd64 only; arm64 is first built by the tag pipeline). This takes about 10 minutes on an arm64 Mac.
-4. Bumps every manifest to lockstep: `packages/{api,scheduler,mcp}/pyproject.toml`, `packages/mcp/server.json` (both fields), `packages/web/package.json`, `packages/wasm-scheduler/Cargo.{toml,lock}`, `packages/helm/Chart.yaml` (`version` and `appVersion`; the chart's default image tag is `v<appVersion>`). It also restamps `CI_API_TAG` in `.gitlab-ci.yml`, re-locks the three `uv.lock` files, and regenerates `docs/api/openapi.json`. `__version__` literals are **not** bumped; they are read from package metadata (#3878).
+4. Bumps every manifest to lockstep: `packages/{api,scheduler,mcp}/pyproject.toml`, `packages/mcp/server.json` (both fields), `packages/web/package.json`, `packages/wasm-scheduler/Cargo.{toml,lock}`, `packages/helm/Chart.yaml` (`version` and `appVersion`; the chart's default image tag is `v<appVersion>`). It also sets the api's `trueppm-scheduler` range to `>=<previous PEP 440>,<<new major.minor+1>` (`scripts/bump-api-scheduler-floor.sh`, before `CI_API_TAG` is computed, because the api pyproject is one of its digest inputs), restamps `CI_API_TAG` in `.gitlab-ci.yml`, re-locks the three `uv.lock` files, and regenerates `docs/api/openapi.json`. **It does not raise the api's scheduler floor to the new version** and cannot: the api lock resolves the scheduler from PyPI, and the new scheduler publishes only after the release commit's pipeline is green. The raise is Step 4's post-publish follow-up. `__version__` literals are **not** bumped; they are read from package metadata (#3878).
    It also rewrites the version pins in `packages/{scheduler,api,mcp}/README.md` (`scripts/bump-readme-pins.sh`; those READMEs are the PyPI long descriptions and were not manifests, so they used to stay one release behind and red `scheduler:test` on `main`), and it refreshes the venv's editable `trueppm-api` install so `make pre-push`'s `schema-check` sees the new version instead of blocking the push.
 5. On **every** release, pre-releases included, assembles `changelog.d/` into `[Unreleased]`, rotates it into `## [X.Y.Z] — YYYY-MM-DD` opening with the summary, leaves a fresh `_Nothing yet._` `[Unreleased]`, and deletes the consumed fragments. It rotates `packages/scheduler/CHANGELOG.md` the same way.
 6. Runs `remove-ships-in-callouts.sh` for the version's `0.X`. This is a no-op unless the roadmap promoted it (Step 1a).
@@ -249,6 +249,18 @@ In addition to the GitLab Release (GHCR publish itself is not the delta here —
   The enterprise repo has its own version line that increments independently. Run its release script only after the OSS tag has been pushed and the GHCR images are verified.
 
 ## Step 4 — Post-release verification
+
+**First, raise the api's scheduler floor as soon as `scheduler:publish` is green (#4080).** The release commit leaves `packages/api` on the scheduler it was cut from: floor and `uv.lock` on the previous (published) version, ceiling already admitting the new one. At a **minor boundary** (e.g. `0.4.0b4 → 0.5.0a1`) that lock trails the tree by one release line, and `lint:api-scheduler-lock` (also in `make pre-push`) tolerates that **only on the release commit itself** — the next commit on `main`, and every MR pipeline based on it, fails until the raise lands. Within a line nothing fails, but do it anyway, or the floor lags a release per cut. Once `pip index versions trueppm-scheduler` lists `<PEP440>`:
+
+```bash
+git checkout main && git pull origin main && git checkout -b chore/raise-api-scheduler-floor-<PEP440>
+bash scripts/bump-api-scheduler-floor.sh <PEP440>
+(cd packages/api && uv lock --upgrade-package trueppm-scheduler)
+bash scripts/check-ci-api-tag.sh --print-expected   # api pyproject is a digest input: restamp CI_API_TAG in .gitlab-ci.yml to this value
+bash scripts/check-api-scheduler-lock.sh            # must print a plain OK, not "OK (release commit)"
+```
+
+Commit as `chore(api): raise the trueppm-scheduler floor to <PEP440>` (a `chore/` branch is changelog-exempt), open the MR, and land it before anything else merges. `api:wheel-install-probe`'s `lowest` leg then proves the api imports every scheduler name it references against exactly `<PEP440>`. Do not do this before the scheduler is on PyPI: `uv lock` cannot resolve it, and forcing it is how a lock ends up describing a version that does not exist.
 
 - [ ] Confirm `APP_VERSION` (or equivalent) in the running stack reports the new version after a redeploy of the dev compose stack: `make up && curl http://localhost:8000/api/v1/version/`
 - [ ] Confirm the GitLab Release page is populated and the CHANGELOG section reads correctly
