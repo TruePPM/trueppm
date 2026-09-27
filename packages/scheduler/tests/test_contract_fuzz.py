@@ -493,9 +493,10 @@ def test_monte_carlo_never_precedes_cpm(project: Project) -> None:
     binding anyway would red the suite on correct output. The edges stay in the
     generator (they exercise the ``has_ef_constraint`` branch that #2833's ES floors
     run through, and the percentile-ordering leg below is asserted for every
-    example); only the finish-level comparison is held back. Tracked separately in
-    #3806 — whether the FF convention itself should place the start forward instead
-    is a semantics question for both engines, not a bugfix.
+    example); only the finish-level comparison is held back. #3806 decided to keep
+    the convention (an FF/SF-driven task stays contiguous and right-aligned on its
+    pinned finish, as MS Project renders it), so this exclusion is permanent, not a
+    placeholder for a future fix.
     """
     try:
         with _time_limit(HANG_SECONDS):

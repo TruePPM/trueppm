@@ -1726,7 +1726,9 @@ class TestMonteCarloDurationFloor:
         inherits. This is ``schedule()`` alone, no simulation involved: raising every
         duration moves the deterministic finish *back*. Pinned here so the
         non-monotonicity is a recorded property rather than a surprise the next time
-        someone asserts the finish-level binding unconditionally.
+        someone asserts the finish-level binding unconditionally. It is the decided
+        convention (#3806: keep MS Project's right-aligned placement), so a change
+        that makes this test fail is a semantics change for both engines.
         """
 
         def _finish(t2_days: int) -> date:

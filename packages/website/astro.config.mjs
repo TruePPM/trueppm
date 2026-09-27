@@ -501,6 +501,7 @@ export default defineConfig({
           label: "Scheduler Library",
           items: [
             { slug: "features/scheduler" },
+            { slug: "features/scheduler-conventions" },
             { slug: "embedding/standalone" },
             { slug: "embedding/django" },
             { slug: "embedding/fastapi" },
