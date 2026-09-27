@@ -193,7 +193,8 @@ def test_import_creates_full_program(owner: Any) -> None:
     assert program.lead is not None and program.lead.username == "seed-alex"
     assert Project.objects.filter(program=program).count() == 2
 
-    pc = Project.objects.get(program=program, code="", name="Platform Core")
+    # A seed project without a code gets one derived from its name (ADR-1237).
+    pc = Project.objects.get(program=program, code="PC", name="Platform Core")
     assert Task.objects.filter(project=pc).count() == 2
 
     # cross-project dependency resolved
@@ -303,7 +304,10 @@ def test_import_does_not_delete_another_owners_program_with_same_code(owner: Any
     assert Task.objects.filter(project__program_id=victim_id).count() == victim_task_count
     # Attacker got a *separate* program, not the victim's.
     assert attacker_program.pk != victim_id
-    assert Program.objects.filter(code="atlas", is_deleted=False).count() == 2
+    # Program keys are unique (ADR-1237): the attacker's copy is suffixed rather
+    # than sharing, or taking, the victim's key.
+    assert victim_program.code == "atlas"
+    assert Program.objects.get(pk=attacker_program.pk).code == "atlas-2"
 
 
 def test_sample_reload_refuses_to_delete_program_holding_real_work(owner: Any) -> None:

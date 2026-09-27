@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useParams } from 'react-router';
 import { SettingsPageTitle } from '../SettingsShell';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { useProgram } from '@/hooks/useProgram';
 import { ROLE_ADMIN } from '@/lib/roles';
 import { FieldHelp } from '@/components/FieldHelp';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { useProgramId } from '@/hooks/useProgramId';
 import {
   HEALTH_LABEL,
   HEALTH_VARIANT,
@@ -326,7 +326,7 @@ function RollupPreview({ programId, policyDirty }: { programId: string; policyDi
  *     executives see on Monday as a regression risk).
  */
 export function ProgramRollupPage() {
-  const { programId } = useParams<{ programId: string }>();
+  const programId = useProgramId();
   const { data: program } = useProgram(programId);
   const { data: config, isLoading, isError, refetch } = useProgramRollupConfig(programId);
   const toggleKpi = useToggleProgramRollupKpi(programId ?? '');

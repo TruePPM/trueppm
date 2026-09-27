@@ -156,6 +156,11 @@ def test_export_project_round_trip_is_stable(owner: Any) -> None:
     project2 = program2.projects.get()
     doc2 = export_project(project2)
 
+    # The one field that cannot round-trip here: the original project still
+    # holds its key, and keys are unique (ADR-1237), so the re-import is
+    # suffixed. Everything else is byte-identical.
+    assert doc1["projects"][0].pop("code") == "PC"
+    assert doc2["projects"][0].pop("code") == "PC2"
     assert dump_seed(doc1) == dump_seed(doc2)
 
 

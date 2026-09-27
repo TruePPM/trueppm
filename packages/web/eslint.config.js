@@ -208,6 +208,34 @@ export const NO_FLEX_TRUNCATE_WITHOUT_MIN_W_0 = [
   },
 ];
 
+// Route-id gate (ADR-1237 §7). `:projectId` / `:programId` may now be a KEY
+// (`PLAT`, `atlas-platform-launch`), a retired key or a UUID, so the raw param
+// read with `useParams()` is no longer an id: handing it to an API call sends a
+// key to a UUID-typed endpoint (the ADR's top risk #3). Components read the UUID
+// through `useProjectId()` / `useProgramId()` (and the URL segment for links
+// through `useProjectRef()` / `useProgramRef()`); only those hooks and the route
+// boundary that resolves the param may touch it. Three shapes are caught:
+// destructuring, a direct member read off the call, and the
+// `const params = useParams(); params.projectId` two-step — the last matched on the
+// conventional `params` name, since esquery cannot follow a binding.
+const ROUTE_ID_MESSAGE =
+  'Do not read `projectId`/`programId` from useParams() — the param may be a key, not a UUID (ADR-1237). Use useProjectId()/useProgramId() for the UUID, or useProjectRef()/useProgramRef() for the URL segment when building links.';
+const ROUTE_ID_NAMES = '/^(projectId|programId)$/';
+export const NO_ROUTE_ID_FROM_PARAMS = [
+  {
+    selector: `VariableDeclarator[init.type='CallExpression'][init.callee.name='useParams'] > ObjectPattern > Property[key.name=${ROUTE_ID_NAMES}]`,
+    message: ROUTE_ID_MESSAGE,
+  },
+  {
+    selector: `MemberExpression[object.type='CallExpression'][object.callee.name='useParams'][property.name=${ROUTE_ID_NAMES}]`,
+    message: ROUTE_ID_MESSAGE,
+  },
+  {
+    selector: `MemberExpression[object.name='params'][property.name=${ROUTE_ID_NAMES}]`,
+    message: ROUTE_ID_MESSAGE,
+  },
+];
+
 export default [
   {
     ignores: ['dist/', 'coverage/', 'src/api/types.ts', 'eslint.config.js', 'postcss.config.js'],
@@ -251,6 +279,7 @@ export default [
         NO_DEFAULT_EXPORT,
         ...NO_FOCUS_VISIBLE_ON_TRIGGER,
         ...NO_FLEX_TRUNCATE_WITHOUT_MIN_W_0,
+        ...NO_ROUTE_ID_FROM_PARAMS,
       ],
       // Prefer the Number.* static methods over the coercing global numeric
       // functions and bare NaN (#2099). Mirrors unicorn/prefer-number-properties
@@ -325,6 +354,7 @@ export default [
         ...NO_HARDCODED_ITERATION_LABEL,
         ...NO_FOCUS_VISIBLE_ON_TRIGGER,
         ...NO_FLEX_TRUNCATE_WITHOUT_MIN_W_0,
+        ...NO_ROUTE_ID_FROM_PARAMS,
       ],
     },
   },
@@ -342,6 +372,29 @@ export default [
         'error',
         NO_DEFAULT_EXPORT,
         ...NO_HARDCODED_ITERATION_LABEL,
+        ...NO_FLEX_TRUNCATE_WITHOUT_MIN_W_0,
+        ...NO_ROUTE_ID_FROM_PARAMS,
+      ],
+    },
+  },
+  // The route-id readers themselves (ADR-1237 §7): the two id hooks and the
+  // boundary that resolves the param are the only modules allowed to read it raw.
+  // Re-specifies the base list minus NO_ROUTE_ID_FROM_PARAMS (flat config replaces
+  // a rule's options per file); none of these files is under a feature dir, so the
+  // base list is the one that applied.
+  {
+    files: [
+      'src/hooks/useProjectId.ts',
+      'src/hooks/useProgramId.ts',
+      'src/hooks/useProjectRef.ts',
+      'src/hooks/useProgramRef.ts',
+      'src/router/RefBoundary.tsx',
+    ],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        NO_DEFAULT_EXPORT,
+        ...NO_FOCUS_VISIBLE_ON_TRIGGER,
         ...NO_FLEX_TRUNCATE_WITHOUT_MIN_W_0,
       ],
     },

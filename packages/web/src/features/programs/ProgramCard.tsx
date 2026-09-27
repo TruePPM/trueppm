@@ -4,6 +4,7 @@ import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { PinToggle } from '@/components/PinToggle';
 import { ProgramIdentitySquare } from './ProgramIdentitySquare';
 import { HEALTH_BAND_LABEL } from '@/lib/healthBand';
+import { programPath } from '@/lib/refPath';
 
 interface Props {
   program: Program;
@@ -75,7 +76,7 @@ export function ProgramCard({ program, onResort }: Props) {
   return (
     <li className="group relative">
       <Link
-        to={`/programs/${program.id}/projects`}
+        to={programPath(program, 'projects')}
         aria-label={ariaLabel}
         // A pinned card also takes an accent border (design §4.3): scanning 24
         // cards, a 18px corner glyph is too small to group by, so the border is
