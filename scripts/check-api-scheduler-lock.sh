@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Fail when packages/api/uv.lock resolves trueppm-scheduler to an older release
 # LINE than the scheduler this tree ships, or when the api's declared range cannot
-# admit that scheduler at all (#4080).
+# admit that scheduler at all (#4080). Also fail when packages/api/uv.lock resolves
+# one of the LOCAL scheduler's own runtime dependencies (networkx, numpy, ...) to a
+# version that does not satisfy what packages/scheduler/pyproject.toml declares
+# (#4185).
 #
 # The API imports scheduler symbols (derive.Quantity, engine privates) that only
 # exist in the scheduler it is tagged with. `uv lock --check` cannot see this: it
@@ -32,11 +35,39 @@
 # so the tree's own scheduler is admissible, or the api image (which pip-installs
 # the in-tree scheduler, then the api) would be resolved back onto the old line.
 #
+# --- Transitive dependency check (#4185) -----------------------------------
+# The api image installs the LOCAL scheduler source with `--no-deps` and
+# excludes trueppm-scheduler from the lock export (`--no-emit-package
+# trueppm-scheduler`, see packages/api/Dockerfile). So networkx and numpy come
+# from whatever version packages/api/uv.lock resolved for the PyPI
+# trueppm-scheduler entry - NOT from anything the local scheduler source
+# declares. Both installs are --no-deps, so pip never cross-checks this; a
+# same-line floor bump in packages/scheduler/pyproject.toml that has not yet
+# been released to PyPI (so the api's own scheduler entry can't see it either)
+# would go unenforced anywhere and only surface as a runtime import/behavior
+# failure inside the built image.
+#
+# This walks every requirement in packages/scheduler/pyproject.toml's
+# `[project] dependencies` array (not the dev/optional extras - those are
+# never installed into the api image), resolves the matching package's locked
+# version from packages/api/uv.lock, and checks the version satisfies every
+# comma-separated clause of the declared specifier. A requirement whose
+# environment marker evaluates false for the target runtime (Python 3.11,
+# Linux - see packages/api/Dockerfile) is skipped, since it is never
+# installed there either way. Anything else - a marker key this script does
+# not recognize - is enforced rather than skipped: erring toward a false
+# alarm is safer than erring toward silently dropping a real constraint.
+#
 #   bash scripts/check-api-scheduler-lock.sh             # check the tree
 #   bash scripts/check-api-scheduler-lock.sh --self-test # prove it can fail
 set -euo pipefail
 REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 RELEASE_SUBJECT_RE='^chore\(release\): bump version to '
+# The api image's runtime interpreter/OS (packages/api/Dockerfile pins
+# python:3.11-slim on a Debian/glibc Linux base) - the reference used to
+# decide whether a scheduler dependency's environment marker applies.
+SCHED_TARGET_PYTHON="3.11"
+SCHED_TARGET_PLATFORM="linux"
 
 line_of() { # "0.4.0b4" -> "0.4"
   printf '%s\n' "$1" | sed -E 's/^([0-9]+)\.([0-9]+).*/\1.\2/'
@@ -49,8 +80,187 @@ sched_version() { # stdin: scheduler pyproject.toml
 }
 git_() { git -c safe.directory='*' -C "$1" "${@:2}"; }
 
+# version_cmp() - compare two dotted version strings with `sort -V`.
+# Prints "lt", "eq", or "gt" for $1 <=> $2.
+version_cmp() {
+  if [ "$1" = "$2" ]; then
+    echo eq
+    return
+  fi
+  local first
+  first="$(printf '%s\n%s\n' "$1" "$2" | sort -V | sed -n 1p)"
+  if [ "$first" = "$1" ]; then echo lt; else echo gt; fi
+}
+
+# version_cmp_ok VERSION OP BOUND -> exit 0 when "VERSION OP BOUND" holds.
+# Only the operators that appear anywhere in this repo's pyproject.toml files
+# today (==, !=, <, <=, >, >=) are handled; an unrecognized operator is a
+# malformed requirement and fails loudly rather than being ignored.
+version_cmp_ok() {
+  local v="$1" op="$2" b="$3" cmp
+  cmp="$(version_cmp "$v" "$b")"
+  case "$op" in
+  '==') [ "$cmp" = eq ] ;;
+  '!=') [ "$cmp" != eq ] ;;
+  '>=') [ "$cmp" = eq ] || [ "$cmp" = gt ] ;;
+  '<=') [ "$cmp" = eq ] || [ "$cmp" = lt ] ;;
+  '>') [ "$cmp" = gt ] ;;
+  '<') [ "$cmp" = lt ] ;;
+  *)
+    echo "FAIL: unrecognized version comparison operator '$op'" >&2
+    return 1
+    ;;
+  esac
+}
+
+# canon_name() - PEP 503-ish normalization so "trueppm-scheduler",
+# "trueppm_scheduler" and "TruePPM-Scheduler" compare equal.
+canon_name() {
+  printf '%s' "$1" | tr 'A-Z' 'a-z' | sed -E 's/[-_.]+/-/g'
+}
+
+# sched_dependencies_of() - stdin: packages/scheduler/pyproject.toml ->
+# one raw requirement string per line, from the `[project] dependencies`
+# array only (never the `[project.optional-dependencies]` dev extras, which
+# the api image never installs).
+sched_dependencies_of() {
+  awk '
+    /^dependencies = \[/ { indeps = 1; next }
+    indeps && /^\]/ { indeps = 0; next }
+    indeps { print }
+  ' | sed -nE 's/^[[:space:]]*"([^"]*)".*/\1/p'
+}
+
+# parse_requirement REQ -> prints NAME\nSPEC\nMARKER (3 lines). Strips a
+# `[extra,extra]` marker-independent extras suffix on the name if present.
+parse_requirement() {
+  local req="$1" name body spec marker
+  name="$(printf '%s' "$req" | sed -E 's/^([A-Za-z0-9][A-Za-z0-9_.-]*).*/\1/')"
+  body="${req#"$name"}"
+  body="${body#*]}" # drop a leading "[extra,...]" if present; no-op otherwise
+  if [[ "$body" == *";"* ]]; then
+    spec="${body%%;*}"
+    marker="${body#*;}"
+  else
+    spec="$body"
+    marker=""
+  fi
+  spec="$(printf '%s' "$spec" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+  marker="$(printf '%s' "$marker" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+  printf '%s\n%s\n%s\n' "$name" "$spec" "$marker"
+}
+
+# marker_applies MARKER -> exit 0 when the requirement applies to the api
+# image's target runtime (or MARKER is empty). Recognizes python_version /
+# python_full_version and sys_platform clauses; anything else is treated as
+# applying, since this script cannot prove it does not (see file header).
+marker_applies() {
+  local marker="$1" op val
+  [ -z "$marker" ] && return 0
+  if [[ "$marker" =~ ^python_(full_)?version[[:space:]]*(==|!=|\<=|\>=|\<|\>)[[:space:]]*[\"\']([0-9][0-9A-Za-z.]*)[\"\']$ ]]; then
+    op="${BASH_REMATCH[2]}"
+    val="${BASH_REMATCH[3]}"
+    version_cmp_ok "$SCHED_TARGET_PYTHON" "$op" "$val"
+    return $?
+  fi
+  if [[ "$marker" =~ ^sys_platform[[:space:]]*(==|!=)[[:space:]]*[\"\']([A-Za-z0-9_]+)[\"\']$ ]]; then
+    op="${BASH_REMATCH[1]}"
+    val="${BASH_REMATCH[2]}"
+    if [ "$op" = "==" ]; then
+      [ "$val" = "$SCHED_TARGET_PLATFORM" ]
+    else
+      [ "$val" != "$SCHED_TARGET_PLATFORM" ]
+    fi
+    return $?
+  fi
+  return 0 # unrecognized marker key: cannot prove it doesn't apply -> enforce
+}
+
+# specifier_satisfied VERSION SPEC -> exit 0 when VERSION satisfies every
+# comma-separated clause of SPEC (e.g. ">=3.0,<4").
+specifier_satisfied() {
+  local version="$1" spec="$2" clause op val
+  IFS=',' read -ra clauses <<<"$spec"
+  for clause in "${clauses[@]}"; do
+    clause="$(printf '%s' "$clause" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+    [ -z "$clause" ] && continue
+    if [[ "$clause" =~ ^(==|!=|\<=|\>=|\<|\>)[[:space:]]*([0-9][0-9A-Za-z.+_-]*)$ ]]; then
+      op="${BASH_REMATCH[1]}"
+      val="${BASH_REMATCH[2]}"
+      version_cmp_ok "$version" "$op" "$val" || return 1
+    else
+      echo "FAIL: unrecognized version specifier clause '$clause' in \"$spec\" - cannot verify it" >&2
+      return 1
+    fi
+  done
+  return 0
+}
+
+# lock_version_of PKG -> stdin: a uv.lock file; prints the resolved version
+# of the first `[[package]]` block whose name matches PKG (canonicalized), or
+# nothing if PKG has no entry.
+lock_version_of() {
+  local want
+  want="$(canon_name "$1")"
+  awk -v want="$want" '
+    /^\[\[package\]\]/ { name = "" }
+    /^name = / {
+      name = $0
+      sub(/^name = "/, "", name)
+      sub(/".*$/, "", name)
+    }
+    /^version = / && name != "" {
+      canon = tolower(name)
+      gsub(/[-_.]+/, "-", canon)
+      if (canon == want) {
+        v = $0
+        sub(/^version = "/, "", v)
+        sub(/".*$/, "", v)
+        print v
+        exit
+      }
+      name = "" # only the first version= line per block is the package version
+    }
+  '
+}
+
+# check_scheduler_deps ROOT -> exit 0 when every requirement in
+# packages/scheduler/pyproject.toml's dependencies array is satisfied by the
+# version packages/api/uv.lock resolved for that package (#4185).
+check_scheduler_deps() {
+  local root="$1" req name spec marker locked lines status=0
+  while IFS= read -r req; do
+    [ -z "$req" ] && continue
+    lines="$(parse_requirement "$req")"
+    name="$(sed -n 1p <<<"$lines")"
+    spec="$(sed -n 2p <<<"$lines")"
+    marker="$(sed -n 3p <<<"$lines")"
+    if ! marker_applies "$marker"; then
+      continue
+    fi
+    locked="$(lock_version_of "$name" <"$root/packages/api/uv.lock")"
+    if [ -z "$locked" ]; then
+      echo "FAIL: packages/scheduler/pyproject.toml requires \"$req\", but packages/api/uv.lock has no" >&2
+      echo "      entry for '$name'. The api installs the local scheduler with --no-deps, so this lock" >&2
+      echo "      entry is the ONLY source of that dependency at runtime." >&2
+      status=1
+      continue
+    fi
+    if [ -n "$spec" ] && ! specifier_satisfied "$locked" "$spec"; then
+      echo "FAIL: packages/api/uv.lock resolves $name==$locked, which does not satisfy the local" >&2
+      echo "      scheduler's declared requirement \"$req\" (packages/scheduler/pyproject.toml)." >&2
+      echo "      Both the local scheduler and the api install with --no-deps, so pip never catches" >&2
+      echo "      this; it would surface only as a runtime failure. Raise packages/api/uv.lock's" >&2
+      echo "      $name pin, or lower the scheduler's floor to a version already released to PyPI." >&2
+      status=1
+    fi
+  done < <(sched_dependencies_of <"$root/packages/scheduler/pyproject.toml")
+  return $status
+}
+
 check() {
   local root="$1" want have range floor ceil subject prev parents mcp_now mcp_prev
+  local own_line_status=0 deps_status=0
   want="$(sched_version <"$root/packages/scheduler/pyproject.toml")"
   have="$(awk '/^name = "trueppm-scheduler"$/ {f=1; next} f && /^version = / {gsub(/[" ]|version=/, "", $0); sub(/^version=/, "", $0); print; exit}' \
     "$root/packages/api/uv.lock" | tr -d '"' | sed 's/^version *= *//')"
@@ -74,30 +284,32 @@ check() {
 
   if ! line_lt "$(line_of "$have")" "$(line_of "$want")"; then
     echo "OK: api lock trueppm-scheduler $have covers scheduler $want"
-    return 0
+  else
+    subject="$(git_ "$root" log -1 --format=%s 2>/dev/null || true)"
+    parents="$(git_ "$root" rev-list --parents -n 1 HEAD 2>/dev/null | wc -w | tr -d ' ' || true)"
+    prev="$(git_ "$root" show HEAD^:packages/scheduler/pyproject.toml 2>/dev/null | sched_version || true)"
+    mcp_now="$(sched_version <"$root/packages/mcp/pyproject.toml" 2>/dev/null || true)"
+    mcp_prev="$(git_ "$root" show HEAD^:packages/mcp/pyproject.toml 2>/dev/null | sched_version || true)"
+    if grep -qE "$RELEASE_SUBJECT_RE" <<<"$subject" &&
+      [ "$parents" = "2" ] &&
+      [ -n "$prev" ] &&
+      [ "$mcp_now" = "$want" ] && [ "$mcp_prev" != "$want" ] &&
+      [ "$(line_of "$have")" = "$(line_of "$prev")" ]; then
+      echo "OK (release commit): api lock trueppm-scheduler $have trails scheduler $want by one line;"
+      echo "    $want is not on PyPI until this commit's tags publish. Raise it right after:"
+      echo "    bash scripts/bump-api-scheduler-floor.sh $want && (cd packages/api && uv lock --upgrade-package trueppm-scheduler)"
+    else
+      echo "FAIL: packages/api/uv.lock pins trueppm-scheduler $have but the tree ships $want." >&2
+      echo "      If $want is published, raise it (release skill, Step 4):" >&2
+      echo "        bash scripts/bump-api-scheduler-floor.sh $want && (cd packages/api && uv lock --upgrade-package trueppm-scheduler)" >&2
+      echo "      Only the release commit that bumped the scheduler may trail by one line." >&2
+      own_line_status=1
+    fi
   fi
 
-  subject="$(git_ "$root" log -1 --format=%s 2>/dev/null || true)"
-  parents="$(git_ "$root" rev-list --parents -n 1 HEAD 2>/dev/null | wc -w | tr -d ' ' || true)"
-  prev="$(git_ "$root" show HEAD^:packages/scheduler/pyproject.toml 2>/dev/null | sched_version || true)"
-  mcp_now="$(sched_version <"$root/packages/mcp/pyproject.toml" 2>/dev/null || true)"
-  mcp_prev="$(git_ "$root" show HEAD^:packages/mcp/pyproject.toml 2>/dev/null | sched_version || true)"
-  if grep -qE "$RELEASE_SUBJECT_RE" <<<"$subject" &&
-     [ "$parents" = "2" ] &&
-     [ -n "$prev" ] &&
-     [ "$mcp_now" = "$want" ] && [ "$mcp_prev" != "$want" ] &&
-     [ "$(line_of "$have")" = "$(line_of "$prev")" ]; then
-    echo "OK (release commit): api lock trueppm-scheduler $have trails scheduler $want by one line;"
-    echo "    $want is not on PyPI until this commit's tags publish. Raise it right after:"
-    echo "    bash scripts/bump-api-scheduler-floor.sh $want && (cd packages/api && uv lock --upgrade-package trueppm-scheduler)"
-    return 0
-  fi
+  check_scheduler_deps "$root" || deps_status=1
 
-  echo "FAIL: packages/api/uv.lock pins trueppm-scheduler $have but the tree ships $want." >&2
-  echo "      If $want is published, raise it (release skill, Step 4):" >&2
-  echo "        bash scripts/bump-api-scheduler-floor.sh $want && (cd packages/api && uv lock --upgrade-package trueppm-scheduler)" >&2
-  echo "      Only the release commit that bumped the scheduler may trail by one line." >&2
-  return 1
+  [ "$own_line_status" -eq 0 ] && [ "$deps_status" -eq 0 ]
 }
 
 if [ "${1:-}" = "--self-test" ]; then
@@ -110,6 +322,29 @@ if [ "${1:-}" = "--self-test" ]; then
     printf 'version = "%s"\n' "${5:-$1}" >"$tmp/packages/mcp/pyproject.toml"
     printf 'dependencies = [\n    "trueppm-scheduler>=%s,<%s",\n]\n' "$2" "$3" >"$tmp/packages/api/pyproject.toml"
     printf '[[package]]\nname = "trueppm-scheduler"\nversion = "%s"\n' "$4" >"$tmp/packages/api/uv.lock"
+  }
+  # tree_deps <scheduler+api version> <dep requirement, e.g. "networkx>=3.0,<4 ; python_version >= '3.0'"> <dep locked version>
+  # A minimal fixture isolating the transitive-dependency check (#4185): the
+  # scheduler's OWN version line always matches the lock exactly, so only the
+  # declared dependency's satisfaction (or lack of it) can flip the result.
+  tree_deps() {
+    local dep_name
+    dep_name="$(printf '%s' "$2" | sed -E 's/^([A-Za-z0-9][A-Za-z0-9_.-]*).*/\1/')"
+    mkdir -p "$tmp/packages/scheduler" "$tmp/packages/api" "$tmp/packages/mcp"
+    printf 'version = "%s"\ndependencies = [\n    "%s",\n]\n' "$1" "$2" >"$tmp/packages/scheduler/pyproject.toml"
+    printf 'version = "%s"\n' "$1" >"$tmp/packages/mcp/pyproject.toml"
+    printf 'dependencies = [\n    "trueppm-scheduler>=%s,<9.9",\n]\n' "$1" >"$tmp/packages/api/pyproject.toml"
+    printf '[[package]]\nname = "trueppm-scheduler"\nversion = "%s"\n\n[[package]]\nname = "%s"\nversion = "%s"\n' \
+      "$1" "$dep_name" "$3" >"$tmp/packages/api/uv.lock"
+  }
+  # tree_deps_missing <scheduler+api version> <dep requirement> - same as
+  # tree_deps but writes NO matching [[package]] entry for the dependency.
+  tree_deps_missing() {
+    mkdir -p "$tmp/packages/scheduler" "$tmp/packages/api" "$tmp/packages/mcp"
+    printf 'version = "%s"\ndependencies = [\n    "%s",\n]\n' "$1" "$2" >"$tmp/packages/scheduler/pyproject.toml"
+    printf 'version = "%s"\n' "$1" >"$tmp/packages/mcp/pyproject.toml"
+    printf 'dependencies = [\n    "trueppm-scheduler>=%s,<9.9",\n]\n' "$1" >"$tmp/packages/api/pyproject.toml"
+    printf '[[package]]\nname = "trueppm-scheduler"\nversion = "%s"\n' "$1" >"$tmp/packages/api/uv.lock"
   }
   commit() {
     git -C "$tmp" add -A >/dev/null
@@ -126,6 +361,28 @@ if [ "${1:-}" = "--self-test" ]; then
   tree 0.4.0b4 0.4.0b4 0.5 0.4.0b4; pass "exact lock"
   tree 0.4.0b4 0.4.0b4 0.4 0.4.0b4; reject "a ceiling that excludes the tree's scheduler"
   tree 0.4.0b4 0.5.0a1 0.6 0.5.0a1; reject "a floor above the tree's scheduler"
+
+  # --- transitive scheduler dependency checks (#4185) ---
+  tree_deps 0.4.0b4 "networkx>=3.0,<4" 3.6.1
+  pass "locked networkx 3.6.1 satisfies the tree's declared >=3.0,<4"
+  tree_deps 0.4.0b4 "numpy>=1.26,<3" 2.4.6
+  pass "locked numpy 2.4.6 satisfies the tree's declared >=1.26,<3"
+  tree_deps 0.4.0b4 "networkx>=5.0,<6" 3.6.1
+  reject "a local scheduler floor (>=5.0) raised above the PyPI-resolved lock (3.6.1) - the fixture the issue asked for"
+  tree_deps 0.4.0b4 "networkx>=3.0,<4" 4.1.0
+  reject "a locked version (4.1.0) above the scheduler's declared ceiling (<4)"
+  tree_deps 0.4.0b4 "numpy==1.26.0" 1.26.4
+  reject "an exact-pin requirement the locked version does not match"
+  tree_deps_missing 0.4.0b4 "networkx>=3.0,<4"
+  reject "a scheduler dependency with no matching entry in the api lock at all"
+  # A marker that does not apply to the api image's target runtime (Python
+  # 3.11) must be skipped even though the bare specifier would fail loudly.
+  tree_deps 0.4.0b4 "impossible-pkg<1.0 ; python_version < '3.0'" 999.0.0
+  pass "a requirement whose python_version marker does not apply is skipped, not enforced"
+  tree_deps 0.4.0b4 "impossible-pkg<1.0 ; python_version >= '3.0'" 999.0.0
+  reject "a requirement whose python_version marker DOES apply is still enforced"
+  tree_deps 0.4.0b4 "impossible-pkg<1.0 ; sys_platform == 'win32'" 999.0.0
+  pass "a requirement scoped to a sys_platform the api image never runs on is skipped"
 
   git -C "$tmp" init -q
   tree 0.4.0b4 0.4.0b4 0.5 0.4.0b4; commit "feat: last commit before the cut"
