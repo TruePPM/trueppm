@@ -37,8 +37,9 @@ day length. It is used in three places:
   calendar's hours per day and rounded **up** to whole days when you enter it, so `7h` is
   two days on a 6-hour calendar and one day on an 8-hour one — see
   [Schedule build mode](/features/schedule-build-mode/). The task stores the whole-day
-  count. Changing hours per day later keeps that day count and only changes how it reads
-  in hours (two stored days show as `12h` on a 6-hour calendar, `16h` on an 8-hour one).
+  count. Changing hours per day later keeps that day count. A task whose duration unit is
+  set to hours then reads differently (two stored days show as `12h` on a 6-hour
+  calendar, `16h` on an 8-hour one); a task shown in days is unaffected.
 - It does **not** change how the scheduler counts a duration that is already in days.
   The engine counts whole working days, so a 5-day task spans the same elapsed days on a
   6-hour calendar as on an 8-hour one. Sub-day scheduling is planned for 0.6.

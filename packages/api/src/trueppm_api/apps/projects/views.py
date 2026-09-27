@@ -1131,9 +1131,10 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
     def perform_update(self, serializer: BaseSerializer[Calendar]) -> None:
         # working_days is the CPM input on Calendar — changing it shifts every
         # finish date on every project scheduled against this calendar (#1492).
-        # hours_per_day does not move dates (the engine counts whole working days,
-        # and hour-unit estimates are converted once, at entry), but it stays in the
-        # trigger set so the scheduler's reserved field never silently goes stale.
+        # hours_per_day does not move dates today (the engine counts whole working
+        # days, and hour-unit estimates are converted once, at entry). It stays in
+        # the trigger set because sub-day scheduling (#1216) will make it a CPM
+        # input, and a stale schedule then would be silent.
         # timezone is round-tripped but not yet consumed by the scheduler
         # (trueppm_scheduler.models.Calendar docstring), and name is pure metadata,
         # so a PATCH touching only those must not fan out a recompute
