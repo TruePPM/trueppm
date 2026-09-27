@@ -301,9 +301,10 @@ def test_project_to_json_forwards_keyword_arguments() -> None:
 # ---------------------------------------------------------------------------
 #
 # The #4130 rejection tests live in ``test_reject_in_both_engines.py``, which the
-# mutation gate excludes (it reads the shared ``fixtures/`` tree, absent from
-# mutmut's sandbox). So every ``_require_str`` call was executed but unasserted
-# *inside the measured suite*: swapping the field name to ``"XXidXX"`` or the
+# mutation gate used to exclude on the mistaken belief that it reads the shared
+# ``fixtures/`` tree (it does not; it has counted since #4179). While it was
+# excluded, every ``_require_str`` call was executed but unasserted *inside the
+# measured suite*: swapping the field name to ``"XXidXX"`` or the
 # owner label to ``"PROJECT"`` changed nothing any measured test could see, and
 # the score fell 96.6% -> 90.6% on the nightly. These assert the offending field
 # **and** the exact message, so the owner label, the field label, the type name
