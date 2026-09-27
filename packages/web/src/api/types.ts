@@ -334,8 +334,18 @@ export interface Program {
   is_pinned: boolean;
   name: string;
   description: string;
-  /** Optional short code; empty string when unset. */
+  /**
+   * The program **key** (ADR-1237): a lowercase slug, unique and case-insensitive,
+   * and the form the program takes in URLs (`/programs/atlas-platform-launch/…`).
+   * The wire name stays `code`.
+   */
   code: string;
+  /**
+   * Retired keys this program holds (ADR-1237 cap of 10). `null` on the list
+   * endpoint, a number on retrieve/update — the settings page reads it to make
+   * the key read-only at the cap.
+   */
+  retired_key_count?: number | null;
   methodology: ProgramMethodology;
   /** Read-only server-resolved methodology (ADR-0107): program ?? workspace, gated
    *  by the workspace policy. `inherited_methodology` is the workspace default the
@@ -884,4 +894,42 @@ export interface PinnedItem {
   program_id: string | null;
   program_name: string | null;
   pinned_at: string;
+}
+
+/** What `GET /api/v1/resolve/` resolved a reference to (ADR-1237 §5). */
+export type ResolveResponseType = 'project' | 'program' | 'task' | 'sprint' | 'risk';
+
+/**
+ * `GET /api/v1/resolve/?kind=project|program&ref=<ref>` — a key, a retired key, a
+ * UUID, or a `PLAT-T-10` reference turned into the UUIDs every other endpoint
+ * takes (ADR-1237 §5). `key` and `canonical_ref` are always the **current** form,
+ * so a caller holding a retired key learns the new one. Anything the caller
+ * cannot read is the same `404 {"detail": "Not found."}` as something that does
+ * not exist.
+ */
+export interface ResolveResponse {
+  type: ResolveResponseType;
+  /** UUID of the resolved object (the project, program, task, sprint or risk). */
+  id: string;
+  project_id: string | null;
+  program_id: string | null;
+  /** Current key of the owning project/program; null for a keyless project. */
+  key: string | null;
+  /** `PLAT`, `atlas-platform-launch`, `PLAT-T-10` … or the UUID when keyless. */
+  canonical_ref: string;
+}
+
+/** Why `GET /api/v1/keys/?key=` refused a key (ADR-1237 §6). */
+export type KeyUnavailableReason = 'taken' | 'reserved' | 'invalid';
+
+/**
+ * `GET /api/v1/keys/` (ADR-1237 §6). With `name`, only `suggestion` is present.
+ * With `key`, `available` and `reason` are present too. A taken key never names
+ * its holder — the endpoint is a deliberate existence oracle, nothing more.
+ */
+export interface KeySuggestionResponse {
+  available?: boolean;
+  reason?: KeyUnavailableReason | null;
+  /** A free key: derived from `name`, or the next free suffix of `key`. */
+  suggestion: string;
 }

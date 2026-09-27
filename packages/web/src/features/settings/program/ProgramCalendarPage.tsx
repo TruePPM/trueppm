@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
@@ -10,6 +9,7 @@ import { useUpdateProgram } from '@/hooks/useProgramMutations';
 import { useCalendars, type WorkingCalendar } from '@/hooks/useCalendars';
 import type { EffectiveCalendar } from '@/api/types';
 import { ROLE_ADMIN } from '@/lib/roles';
+import { useProgramId } from '@/hooks/useProgramId';
 import {
   summarizeWorkingCalendar,
   SYSTEM_DEFAULT_CALENDAR,
@@ -232,7 +232,7 @@ function CalendarOverrideControl({
 }
 
 export function ProgramCalendarPage() {
-  const { programId } = useParams<{ programId: string }>();
+  const programId = useProgramId();
   const {
     data: program,
     isLoading: programLoading,

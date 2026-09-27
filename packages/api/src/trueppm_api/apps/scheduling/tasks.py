@@ -1260,7 +1260,9 @@ def _run_schedule(
     leaf_tasks, expanded_deps = graph.tasks, graph.dependencies
 
     sched_project = SchedProject(
-        id=project_id,
+        # The engine rejects a non-str id; a caller may hand this a UUID (kombu's
+        # JSON serializer round-trips uuid.UUID), so coerce rather than trust the hint.
+        id=str(project_id),
         name=db_project.name,
         start_date=db_project.start_date,
         tasks=leaf_tasks,

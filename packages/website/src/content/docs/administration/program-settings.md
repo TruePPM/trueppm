@@ -1,6 +1,7 @@
 ---
 title: Program Settings
 description: Configure a program's identity, delivery model, rollup KPIs, cadence, risk policy, and lifecycle — and how each setting inherits from the workspace or is overridden per program.
+documentedFor: "0.4"
 ---
 
 :::note[Added in 0.2 (alpha)]
@@ -56,12 +57,22 @@ named on program surfaces as Program Admin, Program Manager, Resource Manager,
 Team Member, and Viewer, and are **separate from project roles**; see
 [Roles & Permissions](/administration/rbac/).
 
-A **closed** program (see [Lifecycle](#lifecycle)) is read-only shell-wide: every
-Add/Edit/Remove-style control across these settings sections is disabled or
-hidden — and says so — even for a Program Manager or Program Admin, because the underlying write is
-rejected server-side once the program is closed. Reopen the program to resume
-editing. Member removal on the **Access** section is the one exception: it stays
-available on a closed program, since removing a member is not itself blocked.
+A **closed** program (see [Lifecycle](#lifecycle)) is read-only shell-wide: the
+server rejects writes to its settings, members, and other program-level records,
+even from a Program Manager or Program Admin, and the Add/Edit/Remove-style
+controls in these settings sections are disabled or hidden, with a message saying
+so. Reopen the program to resume editing. A few actions stay available because
+they remove access instead of changing the program:
+
+- **Leaving the program.** On the **Access** section you can still remove
+  yourself (**Leave**) from a closed program. Removing *another* member is
+  refused until the program is reopened, so the **Remove** button is hidden on
+  every row but your own.
+- **Revoking a program API token and deleting a program webhook.** A closed
+  program stays readable, and its projects keep accepting writes, so a program
+  token keeps its access and a program webhook keeps sending events. Revoking or
+  deleting them is how you cut that off without reopening the program. Creating
+  a token, or creating or editing a webhook, is refused on a closed program.
 
 ## General
 
@@ -71,7 +82,7 @@ here affect every project in the program.
 | Field | Description |
 |---|---|
 | Program name | Display name shown across the program's views. |
-| Program code | Short prefix used for task IDs and exports (e.g. `APOLLO-123`). |
+| Program key | The program's short name in its link, such as `/programs/atlas-platform-launch/overview`: lowercase letters, digits and hyphens, up to 40 characters, unique across the workspace. The **New program** dialog suggests one from the name and checks that it's available. When you rename it, links that use the old key keep working and switch to the new one, and the old key stays reserved for this program. A program can be renamed at most 10 times. |
 | Accent color | Program accent swatch used in nav and health chrome. |
 | Description | Free-text summary of the program's purpose. |
 | Target date | The program's headline target finish date. |
@@ -317,6 +328,11 @@ The **Integrations** section configures **program-wide webhooks and API tokens**
 which fire across every project in the program. Project-scoped integrations live
 under each project's own settings instead. See [Webhooks](/features/webhooks/)
 and the [MCP server](/administration/mcp-server/).
+
+On a closed program you can still revoke tokens and delete webhooks, but you
+cannot create a token or create or edit a webhook. This section does not hide
+those controls yet, so on a closed program the create and save actions show the
+server's refusal instead.
 
 ## Lifecycle
 

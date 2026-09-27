@@ -64,6 +64,11 @@ Open the sidebar PROGRAMS section and select **+ New program**, or navigate to
 **/programs** and select **+ New program**. Fill in:
 
 - **Name** — display name, e.g. "Phase 2 Modernization".
+- **Key** — the program's name in its link, e.g. `/programs/phase-2-modernization/`.
+  It is suggested from the name as you type and checked for availability; edit it
+  if you want something shorter. Lowercase letters, digits and hyphens, up to 40
+  characters, unique across the workspace. You can change it later in
+  [program settings](/administration/program-settings/), and old links keep working.
 - **Description** — optional.
 - **Methodology** — Hybrid (default), Waterfall, or Agile. The choice is a
   default for new projects created within the program; existing projects in

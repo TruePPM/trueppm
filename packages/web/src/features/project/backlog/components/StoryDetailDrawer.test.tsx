@@ -44,7 +44,7 @@ function makeStory(overrides: Partial<Task> = {}): Task {
     // a nice identifier, so a render bug dumping the raw field passed silently).
     shortId: '0000002A',
     shortIdDisplay: 'T-42',
-    qualifiedId: 'PROJ-42',
+    qualifiedId: 'PROJ-T-42',
     taskType: 'story',
     parentEpic: null,
     dor: 'idea',
@@ -108,7 +108,7 @@ describe('StoryDetailDrawer (#1043)', () => {
 
   it('renders the server-decoded reference in the header, never the raw hex short_id (#2671)', () => {
     renderDrawer(makeStory());
-    expect(screen.getByText('PROJ-42')).toBeInTheDocument();
+    expect(screen.getByText('PROJ-T-42')).toBeInTheDocument();
     expect(screen.queryByText('0000002A')).not.toBeInTheDocument();
   });
 

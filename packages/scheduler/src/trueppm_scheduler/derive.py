@@ -366,10 +366,11 @@ def _pred_forward_contribution(
 ) -> DerivationContribution:
     """One predecessor's early-* contribution, snapped to a working day.
 
-    Reproduces the FS/SS/FF/SF anchoring of ``engine._forward_pass``: FS/FF read
+    Reproduces the FS/SS/FF/SF anchoring of ``engine._edge_anchor``: FS/FF read
     the predecessor's ``early_finish`` (FS with the extra +1 inclusive→exclusive
-    interval day), SS/SF its ``early_start``, then snap ``anchor + lag`` forward
-    to the next working day.
+    interval day), SS its ``early_start``, and SF the last working day *before*
+    its ``early_start`` on the predecessor's calendar (#4145); then snap
+    ``anchor + lag`` forward to the next working day.
 
     Milestones (#4079): a milestone predecessor anchors on its instant
     (``engine._edge_anchor``), and a milestone *target* is shown on the day of the
@@ -1121,7 +1122,6 @@ def _milestone_context(
     result: ScheduleResult,
     task: Task,
     preds: list[tuple[Task, DependencyType, timedelta]],
-    succs: list[tuple[Task, DependencyType, timedelta]],
     cal: Calendar,
     default_cal: Calendar,
 ) -> _MilestoneContext:
@@ -1129,14 +1129,21 @@ def _milestone_context(
 
     A milestone's kind and late instant are not in the result and can chain through
     other milestones, so they come from a pass replay
-    (``engine._milestone_instants``) — paid only when the derivation touches a
+    (``engine._milestone_instants``) — paid only when the project has a
     zero-duration task. Otherwise every accessor degrades to plain dates.
+
+    The replay is keyed on the whole project, not on the tasks this derivation
+    touches: every late date is seeded from the project's finish *instant*
+    (``engine._finish_instant``), and a milestone anywhere — an unlinked terminal
+    one included — can move it off the end of the finish day. Seeding an ordinary
+    task from ``project_finish + 1`` there cites a finish the engine never used and
+    blames a pullback that never ran (#4157). Without milestones the two seeds are
+    the same instant, so a milestone-free project still derives in O(degree).
     """
     task_calendars = _resolve_task_calendars(project)
-    touched = [task, *(p for p, _, _ in preds), *(s for s, _, _ in succs)]
     instants, late_instants, finish_instant = (
         _milestone_instants(project)
-        if any(t.duration.days == 0 for t in touched)
+        if any(t.duration.days == 0 for t in project.tasks)
         else ({}, {}, _safe_offset(result.project_finish, timedelta(days=1)))
     )
 
@@ -1240,7 +1247,7 @@ def derive_value(
     # Milestone instants (#4079). Their kind is not in the result, and it can chain
     # through other milestones upstream, so it is recovered from a forward replay —
     # paid only when the derivation touches a zero-duration task.
-    mctx = _milestone_context(project, result, task, preds, succs, cal, default_cal)
+    mctx = _milestone_context(project, result, task, preds, cal, default_cal)
     late_refs, early_refs = mctx.late_refs, mctx.early_refs
     milestone, own_instants, links = mctx.milestone, mctx.own_instants, mctx.links
 

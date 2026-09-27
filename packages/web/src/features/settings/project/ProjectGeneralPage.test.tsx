@@ -131,7 +131,7 @@ describe('ProjectGeneralPage', () => {
     expect(name).toHaveValue('Atlas Migration');
     expect(name).not.toBeDisabled();
 
-    const code = screen.getByRole('textbox', { name: /project code/i });
+    const code = screen.getByRole('textbox', { name: /project key/i });
     expect(code).toHaveValue('ATLAS');
     expect(code).not.toBeDisabled();
 
@@ -218,16 +218,28 @@ describe('ProjectGeneralPage', () => {
     rerender(tree());
 
     expect(screen.getByRole('textbox', { name: /project name/i })).toHaveValue('Beacon Rollout');
-    expect(screen.getByRole('textbox', { name: /project code/i })).toHaveValue('BEACON');
+    expect(screen.getByRole('textbox', { name: /project key/i })).toHaveValue('BEACON');
   });
 
-  it('uppercases code input on the fly so server validation stays satisfied', () => {
+  it('uppercases key input on the fly so server validation stays satisfied', () => {
     useProject.mockReturnValue({ data: { ...SEED_PROJECT, code: '' } });
     renderPage();
 
-    const code = screen.getByRole('textbox', { name: /project code/i });
-    fireEvent.change(code, { target: { value: 'eng-2026' } });
-    expect(code).toHaveValue('ENG-2026');
+    const code = screen.getByRole('textbox', { name: /project key/i });
+    fireEvent.change(code, { target: { value: 'plat2' } });
+    expect(code).toHaveValue('PLAT2');
+  });
+
+  it('refuses a hyphenated NEW key client-side with the server format copy (ADR-1237 §2)', () => {
+    useProject.mockReturnValue({ data: { ...SEED_PROJECT, code: '' } });
+    renderPage();
+
+    fireEvent.change(screen.getByRole('textbox', { name: /project key/i }), {
+      target: { value: 'eng-2026' },
+    });
+    expect(
+      screen.getByText('Letters and digits only, starting with a letter, 2–10 characters'),
+    ).toBeInTheDocument();
   });
 
   // The working calendar is read-only here now (ADR-0441, #2009): the base FK +
@@ -316,6 +328,46 @@ describe('ProjectGeneralPage', () => {
     );
     // The calendar FK is no longer written from the General page (ADR-0441, #2009).
     expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('calendar');
+  });
+
+  it('moves focus to the key field on a server rejection of `code` (ADR-1237 UX §2)', async () => {
+    const err = Object.assign(new Error('rejected'), {
+      isAxiosError: true,
+      response: { status: 400, data: { code: ['That key is already in use.'] } },
+    });
+    mutateAsync.mockRejectedValueOnce(err);
+    renderPage();
+
+    // Edit the key so the section is dirty and the save actually runs.
+    fireEvent.change(screen.getByRole('textbox', { name: 'Project key' }), {
+      target: { value: 'TAKEN' },
+    });
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(await screen.findByText('That key is already in use.')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Project key' })).toHaveFocus();
+  });
+
+  it('does not steal focus from another field on a rejection unrelated to `code`', async () => {
+    const err = Object.assign(new Error('rejected'), {
+      isAxiosError: true,
+      response: { status: 400, data: { name: ['This field may not be blank.'] } },
+    });
+    mutateAsync.mockRejectedValueOnce(err);
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText('Project name'), { target: { value: '' } });
+    const nameInput = screen.getByLabelText('Project name');
+    nameInput.focus();
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(screen.getByRole('textbox', { name: 'Project key' })).not.toHaveFocus();
   });
 
   it('seeds and persists the scheduling, backlog, and threshold fields (#2018)', async () => {
@@ -412,7 +464,10 @@ describe('ProjectGeneralPage', () => {
     renderPage();
 
     expect(screen.getByRole('textbox', { name: /project name/i })).toBeDisabled();
-    expect(screen.getByRole('textbox', { name: /project code/i })).toBeDisabled();
+    // The key is plain text plus an operable copy-link button (ADR-1237 UX §2).
+    expect(screen.queryByRole('textbox', { name: /project key/i })).not.toBeInTheDocument();
+    expect(screen.getByText('ATLAS')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy project link' })).toBeEnabled();
     expect(screen.getByRole('textbox', { name: /description/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /at risk/i })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: /timezone/i })).toBeDisabled();
@@ -646,7 +701,7 @@ describe('ProjectGeneralPage', () => {
     renderPage();
 
     expect(screen.getByRole('textbox', { name: /project name/i })).toHaveValue('');
-    expect(screen.getByRole('textbox', { name: /project code/i })).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: /project key/i })).toHaveValue('');
 
     const row = within(calendarRow());
     // No calendar is resolvable yet, so the row names the system default rather

@@ -136,6 +136,7 @@ return `429` with the same `Retry-After` envelope shown above.
 | `refresh` | 60/min | JWT refresh |
 | `user_search` | 60/min | Member-invite user typeahead |
 | `omni_search` | 60/min (`TRUEPPM_THROTTLE_OMNI_SEARCH_RATE`) | ⌘K Epic/Story omni-search |
+| `resolve` | 120/min (`TRUEPPM_THROTTLE_RESOLVE_RATE`) | Key resolver and key suggestion (`/resolve/`, `/keys/`), per account |
 | `ws_ticket` | 120/min | WebSocket connection-ticket minting |
 | `invite_resend` | 5/min | Workspace invite resend |
 | `email_settings` | 12/min | Workspace SMTP config writes |

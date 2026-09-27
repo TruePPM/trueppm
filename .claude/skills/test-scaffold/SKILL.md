@@ -73,8 +73,17 @@ never reach the failing branch, or its data generator may filter out every input
 trip it.
 
 **For any test whose purpose is to prevent a specific defect from recurring, run it against
-the pre-fix code and confirm it fails.** Stash the source change (not the test), run, and
-record the before/after in the MR. If reverting is impractical, construct the failing input
+the pre-fix code and confirm it fails.** Copy the source file aside, restore its pre-fix
+version (`git show origin/main:<path> > <path>`), run, copy it back, and confirm with
+`git diff` — then record the before/after in the MR. **Do not use `git stash` for this:**
+`refs/stash` is shared by every worktree, so another session's pop can take your change
+and leave you theirs (use `scripts/wt stash` if you must stash).
+
+**Make sure the test imports the code you think it does.** In a worktree the shared venv
+resolves `trueppm_api` and `trueppm_scheduler` to the main checkout unless `PYTHONPATH`
+names the worktree's `packages/api/src` *and* `packages/scheduler/src`. An API test of a
+new scheduler rule run without the second path tests the old engine — and its negative
+control passes with the fix removed, which looks exactly like a good test (#4130). If reverting is impractical, construct the failing input
 directly and assert the test catches it.
 
 This is not ceremony. In a single 0.4 fix batch it caught:

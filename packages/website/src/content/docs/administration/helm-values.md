@@ -201,7 +201,9 @@ explicit map that omits it inherits the 1 MB default again.
 The bundled `postgresql` and `valkey` subcharts are single-node with small PVCs.
 For production, set both to `enabled: false` and point `env.DATABASE_URL` /
 `env.REDIS_URL` at managed services. See [Valkey High
-Availability](/administration/valkey-ha/).
+Availability](/administration/valkey-ha/). A managed PostgreSQL must allow the
+`ltree`, `pg_trgm`, and `btree_gist` extensions — see
+[Managed PostgreSQL](/administration/durability/#rung-3--managed-postgresql-and-managed-valkey).
 :::
 
 | Key | Default | What it does |
