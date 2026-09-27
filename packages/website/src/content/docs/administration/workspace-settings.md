@@ -619,6 +619,16 @@ background and TruePPM emails a download link when it is ready; the link expires
 few days. Take an export before either of the destructive actions below. See
 [Data export](/administration/data-export/).
 
+The archive leaves out credentials (API tokens, integration credentials, webhook
+secrets, invite tokens) and one piece of task content: the **free-text blocker
+reason**. That text is readable in the app only by the task's assignee or someone
+@-mentioned on it, not by a workspace Admin or Owner, so `projects/tasks.json`
+and `history/tasks.json` omit the `blocked_reason` column for every task. Each
+blocked task's type, age, "waiting on" link, and who flagged it are still
+included, so the archive still shows which tasks were blocked. This is stricter
+than a [project or program export](/administration/data-export/), which includes
+the reason when the person exporting may read it.
+
 ### Transfer ownership
 
 Hands workspace ownership to another **active** member. The transfer demotes you to
