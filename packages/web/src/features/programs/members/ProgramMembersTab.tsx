@@ -31,6 +31,9 @@ export function ProgramMembersTab() {
   if (!programId) return null;
 
   const isOwnerRole = program?.my_role === ROLE_OWNER;
+  // A closed program refuses new members, role changes and removing others
+  // server-side; only leaving it yourself still works (#4014).
+  const isClosed = program?.is_closed === true;
   const ownerCount = members.filter((m) => m.role === ROLE_OWNER).length;
 
   return (
@@ -96,6 +99,7 @@ export function ProgramMembersTab() {
                 isSelf={isSameUser(user?.id, m.user)}
                 isOwnerRole={isOwnerRole}
                 isSoleOwner={m.role === ROLE_OWNER && ownerCount === 1}
+                isClosed={isClosed}
                 onChangeRole={(membershipId, role) => updateRole({ membershipId, role })}
                 onRemove={(membershipId) => removeMember(membershipId)}
                 isUpdatingRole={isUpdatingRole}
@@ -106,7 +110,7 @@ export function ProgramMembersTab() {
         )}
       </section>
 
-      {isOwnerRole && (
+      {isOwnerRole && !isClosed && (
         <section aria-labelledby="program-invite-heading">
           <h2
             id="program-invite-heading"

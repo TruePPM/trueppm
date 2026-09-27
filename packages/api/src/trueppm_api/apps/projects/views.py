@@ -19295,8 +19295,10 @@ class ProgramApiTokenViewSet(ProjectApiTokenViewSet):
     A program-scoped token authorizes inbound writes into any project within the
     program (ADR-0076). Reuses the one-time-reveal create, soft-delete revoke,
     and audit substrate from ProjectApiTokenViewSet via the scope hooks; only the
-    scope resolution and RBAC ladder change. Reads: Program Member+; create/revoke:
-    Program Admin+ on a non-closed program.
+    scope resolution and RBAC ladder change. Reads: Program Member+; create:
+    Program Admin+ on a non-closed program; revoke: Program Admin+ even on a
+    closed program, because a leaked token keeps its read access and must stay
+    killable.
     """
 
     _scope_field = "program"
@@ -19321,7 +19323,16 @@ class ProgramApiTokenViewSet(ProjectApiTokenViewSet):
 
     def get_permissions(self) -> list[BasePermission]:
         # IsNotTokenAuthenticated on every branch — see ProjectApiTokenViewSet (#2878).
-        if self.action in ("create", "destroy"):
+        # `destroy` (revocation) deliberately carries no IsProgramNotClosed: a closed
+        # program stays readable, so a leaked program token keeps read access to every
+        # project in it, and closing the revoke route would leave it killable only by
+        # reopening the program — the same argument as the project side (#3414). Until
+        # #4014 this worked only by accident, through IsProgramNotClosed's name-only
+        # `destroy` bypass; that bypass is now scoped to ProgramViewSet. Minting stays
+        # gated.
+        if self.action == "destroy":
+            return [IsAuthenticated(), IsNotTokenAuthenticated(), IsProgramAdmin()]
+        if self.action == "create":
             return [
                 IsAuthenticated(),
                 IsNotTokenAuthenticated(),

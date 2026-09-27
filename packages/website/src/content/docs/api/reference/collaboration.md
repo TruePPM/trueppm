@@ -18,6 +18,11 @@ Webhooks are scoped to a project or a program:
 | POST | `/api/v1/projects/{id}/webhooks/{wid}/test/` | Send a test ping (Project Manager+) |
 | GET | `/api/v1/projects/{id}/webhooks/{wid}/deliveries/` | Delivery history, cursor-paginated (**Admin**) |
 
+On a **closed program**, creating or updating a program webhook returns `403`.
+Deleting one still works: the program's projects keep accepting writes, so its
+webhooks keep delivering, and deleting is how you stop that without reopening the
+program. The test ping and delivery history also stay available.
+
 TruePPM emits **19 event types** across tasks, dependencies, schedule, projects,
 sprints, risks, baselines, and comments. The full catalog — every event name, what
 triggers it, the payload shape, HMAC signature verification, request headers,
