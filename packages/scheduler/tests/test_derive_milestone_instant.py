@@ -1025,11 +1025,11 @@ def test_total_float_of_a_milestone_on_a_non_working_day_cites_both_ends() -> No
     neighbouring task's.
 
     Note on what this does not pin: the engine measures a milestone's float
-    between its instants and this test cannot tell that apart from measuring it
-    between the displayed days. On the calendars reachable here the two spans are
-    shifted by the same amount and ``_working_days_between`` returns the same
-    count for both, so the instant pair is not observable through ``derive_value``
-    — do not add an assertion claiming otherwise (it would pass either way).
+    between its instants, and on *this* network the instant span and the
+    displayed-day span count the same working days, so this test cannot tell the
+    two apart. The instant pair is observable on a milestone held at a Sunday data
+    date — see ``test_derive_mutation_hardening.py::
+    test_milestone_total_float_is_measured_between_instants``.
     """
     project = _networks()["milestone_on_a_saturday_actual"]
     result = schedule(project)
