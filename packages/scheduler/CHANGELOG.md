@@ -41,6 +41,19 @@ change between releases. Pin an exact version (e.g.
   finish. The convention is documented in the `trueppm_scheduler.engine` module
   docstring. Behavior change: schedules containing milestones finish earlier by
   one working day per milestone on the critical path.
+- **A lag landing a milestone on a weekend or holiday shows it at the next
+  working start (#4173).** The #4079 rule showed a milestone that follows work at
+  the end of the working day before its instant, even when non-working days lay
+  in between, while an SS link to the same working-time position showed the next
+  working day. So lengthening a predecessor could move a milestone, and
+  `project_finish`, from Monday back to Friday, and `monte_carlo()` could report
+  P50 before the CPM finish on a Finish-to-Start / Start-to-Start network. Such a
+  milestone now sits at the start of the next working day
+  (`milestone_at_day_end` is `False`), as MS Project places an elapsed lag that
+  ends on non-working time. A milestone whose predecessor finishes on a working
+  day is unchanged when it has no lag or its lag ends on a working day; one
+  following a recorded `actual_finish` on a non-working day now also shows at
+  the start of the next working day rather than the working day before it. The Rust/WASM engine moves with it.
 - **A long calendar exception no longer makes `schedule()` slow in proportion
   to the number of dependencies (#4161).** Every dependency edge snaps a date to
   a working day in the forward pass, the backward pass, and the free-float
