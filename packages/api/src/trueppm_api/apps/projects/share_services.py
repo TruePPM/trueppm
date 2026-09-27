@@ -239,6 +239,9 @@ def _public_schedule_task(task: Task, show_assignees: bool) -> dict[str, Any]:
         "early_finish": task.early_finish.isoformat() if task.early_finish else None,
         "scheduled_start": task.scheduled_start.isoformat() if task.scheduled_start else None,
         "is_milestone": task.is_milestone,
+        # #4079: which edge of its day a milestone's diamond sits on. A pure
+        # rendering fact derived from the same dates already disclosed here.
+        "milestone_at_day_end": task.milestone_at_day_end,
         "is_critical": bool(task.is_critical),
         "percent_complete": task.percent_complete,
         "status": task.status,

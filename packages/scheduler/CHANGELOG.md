@@ -16,6 +16,17 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
+### Added
+
+- **`Task.milestone_at_day_end` (#4079).** `early_start == early_finish` names
+  only the day a milestone is shown on; this new output field says which end of
+  that day its instant is. `True` means the end of the day (the milestone follows
+  work: `A(Mon..Fri) -FS-> M` is the close of Friday); `False` means the start
+  (held by the project start, an SNET, the data date, or a recorded start) and is
+  the value for every task that is not a network-placed milestone. Set by
+  `schedule()`; an input value is ignored. Appended after `scheduled_start`, so
+  positional construction of `Task` is unchanged.
+
 ### Fixed
 
 - **A zero-duration milestone is an instant, not a one-day task (#4079).**

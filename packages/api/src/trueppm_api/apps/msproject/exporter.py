@@ -121,6 +121,7 @@ def export_project_xml(project_id: str) -> bytes:
     _add_summary_task(tasks_el, project)
 
     pert_task_pks = {str(t.pk) for t in pert_tasks}
+    day_end_time = _milestone_day_end_time(applied_calendars)
     for task in tasks:
         _add_task_element(
             tasks_el,
@@ -129,6 +130,7 @@ def export_project_xml(project_id: str) -> bytes:
             is_pert=str(task.pk) in pert_task_pks,
             preds=dep_by_successor.get(str(task.pk), []),
             task_pk_to_uid=task_pk_to_uid,
+            day_end_time=day_end_time,
         )
 
     _add_resources_block(root, resources, resource_pk_to_uid)
@@ -172,7 +174,7 @@ def _select_pert_tasks(tasks: list[Any]) -> list[Any]:
     ]
 
 
-def _add_task_dates(task_el: ET.Element, task: Any) -> None:
+def _add_task_dates(task_el: ET.Element, task: Any, day_end_time: str = "00:00:00") -> None:
     """Emit the contiguous Start/Finish/Constraint/Actual date run for one ``<Task>``.
 
     MSPDI is order-sensitive, and ``ET.SubElement`` appends at call time, so the
@@ -191,13 +193,22 @@ def _add_task_dates(task_el: ET.Element, task: Any) -> None:
     Tasks with no floor get ConstraintType 0 (As Soon As Possible), which is
     TruePPM's own default: an omitted element would leave MS Project to infer a
     constraint from the <Start> we emit, re-creating the same promotion.
+
+    End-of-day milestones (#4079). A milestone that follows work sits at the END
+    of its ``early_start`` day, and MS Project places it there too — at the
+    calendar's finish time, not at midnight. Writing midnight would put it at the
+    start of the day, before its own predecessor finishes. ``day_end_time`` is
+    the end of the working day MS Project will schedule the file on
+    (:func:`_milestone_day_end_time`).
     """
+    at_day_end = bool(task.is_milestone and getattr(task, "milestone_at_day_end", False))
+    time_of_day = day_end_time if at_day_end else "00:00:00"
     if task.early_start:
-        _sub_text(task_el, "Start", _format_date(task.early_start))
+        _sub_text(task_el, "Start", _format_date(task.early_start, time_of_day))
     elif task.planned_start:
         _sub_text(task_el, "Start", _format_date(task.planned_start))
     if task.early_finish:
-        _sub_text(task_el, "Finish", _format_date(task.early_finish))
+        _sub_text(task_el, "Finish", _format_date(task.early_finish, time_of_day))
 
     if task.planned_start:
         _sub_text(task_el, "ConstraintType", str(MSPDI_CONSTRAINT_START_NO_EARLIER_THAN))
@@ -218,6 +229,7 @@ def _add_task_element(
     is_pert: bool,
     preds: list[tuple[str, str, int]],
     task_pk_to_uid: dict[str, int],
+    day_end_time: str = "00:00:00",
 ) -> None:
     """Emit one ``<Task>`` element, including PERT values and predecessor links."""
     task_el = ET.SubElement(tasks_el, f"{{{_NS}}}Task")
@@ -237,7 +249,7 @@ def _add_task_element(
     _sub_text(task_el, "PercentComplete", str(round(task.percent_complete or 0)))
     if task.notes:
         _sub_text(task_el, "Notes", task.notes)
-    _add_task_dates(task_el, task)
+    _add_task_dates(task_el, task, day_end_time)
 
     # PERT three-point per-task values. Only emitted for the leaf, non-milestone
     # tasks selected by _select_pert_tasks. Duration4 is the PERT-Expected
@@ -317,9 +329,9 @@ def _sub_text(parent: ET.Element, tag: str, text: str) -> ET.Element:
     return el
 
 
-def _format_date(d: date) -> str:
-    """Format a date as MS Project expects: YYYY-MM-DDT00:00:00."""
-    return f"{d.isoformat()}T00:00:00"
+def _format_date(d: date, time_of_day: str = "00:00:00") -> str:
+    """Format a date as MS Project expects: ``YYYY-MM-DDTHH:MM:SS`` (midnight by default)."""
+    return f"{d.isoformat()}T{time_of_day}"
 
 
 def _days_to_duration(days: int) -> str:
@@ -363,14 +375,49 @@ def _add_calendars_block(root: ET.Element, applied_calendars: list[Any]) -> None
     _sub_text(cal_el, "IsBaseCalendar", "1")
     _sub_text(cal_el, "BaseCalendarUID", "-1")
 
-    start_minute = 8 * 60
-    shift_minutes = max(0, min(round(base.hours_per_day * 60), 24 * 60))
-    if start_minute + shift_minutes > 24 * 60:
-        start_minute = 0
-
+    start_minute, shift_minutes = _shift_window(base.hours_per_day)
     _add_weekday_elements(cal_el, mask, start_minute, shift_minutes)
     if merged_exceptions:
         _add_calendar_exception_elements(cal_el, merged_exceptions)
+
+
+def _shift_window(hours_per_day: float) -> tuple[int, int]:
+    """``(start_minute, shift_minutes)`` of the one synthesized daily shift.
+
+    08:00 plus the daily hour total, falling back to a midnight start when that
+    would run past midnight. Shared by the ``<Calendars>`` block and the
+    end-of-day milestone time (#4079) so the two can never disagree.
+    """
+    start_minute = 8 * 60
+    shift_minutes = max(0, min(round(hours_per_day * 60), 24 * 60))
+    if start_minute + shift_minutes > 24 * 60:
+        start_minute = 0
+    return start_minute, shift_minutes
+
+
+# MS Project's built-in "Standard" calendar works 08:00-12:00 and 13:00-17:00.
+_MSP_STANDARD_DAY_END = "17:00:00"
+# The last representable time of day. ``T24:00:00`` is not a valid xs:dateTime
+# for MS Project, which would reject or misplace the milestone.
+_LAST_MINUTE_OF_DAY = 24 * 60 - 1
+
+
+def _milestone_day_end_time(applied_calendars: list[Any]) -> str:
+    """The time of day an end-of-day milestone is written at (#4079).
+
+    It must be the end of the working day of the calendar MS Project will actually
+    schedule the file on. With an applied calendar that is the synthesized shift
+    the ``<Calendars>`` block declares (:func:`_shift_window`). With none, no
+    ``<Calendars>`` block is emitted and MS Project falls back to its own Standard
+    calendar, whose day ends at 17:00 — not at the 16:00 the engine's 8-hour
+    default would give from an 08:00 start. A shift that runs to midnight
+    (``hours_per_day`` >= 16 makes it start at 00:00 and end at 24:00, or a
+    24-hour day) is clamped to 23:59, the last time of day xs:dateTime can say.
+    """
+    if not applied_calendars:
+        return _MSP_STANDARD_DAY_END
+    start_minute, shift_minutes = _shift_window(applied_calendars[0].hours_per_day)
+    return _minutes_to_time(min(start_minute + shift_minutes, _LAST_MINUTE_OF_DAY))
 
 
 def _merge_applied_calendars(

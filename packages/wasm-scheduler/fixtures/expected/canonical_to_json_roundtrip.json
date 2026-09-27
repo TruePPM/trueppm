@@ -45,7 +45,8 @@
       "total_float": 86400.0,
       "free_float": 86400.0,
       "is_critical": false,
-      "scheduled_start": "2026-03-13"
+      "scheduled_start": "2026-03-13",
+      "milestone_at_day_end": true
     }
   ],
   "critical_path": [

@@ -108,6 +108,7 @@ pub(crate) fn compute_downstream(
                 free_float: t.free_float,
                 is_critical: t.is_critical,
                 scheduled_start: t.scheduled_start.unwrap(),
+                milestone_at_day_end: t.milestone_at_day_end,
             }
         })
         .collect();
@@ -198,6 +199,7 @@ mod tests {
             late_start: None,
             late_finish: None,
             scheduled_start: None,
+            milestone_at_day_end: false,
             total_float: 0.0,
             free_float: 0.0,
             is_critical: false,

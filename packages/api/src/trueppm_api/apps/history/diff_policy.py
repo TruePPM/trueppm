@@ -56,6 +56,7 @@ HISTORY_DIFF_ENGINE_AND_SYNC: frozenset[str] = frozenset(
         "free_float",
         "is_critical",
         "scheduled_start",
+        "milestone_at_day_end",
         "server_version",
         "sync_seq",
         "deleted_version",

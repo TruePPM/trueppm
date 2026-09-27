@@ -6921,12 +6921,19 @@ def clear_uncommitted_cpm_output(task_model: Any, project_ids: Any = None) -> in
     carries_output = Q()
     for field in CPM_OUTPUT_FIELDS:
         carries_output |= Q(**{f"{field}__isnull": False})
+    cleared: dict[str, Any] = dict.fromkeys(CPM_OUTPUT_FIELDS, None)
+    # ``milestone_at_day_end`` (#4079) is engine output too, but non-null — False
+    # is its "no claim" value. Guarded by field presence because this also runs
+    # against historical models in migrations that predate the column.
+    if any(f.name == "milestone_at_day_end" for f in task_model._meta.get_fields()):
+        carries_output |= Q(milestone_at_day_end=True)
+        cleared["milestone_at_day_end"] = False
 
     qs = task_model.objects.filter(outside_committed).filter(carries_output)
     if project_ids is not None:
         qs = qs.filter(project_id__in=project_ids)
 
-    return int(qs.update(**dict.fromkeys(CPM_OUTPUT_FIELDS, None)))
+    return int(qs.update(**cleared))
 
 
 BACKFILL_PROJECT_CHUNK = 500

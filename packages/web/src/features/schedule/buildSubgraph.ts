@@ -266,6 +266,7 @@ function toCpmTasks(visited: Set<string>, taskIndex: Map<string, Task>): CpmTask
       // of already-80%-burned work in front of every successor.
       durationDays: t.duration,
       isMilestone: t.isMilestone,
+      milestoneAtDayEnd: t.milestoneAtDayEnd,
       name: t.name,
       // ADR-0132 progress facts. All four already exist on the web Task; the
       // preview simply never carried them across the worker boundary.

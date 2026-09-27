@@ -89,3 +89,125 @@ def test_recomputed_dates_equal_the_ms_project_file(project: Project) -> None:
         assert task.early_finish == date.fromisoformat(finish[:10]), name
     # Every task is on the one path, so none of them has float to spare.
     assert all(t.total_float == 0 for t in by_name.values())
+
+
+def _recalculated(project: Project) -> dict[str, Task]:
+    import_project(str(project.pk), parse_xml(_plan_xml()))
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        _run_schedule(str(project.pk))
+    return {t.name: t for t in Task.objects.filter(project=project)}
+
+
+@pytest.mark.django_db
+def test_recalculation_persists_which_end_of_the_day_a_milestone_sits_on(
+    project: Project,
+) -> None:
+    """#4079: the engine's instant reading reaches the row, for both kinds.
+
+    ``early_start`` alone cannot say it — "Fri" is the end of Friday for the gate
+    after Design and would be the start of Friday for a floor-held milestone — and
+    the Gantt drew every diamond at the start of its day, over its predecessor.
+    """
+    by_name = _recalculated(project)
+    # Held by the project-start floor: the start of its day.
+    assert by_name["Kickoff"].milestone_at_day_end is False
+    # Driven by work: the end of the predecessor's finish day.
+    assert by_name["Design gate"].milestone_at_day_end is True
+    assert by_name["Release"].milestone_at_day_end is True
+    # Never set on work.
+    assert by_name["Design"].milestone_at_day_end is False
+    assert by_name["Build"].milestone_at_day_end is False
+
+
+@pytest.mark.django_db
+def test_recalculation_clears_a_stale_end_of_day_flag(project: Project) -> None:
+    """A milestone that stops following work loses the flag on the next pass."""
+    by_name = _recalculated(project)
+    gate = by_name["Design gate"]
+    assert gate.milestone_at_day_end is True
+    # An SNET on the following Monday now holds it: the start of that day.
+    Task.objects.filter(pk=gate.pk).update(planned_start=date(2026, 1, 12))
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        _run_schedule(str(project.pk))
+    gate.refresh_from_db()
+    assert gate.early_start == date(2026, 1, 12)
+    assert gate.milestone_at_day_end is False
+
+
+@pytest.mark.django_db
+def test_export_writes_an_end_of_day_milestone_at_the_calendar_finish_time(
+    project: Project,
+) -> None:
+    """#4079: MSPDI Start/Finish carry the instant, not midnight of the shown day.
+
+    The emitted calendar is one 08:00 shift of ``hours_per_day`` (8h -> 16:00);
+    an end-of-day milestone sits at that finish time. A floor-held one and all
+    work keep the exporter's midnight.
+    """
+    from trueppm_api.apps.msproject.exporter import export_project_xml
+
+    _recalculated(project)
+    root = ET.fromstring(export_project_xml(str(project.pk)))
+    ns = {"m": _NS}
+    dates = {
+        el.findtext("m:Name", namespaces=ns): (
+            el.findtext("m:Start", namespaces=ns),
+            el.findtext("m:Finish", namespaces=ns),
+        )
+        for el in root.findall("m:Tasks/m:Task", ns)
+    }
+    assert dates["Design gate"] == ("2026-01-09T16:00:00", "2026-01-09T16:00:00")
+    assert dates["Release"] == ("2026-01-14T16:00:00", "2026-01-14T16:00:00")
+    assert dates["Kickoff"] == ("2026-01-05T00:00:00", "2026-01-05T00:00:00")
+    assert dates["Design"] == ("2026-01-05T00:00:00", "2026-01-09T00:00:00")
+    # The same instant the <Calendars> block declares as the end of the day.
+    to_times = {el.text for el in root.iter(f"{{{_NS}}}ToTime")}
+    assert to_times == {"16:00:00"}
+
+
+def _exported_dates(
+    project: Project,
+) -> tuple[dict[str | None, tuple[str | None, str | None]], ET.Element]:
+    from trueppm_api.apps.msproject.exporter import export_project_xml
+
+    root = ET.fromstring(export_project_xml(str(project.pk)))
+    ns = {"m": _NS}
+    dates = {
+        el.findtext("m:Name", namespaces=ns): (
+            el.findtext("m:Start", namespaces=ns),
+            el.findtext("m:Finish", namespaces=ns),
+        )
+        for el in root.findall("m:Tasks/m:Task", ns)
+    }
+    return dates, root
+
+
+@pytest.mark.django_db
+def test_export_without_a_calendar_uses_ms_project_standard_day_end(project: Project) -> None:
+    """#4079: no applied calendar -> no ``<Calendars>`` block -> MS Project schedules
+    the file on its own Standard calendar, whose day ends at 17:00 — not the 16:00
+    an 08:00 start plus the engine's 8-hour default would give."""
+    _recalculated(project)
+    Project.objects.filter(pk=project.pk).update(calendar=None)
+    dates, root = _exported_dates(project)
+    assert root.find(f"{{{_NS}}}Calendars") is None
+    assert dates["Design gate"] == ("2026-01-09T17:00:00", "2026-01-09T17:00:00")
+    assert dates["Kickoff"] == ("2026-01-05T00:00:00", "2026-01-05T00:00:00")
+
+
+@pytest.mark.django_db
+def test_export_clamps_a_midnight_day_end_to_the_last_minute(project: Project) -> None:
+    """#4079: a 16-hour day runs 08:00-24:00. ``T24:00:00`` is not a time of day
+    MS Project accepts, so the end-of-day milestone is written at 23:59."""
+    _recalculated(project)
+    assert project.calendar is not None
+    Calendar.objects.filter(pk=project.calendar.pk).update(hours_per_day=16)
+    dates, _root = _exported_dates(project)
+    assert dates["Design gate"] == ("2026-01-09T23:59:00", "2026-01-09T23:59:00")
+    assert dates["Release"] == ("2026-01-14T23:59:00", "2026-01-14T23:59:00")

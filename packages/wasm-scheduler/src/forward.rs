@@ -245,6 +245,9 @@ pub fn forward_pass(
         let node_cal = cals.for_node(i);
         let (start_base, start) =
             start_floors_for(&mut floors_by_cal, node_cal, project_start, status_date)?;
+        // Only a network-placed milestone can sit at the end of its day (#4079);
+        // reset first so an input carrying a previous run's value cannot leak.
+        tasks[i].milestone_at_day_end = false;
 
         if let Some((es, ef)) = pinned_placement(&tasks[i], node_cal)? {
             let t = &mut tasks[i];
@@ -286,6 +289,8 @@ pub fn forward_pass(
             let task = &mut tasks[i];
             task.early_start = Some(day);
             task.early_finish = Some(day);
+            // `start_display` false = shown at the end of `day` (follows work).
+            task.milestone_at_day_end = !instant.1;
             task.scheduled_start = Some(compute_scheduled_start(task, node_cal)?);
             continue;
         }

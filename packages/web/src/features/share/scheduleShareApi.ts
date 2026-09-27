@@ -27,6 +27,12 @@ export interface PublicScheduleTask {
    */
   scheduled_start: string | null;
   is_milestone: boolean;
+  /**
+   * #4079: a milestone sits at the END of its early_start day (it follows
+   * work). Optional: absent from a server that predates the field, which reads
+   * as the start of the day.
+   */
+  milestone_at_day_end?: boolean;
   is_critical: boolean;
   percent_complete: number;
   status: string;

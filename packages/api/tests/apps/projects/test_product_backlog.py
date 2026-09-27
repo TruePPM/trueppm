@@ -581,6 +581,7 @@ _SPLIT_DOES_NOT_CARRY = {
     "free_float": _CPM_OUTPUT,
     "is_critical": _CPM_OUTPUT,
     "scheduled_start": _CPM_OUTPUT,
+    "milestone_at_day_end": _CPM_OUTPUT,
     "planned_start": "a scheduling constraint on the parent, not a property of the work",
     # Structure and kind flags that a backlog split must not inherit.
     "is_subtask": "the child is a sibling story, never a subtask of the parent",

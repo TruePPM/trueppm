@@ -20,6 +20,8 @@ export interface ExternalTaskCard {
   early_start: string | null;
   early_finish: string | null;
   is_critical: boolean | null;
+  /** #4079: the milestone sits at the END of its early_start day. */
+  milestone_at_day_end?: boolean;
 }
 
 interface ApiPendingDependency {

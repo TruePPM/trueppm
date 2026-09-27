@@ -271,6 +271,64 @@ describe('useScheduleCommit', () => {
     expect(typeof engine.updateTaskCalls[0]?.patch.finish).toBe('string');
   });
 
+  describe('milestone drag (#4079)', () => {
+    // Shown Tue 2026-01-13 (day 12). An end-of-day diamond is anchored at the
+    // END of Tuesday — x = 13, the start of Wednesday — which is also what the
+    // hit index hands the drag as the bar's left edge.
+    const M_END: Task = {
+      ...TASK_A,
+      id: 'm-end',
+      name: 'Gate',
+      start: '2026-01-13',
+      finish: '2026-01-13',
+      duration: 0,
+      isMilestone: true,
+      milestoneAtDayEnd: true,
+    };
+    const M_START: Task = { ...M_END, id: 'm-start', milestoneAtDayEnd: false };
+
+    it('treats an end-of-day milestone released in place as no move', () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, { tasks: [M_END] });
+      act(() => engine.emit('drag-task-end', { id: 'm-end', left: 13, cancelled: false }));
+      expect(result.current.state).toBeNull();
+      expect(engine.updateTaskCalls).toHaveLength(0);
+    });
+
+    it('proposes the day the diamond is dropped on for a one-day move', () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, { tasks: [M_END] });
+      // One day right of the anchor: the start of Thursday, where the diamond
+      // is let go and where an SNET of Thursday will draw it.
+      act(() => engine.emit('drag-task-end', { id: 'm-end', left: 14, cancelled: false }));
+      expect(result.current.state!.action).toMatchObject({
+        kind: 'reschedule',
+        oldStartIso: '2026-01-13',
+        newStartIso: '2026-01-15',
+      });
+      // The pending preview is floor-held, not end-of-day on the new date.
+      expect(engine.updateTaskCalls[0]?.patch).toMatchObject({
+        start: '2026-01-15',
+        milestoneAtDayEnd: false,
+      });
+      // Cancel restores the edge it came from.
+      act(() => result.current.handleCancel());
+      expect(engine.updateTaskCalls.at(-1)?.patch).toMatchObject({
+        start: '2026-01-13',
+        milestoneAtDayEnd: true,
+      });
+    });
+
+    it('leaves a start-of-day milestone on the plain day reading', () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, { tasks: [M_START] });
+      act(() => engine.emit('drag-task-end', { id: 'm-start', left: 12, cancelled: false }));
+      expect(result.current.state).toBeNull();
+      act(() => engine.emit('drag-task-end', { id: 'm-start', left: 13, cancelled: false }));
+      expect(result.current.state!.action).toMatchObject({ newStartIso: '2026-01-14' });
+    });
+  });
+
   it('opens the popover on resize with a WORKING-day duration from the dropped finish (#951)', () => {
     const engine = new ControllableEngine();
     const { result } = renderCommit(engine, { tasks: [TASK_WEEKEND] });

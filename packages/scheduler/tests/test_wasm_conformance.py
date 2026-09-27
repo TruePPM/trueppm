@@ -106,6 +106,10 @@ def task_result_to_dict(task: object) -> dict:
         # two engines to EACH OTHER, so a bug both engines share alike would
         # otherwise ship undetected (see #2621's note on the same class of gap).
         "scheduled_start": task.scheduled_start.isoformat(),
+        # #4079: which end of its shown day a milestone sits on. Emitted only when
+        # true (the Rust TaskResult skips it when false), so the snapshots of the
+        # fixtures without a work-driven milestone stay byte-identical.
+        **({"milestone_at_day_end": True} if task.milestone_at_day_end else {}),
     }
 
 
@@ -179,6 +183,9 @@ def test_fixture_conformance(fixture_name: str) -> None:
         assert at["free_float"] == et["free_float"], f"{at['id']}: free_float"
         assert at["is_critical"] == et["is_critical"], f"{at['id']}: is_critical"
         assert at["scheduled_start"] == et["scheduled_start"], f"{at['id']}: scheduled_start"
+        assert at.get("milestone_at_day_end", False) == et.get("milestone_at_day_end", False), (
+            f"{at['id']}: milestone_at_day_end"
+        )
 
 
 @pytest.mark.parametrize("invalid_name", _INVALID_FIXTURES, ids=_INVALID_FIXTURES)

@@ -783,6 +783,9 @@ _CPM_DELTA_FIELDS: tuple[str, ...] = (
     # early_start's remaining-work window. Same write-back, same broadcast —
     # a client rendering the span bar needs to know it moved too.
     "scheduled_start",
+    # #4079: a milestone flipping between the start and the end of its day moves
+    # the diamond without moving any date, so it must count as a move.
+    "milestone_at_day_end",
 )
 """Every CPM-owned field a ``task_dates_updated`` delta can carry (ADR-0091, #2573).
 
@@ -992,6 +995,9 @@ def _apply_cpm_results(
         # ADR-0752: the task's span start, distinct from early_start's
         # remaining-work window.
         db_task.scheduled_start = sched.scheduled_start
+        # #4079: which edge of its shown day a milestone sits on; always False for
+        # work and for a summary's synthetic row.
+        db_task.milestone_at_day_end = bool(getattr(sched, "milestone_at_day_end", False))
         # Belt-and-suspenders: milestones are single-point gates. Even if the
         # boundary normalisation is bypassed, a milestone's finish must equal its
         # start so client-facing rows never render a date range.
@@ -1407,6 +1413,7 @@ def _run_schedule(
                 "is_critical",
                 "duration",
                 "scheduled_start",
+                "milestone_at_day_end",
             ],
             batch_size=_WRITEBACK_BATCH_SIZE,
         )
@@ -1704,6 +1711,7 @@ def _member_cpm_delta(moved_tasks: list[Any]) -> dict[str, object]:
                 # remaining-work window. Reaches the same project subscribers
                 # early_start already does — no new field-leak (ADR §10).
                 "scheduled_start": t.scheduled_start.isoformat() if t.scheduled_start else None,
+                "milestone_at_day_end": t.milestone_at_day_end,
             }
             for t in moved_tasks
         ],
@@ -1720,6 +1728,7 @@ _PROGRAM_WRITE_FIELDS = [
     "is_critical",
     "duration",
     "scheduled_start",
+    "milestone_at_day_end",
 ]
 
 
