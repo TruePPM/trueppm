@@ -94,7 +94,7 @@ variables:
   #
   # Bump by running `bash scripts/check-ci-api-tag.sh`, which prints the value
   # the current inputs require. Enforced by api:ci-api-tag.
-  CI_API_TAG: "py3.11-55832cb901cc"
+  CI_API_TAG: "py3.11-5c1ffd0b7aa4"
 
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
@@ -1669,11 +1669,13 @@ ci:build-api-image:
         - .gitlab/ci-images/api.Dockerfile
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - echo "$CI_DEPENDENCY_PROXY_PASSWORD" | docker login -u "$CI_DEPENDENCY_PROXY_USER" --password-stdin "$CI_DEPENDENCY_PROXY_SERVER"
   script:
     # --cache-from lets a no-op rebuild reuse the previously published layers.
     - docker pull "$IMAGE" || true
     - docker build
         --cache-from "$IMAGE"
+        --build-arg DOCKERHUB_PREFIX="${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}"
         --tag "$IMAGE"
         --file .gitlab/ci-images/api.Dockerfile
         .
@@ -1708,10 +1710,12 @@ ci:build-scheduler-image:
         - .gitlab/ci-images/scheduler.Dockerfile
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - echo "$CI_DEPENDENCY_PROXY_PASSWORD" | docker login -u "$CI_DEPENDENCY_PROXY_USER" --password-stdin "$CI_DEPENDENCY_PROXY_SERVER"
   script:
     - docker pull "$IMAGE" || true
     - docker build
         --cache-from "$IMAGE"
+        --build-arg DOCKERHUB_PREFIX="${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}"
         --tag "$IMAGE"
         --file .gitlab/ci-images/scheduler.Dockerfile
         .
@@ -1752,10 +1756,12 @@ ci:build-wasm-image:
         - .gitlab/ci-images/wasm.Dockerfile
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - echo "$CI_DEPENDENCY_PROXY_PASSWORD" | docker login -u "$CI_DEPENDENCY_PROXY_USER" --password-stdin "$CI_DEPENDENCY_PROXY_SERVER"
   script:
     - docker pull "$IMAGE" || true
     - docker build
         --cache-from "$IMAGE"
+        --build-arg DOCKERHUB_PREFIX="${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}"
         --tag "$IMAGE"
         --file .gitlab/ci-images/wasm.Dockerfile
         .
@@ -3546,7 +3552,8 @@ api:image-lock-check:
     - set -euo pipefail
     - IMAGE="api-image-lock-check:${CI_COMMIT_SHORT_SHA}"
     - echo "--- build the production api image (root build context, matching api:publish) ---"
-    - docker build -f packages/api/Dockerfile -t "$IMAGE" .
+    - echo "$CI_DEPENDENCY_PROXY_PASSWORD" | docker login -u "$CI_DEPENDENCY_PROXY_USER" --password-stdin "$CI_DEPENDENCY_PROXY_SERVER"
+    - docker build -f packages/api/Dockerfile --build-arg DOCKERHUB_PREFIX="${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}" -t "$IMAGE" .
     - echo "--- self-test first (a gate's failure mode is a green pipeline) ---"
     - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-api-image-lock.py --self-test
     - echo "--- diff the image's installed set against packages/api/uv.lock ---"

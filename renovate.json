@@ -25,6 +25,9 @@
     "Pending"
   ],
   "rangeStrategy": "bump",
+  "registryAliases": {
+    "${DOCKERHUB_PREFIX}": "docker.io"
+  },
   "semanticCommitType": "chore",
   "semanticCommitScope": "deps",
   "lockFileMaintenance": {
