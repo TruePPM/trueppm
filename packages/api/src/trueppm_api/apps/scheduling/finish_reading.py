@@ -144,7 +144,9 @@ def finish_shift_days(prior: Finish, new: Finish, calendar: Any | None) -> int:
     upgrade would read a start-of-day milestone against an assumed end of the same
     day and report a phantom three-day pull-in. When the days differ, the unknown
     side is read as the end of its day, which is how every finish was shown before
-    #4079.
+    #4079. An install that ran an untagged main image from after #4079 (which could
+    already show a start-of-day milestone) but before this field may therefore
+    misread that one post-upgrade comparison by up to the weekend or holiday gap.
     """
     unknown = prior[1] is None or new[1] is None
     if calendar is None or (unknown and prior[0] == new[0]):
