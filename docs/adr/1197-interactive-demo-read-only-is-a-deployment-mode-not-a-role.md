@@ -6,8 +6,9 @@ Accepted — status corrected 2026-09-21 as the D1/D6/D7 slice (#3925 MR 2) land
 D3/D4 (#3926) and #3925 MR 1, matching the convention established by the #2539 audit
 (verified: D2's middleware merged as `trueppm_api.core.demo_read_only` in #3924, and
 `load_sample_project` now cites D5 by name). Proposed 2026-09-19; amended 2026-09-20 and
-2026-09-21 — see **Amendment 2026-09-20** and the dated notes on D9 below — and 2026-09-26
-(**Amendment 2026-09-26**, one-click sign-in, #4153). Resolves #3912.
+2026-09-21 — see **Amendment 2026-09-20** and the dated notes on D9 below — 2026-09-26
+(**Amendment 2026-09-26**, one-click sign-in, #4153) — and 2026-09-27 (**Amendment
+2026-09-27**, Access gate removed from the hosted demo, #4182). Resolves #3912.
 Amends ADR-0658 — which continues to govern the share-link demo **unchanged** — for one new
 mode only.
 
@@ -526,6 +527,69 @@ drops to the secondary style, so there is one primary action on the page.
 **Stale comment corrected on the way.** `values-demo.yaml` still said `login_account`
 throttles the shared username at 5/min and that the method fence was "MR 2"; both were
 overtaken by #3925 MR 2 and #3998 and are corrected in the same change.
+
+## Amendment 2026-09-27 — Access gate removed from the hosted demo (#4182)
+
+**Decision.** The Cloudflare Access (email) gate in front of `try.trueppm.com` is
+removed. This reverses D8's 2026-09-21 resolution ("keep Cloudflare Access on the
+primary hosted demo, and disclose it"). Per the project's superseded-note
+convention, that resolution is left in place above, unedited, and superseded by
+this dated note rather than rewritten.
+
+**Why.** D8's first paragraph already established the two facts that make the
+reversal correct: Access "mitigates none of T1–T7," and "nothing in the security
+design may depend on it." The 2026-09-21 resolution then kept it anyway for one
+real benefit — bot reduction, "yields an email list" — while accepting the cost
+D8 names in the same breath: a PII collection outside the self-hosted boundary,
+in tension with #3760's "no seat count, no feature flags, no telemetry"
+positioning, and read by the self-hosting operator persona as a credibility
+problem. That trade only made sense while Access was the only free way to get
+the bot-reduction benefit. It is not: Cloudflare's free plan gives the same
+benefit — a WAF Managed Challenge rule on `try.trueppm.com` plus a per-IP rate
+limit on `try.trueppm.com/api/` — without collecting an email address. Visiban's
+demo (visiban/visiban#1180), on the same k3s node, launches without a gate;
+both demos should present the same way.
+
+**What does not change.**
+
+- **The #3969 disclosure mechanism stays.** `demo.accessGate.{provider,privacyUrl}`,
+  `TRUEPPM_DEMO_ACCESS_GATE_{PROVIDER,PRIVACY_URL}`, `parse_demo_access_gate`, the
+  `demo_access_gate` field on `GET /api/v1/edition/`, and `DemoLoginHint.tsx`'s
+  conditional notice are all unchanged. They are correct for any self-hoster
+  running this demo mode behind their own gate — Authelia, Authentik, Google IAP,
+  or Cloudflare Access on their own instance. Removing the mechanism because
+  try.trueppm.com stopped using it would be a feature regression against every
+  such self-hoster. With `demo.accessGate.provider` cleared at the try.trueppm.com
+  deploy layer (outside this repository, per D10), `demo_access_gate` is `null`
+  and the login page shows no notice — the mechanism's own conditional-by-
+  construction design (D8) is exactly what makes this reversal a config change
+  and not a code change.
+- **D8's first paragraph is unchanged and still governs.** An edge WAF challenge
+  and rate-limit rule are not a security control either, for the same reason
+  Access was not one: they are a hostname/traffic-shape gate, not a route gate,
+  and nothing in the security design may depend on them. D2's middleware and
+  D1's method fence remain the whole guarantee.
+
+**What does change.** D6's 2026-09-21 correction named "whatever sits in front
+of the host (Cloudflare or equivalent)" as the per-visitor bound that the
+account-wide `user` throttle scope cannot provide on its own once a visitor is
+signed in. That bound is no longer Cloudflare Access — an authenticated gate a
+visitor passes once, before ever reaching the app — but the WAF rate-limit rule
+on `try.trueppm.com/api/`, which bounds every request, signed in or not, for the
+lifetime of the session. This is a **tighter** per-visitor bound than the one D6
+described, not a weaker one: Access provided no ongoing rate limit at all.
+
+**Docs and CI comments.** `getting-started/try-it.md` no longer claims
+`try.trueppm.com` asks for an email. `administration/security.md`'s per-visitor
+throttle discussion now points at "an edge rate limit such as a Cloudflare WAF
+rule" instead of "the Cloudflare Access caveat below," and keeps its generic
+"a hostname gate … is bot reduction and an email list, not a security control"
+bullet, which is advice for self-hosters and was never a claim about
+try.trueppm.com specifically. `.gitlab/ci/deploy-drills.yml` and
+`scripts/dev-demo-compose-drill.sh` reworded their "what this drill does not
+prove" comments from "Cloudflare Access" to "edge WAF / challenge rules," since
+naming Access there would now assert something no longer true of the edge those
+comments describe.
 
 ## Alternatives Considered
 

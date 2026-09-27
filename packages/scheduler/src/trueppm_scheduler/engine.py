@@ -53,7 +53,6 @@ the Rust/WASM engine mirrors the rule (``packages/wasm-scheduler/src/forward.rs`
 
 from __future__ import annotations
 
-import bisect
 import copy
 import math
 from collections.abc import Callable, Iterator
@@ -71,6 +70,7 @@ from trueppm_scheduler.models import (
     DependencyType,
     Project,
     Task,
+    _mask_days_between,
 )
 
 # ---------------------------------------------------------------------------
@@ -673,8 +673,12 @@ def _working_days_between(start: date, end: date, calendar: Calendar) -> int:
     for every span :class:`_WorkingDayCounter` does not cover, and a free-float
     slack measured across a century-long exception lands outside that range once
     per edge — so a day loop here was the same O(edges * range length) cost the
-    snap helpers had. The cost is now O(overlapping exception runs), and every
-    run holds at least one day, so it can never exceed the old loop's.
+    snap helpers had. The subtraction is now :meth:`Calendar._exception_mask_days`,
+    which is O(log E) via a prefix sum over the calendar's mask-off-gap-coalesced
+    runs (#4176) rather than O(overlapping runs) — a span crossing a "closed until
+    further notice" period written as thousands of weekly ranges used to walk one
+    run per week; it now walks the handful of runs that are genuinely disjoint
+    once weekend-only gaps are folded in.
     """
     if end <= start:
         return 0
@@ -683,34 +687,7 @@ def _working_days_between(start: date, end: date, calendar: Calendar) -> int:
     mask = calendar.working_days
     count = _mask_days_between(lo, hi, mask)
     if calendar.exceptions:
-        starts, ends = calendar._exception_intervals()
-        # First run that could overlap: the rightmost starting <= lo, which may
-        # extend into the span.
-        i = max(0, bisect.bisect_right(starts, lo) - 1)
-        while i < len(starts) and starts[i] < hi:
-            s = max(starts[i], lo)
-            e = min(ends[i] + 1, hi)
-            if s < e:
-                count -= _mask_days_between(s, e, mask)
-            i += 1
-    return count
-
-
-def _mask_days_between(lo: int, hi: int, mask: int) -> int:
-    """Ordinals in ``[lo, hi)`` whose weekday is set in the ``working_days`` bitmask.
-
-    ``date.fromordinal(1)`` is a Monday, so an ordinal's weekday bit is
-    ``(o - 1) % 7`` — the same Monday=0 numbering :meth:`Calendar.is_working_day`
-    reads from ``date.weekday()``.
-    """
-    n = hi - lo
-    if n <= 0:
-        return 0
-    full_weeks, rem = divmod(n, 7)
-    count = full_weeks * (mask & 0b1111111).bit_count()
-    first = lo + full_weeks * 7
-    for o in range(first, first + rem):
-        count += (mask >> ((o - 1) % 7)) & 1
+        count -= calendar._exception_mask_days(lo, hi)
     return count
 
 

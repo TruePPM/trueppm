@@ -129,9 +129,9 @@ answering `404`, which was true of Django but not of what a client actually
 receives, since nginx's `deny all` never lets the request reach Django at all.
 The drill runs against images retagged from the commit under test, not pulled
 from GHCR, so a compose- or nginx-template change lands against HEAD
-application code rather than the last release. It does not drill Cloudflare
-Access or the `try.trueppm.com` edge — those sit in front of this stack, not
-inside it.
+application code rather than the last release. It does not drill the edge WAF
+and challenge rules or the `try.trueppm.com` edge — those sit in front of this
+stack, not inside it.
 
 ## Kubernetes with Helm
 
