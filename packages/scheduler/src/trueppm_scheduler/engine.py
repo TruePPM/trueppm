@@ -437,17 +437,22 @@ def _snap_to_working_day(
     :func:`_safe_offset` overflow error — unless the budget would have run out
     before the walk reached the boundary, exactly the order the walk hit them in.
     """
-    if calendar.is_working_day(d):
-        return d
     step = 1 if forward else -1
     boundary = _MAX_ORDINAL if forward else _MIN_ORDINAL
+    mask = calendar.working_days
     origin = o = d.toordinal()
     while True:
-        run = calendar._exception_run(o)
-        if run is None:
-            o += step
-        else:
+        # Works on ordinals so a weekend step costs no ``date`` construction. A day
+        # whose weekday is in the mask is non-working only inside an exception, so
+        # the interval lookup runs only then. ``(o - 1) % 7`` is the Monday=0
+        # weekday (ordinal 1 is a Monday), the numbering ``is_working_day`` reads.
+        if (mask >> ((o - 1) % 7)) & 1:
+            run = calendar._exception_run(o)
+            if run is None:
+                return d if o == origin else date.fromordinal(o)
             o = run[1] + 1 if forward else run[0] - 1
+        else:
+            o += step
         if (o - boundary) * step > 0 and abs(boundary - origin) < max_scan:
             _safe_offset(date.fromordinal(boundary), timedelta(days=step))
         if abs(o - origin) > max_scan:
@@ -455,9 +460,6 @@ def _snap_to_working_day(
                 f"Calendar has no working day within {MAX_CALENDAR_SCAN_DAYS} days "
                 "of the requested date; check the working_days bitmask and exceptions."
             )
-        current = date.fromordinal(o)
-        if calendar.is_working_day(current):
-            return current
 
 
 def _next_working_day(d: date, calendar: Calendar) -> date:
@@ -468,6 +470,8 @@ def _next_working_day(d: date, calendar: Calendar) -> date:
     raise an opaque ``OverflowError``, it bails out with an actionable
     :class:`InvalidScheduleInput` after :data:`MAX_CALENDAR_SCAN_DAYS`.
     """
+    if calendar.is_working_day(d):
+        return d
     return _snap_to_working_day(d, calendar, forward=True)
 
 
@@ -476,6 +480,8 @@ def _prev_working_day(d: date, calendar: Calendar) -> date:
 
     Guarded symmetrically to :func:`_next_working_day`.
     """
+    if calendar.is_working_day(d):
+        return d
     return _snap_to_working_day(d, calendar, forward=False)
 
 
@@ -499,8 +505,14 @@ def _scan_for_working_day(current: date, calendar: Calendar, *, forward: bool) -
     there gets one day less of it.
     """
     step = timedelta(days=1) if forward else timedelta(days=-1)
+    current = _safe_offset(current, step)
+    # Fast path: the next day is usually a working day. Duration expansion calls
+    # this once per working day of every task, so skipping the snap's setup here
+    # is measurable on large projects.
+    if calendar.is_working_day(current):
+        return current
     return _snap_to_working_day(
-        _safe_offset(current, step),
+        current,
         calendar,
         forward=forward,
         max_scan=MAX_CALENDAR_SCAN_DAYS - 1,

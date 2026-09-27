@@ -525,7 +525,16 @@ class Calendar:
         # date.weekday(): Monday=0, Sunday=6
         if not (self.working_days >> d.weekday()) & 1:
             return False
-        return self._exception_run(d.toordinal()) is None
+        if not self.exceptions:
+            return True
+        # Inlined rather than delegated to _exception_run: this is the per-day hot
+        # path of every calendar walk, and the extra call cost ~14% of schedule().
+        starts, ends = self._exception_intervals()
+        o = d.toordinal()
+        # The intervals are merged and disjoint, so d is an exception iff it falls
+        # within the single interval whose start is the rightmost <= d.
+        i = bisect.bisect_right(starts, o) - 1
+        return not (i >= 0 and o <= ends[i])
 
     def _exception_run(self, o: int) -> tuple[int, int] | None:
         """The merged exception interval containing ordinal ``o``, or ``None``.
