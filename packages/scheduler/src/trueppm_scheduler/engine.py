@@ -44,6 +44,7 @@ the Rust/WASM engine mirrors the rule (``packages/wasm-scheduler/src/forward.rs`
 
 from __future__ import annotations
 
+import bisect
 import copy
 import math
 from collections.abc import Callable, Iterator
@@ -409,6 +410,58 @@ def _safe_offset(d: date, delta: timedelta) -> date:
         ) from err
 
 
+_MIN_ORDINAL = date.min.toordinal()
+_MAX_ORDINAL = date.max.toordinal()
+
+
+def _snap_to_working_day(
+    d: date, calendar: Calendar, *, forward: bool, max_scan: int = MAX_CALENDAR_SCAN_DAYS
+) -> date:
+    """Return ``d`` if it is a working day, else the nearest one in ``forward`` direction.
+
+    Why it jumps instead of stepping (#4161): the CPM passes snap once per
+    dependency edge, and a single long exception range (a "closed until further
+    notice" entry just short of :data:`MAX_CALENDAR_SCAN_DAYS`) made each of those
+    snaps a ~36k-day walk — ``schedule()`` was O(edges * range length), minutes of
+    synchronous CPU for a few hundred edges. The calendar already holds its
+    exceptions as merged, disjoint intervals, so a day inside one is crossed to the
+    interval's far edge in a single O(log E) step; only weekday-mask gaps (at most
+    six days between exception runs) are still stepped. Each iteration therefore
+    leaves at least one whole non-working run behind, and the result is the same
+    date the day-by-day walk returned.
+
+    The guards are the day-by-day walk's, restated on the jump: every day skipped
+    is non-working, so a landing more than ``max_scan`` days from ``d`` means the
+    walk would have exhausted its budget first (:class:`InvalidScheduleInput`), and
+    a landing past the representable ``date`` range raises the
+    :func:`_safe_offset` overflow error — unless the budget would have run out
+    before the walk reached the boundary, exactly the order the walk hit them in.
+    """
+    step = 1 if forward else -1
+    boundary = _MAX_ORDINAL if forward else _MIN_ORDINAL
+    mask = calendar.working_days
+    origin = o = d.toordinal()
+    while True:
+        # Works on ordinals so a weekend step costs no ``date`` construction. A day
+        # whose weekday is in the mask is non-working only inside an exception, so
+        # the interval lookup runs only then. ``(o - 1) % 7`` is the Monday=0
+        # weekday (ordinal 1 is a Monday), the numbering ``is_working_day`` reads.
+        if (mask >> ((o - 1) % 7)) & 1:
+            run = calendar._exception_run(o)
+            if run is None:
+                return d if o == origin else date.fromordinal(o)
+            o = run[1] + 1 if forward else run[0] - 1
+        else:
+            o += step
+        if (o - boundary) * step > 0 and abs(boundary - origin) < max_scan:
+            _safe_offset(date.fromordinal(boundary), timedelta(days=step))
+        if abs(o - origin) > max_scan:
+            raise InvalidScheduleInput(
+                f"Calendar has no working day within {MAX_CALENDAR_SCAN_DAYS} days "
+                "of the requested date; check the working_days bitmask and exceptions."
+            )
+
+
 def _next_working_day(d: date, calendar: Calendar) -> date:
     """Return d if it is a working day, otherwise the next working day.
 
@@ -417,16 +470,9 @@ def _next_working_day(d: date, calendar: Calendar) -> date:
     raise an opaque ``OverflowError``, it bails out with an actionable
     :class:`InvalidScheduleInput` after :data:`MAX_CALENDAR_SCAN_DAYS`.
     """
-    scanned = 0
-    while not calendar.is_working_day(d):
-        if scanned >= MAX_CALENDAR_SCAN_DAYS:
-            raise InvalidScheduleInput(
-                f"Calendar has no working day within {MAX_CALENDAR_SCAN_DAYS} days "
-                "of the requested date; check the working_days bitmask and exceptions."
-            )
-        d = _safe_offset(d, timedelta(days=1))
-        scanned += 1
-    return d
+    if calendar.is_working_day(d):
+        return d
+    return _snap_to_working_day(d, calendar, forward=True)
 
 
 def _prev_working_day(d: date, calendar: Calendar) -> date:
@@ -434,16 +480,9 @@ def _prev_working_day(d: date, calendar: Calendar) -> date:
 
     Guarded symmetrically to :func:`_next_working_day`.
     """
-    scanned = 0
-    while not calendar.is_working_day(d):
-        if scanned >= MAX_CALENDAR_SCAN_DAYS:
-            raise InvalidScheduleInput(
-                f"Calendar has no working day within {MAX_CALENDAR_SCAN_DAYS} days "
-                "of the requested date; check the working_days bitmask and exceptions."
-            )
-        d = _safe_offset(d, timedelta(days=-1))
-        scanned += 1
-    return d
+    if calendar.is_working_day(d):
+        return d
+    return _snap_to_working_day(d, calendar, forward=False)
 
 
 def _scan_for_working_day(current: date, calendar: Calendar, *, forward: bool) -> date:
@@ -461,19 +500,23 @@ def _scan_for_working_day(current: date, calendar: Calendar, *, forward: bool) -
     ``OverflowError`` mid-pass. Bailing here keeps every calendar walk — in both
     :func:`schedule` and :func:`monte_carlo` — bounded and surfacing one
     documented :class:`InvalidScheduleInput` instead.
+
+    The first day off ``current`` counts against the budget, so the snap from
+    there gets one day less of it.
     """
     step = timedelta(days=1) if forward else timedelta(days=-1)
-    scanned = 0
-    while True:
-        current = _safe_offset(current, step)
-        scanned += 1
-        if calendar.is_working_day(current):
-            return current
-        if scanned >= MAX_CALENDAR_SCAN_DAYS:
-            raise InvalidScheduleInput(
-                f"Calendar has no working day within {MAX_CALENDAR_SCAN_DAYS} days "
-                "of the requested date; check the working_days bitmask and exceptions."
-            )
+    current = _safe_offset(current, step)
+    # Fast path: the next day is usually a working day. Duration expansion calls
+    # this once per working day of every task, so skipping the snap's setup here
+    # is measurable on large projects.
+    if calendar.is_working_day(current):
+        return current
+    return _snap_to_working_day(
+        current,
+        calendar,
+        forward=forward,
+        max_scan=MAX_CALENDAR_SCAN_DAYS - 1,
+    )
 
 
 def _finish_from_start(start: date, duration_days: int, calendar: Calendar) -> date:
@@ -578,15 +621,50 @@ def _working_days_between(start: date, end: date, calendar: Calendar) -> int:
 
     Used to compute total float: working_days_between(early_start, late_start).
     Returns 0 when end <= start.
+
+    Counted arithmetically rather than day by day (#4161): mask days in the span,
+    minus mask days inside each exception run that overlaps it. It is the fallback
+    for every span :class:`_WorkingDayCounter` does not cover, and a free-float
+    slack measured across a century-long exception lands outside that range once
+    per edge — so a day loop here was the same O(edges * range length) cost the
+    snap helpers had. The cost is now O(overlapping exception runs), and every
+    run holds at least one day, so it can never exceed the old loop's.
     """
     if end <= start:
         return 0
-    count = 0
-    current = start
-    while current < end:
-        if calendar.is_working_day(current):
-            count += 1
-        current += timedelta(days=1)
+    lo = start.toordinal()
+    hi = end.toordinal()
+    mask = calendar.working_days
+    count = _mask_days_between(lo, hi, mask)
+    if calendar.exceptions:
+        starts, ends = calendar._exception_intervals()
+        # First run that could overlap: the rightmost starting <= lo, which may
+        # extend into the span.
+        i = max(0, bisect.bisect_right(starts, lo) - 1)
+        while i < len(starts) and starts[i] < hi:
+            s = max(starts[i], lo)
+            e = min(ends[i] + 1, hi)
+            if s < e:
+                count -= _mask_days_between(s, e, mask)
+            i += 1
+    return count
+
+
+def _mask_days_between(lo: int, hi: int, mask: int) -> int:
+    """Ordinals in ``[lo, hi)`` whose weekday is set in the ``working_days`` bitmask.
+
+    ``date.fromordinal(1)`` is a Monday, so an ordinal's weekday bit is
+    ``(o - 1) % 7`` — the same Monday=0 numbering :meth:`Calendar.is_working_day`
+    reads from ``date.weekday()``.
+    """
+    n = hi - lo
+    if n <= 0:
+        return 0
+    full_weeks, rem = divmod(n, 7)
+    count = full_weeks * (mask & 0b1111111).bit_count()
+    first = lo + full_weeks * 7
+    for o in range(first, first + rem):
+        count += (mask >> ((o - 1) % 7)) & 1
     return count
 
 
