@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0154_object_keys"),
+        ("projects", "0155_task_milestone_at_day_end"),
     ]
 
     operations = [
