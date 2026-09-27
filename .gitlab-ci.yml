@@ -962,8 +962,9 @@ lint:mr-followups:
   before_script:
     - apk add --no-cache bash curl jq grep sed gawk
   script:
-    - bash scripts/check-mr-followups.sh
+    # Self-test first: a failing description must not hide a broken detector.
     - bash scripts/check-mr-followups.sh --self-test
+    - bash scripts/check-mr-followups.sh
 
 lint:sonar-exclusions:
   extends: .fast-job

@@ -39,7 +39,7 @@
 # Exit:   0 clean or not an MR pipeline · 1 an untracked follow-up · 2 usage/fetch error
 set -euo pipefail
 
-TRIGGER_RE='follow[- ]?ups?|deferr(ed|ing)|defer(s)? (to|until)|left open|out of (this|the) (mr|issue|change)'"'"'s scope|out of scope (for|of|in) (this|the) (mr|issue|change)|not (yet )?(fixed|addressed|covered|done)|tracked (separately|later)|punt(ed|ing)?'
+TRIGGER_RE='follow[- ]?ups?|deferr(ed|ing)|defer(s)? (to|until)|left open|out of (this|the) (mr|issue|change)'"'"'s scope|out of scope (for|of|in) (this|the) (mr|issue|change)|not (yet )?(fixed|addressed|covered)|tracked (separately|later)|punt(ed|ing)?'
 
 API="${CI_API_V4_URL:-https://gitlab.com/api/v4}"
 auth_args=()
@@ -47,11 +47,20 @@ if [ -n "${MR_FOLLOWUPS_TOKEN:-}" ]; then
   auth_args=(--header "PRIVATE-TOKEN: ${MR_FOLLOWUPS_TOKEN}")
 fi
 
-# Strip fenced code blocks and inline code spans; everything else is prose.
+# Strip fenced code blocks and inline code spans, then join hard-wrapped lines into
+# one logical line per bullet/paragraph/table row — MR bodies here are often wrapped
+# at ~90 columns, and a reference on the next physical line is still the same claim.
 # shellcheck disable=SC2016  # the backticks are literal, not an expansion
 prose() {
   awk 'BEGIN{f=0} /^[[:space:]]*(```|~~~)/{f=!f; next} !f{print}' |
-    sed -E 's/`[^`]*`//g'
+    sed -E 's/`[^`]*`//g' |
+    awk '
+      function flush() { if (buf != "") print buf; buf = "" }
+      /^[[:space:]]*$/ { flush(); next }
+      /^[[:space:]]{0,3}#+[[:space:]]/ { flush(); print; next }
+      /^[[:space:]]*([-*+]|[0-9]+[.)])[[:space:]]|^[[:space:]]*(\||>)/ { flush(); buf = $0; next }
+      { sub(/^[[:space:]]+/, ""); buf = (buf == "" ? $0 : buf " " $0) }
+      END { flush() }'
 }
 
 # issue_state <iid> -> prints opened|closed|missing, or returns 2 when unresolvable
@@ -70,8 +79,10 @@ issue_state() {
 
 check_text() {
   local text="$1" closing line refs local_refs ok n fails=0 state
-  closing="$(grep -oiE '^[[:space:]]*(closes|fixes|resolves)[[:space:]]+#[0-9]+' <<<"$text" |
-    grep -oE '[0-9]+' | sort -u || true)"
+  # Every #N on a closing-keyword line: `Closes #1, #2` and `Closes #1 and #2` both
+  # close both, and a follow-up pointed at either is the hole this gate exists for.
+  closing="$(grep -iE '^[[:space:]]*(closes|fixes|resolves)[[:space:]]' <<<"$text" |
+    grep -oE '(^|[^A-Za-z0-9/_-])#[0-9]+' | grep -oE '[0-9]+' | sort -u || true)"
   while IFS= read -r line; do
     grep -qiE "$TRIGGER_RE" <<<"$line" || continue
     grep -q 'followup-ok' <<<"$line" && continue
@@ -82,18 +93,19 @@ check_text() {
       ! grep -qiE "$(sed -E 's/^follow\[- \]\?ups\?\|//' <<<"$TRIGGER_RE")" <<<"$line"; then
       continue
     fi
-    refs="$(grep -oE '([A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+|[A-Za-z0-9_-]+)?#[0-9]+' <<<"$line" || true)"
+    refs="$(grep -oE '([A-Za-z0-9_.-]+/)?[A-Za-z0-9_.-]*#[0-9]+' <<<"$line" || true)"
     if [ -z "$refs" ]; then
       echo "UNTRACKED: ${line}" >&2
       fails=$((fails + 1))
       continue
     fi
-    # A cross-project reference (trueppm-enterprise#45) is tracked somewhere this job
-    # cannot read; accept it as the tracking reference.
-    if grep -qE '[A-Za-z0-9_-]#[0-9]+' <<<"$refs"; then
+    # A cross-project reference is tracked somewhere this job cannot read; accept it.
+    # It must be path-qualified (group/project#N) or a known sibling project
+    # (trueppm-enterprise#N) — a bare `word#N` like `issue#4159` is not one.
+    if grep -qE '(/[A-Za-z0-9_.-]+|trueppm-[a-z]+)#[0-9]+' <<<"$refs"; then
       continue
     fi
-    local_refs="$(grep -oE '[0-9]+' <<<"$refs" | sort -u)"
+    local_refs="$(grep -oE '#[0-9]+' <<<"$refs" | grep -oE '[0-9]+' | sort -u)"
     ok=0
     for n in $local_refs; do
       if grep -qx "$n" <<<"$closing"; then
@@ -139,10 +151,18 @@ fetch_description() {
       printf '%s' "${resp%$'\n'*}" | jq -r '.description // ""'
       return 0
     fi
+    echo "WARN: could not read the MR description from the API (HTTP ${code}); using CI_MERGE_REQUEST_DESCRIPTION, frozen at pipeline creation." >&2
   fi
   if [ -n "${CI_MERGE_REQUEST_DESCRIPTION+x}" ]; then
+    if [ "${CI_MERGE_REQUEST_DESCRIPTION_IS_TRUNCATED:-}" = "true" ]; then
+      echo "WARN: CI_MERGE_REQUEST_DESCRIPTION is truncated (GitLab caps it at 2700 characters); lines past the cut are not checked." >&2
+    fi
     printf '%s' "$CI_MERGE_REQUEST_DESCRIPTION"
     return 0
+  fi
+  if [ -n "${CI_MERGE_REQUEST_IID:-}" ]; then
+    echo "ERROR: MR pipeline but no description could be read (API failed, CI_MERGE_REQUEST_DESCRIPTION unset)." >&2
+    return 4
   fi
   return 3
 }
@@ -182,6 +202,9 @@ CURLMOCK
   expect_pass "trigger words inside inline code" $'- Uses `deferred_until` from the model.'
   expect_pass "backward-looking follow-up to an MR" $'- Follow-up to !2805 / !2806, which changed the roadmap only.'
   expect_fail "backward form plus an untracked deferral" $'- Follow-up to !2805; the mobile page is left open.'
+  expect_pass "hard-wrapped bullet with the reference on the next line" $'- The demo copy is a small\n  follow-up, tracked in\n  #100.'
+  expect_fail "follow-up at the SECOND issue this MR closes" $'- The rest is a follow-up in #100.\n\nCloses #200, #100'
+  expect_fail "bare word#N is not a cross-project reference" $'- Left open, see issue#300.'
   expect_fail "second of two lines untracked" $'- Follow-up: #100\n- Left open: the mobile view.'
   # An unreachable tracker fails closed, and the escape hatch opens it.
   if PATH="$tmp/bin:$PATH" CI_PROJECT_ID=1 check_text $'- Follow-up in #999' >/dev/null 2>&1; then
@@ -200,8 +223,12 @@ if [ "${1:-}" = "--file" ]; then
   exit $?
 fi
 
-if ! desc="$(fetch_description)"; then
+rc=0
+desc="$(fetch_description)" || rc=$?
+if [ "$rc" -eq 3 ]; then
   echo "SKIP: not a merge request pipeline (no MR IID or description) — nothing to check."
   exit 0
+elif [ "$rc" -ne 0 ]; then
+  exit 2
 fi
 check_text "$desc"

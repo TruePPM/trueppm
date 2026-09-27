@@ -1,6 +1,6 @@
 ---
 name: completeness-check
-model: opus
+model: sonnet
 description: >
   Independent, fresh-context audit of a finished branch BEFORE it is pushed: does it
   do everything its issue asked (acceptance criteria, test-plan lines, comments), for
@@ -44,8 +44,9 @@ What it caught, by class — use these as the checklist, they are the ones that 
 ## When to run
 
 - **Every source-touching branch, before `git push`**, after the other pre-MR gates have
-  run and their fixes are committed. Docs-only branches too — docs claims are checked
-  against code, and that is where docs gaps were found.
+  run and their fixes are committed — it runs *after* the parallel gate batch, not in it,
+  because it audits the branch those gates' fixes produced. Docs-only branches too — docs
+  claims are checked against code, and that is where docs gaps were found.
 - **Again, narrowly, on the commits made in response to it.** A fix for a completeness
   finding is new code; the round-2 audits above found gaps in round-1 fixes.
 - Exempt: dependency bumps, CI-config-only and chore branches with no behavior change.
@@ -53,7 +54,17 @@ What it caught, by class — use these as the checklist, they are the ones that 
 ## How to run
 
 Spawn **one agent that did not write the branch** (a fresh `general-purpose` agent; never
-the implementing agent, never via `SendMessage` to it). The brief must say: read-only, no
+the implementing agent, never via `SendMessage` to it). The frontmatter model does not
+reach a spawned agent, so pass `model` explicitly:
+
+- **`opus`** when the branch meets one of `batch`'s escalation criteria — it spans three
+  or more packages or changes an API↔web contract, changes scheduling semantics or the
+  sync protocol, or touches an authorization boundary. Every finding in the table above
+  came from an Opus audit, including the ones no test could see (a phantom drag move, a
+  borrowable release exemption, a refresh/edit race). Say which criterion applies.
+- **`sonnet`** otherwise. Its yield on this gate is **unmeasured**; the ledger line below
+  records the model (`… — N findings (sonnet)`) so `/kaizen` can compare the two rather
+  than either being assumed. The brief must say: read-only, no
 commits, no pushes, no tracker changes, do not spawn subagents, avoid commands over ~5
 minutes. Give it the worktree path, the issue number(s), the original MR if this is a
 follow-up, and any user decisions the branch implements — then let it find things. Do
@@ -107,7 +118,7 @@ negative controls, and only then pushes.
 ## Recording it
 
 - The MR description carries a `## Requirements` table (see `/mr`) built from step 1.
-- The `## Gates` ledger carries `gate: completeness-check — <N> findings (<one-line gist>)`,
+- The `## Gates` ledger carries `- gate: completeness-check — <N> findings (<model>; <one-line gist>)`,
   where N counts BLOCKERS + GAPS that changed the branch or were consciously deferred.
   `0 findings` is a real outcome and is recorded — it is how `/kaizen` will learn whether
   this gate keeps earning its slot.
