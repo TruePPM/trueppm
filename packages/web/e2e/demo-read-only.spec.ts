@@ -194,6 +194,33 @@ test.describe('Read-only demo — login announcement (ADR-1197 D3)', () => {
     ]);
   });
 
+  test('a refused one-click sign-in shows demo-specific copy, not the credential error (#4156)', async ({
+    page,
+  }) => {
+    // The published credential is only ever refused mid-reset (#4152) — the
+    // visitor typed nothing, so the ordinary "Invalid email or password" copy
+    // would blame them for a credential they never entered.
+    await page.route('**/api/v1/auth/token/', async (route) => {
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'No active account found with the given credentials' }),
+      });
+    });
+    await page.goto('/login');
+
+    const explore = page.getByRole('button', { name: 'Explore the demo' });
+    await explore.click();
+
+    await expect(page.getByRole('alert')).toHaveText(
+      'The demo is resetting. Wait a minute, then try Explore the demo again.',
+    );
+    await expect(page.getByText(/Invalid email or password/)).toHaveCount(0);
+    // Re-enabled, so the visitor can try again once the reset finishes.
+    await expect(explore).toBeEnabled();
+    await expect(explore).toHaveText('Explore the demo');
+  });
+
   test('renders no credential block on a normal install', async ({ page }) => {
     await setupApiMocks(page, {
       projects: FIXTURE_PROJECTS,

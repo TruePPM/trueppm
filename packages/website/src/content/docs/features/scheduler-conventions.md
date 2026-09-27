@@ -32,12 +32,13 @@ for PyPI readers. The narrative for each rule lives on
 | All four link types (FS, SS, FF, SF) take a lead or lag. | Same. | — |
 | A task driven by an **FF or SF** link stays contiguous and is right-aligned on its pinned finish, so its start moves back. As a result, CPM is not monotone in duration on a network with FF/SF links: a longer task can start earlier and pull an SS successor with it. | Same as MS Project. | [#3806](https://gitlab.com/trueppm/trueppm/-/issues/3806) (decided: keep) |
 | An **SF** link finishes the successor at the *start* of the predecessor's start day. With zero lag, the successor's last working day is the day before. The rule is the same for a task predecessor and a milestone predecessor. | Same. | [#4145](https://gitlab.com/trueppm/trueppm/-/issues/4145) |
-| A zero-duration **milestone** is an instant. A milestone driven by work sits at the end of its driver's finish day, and a milestone held by a floor sits at the start of that day. | Same. | [#4079](https://gitlab.com/trueppm/trueppm/-/issues/4079) |
+| A zero-duration **milestone** is an instant. A milestone driven by work sits at the end of its driver's finish day, and a milestone held by a floor sits at the start of that day. When a lag, or a predecessor's recorded finish on a non-working day, places the milestone after a weekend or holiday, it is shown at the start of the next working day. | Same. MS Project moves an elapsed lag that ends on non-working time to the next working time. | [#4079](https://gitlab.com/trueppm/trueppm/-/issues/4079), [#4173](https://gitlab.com/trueppm/trueppm/-/issues/4173) |
 | The **only** date constraint is start-no-earlier-than, via `Task.planned_start`, snapped to the next working day. `planned_finish` is reserved and inert: there is no deadline, finish constraint, must-start-on, or as-late-as-possible. | **Differs** — MS Project has eight constraint types plus deadlines. P6 has primary and secondary constraints. | [#3345](https://gitlab.com/trueppm/trueppm/-/issues/3345), [#804](https://gitlab.com/trueppm/trueppm/-/issues/804) |
 | An **SS or SF link *from* a summary task** is rejected with `InvalidScheduleInput`. FS and FF links from a summary are expanded to its leaves. | **Differs** — MS Project accepts any link type on a summary. | [ADR-0370](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0370-reject-ss-sf-from-summary-tasks.md) |
 
 :::note[Milestone and SF rules in older releases]
-The milestone-instant rule (#4079) and the SF anchor rule (#4145) are not in
+The milestone-instant rule (#4079, with its weekend-lag reading from #4173) and
+the SF anchor rule (#4145) are not in
 `trueppm-scheduler` 0.4.0b4 or earlier. Those releases schedule a milestone as a
 one-day task and place an SF successor one working day later.
 :::

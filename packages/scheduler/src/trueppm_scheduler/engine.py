@@ -14,6 +14,15 @@ engine now follows the MS Project / Primavera P6 convention:
   finish day**: ``A(5d, Mon..Fri) -FS-> M`` puts ``M`` on Friday, not Monday.
 * A milestone held by a floor (project start, SNET, data date, recorded actual
   start) sits at the **start** of that day, and an FS successor starts that day.
+* A milestone whose instant falls just after **non-working** time (the midnight
+  opening Sunday or Monday after a weekend) — because of a lag, or because its
+  predecessor's recorded finish is itself on a non-working day — is shown at the
+  **start of the next working day**, the way MS Project snaps an elapsed lag onto
+  working time, never at the end of the working day before it (#4173). Otherwise a
+  later midnight could be shown on an earlier day than an earlier midnight, and a
+  longer predecessor would show the milestone, and ``project_finish``, a day
+  *earlier*. The shown day is monotone in the instant; it is not a function of
+  working-time position alone (Saturday midnight is still the end of Friday).
 * Links **out of** a milestone measure from the instant (FS/SS) or the last working
   day before it (FF/SF). The instant is never rounded to a working day, so
   calendar-day lags compose through it: ``A -FS(l1)-> M -FS(l2)-> B`` schedules
@@ -746,7 +755,8 @@ _Instant = tuple[date, bool]
 start of the next — and is the only thing links measure from. ``start_display``
 only chooses how it is shown: at the start of the instant's own day (a milestone
 held by a floor or an SS link from work) or at the end of the previous working
-day (a milestone that follows work).
+day (a milestone that follows work, when that day is a working day — see
+:func:`_start_reading`).
 """
 
 
@@ -802,6 +812,25 @@ def _instant_day(instant: date, start_display: bool, cal: Calendar) -> date:
     if start_display:
         return _next_working_day(instant, cal)
     return _prev_working_day(_safe_offset(instant, -_ONE_DAY), cal)
+
+
+def _start_reading(instant: date, start_display: bool, cal: Calendar) -> bool:
+    """Whether an instant proposed by a start-anchored link reads as a day start.
+
+    An end-of-day reading names the end of the working day before the instant,
+    which only exists when that day *is* a working day. A lag that lands the
+    instant just after non-working time (Sunday or Monday midnight, after a
+    weekend) sits in non-working time, and it is shown the way MS Project snaps an
+    elapsed lag there: at the start of the next working day (#4173).
+
+    This is what keeps the shown day monotone in the instant. Sunday and Monday
+    midnight are the same working-time position; read at the end of the previous
+    working day, the later midnight was shown on Friday while the earlier one, read
+    at the start of the next, was shown on Monday — so a *longer* predecessor moved
+    a milestone, and with it ``project_finish``, a working day *earlier*, and
+    Monte Carlo reported P50 before the deterministic finish.
+    """
+    return start_display or not cal.is_working_day(_safe_offset(instant, -_ONE_DAY))
 
 
 def _milestone_refs(instant: date, cal: Calendar) -> tuple[date, date]:
@@ -911,7 +940,9 @@ def _place_milestone(
       start of their day, shown on that day;
     * FS/SS links propose ``anchor + lag`` (:func:`_edge_anchor`) — shown at the end
       of the previous working day after FS from work, at the start of the day after
-      SS from work, and the way the predecessor is shown after another milestone;
+      SS from work, and the way the predecessor is shown after another milestone,
+      except that an instant just after non-working time is always shown at the
+      start of the next working day (:func:`_start_reading`, #4173);
     * FF/SF links propose the end of the finish day ``next_wd(anchor + lag)``.
 
     Two proposals at the same midnight resolve to the start-of-day reading, so a
@@ -943,8 +974,10 @@ def _place_milestone(
         )
         raw = _safe_offset(anchor, dep.lag)
         if dep.dep_type in _START_ANCHORED:
-            start_display = (
-                pred_instant[1] if pred_instant is not None else dep.dep_type == DependencyType.SS
+            start_display = _start_reading(
+                raw,
+                pred_instant[1] if pred_instant is not None else dep.dep_type == DependencyType.SS,
+                cal,
             )
             offer((raw, start_display, _instant_day(raw, start_display, cal)))
         else:
@@ -4394,7 +4427,8 @@ def _mc_milestone_bounds(
 
     The vectorised :func:`_place_milestone`: every floor and incoming link proposes
     a raw midnight and the latest wins, a start-of-day reading winning a tie. The
-    ``key = 2 * ordinal + start_display`` encoding makes that one ``maximum``.
+    ``key = 2 * ordinal + start_display`` encoding makes that one ``maximum``, and
+    :func:`_start_reading` is applied to the winner.
     ``mats`` is ``(es, ef, instant, start_display)`` for the columns filled so far.
     """
     es_mat, ef_mat, instant_mat, start_display_mat = mats
@@ -4429,7 +4463,13 @@ def _mc_milestone_bounds(
         # FF/SF propose the end of the finish day next_wd(anchor + lag).
         offer(index.next_wd_ordinal(col, anchor + lag) + 1, False)
 
-    return key // 2, (key % 2).astype(bool)
+    # _start_reading (#4173): an end-of-day reading needs a working day before the
+    # instant. Applying it once to the winner equals applying it to every proposal,
+    # because it only ever raises the flag of a key and never reorders two keys.
+    instant = key // 2
+    day_before = instant - 1
+    after_non_working = index.next_wd_ordinal(col, day_before) != day_before
+    return instant, (key % 2).astype(bool) | after_non_working
 
 
 def _mc_edge_constraints(
