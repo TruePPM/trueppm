@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { useParams } from 'react-router';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useProgram } from '@/hooks/useProgram';
 import { ROLE_ADMIN } from '@/lib/roles';
@@ -11,6 +10,7 @@ import {
 } from '../hooks/useProgramExternalStakeholders';
 import { useProgramMentionReach } from '../hooks/useProgramMentionReach';
 import { StakeholderEmptyState, StakeholderReachSummary } from './StakeholderReachSummary';
+import { useProgramId } from '@/hooks/useProgramId';
 import {
   StakeholderEditRow,
   type StakeholderDraft,
@@ -170,7 +170,7 @@ function StakeholderRow({
  * what the registry *is*, so the deferral is stated once (#2529).
  */
 export function ProgramStakeholdersPage() {
-  const { programId } = useParams<{ programId: string }>();
+  const programId = useProgramId();
   const { data: program } = useProgram(programId);
   const { data: stakeholders = [], isLoading, isError } = useProgramExternalStakeholders(programId);
   const { create, update, remove } = useProgramExternalStakeholderMutations(programId ?? '');

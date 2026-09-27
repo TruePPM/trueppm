@@ -11,12 +11,20 @@ scope, so the install could not load. ``uv lock --check`` stayed green because i
 proves the lock satisfies pyproject. A list of "entry points" goes stale the day a new
 module takes a scheduler import; walking the package cannot.
 
+Importing a module only executes its module-scope imports. The API also imports
+scheduler symbols inside functions (``_WorkingDayCounter``, ``_collect_leaves`` and
+dozens of public ones), which no import walk can see until that code path runs. So the
+probe also parses every installed source file and resolves each
+``from trueppm_scheduler... import X`` / ``import trueppm_scheduler...`` it finds,
+wherever it sits, against the installed scheduler.
+
     python check-api-wheel-imports.py             # probe the installed package
     python check-api-wheel-imports.py --self-test  # prove the probe can fail
 """
 
 from __future__ import annotations
 
+import ast
 import importlib
 import os
 import sys
@@ -53,6 +61,75 @@ def walk(package: str) -> list[str]:
                 continue
             names.append(name)
     return names
+
+
+def scheduler_references(
+    package: str, scheduler: str
+) -> dict[tuple[str, str], list[str]]:
+    """Collect every ``scheduler`` import in ``package``'s sources, at any depth.
+
+    Parsed with ``ast`` rather than grepped so multi-line and aliased imports, and
+    imports nested in functions, methods and ``if TYPE_CHECKING`` blocks, all count.
+    Returns ``{(module, name): [file:line, ...]}``; ``name`` is ``""`` for a bare
+    ``import module``. Covers the whole package tree, tests and migrations
+    included: an unresolvable name there is the same broken install.
+    """
+    pkg = importlib.import_module(package)
+    refs: dict[tuple[str, str], list[str]] = {}
+    for root in map(Path, pkg.__path__):
+        for path in sorted(root.rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                where = f"{path.relative_to(root)}:{getattr(node, 'lineno', 0)}"
+                if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                    if node.module == scheduler or node.module.startswith(
+                        scheduler + "."
+                    ):
+                        for alias in node.names:
+                            if alias.name != "*":
+                                refs.setdefault((node.module, alias.name), []).append(
+                                    where
+                                )
+                elif isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name == scheduler or alias.name.startswith(
+                            scheduler + "."
+                        ):
+                            refs.setdefault((alias.name, ""), []).append(where)
+    return refs
+
+
+def check_scheduler_symbols(package: str, scheduler: str = "trueppm_scheduler") -> int:
+    """Resolve every scheduler name ``package`` imports against the installed one.
+
+    A name resolves if the module has that attribute or ``module.name`` imports as a
+    submodule (``from pkg import submodule``), which is exactly what the ``from``
+    statement itself would accept at runtime.
+    """
+    refs = scheduler_references(package, scheduler)
+    failures: list[str] = []
+    for (module, name), sites in sorted(refs.items()):
+        try:
+            mod = importlib.import_module(module)
+            if name and not hasattr(mod, name):
+                try:
+                    importlib.import_module(f"{module}.{name}")
+                except ModuleNotFoundError:
+                    raise ImportError(
+                        f"{module} has no attribute or submodule {name!r}"
+                    ) from None
+        except Exception as exc:  # noqa: BLE001 - report every failure, not the first
+            label = f"{module}.{name}" if name else module
+            failures.append(
+                f"FAIL {label} ({', '.join(sites)}): {type(exc).__name__}: {exc}"
+            )
+    for line in failures:
+        print(line)
+    print(
+        f"check-api-wheel-imports: {len(refs)} {scheduler} names referenced, "
+        f"{len(failures)} unresolved."
+    )
+    return 1 if failures else 0
 
 
 def probe(package: str, *, setup_django: bool) -> int:
@@ -98,6 +175,33 @@ def self_test() -> int:
             (pkg / "apps" / "sub").mkdir(parents=True)  # `apps` has no __init__.py
             (pkg / "__init__.py").write_text("")
             (pkg / "apps" / "sub" / "mod.py").write_text(textwrap.dedent(body))
+        # A fake scheduler and two consumers that import it ONLY inside functions:
+        # one names symbols that exist (incl. a submodule), one names a private
+        # symbol the scheduler no longer has. Module import succeeds for both.
+        sched = root / "probe_sched"
+        sched.mkdir()
+        (sched / "__init__.py").write_text("")
+        (sched / "engine.py").write_text("_WorkingDayCounter = object\n")
+        for name, sym in (
+            ("probe_fn_ok", "_WorkingDayCounter"),
+            ("probe_fn_bad", "_Gone"),
+        ):
+            pkg = root / name
+            (pkg / "apps").mkdir(parents=True)
+            (pkg / "__init__.py").write_text("")
+            (pkg / "apps" / "mod.py").write_text(
+                textwrap.dedent(
+                    f"""\
+                    def f():
+                        from probe_sched.engine import (
+                            {sym} as counter,
+                        )
+                        from probe_sched import engine
+                        import probe_sched.engine
+                        return counter, engine
+                    """
+                )
+            )
         sys.path.insert(0, tmp)
         try:
             seen = walk("probe_ok")
@@ -108,10 +212,27 @@ def self_test() -> int:
                 return 1
             ok = probe("probe_ok", setup_django=False)
             bad = probe("probe_bad", setup_django=False)
+            # The import walk alone must NOT see the function-local break; that is
+            # the gap the symbol scan closes.
+            fn_walk = probe("probe_fn_bad", setup_django=False)
+            fn_ok = check_scheduler_symbols("probe_fn_ok", "probe_sched")
+            fn_bad = check_scheduler_symbols("probe_fn_bad", "probe_sched")
+            refs = scheduler_references("probe_fn_ok", "probe_sched")
         finally:
             sys.path.remove(tmp)
-    if ok != 0 or bad != 1:
-        print(f"check-api-wheel-imports --self-test FAILED (clean={ok}, broken={bad})")
+    expected_refs = {
+        ("probe_sched.engine", "_WorkingDayCounter"),
+        ("probe_sched", "engine"),
+        ("probe_sched.engine", ""),
+    }
+    if set(refs) != expected_refs:
+        print(f"check-api-wheel-imports --self-test FAILED: scan found {sorted(refs)}")
+        return 1
+    if ok != 0 or bad != 1 or fn_walk != 0 or fn_ok != 0 or fn_bad != 1:
+        print(
+            "check-api-wheel-imports --self-test FAILED "
+            f"(clean={ok}, broken={bad}, fn-walk={fn_walk}, fn-ok={fn_ok}, fn-bad={fn_bad})"
+        )
         return 1
     print("check-api-wheel-imports --self-test ok")
     return 0
@@ -120,4 +241,5 @@ def self_test() -> int:
 if __name__ == "__main__":
     if "--self-test" in sys.argv:
         sys.exit(self_test())
-    sys.exit(probe("trueppm_api", setup_django=True))
+    rc = probe("trueppm_api", setup_django=True)
+    sys.exit(check_scheduler_symbols("trueppm_api") or rc)

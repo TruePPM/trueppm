@@ -1,0 +1,22 @@
+{
+  "id": "p-sf-from-work-chained",
+  "name": "SF from ordinary work, reached through an FS chain rather than a pinned start (#4145)",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {"id": "A", "name": "Lead-in work", "duration": 432000.0},
+    {"id": "B", "name": "SF predecessor, starts Mon 03-09 via FS", "duration": 432000.0},
+    {"id": "C", "name": "SF successor, no lag", "duration": 259200.0},
+    {"id": "D", "name": "SF successor, +1d lag across the weekend", "duration": 172800.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "B", "successor_id": "C", "dep_type": "SF", "lag": 0.0},
+    {"predecessor_id": "B", "successor_id": "D", "dep_type": "SF", "lag": 86400.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

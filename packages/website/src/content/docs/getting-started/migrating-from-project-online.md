@@ -56,7 +56,7 @@ against your inventory rather than discovering a gap in a review meeting.
 | As Late As Possible, Start No Later Than, Finish No Earlier Than | **Dropped**, same reason | Same warning |
 | Deadline | **Dropped.** There is no deadline field yet | Listed in the import receipt |
 | Baselines | **Reported, not imported.** Capture a TruePPM [baseline](/features/baselines/) once the schedule is in | Listed in the import receipt |
-| Work, Cost, resource rates | **Dropped.** TruePPM schedules on duration and dependencies and has no cost model | Listed in the import receipt |
+| Work, Cost, resource rates | **Dropped.** TruePPM schedules on duration and dependencies and has no cost model yet (one is planned for 0.5) | Listed in the import receipt |
 | Sub-day durations | **Rounded to whole working days** | Silently — check any task under one day |
 | Resource leveling results | **Not reproduced.** The engine computes the schedule and does not level it | The imported dates are the pre-leveling network dates |
 
@@ -79,7 +79,7 @@ decide. For a Project Online migrator the four that bite are:
   The project status update — RAG, narrative, and the computed facts behind it, with a
   one-page PDF — is planned for 0.5. If your PMO's weekly report is the thing you are
   really migrating, wait for it or budget for producing it by hand until then.
-- **No cost or earned value.** No rates, no budgets, no CPI. Planned for 0.8 to 1.0.
+- **No cost or earned value.** No rates, no budgets, no CPI. A first labor cost model (project budget, a current rate per resource, actual cost from time entries) is planned for 0.5; earned value (SPI/CPI) for 0.8.
 - **One constraint type.** See the table above.
 
 ## What you will gain

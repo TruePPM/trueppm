@@ -280,7 +280,9 @@ Two ways around it, neither of which this chart can do for you:
   `valkey.enabled: false`, `env.DATABASE_URL` / `env.REDIS_URL`) — already the
   chart's documented production recommendation regardless of platform (see
   [Bundled datastores](/administration/helm-values/#bundled-datastores)), and
-  the only path this page can currently recommend for OpenShift.
+  the only path this page can currently recommend for OpenShift. The database
+  must allow the `ltree`, `pg_trgm`, and `btree_gist` extensions — see
+  [Managed PostgreSQL](/administration/durability/#rung-3--managed-postgresql-and-managed-valkey).
 - **Grant a permissive SCC** (`anyuid`, or a custom SCC scoped to uid 999) to the
   project — requires a cluster-admin, is a real security downgrade for what is
   meant to be a dev/demo workload, and is not something the chart or these docs
