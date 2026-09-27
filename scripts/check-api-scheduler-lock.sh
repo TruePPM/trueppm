@@ -82,7 +82,7 @@ check() {
   prev="$(git_ "$root" show HEAD^:packages/scheduler/pyproject.toml 2>/dev/null | sched_version || true)"
   mcp_now="$(sched_version <"$root/packages/mcp/pyproject.toml" 2>/dev/null || true)"
   mcp_prev="$(git_ "$root" show HEAD^:packages/mcp/pyproject.toml 2>/dev/null | sched_version || true)"
-  if printf '%s\n' "$subject" | grep -qE "$RELEASE_SUBJECT_RE" &&
+  if grep -qE "$RELEASE_SUBJECT_RE" <<<"$subject" &&
      [ "$parents" = "2" ] &&
      [ -n "$prev" ] &&
      [ "$mcp_now" = "$want" ] && [ "$mcp_prev" != "$want" ] &&

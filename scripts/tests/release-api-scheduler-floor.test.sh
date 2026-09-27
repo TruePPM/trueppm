@@ -33,8 +33,8 @@ expect "fails when no scheduler dependency line exists" [ "$rc" -ne 0 ]
 grep -qF 'bump-api-scheduler-floor.sh "$CURRENT_PEP440" "$NEW_PEP440"' "$REPO_ROOT/scripts/release.sh"; check "release.sh keeps the published floor and widens the ceiling" $?
 # packages/api/pyproject.toml is a CI_API_TAG digest input: rewriting it after the
 # restamp leaves the tag stale and reds api:ci-api-tag on the release commit.
-bump_at="$(grep -n '^bash scripts/bump-api-scheduler-floor.sh' "$REPO_ROOT/scripts/release.sh" | head -1 | cut -d: -f1)"
-tag_at="$(grep -n 'check-ci-api-tag.sh --print-expected)' "$REPO_ROOT/scripts/release.sh" | head -1 | cut -d: -f1)"
+bump_at="$(grep -n '^bash scripts/bump-api-scheduler-floor.sh' "$REPO_ROOT/scripts/release.sh" | sed -n 1p | cut -d: -f1)"
+tag_at="$(grep -n 'check-ci-api-tag.sh --print-expected)' "$REPO_ROOT/scripts/release.sh" | sed -n 1p | cut -d: -f1)"
 expect "range rewrite precedes the CI_API_TAG restamp" [ "${bump_at:-999999}" -lt "${tag_at:-0}" ]
 expect "release.sh rewrites the range exactly once" \
   [ "$(grep -c '^bash scripts/bump-api-scheduler-floor.sh' "$REPO_ROOT/scripts/release.sh")" -eq 1 ]
