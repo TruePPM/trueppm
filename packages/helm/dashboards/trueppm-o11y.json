@@ -62,7 +62,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        { "refId": "A", "expr": "sum by (trueppm_outbox_name, trueppm_outbox_state) (trueppm_outbox_depth)", "legendFormat": "{{trueppm_outbox_name}}/{{trueppm_outbox_state}}" }
+        { "refId": "A", "expr": "max by (trueppm_outbox_name, trueppm_outbox_state) (trueppm_outbox_depth)", "legendFormat": "{{trueppm_outbox_name}}/{{trueppm_outbox_state}}" }
       ],
       "fieldConfig": { "defaults": { "unit": "short" } }
     },
@@ -86,7 +86,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        { "refId": "A", "expr": "sum by (trueppm_db_state) (trueppm_db_connections)", "legendFormat": "{{trueppm_db_state}}" }
+        { "refId": "A", "expr": "max by (trueppm_db_state) (trueppm_db_connections)", "legendFormat": "{{trueppm_db_state}}" }
       ],
       "fieldConfig": { "defaults": { "unit": "short" } }
     }

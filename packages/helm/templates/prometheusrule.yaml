@@ -54,7 +54,10 @@ spec:
             summary: "TruePPM Celery Beat is stale (503)"
             description: "The beat heartbeat endpoint has reported 503 for over {{ .Values.alerts.thresholds.beatStaleFor | default "2m" }}. Periodic tasks are not being scheduled."
         - alert: TruePPMOutboxDepthRising
-          expr: sum by (trueppm_outbox_name) (trueppm_outbox_depth) > {{ .Values.alerts.thresholds.outboxDepth | default 500 }}
+          # trueppm_outbox_depth is cluster-wide (every process reads the same
+          # PostgreSQL backlog and re-emits it as its own series) — max by, never
+          # sum by, or the alert fires at N times the real depth (#4186).
+          expr: max by (trueppm_outbox_name) (trueppm_outbox_depth) > {{ .Values.alerts.thresholds.outboxDepth | default 500 }}
           for: {{ .Values.alerts.thresholds.outboxDepthFor | default "10m" | quote }}
           labels:
             severity: warning
