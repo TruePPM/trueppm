@@ -41,6 +41,17 @@ change between releases. Pin an exact version (e.g.
   finish. The convention is documented in the `trueppm_scheduler.engine` module
   docstring. Behavior change: schedules containing milestones finish earlier by
   one working day per milestone on the critical path.
+- **A long calendar exception no longer makes `schedule()` slow in proportion
+  to the number of dependencies (#4161).** Every dependency edge snaps a date to
+  a working day in the forward pass, the backward pass, and the free-float
+  calculation. Each of those snaps used to walk the calendar one day at a time,
+  so one exception range close to `MAX_CALENDAR_SCAN_DAYS` long (for example a
+  "closed until further notice" entry) cost about 32 ms per edge: 200 edges took
+  6 s and 5,000 edges took minutes. Snaps now skip a whole exception range in one
+  step, and working-day spans are counted arithmetically, so the same 5,000-edge
+  project schedules in under 0.1 s. Dates, floats, and the
+  `MAX_CALENDAR_SCAN_DAYS` / date-range errors are unchanged. `monte_carlo()` was
+  never affected.
 
 - **The sdist's test suite runs (#3856).** Running `pytest` in an unpacked
   sdist errored at collection on `tests/test_wasm_conformance.py`, which needs
