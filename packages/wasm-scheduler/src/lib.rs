@@ -532,55 +532,86 @@ mod tests {
         }
     }
 
-    /// #4161: a century-long exception after the one working start day made every
-    /// per-edge snap (forward, backward, free float) walk ~36k days. The engine
-    /// must stay flat in edge count and land on the same dates.
+    /// The same closed day-set as the blanket exception below, written as
+    /// ~5,218 weekly Mon-Fri `DateRange` entries instead of one merged range
+    /// (#4176) — the shape a real "closed until further notice" period takes
+    /// from an MSPDI import or an RRULE expansion (#1454). Every gap between
+    /// consecutive entries is a weekend, which the default Mon-Fri mask already
+    /// excludes, so `build_exception_index` must coalesce it back down to one run.
+    fn weekly_blanket_ranges() -> Vec<crate::models::DateRange> {
+        use crate::models::DateRange;
+        let end = NaiveDate::from_ymd_opt(2126, 1, 1).unwrap();
+        let mut ranges = vec![DateRange {
+            start: NaiveDate::from_ymd_opt(2026, 1, 6).unwrap(),
+            end: NaiveDate::from_ymd_opt(2026, 1, 9).unwrap(),
+        }];
+        let mut d = NaiveDate::from_ymd_opt(2026, 1, 12).unwrap();
+        while d < end {
+            let week_end = (d + chrono::Duration::days(4)).min(end);
+            ranges.push(DateRange { start: d, end: week_end });
+            d += chrono::Duration::days(7);
+        }
+        ranges
+    }
+
+    /// #4161/#4176: a century-long exception after the one working start day made
+    /// every per-edge snap (forward, backward, free float) walk ~36k days. The
+    /// engine must stay flat in edge count and land on the same dates — whether
+    /// the closure is one merged range or (#4176) thousands of weekly ranges
+    /// separated only by weekends.
     #[test]
     fn test_fan_out_over_blanket_exception_is_flat_in_edges() {
         use crate::models::DateRange;
-        let cal = Calendar {
+        let blanket = Calendar {
             exceptions: vec![DateRange {
                 start: NaiveDate::from_ymd_opt(2026, 1, 6).unwrap(),
                 end: NaiveDate::from_ymd_opt(2126, 1, 1).unwrap(),
             }],
             ..Calendar::default()
         };
-        for (dep_type, lag_days, finish) in [
-            (DependencyType::FS, 0.0, (2126, 1, 2)),
-            (DependencyType::SS, 1.0, (2126, 1, 2)),
-            (DependencyType::FF, 1.0, (2126, 1, 2)),
-            (DependencyType::SF, 0.0, (2026, 1, 5)),
-        ] {
-            let mut tasks = vec![make_task("r", 1)];
-            let mut dependencies = Vec::new();
-            for i in 0..200 {
-                let id = format!("s{i}");
-                tasks.push(make_task(&id, 1));
-                dependencies.push(Dependency {
-                    dep_type,
-                    lag: lag_days * 86400.0,
-                    ..dep("r", &id)
-                });
+        let weekly = Calendar {
+            exceptions: weekly_blanket_ranges(),
+            ..Calendar::default()
+        };
+        for (cal_name, cal) in [("one-range", &blanket), ("weekly-ranges", &weekly)] {
+            for (dep_type, lag_days, finish) in [
+                (DependencyType::FS, 0.0, (2126, 1, 2)),
+                (DependencyType::SS, 1.0, (2126, 1, 2)),
+                (DependencyType::FF, 1.0, (2126, 1, 2)),
+                (DependencyType::SF, 0.0, (2026, 1, 5)),
+            ] {
+                let mut tasks = vec![make_task("r", 1)];
+                let mut dependencies = Vec::new();
+                for i in 0..200 {
+                    let id = format!("s{i}");
+                    tasks.push(make_task(&id, 1));
+                    dependencies.push(Dependency {
+                        dep_type,
+                        lag: lag_days * 86400.0,
+                        ..dep("r", &id)
+                    });
+                }
+                let project = Project {
+                    id: "p".to_string(),
+                    name: "p".to_string(),
+                    start_date: NaiveDate::from_ymd_opt(2026, 1, 5).unwrap(),
+                    tasks,
+                    dependencies,
+                    calendar: cal.clone(),
+                    status_date: None,
+                    calendars: None,
+                    velocity_samples: None,
+                    sprint_length_days: None,
+                };
+                let t0 = std::time::Instant::now();
+                let result = schedule_impl(&project).unwrap();
+                let elapsed = t0.elapsed();
+                let (y, m, dd) = finish;
+                assert_eq!(result.project_finish, NaiveDate::from_ymd_opt(y, m, dd).unwrap());
+                // Debug build; before the #4161/#4176 fixes this took seconds per
+                // dependency type (and, for weekly-ranges, scaled with edge count).
+                assert!(elapsed.as_millis() < 500, "{cal_name}/{dep_type:?}: {elapsed:?}");
             }
-            let project = Project {
-                id: "p".to_string(),
-                name: "p".to_string(),
-                start_date: NaiveDate::from_ymd_opt(2026, 1, 5).unwrap(),
-                tasks,
-                dependencies,
-                calendar: cal.clone(),
-                status_date: None,
-                calendars: None,
-                velocity_samples: None,
-                sprint_length_days: None,
-            };
-            let t0 = std::time::Instant::now();
-            let result = schedule_impl(&project).unwrap();
-            let elapsed = t0.elapsed();
-            let (y, m, dd) = finish;
-            assert_eq!(result.project_finish, NaiveDate::from_ymd_opt(y, m, dd).unwrap());
-            // Debug build; before the fix this took seconds per dependency type.
-            assert!(elapsed.as_millis() < 500, "{dep_type:?}: {elapsed:?}");
         }
     }
 
