@@ -127,6 +127,117 @@ test.describe('Unified Today view (ADR-0180)', () => {
     await expect(page.getByRole('region', { name: 'Sprint board' })).toBeVisible();
   });
 
+  test('active sprint — the board itself paints: a column heading, never the route placeholder (#4144)', async ({
+    page,
+  }) => {
+    // #4144 reported /today stuck on the route-level Suspense placeholder
+    // (`RouteLoadingFallback`: a toolbar band + four ghost rows) with every API
+    // read 200. It did not reproduce, so this is a guard, not a regression
+    // test for a known fix. The `Sprint board` region being visible (the golden
+    // path above) does not prove the board rendered — the region is visible
+    // around a skeleton too — so this asserts on a real column heading.
+    //
+    // Every endpoint the page reads is mocked with its real shape. The shared
+    // fixture covers overview, tasks, dependencies, board-config, board-views,
+    // flow-metrics and sprint-forecast; the rest are registered below. Any read
+    // that still falls through to the catch-all 404 fails the test, so a newly
+    // added read on this page cannot quietly degrade the mocked surface.
+    const tasks = [
+      { id: 't1', name: 'Cart', status: 'COMPLETE', sprint: 'sp-1', wbs_path: '1' },
+      { id: 't2', name: 'Checkout', status: 'NOT_STARTED', sprint: 'sp-1', wbs_path: '2' },
+    ];
+    await base(page, { overview: ATRISK_OVERVIEW, tasks });
+    await routeActiveSprint(page);
+    await page.route('**/api/v1/sprints/sp-1/burndown/', (route) =>
+      route.fulfill(json({ sprint: { id: 'sp-1', name: 'Sprint 14' }, snapshots: [] })),
+    );
+    await page.route('**/api/v1/sprints/sp-1/scope-changes/', (route) =>
+      route.fulfill(
+        json({
+          summary: { points_added: 0, points_removed: 0, added_mid_sprint_count: 0, total: 0 },
+          events: [],
+        }),
+      ),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/velocity/`, (route) =>
+      route.fulfill(
+        json({
+          sprints: [],
+          rolling_avg_points: null,
+          rolling_stdev_points: null,
+          forecast_range_low: null,
+          forecast_range_high: null,
+          rolling_avg_tasks: null,
+          rolling_stdev_tasks: null,
+          team_velocity_per_day: null,
+        }),
+      ),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/forecast/`, (route) =>
+      route.fulfill(
+        json({
+          velocity: {
+            sprints: [],
+            rolling_avg_points: null,
+            rolling_stdev_points: null,
+            forecast_range_low: null,
+            forecast_range_high: null,
+            rolling_avg_tasks: null,
+            rolling_stdev_tasks: null,
+            team_velocity_per_day: null,
+          },
+          remaining_committed_points: 0,
+          sprints_to_complete_low: null,
+          sprints_to_complete_high: null,
+          milestones: [],
+        }),
+      ),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/fields/`, (route) =>
+      route.fulfill(json([])),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/labels/`, (route) =>
+      route.fulfill(json(paginated([]))),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/visit/`, (route) =>
+      route.fulfill(json({ ok: true })),
+    );
+    await page.route('**/api/v1/me/timer/', (route) => route.fulfill(json({ active: false })));
+    await page.route('**/api/v1/me/work/', (route) =>
+      route.fulfill(
+        json({
+          ...paginated([]),
+          active_sprints: [],
+          due_today_count: 0,
+          server_version_high_water: 0,
+          retro_action_items: [],
+        }),
+      ),
+    );
+    await page.route('**/api/v1/programs/', (route) => route.fulfill(json(paginated([]))));
+    await page.route('**/api/v1/workspace/', (route) =>
+      route.fulfill(json({ id: 'w1', name: 'E2E', public_sharing_enabled: false })),
+    );
+
+    const unmocked: string[] = [];
+    page.on('response', (res) => {
+      if (res.url().includes('/api/v1/') && res.status() === 404) unmocked.push(res.url());
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/today`);
+
+    // The board seeds its sprint scope from the single ACTIVE sprint.
+    await expect(page).toHaveURL(/[?&]sprint=sp-1\b/);
+    const board = page.getByRole('region', { name: 'Sprint board' });
+    // Anchored: the column <h2>'s accessible name is "<label>, <n> task(s)".
+    await expect(board.getByRole('heading', { name: /^To Do, / })).toBeVisible();
+    await expect(page.getByTestId('schedule-pulse')).toBeVisible();
+    // Neither the route placeholder nor the board's own skeleton is left up.
+    await expect(page.getByRole('status', { name: 'Loading…', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('status', { name: 'Loading board…' })).toHaveCount(0);
+    expect(unmocked, 'reads that fell through to the catch-all 404').toEqual([]);
+  });
+
   test('empty state — shows "No active sprint" when none is active', async ({ page }) => {
     await base(page, { overview: ATRISK_OVERVIEW });
     // No sprint route override → fixtures return an empty sprint list.
