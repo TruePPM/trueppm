@@ -304,8 +304,11 @@ the records are in place before mail goes out.
   `TRUEPPM_FRONTEND_BASE_URL` value) **before** inviting anyone by email; any
   invite already sent while it was unset must be resent (**Workspace → Members →
   pending invite → Resend**) once you fix it, since resending mints a fresh
-  token. `manage.py check --deploy` (and the chart's post-install NOTES) warn
-  when this is unset outside local development.
+  token. Three things warn you it is unset outside local development: the API
+  process itself logs a `trueppm.settings` warning at boot (so a plain `docker
+  run` or systemd deploy with no Helm and no one running `manage.py check` is
+  still told), `manage.py check --deploy` reports the same condition, and the
+  Helm chart's post-install NOTES carry it too.
 - Comment/mention snippets embedded in the body are bounded and word-wrapped
   before sending, so a very long unbroken string (a pasted URL, log line, or
   base64 blob) can't render as one unbounded line in the recipient's mail

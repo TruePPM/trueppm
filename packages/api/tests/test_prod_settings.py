@@ -11,6 +11,7 @@ and a local attachment backend refuses to boot.
 from __future__ import annotations
 
 import importlib
+import logging
 import os
 import sys
 import tempfile
@@ -81,6 +82,7 @@ def _load_prod(
     allow_wildcard_hosts: bool = False,
     demo_read_only: bool = False,
     middleware: list[str] | None = None,
+    frontend_base_url: str = "https://trueppm.example.com",
 ) -> ModuleType:
     """Import (or re-import) settings/prod.py with controlled storage + env.
 
@@ -107,6 +109,10 @@ def _load_prod(
     DemoReadOnlyMiddleware is actually installed before that escape is trusted;
     defaults to the real base.MIDDLEWARE (which always includes it) so a test
     only needs to pass it when deliberately exercising the drift case.
+
+    ``frontend_base_url`` feeds the #4188 boot-time warning below. Defaults to a
+    configured value so every existing caller stays silent on it; a test
+    exercising the warning itself passes ``""``.
     """
     storages = {
         "default": {"BACKEND": backend},
@@ -134,6 +140,7 @@ def _load_prod(
         mock.patch.object(
             base, "MIDDLEWARE", middleware if middleware is not None else base.MIDDLEWARE
         ),
+        mock.patch.object(base, "FRONTEND_BASE_URL", frontend_base_url),
     ):
         # Ensure a stale JWT_SIGNING_KEY from a prior test's patched env never
         # bleeds in when this call means to test the inherit-SECRET_KEY default.
@@ -213,6 +220,34 @@ def test_prod_accepts_a_wildcard_subdomain() -> None:
     """
     prod = _load_prod(backend=_S3, allow_local=False, allowed_hosts=".example.com,prod.example.com")
     assert ".example.com" in prod.ALLOWED_HOSTS
+
+
+# ---------------------------------------------------------------------------
+# #4188: TRUEPPM_FRONTEND_BASE_URL. Warn, don't refuse — gunicorn/asgi workers
+# never run `manage.py check --deploy`, so the trueppm.W001 system check that
+# validate_frontend_base_url backs never reaches a non-Helm operator on its own;
+# this import-time log line is the only signal a plain docker/systemd deploy gets.
+# ---------------------------------------------------------------------------
+
+
+def test_prod_warns_when_frontend_base_url_is_empty(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="trueppm.settings"):
+        _load_prod(backend=_S3, allow_local=False, frontend_base_url="")
+    assert any("TRUEPPM_FRONTEND_BASE_URL" in record.message for record in caplog.records), (
+        "no warning logged for an empty TRUEPPM_FRONTEND_BASE_URL"
+    )
+
+
+def test_prod_stays_silent_when_frontend_base_url_is_configured(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="trueppm.settings"):
+        _load_prod(backend=_S3, allow_local=False, frontend_base_url="https://trueppm.example.com")
+    assert not any("TRUEPPM_FRONTEND_BASE_URL" in record.message for record in caplog.records), (
+        "the FRONTEND_BASE_URL warning fired even though it was configured"
+    )
 
 
 def test_prod_authenticates_with_jwt_and_owner_token_only() -> None:
