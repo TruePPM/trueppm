@@ -20,7 +20,12 @@
 # ---------------------------------------------------------------------------
 # Stage 1: builder — install the package into an isolated virtualenv
 # ---------------------------------------------------------------------------
-FROM python:3.11-slim@sha256:da047cb8f9d1d98e5c070f5300ba9f7274e33b8fc0e5be5ed88740aed1b95ba9 AS builder
+# CI overrides this with the GitLab Dependency Proxy prefix so dind builds
+# don't pull Docker Hub anonymously (#4201); the default keeps local and
+# release builds unchanged.
+ARG DOCKERHUB_PREFIX=docker.io
+
+FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:da047cb8f9d1d98e5c070f5300ba9f7274e33b8fc0e5be5ed88740aed1b95ba9 AS builder
 
 ENV VIRTUAL_ENV=/venv
 RUN python -m venv "$VIRTUAL_ENV"
@@ -85,7 +90,7 @@ RUN /venv/bin/python -c "import trueppm_mcp.cli; print('boot smoke: OK')"
 # ---------------------------------------------------------------------------
 # Stage 2: runtime — lean image with only the venv
 # ---------------------------------------------------------------------------
-FROM python:3.11-slim@sha256:da047cb8f9d1d98e5c070f5300ba9f7274e33b8fc0e5be5ed88740aed1b95ba9 AS runtime
+FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:da047cb8f9d1d98e5c070f5300ba9f7274e33b8fc0e5be5ed88740aed1b95ba9 AS runtime
 
 COPY --from=builder /venv /venv
 

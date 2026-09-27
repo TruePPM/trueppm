@@ -112,6 +112,9 @@ ci:build-deploy-images:
       changes: *dev-demo-drill-paths
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    # Docker Hub base images come through the Dependency Proxy: this dind daemon
+    # starts empty, and every self-hosted runner shares one anonymous quota (#4201).
+    - echo "$CI_DEPENDENCY_PROXY_PASSWORD" | docker login -u "$CI_DEPENDENCY_PROXY_USER" --password-stdin "$CI_DEPENDENCY_PROXY_SERVER"
   script:
     - |
       API_IMAGE="${CI_REGISTRY_IMAGE}/api:${CI_COMMIT_SHA}"
@@ -121,12 +124,14 @@ ci:build-deploy-images:
       docker pull "${CI_REGISTRY_IMAGE}/api:latest" || true
       docker build -f packages/api/Dockerfile \
         --cache-from "${CI_REGISTRY_IMAGE}/api:latest" \
+        --build-arg DOCKERHUB_PREFIX="${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}" \
         -t "$API_IMAGE" .
       docker push "$API_IMAGE"
       # web: context = packages/web (mirrors web:publish's `cd packages/web`).
       docker pull "${CI_REGISTRY_IMAGE}/web:latest" || true
       docker build \
         --cache-from "${CI_REGISTRY_IMAGE}/web:latest" \
+        --build-arg DOCKERHUB_PREFIX="${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}" \
         -t "$WEB_IMAGE" packages/web
       docker push "$WEB_IMAGE"
 
