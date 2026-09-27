@@ -45402,7 +45402,7 @@
         "/api/v1/tasks/": {
             "get": {
                 "operationId": "v1_tasks_list",
-                "description": "Attach batched milestone rollups to the page before serialization.\n\n``TaskSerializer.milestone_rollup`` is O(milestones × sprints) when computed\nper row on the hot Gantt fetch (#999). Batch every milestone in the page in\n2 queries here and stash the payload on each task instance so the serializer\nreads an attribute instead of re-querying per milestone.",
+                "description": "Attach batched milestone rollups to the page before serialization.\n\n``TaskSerializer.milestone_rollup`` is O(milestones × sprints) when computed\nper row on the hot Gantt fetch (#999). Batch every milestone in the page in a\nconstant number of queries here and stash the payload on each task instance\nso the serializer reads an attribute instead of re-querying per milestone.",
                 "parameters": [
                     {
                         "in": "query",

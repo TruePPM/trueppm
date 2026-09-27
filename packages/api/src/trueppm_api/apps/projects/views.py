@@ -5733,7 +5733,8 @@ def _attach_milestone_rollups(tasks: list[Task]) -> None:
     """Pre-compute and attach milestone rollups for a page of tasks (#999).
 
     Batches every milestone task in ``tasks`` through
-    ``batch_compute_milestone_rollups`` (2 queries total) and stashes the payload
+    ``batch_compute_milestone_rollups`` (a constant query count: 2, plus one calendar
+    batch when a start-of-day milestone needs one, #4197) and stashes the payload
     on each as ``_milestone_rollup`` so ``TaskSerializer.get_milestone_rollup``
     reads an attribute instead of an O(milestones × sprints) per-row cascade.
     Non-milestone tasks are skipped (the serializer short-circuits on them).
@@ -5752,8 +5753,9 @@ def _attach_target_milestone_rollups(sprints: list[Sprint]) -> None:
     """Pre-compute and attach target-milestone rollups for a page of sprints (#999).
 
     Mirror of ``_attach_milestone_rollups`` for ``SprintSerializer
-    .get_target_milestone_detail`` — batches every linked target milestone in 2
-    queries and stashes the payload as ``_target_milestone_rollup`` on each sprint.
+    .get_target_milestone_detail`` — batches every linked target milestone in a
+    constant number of queries and stashes the payload as
+    ``_target_milestone_rollup`` on each sprint.
     """
     from trueppm_api.apps.projects.services import batch_compute_milestone_rollups
 
@@ -6223,9 +6225,9 @@ class TaskViewSet(
         """Attach batched milestone rollups to the page before serialization.
 
         ``TaskSerializer.milestone_rollup`` is O(milestones × sprints) when computed
-        per row on the hot Gantt fetch (#999). Batch every milestone in the page in
-        2 queries here and stash the payload on each task instance so the serializer
-        reads an attribute instead of re-querying per milestone.
+        per row on the hot Gantt fetch (#999). Batch every milestone in the page in a
+        constant number of queries here and stash the payload on each task instance
+        so the serializer reads an attribute instead of re-querying per milestone.
         """
         queryset = self.filter_queryset(self.get_queryset())
         # #2815: pagination count re-ran every annotation (RawSQL/Exists/Subquery)
@@ -14246,6 +14248,12 @@ class TaskBaselineDetailView(APIView):
         except Baseline.DoesNotExist:
             return Response({"has_baseline": False})
 
+        from trueppm_api.apps.projects.services import _project_sched_calendar
+        from trueppm_api.apps.scheduling.finish_reading import (
+            finish_shift_days,
+            task_finish_at_day_start,
+        )
+
         try:
             bt = BaselineTask.objects.get(baseline=baseline, task_id=task.pk)
         except BaselineTask.DoesNotExist:
@@ -14279,6 +14287,32 @@ class TaskBaselineDetailView(APIView):
             task.scheduled_start if task.scheduled_start is not None else task.early_start
         )
 
+        # Finish delta in working time (#4197): a milestone baselined at the end of a
+        # Friday and now shown at the start of the next Monday has not moved, so it
+        # reads 0, not 3. A milestone's start is its shown day too, so its start
+        # delta is read the same way; a work task's start is always the start of its
+        # day, and its shown-day difference is already exact.
+        current_at_start = task_finish_at_day_start(task)
+        base_at_start = bt.finish_at_day_start
+        calendar = (
+            _project_sched_calendar(project.pk) if (current_at_start or base_at_start) else None
+        )
+
+        def _finish_delta(
+            current: datetime.date | None, planned: datetime.date | None
+        ) -> int | None:
+            if current is None or planned is None:
+                return None
+            return finish_shift_days(
+                (planned, base_at_start), (current, current_at_start), calendar
+            )
+
+        start_delta = (
+            _finish_delta(current_start, bt.start)
+            if task.is_milestone
+            else _day_delta(current_start, bt.start)
+        )
+
         return Response(
             {
                 "has_baseline": True,
@@ -14300,8 +14334,8 @@ class TaskBaselineDetailView(APIView):
                 "current_actual_finish": (
                     task.actual_finish.isoformat() if task.actual_finish else None
                 ),
-                "start_delta_days": _day_delta(current_start, bt.start),
-                "finish_delta_days": _day_delta(task.early_finish, bt.finish),
+                "start_delta_days": start_delta,
+                "finish_delta_days": _finish_delta(task.early_finish, bt.finish),
                 "duration_delta": task.duration - bt.duration,
             }
         )

@@ -3869,12 +3869,13 @@ def _rollup_basis(totals: dict[str, Any]) -> tuple[float | None, str]:
 
 
 def batch_compute_milestone_rollups(milestones: Any) -> dict[Any, dict[str, Any] | None]:
-    """Compute rollup payloads for a page of milestones in 2 queries total.
+    """Compute rollup payloads for a page of milestones in a constant number of queries.
 
     Returns ``{milestone_pk: payload_or_None}``. Used by ``TaskViewSet.list`` and
     ``SprintViewSet.list`` to fix the O(milestones × sprints) N+1 (#999): one query
     for every targeting sprint across the whole page, one grouped aggregate for
-    every sprint's committed/complete points, then pure-Python assembly per
+    every sprint's committed/complete points, one calendar batch only when some
+    milestone sits at the start of its day (#4197), then pure-Python assembly per
     milestone. Behavior-identical to calling ``compute_milestone_rollup_payload``
     once per milestone, but constant in query count regardless of page size.
     A milestone with no targeting sprints maps to ``None`` (the no-rollup case).

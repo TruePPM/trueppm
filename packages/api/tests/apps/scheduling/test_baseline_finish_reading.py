@@ -117,6 +117,14 @@ def _slipped_items(client: APIClient, project: Project) -> list[dict[str, Any]]:
     return [i for i in res.json()["items"] if i["type"] == "baseline_drift"]
 
 
+def _task_baseline_deltas(client: APIClient, project: Project, task: Task) -> tuple[Any, Any]:
+    """``(start_delta_days, finish_delta_days)`` from the task's Baseline tab endpoint."""
+    res = client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/baseline/")
+    assert res.status_code == 200, res.content
+    body = res.json()
+    return body["start_delta_days"], body["finish_delta_days"]
+
+
 def _sprint(project: Project, m: Task) -> Sprint:
     # Ends Friday: the milestone at the start of the next Monday is on time.
     return Sprint.objects.create(
@@ -219,6 +227,7 @@ def test_weekend_hop_against_the_baseline_is_no_drift_anywhere(
 
     assert _drift_events(m) == []
     assert _slipped_items(client, project) == []
+    assert _task_baseline_deltas(client, project, m) == (0, 0)
     assert _baseline_variance_by_project([project.pk]) == {project.pk: 0.0}
 
     sprint = _sprint(project, m)
@@ -257,6 +266,7 @@ def test_a_real_one_working_day_slip_is_still_drift(
 
     events = _drift_events(m)
     assert [e.detail["drift_days"] for e in events] == [3]
+    assert _task_baseline_deltas(client, project, m) == (3, 3)
     assert [i["detail"] for i in _slipped_items(client, project)] == ["Slipped +3d vs baseline"]
     assert _baseline_variance_by_project([project.pk]) == {project.pk: 3.0}
 
