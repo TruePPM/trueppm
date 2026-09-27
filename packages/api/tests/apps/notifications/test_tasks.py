@@ -146,6 +146,29 @@ class TestDoDrainEmails:
         assert notif.email_sent_at is not None
 
     @pytest.mark.django_db
+    def test_failed_notification_retry_waits_one_tick(
+        self, recipient: object, project: Project, comment: TaskComment, author: object
+    ) -> None:
+        # #4191: nudges run the drain far more often than Beat; a failed row must
+        # still wait one tick, or a short relay outage burns all three attempts.
+        from trueppm_api.apps.notifications.tasks import EMAIL_RETRY_SPACING
+
+        notif = _make_pending_notification(
+            recipient=recipient, project=project, comment=comment, author=author, aged_minutes=0
+        )
+        with patch("django.core.mail.EmailMessage.send", side_effect=OSError("smtp down")):
+            _do_drain_emails()
+            _do_drain_emails()
+            notif.refresh_from_db()
+            assert notif.email_attempts == 1
+            Notification.objects.filter(pk=notif.pk).update(
+                email_failed_at=timezone.now() - EMAIL_RETRY_SPACING - timedelta(seconds=1)
+            )
+            _do_drain_emails()
+        notif.refresh_from_db()
+        assert notif.email_attempts == 2
+
+    @pytest.mark.django_db
     def test_smtp_failure_increments_attempts_and_keeps_pending(
         self, recipient: object, project: Project, comment: TaskComment, author: object
     ) -> None:

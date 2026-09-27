@@ -582,8 +582,7 @@ def create_invite(
     """
     raw_token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-    transaction.on_commit(drain_invite_emails_soon)
-    return WorkspaceInvite.objects.create(
+    invite = WorkspaceInvite.objects.create(
         workspace=workspace,
         email=email,
         role=role,
@@ -593,6 +592,10 @@ def create_invite(
         expires_at=WorkspaceInvite.default_expiry(),
         email_pending=True,
     )
+    # Registered after the INSERT: outside an atomic block on_commit runs at once,
+    # and the nudged drain must be able to see the row.
+    transaction.on_commit(drain_invite_emails_soon)
+    return invite
 
 
 # Statuses an admin may resend (ADR-0149). PENDING covers a lost/bounced live

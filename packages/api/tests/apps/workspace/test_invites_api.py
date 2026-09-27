@@ -452,6 +452,35 @@ def test_second_drain_does_not_resend(admin: object, settings: object) -> None:
 
 
 @pytest.mark.django_db
+def test_failed_invite_retry_waits_one_tick(admin: object, settings: object) -> None:
+    """Back-to-back drains after a failure make one attempt, not three (#4191).
+
+    Nudges run the drain far more often than Beat, so without a retry floor a short
+    relay outage would exhaust every attempt in seconds and mark the invite FAILED.
+    """
+    from unittest.mock import patch as _patch
+
+    from trueppm_api.apps.workspace.tasks import EMAIL_RETRY_SPACING
+
+    invite = services.create_invite(
+        workspace=Workspace.load(), email="retry@x.io", role=WorkspaceRole.MEMBER, invited_by=admin
+    )
+    with _patch("trueppm_api.apps.workspace.tasks._send_invite_email", return_value=False):
+        _do_drain_invite_emails()
+        _do_drain_invite_emails()
+        invite.refresh_from_db()
+        assert invite.email_attempts == 1
+        assert invite.status == InviteStatus.PENDING
+        # One tick later the retry is eligible again.
+        WorkspaceInvite.objects.filter(pk=invite.pk).update(
+            email_failed_at=timezone.now() - EMAIL_RETRY_SPACING - timedelta(seconds=1)
+        )
+        _do_drain_invite_emails()
+    invite.refresh_from_db()
+    assert invite.email_attempts == 2
+
+
+@pytest.mark.django_db
 def test_create_invite_nudges_drain_on_commit(
     admin: object, django_capture_on_commit_callbacks: Any
 ) -> None:
@@ -660,8 +689,7 @@ def test_drain_terminal_failure_clears_token(admin: object, monkeypatch: object)
     invite = services.create_invite(
         workspace=Workspace.load(), email="fail@x.io", role=WorkspaceRole.MEMBER, invited_by=admin
     )
-    # Backdate past the orphan window and pre-load attempts to the retry ceiling so
-    # this drain pass is the terminal one.
+    # Pre-load attempts to the retry ceiling so this drain pass is the terminal one.
     WorkspaceInvite.objects.filter(pk=invite.pk).update(
         created_at=timezone.now() - timedelta(minutes=10),
         email_attempts=EMAIL_MAX_RETRIES - 1,

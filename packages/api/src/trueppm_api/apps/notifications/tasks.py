@@ -49,6 +49,11 @@ logger = logging.getLogger(__name__)
 # Locked constants for email delivery — kept in this module so they're
 # adjacent to the drain task that owns them.
 EMAIL_MAX_RETRIES = 3
+# Minimum gap between a failed attempt and the next one (#4191). First sends are
+# immediate, but on_commit nudges run the drain far more often than the 30 s Beat
+# tick, so without this floor a short relay outage would burn all three attempts in
+# seconds. Keeps retries about one Beat tick apart (~90 s to exhaustion).
+EMAIL_RETRY_SPACING = timedelta(seconds=30)
 # Fallback cap per drain tick, when no operator limit applies. Re-exported from
 # delivery_limits, which every mail path now shares (#2887 item 3).
 EMAIL_BATCH_SIZE = EMAIL_MAX_BATCH_SIZE
@@ -365,6 +370,7 @@ def _do_drain_emails() -> None:
 
     from .models import Notification, WorkspaceEmailSettings
 
+    now = timezone.now()
     _retire_pending_for_deactivated_recipients()
     _retire_pending_for_revoked_membership()
 
@@ -403,6 +409,8 @@ def _do_drain_emails() -> None:
         # this SELECT. A row with no project (account-scoped digests) has no
         # membership boundary and always passes.
         .filter(_current_project_membership_exists() | Q(project_id__isnull=True))
+        # Retries stay one tick apart even when nudges run the drain more often.
+        .filter(Q(email_failed_at__isnull=True) | Q(email_failed_at__lt=now - EMAIL_RETRY_SPACING))
         .select_related("recipient", "mention", "mention__task_comment", "mention__mentioner")
         .order_by("created_at")[:granted]
     )

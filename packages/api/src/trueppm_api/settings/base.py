@@ -679,9 +679,9 @@ CELERY_BEAT_SCHEDULE = {
         # 03:00 UTC — after other nightly purge jobs.
         "schedule": crontab(hour=3, minute=0),
     },
-    # Notification email outbox drain: send queued mention emails every 30 s.
-    # Respects 5-min orphan window so it doesn't race in-flight comment-create
-    # transactions (ADR-0075 §F durable-execution checklist item 3).
+    # Notification email outbox drain: send queued notification emails every 30 s.
+    # Fan-outs also nudge it on commit, so this tick is the durability backstop, not
+    # the latency path (ADR-0087 §Amendment #4191).
     "drain-notification-emails": {
         "task": "notifications.drain_notification_emails",
         "schedule": 30.0,
@@ -761,8 +761,8 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(minute=5),
     },
     # Workspace invite email outbox drain: send queued invite emails every 30 s.
-    # Respects the 5-min orphan window so it doesn't race invite-create txns
-    # (ADR-0087 §Durable Execution item 3).
+    # create_invite also nudges it on commit, so this tick is the durability
+    # backstop, not the latency path (ADR-0087 §Amendment #4191).
     "drain-invite-emails": {
         "task": "workspace.drain_invite_emails",
         "schedule": 30.0,

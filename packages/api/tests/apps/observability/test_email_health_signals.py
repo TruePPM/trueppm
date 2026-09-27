@@ -25,7 +25,11 @@ from trueppm_api.apps.notifications.models import (
     Notification,
     WorkspaceEmailSettings,
 )
-from trueppm_api.apps.notifications.tasks import EMAIL_MAX_RETRIES, _do_drain_emails
+from trueppm_api.apps.notifications.tasks import (
+    EMAIL_MAX_RETRIES,
+    EMAIL_RETRY_SPACING,
+    _do_drain_emails,
+)
 from trueppm_api.apps.observability.selectors import (
     STATUS_CRIT,
     STATUS_OK,
@@ -82,6 +86,20 @@ def _card() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
+def _drain_beat_ticks(count: int) -> None:
+    """Run ``count`` drains spaced like Beat ticks (#4191).
+
+    The drain now waits ``EMAIL_RETRY_SPACING`` after a failure before retrying, so
+    back-to-back calls would model one tick, not ``count``. Aging each pending row's
+    ``email_failed_at`` past the spacing between calls stands in for the 30 s gap.
+    """
+    for _ in range(count):
+        _do_drain_emails()
+        Notification.objects.filter(email_pending=True, email_failed_at__isnull=False).update(
+            email_failed_at=timezone.now() - EMAIL_RETRY_SPACING - timedelta(seconds=1)
+        )
+
+
 def test_a_dead_relay_is_detected_within_its_retry_budget() -> None:
     """The reproduction from #2886, inverted into an assertion.
 
@@ -97,8 +115,7 @@ def test_a_dead_relay_is_detected_within_its_retry_budget() -> None:
     _queued(user, count=3)
 
     with _dead_relay():
-        for _ in range(EMAIL_MAX_RETRIES + 1):
-            _do_drain_emails()
+        _drain_beat_ticks(EMAIL_MAX_RETRIES + 1)
 
     # The row state the old detector could never see.
     assert (
@@ -146,8 +163,7 @@ def test_failures_alongside_deliveries_warn_rather_than_crit() -> None:
 
     _queued(_recipient("second_user"), count=1)
     with _dead_relay():
-        for _ in range(EMAIL_MAX_RETRIES):
-            _do_drain_emails()
+        _drain_beat_ticks(EMAIL_MAX_RETRIES)
 
     signals = notification_email_signals()
     assert signals["failed_recent"] == 1
@@ -162,8 +178,7 @@ def test_a_stale_failure_falls_out_of_the_window() -> None:
     user = _recipient()
     _queued(user, count=1)
     with _dead_relay():
-        for _ in range(EMAIL_MAX_RETRIES):
-            _do_drain_emails()
+        _drain_beat_ticks(EMAIL_MAX_RETRIES)
     assert notification_email_signals()["failed_recent"] == 1
 
     Notification.objects.update(email_failed_at=timezone.now() - timedelta(hours=3))
@@ -264,8 +279,7 @@ def test_email_metrics_endpoint_exposes_the_four_gauges() -> None:
     user = _recipient()
     _queued(user, count=1)
     with _dead_relay():
-        for _ in range(EMAIL_MAX_RETRIES):
-            _do_drain_emails()
+        _drain_beat_ticks(EMAIL_MAX_RETRIES)
 
     admin = User.objects.create_user(username="metrics_admin", password="pw", is_staff=True)
     client = APIClient()
