@@ -184,15 +184,20 @@ impl Calendar {
         if (self.working_days >> weekday_bit) & 1 == 0 {
             return false;
         }
+        self.exception_run(d.num_days_from_ce()).is_none()
+    }
+
+    /// The merged exception interval containing day ordinal `ord`, as inclusive
+    /// `(start, end)` ordinals, or `None`. The snap helpers use it to cross a
+    /// whole exception run in one step instead of testing every day in it (#4161).
+    fn exception_run(&self, ord: i32) -> Option<(i32, i32)> {
         let index = self
             .exception_index
             .get_or_init(|| build_exception_index(&self.exceptions));
-        let ord = d.num_days_from_ce();
         // Rightmost merged range whose start is <= ord; `ord` is an exception iff
         // that range also covers it (ord <= its end).
         let pos = index.partition_point(|&(start, _)| start <= ord);
-        let covered = pos > 0 && ord <= index[pos - 1].1;
-        !covered
+        (pos > 0 && ord <= index[pos - 1].1).then(|| index[pos - 1])
     }
 }
 
@@ -279,40 +284,81 @@ impl<'a> WorkingDayCounter<'a> {
     }
 }
 
+/// Return `d` if it is a working day, else the nearest working day in the
+/// `forward` direction, within `max_scan` days of `d`.
+///
+/// Why it jumps instead of stepping (#4161): the CPM passes snap once per
+/// dependency edge, and one long exception range (a "closed until further
+/// notice" entry just short of `MAX_CALENDAR_SCAN_DAYS`) made each of those snaps
+/// a ~36k-day walk, so a schedule was O(edges * range length). The exception
+/// index is merged and disjoint, so a day inside a run is crossed to the run's
+/// far edge in one O(log X) step; only weekday-mask gaps are still stepped. The
+/// result is the date the day-by-day walk returned, and the guards are its guards
+/// restated on the jump: every skipped day is non-working, so landing more than
+/// `max_scan` days out means the walk's budget ran out first, and a landing past
+/// `NaiveDate`'s range is the walk's overflow. Both surface as
+/// `calendar_scan_error(anchor, ..)`, as they did before. Mirrors the Python
+/// engine's `_snap_to_working_day`.
+fn snap_working_day(
+    d: NaiveDate,
+    cal: &Calendar,
+    forward: bool,
+    max_scan: i64,
+    anchor: NaiveDate,
+) -> Result<NaiveDate, String> {
+    if cal.is_working_day(d) {
+        return Ok(d);
+    }
+    let direction = if forward { "after" } else { "before" };
+    let origin = i64::from(d.num_days_from_ce());
+    let mut ord = origin;
+    loop {
+        // `ord` stays inside NaiveDate's range (it is only ever a date we landed
+        // on), so it fits i32.
+        ord = match cal.exception_run(ord as i32) {
+            Some((_, end)) if forward => i64::from(end) + 1,
+            Some((start, _)) => i64::from(start) - 1,
+            None if forward => ord + 1,
+            None => ord - 1,
+        };
+        if (ord - origin).abs() > max_scan {
+            return Err(calendar_scan_error(anchor, direction));
+        }
+        let current = checked_offset_days(d, ord - origin)
+            .map_err(|_| calendar_scan_error(anchor, direction))?;
+        if cal.is_working_day(current) {
+            return Ok(current);
+        }
+    }
+}
+
 /// Return `d` if it is a working day, otherwise the next working day.
 ///
 /// Bounded by `MAX_CALENDAR_SCAN_DAYS` and using checked date arithmetic so a
 /// calendar whose exceptions blanket every day after `d` returns `Err` rather
 /// than spinning until `NaiveDate` overflows and panics (#908).
 pub fn next_working_day(d: NaiveDate, cal: &Calendar) -> Result<NaiveDate, String> {
-    let mut current = d;
-    let mut scanned = 0i64;
-    while !cal.is_working_day(current) {
-        if scanned >= MAX_CALENDAR_SCAN_DAYS {
-            return Err(calendar_scan_error(d, "after"));
-        }
-        current = current
-            .checked_add_signed(Duration::days(1))
-            .ok_or_else(|| calendar_scan_error(d, "after"))?;
-        scanned += 1;
-    }
-    Ok(current)
+    snap_working_day(d, cal, true, MAX_CALENDAR_SCAN_DAYS, d)
 }
 
 /// Return `d` if it is a working day, otherwise the previous working day.
 pub fn prev_working_day(d: NaiveDate, cal: &Calendar) -> Result<NaiveDate, String> {
-    let mut current = d;
-    let mut scanned = 0i64;
-    while !cal.is_working_day(current) {
-        if scanned >= MAX_CALENDAR_SCAN_DAYS {
-            return Err(calendar_scan_error(d, "before"));
-        }
-        current = current
-            .checked_sub_signed(Duration::days(1))
-            .ok_or_else(|| calendar_scan_error(d, "before"))?;
-        scanned += 1;
-    }
-    Ok(current)
+    snap_working_day(d, cal, false, MAX_CALENDAR_SCAN_DAYS, d)
+}
+
+/// Step one day off `current` and snap onward to the next working day in that
+/// direction. The step counts against the per-gap budget, so the snap gets one
+/// day less of it — the same bound the per-day loop drew.
+fn step_to_working_day(
+    current: NaiveDate,
+    cal: &Calendar,
+    forward: bool,
+    anchor: NaiveDate,
+) -> Result<NaiveDate, String> {
+    let direction = if forward { "after" } else { "before" };
+    let next = checked_offset_days(current, if forward { 1 } else { -1 })
+        .map_err(|_| calendar_scan_error(anchor, direction))?;
+    snap_working_day(next, cal, forward, MAX_CALENDAR_SCAN_DAYS - 1, anchor)
 }
 
 /// Return the last working day of a task given its start and working-day duration.
@@ -353,19 +399,9 @@ pub fn finish_from_start(
     }
     let mut remaining = duration_days - 1;
     let mut current = next_working_day(start, cal)?;
-    let mut scanned = 0i64;
     while remaining > 0 {
-        if scanned >= MAX_CALENDAR_SCAN_DAYS {
-            return Err(calendar_scan_error(start, "after"));
-        }
-        current = current
-            .checked_add_signed(Duration::days(1))
-            .ok_or_else(|| calendar_scan_error(start, "after"))?;
-        scanned += 1;
-        if cal.is_working_day(current) {
-            remaining -= 1;
-            scanned = 0;
-        }
+        current = step_to_working_day(current, cal, true, start)?;
+        remaining -= 1;
     }
     Ok(current)
 }
@@ -392,19 +428,9 @@ pub fn start_from_finish(
     }
     let mut remaining = duration_days - 1;
     let mut current = prev_working_day(finish, cal)?;
-    let mut scanned = 0i64;
     while remaining > 0 {
-        if scanned >= MAX_CALENDAR_SCAN_DAYS {
-            return Err(calendar_scan_error(finish, "before"));
-        }
-        current = current
-            .checked_sub_signed(Duration::days(1))
-            .ok_or_else(|| calendar_scan_error(finish, "before"))?;
-        scanned += 1;
-        if cal.is_working_day(current) {
-            remaining -= 1;
-            scanned = 0;
-        }
+        current = step_to_working_day(current, cal, false, finish)?;
+        remaining -= 1;
     }
     Ok(current)
 }
@@ -427,17 +453,48 @@ pub fn working_days_between(
     if (end - start).num_days() > MAX_WORKING_DAY_WALK_DAYS {
         return Err(working_day_walk_error(start, end));
     }
-    let mut count = 0;
-    let mut current = start;
-    while current < end {
-        if cal.is_working_day(current) {
-            count += 1;
+    // Counted arithmetically rather than day by day (#4161): mask days in the
+    // span, minus mask days inside each exception run that overlaps it. This is
+    // the fallback for every span `WorkingDayCounter` does not cover, and a
+    // free-float slack measured across a century-long exception lands outside
+    // that range once per edge — so a day loop here was the same
+    // O(edges * range length) cost the snaps had. Mirrors the Python engine's
+    // `_working_days_between`.
+    let lo = start.num_days_from_ce();
+    let hi = end.num_days_from_ce();
+    let mask = cal.working_days;
+    let mut count = mask_days_between(lo, hi, mask);
+    let index = cal
+        .exception_index
+        .get_or_init(|| build_exception_index(&cal.exceptions));
+    // First run that could overlap: the rightmost starting <= lo.
+    let first = index.partition_point(|&(s, _)| s <= lo).saturating_sub(1);
+    for &(s, e) in index[first..].iter().take_while(|&&(s, _)| s < hi) {
+        let s = s.max(lo);
+        let e = (e + 1).min(hi);
+        if s < e {
+            count -= mask_days_between(s, e, mask);
         }
-        current = current
-            .checked_add_signed(Duration::days(1))
-            .ok_or_else(|| working_day_walk_error(start, end))?;
     }
     Ok(count)
+}
+
+/// Day ordinals in `[lo, hi)` whose weekday is set in the `working_days` mask.
+///
+/// `num_days_from_ce() == 1` is Monday 0001-01-01, so an ordinal's weekday bit
+/// is `(o - 1) mod 7` — the Monday=0 numbering `is_working_day` reads.
+fn mask_days_between(lo: i32, hi: i32, mask: u8) -> i32 {
+    let n = hi - lo;
+    if n <= 0 {
+        return 0;
+    }
+    let full_weeks = n / 7;
+    let mut count = full_weeks * (mask & 0b111_1111).count_ones() as i32;
+    let first = lo + full_weeks * 7;
+    for o in first..first + n % 7 {
+        count += i32::from((mask >> (o - 1).rem_euclid(7)) & 1);
+    }
+    count
 }
 
 /// Advance `d` by `lag` calendar days and snap to the next working day.
@@ -771,5 +828,133 @@ mod tests {
         // O(tens-of-millions-of-days) main-thread freeze.
         let cal = weekday_cal();
         assert!(working_days_between(d(2026, 4, 1), NaiveDate::MAX, &cal).is_err());
+    }
+    // --- #4161: snaps jump exception runs; results match the day-by-day walk ---
+
+    /// The pre-#4161 snap: one day per step, same budget and overflow guards.
+    fn snap_by_day(d: NaiveDate, cal: &Calendar, step: i64, budget: i64) -> Option<NaiveDate> {
+        let mut current = d;
+        let mut scanned = 0i64;
+        while !cal.is_working_day(current) {
+            if scanned >= budget {
+                return None;
+            }
+            current = current.checked_add_signed(Duration::days(step))?;
+            scanned += 1;
+        }
+        Some(current)
+    }
+
+    fn between_by_day(start: NaiveDate, end: NaiveDate, cal: &Calendar) -> i32 {
+        let mut count = 0;
+        let mut current = start;
+        while current < end {
+            count += i32::from(cal.is_working_day(current));
+            current += Duration::days(1);
+        }
+        count
+    }
+
+    #[test]
+    fn test_snaps_and_span_match_day_walk_on_random_calendars() {
+        // Tiny deterministic LCG — no rand dependency in this crate.
+        let mut seed: u64 = 4161;
+        let mut next = |n: i64| -> i64 {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((seed >> 33) % n as u64) as i64
+        };
+        let base = d(2026, 3, 1);
+        for _ in 0..300 {
+            let mut exceptions = Vec::new();
+            for _ in 0..next(9) {
+                let s = base + Duration::days(next(121) - 60);
+                exceptions.push(DateRange { start: s, end: s + Duration::days(next(21)) });
+            }
+            let cal = Calendar {
+                working_days: (next(127) + 1) as u8,
+                exceptions,
+                ..Calendar::default()
+            };
+            for _ in 0..20 {
+                let day = base + Duration::days(next(161) - 80);
+                assert_eq!(
+                    next_working_day(day, &cal).ok(),
+                    snap_by_day(day, &cal, 1, MAX_CALENDAR_SCAN_DAYS)
+                );
+                assert_eq!(
+                    prev_working_day(day, &cal).ok(),
+                    snap_by_day(day, &cal, -1, MAX_CALENDAR_SCAN_DAYS)
+                );
+                let end = day + Duration::days(next(126) - 5);
+                assert_eq!(
+                    working_days_between(day, end, &cal).unwrap(),
+                    between_by_day(day, end, &cal)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_snap_budget_boundary_matches_day_walk() {
+        // A gap of exactly the budget is crossed; one day more is rejected.
+        let start = d(2026, 1, 1);
+        for extra in [-1i64, 0, 1] {
+            let gap = MAX_CALENDAR_SCAN_DAYS + extra;
+            let cal = Calendar {
+                working_days: 127,
+                exceptions: vec![DateRange { start, end: start + Duration::days(gap - 1) }],
+                ..Calendar::default()
+            };
+            assert_eq!(
+                next_working_day(start, &cal).ok(),
+                snap_by_day(start, &cal, 1, MAX_CALENDAR_SCAN_DAYS)
+            );
+            let end = start + Duration::days(gap - 1);
+            assert_eq!(
+                prev_working_day(end, &cal).ok(),
+                snap_by_day(end, &cal, -1, MAX_CALENDAR_SCAN_DAYS)
+            );
+        }
+    }
+
+    #[test]
+    fn test_snap_into_date_range_edge_errors() {
+        let near_max = Calendar {
+            exceptions: vec![DateRange {
+                start: NaiveDate::MAX - Duration::days(30),
+                end: NaiveDate::MAX,
+            }],
+            ..Calendar::default()
+        };
+        assert!(next_working_day(NaiveDate::MAX - Duration::days(10), &near_max).is_err());
+        let near_min = Calendar {
+            exceptions: vec![DateRange {
+                start: NaiveDate::MIN,
+                end: NaiveDate::MIN + Duration::days(30),
+            }],
+            ..Calendar::default()
+        };
+        assert!(prev_working_day(NaiveDate::MIN + Duration::days(10), &near_min).is_err());
+        // The tie: the budget and the date range run out on the same day.
+        for back in [MAX_CALENDAR_SCAN_DAYS - 1, MAX_CALENDAR_SCAN_DAYS, MAX_CALENDAR_SCAN_DAYS + 1] {
+            let hi = NaiveDate::MAX - Duration::days(back);
+            let tie_hi = Calendar {
+                exceptions: vec![DateRange { start: hi, end: NaiveDate::MAX }],
+                ..Calendar::default()
+            };
+            assert_eq!(
+                next_working_day(hi, &tie_hi).ok(),
+                snap_by_day(hi, &tie_hi, 1, MAX_CALENDAR_SCAN_DAYS)
+            );
+            let lo = NaiveDate::MIN + Duration::days(back);
+            let tie_lo = Calendar {
+                exceptions: vec![DateRange { start: NaiveDate::MIN, end: lo }],
+                ..Calendar::default()
+            };
+            assert_eq!(
+                prev_working_day(lo, &tie_lo).ok(),
+                snap_by_day(lo, &tie_lo, -1, MAX_CALENDAR_SCAN_DAYS)
+            );
+        }
     }
 }

@@ -10,6 +10,11 @@ documentedFor: "0.4"
 pip install trueppm-scheduler
 ```
 
+Every modeling convention the engine commits to — lag units, the constraint set, the
+sampling distribution, float definitions, progress rules — is listed on one page,
+with where each differs from MS Project and Primavera P6:
+[Scheduler Conventions](/features/scheduler-conventions/).
+
 ## Interactive notebooks
 
 | Notebook | Contents |
@@ -219,7 +224,9 @@ trueppm-scheduler schedule project.json --json
 
 ## Monte Carlo Simulation
 
-`monte_carlo()` runs probabilistic simulation using PERT-Beta distributions (method-of-moments parameterization). Vectorized with numpy; 10,000 runs on a 200-task chain completes in under 5 seconds.
+`monte_carlo()` runs probabilistic simulation using PERT-Beta distributions: a Beta fitted by method of moments to the classic PERT mean `(O + 4M + P) / 6` and standard deviation `(P − O) / 6`, **not** the λ=4 Beta-PERT that @RISK defaults to. Both share the mean; on a symmetric estimate this band is slightly narrower than @RISK's default, so P80/P95 land a little earlier ([#4133](https://gitlab.com/trueppm/trueppm/-/issues/4133)). Vectorized with numpy: 10,000 runs on a 200-task project takes about 60–100 ms on a current laptop CPU (measured on Apple Silicon, numpy 2.4) and longer on a shared CI runner or an older server.
+
+**Seeded runs are reproducible within one numpy and one `trueppm-scheduler` version.** `monte_carlo(project, seed=…)` returns the same P50/P80/P95 every time for the same input on the same versions of both packages. numpy only guarantees a random stream within one release, so upgrading numpy — or the scheduler — can move a seeded percentile. Pin both alongside the seed if a baseline must stay bit-identical ([#4099](https://gitlab.com/trueppm/trueppm/-/issues/4099)).
 
 ### Three-point estimates
 
@@ -236,7 +243,7 @@ All three must be set for a task to be sampled; a partial estimate is ignored. T
 **Sampled durations are floored at `Task.duration`.** `duration` is what the deterministic pass lays out, so a sample below it would make `monte_carlo()` forecast a finish `schedule()` has already ruled infeasible. Each sampled column is clamped up to `duration` before the network is solved — the PERT path and the velocity path alike. The practical consequence for a library consumer: setting a triple *below* `duration` does not pull the forecast in, it collapses that task to its deterministic duration. To model a task finishing faster than planned, lower `duration`. Risk *above* the plan passes through untouched.
 
 :::caution[FF / SF networks]
-CPM is not monotone in duration where a Finish-to-Finish or Start-to-Finish link is present: such a link pins a task's finish, so a longer task starts earlier and an SS successor keyed on that start inherits the earlier start. `schedule()` shows this on its own — raising every duration can move the deterministic finish backwards. On such a network a percentile can still precede the deterministic finish, with `monte_carlo()` reproducing `schedule()` faithfully per sampled scenario. FS/SS networks are unaffected.
+CPM is not monotone in duration where a Finish-to-Finish or Start-to-Finish link is present: such a link pins a task's finish, so a longer task starts earlier and an SS successor keyed on that start inherits the earlier start. `schedule()` shows this on its own — raising every duration can move the deterministic finish backwards. On such a network a percentile can still precede the deterministic finish, with `monte_carlo()` reproducing `schedule()` faithfully per sampled scenario. FS/SS networks are unaffected. This is the engine's decided convention, not an open defect: an FF/SF-driven task stays contiguous and right-aligned on its pinned finish, as MS Project renders it ([#3806](https://gitlab.com/trueppm/trueppm/-/issues/3806)).
 :::
 
 ### Output

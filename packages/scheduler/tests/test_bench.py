@@ -214,6 +214,64 @@ def test_monte_carlo_large_run_performance() -> None:
     )
 
 
+def _make_documented_mc_project(n: int = 200, start: date = date(2026, 1, 5)) -> Project:
+    """The project shape ``monte_carlo()``'s docstring quotes a timing for.
+
+    ``n`` PERT tasks on an FS spine, plus a grandparent link cycling through all
+    four dependency types with a 0-4 day lag, so the run exercises every edge
+    formula and the lag-delta table rather than a bare chain.
+    """
+    tasks = _make_pert_chain(n).tasks
+    rotating = [DependencyType.FS, DependencyType.SS, DependencyType.FF, DependencyType.SF]
+    deps = [Dependency(predecessor_id=f"t{i - 1}", successor_id=f"t{i}") for i in range(1, n)]
+    deps += [
+        Dependency(
+            predecessor_id=f"t{i - 2}",
+            successor_id=f"t{i}",
+            dep_type=rotating[i % 4],
+            lag=timedelta(days=i % 5),
+        )
+        for i in range(2, n)
+    ]
+    return Project(
+        id="bench-mc-documented",
+        name="Bench MC documented",
+        start_date=start,
+        tasks=tasks,
+        dependencies=deps,
+        calendar=Calendar(),
+    )
+
+
+def test_monte_carlo_documented_200_task_timing() -> None:
+    """The ``monte_carlo()`` docstring's 200-task x 10,000-run figure stays true (#3859).
+
+    The docstring quotes ~60-100 ms on a current laptop for this shape (measured
+    88 ms on Apple Silicon, numpy 2.4). This asserts a **loose sanity bound** of
+    2 s — ~20x headroom — because a shared CI runner is several times slower than
+    the laptop the figure was measured on and a tight budget would flake. It
+    catches the failure that matters: the published claim drifting false by an
+    order of magnitude (a de-vectorized sampler, a per-run Python loop) while
+    nothing notices. If this trips, re-measure and restate the docstring figure.
+    """
+    project = _make_documented_mc_project()
+    assert len(project.tasks) == 200
+
+    monte_carlo(project, runs=10_000, seed=3859)  # warm-up
+
+    t0 = time.perf_counter()
+    result = monte_carlo(project, runs=10_000, seed=3859)
+    elapsed = time.perf_counter() - t0
+
+    assert result.runs == 10_000
+    assert result.p50 <= result.p80 <= result.p95
+    assert elapsed < 2.0, (
+        f"monte_carlo() on 200 tasks x 10,000 runs took {elapsed:.3f}s — budget is 2.0s. "
+        "The monte_carlo() docstring quotes ~60-100 ms for this shape; re-measure and "
+        "restate it, or profile for a throughput regression."
+    )
+
+
 def _make_distinct_lag_project(n_tasks: int, n_lags: int, task_days: int) -> Project:
     """A serial chain of ``n_tasks`` with ``n_lags`` distinct FS lag values.
 

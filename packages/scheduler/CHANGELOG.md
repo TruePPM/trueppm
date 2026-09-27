@@ -41,6 +41,45 @@ change between releases. Pin an exact version (e.g.
   finish. The convention is documented in the `trueppm_scheduler.engine` module
   docstring. Behavior change: schedules containing milestones finish earlier by
   one working day per milestone on the critical path.
+- **A long calendar exception no longer makes `schedule()` slow in proportion
+  to the number of dependencies (#4161).** Every dependency edge snaps a date to
+  a working day in the forward pass, the backward pass, and the free-float
+  calculation. Each of those snaps used to walk the calendar one day at a time,
+  so one exception range close to `MAX_CALENDAR_SCAN_DAYS` long (for example a
+  "closed until further notice" entry) cost about 32 ms per edge: 200 edges took
+  6 s and 5,000 edges took minutes. Snaps now skip a whole exception range in one
+  step, and working-day spans are counted arithmetically, so the same 5,000-edge
+  project schedules in under 0.1 s. Dates, floats, and the
+  `MAX_CALENDAR_SCAN_DAYS` / date-range errors are unchanged. `monte_carlo()` was
+  never affected.
+
+- **The sdist's test suite runs (#3856).** Running `pytest` in an unpacked
+  sdist errored at collection on `tests/test_wasm_conformance.py`, which needs
+  the monorepo's `packages/wasm-scheduler/fixtures` tree, so zero tests ran.
+  That module now skips when its fixtures are absent, and the rest of the suite
+  runs. Inside a monorepo checkout a missing fixture is still a hard failure.
+
+### Documentation
+
+- **Conventions reference (#4136).** The README gains a *Conventions* section
+  listing every modeling rule the engine commits to — lag units, the constraint
+  set, FF/SF placement, progress rules, float definitions, the sampling
+  distribution — each linked to the issue or ADR that decided it, with the rules
+  that differ from MS Project / Primavera P6 marked.
+- **PERT shape named (#4133).** `_sample_pert` and `monte_carlo()` now state the
+  convention: a Beta fitted by method of moments to the classic PERT mean and
+  `(p − o) / 6` standard deviation, not the λ=4 Beta-PERT. No sampling change.
+- **Seed reproducibility scoped (#4099).** A fixed `seed` reproduces P50/P80/P95
+  on the same numpy and `trueppm-scheduler` versions; numpy does not promise its
+  random streams across releases.
+- **FF/SF convention decided (#3806).** An FF/SF-driven task stays contiguous and
+  right-aligned on its pinned finish (the MS Project convention), so the
+  "never earlier than CPM" guarantee holds on FS/SS-only networks. No engine
+  change.
+- **Timing claim corrected (#3859).** `monte_carlo()`'s docstring said 10,000 runs
+  on a 200-task project took "well under 100 ms"; measured, it is about 60–100 ms
+  on a current laptop CPU and more on a CI runner. A loose benchmark in
+  `tests/test_bench.py` now keeps the figure from drifting.
 
 - **The test suite passes on Python 3.14 (#3787).**
   `test_project_from_json_deep_nesting_message_is_exact` nested its payload
