@@ -208,6 +208,7 @@ def import_seed(
     replace: bool = False,
     expected_program_id: str | None = None,
     target_program: Program | None = None,
+    adopt_keys_from: list[str] | None = None,
 ) -> Program:
     """Validate and import a seed document, returning the created ``Program``.
 
@@ -250,6 +251,10 @@ def import_seed(
             operator authorized, and the caller has somewhere to land — and hands
             it here for the worker to fill. ``None`` keeps the create-it-myself
             behavior the management command and ``load_sample`` rely on.
+        adopt_keys_from: ids of the projects the async request moved to Trash
+            when it replaced a program. Each rebuilt project takes the keys of
+            the trashed one with the same name, inside this import's
+            transaction (ADR-1237 §3). Only meaningful with ``target_program``.
 
     Raises:
         SeedValidationError: if the payload fails validation; nothing is written.
@@ -269,6 +274,7 @@ def import_seed(
         replace=replace,
         expected_program_id=expected_program_id,
         target_program=target_program,
+        adopt_keys_from=adopt_keys_from,
     )
     # coalesce_sync_seq draws one delta cursor per project for the whole import
     # instead of one per row (ADR-0686). Rows written together may share a
@@ -315,6 +321,7 @@ class _SeedImporter:
         replace: bool = False,
         expected_program_id: str | None = None,
         target_program: Program | None = None,
+        adopt_keys_from: list[str] | None = None,
         provenance_kind: str = TaskSource.SEED_IMPORT,
         provenance_source_id: uuid.UUID | None = None,
     ) -> None:
@@ -326,6 +333,7 @@ class _SeedImporter:
         self.replace = replace
         self.expected_program_id = expected_program_id
         self.target_program = target_program
+        self.adopt_keys_from = list(adopt_keys_from or [])
         #: Seed provenance stamped on every task this run creates (ADR-0786).
         #: Parameterized rather than hard-coded because #2729's template seeding
         #: materializes through this same importer and must record itself as
@@ -395,6 +403,8 @@ class _SeedImporter:
         # and soft-delete the program it was handed to fill.
         if self.target_program is None:
             self._replace_existing()
+        else:
+            self._release_trashed_project_keys()
         self._resolve_accounts()
         self._resolve_calendars()
         self._resolve_resources()
@@ -842,6 +852,43 @@ class _SeedImporter:
             )
         else:
             soft_delete_program_subtree(target, actor=self.owner, reason="seed_replace")
+
+    def _release_trashed_project_keys(self) -> None:
+        """Take back the keys of the projects the async request trashed (#4150).
+
+        The async replace runs in the request, but the rebuild runs here, so the
+        request leaves the trashed originals holding their keys and hands over
+        only their ids. Releasing them now, inside the build's transaction, is
+        what makes the hand-over safe: a failed build rolls the release back and
+        every original keeps its key, and a duplicate delivery never gets this
+        far (the job claim). Each released set is keyed by name, like the sync
+        path, and is adopted by the rebuilt project of the same name.
+
+        Only projects still in Trash and still detached qualify — one the owner
+        restored or re-parented in the meantime is live again and keeps its key.
+        A trashed project whose name the document no longer carries keeps its
+        key too, since nothing would adopt it.
+        """
+        from trueppm_api.apps.projects.services import release_keys_for_replace
+
+        if not self.adopt_keys_from:
+            return
+        names = {p["name"] for p in self.payload["projects"]}
+        for original in (
+            Project.objects.select_for_update()
+            .filter(
+                pk__in=self.adopt_keys_from,
+                is_deleted=True,
+                program__isnull=True,
+                name__in=names,
+            )
+            .order_by("pk")
+        ):
+            # Two trashed projects sharing a name would hand one rebuild two
+            # current keys; the first keeps the hand-over, the other its key.
+            if original.name in self.released_project_keys:
+                continue
+            self.released_project_keys[original.name] = release_keys_for_replace(original)
 
     # --- top-level entities ------------------------------------------------
 

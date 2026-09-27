@@ -257,7 +257,12 @@ replacement is a **soft** delete — the replaced program's projects move to
 project Trash, where each can be restored individually as a standalone project.
 The program shell itself is **not** recoverable, and a restored project does not
 return to it. Only the disposable demo path (`is_sample`) still hard-deletes.
-See [ADR-0726](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0726-seed-import-confirmed-replacement-and-async-rebuild.md).
+Keys carry over on both the synchronous and the queued import: the rebuilt
+program takes the replaced program's key, and each rebuilt project takes the key
+of the replaced project with the same name, so existing `/projects/PLAT/…` links
+open the rebuild. On the queued path the keys move only once the rebuild
+succeeds; if it fails, the projects in Trash keep their keys. A project restored
+from Trash after its key moved gets a new derived key. See [ADR-0726](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0726-seed-import-confirmed-replacement-and-async-rebuild.md).
 
 **Three-point estimates as an all-or-none sub-object.** A task's PERT estimate
 is an `estimate: { optimistic, most_likely, pessimistic }` sub-object. Modelling

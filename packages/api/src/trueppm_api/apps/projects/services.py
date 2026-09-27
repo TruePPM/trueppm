@@ -6756,6 +6756,7 @@ def enqueue_program_import(
     filename: str = "",
     replace: bool = False,
     replaced_program_id: Any = None,
+    replaced_project_ids: list[str] | None = None,
 ) -> Any:
     """Persist a queued seed import and best-effort dispatch it (ADR-0726, #2574).
 
@@ -6808,6 +6809,7 @@ def enqueue_program_import(
         filename=filename[:255],
         replace=replace,
         replaced_program_id=replaced_program_id,
+        replaced_project_ids=list(replaced_project_ids or []),
         expires_at=(timezone.now() + timedelta(days=retention) if retention is not None else None),
     )
 
@@ -7172,9 +7174,10 @@ def release_keys_for_replace(obj: Any) -> list[Any]:
     delete as tombstones) and the *next* re-import, which looks candidates up by
     slug, would no longer find it.
 
-    Only for objects that are unrecoverable after the replace: the program shell
-    (never restorable) and hard-deleted sample projects. A soft-deleted project
-    in Trash keeps its key, because restore must never collide (ADR-1237 §3).
+    Only for objects a replace tears down: the program shell (never restorable)
+    and each replaced project, whose key moves to the rebuilt project of the same
+    name. A project released this way stays in Trash keyless; restoring it
+    derives a fresh key, so a restore still never collides (ADR-1237 §3).
 
     Clears ``code`` in the database so the soft-delete that follows (which saves
     every column from a freshly locked row) does not write it back. Returns the
