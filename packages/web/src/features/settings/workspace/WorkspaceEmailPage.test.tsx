@@ -314,6 +314,30 @@ describe('WorkspaceEmailPage — save contract', () => {
     );
   });
 
+  it('saves a Custom SMTP relay with no authentication — blank username and password (#4190)', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue(undefined);
+    useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
+    render(<WorkspaceEmailPage />);
+
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'custom' } });
+    fireEvent.change(screen.getByLabelText('SMTP host'), { target: { value: 'mail.internal' } });
+    // Username and Password are both left blank — the no-auth relay path.
+    expect(useSettingsSaveStore.getState().dirty).toBe(true);
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transport_mode: 'smtp',
+        host: 'mail.internal',
+        username: '',
+        password: '',
+      }),
+    );
+  });
+
   it('PUTs the edited From name and re-snapshots clean on success', async () => {
     const mutateAsync = vi.fn().mockResolvedValue(undefined);
     useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
@@ -950,14 +974,20 @@ describe('WorkspaceEmailPage — Username guidance (#2552)', () => {
     expect(screen.getByText(/has to go through SES/i)).toBeInTheDocument();
   });
 
-  it('tells Custom SMTP admins a no-credential relay belongs on the built-in transport', () => {
+  it('tells Custom SMTP admins a blank Username + Password means no authentication (#4190)', () => {
     render(<WorkspaceEmailPage />);
     fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'custom' } });
 
-    expect(screen.getByText(/Required — the account your relay authenticates/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Leave blank, with Password, for a relay with no authentication/i),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'About the SMTP username options' }));
     expect(
-      screen.getByText(/A relay that accepts mail with no credentials/i),
+      screen.getByText(/if your relay accepts unauthenticated connections/i),
+    ).toBeInTheDocument();
+    // Credential hint mirrors it from the other side of the pair.
+    expect(
+      screen.getByText(/Leave blank, with Username, for a relay that accepts unauthenticated/i),
     ).toBeInTheDocument();
   });
 
