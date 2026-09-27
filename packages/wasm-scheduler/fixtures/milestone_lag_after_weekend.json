@@ -1,0 +1,30 @@
+{
+  "id": "p-milestone-lag-after-weekend",
+  "name": "SS and FS lags landing a milestone just after a weekend (#4173)",
+  "start_date": "2026-01-05",
+  "tasks": [
+    {"id": "A", "name": "SS source", "duration": 259200.0},
+    {"id": "B3", "name": "FS source, 3d", "duration": 259200.0},
+    {"id": "B4", "name": "FS source, 4d", "duration": 345600.0},
+    {"id": "M3", "name": "Gate after 3d source", "duration": 0.0},
+    {"id": "M4", "name": "Gate after 4d source", "duration": 0.0},
+    {"id": "M5", "name": "FS lag onto Saturday", "duration": 0.0},
+    {"id": "M6", "name": "SS from a snapped gate", "duration": 0.0},
+    {"id": "W", "name": "Follow-on work", "duration": 86400.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "M3", "dep_type": "SS", "lag": 518400.0},
+    {"predecessor_id": "B3", "successor_id": "M3", "dep_type": "FS", "lag": 259200.0},
+    {"predecessor_id": "A", "successor_id": "M4", "dep_type": "SS", "lag": 518400.0},
+    {"predecessor_id": "B4", "successor_id": "M4", "dep_type": "FS", "lag": 259200.0},
+    {"predecessor_id": "B4", "successor_id": "M5", "dep_type": "FS", "lag": 172800.0},
+    {"predecessor_id": "M4", "successor_id": "M6", "dep_type": "SS", "lag": 86400.0},
+    {"predecessor_id": "M6", "successor_id": "W", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

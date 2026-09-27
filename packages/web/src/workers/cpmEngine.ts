@@ -298,6 +298,17 @@ function edgeAnchor(edge: CpmEdge, source: TaskState): number {
   }
 }
 
+/**
+ * Whether an FS/SS instant reads as a day start — mirrors the server's
+ * `_start_reading` (#4173). An end-of-day reading names the end of the working
+ * day before the instant, which only exists when that day is a working day; an
+ * instant just after a weekend is shown at the start of the next working day,
+ * so a longer predecessor can never show a milestone a working day earlier.
+ */
+function startReading(instantMs: number, startDisplay: boolean): boolean {
+  return startDisplay || !isWorkingDay(instantMs - MS_PER_DAY);
+}
+
 /** The day an instant is shown on — mirrors the server's `_instant_day`. */
 function instantDay(instantMs: number, startDisplay: boolean): number {
   return startDisplay ? nextWorkingDay(instantMs) : prevWorkingDay(instantMs - MS_PER_DAY);
@@ -636,7 +647,9 @@ function relaxForward(
  * `relaxForward`): the recorded and planned starts propose the start of their
  * day; FS/SS links propose `anchor + lag`, shown at the end of the previous
  * working day after FS from work, at the start of the day after SS from work,
- * and as the source is shown after another milestone; FF/SF links propose the
+ * and as the source is shown after another milestone — except that an instant
+ * just after a weekend reads as the next working start (`startReading`, #4173);
+ * FF/SF links propose the
  * end of the finish day. The latest instant wins, a start-of-day reading on a
  * tie. A task whose every predecessor left the subgraph keeps its dates.
  */
@@ -663,7 +676,10 @@ function placeMilestone(task: TaskState, preds: CpmEdge[], stateMap: Map<string,
     linked = true;
     const raw = edgeAnchor(edge, source) + edge.lag * MS_PER_DAY;
     if (edge.type === 'FS' || edge.type === 'SS') {
-      const startDisplay = source.instantMs !== null ? source.startDisplay : edge.type === 'SS';
+      const startDisplay = startReading(
+        raw,
+        source.instantMs !== null ? source.startDisplay : edge.type === 'SS',
+      );
       offer(raw, startDisplay, instantDay(raw, startDisplay));
     } else {
       const finishDay = nextWorkingDay(raw);

@@ -434,6 +434,25 @@ def _plausible_projects(draw: st.DrawFn) -> Project:
         for u, v in chosen
     ]
 
+    # An SS-lag and an FS-lag link joined into one milestone (#4173). The uniform
+    # draw above almost never produces it, and it is the shape where two proposals
+    # at the same working-time position — Sunday and Monday midnight — used to be
+    # shown on different days, so a longer predecessor showed the finish earlier
+    # and P50 landed before it. No floor is drawn on the milestone: a floor would
+    # win the join and hide the two links' disagreement.
+    if n >= 2 and draw(st.booleans()):
+        ss_src, fs_src = draw(st.lists(st.sampled_from(ids), min_size=2, max_size=2, unique=True))
+        tasks.append(Task(id="join", name="t", duration=timedelta(0)))
+        deps += [
+            Dependency(
+                predecessor_id=src,
+                successor_id="join",
+                dep_type=dep_type,
+                lag=timedelta(days=draw(st.integers(min_value=0, max_value=9))),
+            )
+            for src, dep_type in ((ss_src, DependencyType.SS), (fs_src, DependencyType.FS))
+        ]
+
     return Project(
         id="p",
         name="p",
@@ -452,6 +471,36 @@ def _plausible_projects(draw: st.DrawFn) -> Project:
     )
 
 
+#: The #4173 join, pinned: the generator above can draw it, but with every floor
+#: and estimate shape also in play the 200-example gate profile does not reach it.
+#: ``A(3d) -SS+6d-> M`` and ``B(3d; PERT 3/4/4) -FS+3d-> M`` — runs that sample
+#: B at 4 days land the FS link on Monday midnight, which the pre-fix engine showed
+#: on Friday while the deterministic finish (Sunday midnight) was shown on Monday.
+_SS_FS_JOIN_4173 = Project(
+    id="p",
+    name="p",
+    start_date=_PLAUSIBLE_ANCHOR,
+    tasks=[
+        Task(id="A", name="t", duration=timedelta(days=3)),
+        Task(
+            id="B",
+            name="t",
+            duration=timedelta(days=3),
+            optimistic_duration=timedelta(days=3),
+            most_likely_duration=timedelta(days=4),
+            pessimistic_duration=timedelta(days=4),
+        ),
+        Task(id="M", name="t", duration=timedelta(0)),
+    ],
+    dependencies=[
+        Dependency("A", "M", dep_type=DependencyType.SS, lag=timedelta(days=6)),
+        Dependency("B", "M", dep_type=DependencyType.FS, lag=timedelta(days=3)),
+    ],
+    calendar=Calendar(working_days=0b0011111),
+)
+
+
+@example(project=_SS_FS_JOIN_4173)
 @given(project=_plausible_projects())
 def test_monte_carlo_never_precedes_cpm(project: Project) -> None:
     """``monte_carlo()`` must never forecast a finish EARLIER than ``schedule()``.
