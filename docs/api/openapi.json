@@ -48609,7 +48609,7 @@
         "/api/v1/workspace/email-settings/send-test/": {
             "post": {
                 "operationId": "v1_workspace_email_settings_send_test_create",
-                "description": "``POST /api/v1/workspace/email-settings/send-test/`` — send a test email.\n\nSends a fixed test message to the **requesting operator's own address only**\n(server-derived — never a recipient from the request body, which would make\nthis an authenticated open relay, security review M5) through the resolved\ntransport. Synchronous so the admin gets immediate pass/fail feedback; a\ntransport failure returns 502 with a generic message.",
+                "description": "``POST /api/v1/workspace/email-settings/send-test/`` — send a test email.\n\nSends a fixed test message to the **requesting operator's own address only**\n(server-derived — never a recipient from the request body, which would make\nthis an authenticated open relay, security review M5) through the resolved\ntransport. Synchronous so the admin gets immediate pass/fail feedback; a\nreal transport failure returns 502 with a generic message, and a host\nrejected by the SSRF egress guard returns 502 with the same curated,\nalready-safe-to-surface message the save path uses (#4189).",
                 "tags": [
                     "workspace"
                 ],

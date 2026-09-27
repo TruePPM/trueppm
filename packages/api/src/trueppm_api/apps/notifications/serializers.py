@@ -129,9 +129,17 @@ def _probe_or_raise(
 ) -> None:
     """Validate-before-persist: open the candidate transport now.
 
-    Generic error only — never leak the underlying smtplib exception (M1).
+    Distinguishes an SSRF-egress-blocked host from every other connect failure
+    (#4189): the two used to share one generic "check the host, port, security,
+    and credentials" message, which sent an operator whose relay is simply on a
+    private network — and whose credentials are fine — looking in the wrong
+    place. ``EmailHostNotAllowedError``'s message is curated by
+    ``email_backend._assert_host_public`` to never leak the DNS-resolved
+    address, so it is safe to surface to the client verbatim. Every other
+    failure still gets the generic message only — never the underlying
+    smtplib exception (M1).
     """
-    from .email_backend import EmailTransportError, probe_transport
+    from .email_backend import EmailHostNotAllowedError, EmailTransportError, probe_transport
 
     try:
         probe_transport(
@@ -142,11 +150,20 @@ def _probe_or_raise(
             username=username,
             password=password,
         )
+    except EmailHostNotAllowedError as exc:
+        logger.info(
+            "email transport probe blocked by egress guard (host=%s port=%s): %s",
+            host,
+            port,
+            exc,
+        )
+        raise serializers.ValidationError({"non_field_errors": [str(exc)]}) from exc
     except EmailTransportError as exc:
         # Curated message only — never surface the exception object. The
         # SSRF-guarded host path can carry the DNS-resolved internal address
-        # (scrubbed from the client at email_backend._assert_host_public);
-        # log the detail server-side (CodeQL py/stack-trace-exposure).
+        # (scrubbed from the client at email_backend._assert_host_public, and
+        # caught above before reaching here); log the detail server-side
+        # (CodeQL py/stack-trace-exposure).
         logger.info("email transport probe failed (host=%s port=%s): %s", host, port, exc)
         raise serializers.ValidationError(
             {
