@@ -287,10 +287,25 @@ the records are in place before mail goes out.
   `trueppm_email_transport_unavailable` metric both name this cause directly.
 - Bodies are plain text. A recipient with no email address is skipped (the in-app
   notification still appears).
-- Bodies carry a direct deep-link to the affected task when
+- Bodies carry a direct deep-link to the affected task, workspace danger zone, or
+  notification-preferences page when
   [`FRONTEND_BASE_URL`](/administration/configuration/) is set (e.g. the
-  `task.blocked` email links straight to the blocked task). Leave it empty and the
-  email still renders — it just omits the link.
+  `task.blocked` email links straight to the blocked task). Leave it empty and
+  every one of those emails still renders — it just omits the link line and
+  substitutes plain prose (e.g. "Open the task in TruePPM" instead of a URL). No
+  outbound email ever contains a bare relative link (`/settings/...`,
+  `/invite/accept?...`): a link with no scheme or host is not clickable in a mail
+  client, so it is never emitted at all.
+
+  **Workspace-invite email is the one case where this is not a graceful
+  degradation.** An invited user has no account yet, so the accept link is the
+  *only* way in — there is no "sign in and find it elsewhere" fallback the way
+  there is for task and settings deep-links. Set `FRONTEND_BASE_URL` (or the Helm
+  `TRUEPPM_FRONTEND_BASE_URL` value) **before** inviting anyone by email; any
+  invite already sent while it was unset must be resent (**Workspace → Members →
+  pending invite → Resend**) once you fix it, since resending mints a fresh
+  token. `manage.py check --deploy` (and the chart's post-install NOTES) warn
+  when this is unset outside local development.
 - Comment/mention snippets embedded in the body are bounded and word-wrapped
   before sending, so a very long unbroken string (a pasted URL, log line, or
   base64 blob) can't render as one unbounded line in the recipient's mail

@@ -1031,6 +1031,39 @@ not a second, contradictory notice here.
 {{- end -}}
 
 {{/*
+FRONTEND_BASE_URL notice (#4188).
+
+Every workspace-invite email the celery worker sends builds its accept link from
+env.TRUEPPM_FRONTEND_BASE_URL (packages/api/src/trueppm_api/apps/workspace/
+tasks.py::_render_invite_email). When it is unset, that email omits the link
+entirely (there is no relative-path fallback a mail client can follow) and tells
+the recipient to ask the admin to fix the setting and resend — but the admin who
+never sees this notice will not know to. A hard `fail` is deliberately NOT used
+here, unlike the DATABASE_URL/REDIS_URL render guards: this is a legitimate
+zero-config default (a single-origin dev/demo install has no other public origin
+to name), and failing the render would break every documented minimal-install
+path the same way an early values-prod.yaml draft did for the Ingress fields
+(see the file header). A NOTES.txt warning is the same "warn only on the broken
+shape" posture as trueppm.csrfOriginNotice above.
+*/}}
+{{- define "trueppm.frontendBaseUrlNotice" -}}
+{{- $env := .Values.env | default dict }}
+{{- $frontend := "" }}
+{{- if hasKey $env "TRUEPPM_FRONTEND_BASE_URL" }}{{- $frontend = $env.TRUEPPM_FRONTEND_BASE_URL }}{{- end }}
+{{- if not $frontend }}
+
+!! TRUEPPM_FRONTEND_BASE_URL is not set. Workspace-invite emails cannot include
+!! an accept link without it — an invited user has no account yet and no other
+!! way to reach the link, so any invite sent while this is unset must be
+!! resent once it is fixed. Password-reset, export-ready, and
+!! mention-notification emails also degrade to plain prose instead of a
+!! clickable link. Set:
+!!
+!!   env.TRUEPPM_FRONTEND_BASE_URL: "https://{{ if .Values.ingress.hosts }}{{ (first .Values.ingress.hosts).host }}{{ else }}trueppm.example.com{{ end }}"
+{{- end }}
+{{- end -}}
+
+{{/*
 Host header for the api container's HTTP probes (#3183).
 
 kubelet connects to a probe by POD IP, so without an explicit Host header it

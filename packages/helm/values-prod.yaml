@@ -27,7 +27,11 @@
 #                                      attachment-storage choice — all four
 #                                      crash-loop the migrate init container
 #   ingress.hosts[0].host / .tls / .className
-#   env.TRUEPPM_FRONTEND_BASE_URL      email deep-links are omitted without it
+#   env.TRUEPPM_FRONTEND_BASE_URL      without it, workspace-invite emails have
+#                                      NO accept link at all (#4188) — an
+#                                      invited user has no account to sign in
+#                                      and find one elsewhere; other email
+#                                      deep-links are also omitted
 #   env.TRUEPPM_PUBLIC_API_BASE_URL    pins the OIDC redirect_uri and the Git-
 #                                      webhook URL to your public origin instead
 #                                      of the request's Host header (#3515);
@@ -93,11 +97,15 @@ env:
   # the very form recommended above. Absent, both forms work. The render fails
   # with a named error if you set neither, so nothing is lost by leaving them out.
 
-  # Public origin of the web app. Without it, notification emails omit the task
-  # deep-links entirely (they still send, so this fails quietly), and the OIDC
-  # callback falls back to a same-origin relative redirect instead of pointing
-  # explicitly at the SPA — correct only while the SPA and the API share one
-  # Ingress host, which is this chart's default topology.
+  # Public origin of the web app. Without it, workspace-invite email has NO
+  # accept link at all (#4188) — the invited user has no account yet, so
+  # there is nowhere else to find one; an admin has to fix this and resend
+  # every invite sent while it was unset. Notification/task-deep-link and
+  # export-ready emails degrade more gently: they omit just the link line
+  # (they still send). The OIDC callback falls back to a same-origin relative
+  # redirect instead of pointing explicitly at the SPA — correct only while
+  # the SPA and the API share one Ingress host, which is this chart's default
+  # topology.
   #   TRUEPPM_FRONTEND_BASE_URL: "https://trueppm.example.com"
   TRUEPPM_FRONTEND_BASE_URL: ""
 
