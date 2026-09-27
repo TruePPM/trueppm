@@ -109,7 +109,7 @@ const CROSS_ROWS: ProgramTaskResult[] = [
     name: 'Security sign-off',
     short_id: '00000003',
     short_id_display: 'T-3',
-    qualified_id: 'SEC-3',
+    qualified_id: 'SEC-T-3',
     project_id: 'p-sec',
     project_name: 'Security',
   },
@@ -118,7 +118,7 @@ const CROSS_ROWS: ProgramTaskResult[] = [
     name: 'Security review',
     short_id: '00000008',
     short_id_display: 'T-8',
-    qualified_id: 'SEC-8',
+    qualified_id: 'SEC-T-8',
     project_id: 'p-sec',
     project_name: 'Security',
   },
@@ -127,7 +127,7 @@ const CROSS_ROWS: ProgramTaskResult[] = [
     name: 'Legal go-ahead',
     short_id: '00000001',
     short_id_display: 'T-1',
-    qualified_id: 'LEG-1',
+    qualified_id: 'LEG-T-1',
     project_id: 'p-leg',
     project_name: 'Legal',
   },
@@ -793,10 +793,10 @@ describe('ScheduleDependencyPicker — program-scope states', () => {
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'sec' } });
 
     const row = await screen.findByRole('option', { name: /Security sign-off/ });
-    // qualified_id ("SEC-3") is what cross-project rows must render — it is
+    // qualified_id ("SEC-T-3") is what cross-project rows must render — it is
     // the one #2671 site where the project-code prefix disambiguates two
     // sibling projects' task 3 from each other.
-    expect(row).toHaveTextContent('SEC-3');
+    expect(row).toHaveTextContent('SEC-T-3');
     expect(row).not.toHaveTextContent('00000003');
   });
 
@@ -1123,7 +1123,7 @@ describe('ScheduleDependencyPicker — the match is marked (#3024)', () => {
   it("never marks a cross-project row's server-formatted reference", async () => {
     searchState.data = CROSS_ROWS;
     renderPicker({ programId: 'prog-1', initialScope: 'program' });
-    // `SEC-3` is a server id, not a WBS code — prefix semantics do not apply.
+    // `SEC-T-3` is a server id, not a WBS code — prefix semantics do not apply.
     fireEvent.change(searchInput(), { target: { value: '3' } });
     await screen.findByRole('listbox', { name: 'Program task results' });
     for (const row of rowOptions()) expect(markedText(row)).toEqual([]);
@@ -1239,7 +1239,7 @@ describe('ScheduleDependencyPicker — program scope marks what the SERVER match
         name: 'Phase 2 handover',
         short_id: '00000009',
         short_id_display: 'T-9',
-        qualified_id: 'OPS-9',
+        qualified_id: 'OPS-T-9',
         project_id: 'p-ops',
         project_name: 'Ops',
       },
@@ -1258,7 +1258,7 @@ describe('ScheduleDependencyPicker — program scope marks what the SERVER match
       name: `Handover ${i}`,
       short_id: `0000${i}`,
       short_id_display: `T-${i}`,
-      qualified_id: `OPS-${i}`,
+      qualified_id: `OPS-T-${i}`,
       project_id: 'p-ops',
       project_name: 'Ops',
     }));

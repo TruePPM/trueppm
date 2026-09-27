@@ -15,8 +15,9 @@
  * callout does not reappear on back/forward or refresh.
  */
 import { useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { CloseIcon } from '@/components/Icons';
+import { useProjectRef } from '@/hooks/useProjectRef';
 
 interface SampleGuidance {
   /** The sample's display name, used in the callout heading. */
@@ -75,7 +76,9 @@ interface StartExploringState {
 export function StartExploringCallout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const params = useParams();
+  // Only "is this a project route" matters here, so the URL segment suffices —
+  // it is set before the key resolves, where the UUID would not yet be.
+  const projectRef = useProjectRef();
   const [dismissed, setDismissed] = useState(false);
 
   const sampleKey = (location.state as StartExploringState | null)?.startExploringSample;
@@ -85,7 +88,7 @@ export function StartExploringCallout() {
 
   // When a contributor lands on a board (a project route), lead with their work —
   // the assigned open-sprint tasks are right there on the board they landed on.
-  const onBoard = Boolean(params.projectId);
+  const onBoard = Boolean(projectRef);
 
   function dismiss() {
     setDismissed(true);

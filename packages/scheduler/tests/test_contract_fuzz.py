@@ -180,10 +180,10 @@ _opt_td = st.none() | _day_ints.map(lambda d: timedelta(days=d))
 def _tasks(draw: st.DrawFn, ids: list[str], bad_ids: bool = False) -> Task:
     aset = draw(st.none() | st.dates())
     return Task(
-        # With bad_ids, occasionally a non-string one (int/None/list/dict): must
-        # raise InvalidScheduleInput, not a bare TypeError/ValueError (#4130).
+        # With bad_ids, occasionally a non-string id or name (int/None/list/dict):
+        # must raise InvalidScheduleInput, not a bare TypeError/ValueError (#4130).
         id=draw(st.sampled_from(ids) | _bad_task_ids if bad_ids else st.sampled_from(ids)),  # type: ignore[arg-type]
-        name=draw(st.text(max_size=12)),
+        name=draw(st.text(max_size=12) | _bad_task_ids if bad_ids else st.text(max_size=12)),  # type: ignore[arg-type]
         duration=timedelta(days=draw(_day_ints)),
         planned_start=draw(_opt_date),
         planned_finish=draw(_opt_date),
@@ -237,8 +237,8 @@ def _projects(draw: st.DrawFn, bad_ids: bool = False) -> Project:
         )
 
     return Project(
-        id=draw(_ids),
-        name=draw(st.text(max_size=12)),
+        id=draw(_ids | _bad_task_ids if bad_ids else _ids),  # type: ignore[arg-type]
+        name=draw(st.text(max_size=12) | _bad_task_ids if bad_ids else st.text(max_size=12)),  # type: ignore[arg-type]
         start_date=draw(st.dates()),
         tasks=tasks,
         dependencies=deps,
@@ -272,18 +272,48 @@ _json_values = st.recursive(
 # ---------------------------------------------------------------------------
 
 
+def _minimal_project(*, pid: object = "p", pname: object = "P", tname: object = "T") -> Project:
+    """A project that schedules cleanly except for the one field under test.
+
+    The adversarial ``_projects()`` space is rejected by some other validator almost
+    every draw, so on its own it never reaches the #4130 id/name check; these pin it.
+    """
+    return Project(
+        id=pid,  # type: ignore[arg-type]
+        name=pname,  # type: ignore[arg-type]
+        start_date=date(2026, 3, 2),
+        tasks=[Task(id="t0", name=tname, duration=timedelta(days=2))],  # type: ignore[arg-type]
+        dependencies=[],
+        calendar=Calendar(),
+    )
+
+
+@example(project=_minimal_project(pid=5), seed=1)
+@example(project=_minimal_project(pname=None), seed=1)
+@example(project=_minimal_project(tname=5), seed=1)
 @given(project=_projects(bad_ids=True), seed=_seeds)
 def test_direct_object_api_conforms(project: Project, seed: object) -> None:
     """schedule() and monte_carlo() on a fuzzed Project either return or raise a
     documented SchedulerError — never a bare ValueError/TypeError/OverflowError,
     numpy error, or hang. This is the path the TruePPM API itself drives. The
     fuzzed ``seed`` (incl. negative ints, floats, bools) exercises the #1453 guard:
-    a non-conforming seed must raise InvalidScheduleInput, not a bare numpy error."""
-    _assert_conforms(
-        "schedule",
-        lambda: schedule(project),
-        on_return=lambda r: _assert_schedule_invariants(project, r),
+    a non-conforming seed must raise InvalidScheduleInput, not a bare numpy error.
+
+    A non-string project/task id or name must never *return*: the Rust engine
+    rejects it at parse, so a Python result would be the two engines disagreeing on
+    the same input (#4130). Raising is not enough to assert — silently scheduling it
+    is the failure this guards."""
+    non_str = (
+        not isinstance(project.id, str)
+        or not isinstance(project.name, str)
+        or any(not isinstance(t.id, str) or not isinstance(t.name, str) for t in project.tasks)
     )
+
+    def _on_return(r: object) -> None:
+        assert not non_str, "schedule() returned for a non-string project/task id or name"
+        _assert_schedule_invariants(project, r)
+
+    _assert_conforms("schedule", lambda: schedule(project), on_return=_on_return)
     _assert_conforms(
         "monte_carlo",
         lambda: monte_carlo(project, runs=24, seed=seed, max_runs=None, max_tasks=None),  # type: ignore[arg-type]

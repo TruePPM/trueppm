@@ -129,7 +129,9 @@ Sonnet work.
 
 **Read-only gates always run on Sonnet.** `regression-check`, `rbac-check`,
 `perf-check`, `security-review`, `broadcast-check`, `migration-check` read a diff
-and report findings. None needs Opus.
+and report findings. None needs Opus. The one exception is `completeness-check`,
+which escalates to Opus on the same criteria listed above — it hunts for what the
+diff does *not* contain, which is reasoning, not pattern-matching (see its skill).
 
 ### The brief
 

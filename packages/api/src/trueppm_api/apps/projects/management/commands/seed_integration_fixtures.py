@@ -77,7 +77,14 @@ class Command(BaseCommand):
     def handle(self, *args: object, **options: object) -> None:
         """Create or reset the integration fixture set."""
         from trueppm_api.apps.access.models import ProjectMembership, Role
-        from trueppm_api.apps.projects.models import Calendar, Project, Task
+        from trueppm_api.apps.projects.models import (
+            Calendar,
+            ObjectKey,
+            ObjectKeySource,
+            Project,
+            Task,
+        )
+        from trueppm_api.apps.projects.services import assign_key, derive_key
 
         password, password_source = _resolve_integration_password()
         # Prod guard (#1375): this command clears and re-seeds the fixture
@@ -121,6 +128,10 @@ class Command(BaseCommand):
             calendar_ids = list(prior.values_list("calendar_id", flat=True))
             ProjectMembership.objects.filter(project__in=prior).delete()
             Task.objects.filter(project__in=prior).delete()
+            # Drop the fixture's own key rows before the purge. A purge normally
+            # leaves them as tombstones so the key is never reissued (ADR-1237 §3);
+            # for a disposable fixture that would mint CIP2, CIP3… on every re-seed.
+            ObjectKey.objects.filter(project__in=prior).delete()
             prior.delete()
             Calendar.objects.filter(id__in=[cid for cid in calendar_ids if cid]).delete()
 
@@ -130,6 +141,9 @@ class Command(BaseCommand):
             start_date=date.today(),
             calendar=cal,
         )
+        # Every code write goes through assign_key (ADR-1237 §3); a blank code
+        # here would block 0.5's ``code <> ""`` constraint.
+        assign_key(project, derive_key(_PROJECT_NAME, "project"), source=ObjectKeySource.DERIVED)
         # OWNER so integration tests can exercise the full member-management UI
         ProjectMembership.objects.create(project=project, user=user, role=Role.OWNER)
 

@@ -1480,13 +1480,15 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
         #3641: ``user`` is now refused by the serializer, which runs before the
         in-body role check.
 
-        ``destroy`` allows self-remove, so it is excluded.
+        ``destroy`` allows self-remove, so it is excluded from both the role floor
+        and ``IsProgramNotClosed``: leaving a closed program must keep working, the way
+        self-removal survives archiving on the project twin. ``IsProgramNotClosed``
+        fires in ``has_permission``, before ``is_self`` is known, so the closed refusal
+        for removing SOMEONE ELSE is re-asserted in the ``destroy`` body.
         """
-        perms: list[BasePermission] = [
-            IsAuthenticated(),
-            IsProgramMember(),
-            IsProgramNotClosed(),
-        ]
+        perms: list[BasePermission] = [IsAuthenticated(), IsProgramMember()]
+        if self.action != "destroy":
+            perms.append(IsProgramNotClosed())
         if self.action == "create":
             perms.append(IsProgramOwner())
         elif self.action in ("partial_update", "update"):
@@ -1890,6 +1892,12 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
             if actor_role is None:
                 raise PermissionDenied(_NOT_PROGRAM_MEMBER_DETAIL)
         else:
+            # Removing another member is a roster write, so it obeys the closed
+            # read-only contract (#530); only self-removal survives closing. Checked
+            # here because `get_permissions` drops `IsProgramNotClosed` for `destroy`
+            # to keep the self-leave path open (#4014).
+            if program.is_closed:
+                raise PermissionDenied(IsProgramNotClosed.message)
             actor_role = self._require_actor_role(request, program.pk, Role.OWNER)
             if instance.role >= actor_role:
                 # 403, not 400: a peer's role is a fact about the *caller's*
