@@ -29,6 +29,18 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **A deterministic `monte_carlo()` now finishes on the CPM finish when a live
+  task's `actual_start` falls on non-working time (#4175).** `schedule()` keeps a
+  recorded start verbatim, even on a weekend or holiday, but Monte Carlo's
+  working-day index snapped an in-progress task's or milestone's start to the
+  next working day. A downstream calendar-day lag then landed on the other side of
+  a weekend, so a project with no uncertainty could simulate 2–3 working days
+  past its CPM finish. Monte Carlo now reads the recorded date for a live
+  milestone's instant, for SS successors, and for a milestone that is the project
+  finish. The `monte_carlo()` docstring's "at most one working day after" bound
+  (#2833) is replaced: with deterministic durations, every percentile equals
+  `schedule().project_finish`.
+
 - **A zero-duration milestone is an instant, not a one-day task (#4079).**
   `schedule()` gave every zero-duration task a working day of its own, so each
   milestone on a path delayed its successors by one working day, unlike MS Project

@@ -27,6 +27,7 @@ import pytest
 
 from trueppm_scheduler import (
     Calendar,
+    DateRange,
     Dependency,
     DependencyType,
     Project,
@@ -42,13 +43,14 @@ SIX_DAY = 0b0111111
 
 
 def _project(tasks: list[Task], deps: list[Dependency], **kw: object) -> Project:
+    calendar = kw.pop("calendar", Calendar(working_days=WEEKDAYS))
     return Project(
         id="p",
         name="p",
         start_date=START,
         tasks=tasks,
         dependencies=deps,
-        calendar=Calendar(working_days=WEEKDAYS),
+        calendar=calendar,
         **kw,  # type: ignore[arg-type]
     )
 
@@ -188,6 +190,9 @@ def _generate(seed: int, *, mixed_calendars: bool) -> Project:
     Unlike the #2461/#3963 generators in ``test_redteam_20260727.py``, this one
     carves nothing out: zero-duration milestones, every dependency type, and an
     ``actual_start`` on *in-progress* work and milestones drawn over weekends.
+    Some projects also close 1-3 weekdays as calendar exceptions and move a live
+    ``actual_start`` onto one, since a holiday is non-working time the snap
+    reaches the same way a weekend is.
     """
     rng = random.Random(seed)
     n = rng.randint(2, 7)
@@ -220,8 +225,18 @@ def _generate(seed: int, *, mixed_calendars: bool) -> Project:
         deps.append(_dep(f"T{i}", f"T{j}", rng.choice(list(DependencyType)), rng.randint(-2, 4)))
     status = START + timedelta(days=rng.randint(0, 10)) if rng.random() < 0.3 else None
     extra: dict[str, object] = {"status_date": status}
+    exceptions: list[DateRange] = []
+    if rng.random() < 0.4:
+        weekdays = [START + timedelta(days=d) for d in range(16)]
+        weekdays = [d for d in weekdays if d.weekday() < 5]
+        for day in rng.sample(weekdays, rng.randint(1, 3)):
+            exceptions.append(DateRange(start=day, end=day))
+        live = [t for t in tasks if t.actual_start is not None and t.percent_complete < 100.0]
+        if live:
+            rng.choice(live).actual_start = rng.choice(exceptions).start
+        extra["calendar"] = Calendar(working_days=WEEKDAYS, exceptions=exceptions)
     if mixed_calendars:
-        extra["calendars"] = {"six": Calendar(working_days=SIX_DAY)}
+        extra["calendars"] = {"six": Calendar(working_days=SIX_DAY, exceptions=exceptions)}
     return _project(tasks, deps, **extra)
 
 
