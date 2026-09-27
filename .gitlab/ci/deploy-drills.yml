@@ -590,10 +590,10 @@ compose:demo:
   # open, /robots.txt disallows everything, and three representative closed
   # routes (auth/token, an authenticated viewset, /admin/) come back 404/403
   # rather than reaching Django. See scripts/dev-demo-compose-drill.sh for the
-  # full rationale, including what this leg does NOT prove — Cloudflare Access
-  # and the try.trueppm.com edge are outside any compose file, so this only
-  # ever speaks to the boot chain a self-hoster's own `docker compose -f
-  # docker-compose.demo.yml up` would drive.
+  # full rationale, including what this leg does NOT prove — the edge WAF /
+  # challenge rules and the try.trueppm.com edge are outside any compose file,
+  # so this only ever speaks to the boot chain a self-hoster's own
+  # `docker compose -f docker-compose.demo.yml up` would drive.
   #
   # BLOCKING on MR + main, same reasoning as compose:dev. Schedule advisory.
   stage: test

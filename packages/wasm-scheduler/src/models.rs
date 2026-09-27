@@ -222,15 +222,29 @@ pub struct Calendar {
     pub hours_per_day: f64,
     #[serde(default = "default_timezone")]
     pub timezone: String,
-    /// Memoized, sorted-and-merged exception day-ordinal ranges, built lazily on
-    /// the first `is_working_day` call so the exception test is O(log X) instead
-    /// of an O(X) linear scan per day across the CPM passes (#1534). Not part of
-    /// the wire format — `#[serde(skip)]` keeps it out of the shared JSON that the
-    /// conformance fixtures compare, and it defaults to empty (rebuilt on demand)
-    /// after any deserialize or clone.
+    /// Memoized, sorted-and-coalesced exception day-ordinal ranges, plus a prefix
+    /// sum of each run's mask-working-day count (`(ranges, prefix)`), built lazily
+    /// on the first `is_working_day` call so the exception test is O(log X)
+    /// instead of an O(X) linear scan per day across the CPM passes (#1534), and
+    /// so a span crossing many gap-separated runs costs O(log X) rather than
+    /// O(runs) (#4176). Not part of the wire format — `#[serde(skip)]` keeps it
+    /// out of the shared JSON that the conformance fixtures compare, and it
+    /// defaults to empty (rebuilt on demand) after any deserialize or clone.
+    ///
+    /// Built once against `working_days` at that time: nothing in this crate
+    /// mutates `working_days` on a live `Calendar` after construction (it is set
+    /// only by the struct literal or `Deserialize`), so — unlike the Python
+    /// engine's `Calendar`, which is mutable and keys its equivalent cache on the
+    /// mask too (#4176) — no mask-change invalidation is needed here.
     #[serde(skip)]
-    pub(crate) exception_index: OnceCell<Vec<(i32, i32)>>,
+    pub(crate) exception_index: OnceCell<ExceptionIndex>,
 }
+
+/// Coalesced exception runs as `(start, end)` inclusive-ordinal pairs, sorted and
+/// disjoint, plus a prefix sum of each run's own mask-working-day count — the
+/// second element's `[i]` is the total mask-working days across runs `0..i`. See
+/// [`Calendar::exception_index`].
+pub(crate) type ExceptionIndex = (Vec<(i32, i32)>, Vec<i32>);
 
 fn default_working_days() -> u8 {
     0b0011111
