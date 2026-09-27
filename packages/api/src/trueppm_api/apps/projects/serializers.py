@@ -561,17 +561,20 @@ def _assign_key_on_update(serializer: Any, instance: Any, validated_data: dict[s
     row and one ``server_version`` bump, and it inherits the endpoint's existing
     permission class and agent write gate rather than defining its own.
 
-    A blank ``code`` on update heals a blank-coded object (one a pre-0.4 pod
-    created during the rolling upgrade) with a derived key, and is otherwise
-    refused: a key, once assigned, is never removed.
+    A blank-coded object (one a pre-0.4 pod created during the rolling upgrade)
+    is healed with a derived key on *any* update, whether or not the write names
+    ``code`` — the upgrade notes promise it gets a key the next time it is
+    edited, and 0.5's ``code <> ""`` constraint depends on that. A blank ``code``
+    sent against an object that already has a key is refused: a key, once
+    assigned, is never removed.
     """
     from trueppm_api.apps.projects.models import ObjectKeySource, Program
     from trueppm_api.apps.projects.services import KeyAssignmentError, assign_key, derive_key
 
-    if "code" not in validated_data:
+    if "code" not in validated_data and instance.code:
         return
     kind = "program" if isinstance(instance, Program) else "project"
-    code = validated_data["code"] or ""
+    code = validated_data.get("code") or ""
     source = ObjectKeySource.USER
     request = serializer.context.get("request")
     try:

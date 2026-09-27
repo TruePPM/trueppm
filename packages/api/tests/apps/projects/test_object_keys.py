@@ -450,6 +450,30 @@ class TestCreateAndRename:
         p.refresh_from_db()
         assert p.code == "OP"
 
+    def test_an_edit_that_does_not_name_code_heals_a_keyless_project(self, owner: Any) -> None:
+        # The upgrade notes promise a blank-coded project gets a key "the next
+        # time it is edited" — not only when the edit happens to send ``code``.
+        p = _raw_project("Old Pod", member=owner)
+        r = _client(owner).patch(
+            f"{PROJECTS_URL}{p.pk}/", {"description": "touched"}, format="json"
+        )
+        assert r.status_code == 200, r.data
+        p.refresh_from_db()
+        assert p.code == "OP"
+        row = ObjectKey.objects.get(project=p, is_current=True)
+        assert row.source == ObjectKeySource.DERIVED
+
+    def test_an_edit_that_does_not_name_code_leaves_a_keyed_project_alone(self, owner: Any) -> None:
+        p = _project(owner, name="Keyed", code="KEYD")
+        before = ObjectKey.objects.filter(project=p).count()
+        r = _client(owner).patch(
+            f"{PROJECTS_URL}{p.pk}/", {"description": "touched"}, format="json"
+        )
+        assert r.status_code == 200, r.data
+        p.refresh_from_db()
+        assert p.code == "KEYD"
+        assert ObjectKey.objects.filter(project=p).count() == before
+
 
 # ---------------------------------------------------------------------------
 # Resolver

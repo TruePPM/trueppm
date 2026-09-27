@@ -4,12 +4,14 @@
 
 Accepted (2026-09-26)
 
-> **Implementation status (2026-09-26, #4148):** design only. Nothing in this ADR is on
-> `main`. Verified against `packages/api/src/trueppm_api/apps/projects/models.py`
-> (`Project.code` is `CharField(max_length=12, blank=True, default="")`, `Program.code`
-> is `CharField(max_length=40, blank=True, default="")`, neither unique) and
-> `packages/web/src/router.tsx` (routes are `projects/:projectId` / `programs/:programId`,
-> UUID-valued).
+> **Implementation status (2026-09-26, #4148):** implemented by the #4148 MR.
+> `ObjectKey`, the upgrade repair and the partial unique constraints are migration
+> `projects.0154_object_keys`; `derive_key()` / `assign_key()` live in
+> `apps/projects/services.py`; the resolver and key-suggestion endpoints are
+> `apps/projects/key_views.py`; the web route boundary is
+> `packages/web/src/router/RefBoundary.tsx`. Still open, by design: dropping the
+> blank-code exclusion and adding `CheckConstraint(code <> "")` in 0.5 (§4), and the
+> #3888 surfaces (MCP, `⌘K`, citation display).
 
 ## Context
 
@@ -148,7 +150,8 @@ ships `replicaCount: 2` with the default RollingUpdate, so an **old** pod can st
 create a project with `code=""` after the migration runs. A full unique index would 500
 its second such create. With the blank-excluded condition the old pod's insert succeeds,
 and the new code heals it: the resolver treats a blank-coded project as UUID-only, and
-the first `assign_key()` touch (or the next release's repair step) derives its key. The
+the first update through the project (program) serializer derives its key, whether
+or not that write names `code` (or the next release's repair step does). The
 blank exclusion is dropped, and a `CheckConstraint(code <> "")` is added, in 0.5, after
 one full release in which no code writes a blank.
 

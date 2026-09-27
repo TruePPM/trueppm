@@ -24,7 +24,7 @@ from trueppm_api.apps.projects.management.commands.seed_integration_fixtures imp
     INTEGRATION_PASSWORD_ENV,
     _resolve_integration_password,
 )
-from trueppm_api.apps.projects.models import Project, Task
+from trueppm_api.apps.projects.models import ObjectKey, Project, Task
 
 User = get_user_model()
 
@@ -151,3 +151,8 @@ def test_seed_is_idempotent_under_debug(
     # Owner membership + one seed task survive a re-seed without duplicating.
     assert ProjectMembership.objects.filter(project=project, role=Role.OWNER).count() == 1
     assert Task.objects.filter(project=project, name="CI Seed Task").count() == 1
+    # The fixture is keyed through assign_key (ADR-1237), and a re-seed frees its
+    # own key rather than leaving a tombstone that pushes it to CIP2.
+    assert project.code == "CIP"
+    assert ObjectKey.objects.filter(key__iexact="CIP").count() == 1
+    assert ObjectKey.objects.get(key__iexact="CIP").project_id == project.pk
