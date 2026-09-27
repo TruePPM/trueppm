@@ -103,6 +103,7 @@ def create_program(
     methodology: str | Methodology,
     created_by: Any,
     lead: Any | None = None,
+    code: str | None = "",
 ) -> Program:
     """Create a ``Program`` and the creator's OWNER membership in one transaction.
 
@@ -124,6 +125,11 @@ def create_program(
             serializer only admits ``lead == created_by`` — the "lead must be a
             member" invariant holds because the OWNER membership is written in the
             same atomic transaction. Defaults to ``None`` (no lead).
+        code: The program key (ADR-1237), already validated by the caller.
+            ``""`` derives one from ``name``. ``None`` assigns no key at all —
+            only for the seed importer, which decides the key itself (a slug, a
+            suffixed slug, or keys adopted from the program it replaces) and
+            must not first burn a derived key into the never-reused namespace.
 
     Returns:
         The persisted ``Program``. The OWNER membership exists by the time the
@@ -141,6 +147,12 @@ def create_program(
         user=created_by,
         role=Role.OWNER,
     )
+    if code is not None:
+        from trueppm_api.apps.projects.models import ObjectKeySource
+        from trueppm_api.apps.projects.services import assign_key, derive_key
+
+        source = ObjectKeySource.USER if code else ObjectKeySource.DERIVED
+        assign_key(program, code or derive_key(name, "program"), source=source, actor=created_by)
     return program
 
 

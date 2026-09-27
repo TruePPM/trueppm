@@ -44,7 +44,7 @@ function CardIdentityRow({
 }) {
   const streamKey = task.parentEpic ?? task.parentId ?? null;
   const streamColor = streamKey ? phaseColor(streamKey) : null;
-  // Prefer the project-qualified reference ("ENG-2026-8"), then the compact one
+  // Prefer the project-qualified reference ("ENG-2026-T-8"), then the compact one
   // ("T-8"). Never the raw `shortId`: the stored value is zero-padded hex, so the
   // card used to read "0000000A" — an internal identifier leaking into the UI,
   // and not the project-code prefix Settings → General promises (#2430).

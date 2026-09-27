@@ -6,9 +6,10 @@ import { MemberPicker } from '../components/MemberPicker';
 import { MoveProgramDialog } from '../components/MoveProgramDialog';
 import { StubFieldset } from '../components/StubFieldset';
 import { DangerZoneLink } from '../components/DangerZoneLink';
-import { extractValidationMessage } from '@/lib/apiError';
+import { extractFieldErrors, extractValidationMessage } from '@/lib/apiError';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProjectId } from '@/hooks/useProjectId';
+import { KeySettingsRow } from '@/features/keys/KeySettingsRow';
 import { useProject } from '@/hooks/useProject';
 import { useUpdateProject } from '@/hooks/useProjectMutations';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
@@ -105,6 +106,10 @@ export function ProjectGeneralPage() {
   // state and its own PATCH, so a program 400 never touches the shared save bar.
   const moveProgram = useUpdateProject(projectId);
   const { role } = useCurrentUserRole(projectId);
+  // Focused on a `code` rejection from handleSave (ADR-1237 UX §2), mirroring
+  // NewProjectModal's key field: a keyboard/AT user lands on the field the error
+  // is about, not on whatever control they last used before Save.
+  const keyInputRef = useRef<HTMLInputElement>(null);
 
   // Move-to-program dialog (#2089). The `program` FK is deliberately NOT part of
   // `values`/`initialValues` above, so the shared save bar never sees it — the
@@ -174,6 +179,9 @@ export function ProjectGeneralPage() {
   const [initialName, setInitialName] = useState('');
   const [initialDescription, setInitialDescription] = useState('');
   const [initialCode, setInitialCode] = useState('');
+  // The server's `400` on `code` from the last save, shown verbatim in the key
+  // row's status line (ADR-1237 UX §2); cleared as soon as the key is edited.
+  const [codeError, setCodeError] = useState<string | null>(null);
   const [initialHealth, setInitialHealth] = useState<ProjectHealth>('AUTO');
   const [initialVisibility, setInitialVisibility] = useState<ProjectVisibility>('WORKSPACE');
   const [initialTimezone, setInitialTimezone] = useState('');
@@ -206,7 +214,7 @@ export function ProjectGeneralPage() {
     seededProjectIdRef.current = project.id;
     setName(project.name);
     setDescription(project.description ?? '');
-    setCode(project.code);
+    setCode(project.code ?? '');
     setHealth(project.health);
     setVisibility(project.visibility);
     setTimezone(project.timezone);
@@ -227,7 +235,7 @@ export function ProjectGeneralPage() {
     setSprintPickerReadyOnlyDefault(project.sprint_picker_ready_only_default ?? null);
     setInitialName(project.name);
     setInitialDescription(project.description ?? '');
-    setInitialCode(project.code);
+    setInitialCode(project.code ?? '');
     setInitialHealth(project.health);
     setInitialVisibility(project.visibility);
     setInitialTimezone(project.timezone);
@@ -350,37 +358,50 @@ export function ProjectGeneralPage() {
     // normalizes back to the last saved value rather than 400-ing the whole batch,
     // mirroring the iteration_label empty→null normalization below.
     const savedStartDate = startDate || initialStartDate;
-    await updateProject.mutateAsync({
-      name,
-      description,
-      code,
-      health,
-      visibility,
-      timezone,
-      default_view: defaultView,
-      start_date: savedStartDate,
-      // null = "Today (dynamic)"; a string = a fixed forecasting data date (ADR-0132).
-      status_date: statusDate,
-      prioritization_model: prioritizationModel,
-      stale_task_threshold_days: staleThresholdDays,
-      end_date_shift_threshold_days: endShiftThresholdDays,
-      lead,
-      // null clears the override (inherit); a blank custom string normalizes to null
-      // too — "inherit" is the explicit null and the serializer rejects empty strings
-      // (ADR-0116).
-      iteration_label: iterationLabel === null ? null : iterationLabel.trim() || null,
-      // null clears the sharing override so the project inherits program/workspace (ADR-0135).
-      public_sharing: publicSharing,
-      allow_guests: allowGuests,
-      // null clears the forecast-history override so the project inherits program/workspace (ADR-0144).
-      mc_history_enabled: mcHistoryEnabled,
-      mc_history_retention_cap: mcHistoryRetentionCap,
-      mc_history_attribution_audience: mcHistoryAttributionAudience,
-      // null clears the duration-change override so the project inherits program/workspace (ADR-0151).
-      task_duration_change_percent_policy: taskDurationChangePercentPolicy,
-      // null clears the sprint-picker override so the project inherits program/workspace (ADR-0758).
-      sprint_picker_ready_only_default: sprintPickerReadyOnlyDefault,
-    });
+    try {
+      await updateProject.mutateAsync({
+        name,
+        description,
+        code,
+        health,
+        visibility,
+        timezone,
+        default_view: defaultView,
+        start_date: savedStartDate,
+        // null = "Today (dynamic)"; a string = a fixed forecasting data date (ADR-0132).
+        status_date: statusDate,
+        prioritization_model: prioritizationModel,
+        stale_task_threshold_days: staleThresholdDays,
+        end_date_shift_threshold_days: endShiftThresholdDays,
+        lead,
+        // null clears the override (inherit); a blank custom string normalizes to null
+        // too — "inherit" is the explicit null and the serializer rejects empty strings
+        // (ADR-0116).
+        iteration_label: iterationLabel === null ? null : iterationLabel.trim() || null,
+        // null clears the sharing override so the project inherits program/workspace (ADR-0135).
+        public_sharing: publicSharing,
+        allow_guests: allowGuests,
+        // null clears the forecast-history override so the project inherits program/workspace (ADR-0144).
+        mc_history_enabled: mcHistoryEnabled,
+        mc_history_retention_cap: mcHistoryRetentionCap,
+        mc_history_attribution_audience: mcHistoryAttributionAudience,
+        // null clears the duration-change override so the project inherits program/workspace (ADR-0151).
+        task_duration_change_percent_policy: taskDurationChangePercentPolicy,
+        // null clears the sprint-picker override so the project inherits program/workspace (ADR-0758).
+        sprint_picker_ready_only_default: sprintPickerReadyOnlyDefault,
+      });
+    } catch (err) {
+      // A key rejection (taken, reserved, format, the rename cap) belongs in the
+      // key row's status line; the save bar still reports the failed save. Focus
+      // follows the error to the key field only when the rejection was actually
+      // about `code` — an unrelated 400 must not steal focus from the field the
+      // user was on.
+      const nextCodeError = extractFieldErrors(err).code ?? null;
+      setCodeError(nextCodeError);
+      if (nextCodeError) keyInputRef.current?.focus();
+      throw err;
+    }
+    setCodeError(null);
     const savedIterationLabel = iterationLabel === null ? null : iterationLabel.trim() || null;
     setIterationLabel(savedIterationLabel);
     setInitialName(name);
@@ -432,6 +453,7 @@ export function ProjectGeneralPage() {
   ]);
 
   const handleReset = useCallback(() => {
+    setCodeError(null);
     setName(initialName);
     setDescription(initialDescription);
     setCode(initialCode);
@@ -529,8 +551,8 @@ export function ProjectGeneralPage() {
       {/* Below Admin the whole form is read-only (issue 1084): StubFieldset disables
           every native control with the rule-122 recipe, and the custom pickers /
           toggles get canEdit={canEdit} so they render their own read-only view. */}
-      <StubFieldset disabled={!canEdit}>
-        <div className="px-6 pb-8 max-w-[720px]">
+      <div className="px-6 pb-8 max-w-[720px]">
+        <StubFieldset disabled={!canEdit}>
           <FieldRow label="Project name">
             <input
               type="text"
@@ -541,20 +563,26 @@ export function ProjectGeneralPage() {
             />
           </FieldRow>
 
-          <FieldRow
-            label="Project code"
-            hint="Used as a prefix for task IDs and exports. Uppercase letters, digits, hyphens; up to 12 characters."
-          >
-            <input
-              type="text"
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
-              maxLength={12}
-              aria-label="Project code"
-              placeholder="ENG-2026"
-              className="w-[140px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-            />
-          </FieldRow>
+        </StubFieldset>
+
+        {/* Outside the fieldset on purpose: read-only callers get a copy-link
+            button here, and a disabled <fieldset> would disable it (ADR-1237 UX §2). */}
+        <KeySettingsRow
+          kind="project"
+          objectId={projectId}
+          value={code}
+          onChange={(next) => {
+            setCodeError(null);
+            setCode(next);
+          }}
+          savedKey={initialCode}
+          retiredKeyCount={project?.retired_key_count}
+          canEdit={canEdit}
+          serverError={codeError}
+          inputRef={keyInputRef}
+        />
+
+        <StubFieldset disabled={!canEdit}>
 
           <FieldRow label="Description" hint="One paragraph. Shown on the overview page.">
             <textarea
@@ -1179,8 +1207,8 @@ export function ProjectGeneralPage() {
               />
             </FieldRow>
           )}
-        </div>
-      </StubFieldset>
+        </StubFieldset>
+      </div>
 
       {/* Destructive actions live on the Archive / Delete page (#977). */}
       <DangerZoneLink to="#lifecycle" />

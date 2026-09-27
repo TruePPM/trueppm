@@ -22,7 +22,7 @@ for how it behaves.
 The **New project** Start sheet — one screen, no step navigation — collects only
 what changes what happens next. It opens with the way in: one choice among three
 peer ways to start (Template, Blank, or Import). Below that come the project's own
-fields — name, program, and start date — and the **working calendar** sits in the
+fields — name, [key](#project-key), program, and start date — and the **working calendar** sits in the
 pinned footer above the actions, where it stays in view however long the template
 list gets. Planning model is derived from the way you choose and shown read-only,
 never asked for directly.
@@ -51,7 +51,7 @@ The **General** page edits the project's identity:
 
 ![Project settings, General: project name, code, description, lead, program, health override, visibility and guest access](../../../assets/screenshots/project-settings.webp)
 
-- **Name**, **description**, and **code**
+- **Name**, **description**, and **key** — see [Project key](#project-key) below
 - **Health** indicator and **visibility**
 - **Time zone** — the clock this project's
   [quiet hours](/features/settings/project-notifications/#quiet-hours) are read in, and
@@ -79,6 +79,36 @@ Changes are staged and committed with a save bar, so you can review edits before
 applying them. The **General** page also carries the project's **Working calendar**
 override, which inherits the program or workspace default unless you set one — see
 [Working calendars](/administration/working-calendars/).
+
+### Project key
+
+The **project key** is the project's short name in links and IDs: `PLAT` in
+`/projects/PLAT/schedule`, and the prefix of references like `PLAT-T-12`. (The API
+field is still called `code`; see
+[Project and program keys](/api/reference/projects/#project-and-program-keys).)
+A key is 2 to 10 letters and digits and starts with a letter. It is unique across
+the workspace, and capitalization doesn't matter.
+
+- **At creation**, the Start sheet fills the **Key** field from the name as you type
+  (Platform Migration suggests `PM`) and says whether it's available. Type your own
+  to take it over; clear the field to go back to the suggestion. If a key is already
+  in use, the sheet offers the next free one, such as `PM2`. If you leave the field
+  blank, a key is derived for you.
+- **Renaming** is done in the **Project key** field here and saved with the save
+  bar. Old links keep working: a link that uses the old key opens this project and
+  the address bar switches to the new key. The old key stays reserved for this
+  project, so no other project can take it. A project can be renamed at most 10
+  times. After that the field is read-only; contact your workspace admin.
+- **Links.** Links that use the project's ID instead of its key also keep working,
+  and they switch to the key when opened. A key that doesn't match any project you
+  can see shows **This project isn't available**. This is the same message as for a
+  project you don't have access to.
+- **Read-only.** If you can't edit General settings, the key is shown as text with a
+  **Copy project link** button.
+
+Keys appear in URLs, browser history and server logs, so don't put confidential
+words in one. A key created before 0.4 may contain hyphens (`GA-SEC`). It keeps
+working, but a new key can't use hyphens.
 
 ## Access
 

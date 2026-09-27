@@ -1,14 +1,24 @@
+import { useContext } from 'react';
 import { useParams } from 'react-router';
+import { isUuid } from '@/lib/refPath';
+import { ProgramRefContext } from '@/router/refContext';
+import { useResolveRef } from './useResolveRef';
 
 /**
- * Return the current program ID from the URL path param `:programId`.
+ * The active program's **UUID** (ADR-0070, ADR-0095, ADR-1237 §7).
  *
- * All program-scoped routes are nested under `/programs/:programId/` (ADR-0070),
- * so this hook is the canonical way for any component within that route tree to
- * read the active program. Components rendered outside program routes — and on
- * project routes — receive `undefined`. Mirrors `useProjectId` (ADR-0095).
+ * The `:programId` route param may be a program key (`atlas-platform-launch`) or a
+ * UUID, so it must never reach an API call raw. Below `ProgramRefBoundary` this
+ * reads the resolved id from context; above it (the `AppShell` chrome) it reads the
+ * same `['resolve', 'program', ref]` cache entry. Returns `undefined` off a program
+ * route — including on project routes — and while a key is still resolving.
+ * Mirrors `useProjectId`.
  */
 export function useProgramId(): string | undefined {
-  const { programId } = useParams<{ programId: string }>();
-  return programId;
+  const resolved = useContext(ProgramRefContext);
+  const { programId: param } = useParams<{ programId: string }>();
+  const lookup = useResolveRef('program', resolved || isUuid(param) ? undefined : param);
+  if (resolved) return resolved.id;
+  if (isUuid(param)) return param;
+  return lookup.data?.type === 'program' ? lookup.data.id : undefined;
 }

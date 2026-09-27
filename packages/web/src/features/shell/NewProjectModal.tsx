@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, type ChangeEvent, type FormEvent } from 'react';
+import { useId, useRef, useState, useEffect, type ChangeEvent, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCreateProject } from '@/hooks/useProjectMutations';
 import { usePrograms } from '@/hooks/usePrograms';
@@ -22,6 +22,10 @@ import { DRAFT_EXCLUSION_SENTENCE } from '@/features/project/draftExclusion';
 import { UnsavedChangesDialog, useUnsavedChangesGuard } from '@/components/dialog';
 import type { Methodology } from '@/types';
 import { getFocusable } from '@/hooks/useFocusTrap';
+import { extractFieldErrors } from '@/lib/apiError';
+import { KeyStatusLine } from '@/features/keys/KeyStatusLine';
+import { useCreateKeyField } from '@/features/keys/useCreateKeyField';
+import { KEY_MAX_LENGTH } from '@/features/keys/keyFormat';
 
 /** Where the user asked to land after the project exists (#2710). */
 export interface CreatedProjectIntent {
@@ -240,9 +244,16 @@ export function NewProjectModal({
   const [selectedProgramId, setSelectedProgramId] = useState<string | null>(programId ?? null);
 
   const nameRef = useRef<HTMLInputElement>(null);
+  const keyRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<Element | null>(null);
   const compact = useStartSheetCompact();
+
+  // The project key (ADR-1237 UX §1): follows Name until the user types in it.
+  const keyField = useCreateKeyField('project', name);
+  const keyInputId = useId();
+  const keyStatusId = useId();
+  const keyHintId = useId();
 
   // ── Unsaved-changes guard (web-rule 217, #3310) ────────────────────────────
   //
@@ -267,9 +278,12 @@ export function NewProjectModal({
   // it: flipping between the ways to compare them is browsing, not authoring —
   // the same reading that makes `template` survive a way switch above — and
   // prompting on it would fire the guard on a user who has typed nothing.
+  // A key the user typed is authored input; a key that is still following Name is
+  // not (it is derived from `name`, which already counts).
+  const typedKey = keyField.touched ? keyField.value : '';
   const dirty =
     JSON.stringify({ name, startDate, calendarOverride, startAsDraft, selectedProgramId }) !==
-    JSON.stringify(baselineRef.current);
+      JSON.stringify(baselineRef.current) || typedKey !== '';
 
   // `escapeToClose: false` because this component already owns a document-level
   // keydown handler for its own focus trap; letting the hook install a second
@@ -408,8 +422,13 @@ export function NewProjectModal({
     return () => document.removeEventListener('keydown', handler, true);
   }, [guardOpen, requestClose]);
 
+  // A pending key check never blocks (the server re-validates); only a format
+  // error or a confirmed "in use" does (ADR-1237 UX §1).
   const canSubmit =
-    name.trim().length > 0 && startDate.length > 0 && (way !== 'template' || template !== null);
+    name.trim().length > 0 &&
+    startDate.length > 0 &&
+    (way !== 'template' || template !== null) &&
+    !keyField.blocksSubmit;
 
   // Single source for what the commit is called — the button renders it, and the
   // footer's commit note names it. Two hand-kept copies of a control's label is
@@ -442,6 +461,8 @@ export function NewProjectModal({
       {
         name: name.trim(),
         start_date: startDate,
+        // Blank is legal: the server derives the key from the name (ADR-1237 §1).
+        ...(keyField.value ? { code: keyField.value } : {}),
         // Sent explicitly so the created project's stored methodology always
         // matches the derived line the sheet just showed — never left to drift
         // from a server-side default the sheet didn't display.
@@ -453,6 +474,16 @@ export function NewProjectModal({
         ...(startAsDraft ? { start_as_draft: true } : {}),
       },
       {
+        // A 400 on `code` (lost a race for the key, reserved word, format) belongs
+        // to the key field: show the server's words in its status line and put the
+        // user there, leaving every other field as it was.
+        onError: (err) => {
+          const codeError = extractFieldErrors(err).code;
+          if (codeError) {
+            keyField.setServerError(codeError);
+            keyRef.current?.focus();
+          }
+        },
         onSuccess: (data) => {
           if (selectedProgramId) {
             void queryClient.invalidateQueries({
@@ -630,6 +661,44 @@ export function NewProjectModal({
                   />
                 </label>
 
+                {/* Project key (ADR-1237 UX §1). Below Name, above Program; the
+                    status line and hint sit outside the <label> so they describe
+                    the input rather than becoming part of its name. */}
+                <div className="flex flex-col gap-1">
+                  <label
+                    htmlFor={keyInputId}
+                    className="text-xs font-medium text-neutral-text-secondary"
+                  >
+                    Key
+                  </label>
+                  <input
+                    id={keyInputId}
+                    ref={keyRef}
+                    type="text"
+                    value={keyField.value}
+                    onChange={(e) => keyField.onInput(e.target.value)}
+                    maxLength={KEY_MAX_LENGTH.project}
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-describedby={`${keyStatusId} ${keyHintId}`}
+                    aria-invalid={keyField.blocksSubmit || undefined}
+                    className="tppm-mono h-9 w-full md:w-[160px] px-3 rounded-control border border-neutral-border bg-neutral-surface
+                    text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary
+                    focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+                  />
+                  <KeyStatusLine
+                    id={keyStatusId}
+                    status={keyField.status}
+                    onUseSuggestion={(next) => {
+                      keyField.applySuggestion(next);
+                      keyRef.current?.focus();
+                    }}
+                  />
+                  <span id={keyHintId} className="text-xs text-neutral-text-secondary">
+                    Used in links and IDs like PM-T-12. You can change it later.
+                  </span>
+                </div>
+
                 {/* Program picker (#2673, ADR-0764) — determines rollup, cadence
                   inheritance, and (via effective_methodology/effective_calendar)
                   two of the derived values below. Options are scoped to open
@@ -683,7 +752,8 @@ export function NewProjectModal({
                 </label>
               </div>
 
-              {createProject.isError && (
+              {/* A key rejection is shown in the key's own status line instead. */}
+              {createProject.isError && !extractFieldErrors(createProject.error).code && (
                 <p role="alert" className="text-xs text-semantic-critical">
                   Failed to create project. Please try again.
                 </p>
