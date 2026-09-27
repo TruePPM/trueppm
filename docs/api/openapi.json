@@ -5132,7 +5132,7 @@
                     }
                 ],
                 "tags": [
-                    "keys"
+                    "projects"
                 ],
                 "security": [
                     {
@@ -37252,7 +37252,7 @@
                     }
                 ],
                 "tags": [
-                    "resolve"
+                    "projects"
                 ],
                 "security": [
                     {
