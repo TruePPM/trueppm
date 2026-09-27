@@ -123,6 +123,14 @@ class Task:
         but is **not yet consumed** by the engine — the CPM pass does not treat
         it as a finish-no-later-than constraint. ``planned_start`` *is* honored,
         as a start-no-earlier-than floor.
+
+    Note:
+        A zero-duration milestone's ``early_start == early_finish`` is the day it
+        is *shown* on, not an instant; ``milestone_at_day_end`` says which edge of
+        that day it sits on. The shown day can move across a weekend or holiday
+        while the working-time position does not, so compare two milestone dates
+        in working time, not as a calendar-day difference. The full display rule
+        is on :class:`~trueppm_scheduler.engine.ScheduleResult` (#4178).
     """
 
     id: str
@@ -212,9 +220,14 @@ class Task:
     # milestone follows work (``A(Mon..Fri) -FS-> M`` shows ``M`` at the close of
     # Friday). ``False`` means the START of that day — it is held by a floor
     # (project start, SNET, data date, recorded actual start) or an SS link from
-    # work — and for every task that is not a network-placed milestone. Computed by
-    # the engine; an input value is ignored and overwritten. Appended last for the
-    # positional-order reason given on ``scheduled_start`` above (#2836).
+    # work, or a lag lands it on or just after non-working time and it is shown at
+    # the start of the next working day (#4173) — and for every task that is not a
+    # network-placed milestone. The end of a Friday and the start of the next
+    # Monday are the same point in working time, so the shown day can hop a weekend
+    # with no working-time move: never diff two shown days as a slip (#4178, see
+    # ``ScheduleResult``). Computed by the engine; an input value is ignored and
+    # overwritten. Appended last for the positional-order reason given on
+    # ``scheduled_start`` above (#2836).
     milestone_at_day_end: bool = False
 
     def to_dict(self) -> dict[str, Any]:

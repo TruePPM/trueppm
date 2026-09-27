@@ -488,6 +488,16 @@ class ProjectForecastSnapshot(models.Model):
     # Deterministic CPM spine at capture time: the project's latest committed task
     # finish. Nullable — a project with no scheduled tasks has no finish to anchor on.
     cpm_finish = models.DateField(null=True, blank=True)
+    # Whether cpm_finish is the START of that day rather than its end (#4178): true
+    # when every task finishing on it is a start-of-day milestone (#4079/#4173).
+    # The end of a Friday and the start of the next Monday are the same point in
+    # working time, so without this bit notify_project_end_date_shift could not
+    # tell a real slip from the shown day hopping a weekend. NULL means unknown: a
+    # row captured before the field existed, or by a pod still on the previous
+    # image during a rolling upgrade (a nullable column is what keeps that insert
+    # valid). finish_reading.finish_shift_days treats an unknown reading on the
+    # same day as unmoved, so the first capture after the upgrade is not a shift.
+    cpm_finish_at_day_start = models.BooleanField(null=True, blank=True)
     # The tightest total float (minimum across the committed set): 0 on an
     # unconstrained critical path, negative when a deadline/constraint is breached —
     # so drift in schedule *pressure* is visible, not just the finish date.

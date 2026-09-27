@@ -89,8 +89,18 @@ export function MilestoneBridgeForecast({
     !velocitySuppressed && stcLow != null && stcHigh != null && (remaining ?? 0) > 0;
 
   const prev = milestone.previous;
-  const showDelta =
-    prev != null && prev.cpm_finish != null && prev.cpm_finish !== milestone.cpm_finish;
+  // The move is the server's, measured in working time (#4178): a milestone whose
+  // shown date hops from the end of a Friday to the start of the next Monday has
+  // not moved, and a date diff here would call it "+3d later". An older server
+  // that does not send the field falls back to the date diff.
+  const serverShift = milestone.cpm_finish_shift_days;
+  const signedDays =
+    prev?.cpm_finish == null
+      ? 0
+      : typeof serverShift === 'number'
+        ? serverShift
+        : daysBetween(prev.cpm_finish, milestone.cpm_finish);
+  const showDelta = prev != null && prev.cpm_finish != null && signedDays !== 0;
 
   return (
     <div
@@ -125,6 +135,7 @@ export function MilestoneBridgeForecast({
         <DeltaLine
           prevCpmFinish={prev.cpm_finish!}
           cpmFinish={milestone.cpm_finish}
+          signedDays={signedDays}
           previousSprintName={milestone.previous_sprint_name}
         />
       )}
@@ -296,13 +307,15 @@ function VelocityColumn({
 function DeltaLine({
   prevCpmFinish,
   cpmFinish,
+  signedDays,
   previousSprintName,
 }: {
   prevCpmFinish: string;
   cpmFinish: string;
+  /** >0 = finish moved later (slip); measured in working time (#4178). */
+  signedDays: number;
   previousSprintName: string | null;
 }) {
-  const signedDays = daysBetween(prevCpmFinish, cpmFinish); // >0 = finish moved later (slip)
   const tone: MilestoneVarianceTone = signedDays > 0 ? 'at-risk' : 'on-track';
   const word = signedDays > 0 ? 'later' : 'earlier';
   const signed = signedDays > 0 ? `+${signedDays}` : `${signedDays}`;

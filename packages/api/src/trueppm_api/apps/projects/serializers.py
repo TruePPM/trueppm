@@ -10009,6 +10009,15 @@ class PreviousForecastSnapshotSerializer(serializers.Serializer[Any]):
     """
 
     cpm_finish = serializers.DateField(allow_null=True)
+    cpm_finish_at_day_start = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "True when cpm_finish is the START of that day (a milestone shown at the "
+            "start of its day), false for its end, null when unknown (a snapshot "
+            "written before this field existed). The start of a Monday is the same "
+            "point in working time as the end of the Friday before it."
+        ),
+    )
     p50 = serializers.DateField(allow_null=True)
     p80 = serializers.DateField(allow_null=True)
     velocity_low = serializers.IntegerField(allow_null=True)
@@ -10038,6 +10047,28 @@ class ForecastSnapshotSerializer(serializers.ModelSerializer[ForecastSnapshot]):
     milestone_name = serializers.SerializerMethodField()
     previous = serializers.SerializerMethodField()
     previous_sprint_name = serializers.SerializerMethodField()
+    cpm_finish_at_day_start = serializers.BooleanField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "True when cpm_finish is the START of that day (a milestone shown at the "
+            "start of its day), false for its end, null when unknown (a snapshot "
+            "written before this field existed). The start of a Monday is the same "
+            "point in working time as the end of the Friday before it."
+        ),
+    )
+    cpm_finish_shift_days = serializers.SerializerMethodField(
+        help_text=(
+            "Signed calendar-day move of cpm_finish since `previous` (positive = "
+            "later), measured in working time: a finish whose shown date only hops "
+            "a weekend or holiday (end of Friday to start of Monday) is 0. Null when "
+            "there is no previous snapshot or either side has no finish (#4178)."
+        )
+    )
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_cpm_finish_shift_days(self, obj: ForecastSnapshot) -> int | None:
+        return cast("int | None", getattr(obj, "cpm_finish_shift_days", None))
 
     def get_milestone_name(self, obj: ForecastSnapshot) -> str | None:
         return obj.milestone.name if obj.milestone else None
@@ -10061,6 +10092,8 @@ class ForecastSnapshotSerializer(serializers.ModelSerializer[ForecastSnapshot]):
             "milestone_name",
             "basis",
             "cpm_finish",
+            "cpm_finish_at_day_start",
+            "cpm_finish_shift_days",
             "p50",
             "p80",
             "velocity_low",

@@ -185,7 +185,7 @@ The read-only **`is_driving`** flag marks each link whose relationship free floa
 
 ## Cross-project slip conflicts
 
-When an accepted cross-project dependency pushes a committed task in an **active sprint** past its sprint boundary, the program recompute records a **slip conflict** for the downstream team. The dates stay honest — the firewall never moves a sprint, its membership, or its commitment math; it only surfaces the conflict for the team to acknowledge and resolve their own way.
+When an accepted cross-project dependency pushes a committed task in an **active sprint** past its sprint boundary, the program recompute records a **slip conflict** for the downstream team. The dates stay honest — the firewall never moves a sprint, its membership, or its commitment math; it only surfaces the conflict for the team to acknowledge and resolve their own way. "Past its sprint boundary" is measured in working time: a milestone shown at the start of the Monday after a sprint that ends on Friday sits at the end of that Friday, so it is on time and raises no conflict ([Scheduler Conventions](/features/scheduler-conventions/)).
 
 | Method | Path | Description |
 |--------|------|-------------|

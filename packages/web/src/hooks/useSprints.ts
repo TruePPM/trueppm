@@ -807,6 +807,19 @@ export interface ForecastSnapshot {
   basis: string;
   /** ISO date — the deterministic CPM finish. */
   cpm_finish: string | null;
+  /**
+   * Which edge of `cpm_finish` the milestone sits on (#4178): true = the start of
+   * that day, false = its end, null = unknown (a snapshot older than the field).
+   * The start of a Monday is the same point in working time as the end of the
+   * Friday before it. Optional: absent from servers that predate it.
+   */
+  cpm_finish_at_day_start?: boolean | null;
+  /**
+   * Server-computed move of `cpm_finish` since `previous`, in calendar days but
+   * measured in working time — 0 when the shown date only hopped a weekend
+   * (#4178). Null with no previous snapshot. Prefer this over diffing the dates.
+   */
+  cpm_finish_shift_days?: number | null;
   /** ISO date — Monte Carlo P50 / P80 finish. */
   p50: string | null;
   p80: string | null;
@@ -822,6 +835,7 @@ export interface ForecastSnapshot {
    */
   previous: {
     cpm_finish: string | null;
+    cpm_finish_at_day_start?: boolean | null;
     p50: string | null;
     p80: string | null;
     velocity_low: number | null;

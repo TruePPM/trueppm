@@ -280,6 +280,43 @@ class ScheduleResult:
     contract, and callers must not depend on either. Look a task up by its ``id``
     (e.g. ``{t.id: t for t in result.tasks}``), never by list position — position
     is the one field that legitimately differs between the two engines.
+
+    Display rule (#4079, #4173, #4178): ``project_finish`` is a **day**, the latest
+    ``early_finish``, not an instant. Work ends at the *end* of its finish day. A
+    zero-duration milestone is an instant, and its ``early_finish`` is only the day
+    it is *shown* on; :attr:`Task.milestone_at_day_end` says which edge of that
+    day the instant is. It is the end when the milestone follows work, and the
+    start when a floor holds it, an SS link places it, or a lag lands it on or just
+    after non-working time — that last case is shown at the start of the next
+    working day. The end of a Friday and the start of the following Monday are the
+    same point in working time, so **the shown day can move across a weekend or
+    holiday while the working-time finish does not move**. Do not compute slip as
+    the calendar-day difference of two ``project_finish`` values: compare in
+    working time, reading a start-of-day milestone finish as the end of the last
+    working day before it. Pinned by ``tests/test_display_rule_doc.py``:
+
+    >>> from datetime import date, timedelta
+    >>> from trueppm_scheduler import Dependency, DependencyType, Project, Task, schedule
+    >>> def finish(lag_days: int) -> tuple[str, bool]:
+    ...     a = Task(id="A", name="A", duration=timedelta(days=5))
+    ...     m = Task(id="M", name="M", duration=timedelta(0))
+    ...     link = Dependency(
+    ...         predecessor_id="A", successor_id="M",
+    ...         dep_type=DependencyType.FS, lag=timedelta(days=lag_days),
+    ...     )
+    ...     project = Project(
+    ...         id="p", name="p", start_date=date(2026, 8, 3),  # a Monday
+    ...         tasks=[a, m], dependencies=[link],
+    ...     )
+    ...     result = schedule(project)
+    ...     shown = next(t for t in result.tasks if t.id == "M")
+    ...     return result.project_finish.strftime("%a %d"), shown.milestone_at_day_end
+    >>> finish(0)  # the end of Friday
+    ('Fri 07', True)
+    >>> finish(1)  # Sunday midnight, shown at the start of Monday: no working-time move
+    ('Mon 10', False)
+    >>> finish(3)  # Tuesday midnight, after Monday's work: one working day later
+    ('Mon 10', True)
     """
 
     project_id: str

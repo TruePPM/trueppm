@@ -473,6 +473,19 @@ class TestEndpoint:
         assert results[1]["id"] == str(old.id)
         assert results[0]["cpm_finish"] == "2026-08-01"
 
+    def test_publishes_which_edge_of_the_day_the_finish_is(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        # #4178: a client diffing cpm_finish across snapshots needs the reading to
+        # do it in working time.
+        ProjectForecastSnapshot.objects.create(
+            project=project, cpm_finish=date(2026, 8, 10), cpm_finish_at_day_start=True
+        )
+        res = member_client.get(url(project.pk))
+        assert res.status_code == 200
+        row = res.json()["results"][0]
+        assert (row["cpm_finish"], row["cpm_finish_at_day_start"]) == ("2026-08-10", True)
+
     def test_empty_returns_empty_results(self, member_client: APIClient, project: Project) -> None:
         res = member_client.get(url(project.pk))
         assert res.status_code == 200
