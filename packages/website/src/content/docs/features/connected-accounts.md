@@ -270,7 +270,10 @@ resolves an MR, PR, or issue and shows its current status badge.
   not follow redirects.
 - **Who a refresh is saved for** — a preview fetched with a personal access
   token is saved to the task, and shown to the rest of the project, only when the
-  **person who added the link** refreshes it. If anyone else refreshes a git link,
+  **person who added the link** — or who last changed its address — refreshes it.
+  Changing a link's URL makes you its owner and clears its saved title, status,
+  and preview, since they described the old address; editing only the title or
+  labels changes neither. If anyone else refreshes a git link,
   they see the fetched title and status on their own screen until the row next
   changes, but nothing is saved or broadcast, so your token can never publish a
   private issue's title to people who lack access to it. Links added before this
