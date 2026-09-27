@@ -46,8 +46,7 @@ change between releases. Pin an exact version (e.g.
   sdist errored at collection on `tests/test_wasm_conformance.py`, which needs
   the monorepo's `packages/wasm-scheduler/fixtures` tree, so zero tests ran.
   That module now skips when its fixtures are absent, and the rest of the suite
-  runs. Inside the monorepo, `TRUEPPM_MONOREPO=1` keeps a missing fixture a hard
-  failure.
+  runs. Inside a monorepo checkout a missing fixture is still a hard failure.
 
 ## [0.4.0b4] - 2026-09-23
 
