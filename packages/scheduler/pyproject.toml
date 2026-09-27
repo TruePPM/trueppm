@@ -8,7 +8,12 @@ version = "0.4.0b4"
 description = "Critical-path method (CPM) and Monte Carlo schedule-risk engine for project management"
 readme = "README.md"
 license = "Apache-2.0"
-license-files = ["LICENSE"]
+# NOTICE carries the MacroDream, LLC copyright line — Apache 2.0 does not
+# require it, but a standalone PyPI package with no copyright statement at all
+# is a gap (#4177). hatchling packages license-files into the wheel's
+# .dist-info/licenses/ and into the sdist; kept byte-identical to the repo-root
+# copies via scripts/check-package-licenses.sh.
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.11"
 authors = [
     { name = "Kelly Hair" },
