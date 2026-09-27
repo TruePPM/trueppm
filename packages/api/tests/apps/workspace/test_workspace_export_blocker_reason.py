@@ -19,7 +19,7 @@ import pytest
 from django.core.files.storage import default_storage
 
 from trueppm_api.apps.projects.models import Project, Task
-from trueppm_api.apps.workspace.export import build_and_store_archive
+from trueppm_api.apps.workspace.export import BLOCKER_REASON_EXCLUDE, build_and_store_archive
 
 SECRET = "waiting on legal re: the Hendricks settlement"
 
@@ -76,3 +76,11 @@ def test_other_history_tables_keep_their_columns(blocked_task: Task) -> None:
     members = _archive_members()
     projects: list[dict[str, Any]] = json.loads(members["history/projects.json"])
     assert projects and "name" in projects[0]
+
+
+def test_every_excluded_name_is_a_real_task_field() -> None:
+    """The exclusion pops by name, so a renamed field would silently stop being
+    excluded and the reason would ship again. Fail loudly instead."""
+    for name in BLOCKER_REASON_EXCLUDE:
+        Task._meta.get_field(name)
+        Task.history.model._meta.get_field(name)
