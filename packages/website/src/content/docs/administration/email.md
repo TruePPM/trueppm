@@ -60,6 +60,16 @@ Fastmail wants.
 | **Amazon SES** | Sends through the region's SES SMTP relay. You supply the region-derived host, username, and password. |
 | **Custom (generic) SMTP** | You supply the host, port, connection security ([None / STARTTLS / SSL-TLS](#smtp-security)), username, and password. |
 
+:::caution[Not every SES region has an SMTP endpoint]
+Amazon SES offers SMTP in most, but not all, regions where it offers the
+service — a handful (as of this writing: Cape Town, Hyderabad, Jakarta,
+Milan, Zurich, Tel Aviv, Bahrain, UAE, Calgary, and Malaysia) are HTTPS-API-only.
+Picking the SES preset in one of those regions produces a connection failure
+with no further detail. Check [AWS's current SES endpoint list](https://docs.aws.amazon.com/general/latest/gr/ses.html)
+before choosing SES if you're self-hosting outside a major region — Custom
+(generic) SMTP against another relay is the fallback.
+:::
+
 The presets, SendGrid, SES, and Custom SMTP all build a standard SMTP
 connection — a preset is just a Custom SMTP configuration with the host, port,
 and security filled in for you. All of them are `transport_mode='smtp'` on the
