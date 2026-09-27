@@ -53,7 +53,7 @@ from . import git_webhook_auth, providers
 from .encryption import CredentialEncryptionError, decrypt_secret
 from .git_automation_services import apply_git_event_to_card
 from .models import BoardAutomation, IntegrationCredential, TaskLink
-from .registry import TASK_LINK_PROVIDERS
+from .registry import LINK_STATUS_UNKNOWN, TASK_LINK_PROVIDERS
 from .serializers import (
     GIT_WEBHOOK_PAYLOAD_SCHEMA,
     GIT_WEBHOOK_RESULT_SCHEMA,
@@ -420,17 +420,35 @@ class TaskLinkViewSet(
         """Edit a link's user fields (custom_title / labels / url) (#970).
 
         If the ``url`` itself changes the provider is re-resolved server-side
-        (same rule as create — never trusted from the client); ``status`` /
-        ``title`` / ``fetched_at`` are left untouched here and only move on an
-        explicit refresh. Broadcasts ``task_link_updated`` on commit so other
-        board viewers see the edited title/labels live.
+        (same rule as create — never trusted from the client). Editing only
+        ``custom_title`` / ``labels`` / ``display_order`` leaves the cached
+        fetch fields and ``created_by`` untouched. Broadcasts
+        ``task_link_updated`` on commit so other board viewers see the edit live.
+
+        A changed ``url`` makes the editor the link's owner and drops the cached
+        fetch (#4081). ``created_by`` is whose refresh may persist
+        credential-fetched metadata onto this shared row; the creator chose the
+        *old* URL, not this one. Keeping them as owner would let any Member
+        repoint a colleague's link and have the colleague's next Refresh fetch
+        the attacker's URL with the colleague's token and broadcast the result
+        to the project. The cached title/status/preview described the old URL,
+        so they are cleared rather than shown against the new one.
         """
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         update_kwargs: dict[str, object] = {}
-        if "url" in serializer.validated_data:
-            update_kwargs["provider"] = providers.resolve_provider_key(
-                serializer.validated_data["url"], user=self.request.user
+        new_url = serializer.validated_data.get("url")
+        instance = serializer.instance
+        if new_url is not None and (instance is None or new_url != instance.url):
+            update_kwargs.update(
+                provider=providers.resolve_provider_key(new_url, user=self.request.user),
+                created_by=self.request.user,
+                status=LINK_STATUS_UNKNOWN,
+                title="",
+                description="",
+                thumbnail_url="",
+                preview_type="",
+                fetched_at=None,
             )
         link = serializer.save(**update_kwargs)
         link_id = str(link.pk)
@@ -536,18 +554,35 @@ class TaskLinkViewSet(
             # Transient view: the in-memory row is serialized but never saved.
             return Response(TaskLinkSerializer(link).data)
 
-        # VersionedModel.save() bumps server_version atomically; we pass the
-        # changed fields only and let it handle the version bump + sync delta.
-        link.save(
-            update_fields=[
-                "status",
-                "title",
-                "description",
-                "thumbnail_url",
-                "preview_type",
-                "fetched_at",
-            ]
-        )
+        with transaction.atomic():
+            # The fetch above can take seconds. If another member repointed the
+            # link meanwhile, its url and owner moved on; writing this result
+            # would stamp the old target's metadata onto the new URL and broadcast
+            # it. Re-check under a row lock and fall back to the transient view.
+            current = (
+                TaskLink.objects.select_for_update()
+                .filter(pk=link.pk)
+                .values("url", "created_by_id")
+                .first()
+            )
+            if (
+                current is None
+                or current["url"] != link.url
+                or current["created_by_id"] != link.created_by_id
+            ):
+                return Response(TaskLinkSerializer(link).data)
+            # VersionedModel.save() bumps server_version atomically; we pass the
+            # changed fields only and let it handle the version bump + sync delta.
+            link.save(
+                update_fields=[
+                    "status",
+                    "title",
+                    "description",
+                    "thumbnail_url",
+                    "preview_type",
+                    "fetched_at",
+                ]
+            )
 
         link_id = str(link.pk)
         task_id = str(link.task_id)
