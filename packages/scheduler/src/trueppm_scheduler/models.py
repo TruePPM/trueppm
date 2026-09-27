@@ -437,6 +437,27 @@ class Dependency:
         )
 
 
+def _mask_days_between(lo: int, hi: int, mask: int) -> int:
+    """Ordinals in ``[lo, hi)`` whose weekday is set in the ``working_days`` bitmask.
+
+    ``date.fromordinal(1)`` is a Monday, so an ordinal's weekday bit is
+    ``(o - 1) % 7`` — the same Monday=0 numbering :meth:`Calendar.is_working_day`
+    reads from ``date.weekday()``. Module-level (rather than nested in
+    :class:`Calendar` or :mod:`engine`) because both :class:`Calendar`'s exception
+    coalescing (#4176) and :func:`engine._working_days_between` need it — moved
+    here from :mod:`engine` when the coalescing decision started depending on it.
+    """
+    n = hi - lo
+    if n <= 0:
+        return 0
+    full_weeks, rem = divmod(n, 7)
+    count = full_weeks * (mask & 0b1111111).bit_count()
+    first = lo + full_weeks * 7
+    for o in range(first, first + rem):
+        count += (mask >> ((o - 1) % 7)) & 1
+    return count
+
+
 @dataclass
 class Calendar:
     """Defines working time for scheduling calculations.
@@ -476,20 +497,35 @@ class Calendar:
     # — minutes of synchronous work. Lazily built on first use. Excluded from init,
     # repr, equality, and the manual to_dict — not part of the public surface.
     #
+    # Runs are also coalesced across any gap that contributes no mask-working day
+    # (e.g. a weekend), not just overlap/adjacency (#4176): a "closed until further
+    # notice" period written as thousands of weekly Mon-Fri ranges is otherwise
+    # thousands of *disjoint* intervals — one per week — even though it is a single
+    # continuous closure once the already-non-working weekend gaps are accounted
+    # for, and the snap/subtraction helpers below cost one step per interval. The
+    # third array is a prefix sum of each run's own mask-working-day count, letting
+    # :meth:`_exception_mask_days` answer a span query in O(log E) even when the
+    # runs are NOT coalescible (genuinely separate closures) rather than O(runs
+    # overlapping the span).
+    #
     # Validity is keyed on the IDENTITY of the exceptions object the index was built
-    # from, and ``_exc_src`` holds a strong reference to it (#2462). The previous
-    # ``(len, id)`` token was unsound twice over: a same-length in-place replacement
-    # changed neither term, so the stale index was served; and ``id()`` is unique
-    # only among *live* objects, so a dropped list's address could be reused by a
-    # new same-length one. Holding the reference pins the identity for as long as
-    # the cache claims it, and the tuple/frozen-DateRange normalization above makes
-    # every remaining mutation shape either impossible or a new object.
-    _exc_index: tuple[list[int], list[int]] | None = field(
+    # from, and ``_exc_src`` holds a strong reference to it (#2462), *and* on the
+    # ``working_days`` mask the coalescing decision depends on (#4176) — a calendar
+    # is mutable and ``_exc_mask`` catches a same-identity ``exceptions`` rebuilt
+    # under a different mask. The previous ``(len, id)`` token was unsound twice
+    # over: a same-length in-place replacement changed neither term, so the stale
+    # index was served; and ``id()`` is unique only among *live* objects, so a
+    # dropped list's address could be reused by a new same-length one. Holding the
+    # reference pins the identity for as long as the cache claims it, and the
+    # tuple/frozen-DateRange normalization above makes every remaining mutation
+    # shape either impossible or a new object.
+    _exc_index: tuple[list[int], list[int], list[int]] | None = field(
         default=None, init=False, repr=False, compare=False
     )
     _exc_src: Sequence[DateRange] | None = field(
         default=None, init=False, repr=False, compare=False
     )
+    _exc_mask: int | None = field(default=None, init=False, repr=False, compare=False)
 
     def __setattr__(self, name: str, value: Any) -> None:
         # Normalize any accepted iterable to the immutable tuple the cache relies on.
@@ -529,10 +565,13 @@ class Calendar:
             return True
         # Inlined rather than delegated to _exception_run: this is the per-day hot
         # path of every calendar walk, and the extra call cost ~14% of schedule().
-        starts, ends = self._exception_intervals()
+        starts, ends, _ = self._exception_intervals()
         o = d.toordinal()
         # The intervals are merged and disjoint, so d is an exception iff it falls
-        # within the single interval whose start is the rightmost <= d.
+        # within the single interval whose start is the rightmost <= d. A day the
+        # mask-off-gap coalescing (#4176) folded INTO a run (e.g. a weekend between
+        # two exception weeks) never reaches this check: the mask test above already
+        # returned False for it, so whether the merged run "contains" it is moot.
         i = bisect.bisect_right(starts, o) - 1
         return not (i >= 0 and o <= ends[i])
 
@@ -541,11 +580,14 @@ class Calendar:
 
         Returned as inclusive ``(start, end)`` ordinals. The engine's snap helpers
         use it to cross a whole exception run in one step instead of testing every
-        day inside it (#4161).
+        day inside it (#4161), including across a mask-off-only gap between two
+        otherwise-separate runs (#4176) — the caller only ever asks for a masked
+        *working* day's ordinal (see ``_snap_to_working_day``), so a run this
+        returns is never one the coalescing folded a gap day into.
         """
         if not self.exceptions:
             return None
-        starts, ends = self._exception_intervals()
+        starts, ends, _ = self._exception_intervals()
         # The intervals are merged and disjoint, so o is an exception iff it falls
         # within the single interval whose start is the rightmost <= o.
         i = bisect.bisect_right(starts, o) - 1
@@ -553,33 +595,89 @@ class Calendar:
             return starts[i], ends[i]
         return None
 
-    def _exception_intervals(self) -> tuple[list[int], list[int]]:
-        """Sorted, merged exception intervals as parallel ordinal lists (#1206).
+    def _exception_intervals(self) -> tuple[list[int], list[int], list[int]]:
+        """Sorted, coalesced exception intervals as parallel ordinal lists, plus a
+        prefix sum of each run's mask-working-day count (#1206, #4176).
 
-        Rebuilt only when a *new* exceptions object is assigned — the cache holds a
-        strong reference to the one it was built from and compares by identity
-        (#2462), which is sound because the set is an immutable tuple of frozen
-        ranges and therefore cannot change without becoming a different object.
-        Merging overlapping/adjacent ranges keeps the intervals disjoint, so a
-        single :func:`bisect.bisect_right` locates the only range that could
-        contain a date.
+        Rebuilt only when a *new* exceptions object is assigned, or the same one is
+        reread under a different ``working_days`` mask — the cache holds a strong
+        reference to the exceptions object it was built from and compares by
+        identity (#2462), and separately compares the mask by value. Both are sound
+        because the exception set is an immutable tuple of frozen ranges (cannot
+        change without becoming a different object) and the mask is a plain int
+        (compared by value is exactly "did it change").
+
+        Two runs are coalesced not just when they overlap or sit day-adjacent, but
+        whenever *every* day in the gap between them is already excluded by the
+        ``working_days`` mask (#4176) — a "closed until further notice" period
+        written as thousands of weekly Mon-Fri ranges is, once the intervening
+        weekends are accounted for, a single continuous closure, and merging it
+        back into one run is what makes the snap helpers and
+        :meth:`_exception_mask_days` cost one step instead of one per week. This
+        subsumes the plain overlap/adjacency case: a zero-or-negative-length gap
+        always has zero mask-working days in it.
         """
-        if self._exc_index is not None and self._exc_src is self.exceptions:
+        if (
+            self._exc_index is not None
+            and self._exc_src is self.exceptions
+            and self._exc_mask == self.working_days
+        ):
             return self._exc_index
+        mask = self.working_days
         ranges = sorted((e.start.toordinal(), e.end.toordinal()) for e in self.exceptions)
         starts: list[int] = []
         ends: list[int] = []
         for s, e in ranges:
-            if ends and s <= ends[-1] + 1:
+            if starts and _mask_days_between(ends[-1] + 1, s, mask) == 0:
                 ends[-1] = max(ends[-1], e)
             else:
                 starts.append(s)
                 ends.append(e)
-        self._exc_index = (starts, ends)
+        prefix = [0] * (len(starts) + 1)
+        for i, (s, e) in enumerate(zip(starts, ends, strict=True)):
+            prefix[i + 1] = prefix[i] + _mask_days_between(s, e + 1, mask)
+        self._exc_index = (starts, ends, prefix)
         # Strong reference: pins the identity the check above relies on, so the
         # source object cannot be collected and have its address reused (#2462).
         self._exc_src = self.exceptions
+        self._exc_mask = mask
         return self._exc_index
+
+    def _exception_mask_days(self, lo: int, hi: int) -> int:
+        """Mask-working days inside any exception run overlapping ordinal span
+        ``[lo, hi)`` — the subtraction :func:`_working_days_between` needs.
+
+        O(log E) via the prefix sum :meth:`_exception_intervals` builds over the
+        coalesced runs (#4176): summing every overlapping run one at a time is
+        O(overlapping runs), which — before the same method's mask-off-gap
+        coalescing — was one run per original ``exceptions`` entry a span crossed.
+        Only the first and last overlapping runs need their own arithmetic (they
+        may be clipped to ``lo``/``hi``); every run strictly between them is summed
+        in one prefix-sum subtraction.
+        """
+        if not self.exceptions:
+            return 0
+        starts, ends, prefix = self._exception_intervals()
+        mask = self.working_days
+        # Rightmost run starting <= lo (may or may not overlap [lo, hi)); runs are
+        # sorted and disjoint, so every later run's start is > lo.
+        a = max(0, bisect.bisect_right(starts, lo) - 1)
+        # Last run with a start < hi; if it precedes `a`, nothing overlaps.
+        b = bisect.bisect_left(starts, hi) - 1
+        if b < a:
+            return 0
+        if a == b:
+            s = max(starts[a], lo)
+            e = min(ends[a] + 1, hi)
+            return _mask_days_between(s, e, mask) if s < e else 0
+        s0 = max(starts[a], lo)
+        e0 = ends[a] + 1
+        first = _mask_days_between(s0, e0, mask) if s0 < e0 else 0
+        middle = prefix[b] - prefix[a + 1]
+        s_last = starts[b]
+        e_last = min(ends[b] + 1, hi)
+        last = _mask_days_between(s_last, e_last, mask) if s_last < e_last else 0
+        return first + middle + last
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict.

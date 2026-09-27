@@ -322,7 +322,7 @@ under the `trueppm.*` namespace.
 
 | Metric | Type | What it measures | Dimensions |
 |---|---|---|---|
-| `http.server.request.duration` | histogram | API request latency | `http.*` semantic conventions |
+| `http.server.duration` | histogram, **milliseconds** | API request latency | `http.*` semantic conventions |
 | `http.server.active_requests` | up/down counter | In-flight API requests | `http.*` semantic conventions |
 | `flower.task.runtime.seconds` | histogram | Celery task duration, from the auto-instrumentor | task name, worker |
 | `trueppm.task.duration_seconds` | histogram | Celery task duration, from `task_prerun` to `task_postrun` | `trueppm.celery.task_name`, `trueppm.celery.outcome` (`success` \| `failure` \| `retry` \| etc.) |
@@ -343,6 +343,18 @@ worker has yet picked up — so a healthy outbox paired with a rising broker dep
 points at under-scaled workers rather than a stuck dispatcher. The two `trueppm.ws.*`
 instruments give WebSocket real-time collaboration its first quantitative signal:
 how many live sockets a node holds and how much it is fanning out.
+
+:::note[`http.server.duration` is milliseconds, not the stable-semconv name]
+`opentelemetry-instrumentation-django` ships two HTTP metric name/unit pairs behind
+the `OTEL_SEMCONV_STABILITY_OPT_IN` environment variable: the **old** name
+`http.server.duration` in **milliseconds** (the default, unset), and the **stable**
+name `http.server.request.duration` in **seconds** (opt in with
+`OTEL_SEMCONV_STABILITY_OPT_IN=http`). TruePPM does not set that variable, so the
+old name and unit are what a collector actually receives — behind a Prometheus
+exporter, `http_server_duration_milliseconds_{bucket,count,sum}`, not
+`http_server_request_duration_seconds*`. An alert or dashboard panel built on the
+stable-semconv name will never fire against an unmodified TruePPM deployment.
+:::
 
 :::note[Two Celery duration metrics, on purpose]
 `flower.task.runtime.seconds` comes from the Celery auto-instrumentor
