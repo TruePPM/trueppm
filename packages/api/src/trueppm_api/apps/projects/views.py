@@ -1129,13 +1129,17 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def perform_update(self, serializer: BaseSerializer[Calendar]) -> None:
-        # working_days and hours_per_day are the only CPM inputs on Calendar —
-        # changing either shifts every finish date on every project scheduled
-        # against this calendar (#1492). timezone is round-tripped but not yet
-        # consumed by the scheduler (trueppm_scheduler.models.Calendar docstring),
-        # and name is pure metadata, so a PATCH touching only those must not fan
-        # out a recompute (over-triggering wastes a recalc pass on every project
-        # bound to the calendar for a no-op schedule change). Compare before/after
+        # working_days is the CPM input on Calendar — changing it shifts every
+        # finish date on every project scheduled against this calendar (#1492).
+        # hours_per_day does not move dates today (the engine counts whole working
+        # days, and hour-unit estimates are converted once, at entry). It stays in
+        # the trigger set because sub-day scheduling (#1216) will make it a CPM
+        # input, and a stale schedule then would be silent.
+        # timezone is round-tripped but not yet consumed by the scheduler
+        # (trueppm_scheduler.models.Calendar docstring), and name is pure metadata,
+        # so a PATCH touching only those must not fan out a recompute
+        # (over-triggering wastes a recalc pass on every project bound to the
+        # calendar for a no-op schedule change). Compare before/after
         # rather than inspecting serializer.validated_data so this also catches a
         # PUT that re-sends the same values under a different field set.
         old_working_days = serializer.instance.working_days if serializer.instance else None
