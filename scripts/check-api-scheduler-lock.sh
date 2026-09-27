@@ -18,6 +18,11 @@
 # (tag:wait-for-main) - so at a minor boundary the lock cannot reach the new line
 # on the commit that introduces it. It is tolerated exactly when:
 #   - HEAD's subject is `chore(release): bump version to ...` (scripts/release.sh),
+#   - HEAD is a single-parent commit (release.sh commits directly on main; an MR
+#     lands as a merge commit, so its subject can never match here), and
+#   - HEAD bumped packages/mcp to the same version in the same commit, as
+#     release.sh's lockstep bump does - a hand-made MR commit that borrows the
+#     subject but moves only the scheduler does not qualify,
 #   - the lock sits on the line of the scheduler HEAD^ shipped (the release being
 #     left, which is published) - so HEAD itself moved the scheduler onto a new
 #     line, and the lock trails by that one line, never more.
@@ -45,7 +50,7 @@ sched_version() { # stdin: scheduler pyproject.toml
 git_() { git -c safe.directory='*' -C "$1" "${@:2}"; }
 
 check() {
-  local root="$1" want have range floor ceil subject prev
+  local root="$1" want have range floor ceil subject prev parents mcp_now mcp_prev
   want="$(sched_version <"$root/packages/scheduler/pyproject.toml")"
   have="$(awk '/^name = "trueppm-scheduler"$/ {f=1; next} f && /^version = / {gsub(/[" ]|version=/, "", $0); sub(/^version=/, "", $0); print; exit}' \
     "$root/packages/api/uv.lock" | tr -d '"' | sed 's/^version *= *//')"
@@ -73,9 +78,14 @@ check() {
   fi
 
   subject="$(git_ "$root" log -1 --format=%s 2>/dev/null || true)"
+  parents="$(git_ "$root" rev-list --parents -n 1 HEAD 2>/dev/null | wc -w | tr -d ' ' || true)"
   prev="$(git_ "$root" show HEAD^:packages/scheduler/pyproject.toml 2>/dev/null | sched_version || true)"
+  mcp_now="$(sched_version <"$root/packages/mcp/pyproject.toml" 2>/dev/null || true)"
+  mcp_prev="$(git_ "$root" show HEAD^:packages/mcp/pyproject.toml 2>/dev/null | sched_version || true)"
   if printf '%s\n' "$subject" | grep -qE "$RELEASE_SUBJECT_RE" &&
+     [ "$parents" = "2" ] &&
      [ -n "$prev" ] &&
+     [ "$mcp_now" = "$want" ] && [ "$mcp_prev" != "$want" ] &&
      [ "$(line_of "$have")" = "$(line_of "$prev")" ]; then
     echo "OK (release commit): api lock trueppm-scheduler $have trails scheduler $want by one line;"
     echo "    $want is not on PyPI until this commit's tags publish. Raise it right after:"
@@ -93,10 +103,11 @@ check() {
 if [ "${1:-}" = "--self-test" ]; then
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
   st_fail() { echo "self-test FAIL: $1" >&2; exit 1; }
-  # tree <scheduler> <api floor> <api ceiling> <lock>
+  # tree <scheduler> <api floor> <api ceiling> <lock> [mcp version, default = scheduler]
   tree() {
-    mkdir -p "$tmp/packages/scheduler" "$tmp/packages/api"
+    mkdir -p "$tmp/packages/scheduler" "$tmp/packages/api" "$tmp/packages/mcp"
     printf 'version = "%s"\n' "$1" >"$tmp/packages/scheduler/pyproject.toml"
+    printf 'version = "%s"\n' "${5:-$1}" >"$tmp/packages/mcp/pyproject.toml"
     printf 'dependencies = [\n    "trueppm-scheduler>=%s,<%s",\n]\n' "$2" "$3" >"$tmp/packages/api/pyproject.toml"
     printf '[[package]]\nname = "trueppm-scheduler"\nversion = "%s"\n' "$4" >"$tmp/packages/api/uv.lock"
   }
@@ -151,6 +162,20 @@ if [ "${1:-}" = "--self-test" ]; then
   git -C "$tmp" reset -q --hard HEAD~1
   tree 0.4.0b5 0.4.0b4 0.5 0.4.0b4; commit "chore(release): bump version to 0.4.0-beta.5"
   pass "in-line release commit"
+
+  # Borrowed subject on an MR commit that moved only the scheduler (mcp left behind).
+  git -C "$tmp" reset -q --hard HEAD~1
+  tree 0.5.0a1 0.4.0b4 0.6 0.4.0b4 0.4.0b4; commit "chore(release): bump version to 0.5.0-alpha.1"
+  reject "release subject without the lockstep mcp bump"
+
+  # The release commit arriving as a merge commit (an MR, not release.sh's direct push).
+  git -C "$tmp" reset -q --hard HEAD~1
+  git -C "$tmp" checkout -q -b side
+  tree 0.5.0a1 0.4.0b4 0.6 0.4.0b4; commit "feat: side work"
+  git -C "$tmp" checkout -q -
+  git -C "$tmp" -c user.name=t -c user.email=t@t -c commit.gpgsign=false -c core.hooksPath=/dev/null \
+    merge -q --no-ff side -m "chore(release): bump version to 0.5.0-alpha.1"
+  reject "release subject on a merge commit"
 
   # After publish: the raise lands and the tree is clean again.
   git -C "$tmp" reset -q --hard HEAD~1
