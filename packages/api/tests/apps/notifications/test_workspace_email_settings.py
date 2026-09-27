@@ -260,6 +260,9 @@ def test_bad_transport_rejected_and_not_persisted(
     assert resp.status_code == 400
     # The row must remain unconfigured — the workspace is not locked out.
     assert WorkspaceEmailSettings.load().transport_mode == EmailTransportMode.CLOUD
+    # A real connect failure (not an egress block) keeps the generic message —
+    # only EmailHostNotAllowedError gets the specific one (#4189).
+    assert "Check the host, port, security, and credentials." in resp.data["non_field_errors"][0]
 
 
 def test_empty_password_on_update_keeps_secret(operator_client: APIClient, _no_probe: None) -> None:
@@ -425,6 +428,55 @@ def test_internal_smtp_host_rejected(operator_client: APIClient) -> None:
     # The SSRF guard must not echo the DNS-resolved internal address back to the
     # client (#2082 — CodeQL py/stack-trace-exposure). localhost → 127.0.0.1.
     assert "127.0.0.1" not in str(resp.data)
+    # #4189: an egress-blocked host must get a specific, actionable message —
+    # not the generic "check the host, port, security, and credentials" a real
+    # connect failure gets, which sends an operator with a fine credential
+    # looking in the wrong place. It must point at the escape hatch.
+    message = resp.data["non_field_errors"][0]
+    assert "TRUEPPM_EGRESS_ALLOWLISTED_HOSTS" in message
+    assert "check the host, port, security, and credentials" not in message.lower()
+
+
+def test_egress_blocked_host_error_is_distinct_from_generic_connect_failure(
+    operator_client: APIClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression for #4189 at the serializer layer.
+
+    ``_probe_or_raise`` used to catch every ``EmailTransportError`` alike and
+    always raise the generic connect-failure message, discarding the curated,
+    already-safe-to-surface ``EmailHostNotAllowedError`` text from
+    ``_assert_host_public``. Exercised here via a monkeypatched ``probe_transport``
+    so the assertion is about the serializer's exception handling, independent of
+    ``test_internal_smtp_host_rejected``'s real DNS-resolution path above.
+    """
+
+    def blocked(**kwargs: object) -> None:
+        raise email_backend.EmailHostNotAllowedError(
+            "The mail server host is not permitted — it resolves to a non-public "
+            "address. If this is a trusted internal relay on a private network, "
+            "add its hostname to TRUEPPM_EGRESS_ALLOWLISTED_HOSTS on the API, "
+            "Celery worker, and Celery beat processes, then save these settings "
+            "again."
+        )
+
+    monkeypatch.setattr(email_backend, "probe_transport", blocked)
+    resp = operator_client.put(
+        URL,
+        {
+            "transport_mode": "smtp",
+            "host": "mail.internal.test",
+            "port": 587,
+            "security": "tls",
+            "username": "u",
+            "password": "s3cret",
+        },
+        format="json",
+    )
+    assert resp.status_code == 400
+    message = resp.data["non_field_errors"][0]
+    assert "TRUEPPM_EGRESS_ALLOWLISTED_HOSTS" in message
+    assert "check the host, port, security, and credentials" not in message.lower()
+    assert WorkspaceEmailSettings.load().transport_mode == EmailTransportMode.CLOUD
 
 
 def test_an_internal_bounce_webhook_can_no_longer_be_stored_at_all(
@@ -460,9 +512,13 @@ def test_smtp_egress_block_does_not_leak_resolved_ip(monkeypatch: pytest.MonkeyP
 
     monkeypatch.setattr(egress_http, "assert_host_allowed", _blocked)
 
-    with pytest.raises(email_backend.EmailTransportError) as excinfo:
+    with pytest.raises(email_backend.EmailHostNotAllowedError) as excinfo:
         email_backend._assert_host_public("mail.internal.test", 587)
     assert "10.9.8.7" not in str(excinfo.value)
+    # #4189: the raised type must be the distinguishable subclass, not the bare
+    # EmailTransportError a real connect failure raises — it is what lets
+    # _probe_or_raise tell the two apart and give an actionable message.
+    assert isinstance(excinfo.value, email_backend.EmailTransportError)
 
 
 def test_the_bounce_webhook_field_is_no_longer_writable(
