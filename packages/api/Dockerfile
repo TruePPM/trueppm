@@ -33,6 +33,21 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 # safe here — unlike the local source/[c] installs below).
 RUN pip install --only-binary :all: --no-cache-dir --upgrade "wheel>=0.46.2"
 
+# `uv` is a build-only tool used below to resolve dependencies from the
+# checked-in lockfile instead of `pip`'s live-PyPI resolution (#4078). It
+# installs into this SAME venv (there is no separate build-tool venv), and
+# this venv is copied wholesale into the runtime stage — so unlike the
+# apt-get/build-essential tooling above (which lives outside $VIRTUAL_ENV and
+# is naturally left behind), `uv` does NOT disappear on its own. It is
+# `pip uninstall`ed explicitly right after its last use below, before any
+# runtime-stage COPY can pick it up (verified: an earlier version of this
+# fix shipped it into the runtime image and `check-api-image-lock.py` caught
+# it as an "UNLOCKED" package). Pinned exact (not a floor) because
+# `uv export`'s output shape is a build input, not a runtime dependency: a
+# version drift here should be a deliberate bump, not something that
+# silently changes on the next `docker build`.
+RUN pip install --only-binary :all: --no-cache-dir "uv==0.9.5"
+
 # Install the scheduler package first so the api package can find it on the path.
 COPY packages/scheduler/src /build/scheduler/src
 # CHANGELOG.md is force-included into the wheel (scheduler pyproject
@@ -40,11 +55,11 @@ COPY packages/scheduler/src /build/scheduler/src
 COPY packages/scheduler/pyproject.toml packages/scheduler/README.md packages/scheduler/CHANGELOG.md /build/scheduler/
 RUN pip install --no-cache-dir /build/scheduler
 
-# Install the api package and its dependencies. The `[c]` extra compiles
-# psycopg's C speedups against the system libpq (libpq-dev, installed above) so
-# OS-level libpq/OpenSSL security upgrades reach the driver — the recommended
-# production posture (the precompiled `[binary]` wheel bundles its own libpq and
-# is dev-only). The runtime stage ships libpq5 for the compiled extension.
+# The `[c]` extra (below) compiles psycopg's C speedups against the system
+# libpq (libpq-dev, installed above) so OS-level libpq/OpenSSL security
+# upgrades reach the driver — the recommended production posture (the
+# precompiled `[binary]` wheel bundles its own libpq and is dev-only). The
+# runtime stage ships libpq5 for the compiled extension.
 #
 # The extra is a build ARG so local dev can opt into `[binary]` (a prebuilt
 # wheel — no from-source compile, ~4 min faster) while the published image keeps
@@ -52,8 +67,68 @@ RUN pip install --no-cache-dir /build/scheduler
 # release, `docker build` by hand — gets the hardened production driver
 # unchanged; only docker-compose.yml overrides it to `binary` for local speed.
 ARG PSYCOPG_EXTRA=c
+
+# Resolve every OTHER runtime dependency from packages/api/uv.lock — the lock
+# CI tested against — instead of a fresh `pip` resolution against whatever
+# PyPI serves on the day of the build (#4078). How this bit before this fix:
+# opentelemetry-exporter-otlp-proto-http 1.45 dropped its `requests` import in
+# favor of urllib3; uv.lock pinned 1.43 (which still needed `requests`), and
+# every dev/test environment got `requests` from an unrelated dev dependency,
+# so the whole suite stayed green while only the image — the one thing that
+# actually resolved against live PyPI — crashed in `django.setup()` (#4076).
+#
+# `trueppm-scheduler` is deliberately excluded from the export
+# (--no-emit-package): the LOCAL source copied in above is what must ship —
+# this exact commit's code, not whatever release the lock happened to record
+# trueppm-scheduler at (packages/api/uv.lock resolves it against the PyPI
+# registry, not this checkout — see scripts/check-api-scheduler-lock.sh for
+# why that pin is allowed to trail). Its own dependencies (networkx, numpy)
+# are NOT excluded: they stay pinned to the exact versions the lock resolved,
+# so the locally-built scheduler still runs against the same numeric stack CI
+# tested, rather than whatever its own unpinned pyproject ranges would
+# resolve fresh.
+#
+# --require-hashes verifies every downloaded artifact against the hash uv
+# recorded at lock time — the supply-chain hardening the previous unpinned
+# `pip install` had no way to do. This requires every entry in the export to
+# carry a hash, which holds here because the only two hash-less members of
+# the dependency graph (trueppm-api itself and trueppm-scheduler) are both
+# excluded above (--no-emit-project, --no-emit-package).
+COPY packages/api/pyproject.toml packages/api/uv.lock /build/api/
+RUN cd /build/api && \
+    uv export --frozen --no-dev --no-emit-project \
+      --no-emit-package trueppm-scheduler \
+      --extra "${PSYCOPG_EXTRA}" \
+      -o /build/requirements.txt && \
+    uv export --frozen --no-dev --no-emit-project \
+      --no-emit-package trueppm-scheduler \
+      --extra "${PSYCOPG_EXTRA}" --no-hashes \
+      -o /build/requirements-locked.txt && \
+    pip uninstall -y uv && \
+    pip install --no-cache-dir --require-hashes -r /build/requirements.txt
+
+# Install the api package itself. Its dependencies were all installed from
+# the lock above, so --no-deps stops pip from re-resolving them against
+# PyPI — the exact step that reopens the gap this fix closes if it is ever
+# dropped.
 COPY packages/api /build/api
-RUN pip install --no-cache-dir "/build/api[${PSYCOPG_EXTRA}]"
+RUN pip install --no-cache-dir --no-deps /build/api
+
+# Prove the image can actually boot before it ships (#4078's other acceptance
+# criterion): `django.setup()` is what #4076 crashed inside of
+# (ModuleNotFoundError, via allauth's openid_connect provider importing
+# `requests` at import time). Runs in every build — local `docker build`,
+# `docker compose`, CI, and release — not only the CI gate below, so a
+# regression is caught at the earliest possible point regardless of how the
+# image was built. `trueppm_api.settings.dev` + TRUEPPM_ALLOW_DEV_SETTINGS
+# mirrors the exact env docker-compose.yml already uses to boot this image
+# locally (see the `api`/`api-worker`/`api-beat` services there); these three
+# ENV values are build-stage only and are never copied into the runtime
+# image (the runtime stage starts a fresh FROM and sets its own environment).
+ENV DJANGO_SETTINGS_MODULE=trueppm_api.settings.dev
+ENV TRUEPPM_ALLOW_DEV_SETTINGS=1
+ENV SECRET_KEY=dev-secret-key-change-in-prod
+RUN /venv/bin/python -c "import django; import trueppm_scheduler; django.setup(); print('boot smoke: OK')"
 
 # ---------------------------------------------------------------------------
 # Stage 2: runtime — lean image with only what is needed to run
@@ -89,6 +164,17 @@ RUN python -m pip uninstall -y wheel setuptools pip \
 # manage.py is not installed by pip — copy it explicitly so management
 # commands (migrate, collectstatic, create_admin) are available at runtime.
 COPY --from=builder /build/api/manage.py /app/manage.py
+
+# The exact locked requirement set the builder stage resolved and installed
+# from (packages/api/uv.lock) — a --no-hashes export purely for readability
+# here; the hash-verified copy that actually gated the install
+# (/build/requirements.txt) never leaves the builder stage. `api:image-lock-
+# check` (.gitlab-ci.yml) diffs this file against `importlib.metadata` inside
+# THIS image to prove nothing after the frozen install (a stray unpinned
+# `pip install`, a future Dockerfile edit) moved a version away from the lock
+# (#4078). Also a small, self-contained audit artifact for anyone inspecting
+# a running image.
+COPY --from=builder /build/requirements-locked.txt /app/requirements-locked.txt
 
 # This image redistributes psycopg (LGPL-3.0). LGPL-3.0 §4(a) requires the
 # notice and full license texts to travel with each copy of the distributed

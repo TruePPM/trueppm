@@ -3456,6 +3456,95 @@ api:wheel-install-probe:
     - python scripts/check-api-wheel-imports.py --self-test
     - bash scripts/api-wheel-install-probe.sh "$PROBE_MODE"
 
+api:image-lock-check:
+  # Build the REAL production api image (packages/api/Dockerfile — the same
+  # file api:publish and ci:arm64-smoke/ci:amd64-smoke build) and prove its
+  # installed dependency set matches packages/api/uv.lock exactly (#4078).
+  #
+  # Neither api:uv-lock-check nor api:wheel-install-probe covers this: both
+  # prove the LOCK is internally consistent with pyproject.toml and importable
+  # once installed from it — they never build packages/api/Dockerfile, which
+  # used to `pip install` fresh against live PyPI and ignore the lock
+  # entirely. That gap is how #4076 shipped: opentelemetry-exporter-otlp-
+  # proto-http 1.45 dropped its `requests` import for urllib3; uv.lock pinned
+  # 1.43 (which still needed it); every dev/test environment had `requests`
+  # anyway via an unrelated dev dependency, so the whole suite — including
+  # both jobs above — stayed green while only the image, the one artifact
+  # that actually resolved against live PyPI, crashed in `django.setup()`.
+  # The only signal was an `allow_failure` smoke drill on a SCHEDULED
+  # pipeline, days after the change that broke it had already merged.
+  #
+  # The Dockerfile fix makes this job pass by construction on this commit: it
+  # now installs from a hash-verified `uv export` of the lock instead of a
+  # fresh resolution. This job is the regression backstop — a future edit
+  # that reintroduces an unpinned `pip install`, drops a `--no-deps`, or
+  # forgets to re-export after a pyproject bump fails HERE, on the MR that
+  # made the change, which is #4078's second acceptance criterion.
+  #
+  # Two checks, in order (plus its own --self-test first, run in this same
+  # job/image per #3194 — a check that only proves itself elsewhere is
+  # evidence about that other place, not this one):
+  #   1. scripts/check-api-image-lock.py — diffs /app/requirements-locked.txt
+  #      (baked into the image from the lock at build time, see the
+  #      Dockerfile's own comments) against `importlib.metadata` inside the
+  #      built image.
+  #   2. An import smoke (`django.setup()`) run as the actual non-root
+  #      runtime user against the shipped runtime image — the Dockerfile
+  #      already runs an equivalent check in the builder stage on every
+  #      build (local, compose, CI, release); this repeats it here against
+  #      the final image for full fidelity and so this job fails standalone
+  #      even if that builder-stage step were ever removed.
+  #
+  # Scoped to the files that can move the image's resolved dependency set,
+  # same `changes:` shape as ci:build-api-image, plus the weekly scheduled
+  # run as a transitive-drift safety net (mirrors ci:build-api-image /
+  # ci:build-scheduler-image — a rebuild with nothing in `changes:` touched
+  # can still pick up a newer transitive release if a caret/floor in the lock
+  # itself admits one).
+  stage: test
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  # Start immediately instead of queueing behind every earlier stage — this
+  # job only needs the repo checkout, same as ci:arm64-smoke.
+  needs: []
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - packages/api/Dockerfile
+        - packages/api/pyproject.toml
+        - packages/api/uv.lock
+        - packages/scheduler/pyproject.toml
+        - scripts/check-api-image-lock.py
+        - .gitlab-ci.yml
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/api/Dockerfile
+        - packages/api/pyproject.toml
+        - packages/api/uv.lock
+        - packages/scheduler/pyproject.toml
+        - scripts/check-api-image-lock.py
+        - .gitlab-ci.yml
+  script:
+    - set -euo pipefail
+    - IMAGE="api-image-lock-check:${CI_COMMIT_SHORT_SHA}"
+    - echo "--- build the production api image (root build context, matching api:publish) ---"
+    - docker build -f packages/api/Dockerfile -t "$IMAGE" .
+    - echo "--- self-test first (a gate's failure mode is a green pipeline) ---"
+    - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-api-image-lock.py --self-test
+    - echo "--- diff the image's installed set against packages/api/uv.lock ---"
+    - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-api-image-lock.py
+    - echo "--- boot smoke, as the actual runtime (non-root) user ---"
+    - |
+      docker run --rm \
+        -e DJANGO_SETTINGS_MODULE=trueppm_api.settings.dev \
+        -e TRUEPPM_ALLOW_DEV_SETTINGS=1 \
+        -e SECRET_KEY=ci-image-lock-check-smoke \
+        "$IMAGE" /venv/bin/python -c "import django; import trueppm_scheduler; django.setup(); print('runtime boot smoke: OK')"
+
 scheduler:uv-lock-check:
   extends: .fast-job
   # Verify packages/scheduler/uv.lock stays in sync with the scheduler's

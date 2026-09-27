@@ -74,6 +74,7 @@ check-release-images.sh	verifies published release images; release-time only
 check-mermaid-rendered.sh	requires a full astro build of packages/website (minutes, not seconds)
 check-api-wheel-imports.py	installs the built wheel from PyPI into fresh venvs (network, minutes); run it locally with scripts/api-wheel-install-probe.sh wheel|locked|lowest (#4122)
 check-dts-camelcase.sh	reads the wasm-pack .d.ts, which exists only after a wasm build; the wasm tree is covered by pre-push-wasm
+check-api-image-lock.py	runs inside a built packages/api/Dockerfile image (docker build, minutes on a cold cache, plus network to pull the base image and the locked packages) — not a repo-only, seconds-scale check; run it by hand with docker build -f packages/api/Dockerfile -t api-lock-check . && docker run --rm -i api-lock-check /venv/bin/python - < scripts/check-api-image-lock.py (#4078)
 "
 
 opt_out_reason() {
