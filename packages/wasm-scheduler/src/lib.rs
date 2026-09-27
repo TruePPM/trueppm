@@ -532,6 +532,58 @@ mod tests {
         }
     }
 
+    /// #4161: a century-long exception after the one working start day made every
+    /// per-edge snap (forward, backward, free float) walk ~36k days. The engine
+    /// must stay flat in edge count and land on the same dates.
+    #[test]
+    fn test_fan_out_over_blanket_exception_is_flat_in_edges() {
+        use crate::models::DateRange;
+        let cal = Calendar {
+            exceptions: vec![DateRange {
+                start: NaiveDate::from_ymd_opt(2026, 1, 6).unwrap(),
+                end: NaiveDate::from_ymd_opt(2126, 1, 1).unwrap(),
+            }],
+            ..Calendar::default()
+        };
+        for (dep_type, lag_days, finish) in [
+            (DependencyType::FS, 0.0, (2126, 1, 2)),
+            (DependencyType::SS, 1.0, (2126, 1, 2)),
+            (DependencyType::FF, 1.0, (2126, 1, 2)),
+            (DependencyType::SF, 0.0, (2026, 1, 5)),
+        ] {
+            let mut tasks = vec![make_task("r", 1)];
+            let mut dependencies = Vec::new();
+            for i in 0..200 {
+                let id = format!("s{i}");
+                tasks.push(make_task(&id, 1));
+                dependencies.push(Dependency {
+                    dep_type,
+                    lag: lag_days * 86400.0,
+                    ..dep("r", &id)
+                });
+            }
+            let project = Project {
+                id: "p".to_string(),
+                name: "p".to_string(),
+                start_date: NaiveDate::from_ymd_opt(2026, 1, 5).unwrap(),
+                tasks,
+                dependencies,
+                calendar: cal.clone(),
+                status_date: None,
+                calendars: None,
+                velocity_samples: None,
+                sprint_length_days: None,
+            };
+            let t0 = std::time::Instant::now();
+            let result = schedule_impl(&project).unwrap();
+            let elapsed = t0.elapsed();
+            let (y, m, dd) = finish;
+            assert_eq!(result.project_finish, NaiveDate::from_ymd_opt(y, m, dd).unwrap());
+            // Debug build; before the fix this took seconds per dependency type.
+            assert!(elapsed.as_millis() < 500, "{dep_type:?}: {elapsed:?}");
+        }
+    }
+
     #[test]
     fn test_simple_fs_chain() {
         // A(5d) -> B(3d) -> C(2d), project starts Wed 2026-04-01

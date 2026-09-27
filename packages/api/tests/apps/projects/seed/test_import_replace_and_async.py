@@ -1085,3 +1085,112 @@ def test_the_purge_is_bounded_per_run(seed_owner: Any, monkeypatch: Any) -> None
 
     project_tasks._do_purge_expired_program_imports()
     assert ProgramImportJob.objects.count() == 0
+
+
+# --- #4150: the async replace hands project keys to the rebuild -------------
+
+
+def _seed_with_codes() -> dict[str, Any]:
+    """The importer fixture with explicit project codes, as the bundled samples carry."""
+    seed = _seed()
+    for project, code in zip(seed["projects"], ["PLAT", "MIGR"], strict=True):
+        project["code"] = code
+    return seed
+
+
+def _keys_by_name(program_id: Any) -> dict[str, str]:
+    return dict(
+        Project.objects.filter(program_id=program_id, is_deleted=False).values_list("name", "code")
+    )
+
+
+def test_an_async_replace_keeps_every_project_key(seed_owner: Any) -> None:
+    """Rebuilt projects get their originals' keys, not ``PLAT2``/``MIGR2`` (ADR-1237 §3)."""
+    from trueppm_api.apps.projects.models import ObjectKey
+
+    first = import_seed(_seed_with_codes(), owner=seed_owner, create_users=False)
+    before = _keys_by_name(first.pk)
+    assert sorted(before.values()) == ["MIGR", "PLAT"]
+    old_ids = list(Project.objects.filter(program=first).values_list("pk", flat=True))
+
+    client = _client(seed_owner)
+    resp = _import_via_api(client, _seed_with_codes(), replace=True)
+    assert resp.status_code == 202, resp.content
+    job = ProgramImportJob.objects.get(pk=resp.data["import_request_id"])
+    assert job.status == ImportJobStatus.SUCCESS
+    assert sorted(job.replaced_project_ids) == sorted(str(pk) for pk in old_ids)
+
+    new_program_id = resp.data["program_id"]
+    assert _keys_by_name(new_program_id) == before
+    # The trashed originals gave their keys up, so a restore derives a fresh one.
+    assert set(Project.objects.filter(pk__in=old_ids).values_list("code", flat=True)) == {""}
+    for key in ("PLAT", "MIGR"):
+        row = ObjectKey.objects.get(kind="project", key=key)
+        assert row.is_current is True
+        assert str(row.project.program_id) == new_program_id
+
+    # Old key links open the live rebuild, not the trashed original.
+    r = client.get("/api/v1/resolve/", {"kind": "project", "ref": "PLAT"})
+    assert r.status_code == 200, r.content
+    assert r.data["id"] == str(Project.objects.get(program_id=new_program_id, code="PLAT").pk)
+
+
+def test_a_redelivered_import_does_not_move_keys_twice(seed_owner: Any) -> None:
+    from trueppm_api.apps.projects.models import ObjectKey
+
+    import_seed(_seed_with_codes(), owner=seed_owner, create_users=False)
+    resp = _import_via_api(_client(seed_owner), _seed_with_codes(), replace=True)
+    rows_after_first = set(ObjectKey.objects.values_list("pk", "project_id", "is_current"))
+
+    _run_job(resp.data["import_request_id"])  # drain re-dispatch / acks_late redelivery
+
+    assert set(ObjectKey.objects.values_list("pk", "project_id", "is_current")) == (
+        rows_after_first
+    )
+    assert sorted(_keys_by_name(resp.data["program_id"]).values()) == ["MIGR", "PLAT"]
+
+
+def test_a_failed_rebuild_leaves_the_trashed_originals_keyed(seed_owner: Any) -> None:
+    """The release runs inside the build's transaction, so a failure rolls it back."""
+    first = import_seed(_seed_with_codes(), owner=seed_owner, create_users=False)
+    before = {
+        pk: code for pk, code in Project.objects.filter(program=first).values_list("pk", "code")
+    }
+
+    resp = _client(seed_owner).post(
+        IMPORT_URL, data={**_seed_with_codes(), "replace": True}, format="json"
+    )
+    assert resp.status_code == 202, resp.content
+    with patch(
+        "trueppm_api.apps.projects.seed.importer._SeedImporter._create_project_structure",
+        side_effect=RuntimeError("disk on fire"),
+    ):
+        _run_job(resp.data["import_request_id"])
+
+    assert ProgramImportJob.objects.get(pk=resp.data["import_request_id"]).status == (
+        ImportJobStatus.FAILED
+    )
+    after = {
+        pk: code for pk, code in Project.objects.filter(pk__in=before).values_list("pk", "code")
+    }
+    assert after == before
+    # And no live project is left without a key.
+    assert not Project.objects.filter(is_deleted=False, code="").exists()
+
+
+def test_an_original_restored_before_the_rebuild_keeps_its_key(seed_owner: Any) -> None:
+    """A project the owner brought back out of Trash is live again; its key stays put."""
+    first = import_seed(_seed_with_codes(), owner=seed_owner, create_users=False)
+    plat = Project.objects.get(program=first, code="PLAT")
+
+    client = _client(seed_owner)
+    resp = client.post(IMPORT_URL, data={**_seed_with_codes(), "replace": True}, format="json")
+    assert resp.status_code == 202, resp.content
+    Project.objects.filter(pk=plat.pk).update(is_deleted=False)  # restored meanwhile
+    _run_job(resp.data["import_request_id"])
+
+    plat.refresh_from_db()
+    assert plat.code == "PLAT"
+    rebuilt = _keys_by_name(resp.data["program_id"])
+    assert rebuilt[plat.name] not in ("", "PLAT")
+    assert "MIGR" in rebuilt.values()
