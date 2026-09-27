@@ -4090,23 +4090,17 @@ def _mc_es_floors(
     next working day, and for any task with remaining duration >= 1 the finish this
     index produces is exactly ``schedule()``'s.
 
-    Two narrow residuals are genuine, and they are what this snap still costs:
-
-    * a task whose **remaining duration is zero** (a milestone, or in-progress work
-      burned to nothing) — its ``early_finish`` *is* the verbatim non-working date,
-      because there are no working days to lay out and so nothing to snap;
-    * an **SS/SF successor**, which keys on the predecessor's *start* rather than
-      its finish, and so reads the snapped date where ``schedule()`` reads the
-      verbatim one.
-
-    In both, snapping forward can only ever report *later* than the deterministic
-    pass, by at most one working day. A risk forecast may round toward more risk; it
-    may never round toward less, which is the whole failure mode #2833 was.
-    Representing the date exactly needs the scalar-date treatment completed tasks
-    get (:func:`_completed_edge_constraints`), and that rests on a run-invariant
-    window an in-progress task does not have.
-    ``tests/test_redteam_20260727.py`` holds both halves: the strict equality over
-    the space #3963 made exact, and the carve-out narrowed to these two.
+    Two readers still see the raw date, and **neither reads this floor for it any
+    more (#4175)**: a **zero-duration milestone**, whose instant *is* the actual,
+    and an **SS successor**, which measures its lag from the predecessor's start.
+    Both used to read the snapped day here, and the error was not bounded by one
+    working day as this docstring once claimed — a calendar-day lag from Monday
+    instead of Sunday re-lands across a weekend, and a chain of them carried a 2-3
+    working-day gap to the finish. :func:`_mc_verbatim_actuals` now hands both the
+    verbatim date, per run where it binds, the way #2461 did for completed tasks.
+    (SF needs nothing: its anchor is the working day *before* the start, which the
+    snap cannot move.) ``tests/test_monte_carlo_live_actual_start.py`` holds the
+    equality over that space.
 
     All three are ES lower bounds on the same task, so they merge here and the forward
     pass reads a single number.
@@ -4136,6 +4130,70 @@ def _mc_es_floors(
         if floor:
             es_floor[t.id] = floor
     return es_floor
+
+
+_VerbatimActual = tuple[int, float, float]
+"""``(actual_ordinal, snapped_offset, other_floor)`` of a live non-working actual start.
+
+``snapped_offset`` is the offset :func:`_mc_es_floors` floors the task at, and
+``other_floor`` the task's ES floor with the actual start left out (SNET pin and
+data date only) — the two :func:`_mc_forward_pass` compares to tell, per run,
+whether the verbatim actual is what binds the task's start.
+"""
+
+
+def _mc_verbatim_actuals(
+    project: Project,
+    task_map: dict[str, Task],
+    cal_of: dict[str, Calendar],
+    cal_key_of: dict[str, int],
+    offset_of_by_cal: dict[int, dict[date, int]],
+    wd_index_by_cal: dict[int, list[date]],
+) -> dict[str, _VerbatimActual]:
+    """The live tasks whose recorded ``actual_start`` falls on a non-working day (#4175).
+
+    :func:`_mc_es_floors` snaps such an actual forward to a working day because the
+    offset index cannot hold it, while ``schedule()`` keeps it verbatim. For a task
+    with remaining work that is invisible at the finish (#3963), but two readers see
+    the raw date: a **zero-duration milestone**, whose instant *is* the actual (Sunday
+    00:00, not Monday), and an **SS successor**, which measures its lag from the
+    predecessor's start. A calendar-day lag from Sunday and from Monday can land a
+    full weekend apart, so the one-day snap was amplified downstream — 2-3 working
+    days on a fully deterministic project. This map lets those two readers resolve
+    the anchor from the verbatim date instead, the way #2461 did for completed tasks.
+
+    A working-day actual is left out: its snap is the identity and nothing diverges.
+    """
+    out: dict[str, _VerbatimActual] = {}
+    status_date = project.status_date
+    for t in task_map.values():
+        actual = t.actual_start
+        if actual is None or actual <= project.start_date or _is_complete(t):
+            continue
+        cal = cal_of[t.id]
+        snapped = _next_working_day(actual, cal)
+        if snapped == actual:
+            continue
+        cal_key = cal_key_of[t.id]
+        offset_of = offset_of_by_cal[cal_key]
+        last = float(len(wd_index_by_cal[cal_key]) - 1)
+        other = 0.0
+        if t.planned_start is not None and t.planned_start > project.start_date:
+            other = _snapped_offset(t.planned_start, cal, offset_of, last)
+        if status_date is not None and status_date > project.start_date:
+            other = max(other, _snapped_offset(status_date, cal, offset_of, last))
+        out[t.id] = (actual.toordinal(), _snapped_offset(actual, cal, offset_of, last), other)
+    return out
+
+
+def _snapped_offset(d: date, cal: Calendar, offset_of: dict[date, int], last: float) -> float:
+    """Offset of the next working day at or after ``d``, clamped to ``last``.
+
+    The same lookup :func:`_mc_es_floors` floors a task with, so the offsets
+    :func:`_mc_verbatim_actuals` compares against are the ones the forward pass holds.
+    """
+    off = offset_of.get(_next_working_day(d, cal))
+    return float(off) if off is not None else last
 
 
 def _mc_progress_state(
@@ -4283,7 +4341,8 @@ def _mc_forward_pass(
     elapsed_days: dict[str, float],
     milestone_ids: frozenset[str] = frozenset(),
     index: _McIndex | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
+    verbatim_actuals: dict[str, _VerbatimActual] | None = None,
+) -> tuple[np.ndarray, np.ndarray, date | None]:
     """Vectorised forward pass — early-start/early-finish working-day offset matrices.
 
     ES and EF are floating-point working-day offsets (0 = project start); EF = ES +
@@ -4308,6 +4367,18 @@ def _mc_forward_pass(
     argument at all — duration still adds in the successor's own space and every
     constraint arrives pre-converted. The caller reconciles the columns into one
     comparable space before taking the project maximum.
+
+    ``verbatim_actuals`` (:func:`_mc_verbatim_actuals`, #4175) carries each live
+    task's non-working ``actual_start`` so the two readers of the raw date see it
+    as ``schedule()`` does: a milestone floored at it sits on that instant, and an
+    SS successor of work it binds measures its lag from it. A milestone shown on
+    its non-working actual day contributes that date as the returned finish floor
+    when it is shown there in *every* run — the offset index cannot hold the day,
+    so its column carries the working day before it and the caller floors the
+    percentiles at the date, as it does for completed work. Where only some runs
+    show it there, the column keeps the next working day (later, never earlier).
+
+    Returns ``(es_mat, ef_mat, finish_floor)``.
     """
     n_tasks = len(topo_order)
     es_mat = np.zeros((runs, n_tasks), dtype=np.float64)
@@ -4315,6 +4386,11 @@ def _mc_forward_pass(
     # Milestone instants: date ordinal and start-of-day display, per run.
     instant_mat = np.zeros((runs, n_tasks), dtype=np.int64)
     start_display_mat = np.zeros((runs, n_tasks), dtype=bool)
+    verbatim_actuals = verbatim_actuals or {}
+    # Per-run verbatim start ordinal of live work whose non-working actual binds its
+    # start, -1 in the runs where something later does; read by SS successors.
+    verbatim_start: dict[str, np.ndarray] = {}
+    finish_floor: date | None = None
 
     for col, tid in enumerate(topo_order):
         # Completed: pin both offsets to constants across every run and skip the
@@ -4338,6 +4414,8 @@ def _mc_forward_pass(
                 milestone_ids,
                 index,
                 runs,
+                verbatim_actuals.get(tid),
+                verbatim_start,
             )
             instant_mat[:, col] = instant
             start_display_mat[:, col] = start_display
@@ -4347,8 +4425,17 @@ def _mc_forward_pass(
             # the first working day at or after the instant for a start-of-day
             # reading, the last one before it otherwise.
             ef_mat[:, col] = position + start_display
+            actual = verbatim_actuals.get(tid)
+            if actual is not None and bool(np.all(instant == actual[0]) and start_display.all()):
+                # _place_milestone shows a milestone its actual-start floor holds on
+                # that very (non-working) day. The column carries the working day
+                # before it and the date itself floors the finish (#4175).
+                ef_mat[:, col] = position
+                floor_day = date.fromordinal(actual[0])
+                finish_floor = floor_day if finish_floor is None else max(finish_floor, floor_day)
             continue
 
+        actual = verbatim_actuals.get(tid)
         es_constraints, ef_constraints, has_ef_constraint = _mc_edge_constraints(
             tid,
             g,
@@ -4356,11 +4443,18 @@ def _mc_forward_pass(
             edge_lag_delta,
             es_mat,
             ef_mat,
-            es_floor,
+            es_floor if actual is None else {tid: actual[2]},
             completed_edge,
             runs,
             (milestone_ids, instant_mat, index, col),
+            verbatim_start,
         )
+        others_bind = None
+        if actual is not None:
+            # Every other ES bound is a working day, so it binds over the verbatim
+            # actual exactly when it reaches the actual's snapped offset (#4175).
+            others_bind = es_constraints >= actual[1]
+            es_constraints = np.maximum(es_constraints, actual[1])
 
         eff_dur = _mc_effective_duration(dur_matrix[:, col], tid, elapsed_days)
         es = es_constraints
@@ -4374,8 +4468,11 @@ def _mc_forward_pass(
 
         es_mat[:, col] = es
         ef_mat[:, col] = ef
+        if actual is not None and others_bind is not None:
+            binds = ~others_bind & (es == actual[1])
+            verbatim_start[tid] = np.where(binds, actual[0], -1).astype(np.int64)
 
-    return es_mat, ef_mat
+    return es_mat, ef_mat, finish_floor
 
 
 def _mc_milestone_bounds(
@@ -4389,6 +4486,8 @@ def _mc_milestone_bounds(
     milestone_ids: frozenset[str],
     index: _McIndex,
     runs: int,
+    actual: _VerbatimActual | None = None,
+    verbatim_start: dict[str, np.ndarray] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Per-run ``(instant ordinal, start_display)`` of a live milestone (#4079).
 
@@ -4396,9 +4495,20 @@ def _mc_milestone_bounds(
     a raw midnight and the latest wins, a start-of-day reading winning a tie. The
     ``key = 2 * ordinal + start_display`` encoding makes that one ``maximum``.
     ``mats`` is ``(es, ef, instant, start_display)`` for the columns filled so far.
+
+    A non-working ``actual`` start proposes its VERBATIM midnight, not the snapped
+    working day ``es_floor`` holds (#4175): ``schedule()`` places the milestone on
+    Sunday 00:00, and a calendar-day lag measured from Monday instead lands a
+    weekend later. ``verbatim_start`` likewise gives an SS link from live work
+    whose non-working actual binds its start the raw date to measure from.
     """
     es_mat, ef_mat, instant_mat, start_display_mat = mats
-    key = index.ordinal_at(col, np.full(runs, es_floor.get(tid, 0.0))) * 2 + 1
+    verbatim_start = verbatim_start or {}
+    if actual is None:
+        key = index.ordinal_at(col, np.full(runs, es_floor.get(tid, 0.0))) * 2 + 1
+    else:
+        key = index.ordinal_at(col, np.full(runs, actual[2])) * 2 + 1
+        np.maximum(key, actual[0] * 2 + 1, out=key)
 
     def offer(ordinals: np.ndarray, start_display: np.ndarray | bool) -> None:
         np.maximum(key, ordinals * 2 + np.asarray(start_display, dtype=np.int64), out=key)
@@ -4420,7 +4530,11 @@ def _mc_milestone_bounds(
             offer(index.ordinal_at(p, ef_mat[:, p] - 1.0) + 1 + lag, False)
             continue
         elif dep.dep_type == DependencyType.SS:
-            offer(index.ordinal_at(p, es_mat[:, p]) + lag, True)
+            start_ord = index.ordinal_at(p, es_mat[:, p])
+            raw = verbatim_start.get(pred_id)
+            if raw is not None:
+                start_ord = np.where(raw >= 0, raw, start_ord)
+            offer(start_ord + lag, True)
             continue
         elif dep.dep_type == DependencyType.FF:
             anchor = index.ordinal_at(p, ef_mat[:, p] - 1.0)
@@ -4443,6 +4557,7 @@ def _mc_edge_constraints(
     completed_edge: dict[tuple[str, str], _FixedEdge],
     runs: int,
     milestones: tuple[frozenset[str], np.ndarray, _McIndex | None, int] | None = None,
+    verbatim_start: dict[str, np.ndarray] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, bool]:
     """Fold every predecessor edge into one task's ES/EF constraint vectors.
 
@@ -4456,6 +4571,13 @@ def _mc_edge_constraints(
     ``milestones`` is ``(milestone_ids, instant_mat, index, this_col)``: FS/SS
     measure from the instant, FF/SF from the last working day before it
     (:func:`_edge_anchor`), then ``next_wd(anchor + lag)`` on this task's calendar.
+
+    An SS link from live work whose non-working ``actual_start`` binds its start
+    (``verbatim_start``, #4175) is resolved the same way, in date space from the
+    verbatim date, in the runs where it binds: the offset anchor holds the snapped
+    working day, and a calendar-day lag measured from it can land a weekend later
+    than ``schedule()``'s. SF needs no such branch — its anchor is the working day
+    before the start, which the snap cannot move.
 
     Returns ``(es_constraints, ef_constraints, has_ef_constraint)``.
     """
@@ -4509,6 +4631,11 @@ def _mc_edge_constraints(
         # task (never views aliasing the anchor's matrix) and both start
         # fully initialized (SNET/status floors and zeros respectively).
         constraint = anchor if delta_arr is None else anchor + _lag_term(delta_arr, anchor)
+        raw_start = (verbatim_start or {}).get(pred_id)
+        if raw_start is not None and dep.dep_type == DependencyType.SS:
+            assert index is not None
+            dated = index.next_wd_offset(col, raw_start + dep.lag.days).astype(np.float64)
+            constraint = np.where(raw_start >= 0, dated, constraint)
         if dep.dep_type in (DependencyType.FS, DependencyType.SS):
             np.maximum(es_constraints, constraint, out=es_constraints)
         else:  # FF / SF
@@ -4687,9 +4814,16 @@ def monte_carlo(
     the start dates (see :func:`_mc_es_floors`) and the duration floor above binds
     the durations, so every percentile is at or after the deterministic finish for
     any input built only from Finish-to-Start and Start-to-Start dependencies. An
-    ``actual_start`` recorded on a *non-working* day, which the working-day index
-    cannot represent, snaps to the next working day — so such a project simulates to
-    at most one working day *after* its CPM finish, which is the permitted direction.
+    ``actual_start`` recorded on a *non-working* day is equality too, not an
+    exception (#4175): the working-day index cannot represent the date, but the two
+    readers of it that could move the finish — a live milestone floored at it and an
+    SS successor of the work it starts — resolve from the verbatim date, as
+    :func:`schedule` does. (Before #4175 the bound stated here was "at most one
+    working day after", and it was false: a calendar-day lag measured from the
+    snapped Monday instead of Sunday re-landed across a weekend and the gap reached
+    2-3 working days.) The one remaining rounding is on an *uncertain* project, where
+    a milestone shown on its non-working actual day in only some runs is reported on
+    the next working day in all of them — later, never earlier.
 
     .. note::
        **The invariant above does not hold on a network carrying a
@@ -4923,7 +5057,10 @@ def monte_carlo(
         max(ef_date for _es_date, ef_date in completed_dates.values()) if completed_dates else None
     )
 
-    _es_mat, ef_mat = _mc_forward_pass(
+    verbatim_actuals = _mc_verbatim_actuals(
+        project, task_map, cal_of, cal_key_of, offset_of_by_cal, wd_index_by_cal
+    )
+    _es_mat, ef_mat, milestone_finish_floor = _mc_forward_pass(
         topo_order,
         runs,
         g,
@@ -4939,7 +5076,16 @@ def monte_carlo(
             [wd_ord_by_cal[cal_key_of[tid]] for tid in topo_order],
             [cal_of[tid] for tid in topo_order],
         ),
+        verbatim_actuals,
     )
+    if milestone_finish_floor is not None:
+        # A live milestone shown on its non-working actual day is a finish date the
+        # working-day index cannot hold; floor at it as at completed work (#4175).
+        completed_finish_floor = (
+            milestone_finish_floor
+            if completed_finish_floor is None
+            else max(completed_finish_floor, milestone_finish_floor)
+        )
 
     # --- Project completion offset = max EF across all tasks per run ---
     # With one calendar every column is already on the same ruler and the maximum
