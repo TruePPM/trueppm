@@ -648,10 +648,30 @@ def _render_email(notif: object) -> tuple[str, str]:
         "Open the task in TruePPM to reply or acknowledge.",
         "",
         "—",
-        "You can change which notifications send email at /me/settings/notifications/.",
+        _notification_prefs_line(),
     ]
     body = "\n".join(body_lines)
     return subject, body
+
+
+def _notification_prefs_line() -> str:
+    """Footer sentence pointing at the notification-preferences page.
+
+    Mirrors :func:`_unsubscribe_headers`: an absolute URL when
+    ``FRONTEND_BASE_URL`` is configured, otherwise prose with no path at all. A
+    bare ``/me/settings/notifications/`` is not a valid URL and is not reachable
+    by a recipient reading the email outside the app — the recipient already has
+    an account, so "in your Account settings" is a real fallback, unlike the
+    workspace-invite email, which has no in-app destination to point at.
+    """
+    from django.conf import settings
+
+    base = getattr(settings, "FRONTEND_BASE_URL", "").rstrip("/")
+    if base:
+        return (
+            f"You can change which notifications send email at {base}/me/settings/notifications/."
+        )
+    return "You can change which notifications send email from your Account settings in TruePPM."
 
 
 def _sanitize_snippet(raw: str) -> str:

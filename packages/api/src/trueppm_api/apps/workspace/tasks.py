@@ -417,22 +417,38 @@ def _send_export_ready_email(job_id: str) -> bool:
 
 
 def _render_export_email(job: object) -> tuple[str, str]:
+    """Render the export-ready (subject, body). Degrades to prose, never a bad link.
+
+    When ``FRONTEND_BASE_URL`` is unset, a relative ``/settings/workspace/danger``
+    path is not a valid URL and resolves nowhere for a mail client — so it is
+    omitted rather than emitted, and the body instead tells the recipient where to
+    navigate once signed in. Unlike the invite email below, this degrades safely:
+    the recipient already has an account (this email addresses ``job.requested_by``,
+    ADR-0174), so "sign in and find it" is a real fallback rather than a dead end.
+    """
     from django.conf import settings
 
     from .models import Workspace
 
     workspace_name = Workspace.load().name
-    base = getattr(settings, "FRONTEND_BASE_URL", "").rstrip("/")
-    # The link lands on the danger page, which fetches the job and offers an
-    # authenticated download — we never email a raw, unauthenticated archive URL.
-    download_url = f"{base}/settings/workspace/danger"
+    base = (getattr(settings, "FRONTEND_BASE_URL", "") or "").rstrip("/")
     subject = f"Your {workspace_name} export is ready"
+    if base:
+        # The link lands on the danger page, which fetches the job and offers an
+        # authenticated download — we never email a raw, unauthenticated archive URL.
+        download_lines = [
+            "Download it from the workspace danger zone:",
+            f"{base}/settings/workspace/danger",
+        ]
+    else:
+        download_lines = [
+            "Sign in to TruePPM and open Settings -> Workspace -> Danger Zone to download it.",
+        ]
     body = "\n".join(
         [
             f"Your full export of {workspace_name} has finished and is ready to download.",
             "",
-            "Download it from the workspace danger zone:",
-            download_url,
+            *download_lines,
             "",
             "The download link expires after a few days; request a new export if it lapses.",
         ]
@@ -524,14 +540,25 @@ def _send_invite_email(
 
 
 def _render_invite_email(invite: object) -> tuple[str, str]:
+    """Render the invite (subject, body). Degrades to prose, never a bad link.
+
+    When ``FRONTEND_BASE_URL`` is unset, a relative ``/invite/accept?token=...``
+    path is not a valid URL and resolves nowhere for a mail client, so it is
+    omitted rather than emitted. Unlike the export-ready email above, there is no
+    in-app fallback to point at: the recipient has no account yet, and the raw
+    token is cleared from ``email_token`` the moment this send is recorded as
+    successful (ADR-0087 §4) — so once this body goes out without the link, that
+    token cannot be recovered. The only path forward is fixing the setting and
+    resending (``WorkspaceInviteResendView`` mints a fresh token), which the copy
+    says explicitly.
+    """
     from django.conf import settings
 
     from .models import Workspace, WorkspaceInvite, WorkspaceRole
 
     inv: WorkspaceInvite = invite  # type: ignore[assignment]
     workspace_name = Workspace.load().name
-    base = getattr(settings, "FRONTEND_BASE_URL", "").rstrip("/")
-    accept_url = f"{base}/invite/accept?token={inv.email_token}"
+    base = (getattr(settings, "FRONTEND_BASE_URL", "") or "").rstrip("/")
 
     inviter = inv.invited_by
     inviter_name = (
@@ -540,12 +567,22 @@ def _render_invite_email(invite: object) -> tuple[str, str]:
     role_label = WorkspaceRole(inv.role).label
 
     subject = f"You've been invited to {workspace_name} on TruePPM"
+    if base:
+        accept_lines = [
+            "Accept your invitation:",
+            f"{base}/invite/accept?token={inv.email_token}",
+        ]
+    else:
+        accept_lines = [
+            "This TruePPM deployment has no public URL configured, so this email "
+            "cannot include an invitation link. Ask whoever invited you to set "
+            "TRUEPPM_FRONTEND_BASE_URL and resend the invitation.",
+        ]
     body = "\n".join(
         [
             f"{inviter_name} has invited you to join {workspace_name} as a {role_label}.",
             "",
-            "Accept your invitation:",
-            accept_url,
+            *accept_lines,
             "",
             f"This invitation expires on {inv.expires_at:%Y-%m-%d}.",
             "",

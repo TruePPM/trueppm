@@ -1908,6 +1908,43 @@ if grep -q 'CSRF_TRUSTED_ORIGINS' <<<"$(csrf_notice \
   fail "the CSRF-origin notice still fires on a split-origin deploy once env.CSRF_TRUSTED_ORIGINS is set (#3945)"
 fi
 
+# 13b. NOTES.txt must warn when TRUEPPM_FRONTEND_BASE_URL is unset (#4188).
+#      Workspace-invite emails build their accept link from this key
+#      (packages/api/src/trueppm_api/apps/workspace/tasks.py::_render_invite_email);
+#      when it is empty the email now omits the link rather than emitting a
+#      relative path no mail client can follow, and the invited user has no
+#      account to sign in and find one in-app. The only way forward is an
+#      admin fixing the setting and resending — which they can't do if nothing
+#      told them the setting was missing.
+grep -q 'trueppm.frontendBaseUrlNotice' "$CHART/templates/NOTES.txt" \
+  || fail "NOTES.txt does not include the trueppm.frontendBaseUrlNotice helper — an unconfigured install gets no warning that invite emails have no link (#4188)"
+
+cat > "$PROBE_DIR/chart/templates/zz-frontend-base-url-notice-probe.yaml" <<'FRONTENDPROBE'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-base-url-notice-probe
+data:
+  notice: |
+{{ include "trueppm.frontendBaseUrlNotice" . | indent 4 }}
+FRONTENDPROBE
+
+frontend_base_url_notice() {
+  helm template trueppm "$PROBE_DIR/chart" --set image.tag=latest "$@" \
+    --show-only templates/zz-frontend-base-url-notice-probe.yaml 2>&1
+}
+
+# Unset (the chart default): must fire and must name the key.
+default_frontend_notice="$(frontend_base_url_notice)"
+grep -q 'TRUEPPM_FRONTEND_BASE_URL' <<<"$default_frontend_notice" \
+  || fail "the FRONTEND_BASE_URL notice does not fire on the default (unconfigured) render — invite emails silently have no link (#4188)"
+
+# Configured: the warning must go away.
+if grep -q 'TRUEPPM_FRONTEND_BASE_URL is not set' <<<"$(frontend_base_url_notice \
+    --set env.TRUEPPM_FRONTEND_BASE_URL=https://trueppm.example.com)"; then
+  fail "the FRONTEND_BASE_URL notice still fires once env.TRUEPPM_FRONTEND_BASE_URL is set (#4188)"
+fi
+
 # 14. App-tier ingress policies: upgrade transition guard, distro peer, monitoring
 #     peer (#4000, #4001).
 #
@@ -2176,6 +2213,7 @@ echo "  - podSecurityContext.fsGroup=1000 on all $fsg_checked workloads plus the
 echo "  - no Deployment/Job/CronJob container invokes bare 'manage.py migrate' — every migrate call goes through migrate_locked (#3188, #3933)"
 echo "  - valkey has a PDB (maxUnavailable: 0, gated by valkey.podDisruptionBudget.enabled) and priorityClassName/terminationGracePeriodSeconds reach its StatefulSet, matching postgresql (#3934)"
 echo "  - NOTES.txt warns on a split-origin deploy (differing TRUEPPM_FRONTEND_BASE_URL/TRUEPPM_PUBLIC_API_BASE_URL) with no CSRF_TRUSTED_ORIGINS, and stays quiet when same-origin or once it is set (#3945)"
+echo "  - NOTES.txt warns when TRUEPPM_FRONTEND_BASE_URL is unset (invite emails have no link to send), and stays quiet once it is set (#4188)"
 echo "  - app-tier ingress NetworkPolicy: an upgrade that first introduces it refuses to render on the unconfirmed default selector; the peer renders verbatim (ipBlock works) and never empty; k3s/RKE2 also admit kube-system only while the selector is the default; monitoringSelector widens api only (#4000, #4001)"
 echo "  - demo/LoadBalancer/NodePort web exposure with no Ingress and the default ingressControllerSelector refuses on install AND upgrade, names the tunnel or the service type, and is satisfied by ingressControllerConfirmed=true or a non-default selector (ipBlock included); a stock default install and an Ingress-fronted demo are untouched; the API (not web) Service LoadBalancer case still raises the #3908 message (#4003)"
 echo "  - web pod template carries checksum/nginx-conf, and it changes when the nginx config does, so a config-only upgrade rolls the web pod (#4047)"

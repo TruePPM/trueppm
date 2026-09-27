@@ -12,6 +12,7 @@ from trueppm_api.core.security_checks import (
     validate_allowed_hosts,
     validate_attachment_storage,
     validate_demo_read_only_enforcement,
+    validate_frontend_base_url,
     validate_integration_encryption_key,
     validate_project_soft_delete_retention,
     validate_secret_key,
@@ -27,6 +28,7 @@ from .base import (
     DATABASES,
     DEMO_READ_ONLY,
     DJANGO_LOG_LEVEL,
+    FRONTEND_BASE_URL,
     INTEGRATION_ENCRYPTION_KEY,
     MEDIA_ROOT,
     MIDDLEWARE,
@@ -71,6 +73,18 @@ if ALLOW_WILDCARD_ALLOWED_HOSTS and "*" in ALLOWED_HOSTS:
         "inbound Git-webhook URL) will follow whatever host the caller sends. "
         "Proceeding because TRUEPPM_ALLOW_WILDCARD_HOSTS=true is set."
     )
+
+# Warn (not refuse) on an empty TRUEPPM_FRONTEND_BASE_URL (#4188). Unlike the
+# guards above, an empty value is a legitimate zero-config default for a
+# single-origin install, so this never raises — but the trueppm.W001 deploy
+# check it mirrors (core.security_checks.check_frontend_base_url) only fires
+# under `manage.py check --deploy`, which gunicorn/asgi workers never run
+# (same reasoning as every guard above). Logging it here at import time is the
+# only signal a plain `docker run`/systemd/non-Helm deploy gets that its
+# workspace-invite emails have no accept link.
+_frontend_base_url_warnings = validate_frontend_base_url(FRONTEND_BASE_URL, debug=DEBUG)
+for _frontend_base_url_warning in _frontend_base_url_warnings:
+    logging.getLogger("trueppm.settings").warning(str(_frontend_base_url_warning.msg))
 
 SECRET_KEY = env("SECRET_KEY")  # required; no default in prod
 
