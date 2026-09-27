@@ -6,7 +6,7 @@
 
 use chrono::{Datelike, Duration, NaiveDate};
 
-use crate::models::{Calendar, DateRange, Project, Task};
+use crate::models::{Calendar, DateRange, ExceptionIndex, Project, Task};
 use crate::validate::{MAX_CALENDAR_SCAN_DAYS, MAX_PROJECT_SPAN_DAYS};
 
 /// Map each task to the calendar its own date arithmetic should use (ADR-0120 D3).
@@ -109,15 +109,25 @@ fn working_day_walk_error(lo: NaiveDate, hi: NaiveDate) -> String {
     )
 }
 
-/// Build the sorted, merged exception index used by [`Calendar::is_working_day`].
+/// Build the sorted, coalesced exception index used by [`Calendar::is_working_day`],
+/// plus a prefix sum of each run's mask-working-day count (#4176).
 ///
 /// Each `DateRange` becomes an inclusive `[start_ord, end_ord]` pair of
-/// proleptic-Gregorian day ordinals; the ranges are sorted and coalesced so the
-/// result is disjoint and ascending, letting the containment test binary-search
-/// instead of scanning every exception per day (#1534). An inverted range
+/// proleptic-Gregorian day ordinals; the ranges are sorted and coalesced — not
+/// just on overlap/adjacency, but whenever *every* day in the gap between two
+/// runs is already excluded by `mask` (e.g. a weekend) — so the result is
+/// disjoint and ascending, letting the containment test binary-search instead of
+/// scanning every exception per day (#1534). This also subsumes the plain
+/// overlap/adjacency case: a zero-or-negative-length gap always has zero
+/// mask-working days in it. A "closed until further notice" period written as
+/// thousands of weekly Mon-Fri ranges is, once the intervening weekends are
+/// accounted for, a single continuous closure, and merging it back into one run
+/// is what makes [`Calendar::exception_run`] and [`working_days_between`]'s
+/// subtraction cost one step instead of one per week (#4176). An inverted range
 /// (`start > end`) matches no day in the original `start <= d <= end` test, so it
-/// is dropped here — preserving byte-identical results.
-fn build_exception_index(exceptions: &[DateRange]) -> Vec<(i32, i32)> {
+/// is dropped here — preserving byte-identical results. Mirrors the Python
+/// engine's `Calendar._exception_intervals`.
+fn build_exception_index(exceptions: &[DateRange], mask: u8) -> ExceptionIndex {
     let mut ranges: Vec<(i32, i32)> = exceptions
         .iter()
         .map(|e| (e.start.num_days_from_ce(), e.end.num_days_from_ce()))
@@ -126,18 +136,21 @@ fn build_exception_index(exceptions: &[DateRange]) -> Vec<(i32, i32)> {
     ranges.sort_unstable();
     let mut merged: Vec<(i32, i32)> = Vec::with_capacity(ranges.len());
     for (s, e) in ranges {
-        // Coalesce overlapping OR day-adjacent ranges: for integer day ordinals
-        // `[1,5]` and `[6,10]` cover every day in `[1,10]` with no gap, so
-        // `s <= last.end + 1` is a safe merge that never swallows an uncovered day.
         if let Some(last) = merged.last_mut() {
-            if s <= last.1 + 1 {
+            if mask_days_between(last.1 + 1, s, mask) == 0 {
                 last.1 = last.1.max(e);
                 continue;
             }
         }
         merged.push((s, e));
     }
-    merged
+    let mut prefix = Vec::with_capacity(merged.len() + 1);
+    prefix.push(0);
+    for &(s, e) in &merged {
+        let running_total = *prefix.last().expect("prefix seeded with one element");
+        prefix.push(running_total + mask_days_between(s, e + 1, mask));
+    }
+    (merged, prefix)
 }
 
 /// Error raised when a calendar walk cannot reach a working day within the
@@ -189,15 +202,17 @@ impl Calendar {
 
     /// The merged exception interval containing day ordinal `ord`, as inclusive
     /// `(start, end)` ordinals, or `None`. The snap helpers use it to cross a
-    /// whole exception run in one step instead of testing every day in it (#4161).
+    /// whole exception run in one step instead of testing every day in it
+    /// (#4161), including across a mask-off-only gap between two
+    /// otherwise-separate runs (#4176).
     fn exception_run(&self, ord: i32) -> Option<(i32, i32)> {
-        let index = self
+        let (ranges, _) = self
             .exception_index
-            .get_or_init(|| build_exception_index(&self.exceptions));
+            .get_or_init(|| build_exception_index(&self.exceptions, self.working_days));
         // Rightmost merged range whose start is <= ord; `ord` is an exception iff
         // that range also covers it (ord <= its end).
-        let pos = index.partition_point(|&(start, _)| start <= ord);
-        (pos > 0 && ord <= index[pos - 1].1).then(|| index[pos - 1])
+        let pos = ranges.partition_point(|&(start, _)| start <= ord);
+        (pos > 0 && ord <= ranges[pos - 1].1).then(|| ranges[pos - 1])
     }
 }
 
@@ -458,25 +473,65 @@ pub fn working_days_between(
     // the fallback for every span `WorkingDayCounter` does not cover, and a
     // free-float slack measured across a century-long exception lands outside
     // that range once per edge — so a day loop here was the same
-    // O(edges * range length) cost the snaps had. Mirrors the Python engine's
-    // `_working_days_between`.
+    // O(edges * range length) cost the snaps had. The subtraction is now
+    // `exception_mask_days`, O(log E) via a prefix sum over the mask-off-gap-
+    // coalesced runs (#4176) rather than O(overlapping runs) — a span crossing a
+    // "closed until further notice" period written as thousands of weekly ranges
+    // used to walk one run per week; it now walks the handful of runs that are
+    // genuinely disjoint once weekend-only gaps are folded in. Mirrors the Python
+    // engine's `_working_days_between`.
     let lo = start.num_days_from_ce();
     let hi = end.num_days_from_ce();
     let mask = cal.working_days;
     let mut count = mask_days_between(lo, hi, mask);
-    let index = cal
-        .exception_index
-        .get_or_init(|| build_exception_index(&cal.exceptions));
-    // First run that could overlap: the rightmost starting <= lo.
-    let first = index.partition_point(|&(s, _)| s <= lo).saturating_sub(1);
-    for &(s, e) in index[first..].iter().take_while(|&&(s, _)| s < hi) {
-        let s = s.max(lo);
-        let e = (e + 1).min(hi);
-        if s < e {
-            count -= mask_days_between(s, e, mask);
-        }
+    if !cal.exceptions.is_empty() {
+        count -= exception_mask_days(cal, lo, hi);
     }
     Ok(count)
+}
+
+/// Mask-working days inside any exception run overlapping ordinal span
+/// `[lo, hi)` — the subtraction [`working_days_between`] needs.
+///
+/// O(log E) via the prefix sum [`build_exception_index`] computes over the
+/// coalesced runs (#4176): summing every overlapping run one at a time is
+/// O(overlapping runs), which — before that same function's mask-off-gap
+/// coalescing — was one run per original `exceptions` entry a span crossed. Only
+/// the first and last overlapping runs need their own arithmetic (they may be
+/// clipped to `lo`/`hi`); every run strictly between them is summed in one
+/// prefix-sum subtraction. Mirrors the Python engine's
+/// `Calendar._exception_mask_days`.
+fn exception_mask_days(cal: &Calendar, lo: i32, hi: i32) -> i32 {
+    let (ranges, prefix) = cal
+        .exception_index
+        .get_or_init(|| build_exception_index(&cal.exceptions, cal.working_days));
+    let mask = cal.working_days;
+    // Rightmost run starting <= lo (may or may not overlap [lo, hi)); runs are
+    // sorted and disjoint, so every later run's start is > lo.
+    let a = ranges.partition_point(|&(s, _)| s <= lo).saturating_sub(1);
+    // One past the last run with a start < hi.
+    let b_plus1 = ranges.partition_point(|&(s, _)| s < hi);
+    if b_plus1 == 0 || b_plus1 <= a {
+        return 0;
+    }
+    let b = b_plus1 - 1;
+    if a == b {
+        let s = ranges[a].0.max(lo);
+        let e = (ranges[a].1 + 1).min(hi);
+        return if s < e { mask_days_between(s, e, mask) } else { 0 };
+    }
+    let s0 = ranges[a].0.max(lo);
+    let e0 = ranges[a].1 + 1;
+    let first = if s0 < e0 { mask_days_between(s0, e0, mask) } else { 0 };
+    let middle = prefix[b] - prefix[a + 1];
+    let s_last = ranges[b].0;
+    let e_last = (ranges[b].1 + 1).min(hi);
+    let last = if s_last < e_last {
+        mask_days_between(s_last, e_last, mask)
+    } else {
+        0
+    };
+    first + middle + last
 }
 
 /// Day ordinals in `[lo, hi)` whose weekday is set in the `working_days` mask.
@@ -886,6 +941,53 @@ mod tests {
                     snap_by_day(day, &cal, -1, MAX_CALENDAR_SCAN_DAYS)
                 );
                 let end = day + Duration::days(next(126) - 5);
+                assert_eq!(
+                    working_days_between(day, end, &cal).unwrap(),
+                    between_by_day(day, end, &cal)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_snaps_and_span_match_day_walk_on_dense_calendars() {
+        // Many short, closely spaced exception ranges — some gaps purely
+        // mask-off and coalesced into one run (#4176), some not — must still
+        // match the day-by-day walk exactly, for the snap and the working-day
+        // span. Unlike the random-calendar test above (a handful of widely
+        // scattered ranges), this stresses `build_exception_index`'s mask-off-gap
+        // coalescing, which only the random test's 0/1-day gaps exercise weakly.
+        let mut seed: u64 = 4176;
+        let mut next = |n: i64| -> i64 {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((seed >> 33) % n as u64) as i64
+        };
+        let base = d(2026, 3, 1);
+        for _ in 0..150 {
+            let mut exceptions = Vec::new();
+            let mut cursor = base + Duration::days(next(101) - 400);
+            for _ in 0..(20 + next(41)) {
+                cursor += Duration::days(next(7));
+                let length = next(7);
+                exceptions.push(DateRange { start: cursor, end: cursor + Duration::days(length) });
+                cursor += Duration::days(length);
+            }
+            let cal = Calendar {
+                working_days: (next(127) + 1) as u8,
+                exceptions,
+                ..Calendar::default()
+            };
+            for _ in 0..10 {
+                let day = base + Duration::days(next(901) - 450);
+                assert_eq!(
+                    next_working_day(day, &cal).ok(),
+                    snap_by_day(day, &cal, 1, MAX_CALENDAR_SCAN_DAYS)
+                );
+                assert_eq!(
+                    prev_working_day(day, &cal).ok(),
+                    snap_by_day(day, &cal, -1, MAX_CALENDAR_SCAN_DAYS)
+                );
+                let end = day + Duration::days(next(601) - 100);
                 assert_eq!(
                     working_days_between(day, end, &cal).unwrap(),
                     between_by_day(day, end, &cal)

@@ -201,7 +201,9 @@ def test_exception_index_is_served_from_cache_until_exceptions_change() -> None:
     cal.exceptions = [DateRange(date(2027, 1, 1), date(2027, 1, 1))]
     rebuilt = cal._exception_intervals()
     assert rebuilt is not first
-    assert rebuilt == ([date(2027, 1, 1).toordinal()], [date(2027, 1, 1).toordinal()])
+    # Third array is the prefix sum of each run's mask-working-day count (#4176);
+    # Jan 1 2027 is a Friday, one mask-working day.
+    assert rebuilt == ([date(2027, 1, 1).toordinal()], [date(2027, 1, 1).toordinal()], [0, 1])
 
 
 def test_exception_index_merges_adjacent_ranges_into_one_interval() -> None:
@@ -214,10 +216,14 @@ def test_exception_index_merges_adjacent_ranges_into_one_interval() -> None:
     assert cal._exception_intervals() == (
         [date(2026, 12, 22).toordinal()],
         [date(2026, 12, 28).toordinal()],
+        # Dec 22-28 2026 is Tue-Mon: 5 mask-working days (Tue-Fri, Mon).
+        [0, 5],
     )
 
 
 def test_exception_index_keeps_a_one_day_gap_as_two_intervals() -> None:
+    # Thursday 2026-12-24 sits in the gap and — unlike a weekend gap (#4176) — is
+    # itself a mask-working day, so the runs are NOT coalesced across it.
     cal = Calendar(
         exceptions=[
             DateRange(date(2026, 12, 22), date(2026, 12, 23)),
@@ -227,8 +233,10 @@ def test_exception_index_keeps_a_one_day_gap_as_two_intervals() -> None:
     assert cal._exception_intervals() == (
         [date(2026, 12, 22).toordinal(), date(2026, 12, 25).toordinal()],
         [date(2026, 12, 23).toordinal(), date(2026, 12, 28).toordinal()],
+        # 2 mask-working days in Dec 22-23 (Tue-Wed), 2 more in Dec 25-28
+        # (Fri, Mon — Sat/Sun off), cumulative [0, 2, 4].
+        [0, 2, 4],
     )
-    # Thursday 2026-12-24 sits in the gap and must stay workable.
     assert cal.is_working_day(date(2026, 12, 24))
 
 
