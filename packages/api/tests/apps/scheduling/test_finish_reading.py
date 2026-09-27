@@ -286,3 +286,210 @@ def test_whatif_cpm_finish_delta_counts_a_move_the_shown_day_hides(
 def test_fixture_dates_are_one_mon_fri_week() -> None:
     # Guards the fixture dates above: the whole file assumes this Mon-Fri week.
     assert [d.strftime("%a") for d in (FRI, SAT, MON, TUE)] == ["Fri", "Sat", "Mon", "Tue"]
+
+
+# ---------------------------------------------------------------------------
+# Unknown readings: rows written before the field existed (upgrade path)
+# ---------------------------------------------------------------------------
+
+
+def test_an_unknown_prior_reading_on_the_same_day_is_no_shift() -> None:
+    # A pre-upgrade row cannot say which edge of Monday it meant; a same-day
+    # comparison is no move rather than a phantom three-day pull-in.
+    assert finish_shift_days((MON, None), (MON, True), MON_FRI) == 0
+    assert finish_shift_days((MON, None), (MON, False), MON_FRI) == 0
+    # On a different day the unknown side is read as the end of its day.
+    assert finish_shift_days((FRI, None), (MON, True), MON_FRI) == 0
+    assert finish_shift_days((FRI, None), (TUE, False), MON_FRI) == 4
+
+
+@pytest.mark.django_db
+def test_first_capture_after_upgrade_does_not_notify(
+    project: Project,
+    network: tuple[Task, Dependency],
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """A pre-field snapshot (NULL reading) on the same shown day is not a shift."""
+    from trueppm_api.apps.scheduling.services import notify_project_end_date_shift
+
+    ProjectForecastSnapshot.objects.create(
+        project=project, cpm_finish=MON, cpm_finish_at_day_start=None
+    )
+    new = ProjectForecastSnapshot.objects.create(
+        project=project, cpm_finish=MON, cpm_finish_at_day_start=True
+    )
+    with django_capture_on_commit_callbacks(execute=True):
+        notify_project_end_date_shift(new)
+    assert _shift_notifications() == 0
+
+
+# ---------------------------------------------------------------------------
+# Milestone forecast digest and the sprint bridge card (/forecast/)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def bound_sprint(project: Project, network: tuple[Task, Dependency]) -> Any:
+    from trueppm_api.apps.projects.models import Sprint, SprintState
+
+    m, _dep = network
+    return Sprint.objects.create(
+        project=project,
+        name="Sprint 1",
+        start_date=date(2026, 8, 3),
+        finish_date=date(2026, 8, 14),
+        state=SprintState.ACTIVE,
+        target_milestone=m,
+    )
+
+
+def _recompute_and_reforecast(
+    project: Project, m: Task, sprint: Any, capture: Callable[..., Any]
+) -> Any:
+    from trueppm_api.apps.projects.services import (
+        notify_milestone_forecast_shift,
+        reforecast_bound_milestone,
+    )
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        _run_schedule(str(project.pk))
+    with capture(execute=True):
+        snap = reforecast_bound_milestone(m.pk, broadcast=False)
+        notify_milestone_forecast_shift(snap, sprint, actor_id=None)
+    return snap
+
+
+def _digests() -> int:
+    return Notification.objects.filter(
+        event_type=NotificationEventType.MILESTONE_FORECAST_SHIFTED
+    ).count()
+
+
+@pytest.mark.django_db
+def test_milestone_digest_ignores_a_weekend_hop_and_the_bridge_reads_zero(
+    project: Project,
+    network: tuple[Task, Dependency],
+    bound_sprint: Any,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    from rest_framework.test import APIClient
+
+    m, dep = network
+    first = _recompute_and_reforecast(project, m, bound_sprint, django_capture_on_commit_callbacks)
+    assert (first.cpm_finish, first.cpm_finish_at_day_start) == (FRI, False)
+    baseline = _digests()  # the first forecast is itself news (#861)
+
+    Dependency.objects.filter(pk=dep.pk).update(lag=1)
+    second = _recompute_and_reforecast(project, m, bound_sprint, django_capture_on_commit_callbacks)
+    assert (second.cpm_finish, second.cpm_finish_at_day_start) == (MON, True)
+    assert _digests() == baseline
+
+    # The bridge card's delta is supplied by the server, in working time.
+    client = APIClient()
+    client.force_authenticate(user=User.objects.get(username="hop_admin"))
+    res = client.get(f"/api/v1/projects/{project.pk}/forecast/")
+    assert res.status_code == 200, res.data
+    row = next(r for r in res.json()["milestones"] if r["milestone_id"] == str(m.pk))
+    assert row["cpm_finish"] == MON.isoformat()
+    assert row["previous"]["cpm_finish"] == FRI.isoformat()
+    assert row["previous"]["cpm_finish_at_day_start"] is False
+    assert row["cpm_finish_at_day_start"] is True
+    assert row["cpm_finish_shift_days"] == 0
+
+
+@pytest.mark.django_db
+def test_milestone_digest_still_reports_a_real_slip(
+    project: Project,
+    network: tuple[Task, Dependency],
+    bound_sprint: Any,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    from trueppm_api.apps.projects.services import project_forecast
+
+    m, dep = network
+    _recompute_and_reforecast(project, m, bound_sprint, django_capture_on_commit_callbacks)
+    baseline = _digests()
+    Dependency.objects.filter(pk=dep.pk).update(lag=3)  # the end of Monday
+    _recompute_and_reforecast(project, m, bound_sprint, django_capture_on_commit_callbacks)
+    assert _digests() > baseline
+    row = next(s for s in project_forecast(project.pk)["milestones"] if s.milestone_id == m.pk)
+    assert row.cpm_finish_shift_days == 3
+
+
+# ---------------------------------------------------------------------------
+# The program pass: activity delta and cross-project sprint-boundary conflicts
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def program_network(db: object) -> tuple[Any, Task, Dependency, Any]:
+    """``A(5d) in project X -FS-> M in project Y``, M in Y's active sprint ending Friday."""
+    from django.utils import timezone
+
+    from trueppm_api.apps.projects.models import Program, Sprint, SprintState
+
+    cal = Calendar.objects.create(name="Mon-Fri program")
+    program = Program.objects.create(name="Hop program")
+    kw: dict[str, Any] = dict(
+        start_date=date(2026, 8, 3), status_date=date(2026, 8, 3), calendar=cal, program=program
+    )
+    proj_x = Project.objects.create(name="X", **kw)
+    proj_y = Project.objects.create(name="Y", **kw)
+    sprint = Sprint.objects.create(
+        project=proj_y,
+        name="Y sprint",
+        start_date=date(2026, 8, 3),
+        finish_date=FRI,
+        state=SprintState.ACTIVE,
+    )
+    a = Task.objects.create(project=proj_x, name="A", duration=5)
+    m = Task.objects.create(project=proj_y, name="M", duration=0, is_milestone=True, sprint=sprint)
+    dep = Dependency.objects.create(
+        predecessor=a, successor=m, dep_type="FS", lag=0, accepted_at=timezone.now()
+    )
+    return program, m, dep, sprint
+
+
+def _run_program(program: Any) -> None:
+    from trueppm_api.apps.scheduling.tasks import _run_program_schedule
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        _run_program_schedule(str(program.pk))
+
+
+@pytest.mark.django_db
+def test_program_pass_weekend_hop_is_no_finish_delta_and_no_slip_conflict(
+    program_network: tuple[Any, Task, Dependency, Any],
+) -> None:
+    from trueppm_api.apps.projects.models import CrossProjectSlipConflict
+
+    program, m, dep, sprint = program_network
+    _run_program(program)
+    Dependency.objects.filter(pk=dep.pk).update(lag=1)
+    _run_program(program)
+    m.refresh_from_db()
+    assert (m.early_finish, m.milestone_at_day_end) == (MON, False)
+    # graph.calendars reached the activity delta ...
+    assert _finish_deltas(m) == {None, 0}
+    # ... and the boundary check: Monday's start is Friday's end, inside the sprint.
+    assert not CrossProjectSlipConflict.objects.filter(sprint=sprint, task=m).exists()
+
+
+@pytest.mark.django_db
+def test_program_pass_real_boundary_breach_still_raises_a_conflict(
+    program_network: tuple[Any, Task, Dependency, Any],
+) -> None:
+    from trueppm_api.apps.projects.models import CrossProjectSlipConflict
+
+    program, m, dep, sprint = program_network
+    Dependency.objects.filter(pk=dep.pk).update(lag=3)  # the end of Monday
+    _run_program(program)
+    m.refresh_from_db()
+    assert (m.early_finish, m.milestone_at_day_end) == (MON, True)
+    assert CrossProjectSlipConflict.objects.filter(sprint=sprint, task=m).exists()

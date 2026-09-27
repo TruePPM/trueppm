@@ -31,8 +31,10 @@ from datetime import date, timedelta
 from typing import Any
 
 #: A shown finish: ``(day, at_day_start)``. ``at_day_start`` True means the finish
-#: is the *start* of ``day`` (a start-of-day milestone), False the end of it.
-Finish = tuple[date, bool]
+#: is the *start* of ``day`` (a start-of-day milestone), False the end of it, and
+#: ``None`` that the reading is unknown — a snapshot row written before the reading
+#: was recorded (see :func:`finish_shift_days`).
+Finish = tuple[date, bool | None]
 
 
 def task_finish_at_day_start(task: Any, *, milestone_at_day_end: bool | None = None) -> bool:
@@ -135,7 +137,20 @@ def finish_shift_days(prior: Finish, new: Finish, calendar: Any | None) -> int:
     working time (#4178). ``calendar`` is the project's
     composed scheduler ``Calendar``; with ``None`` it falls back to the plain
     shown-day difference.
+
+    An unknown reading (``None``, a row written before the reading was recorded)
+    cannot be told apart from either edge of its day. When the two shown days are
+    equal the finish is taken as unmoved — otherwise the first comparison after an
+    upgrade would read a start-of-day milestone against an assumed end of the same
+    day and report a phantom three-day pull-in. When the days differ, the unknown
+    side is read as the end of its day, which is how every finish was shown before
+    #4079.
     """
-    if calendar is None:
+    unknown = prior[1] is None or new[1] is None
+    if calendar is None or (unknown and prior[0] == new[0]):
         return (new[0] - prior[0]).days
-    return (working_time_end_day(new, calendar) - working_time_end_day(prior, calendar)).days
+    prior_known: Finish = (prior[0], bool(prior[1]))
+    new_known: Finish = (new[0], bool(new[1]))
+    return (
+        working_time_end_day(new_known, calendar) - working_time_end_day(prior_known, calendar)
+    ).days

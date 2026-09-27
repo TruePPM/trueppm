@@ -394,12 +394,14 @@ class ProjectForecastSnapshotSerializer(serializers.ModelSerializer[ProjectForec
 
     cpm_finish_at_day_start = serializers.BooleanField(
         read_only=True,
+        allow_null=True,
         help_text=(
             "True when cpm_finish is the START of that day: every task finishing on "
             "it is a milestone shown at the start of its day. The start of a day is "
             "the same point in working time as the end of the working day before "
             "it, so compare finishes in working time, not as a date difference. "
-            "False on snapshots captured before this field existed."
+            "Null when unknown: no finish, or a snapshot captured before this field "
+            "existed."
         ),
     )
 

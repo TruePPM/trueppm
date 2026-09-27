@@ -5,12 +5,12 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("scheduling", "0014_montecarlorun_plan_version"),
+        ("projects", "0156_program_import_job_replaced_project_ids"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name="projectforecastsnapshot",
+            model_name="forecastsnapshot",
             name="cpm_finish_at_day_start",
             field=models.BooleanField(blank=True, null=True),
         ),

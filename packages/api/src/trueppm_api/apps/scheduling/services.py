@@ -1033,7 +1033,7 @@ def capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) -> Any 
     # Which edge of cpm_finish the project ends on (#4178). Only the rows on the
     # finish day decide it, so this reads a handful of rows off the same index the
     # Max just used, and is skipped outright when there is no finish.
-    cpm_finish_at_day_start = False
+    cpm_finish_at_day_start: bool | None = None
     if agg["cpm_finish"] is not None:
         on_finish_day = Task.committed.filter(
             project_id=project_id, early_finish=agg["cpm_finish"]
@@ -1172,8 +1172,11 @@ def notify_project_end_date_shift(snapshot: Any) -> None:
     day_word = "day" if delta_days == 1 else "days"
     subject = f"Project end date shifted — {project.name}"
     body = (
-        f"The project finish {direction} by {delta_days} {day_word}: "
-        f"{prior.cpm_finish.isoformat()} → {snapshot.cpm_finish.isoformat()}."
+        # "measured in working time": the shown dates below can be further apart
+        # than the move (a start-of-day milestone finish on a Monday counts as the
+        # end of the Friday before it, #4178), so the body says which one it counts.
+        f"The project finish {direction} by {delta_days} {day_word}, measured in "
+        f"working time: {prior.cpm_finish.isoformat()} → {snapshot.cpm_finish.isoformat()}."
     )
 
     project_id_str = str(snapshot.project_id)

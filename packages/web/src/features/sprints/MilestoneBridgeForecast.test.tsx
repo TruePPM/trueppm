@@ -251,6 +251,39 @@ describe('MilestoneBridgeForecast (#730)', () => {
     expect(screen.getByTestId('milestone-bridge-forecast')).not.toHaveTextContent(/→/);
   });
 
+  it('#4178: hides the chip when the shown date only hopped a weekend (server shift 0)', () => {
+    // Fri Apr 17 (end of day) -> Mon Apr 20 (start of day): the same point in
+    // working time. A date diff would have said "+3d later".
+    setup([
+      snapshot({
+        cpm_finish: '2026-04-20',
+        cpm_finish_at_day_start: true,
+        cpm_finish_shift_days: 0,
+        previous: { ...prevOf('2026-04-17'), cpm_finish_at_day_start: false },
+        previous_sprint_name: 'Sprint 6',
+      }),
+    ]);
+    const region = screen.getByTestId('milestone-bridge-forecast');
+    expect(region).not.toHaveTextContent(/→/);
+    expect(region).not.toHaveTextContent(/later/);
+  });
+
+  it('#4178: the chip reports the server working-time shift, not the date diff', () => {
+    // Mon Apr 20 (start) -> Tue Apr 21 (end): one shown day apart, but the finish
+    // moved from the end of Friday to the end of Tuesday.
+    setup([
+      snapshot({
+        cpm_finish: '2026-04-21',
+        cpm_finish_shift_days: 4,
+        previous: { ...prevOf('2026-04-20'), cpm_finish_at_day_start: true },
+        previous_sprint_name: 'Sprint 6',
+      }),
+    ]);
+    const region = screen.getByTestId('milestone-bridge-forecast');
+    expect(region).toHaveTextContent(/\+4d later/);
+    expect(screen.getByLabelText(/Scheduled finish moved 4 days later/)).toBeInTheDocument();
+  });
+
   it('renders the "if velocity holds" projection from the sprints-to-complete range', () => {
     setup([snapshot()]);
     expect(screen.getByTestId('milestone-bridge-forecast')).toHaveTextContent(
