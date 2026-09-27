@@ -79,6 +79,67 @@ def _ref_between(start: date, end: date, cal: Calendar) -> int:
     return count
 
 
+# ---------------------------------------------------------------------------
+# Independent (index-free) oracle — for the dense-calendar coalescing test
+# ---------------------------------------------------------------------------
+#
+# `_ref_snap`/`_ref_scan`/`_ref_between` above call `cal.is_working_day()`, which
+# reads the SAME coalesced `_exception_intervals()` the optimized snap and span
+# helpers read (#4176). That makes them a valid day-by-day-vs-jump check, but not
+# an independent check of the coalescing decision itself: a mutant that
+# over-coalesces (merges two runs across a gap that contains a working day) would
+# make `is_working_day` wrong for that gap day too, and every reference function
+# above would agree with the wrong answer. `_is_working_day_linear` instead scans
+# `cal.exceptions` directly — never touching `_exception_intervals()` — so the
+# dense-calendar test below can only pass if the coalesced index and a
+# from-scratch brute-force scan agree. Mirrors the Rust test's
+# `is_working_day_linear`.
+
+
+def _is_working_day_linear(cal: Calendar, d: date) -> bool:
+    if not (cal.working_days >> d.weekday()) & 1:
+        return False
+    return not any(e.start <= d <= e.end for e in cal.exceptions)
+
+
+def _ref_snap_linear(
+    d: date, cal: Calendar, step: int, budget: int = MAX_CALENDAR_SCAN_DAYS
+) -> date:
+    scanned = 0
+    while not _is_working_day_linear(cal, d):
+        if scanned >= budget:
+            raise InvalidScheduleInput("scan")
+        try:
+            d = d + timedelta(days=step)
+        except OverflowError as err:
+            raise InvalidScheduleInput("overflow") from err
+        scanned += 1
+    return d
+
+
+def _ref_scan_linear(current: date, cal: Calendar, step: int) -> date:
+    scanned = 0
+    while True:
+        try:
+            current = current + timedelta(days=step)
+        except OverflowError as err:
+            raise InvalidScheduleInput("overflow") from err
+        scanned += 1
+        if _is_working_day_linear(cal, current):
+            return current
+        if scanned >= MAX_CALENDAR_SCAN_DAYS:
+            raise InvalidScheduleInput("scan")
+
+
+def _ref_between_linear(start: date, end: date, cal: Calendar) -> int:
+    count = 0
+    current = start
+    while current < end:
+        count += _is_working_day_linear(cal, current)
+        current += timedelta(days=1)
+    return count
+
+
 def _scan_forward(d: date, cal: Calendar) -> date:
     return _scan_for_working_day(d, cal, forward=True)
 
@@ -147,19 +208,30 @@ def test_snaps_and_span_match_the_day_walk_on_random_calendars() -> None:
 def test_snaps_and_span_match_the_day_walk_on_dense_calendars() -> None:
     """Many short, closely spaced exception ranges — some gaps purely mask-off and
     coalesced into one run (#4176), some not — must still match the day-by-day
-    walk exactly, for the snap, the scan, and the working-day span."""
+    walk exactly, for the snap, the scan, and the working-day span.
+
+    Uses the index-free ``_ref_*_linear`` oracle, not ``_ref_snap``/``_ref_between``
+    (which call ``cal.is_working_day()`` and so share the coalesced index with the
+    code under test): a mutant that over-coalesces two runs across a gap
+    containing a working day would make ``is_working_day`` agree with the wrong
+    answer too, and this test must catch exactly that.
+    """
     rng = random.Random(4176)
     base = date(2026, 3, 1)
     for _ in range(150):
         cal = _random_dense_calendar(rng, base)
         for _ in range(10):
             d = base + timedelta(days=rng.randint(-450, 450))
-            assert _next_working_day(d, cal) == _ref_snap(d, cal, 1), (cal, d)
-            assert _prev_working_day(d, cal) == _ref_snap(d, cal, -1), (cal, d)
-            assert _scan_for_working_day(d, cal, forward=True) == _ref_scan(d, cal, 1)
-            assert _scan_for_working_day(d, cal, forward=False) == _ref_scan(d, cal, -1)
+            assert _next_working_day(d, cal) == _ref_snap_linear(d, cal, 1), (cal, d)
+            assert _prev_working_day(d, cal) == _ref_snap_linear(d, cal, -1), (cal, d)
+            assert _scan_for_working_day(d, cal, forward=True) == _ref_scan_linear(d, cal, 1)
+            assert _scan_for_working_day(d, cal, forward=False) == _ref_scan_linear(d, cal, -1)
             e = d + timedelta(days=rng.randint(-100, 500))
-            assert _working_days_between(d, e, cal) == _ref_between(d, e, cal), (cal, d, e)
+            assert _working_days_between(d, e, cal) == _ref_between_linear(d, e, cal), (
+                cal,
+                d,
+                e,
+            )
 
 
 @pytest.mark.parametrize("extra", [-1, 0, 1])

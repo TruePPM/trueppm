@@ -240,6 +240,46 @@ def test_exception_index_keeps_a_one_day_gap_as_two_intervals() -> None:
     assert cal.is_working_day(date(2026, 12, 24))
 
 
+def test_exception_index_rebuilds_when_working_days_changes() -> None:
+    """The coalescing decision depends on ``working_days``, not just the identity
+    of ``exceptions`` (#4176) — reassigning the mask on a live ``Calendar`` must
+    invalidate the cached index even though ``exceptions`` itself never changed.
+    A mutant that keys the cache on exceptions identity alone would keep serving
+    the pre-reassignment index and silently reuse a merge decision made for a
+    mask no longer in effect.
+    """
+    cal = Calendar(
+        working_days=0b0011111,  # Mon-Fri
+        exceptions=[
+            DateRange(date(2026, 12, 22), date(2026, 12, 23)),  # Tue-Wed
+            DateRange(date(2026, 12, 25), date(2026, 12, 28)),  # Fri-Mon
+        ],
+    )
+    # Thursday 2026-12-24 sits in the gap and is a mask-working day under the
+    # default Mon-Fri mask, so the runs stay separate — same fixture as
+    # test_exception_index_keeps_a_one_day_gap_as_two_intervals above.
+    first = cal._exception_intervals()
+    assert first == (
+        [date(2026, 12, 22).toordinal(), date(2026, 12, 25).toordinal()],
+        [date(2026, 12, 23).toordinal(), date(2026, 12, 28).toordinal()],
+        [0, 2, 4],
+    )
+    assert cal._exception_intervals() is first
+
+    # Same `exceptions` object, but Thursday is no longer a mask-working day, so
+    # the whole gap is now mask-off and the runs must coalesce into one.
+    cal.working_days = 0b0010111  # Mon, Tue, Wed, Fri — no Thursday
+    rebuilt = cal._exception_intervals()
+    assert rebuilt is not first
+    assert rebuilt == (
+        [date(2026, 12, 22).toordinal()],
+        [date(2026, 12, 28).toordinal()],
+        # Dec 22-28 under Mon/Tue/Wed/Fri: Tue, Wed, Fri, Mon = 4 mask-working days
+        # (Thu excluded by the mask, Sat/Sun always excluded).
+        [0, 4],
+    )
+
+
 def test_compose_ands_masks_that_are_not_subsets_of_each_other() -> None:
     # Mon-Fri AND Mon-Thu cannot tell AND from "take the last mask", because the
     # last mask is already the intersection. Tue-Fri AND Mon-Wed can: Tue-Wed.

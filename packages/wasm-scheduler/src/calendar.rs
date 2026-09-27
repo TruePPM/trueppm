@@ -910,6 +910,47 @@ mod tests {
         count
     }
 
+    // --- #4176: independent (index-free) oracle for the dense-calendar test ---
+    //
+    // `snap_by_day`/`between_by_day` above call `cal.is_working_day()`, which
+    // reads the SAME coalesced `exception_index` the optimized snap and span
+    // functions read. That makes them a valid day-by-day-vs-jump check, but not
+    // an independent check of the coalescing decision itself: a mutant that
+    // over-coalesces (merges two runs across a gap that contains a working day)
+    // would make `is_working_day` wrong for that gap day too, and these
+    // references would agree with the wrong answer. The `_linear` variants below
+    // instead call `is_working_day_linear`, which scans `cal.exceptions` directly
+    // and never touches `exception_index` — used by the dense-calendar test so it
+    // can only pass if the coalesced index and a from-scratch scan agree.
+
+    fn snap_by_day_linear(
+        d: NaiveDate,
+        cal: &Calendar,
+        step: i64,
+        budget: i64,
+    ) -> Option<NaiveDate> {
+        let mut current = d;
+        let mut scanned = 0i64;
+        while !is_working_day_linear(cal, current) {
+            if scanned >= budget {
+                return None;
+            }
+            current = current.checked_add_signed(Duration::days(step))?;
+            scanned += 1;
+        }
+        Some(current)
+    }
+
+    fn between_by_day_linear(start: NaiveDate, end: NaiveDate, cal: &Calendar) -> i32 {
+        let mut count = 0;
+        let mut current = start;
+        while current < end {
+            count += i32::from(is_working_day_linear(cal, current));
+            current += Duration::days(1);
+        }
+        count
+    }
+
     #[test]
     fn test_snaps_and_span_match_day_walk_on_random_calendars() {
         // Tiny deterministic LCG — no rand dependency in this crate.
@@ -957,6 +998,12 @@ mod tests {
         // span. Unlike the random-calendar test above (a handful of widely
         // scattered ranges), this stresses `build_exception_index`'s mask-off-gap
         // coalescing, which only the random test's 0/1-day gaps exercise weakly.
+        //
+        // Uses `snap_by_day_linear`/`between_by_day_linear` (the index-free
+        // oracle), not `snap_by_day`/`between_by_day`: those call
+        // `cal.is_working_day()`, which shares `exception_index` with the code
+        // under test, so a mutant that over-coalesces would make them agree with
+        // the wrong answer instead of catching it.
         let mut seed: u64 = 4176;
         let mut next = |n: i64| -> i64 {
             seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
@@ -981,16 +1028,16 @@ mod tests {
                 let day = base + Duration::days(next(901) - 450);
                 assert_eq!(
                     next_working_day(day, &cal).ok(),
-                    snap_by_day(day, &cal, 1, MAX_CALENDAR_SCAN_DAYS)
+                    snap_by_day_linear(day, &cal, 1, MAX_CALENDAR_SCAN_DAYS)
                 );
                 assert_eq!(
                     prev_working_day(day, &cal).ok(),
-                    snap_by_day(day, &cal, -1, MAX_CALENDAR_SCAN_DAYS)
+                    snap_by_day_linear(day, &cal, -1, MAX_CALENDAR_SCAN_DAYS)
                 );
                 let end = day + Duration::days(next(601) - 100);
                 assert_eq!(
                     working_days_between(day, end, &cal).unwrap(),
-                    between_by_day(day, end, &cal)
+                    between_by_day_linear(day, end, &cal)
                 );
             }
         }
