@@ -1,0 +1,18 @@
+{
+  "id": "p-milestone-terminal-lag-seed",
+  "name": "Terminal milestone reached through a calendar-day lag keeps its predecessor's float (#4174)",
+  "start_date": "2026-01-05",
+  "tasks": [
+    {"id": "A", "name": "Work", "duration": 345600.0},
+    {"id": "M", "name": "Done", "duration": 0.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "M", "dep_type": "FS", "lag": 86400.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

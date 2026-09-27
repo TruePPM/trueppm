@@ -1226,4 +1226,60 @@ mod tests {
             "dragging A's planned_start should have shifted the downstream schedule"
         );
     }
+
+    /// #4174: `A(4d) -FS+1d-> M` puts M at Saturday midnight, which ends the
+    /// project. Slipping A a working day moves M to Sunday midnight — the same
+    /// working position — so A has one day of float, exactly as it does with a
+    /// successor behind M. Seeding M's late instant at the raw finish instant
+    /// gave A zero float and marked it critical.
+    #[test]
+    fn test_terminal_milestone_behind_a_lag_keeps_predecessor_float() {
+        let d = |y, m, dd| NaiveDate::from_ymd_opt(y, m, dd).unwrap();
+        let build = |with_successor: bool, a_pin: Option<NaiveDate>| {
+            let mut a = make_task("A", 4);
+            a.planned_start = a_pin;
+            let mut tasks = vec![a, make_task("M", 0)];
+            let mut dependencies = vec![Dependency {
+                lag: 86400.0,
+                ..dep("A", "M")
+            }];
+            if with_successor {
+                tasks.push(make_task("B", 1));
+                dependencies.push(dep("M", "B"));
+            }
+            Project {
+                id: "p".to_string(),
+                name: "p".to_string(),
+                start_date: d(2026, 1, 5),
+                tasks,
+                dependencies,
+                calendar: Calendar::default(),
+                status_date: None,
+                calendars: None,
+                velocity_samples: None,
+                sprint_length_days: None,
+            }
+        };
+        let one_day = 86400.0;
+
+        let result = schedule_impl(&build(false, None)).unwrap();
+        let a = result.tasks.iter().find(|t| t.id == "A").unwrap();
+        let m = result.tasks.iter().find(|t| t.id == "M").unwrap();
+        assert_eq!(result.project_finish, d(2026, 1, 9));
+        assert_eq!(a.total_float, one_day);
+        assert_eq!(a.late_finish, d(2026, 1, 9));
+        assert!(!a.is_critical);
+        assert_eq!(result.critical_path, vec!["M".to_string()]);
+        assert_eq!(m.total_float, 0.0);
+        assert_eq!(m.late_start, d(2026, 1, 9));
+
+        // Slipping A by its one day of float leaves the finish where it was.
+        let slipped = schedule_impl(&build(false, Some(d(2026, 1, 6)))).unwrap();
+        assert_eq!(slipped.project_finish, d(2026, 1, 9));
+
+        // And the successor variant agrees.
+        let with_b = schedule_impl(&build(true, None)).unwrap();
+        let a_b = with_b.tasks.iter().find(|t| t.id == "A").unwrap();
+        assert_eq!(a_b.total_float, one_day);
+    }
 }

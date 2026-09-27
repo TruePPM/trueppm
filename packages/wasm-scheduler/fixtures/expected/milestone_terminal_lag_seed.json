@@ -1,0 +1,40 @@
+{
+  "project_id": "p-milestone-terminal-lag-seed",
+  "project_start": "2026-01-05",
+  "project_finish": "2026-01-09",
+  "tasks": [
+    {
+      "id": "A",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-08",
+      "late_start": "2026-01-06",
+      "late_finish": "2026-01-09",
+      "total_float": 86400.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-01-05"
+    },
+    {
+      "id": "M",
+      "early_start": "2026-01-09",
+      "early_finish": "2026-01-09",
+      "late_start": "2026-01-09",
+      "late_finish": "2026-01-09",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-09",
+      "milestone_at_day_end": true
+    }
+  ],
+  "critical_path": [
+    "M"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "A",
+      "successor_id": "M",
+      "dep_type": "FS"
+    }
+  ]
+}

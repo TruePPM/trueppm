@@ -41,6 +41,14 @@ change between releases. Pin an exact version (e.g.
   finish. The convention is documented in the `trueppm_scheduler.engine` module
   docstring. Behavior change: schedules containing milestones finish earlier by
   one working day per milestone on the critical path.
+- **Work before a project-ending milestone keeps its total float (#4174).** A
+  milestone that ends the project may sit at any midnight up to the one that
+  opens the next working day, since all of them end the project at the same
+  point. The late pass used to admit only the earliest, so `A(4d) -FS+1d-> M`
+  (M at Saturday midnight) gave `A` zero total float and put it on the critical
+  path, although slipping it a day left the finish unchanged. `A` now has one
+  day of float, as it does when a task follows `M`. Introduced by the #4079
+  change above; never released.
 - **A long calendar exception no longer makes `schedule()` slow in proportion
   to the number of dependencies (#4161).** Every dependency edge snaps a date to
   a working day in the forward pass, the backward pass, and the free-float

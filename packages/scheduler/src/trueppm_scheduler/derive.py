@@ -45,6 +45,7 @@ from trueppm_scheduler.engine import (
     _instant_day,
     _is_complete,
     _late_display,
+    _milestone_finish_bound,
     _milestone_instants,
     _milestone_latest,
     _milestone_refs,
@@ -750,15 +751,17 @@ def _backward_successor_terms(
     """
     end = finish_instant or _safe_offset(project_finish, timedelta(days=1))
     seed = _prev_working_day(_safe_offset(end, -timedelta(days=1)), cal)
+    # A milestone may sit as late as the finish instant's working position (#4079,
+    # #4174) — ``engine._milestone_finish_bound``, not the raw instant.
+    milestone_seed = _milestone_finish_bound(end, cal)
     lf_terms: list[DerivationContribution] = [
         DerivationContribution(
             kind="project_finish",
-            # A milestone may sit as late as the project's finish instant (#4079).
-            imposed_date=seed if milestone_day is None else milestone_day(end),
+            imposed_date=seed if milestone_day is None else milestone_day(milestone_seed),
         )
     ]
     if bounds_out is not None:
-        bounds_out[id(lf_terms[0])] = end
+        bounds_out[id(lf_terms[0])] = milestone_seed
     ls_terms: list[DerivationContribution] = []
 
     # FS/FF bound when this task may finish; SS/SF bound when it may start. The

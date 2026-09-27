@@ -85,6 +85,21 @@ pub(crate) fn finish_instant(
     Ok(latest.expect("a project has at least one task"))
 }
 
+/// Latest instant the project-finish seed admits for a milestone (#4174).
+///
+/// Every midnight from `end` up to the one opening the next working day is the
+/// same working-time position, so a milestone at any of them ends the project at
+/// the same point. Seeding at the raw `end` told a milestone reached through a
+/// calendar-day lag (`A -FS+1d-> M` landing on Saturday) that Sunday was a slip,
+/// giving `A` zero float. The shown day stays capped by `late_display`. Mirrors
+/// the Python `_milestone_finish_bound`.
+pub(crate) fn milestone_finish_bound(
+    end: NaiveDate,
+    node_cal: &Calendar,
+) -> Result<NaiveDate, String> {
+    next_working_day(end, node_cal)
+}
+
 /// The day a milestone's late instant is shown on. Mirrors the Python
 /// `_late_display`: zero float shows the early day; otherwise the early reading
 /// is kept, except that a start-of-day reading is never shown past the project
@@ -170,7 +185,7 @@ pub fn backward_pass(
         }
 
         if let Some(early) = instants[i] {
-            let mut bound = end;
+            let mut bound = milestone_finish_bound(end, node_cal)?;
             for edge in pg.graph.edges_directed(idx, Direction::Outgoing) {
                 let s = edge.target().index();
                 if tasks[s].is_complete() {
