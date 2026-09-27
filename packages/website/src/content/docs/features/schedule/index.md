@@ -156,7 +156,7 @@ TruePPM ships its own canvas Schedule renderer in `packages/web/src/features/sch
 | Critical | `barCritical` (`semantic-critical`) | Task is on the critical path (total float = 0) |
 | Complete | `barComplete` (`semantic-on-track`) | Task marked as 100% complete |
 | Summary | `barSummary` 8px tall | WBS parent / summary row |
-| Milestone | Diamond | Zero-duration event (`is_milestone=true`) |
+| Milestone | Diamond | Zero-duration event (`is_milestone=true`), drawn at the instant it sits on: a milestone that follows work sits at the **end** of its day, exactly where its predecessor's bar ends (`milestone_at_day_end=true`); one held by the project start or a start-no-earlier-than date sits at the **start** of its day |
 | Actual-date overlay | `ghost-fill`/`ghost-border` 6px, dashed | A task's recorded actual start/finish, drawn below the live bar once it has at least one actual date; colored by schedule variance (late/early/in-progress) |
 
 :::note[Not the same thing as a baseline overlay]

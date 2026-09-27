@@ -184,6 +184,7 @@ def test_public_schedule_is_minimized_and_whitelisted(project):
         "early_finish",
         "scheduled_start",
         "is_milestone",
+        "milestone_at_day_end",
         "is_critical",
         "percent_complete",
         "status",

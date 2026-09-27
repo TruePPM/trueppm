@@ -217,7 +217,12 @@ function optimisticCorePatch(vars: UpdateTaskPayload): Partial<Task> {
   if (vars.percent_complete !== undefined) patch.progress = vars.percent_complete;
   if (vars.status !== undefined) patch.status = vars.status as Task['status'];
   if (vars.duration !== undefined) patch.duration = vars.duration;
-  if (vars.planned_start !== undefined) patch.plannedStart = vars.planned_start;
+  if (vars.planned_start !== undefined) {
+    patch.plannedStart = vars.planned_start;
+    // #4079: a milestone given a new SNET is held by it — the start of its day —
+    // until the recompute says otherwise (see `resolveMilestoneAtDayEnd`).
+    patch.milestoneAtDayEnd = false;
+  }
   if (vars.story_points !== undefined) patch.storyPoints = vars.story_points;
   if (vars.remaining_points !== undefined) patch.remainingPoints = vars.remaining_points;
   if (vars.sprint !== undefined) patch.sprintId = vars.sprint;
@@ -445,6 +450,9 @@ export function useRescheduleTask() {
                 planned_start <= todayIso;
               return {
                 ...t,
+                // #4079: a dropped milestone is held by its new SNET, at the start
+                // of the day, until the recompute lands.
+                ...(planned_start != null ? { milestoneAtDayEnd: false } : {}),
                 ...optimistic,
                 ...(willPromote ? { status: 'IN_PROGRESS' as const } : {}),
               };

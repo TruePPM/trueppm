@@ -68,11 +68,12 @@
  * Zero-duration milestones are INSTANTS (#4079), exactly as in both server
  * engines: a milestone after work sits on that work's finish day, links out of
  * it measure from the instant (FS/SS) or the last working day before it
- * (FF/SF), and inserting one into an FS link moves nothing. The client is sent
- * only the day a milestone is shown on, not which end of that day it sits at,
- * so a milestone this pass does not re-place is read as the end of its day when
- * it has a predecessor and the start of its day when it has none — the reading
- * the server gives a milestone that follows work and one held by a floor.
+ * (FF/SF), and inserting one into an FS link moves nothing. A milestone this
+ * pass does not re-place reads its instant from the server's
+ * `milestone_at_day_end` (`CpmTask.milestoneAtDayEnd`); only when that is absent
+ * does it fall back to reading the end of its day when it has a predecessor and
+ * the start of its day when it has none. Each result reports which edge of its
+ * day a milestone ended on, so the preview draws it where the commit will.
  *
  * Known remaining gaps, all reconciled by the server on commit:
  *  - the fixed Mon–Fri week above (#1493). Quantified in #3535: against the
@@ -153,6 +154,8 @@ interface TaskState {
   instantMs: number | null;
   /** Whether that instant is shown at the start of its own day (else the end of the day before). */
   startDisplay: boolean;
+  /** The server's `milestone_at_day_end` for this task, when the caller sent it (#4079). */
+  atDayEndHint: boolean | undefined;
   name: string;
   /** Original earlyFinish before this recalc (baseline for deltaDays). */
   baselineFinishMs: number;
@@ -415,7 +418,8 @@ export function runCpmForwardPass(
   // --- Read each milestone's instant off the dates it arrived with (#4079) ---
   for (const task of stateMap.values()) {
     if (task.instantMs === null) continue;
-    const followsWork = (predecessors.get(task.id) ?? []).length > 0;
+    const followsWork =
+      task.atDayEndHint ?? (predecessors.get(task.id) ?? []).length > 0;
     task.startDisplay = !followsWork;
     task.instantMs = followsWork ? task.earlyFinishMs + MS_PER_DAY : task.earlyStartMs;
   }
@@ -482,6 +486,7 @@ function toTaskState(t: CpmTask): TaskState {
         ? earlyFinishMs
         : null,
     startDisplay: false,
+    atDayEndHint: t.milestoneAtDayEnd,
     name: t.name,
     baselineFinishMs: earlyFinishMs,
   };
@@ -742,6 +747,7 @@ function collectResults(stateMap: Map<string, TaskState>): {
       earlyFinish: toIso(task.earlyFinishMs),
       isCritical,
       deltaDays,
+      milestoneAtDayEnd: task.instantMs !== null && !task.startDisplay,
     });
 
     if (task.isMilestone && Math.abs(deltaDays) > worstDelta) {

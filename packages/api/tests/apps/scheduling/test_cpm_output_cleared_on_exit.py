@@ -126,6 +126,28 @@ def test_leaving_the_committed_set_clears_every_cpm_field(
 
 
 @pytest.mark.django_db
+def test_leaving_the_committed_set_drops_the_end_of_day_milestone_flag(project: Project) -> None:
+    """#4079: ``milestone_at_day_end`` is engine output too, cleared to False.
+
+    It is non-null, so it is outside ``CPM_OUTPUT_FIELDS``' null contract, but a
+    groomed-out milestone keeping ``True`` would still assert a schedule position.
+    """
+    work = Task.objects.create(project=project, name="Work", duration=3)
+    gate = Task.objects.create(project=project, name="Gate", duration=0, is_milestone=True)
+    Dependency.objects.create(predecessor=work, successor=gate, dep_type="FS")
+
+    _recompute(project)
+    gate.refresh_from_db()
+    assert gate.milestone_at_day_end is True
+
+    Task.objects.filter(pk=gate.pk).update(status=TaskStatus.BACKLOG)
+    _recompute(project)
+    gate.refresh_from_db()
+    assert gate.milestone_at_day_end is False
+    _assert_all_cleared(gate)
+
+
+@pytest.mark.django_db
 def test_a_previously_critical_task_stops_claiming_the_critical_path(project: Project) -> None:
     """The MCP-visible form of the defect (`ai-review` finding).
 

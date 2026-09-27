@@ -43,6 +43,13 @@ export interface CpmTask {
   /** FULL working-day duration (`Task.duration`), not the remaining portion. */
   durationDays: number;
   isMilestone: boolean;
+  /**
+   * The server's reading of which edge of its day a milestone sits on (#4079,
+   * web `Task.milestoneAtDayEnd`). When present the engine reads the milestone's
+   * instant from it; absent, it falls back to "follows work iff it has a
+   * predecessor in the subgraph", which is wrong for a milestone an SNET holds.
+   */
+  milestoneAtDayEnd?: boolean;
   name: string;
   /**
    * ADR-0132 §2: a completed task with recorded actuals is PINNED — the server
@@ -187,6 +194,8 @@ export interface PreviewTaskResult {
   isCritical: boolean;
   /** Signed calendar-day delta vs baseline earlyFinish. */
   deltaDays: number;
+  /** A live milestone the preview places at the END of its day (#4079). */
+  milestoneAtDayEnd?: boolean;
 }
 
 /** The most-impacted milestone in the subgraph. */

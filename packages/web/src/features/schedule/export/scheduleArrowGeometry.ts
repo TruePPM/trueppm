@@ -15,7 +15,7 @@
  * orthogonal routing with channel stagger is issues 1437/1440; this module owns the
  * stable endpoint contract those build on.
  */
-import { dateToLeft, dateToRight, type GanttScaleData } from '../engine';
+import { dateToLeft, dateToRight, milestoneX, type GanttScaleData } from '../engine';
 import type { SchedulePrintRow } from './schedulePrintData';
 
 /** Half-diagonal of a milestone diamond, so arrows anchor on its outer vertex. */
@@ -61,16 +61,20 @@ export interface BarBox {
 
 /**
  * Horizontal extent of a row's bar. A milestone (start === finish, drawn as a
- * diamond) is a point widened to its diamond half-diagonal; a normal bar runs
+ * diamond) is a point — its instant, see `milestoneX` — widened to its diamond
+ * half-diagonal; a normal bar runs
  * from `dateToLeft(start)` to the inclusive-finish right edge `dateToRight(finish)`.
  * Returns a zero-width extent at x=0 for an undated row.
  */
 export function barExtent(row: SchedulePrintRow, scales: GanttScaleData): BarExtent {
   if (!row.start) return { left: 0, right: 0 };
-  const left = dateToLeft(row.start, scales);
   if (row.isMilestone) {
-    return { left: left - MILESTONE_HALF_PX, right: left + MILESTONE_HALF_PX };
+    // Centered on the instant it sits on — the end of its day when it follows
+    // work (#4079), the same `milestoneX` the on-screen Gantt uses.
+    const cx = milestoneX(row.start, row.milestoneAtDayEnd, scales);
+    return { left: cx - MILESTONE_HALF_PX, right: cx + MILESTONE_HALF_PX };
   }
+  const left = dateToLeft(row.start, scales);
   const right = row.finish ? dateToRight(row.finish, scales) : left;
   return { left, right };
 }

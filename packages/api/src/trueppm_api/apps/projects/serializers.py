@@ -3175,6 +3175,15 @@ class ProgramScheduleTaskSerializer(serializers.Serializer[dict[str, Any]]):
     total_float_days = serializers.IntegerField(read_only=True, required=False)
     is_critical = serializers.BooleanField(read_only=True, allow_null=True)
     duration = serializers.IntegerField(read_only=True, required=False, allow_null=True)
+    milestone_at_day_end = serializers.BooleanField(
+        read_only=True,
+        required=False,
+        help_text=(
+            "Full branch only (#4079): True when a milestone sits at the END of its "
+            "early_start day (it follows work). Absent on a redacted row, which is "
+            "drawn at the start of its day."
+        ),
+    )
 
 
 class ProgramScheduleLinkSerializer(serializers.Serializer[dict[str, Any]]):
@@ -4096,6 +4105,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "total_float",
             "free_float",
             "is_critical",
+            "milestone_at_day_end",
             "is_milestone",
             "optimistic_duration",
             "most_likely_duration",
@@ -4205,6 +4215,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "total_float",
             "free_float",
             "is_critical",
+            "milestone_at_day_end",
             "baseline_start",
             "baseline_finish",
             "latest_note_at",

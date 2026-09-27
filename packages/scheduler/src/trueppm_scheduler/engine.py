@@ -1195,6 +1195,9 @@ def _forward_pass(
         # calendar). With no per-task calendars this is always ``calendar``.
         cal = calendar if task_calendars is None else task_calendars.get(node_id, calendar)
         start_base, start = _calendar_floors(cal, project_start, status_date, floors)
+        # Only a network-placed milestone can sit at the end of its day (#4079);
+        # reset first so an input carrying a previous run's value cannot leak.
+        task.milestone_at_day_end = False
 
         pinned = _pinned_placement(task, cal)
         if pinned is not None:
@@ -1210,6 +1213,8 @@ def _forward_pass(
             )
             task.early_start = task.early_finish = day
             instants[node_id] = instant
+            # ``start_display`` False = shown at the end of ``day`` (follows work).
+            task.milestone_at_day_end = not instant[1]
             task.scheduled_start = _compute_scheduled_start(task, cal)
             continue
 

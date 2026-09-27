@@ -434,12 +434,32 @@ const MS_PER_DAY = 86_400_000;
  * This is the exclusive right edge the resize/duration math already assumes
  * (`useScheduleCommit`: `duration = round((right − start) / day)`), so it is the
  * canonical right-edge utility for every non-milestone bar. Milestones
- * (start == finish, drawn as a diamond) never use it.
+ * (start == finish, drawn as a diamond) are placed by {@link milestoneX}.
  *
  * DST-safe: pure UTC-ms arithmetic on the same basis as {@link dateToLeft}.
  */
 export function dateToRight(finishIso: string, scales: GanttScaleData): number {
   return dateToLeft(finishIso, scales) + MS_PER_DAY * scales.pxPerMs;
+}
+
+/**
+ * Canvas x of a milestone diamond's CENTER (#4079) — the instant it sits on.
+ *
+ * A milestone's `start` is only the day it is shown on. One that follows work
+ * sits at the END of that day (`atDayEnd`), exactly where its predecessor's bar
+ * ends ({@link dateToRight}); one held by a floor sits at the start of it
+ * ({@link dateToLeft}). Drawing every diamond at the start of its day put a
+ * work-driven milestone on top of its predecessor's last day and made the FS
+ * arrow run backward. Every consumer that positions a diamond — the paint,
+ * the arrow anchors, the routing obstacles, the hit index, the focus ring, the
+ * print export — goes through this one function so they cannot disagree.
+ */
+export function milestoneX(
+  startIso: string,
+  atDayEnd: boolean | undefined,
+  scales: GanttScaleData,
+): number {
+  return atDayEnd ? dateToRight(startIso, scales) : dateToLeft(startIso, scales);
 }
 
 /**

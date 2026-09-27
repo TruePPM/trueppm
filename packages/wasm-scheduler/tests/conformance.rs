@@ -162,6 +162,18 @@ fn load_and_check(fixture_name: &str) {
             rt["scheduled_start"], et["scheduled_start"],
             "{fixture_name}/{task_id}: scheduled_start mismatch"
         );
+        // #4079: which end of its shown day a milestone sits on. Absent == false
+        // on both sides (the snapshot and TaskResult both omit a false value).
+        let flag = |v: &serde_json::Value| {
+            v.get("milestone_at_day_end")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+        };
+        assert_eq!(
+            flag(rt),
+            flag(et),
+            "{fixture_name}/{task_id}: milestone_at_day_end mismatch"
+        );
     }
 }
 

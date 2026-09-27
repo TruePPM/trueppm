@@ -186,6 +186,15 @@ export interface Task {
   isSummary: boolean;
   isMilestone: boolean;
   /**
+   * Which edge of its shown day a milestone's diamond sits on (#4079). The
+   * engine treats a milestone as an instant; {@link start} is only the day it is
+   * shown on. `true` = the END of that day (it follows work: `A(Mon..Fri) -FS->
+   * M` shows M at the close of Friday, right where A's bar ends); `false`/absent
+   * = the start of it (held by a floor). Read through `milestoneX`, never
+   * branched on ad hoc, so every x-position of a diamond agrees.
+   */
+  milestoneAtDayEnd?: boolean;
+  /**
    * Server-computed "phase" verdict (ADR-0293, epic #1752, #1753): a
    * non-subtask task with at least one structural (non-subtask) child.
    * Distinct from {@link isSummary} (true for ANY child, including a
@@ -1168,6 +1177,8 @@ export interface DragPreviewResult {
   isCritical: boolean;
   /** Signed calendar-day delta vs baseline earlyFinish (positive = slipping) */
   deltaDays: number;
+  /** A previewed milestone sits at the END of its day (#4079) — see `Task.milestoneAtDayEnd`. */
+  milestoneAtDayEnd?: boolean;
 }
 
 /** The most-impacted milestone — used to anchor the tooltip. */

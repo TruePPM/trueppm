@@ -48,6 +48,12 @@ export interface ProgramScheduleFullTask {
    * project schedule shows for the same task (render-don't-derive, ADR-0115).
    */
   duration: number;
+  /**
+   * #4079: the milestone sits at the END of its early_start day (it follows
+   * work). Full branch only; optional so a server predating it reads as the
+   * start of the day.
+   */
+  milestone_at_day_end?: boolean;
 }
 
 /**

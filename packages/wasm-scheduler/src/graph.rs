@@ -270,6 +270,7 @@ mod tests {
             late_start: None,
             late_finish: None,
             scheduled_start: None,
+            milestone_at_day_end: false,
             total_float: 0.0,
             free_float: 0.0,
             is_critical: false,

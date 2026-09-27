@@ -222,6 +222,70 @@ class TestMilestoneLinkTypes:
         assert by_id["S"].total_float == timedelta(days=4)
 
 
+class TestMilestoneAtDayEnd:
+    """``milestone_at_day_end`` tells a renderer which edge of the shown day (#4079).
+
+    ``early_start`` alone is ambiguous for a milestone: Friday may mean "end of
+    Friday" (after work) or "start of Friday" (a floor). The Gantt used to draw
+    every diamond at the start of its day, so a work-driven milestone overlapped
+    its predecessor's last day and the FS arrow pointed backward.
+    """
+
+    def test_fs_after_work_is_end_of_day(self) -> None:
+        by_id = _by_id(_project([_task("A", 5), _task("M", 0)], [_dep("A", "M")]))
+        assert by_id["M"].early_start == date(2026, 1, 9)
+        assert by_id["M"].milestone_at_day_end is True
+
+    def test_project_start_milestone_is_start_of_day(self) -> None:
+        by_id = _by_id(_project([_task("M", 0), _task("A", 1)], [_dep("M", "A")]))
+        assert by_id["M"].early_start == MON
+        assert by_id["M"].milestone_at_day_end is False
+
+    def test_ss_from_work_is_start_of_day(self) -> None:
+        by_id = _by_id(
+            _project([_task("A", 5), _task("M", 0)], [_dep("A", "M", DependencyType.SS)])
+        )
+        assert by_id["M"].milestone_at_day_end is False
+
+    def test_snet_floor_that_wins_is_start_of_day(self) -> None:
+        m = Task(id="M", name="M", duration=timedelta(0), planned_start=date(2026, 1, 12))
+        by_id = _by_id(_project([_task("A", 5), m], [_dep("A", "M")]))
+        assert by_id["M"].early_start == date(2026, 1, 12)
+        assert by_id["M"].milestone_at_day_end is False
+
+    def test_chained_milestones_inherit_end_of_day(self) -> None:
+        by_id = _by_id(
+            _project(
+                [_task("A", 5), _task("M1", 0), _task("M2", 0)],
+                [_dep("A", "M1"), _dep("M1", "M2")],
+            )
+        )
+        assert by_id["M1"].milestone_at_day_end is True
+        assert by_id["M2"].milestone_at_day_end is True
+
+    def test_work_and_pinned_milestones_are_never_flagged(self) -> None:
+        done = Task(
+            id="M",
+            name="M",
+            duration=timedelta(0),
+            actual_start=date(2026, 1, 9),
+            actual_finish=date(2026, 1, 9),
+            percent_complete=100.0,
+        )
+        by_id = _by_id(_project([_task("A", 5), done, _task("B", 1)], [_dep("A", "M")]))
+        assert not any(t.milestone_at_day_end for t in by_id.values())
+
+    def test_a_stale_input_value_is_overwritten(self) -> None:
+        stale = Task(id="M", name="M", duration=timedelta(0), milestone_at_day_end=True)
+        by_id = _by_id(_project([stale, _task("A", 1)], [_dep("M", "A")]))
+        assert by_id["M"].milestone_at_day_end is False
+
+    def test_round_trips_through_to_dict(self) -> None:
+        m = _by_id(_project([_task("A", 5), _task("M", 0)], [_dep("A", "M")]))["M"]
+        assert m.to_dict()["milestone_at_day_end"] is True
+        assert Task.from_dict(m.to_dict()).milestone_at_day_end is True
+
+
 # ---------------------------------------------------------------------------
 # Monte Carlo and the derivation graph follow the same convention
 # ---------------------------------------------------------------------------

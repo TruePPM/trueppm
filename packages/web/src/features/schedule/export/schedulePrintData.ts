@@ -58,6 +58,8 @@ export interface SchedulePrintRow {
   totalFloat: number | null;
   riskBand: SchedulePrintRiskBand;
   isMilestone: boolean;
+  /** A milestone sits at the END of its day (#4079); optional — absent reads as the start. */
+  milestoneAtDayEnd?: boolean;
   /** Met/pending for milestone rows; null for non-milestones. */
   milestoneMet: boolean | null;
 }
@@ -320,6 +322,7 @@ function toPrintRow(task: Task): SchedulePrintRow {
     totalFloat: task.totalFloat ?? null,
     riskBand: riskBandFor(task),
     isMilestone: task.isMilestone,
+    milestoneAtDayEnd: task.isMilestone && !!task.milestoneAtDayEnd,
     milestoneMet: task.isMilestone ? task.isComplete || task.progress >= 100 : null,
   };
 }

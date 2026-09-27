@@ -873,4 +873,40 @@ describe('runCpmForwardPass — zero-duration milestones are instants (#4079)', 
     );
     expect(results.find((r) => r.taskId === 'B')!.earlyStart).toBe('2026-01-12');
   });
+
+  it('reports which edge of its day each previewed milestone sits on', () => {
+    // M follows A: the end of its day. A dropped milestone is held by its new
+    // SNET: the start of it. The preview draws each where the commit will.
+    const tasks: CpmTask[] = [task('A', '2026-01-05', '2026-01-09'), milestone('M', '2026-01-09')];
+    const followed = runCpmForwardPass(tasks, [edge('A', 'M')], 'A', '2026-01-12');
+    expect(followed.results.find((r) => r.taskId === 'M')!.milestoneAtDayEnd).toBe(true);
+    const dropped = runCpmForwardPass([milestone('M', '2026-01-09')], [], 'M', '2026-01-14');
+    const m = dropped.results.find((r) => r.taskId === 'M')!;
+    expect(m.earlyStart).toBe('2026-01-14');
+    expect(m.milestoneAtDayEnd).toBe(false);
+    expect(followed.results.find((r) => r.taskId === 'A')!.milestoneAtDayEnd).toBe(false);
+  });
+
+  it("reads a milestone's instant from the server flag, not from its subgraph links", () => {
+    // M follows work OUTSIDE the subgraph (end of Fri 01-09, per the server), so
+    // its successor B may not start before Mon 01-12. Without the flag the
+    // engine would read M as floor-held — the start of Friday — and pull B onto
+    // Friday, a date the commit would never produce.
+    const tasks: CpmTask[] = [
+      task('A', '2026-01-05', '2026-01-05'),
+      { ...milestone('M', '2026-01-09'), milestoneAtDayEnd: true },
+      task('B', '2026-01-12', '2026-01-12'),
+    ];
+    const edges = [edge('A', 'B'), edge('M', 'B')];
+    const { results } = runCpmForwardPass(tasks, edges, 'A', '2026-01-05');
+    expect(results.find((r) => r.taskId === 'B')!.earlyStart).toBe('2026-01-12');
+    expect(results.find((r) => r.taskId === 'M')!.milestoneAtDayEnd).toBe(true);
+    const unflagged = runCpmForwardPass(
+      [tasks[0], milestone('M', '2026-01-09'), tasks[2]],
+      edges,
+      'A',
+      '2026-01-05',
+    );
+    expect(unflagged.results.find((r) => r.taskId === 'B')!.earlyStart).toBe('2026-01-09');
+  });
 });

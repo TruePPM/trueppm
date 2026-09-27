@@ -720,6 +720,9 @@ def _task_payload(
             "total_float_days": sched_task.total_float.days,
             "is_critical": sched_task.is_critical,
             "duration": db_task.duration,
+            # #4079: which edge of its shown day a milestone sits on, from the
+            # same merged pass as the dates above.
+            "milestone_at_day_end": bool(getattr(sched_task, "milestone_at_day_end", False)),
         }
     # Redacted — mirrors ExternalTaskCardSerializer's field set exactly so the two
     # cross-project read surfaces stay in lockstep. The text key here is ``title``

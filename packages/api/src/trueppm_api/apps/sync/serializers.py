@@ -180,6 +180,7 @@ class SyncTaskSerializer(serializers.ModelSerializer[Task]):
             "total_float",
             "free_float",
             "is_critical",
+            "milestone_at_day_end",
             "is_milestone",
             "actual_start",
             "actual_finish",

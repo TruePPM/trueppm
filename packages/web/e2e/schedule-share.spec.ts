@@ -122,6 +122,44 @@ test.describe('Public schedule share viewer', () => {
     await expect(page.getByRole('button', { name: /add|create|new task|edit/i })).toHaveCount(0);
   });
 
+  test('an end-of-day milestone sits where its predecessor bar ends (#4079)', async ({
+    page,
+  }) => {
+    await setupCatchAll(page);
+    // Scope sign-off follows Requirements baseline (finish 05-25): the engine
+    // places it at the END of 05-25, the instant that bar ends — not the start
+    // of 05-25, on top of the bar's last day.
+    const snapshot = {
+      ...SCHEDULE,
+      tasks: SCHEDULE.tasks.map((t) =>
+        t.is_milestone ? { ...t, milestone_at_day_end: true } : t,
+      ),
+      dependencies: [
+        ...SCHEDULE.dependencies,
+        { predecessor_short_id: 'ATLAS-2', successor_short_id: 'ATLAS-3', dep_type: 'FS', lag: 0 },
+      ],
+    };
+    await page.route(SHARE_URL, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(snapshot) }),
+    );
+    await page.goto('/share/schedule/tok123');
+
+    const bar = page.getByLabel('Requirements baseline, 70% complete');
+    await expect(bar).toBeVisible();
+    // The label still names the day it is shown on.
+    const label = page.getByText(/Scope sign-off · 25 May/);
+    await expect(label).toBeVisible();
+    // The diamond is the label's aria-hidden sibling, positioned at the same left.
+    const diamond = label.locator('xpath=preceding-sibling::span[1]');
+    const barBox = await bar.boundingBox();
+    const diamondBox = await diamond.boundingBox();
+    expect(barBox).not.toBeNull();
+    expect(diamondBox).not.toBeNull();
+    const barRight = barBox!.x + barBox!.width;
+    const diamondCenter = diamondBox!.x + diamondBox!.width / 2;
+    expect(Math.abs(diamondCenter - barRight)).toBeLessThanOrEqual(1.5);
+  });
+
   test('revoked/expired link shows the branded 410 page', async ({ page }) => {
     await page.route(SHARE_URL, (route) =>
       route.fulfill({

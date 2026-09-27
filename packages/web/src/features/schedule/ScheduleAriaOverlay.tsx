@@ -43,7 +43,7 @@ import {
 import type { DeliveryMode, Task, TaskLink } from '@/types';
 import { useDragStore } from '@/stores/dragStore';
 import type { GanttEngine } from './engine';
-import { dateToLeft, dateToRight } from './engine';
+import { dateToLeft, dateToRight, milestoneX } from './engine';
 import { BAR_HEIGHT } from './engine/GanttHitIndex';
 import { useRowMetrics } from '@/hooks/useRowHeight';
 import { sprintBandByTaskId, type EmptySprintWindow, type SprintBand } from './sprintBands';
@@ -620,12 +620,16 @@ export function ScheduleAriaOverlay({
           let barLeft = 0;
           let barWidth = 0;
           if (scales) {
-            barLeft = dateToLeft(task.start, scales) - (engine?.scrollLeft ?? 0);
+            // A milestone's ring sits on its diamond (#4079): the end of its day
+            // when it follows work, see `milestoneX`.
+            barLeft = task.isMilestone
+              ? milestoneX(task.start, task.milestoneAtDayEnd, scales) - (engine?.scrollLeft ?? 0)
+              : dateToLeft(task.start, scales) - (engine?.scrollLeft ?? 0);
             // finish is inclusive — match the canvas bar's true (exclusive) right
             // edge so the focus ring frames the whole bar (#950). Milestones
             // (start == finish, drawn as a diamond) keep their narrow ring.
             const barRight = task.isMilestone
-              ? dateToLeft(task.finish, scales) - (engine?.scrollLeft ?? 0)
+              ? barLeft
               : dateToRight(task.finish, scales) - (engine?.scrollLeft ?? 0);
             barWidth = Math.max(2, barRight - barLeft);
           }

@@ -129,6 +129,9 @@ function leafTask(task: ProgramScheduleTask, laneId: string): Task {
     isComplete: false,
     isSummary: false,
     isMilestone: task.is_milestone,
+    // #4079: only a full row carries it; a redacted one is drawn at the start
+    // of its day, as every milestone was before the field existed.
+    milestoneAtDayEnd: !task.is_external && task.is_milestone && !!task.milestone_at_day_end,
     isExternal: task.is_external,
     status: 'NOT_STARTED',
     assignees: [],
