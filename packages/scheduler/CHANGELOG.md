@@ -42,6 +42,12 @@ change between releases. Pin an exact version (e.g.
   docstring. Behavior change: schedules containing milestones finish earlier by
   one working day per milestone on the critical path.
 
+- **The test suite passes on Python 3.14 (#3787).**
+  `test_project_from_json_deep_nesting_message_is_exact` nested its payload
+  20,000 levels deep, which 3.14's JSON parser handles without overflowing, so
+  the test failed on 3.14 even though `Project.from_json` still refuses deeper
+  documents. The test now nests 1,000,000 levels. Library behavior is unchanged.
+
 ## [0.4.0b4] - 2026-09-23
 
 ### Fixed
