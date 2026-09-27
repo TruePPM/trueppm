@@ -305,7 +305,7 @@ auto-instrumentor, so they are registered as **observable gauges** in
 
 | Family | Instrument(s) | Source |
 |---|---|---|
-| HTTP request latency/count | `http.server.request.duration`, `http.server.active_requests` (semconv) | `DjangoInstrumentor` (meter provider now bound) |
+| HTTP request latency/count | `http.server.duration` (ms; old semconv name — `OTEL_SEMCONV_STABILITY_OPT_IN` is not set), `http.server.active_requests` (semconv) | `DjangoInstrumentor` (meter provider now bound) |
 | Celery task duration | `flower.task.runtime.seconds` | `CeleryInstrumentor` (meter provider now bound) |
 | Outbox depth/lag | `trueppm.outbox.depth` (attrs `trueppm.outbox.name`, `trueppm.outbox.state`), `trueppm.outbox.oldest_age_seconds` (attr `trueppm.outbox.name`) | Observable gauges over `ScheduleRequest` + `WorkflowOutboxRow` |
 | DB connection stats | `trueppm.db.connections` (attr `trueppm.db.state`) | Observable gauge over `pg_stat_activity` for the current database |
