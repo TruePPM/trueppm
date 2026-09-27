@@ -183,6 +183,14 @@ For any branch that fixes a bug, ask these three in order:
    Report the sweep's denominator: "checked N members of the set, M were affected." A fix
    with no stated denominator has not had this check.
 
+   **The inverse set: consumers of what you changed.** When the fix narrows, broadens or
+   moves a *shared* rule — a permission class, a gate, an engine semantic, a helper —
+   every caller that relied on the old behavior is a regression candidate, and none of
+   them appear in the diff. Narrowing `IsProgramNotClosed`'s destroy bypass (#4014)
+   silently blocked program-token revocation; moving milestones to end-of-day (#4079)
+   left every Gantt renderer drawing at start-of-day. Grep the rule's consumers and check
+   each, with the same denominator.
+
 2. **What guard should have caught this, and why didn't it?** There are three answers, and
    they need different fixes:
    - **No guard exists** → the fix is incomplete without one.
