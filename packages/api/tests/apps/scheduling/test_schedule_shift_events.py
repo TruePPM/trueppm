@@ -62,7 +62,7 @@ def test_suppress_movement_events_withholds_cpm_recalculated_only() -> None:
     old_dates = {
         str(moved_and_crossing.id): (date(2026, 1, 1), date(2026, 1, 8), None, None),
     }
-    baseline = {str(moved_and_crossing.id): ("b1", baseline_finish)}
+    baseline = {str(moved_and_crossing.id): ("b1", baseline_finish, False)}
 
     events = _build_schedule_shift_events(
         [moved_and_crossing], old_dates, baseline, suppress_movement_events=True
@@ -89,9 +89,9 @@ def test_baseline_drift_emitted_only_on_crossing() -> None:
         str(never.id): (None, date(2026, 1, 4), None, None),
     }
     baseline = {
-        str(crossing.id): ("b1", baseline_finish),
-        str(already.id): ("b1", baseline_finish),
-        str(never.id): ("b1", baseline_finish),
+        str(crossing.id): ("b1", baseline_finish, False),
+        str(already.id): ("b1", baseline_finish, False),
+        str(never.id): ("b1", baseline_finish, False),
     }
     events = _build_schedule_shift_events([crossing, already, never], old_dates, baseline)
     drift = [e for e in events if e.event_type == "baseline_drift_detected"]

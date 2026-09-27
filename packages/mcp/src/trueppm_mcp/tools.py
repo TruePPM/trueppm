@@ -266,7 +266,7 @@ def _mc_forecast_why(payload: Mapping[str, Any]) -> dict[str, Any]:
     segments: list[str] = []
     if p80 and cpm_finish and isinstance(premium, int):
         segments.append(
-            f"the P80 finish {p80} is {premium} working day(s) past the deterministic "
+            f"the P80 finish {p80} is {premium} calendar day(s) past the deterministic "
             f"CPM finish {cpm_finish}"
         )
     elif p80 and cpm_finish:
@@ -317,7 +317,7 @@ def _whatif_why(payload: Mapping[str, Any]) -> dict[str, Any]:
             segments.append("the P80 finish is unchanged")
         else:
             segments.append(
-                f"the P80 finish moves {abs(p80)} working day(s) "
+                f"the P80 finish moves {abs(p80)} calendar day(s) "
                 f"{'later' if p80 > 0 else 'earlier'}"
             )
     if changed is True:

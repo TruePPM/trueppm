@@ -70,6 +70,10 @@ def _make_milestone(
         is_milestone=True,
         early_finish=early_finish,
         early_start=early_finish,
+        # At the END of its day, as a milestone that follows work is: variance is
+        # then the plain shown-day difference. A start-of-day milestone is read in
+        # working time (#4197), which test_baseline_finish_reading.py pins.
+        milestone_at_day_end=True,
     )
 
 

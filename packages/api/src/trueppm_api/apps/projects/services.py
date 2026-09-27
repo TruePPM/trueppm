@@ -14,7 +14,7 @@ from __future__ import annotations
 import calendar
 import logging
 import uuid
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from functools import partial
@@ -1854,6 +1854,10 @@ def _milestone_slip_for_sprint(sprint: Any) -> dict[str, Any] | None:
     finish date for that milestone.
     """
     from trueppm_api.apps.projects.models import Baseline, BaselineTask
+    from trueppm_api.apps.scheduling.finish_reading import (
+        finish_shift_days,
+        task_finish_at_day_start,
+    )
 
     milestone = sprint.target_milestone
     if milestone is None or milestone.is_deleted:
@@ -1871,19 +1875,35 @@ def _milestone_slip_for_sprint(sprint: Any) -> dict[str, Any] | None:
         return None
     # .first() returns None both when there is no row and when the row's finish is
     # null — either way the slip is uncomputable and the line is hidden.
-    baseline_finish = (
+    baseline_row = (
         BaselineTask.objects.filter(baseline=active_baseline, task_id=milestone.pk)
-        .values_list("finish", flat=True)
+        .values_list("finish", "finish_at_day_start")
         .first()
     )
-    if baseline_finish is None:
+    baseline_finish = baseline_row[0] if baseline_row is not None else None
+    if baseline_row is None or baseline_finish is None:
         return None
+
+    # Measured in working time (#4197): a milestone baselined at the end of a
+    # Friday and now forecast at the start of the next Monday has not slipped. An
+    # actual finish is a recorded day, read as its end; a forecast carries the
+    # engine's edge of the day.
+    base = (baseline_finish, baseline_row[1])
+    forecast = (
+        forecast_finish,
+        False if milestone.actual_finish is not None else task_finish_at_day_start(milestone),
+    )
+    slip_days = finish_shift_days(
+        base,
+        forecast,
+        _project_sched_calendar(sprint.project_id) if (base[1] or forecast[1]) else None,
+    )
 
     return {
         "milestone_id": str(milestone.pk),
         "milestone_name": milestone.name,
         "milestone_short_id": f"T-{milestone.short_id}" if milestone.short_id else "",
-        "slip_days": (forecast_finish - baseline_finish).days,
+        "slip_days": slip_days,
         "baseline_finish": baseline_finish.isoformat(),
         "forecast_finish": forecast_finish.isoformat(),
         "basis": "actual" if milestone.actual_finish is not None else "forecast",
@@ -3580,8 +3600,42 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
     if not targeting:
         return None
     current_committed_by_sprint, live_completed_by_sprint = _sprint_rollup_aggregates(targeting)
+    calendars = _rollup_calendars([milestone], {milestone.pk: targeting})
     return _assemble_milestone_rollup(
-        milestone, targeting, current_committed_by_sprint, live_completed_by_sprint
+        milestone,
+        targeting,
+        current_committed_by_sprint,
+        live_completed_by_sprint,
+        calendars.get(str(milestone.project_id)),
+    )
+
+
+def _variance_needs_calendar(milestone: Any, targeting: list[Any]) -> bool:
+    """Whether the rollup's ``variance_days`` must be read in working time (#4197).
+
+    Only a start-of-day milestone finish differs between its shown day and its
+    working-time position; a sprint's ``finish_date`` is always the end of its
+    day. So an end-of-day milestone, or one with no ``early_finish`` or no
+    targeting sprint, diffs identically without a calendar — and the batch path
+    composes calendars only for the projects that actually need one.
+    """
+    from trueppm_api.apps.scheduling.finish_reading import task_finish_at_day_start
+
+    return (
+        bool(targeting)
+        and milestone.early_finish is not None
+        and task_finish_at_day_start(milestone)
+    )
+
+
+def _rollup_calendars(
+    milestones: list[Any], by_milestone: Mapping[Any, list[Any]]
+) -> dict[str, Any]:
+    """Composed calendars for every project whose milestone variance needs one, in one batch."""
+    from trueppm_api.apps.scheduling.calendars import project_sched_calendars
+
+    return project_sched_calendars(
+        m.project_id for m in milestones if _variance_needs_calendar(m, by_milestone.get(m.pk, []))
     )
 
 
@@ -3638,6 +3692,7 @@ def _assemble_milestone_rollup(
     targeting: list[Any],
     current_committed_by_sprint: dict[Any, int],
     live_completed_by_sprint: dict[Any, tuple[int, int]],
+    calendar: Any | None = None,
 ) -> dict[str, Any] | None:
     """Assemble a milestone rollup payload from pre-fetched per-sprint aggregates.
 
@@ -3645,7 +3700,19 @@ def _assemble_milestone_rollup(
     (single milestone) and ``batch_compute_milestone_rollups`` (page-batched, #999)
     so the two paths cannot drift. See ``compute_milestone_rollup_payload`` for the
     state-by-state contribution rules.
+
+    ``variance_days`` is measured in working time (#4197): a sprint ending on a
+    Friday and a milestone shown at the start of the following Monday are the same
+    point in working time, so their variance is 0, not -3. It stays a calendar-day
+    count. ``calendar`` is the milestone's project calendar, which the caller loads
+    only when :func:`_variance_needs_calendar` says so; without it the variance is
+    the shown-day difference, which is exact for an end-of-day milestone.
     """
+    from trueppm_api.apps.scheduling.finish_reading import (
+        finish_shift_days,
+        task_finish_at_day_start,
+    )
+
     if not targeting:
         return None
 
@@ -3654,7 +3721,12 @@ def _assemble_milestone_rollup(
 
     latest_finish = totals["latest_active_planned_finish"]
     variance_days = (
-        (latest_finish - milestone.early_finish).days
+        finish_shift_days(
+            (milestone.early_finish, task_finish_at_day_start(milestone)),
+            # A sprint's finish_date is the end of its last day.
+            (latest_finish, False),
+            calendar,
+        )
         if latest_finish is not None and milestone.early_finish is not None
         else None
     )
@@ -3834,6 +3906,9 @@ def batch_compute_milestone_rollups(milestones: Any) -> dict[Any, dict[str, Any]
         by_milestone[sprint.target_milestone_id].append(sprint)
 
     current_committed_by_sprint, live_completed_by_sprint = _sprint_rollup_aggregates(targeting)
+    # One batch for every project whose variance needs its calendar (#4197) —
+    # usually none (end-of-day milestones), at most one per distinct project.
+    calendars = _rollup_calendars(milestone_list, by_milestone)
 
     return {
         m.pk: _assemble_milestone_rollup(
@@ -3841,6 +3916,7 @@ def batch_compute_milestone_rollups(milestones: Any) -> dict[Any, dict[str, Any]
             by_milestone.get(m.pk, []),
             current_committed_by_sprint,
             live_completed_by_sprint,
+            calendars.get(str(m.project_id)),
         )
         for m in milestone_list
     }
@@ -3861,11 +3937,14 @@ def recompute_milestone_rollup(
     no longer exists or is not actually a milestone — caller handles silently.
     """
     from trueppm_api.apps.projects.models import Task
+    from trueppm_api.apps.scheduling.finish_reading import FINISH_READING_FIELDS
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
     milestone = (
         Task.objects.filter(pk=milestone_id, is_milestone=True, is_deleted=False)
-        .only("pk", "project_id", "early_finish")
+        # FINISH_READING_FIELDS: the rollup reads which edge of its day the
+        # milestone sits on (#4197); deferring them would cost a query each.
+        .only("pk", "project_id", "early_finish", *FINISH_READING_FIELDS)
         .first()
     )
     if milestone is None:
@@ -4261,16 +4340,9 @@ def _velocity_band_percentiles(
 
 def _project_sched_calendar(project_id: Any) -> Any:
     """The project's composed scheduler ``Calendar`` (``None`` if the project is gone)."""
-    from trueppm_api.apps.projects.models import Project
-    from trueppm_api.apps.scheduling.calendars import compose_project_calendar
+    from trueppm_api.apps.scheduling.calendars import project_sched_calendars
 
-    project = (
-        Project.objects.filter(pk=project_id)
-        .select_related("calendar")
-        .prefetch_related("calendar__exceptions", "calendar_layers__calendar__exceptions")
-        .first()
-    )
-    return compose_project_calendar(project) if project is not None else None
+    return project_sched_calendars([project_id]).get(str(project_id))
 
 
 def snapshot_finish_shift_days(prior: Any, latest: Any, calendar_for: Any) -> int | None:
