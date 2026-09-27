@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # check-package-licenses.sh — every separately-distributed package ships its own
-# license text (#2632).
+# license text (#2632), and every PyPI package also ships the repo-root
+# copyright notice (#4177).
 #
 # WHY THIS IS NOT COVERED BY THE EXISTING LICENSE JOBS
 #
@@ -18,7 +19,12 @@
 # Apache 2.0 §4(a) requires recipients of a distribution to receive a copy of the
 # License. The root LICENSE covers the monorepo, but it does not travel with a
 # separately-published artifact: a crates.io sdist, a PyPI wheel, a packaged Helm
-# chart, or an app binary each leave the repo on their own.
+# chart, or an app binary each leave the repo on their own. Apache 2.0 does not
+# strictly require a NOTICE, but a standalone PyPI package with no copyright
+# statement anywhere in it is an attribution-hygiene gap (#4177) — found on
+# trueppm-scheduler's published wheel/sdist, and trueppm-mcp and trueppm-api
+# carried the identical gap (trueppm-api shipped with neither LICENSE nor NOTICE
+# at all, since its pyproject.toml declared no `license-files`).
 #
 # THE DRIFT GUARD
 #
@@ -36,8 +42,9 @@
 # network, no toolchain, no installed dependency tree — so a fixture root of eight
 # empty directories and a stub LICENSE is a complete input to it.
 #
-# Exit:   0 every distributed package carries the root license text
-#         1 a missing LICENSE, a divergent LICENSE, or an unclassified package
+# Exit:   0 every distributed package carries the root license (and, for PyPI
+#           packages, NOTICE) text
+#         1 a missing/divergent LICENSE or NOTICE, or an unclassified package
 #         2 invocation error (ROOT is not a directory)
 
 set -euo pipefail
@@ -50,6 +57,10 @@ SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]
 DISTRIBUTED=(
   scheduler       # PyPI: trueppm-scheduler
   mcp             # PyPI: trueppm-mcp
+  api             # PyPI: trueppm-api (api:publish:pypi) — distinct from the
+                  # Docker image, which is bundled separately (Dockerfile
+                  # COPYs the root LICENSE); the PyPI wheel/sdist is its own
+                  # artifact and previously carried neither file (#4177)
   wasm-scheduler  # crates.io-publishable; compiled .wasm ships in the web bundle
   mobile          # app binary distributed to devices
   helm            # packaged chart tarball
@@ -58,9 +69,19 @@ DISTRIBUTED=(
 # Not separately distributed: these ship *inside* the API image or the docs site,
 # both of which carry the root LICENSE (packages/api/Dockerfile copies it).
 BUNDLED=(
-  api
   web
   website
+)
+
+# Subset of DISTRIBUTED that also carries the repo-root NOTICE (#4177): the
+# three PyPI packages, built with hatchling's `license-files` mechanism, which
+# packages both files into the wheel's .dist-info/licenses/ and the sdist root.
+# wasm-scheduler/mobile/helm are out of scope here — none of them is a hatchling
+# PyPI build, and nothing has audited whether they need the same treatment.
+NOTICE_REQUIRED=(
+  scheduler
+  mcp
+  api
 )
 
 if [[ "${1:-}" == "--self-test" ]]; then
@@ -89,16 +110,21 @@ if [[ "${1:-}" == "--self-test" ]]; then
     fi
   }
 
-  # A fixture root carrying the shape the gate reads: a root LICENSE, every
-  # DISTRIBUTED package with a byte-identical copy, every BUNDLED package present
-  # and deliberately without one.
+  # A fixture root carrying the shape the gate reads: a root LICENSE and NOTICE,
+  # every DISTRIBUTED package with a byte-identical LICENSE copy (and, for
+  # NOTICE_REQUIRED packages, a byte-identical NOTICE copy too), every BUNDLED
+  # package present and deliberately without either.
   st_fixture() { # <root>
     local root="$1" pkg
     printf 'Apache License 2.0 — self-test fixture, not the real license text.\n' \
       > "$root/LICENSE"
+    printf 'Copyright 2026 Self-Test — not the real notice text.\n' > "$root/NOTICE"
     for pkg in "${DISTRIBUTED[@]}"; do
       mkdir -p "$root/packages/$pkg"
       cp "$root/LICENSE" "$root/packages/$pkg/LICENSE"
+    done
+    for pkg in "${NOTICE_REQUIRED[@]}"; do
+      cp "$root/NOTICE" "$root/packages/$pkg/NOTICE"
     done
     for pkg in "${BUNDLED[@]}"; do
       mkdir -p "$root/packages/$pkg"
@@ -106,7 +132,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   }
 
   d="$st_tmp/clean"; mkdir -p "$d"; st_fixture "$d"
-  st_probe "every distributed package carries the root LICENSE" expect-pass "$d"
+  st_probe "every distributed package carries the root LICENSE and NOTICE" expect-pass "$d"
 
   # THE VIOLATION THIS GATE EXISTS FOR (#2632): a distributed package ships with
   # no license text, so the artifact leaves the repo without it.
@@ -120,6 +146,16 @@ if [[ "${1:-}" == "--self-test" ]]; then
   printf 'GNU General Public License v3.\n' > "$d/packages/mcp/LICENSE"
   st_probe "distributed package whose LICENSE diverges from the root" expect-fail "$d"
 
+  # THE VIOLATION THIS GATE EXISTS FOR (#4177): a PyPI package ships with no
+  # copyright notice, so the wheel/sdist carry no attribution at all.
+  d="$st_tmp/notice-removed"; mkdir -p "$d"; st_fixture "$d"
+  rm -f "$d/packages/api/NOTICE"
+  st_probe "PyPI package with its NOTICE removed" expect-fail "$d"
+
+  d="$st_tmp/notice-divergent"; mkdir -p "$d"; st_fixture "$d"
+  printf 'Copyright 1999 Somebody Else.\n' > "$d/packages/scheduler/NOTICE"
+  st_probe "PyPI package whose NOTICE diverges from the root" expect-fail "$d"
+
   # The drift guard, which is what keeps the two lists from going stale — the
   # failure mode that produced #2632 in the first place.
   d="$st_tmp/unclassified"; mkdir -p "$d"; st_fixture "$d"
@@ -132,6 +168,12 @@ if [[ "${1:-}" == "--self-test" ]]; then
   # LICENSE, so having none of its own is correct rather than overlooked.
   d="$st_tmp/bundled"; mkdir -p "$d"; st_fixture "$d"
   st_probe "bundled package with no LICENSE of its own" expect-pass "$d"
+
+  # A DISTRIBUTED package outside NOTICE_REQUIRED (e.g. wasm-scheduler) needs no
+  # NOTICE of its own — it is not a hatchling PyPI build, and that gap has not
+  # been audited (see the NOTICE_REQUIRED comment above).
+  d="$st_tmp/distributed-not-notice-required"; mkdir -p "$d"; st_fixture "$d"
+  st_probe "distributed non-PyPI package with no NOTICE of its own" expect-pass "$d"
 
   [[ $st_rc -eq 0 ]] && echo "SELF-TEST: all cases passed."
   exit "$st_rc"
@@ -161,6 +203,23 @@ for pkg in "${DISTRIBUTED[@]}"; do
   fi
 done
 
+# NOTICE (#4177): a standalone PyPI package with no copyright statement anywhere
+# in it is an attribution-hygiene gap, even though Apache 2.0 does not strictly
+# require it. Scoped to NOTICE_REQUIRED, not all of DISTRIBUTED — see that
+# array's comment.
+for pkg in "${NOTICE_REQUIRED[@]}"; do
+  if [[ ! -f "packages/$pkg/NOTICE" ]]; then
+    echo "ERROR: packages/$pkg is a PyPI package but has no NOTICE file." >&2
+    echo "       Its published wheel/sdist would carry no copyright statement." >&2
+    echo "       Fix: cp NOTICE packages/$pkg/NOTICE" >&2
+    fail=1
+  elif ! diff -q NOTICE "packages/$pkg/NOTICE" >/dev/null 2>&1; then
+    echo "ERROR: packages/$pkg/NOTICE differs from the root NOTICE." >&2
+    echo "       Every OSS package carries the same copyright text." >&2
+    fail=1
+  fi
+done
+
 # Drift guard: a package classified as neither is an unmade decision, not a pass.
 for dir in packages/*/; do
   pkg="$(basename "$dir")"
@@ -182,4 +241,4 @@ if [[ $fail -ne 0 ]]; then
   exit 1
 fi
 
-echo "package-license check passed (${#DISTRIBUTED[@]} distributed packages carry their own LICENSE)"
+echo "package-license check passed (${#DISTRIBUTED[@]} distributed packages carry their own LICENSE, ${#NOTICE_REQUIRED[@]} PyPI packages carry their own NOTICE)"

@@ -29,6 +29,18 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **A deterministic `monte_carlo()` now finishes on the CPM finish when a live
+  task's `actual_start` falls on non-working time (#4175).** `schedule()` keeps a
+  recorded start verbatim, even on a weekend or holiday, but Monte Carlo's
+  working-day index snapped an in-progress task's or milestone's start to the
+  next working day. A downstream calendar-day lag then landed on the other side of
+  a weekend, so a project with no uncertainty could simulate 2–3 working days
+  past its CPM finish. Monte Carlo now reads the recorded date for a live
+  milestone's instant, for SS successors, and for a milestone that is the project
+  finish. The `monte_carlo()` docstring's "at most one working day after" bound
+  (#2833) is replaced: with deterministic durations, every percentile equals
+  `schedule().project_finish`.
+
 - **A zero-duration milestone is an instant, not a one-day task (#4079).**
   `schedule()` gave every zero-duration task a working day of its own, so each
   milestone on a path delayed its successors by one working day, unlike MS Project
@@ -41,6 +53,19 @@ change between releases. Pin an exact version (e.g.
   finish. The convention is documented in the `trueppm_scheduler.engine` module
   docstring. Behavior change: schedules containing milestones finish earlier by
   one working day per milestone on the critical path.
+- **A lag landing a milestone on a weekend or holiday shows it at the next
+  working start (#4173).** The #4079 rule showed a milestone that follows work at
+  the end of the working day before its instant, even when non-working days lay
+  in between, while an SS link to the same working-time position showed the next
+  working day. So lengthening a predecessor could move a milestone, and
+  `project_finish`, from Monday back to Friday, and `monte_carlo()` could report
+  P50 before the CPM finish on a Finish-to-Start / Start-to-Start network. Such a
+  milestone now sits at the start of the next working day
+  (`milestone_at_day_end` is `False`), as MS Project places an elapsed lag that
+  ends on non-working time. A milestone whose predecessor finishes on a working
+  day is unchanged when it has no lag or its lag ends on a working day; one
+  following a recorded `actual_finish` on a non-working day now also shows at
+  the start of the next working day rather than the working day before it. The Rust/WASM engine moves with it.
 - **A long calendar exception no longer makes `schedule()` slow in proportion
   to the number of dependencies (#4161).** Every dependency edge snaps a date to
   a working day in the forward pass, the backward pass, and the free-float

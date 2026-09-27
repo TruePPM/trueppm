@@ -123,6 +123,10 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Which attempt produced the current `error`, so the email/password inputs are
+  // marked `aria-invalid` only when the credential the visitor typed was refused —
+  // a demo-sourced refusal says nothing about those (usually empty) fields (#4156).
+  const [errorSource, setErrorSource] = useState<'demo' | 'credentials' | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   // Multi-provider SSO (#2108, ADR-0517). The login screen renders a button per
   // *enabled* provider, discovered on mount (domain-level only — no account
@@ -167,9 +171,21 @@ export function LoginPage() {
    * and the demo's one-click "Explore the demo" (#4153), which posts the published
    * credential to the SAME endpoint — no demo-only auth path exists, so D2's
    * allowlist, D1's method fence and D6's throttles apply to it unchanged.
+   *
+   * `source` attributes a 401 to the attempt that produced it (#4156): the demo
+   * button submits a credential the visitor never typed, so blaming "your
+   * password" is wrong for that attempt specifically. It is a call argument, not
+   * component state, so there is nothing left over for a later, different-source
+   * attempt to misread — each call's catch block only ever sees its own source.
    */
-  async function signIn(username: string, pass: string, remember: boolean) {
+  async function signIn(
+    username: string,
+    pass: string,
+    remember: boolean,
+    source: 'demo' | 'credentials',
+  ) {
     setError(null);
+    setErrorSource(null);
     setIsSubmitting(true);
 
     try {
@@ -202,14 +218,25 @@ export function LoginPage() {
       void navigate(loginRedirectDest(next, landingPath), { replace: true });
     } catch (err: unknown) {
       if (axios.isAxiosError(err) && err.response?.status === 401) {
-        // Name BOTH identifiers the server actually checks (#3468). The field is
-        // labeled Email because that is what an invited user has in hand, but the
-        // token endpoint matches the username first and falls back to the email —
-        // so a refusal that mentions only "email" sends the one user who signs in
-        // with a username away from the identifier that would have worked.
-        setError('Invalid email or password. You can also sign in with your username.');
+        if (source === 'demo') {
+          // The shared demo credential is only ever refused when a sample reset
+          // (#4152) is mid-cycle — the visitor typed nothing, so "Invalid email or
+          // password" would blame them for a credential they never entered. Say
+          // what actually happened and what to do about it.
+          setError('The demo is resetting. Wait a minute, then try Explore the demo again.');
+          setErrorSource('demo');
+        } else {
+          // Name BOTH identifiers the server actually checks (#3468). The field is
+          // labeled Email because that is what an invited user has in hand, but the
+          // token endpoint matches the username first and falls back to the email —
+          // so a refusal that mentions only "email" sends the one user who signs in
+          // with a username away from the identifier that would have worked.
+          setError('Invalid email or password. You can also sign in with your username.');
+          setErrorSource('credentials');
+        }
       } else {
         setError('An unexpected error occurred. Please try again.');
+        setErrorSource(source);
       }
     } finally {
       setIsSubmitting(false);
@@ -219,7 +246,7 @@ export function LoginPage() {
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    void signIn(email, password, rememberMe);
+    void signIn(email, password, rememberMe, 'credentials');
   }
 
   /**
@@ -230,7 +257,7 @@ export function LoginPage() {
   function exploreDemo() {
     if (!demoHint) return;
     setDemoSigningIn(true);
-    void signIn(demoHint.username, demoHint.password, false);
+    void signIn(demoHint.username, demoHint.password, false, 'demo');
   }
 
   /**
@@ -314,7 +341,7 @@ export function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={isSubmitting}
-              aria-invalid={error !== null}
+              aria-invalid={error !== null && errorSource === 'credentials'}
               aria-describedby={error !== null ? errorId : undefined}
               placeholder="anna.khoury@example.com"
               className="
@@ -343,7 +370,7 @@ export function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={isSubmitting}
-              aria-invalid={error !== null}
+              aria-invalid={error !== null && errorSource === 'credentials'}
               aria-describedby={error !== null ? errorId : undefined}
               className="
                 h-10 px-3 rounded border border-neutral-border

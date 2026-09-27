@@ -77,6 +77,23 @@ pub(crate) fn instant_day(
     }
 }
 
+/// Whether an instant proposed by a start-anchored link reads as a day start.
+///
+/// An end-of-day reading names the end of the working day before the instant,
+/// which only exists when that day is a working day; an instant just after
+/// non-working time (Sunday or Monday midnight, after a weekend) is shown at the
+/// start of the next working day, as MS Project snaps an elapsed lag there. This
+/// keeps the shown day monotone in the instant, so a longer predecessor can never
+/// show a milestone a working day earlier (#4173). Mirrors the Python
+/// `_start_reading`.
+pub(crate) fn start_reading(
+    instant: NaiveDate,
+    start_display: bool,
+    cal: &Calendar,
+) -> Result<bool, String> {
+    Ok(start_display || !cal.is_working_day(checked_offset_days(instant, -1)?))
+}
+
 /// Place a zero-duration task as an instant: `((instant, start_display), day)`.
 ///
 /// Every floor and incoming link proposes a raw midnight and the latest wins, a
@@ -84,7 +101,9 @@ pub(crate) fn instant_day(
 /// its verbatim day on a tie). Floors propose the start of their day; FS/SS links
 /// propose `anchor + lag`, shown at the end of the previous working day after FS
 /// from work, at the start of the day after SS from work, and as the predecessor
-/// is shown after another milestone; FF/SF links propose the end of the finish day
+/// is shown after another milestone — except that an instant just after
+/// non-working time is always shown at the start of the next working day
+/// ([`start_reading`], #4173); FF/SF links propose the end of the finish day
 /// `next_wd(anchor + lag)`. Mirrors the Python `_place_milestone` (#4079).
 fn place_milestone(
     idx: NodeIndex,
@@ -118,10 +137,14 @@ fn place_milestone(
         )?;
         let raw = checked_offset_days(anchor, dep.lag_days())?;
         if start_anchored(dep.dep_type) {
-            let start_display = match pred_instant {
-                Some(i) => i.1,
-                None => dep.dep_type == DependencyType::SS,
-            };
+            let start_display = start_reading(
+                raw,
+                match pred_instant {
+                    Some(i) => i.1,
+                    None => dep.dep_type == DependencyType::SS,
+                },
+                cal,
+            )?;
             offer((raw, start_display, instant_day(raw, start_display, cal)?));
         } else {
             let finish_day = next_working_day(raw, cal)?;

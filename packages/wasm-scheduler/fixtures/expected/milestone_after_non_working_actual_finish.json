@@ -1,0 +1,56 @@
+{
+  "project_id": "p-milestone-after-non-working-actual-finish",
+  "project_start": "2026-01-07",
+  "project_finish": "2026-01-12",
+  "tasks": [
+    {
+      "id": "A",
+      "early_start": "2026-01-07",
+      "early_finish": "2026-01-10",
+      "late_start": "2026-01-07",
+      "late_finish": "2026-01-10",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-01-07"
+    },
+    {
+      "id": "M",
+      "early_start": "2026-01-12",
+      "early_finish": "2026-01-12",
+      "late_start": "2026-01-12",
+      "late_finish": "2026-01-12",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-12"
+    },
+    {
+      "id": "B",
+      "early_start": "2026-01-12",
+      "early_finish": "2026-01-12",
+      "late_start": "2026-01-12",
+      "late_finish": "2026-01-12",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-12"
+    }
+  ],
+  "critical_path": [
+    "M",
+    "B"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "A",
+      "successor_id": "M",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "M",
+      "successor_id": "B",
+      "dep_type": "FS"
+    }
+  ]
+}

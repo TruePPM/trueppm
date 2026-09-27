@@ -575,7 +575,7 @@ describe('LoginPage — read-only demo (ADR-1197 D3, #3926)', () => {
     expect(useAuthStore.getState().accessToken).toBe('demo-access');
   });
 
-  it('a refused demo sign-in shows the existing error and stays on the page', async () => {
+  it('a refused demo sign-in shows demo-specific copy, not the credential error (#4156)', async () => {
     const user = userEvent.setup();
     mockedAxios.post.mockRejectedValueOnce(
       Object.assign(new Error('Unauthorized'), {
@@ -589,12 +589,56 @@ describe('LoginPage — read-only demo (ADR-1197 D3, #3926)', () => {
     const explore = await screen.findByRole('button', { name: 'Explore the demo' });
     await user.click(explore);
 
+    // The visitor never typed a credential, so the copy must not blame one.
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Invalid email or password. You can also sign in with your username.',
+      'The demo is resetting. Wait a minute, then try Explore the demo again.',
     );
+    expect(screen.queryByText(/Invalid email or password/)).toBeNull();
     expect(mockNavigate).not.toHaveBeenCalled();
     // Re-enabled, so the visitor can try again.
     expect(explore).toBeEnabled();
     expect(explore).toHaveTextContent('Explore the demo');
+    // The (empty) email/password fields are not the visitor's fault here — a demo
+    // refusal must not mark them aria-invalid the way a real credential refusal does.
+    expect(screen.getByLabelText('Email')).toHaveAttribute('aria-invalid', 'false');
+    expect(screen.getByLabelText('Password')).toHaveAttribute('aria-invalid', 'false');
+  });
+
+  it('a manual sign-in after a refused demo attempt shows the credential copy, not the demo message (#4156)', async () => {
+    // Guards the trap this issue calls out by name: a shared mutation must not let
+    // one attempt's refusal bleed into a differently-sourced attempt. First the
+    // demo button fails (its own 401), then the visitor types their own credentials
+    // and fails too — that second alert must read as a credential refusal, not a
+    // stale "demo is resetting" left over from the first attempt.
+    const user = userEvent.setup();
+    mockedAxios.post.mockRejectedValueOnce(
+      Object.assign(new Error('Unauthorized'), {
+        isAxiosError: true,
+        response: { status: 401 },
+      }),
+    );
+    vi.spyOn(axios, 'isAxiosError').mockReturnValue(true);
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+
+    const explore = await screen.findByRole('button', { name: 'Explore the demo' });
+    await user.click(explore);
+    expect(await screen.findByRole('alert')).toHaveTextContent('The demo is resetting');
+
+    mockedAxios.post.mockRejectedValueOnce(
+      Object.assign(new Error('Unauthorized'), {
+        isAxiosError: true,
+        response: { status: 401 },
+      }),
+    );
+    await user.type(screen.getByLabelText('Email'), 'anna@example.com');
+    await user.type(screen.getByLabelText('Password'), 'wrong');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Invalid email or password. You can also sign in with your username.',
+      );
+    });
+    expect(screen.queryByText(/The demo is resetting/)).toBeNull();
   });
 });

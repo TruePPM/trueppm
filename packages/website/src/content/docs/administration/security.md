@@ -734,6 +734,20 @@ and [SBOM](#sbom-software-bill-of-materials) below for exactly what each
 covers — `trueppm-api`'s PyPI package is signed but does not carry a
 CycloneDX SBOM.
 
+### Reproducible dependency resolution
+
+The `api` image's Python dependencies are installed from a hash-verified
+export of `packages/api/uv.lock` — the same lockfile CI tests against —
+rather than a fresh resolution against PyPI at build time. Building the same
+commit weeks apart therefore produces the same package versions every time.
+The `trueppm-scheduler` package is the one exception: it is built from this
+image's own copy of `packages/scheduler`'s source, not resolved from the
+lock, so the engine you get always matches the commit the image was built
+from. The image carries the resolved set it installed from at
+`/app/requirements-locked.txt` for anyone auditing a running container, and
+CI's `api:image-lock-check` job fails the merge request if a future change
+ever lets the installed set drift from the lock again.
+
 ### Vulnerability scanning
 
 [Trivy](https://trivy.dev) scans the `api` and `web` images and **fails the
