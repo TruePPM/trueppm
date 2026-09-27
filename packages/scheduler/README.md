@@ -18,7 +18,7 @@ It's pure Python with just `networkx` and `numpy` underneath — no Django, no w
 
 - **Real scheduling semantics, not a toy.** All four dependency types (finish-to-start, start-to-start, finish-to-finish, start-to-finish) with lead/lag on every link — most lightweight schedulers only do finish-to-start, which cannot express an overlap or a wait without faking it with a dummy task.
 - **Working-time aware.** A built-in working-day calendar skips weekends and honors holiday exceptions, so durations resolve to real delivery dates.
-- **Risk forecasting built in.** PERT-Beta Monte Carlo, numpy-vectorized at ~10k runs/sec — the difference between "due March 3" and "70% likely by March 3, 95% by March 14."
+- **Risk forecasting built in.** PERT-Beta Monte Carlo (a Beta moment-fitted to the classic PERT mean and σ = (P − O)/6 — see [Conventions](#conventions)), numpy-vectorized at ~10k runs/sec — the difference between "due March 3" and "70% likely by March 3, 95% by March 14."
 - **Fails loud on bad input.** Cycle detection that names the offending task IDs, plus up-front validation of durations, lag, and project span — no silent wrong answers, no spinning on a degenerate graph.
 - **Embeds anywhere.** Two dependencies, no framework. Serialize a plan to JSON, schedule it, and read back structured results.
 
@@ -26,7 +26,7 @@ It's pure Python with just `networkx` and `numpy` underneath — no Django, no w
 
 - Forward/backward CPM pass with all four dependency types (FS, SS, FF, SF), total/free float, and critical-path flagging
 - Calendar-aware working-day arithmetic (weekend skip + holiday exceptions), with optional per-task calendars for mixed-team schedules
-- Monte Carlo schedule-risk simulation via PERT-Beta distributions (numpy-vectorized, ~10k runs/sec) → P50/P80/P95 completion dates
+- Monte Carlo schedule-risk simulation via PERT-Beta distributions — method-of-moments fit to the classic PERT mean and σ = (P − O)/6, not the λ=4 Beta-PERT (numpy-vectorized, ~10k runs/sec) → P50/P80/P95 completion dates
 - Hybrid agile/waterfall forecasting — mark a task `delivery_mode=SCRUM` with a `story_points` estimate and Monte Carlo samples its duration from the team's own velocity history instead of a per-task PERT guess, so a project can mix sprint-delivered and traditionally-estimated work in one simulation
 - Explainable results — `derive_value()` answers "why is this date what it is?" for any early/late/float value, naming the exact predecessor, dependency type, and lag that won, plus every constraint it beat
 - JSON round-tripping for plans (`Project.from_json()` / `Project.to_json()`)
@@ -236,6 +236,47 @@ The same framing, with the underlying math, is in
 > recompute) implements the deterministic CPM pass only — there is no
 > probabilistic path there to keep in conformance.
 
+## Conventions
+
+Every modeling rule the engine commits to, one line each, with the issue or ADR
+that decided it. **Differs** marks the rules where a schedule built in MS Project
+or Primavera P6 can come out differently here; everything else follows their
+convention. The same list, with the comparison spelled out, is on
+[Scheduler Conventions](https://docs.trueppm.com/features/scheduler-conventions/).
+
+**Units and calendars**
+
+- Durations and three-point estimates count **working days**, in **whole days only**; a sub-day duration or lag raises `InvalidScheduleInput`. **Differs** — both tools schedule in hours. ([#826](https://gitlab.com/trueppm/trueppm/-/issues/826))
+- `Calendar.hours_per_day` and `Calendar.timezone` are **inert** — they round-trip and change no date. **Differs.** ([#4131](https://gitlab.com/trueppm/trueppm/-/issues/4131))
+- Lag counts **calendar days**; the resulting date snaps to the successor's next working day (previous, for a lead). **Differs** — MS Project and P6 count lag in working time by default. ([#2534](https://gitlab.com/trueppm/trueppm/-/issues/2534); open question [#2535](https://gitlab.com/trueppm/trueppm/-/issues/2535))
+- Per-task calendars: duration expands on the task's own calendar, lag is consumed on the successor's. ([ADR-0120](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0120-cross-project-dependencies-within-program.md))
+
+**Links and constraints**
+
+- An **FF/SF**-driven task stays contiguous and right-aligned on its pinned finish, so its start moves back — the MS Project convention. Consequence: CPM is non-monotone in duration on an FF/SF network (a longer task can start earlier). ([#3806](https://gitlab.com/trueppm/trueppm/-/issues/3806), decided: keep)
+- An **SF** link finishes the successor at the start of the predecessor's start day — with zero lag, its last working day is the day before. ([#4145](https://gitlab.com/trueppm/trueppm/-/issues/4145))
+- A zero-duration **milestone** is an instant: at the end of its driver's finish day, or the start of the day a floor holds it to. ([#4079](https://gitlab.com/trueppm/trueppm/-/issues/4079))
+- The **only** date constraint is start-no-earlier-than, via `planned_start`; `planned_finish` is reserved and inert — no deadline, finish, must-start-on or ALAP constraint. **Differs.** ([#3345](https://gitlab.com/trueppm/trueppm/-/issues/3345), [#804](https://gitlab.com/trueppm/trueppm/-/issues/804))
+- An **SS or SF link from a summary task** is rejected (FS/FF from a summary expand to its leaves). **Differs** — MS Project accepts it. ([ADR-0370](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0370-reject-ss-sf-from-summary-tasks.md))
+
+**Progress and actuals**
+
+- A **completed** task (`actual_finish` set, or 100%) is pinned to its recorded dates verbatim — even on a non-working day — and is never re-sampled. ([ADR-0136](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0136-completed-task-full-duration-span.md))
+- An **in-progress** task schedules its remaining `duration − floor(duration × pct / 100)` working days forward from the data date (`status_date`), floored at its unsnapped `actual_start`. ([ADR-0132](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0132-data-date-aware-progress-forecasting.md))
+
+**Float and output**
+
+- `is_critical` is exactly `total_float == 0`; total float is the working days from early to late start.
+- `free_float` inverts the forward constraint across **all four** link types, capped at total float; no live successor → total float. ([#1828](https://gitlab.com/trueppm/trueppm/-/issues/1828))
+- The order of `ScheduleResult.tasks` is **unspecified** — look tasks up by `id`. ([#1862](https://gitlab.com/trueppm/trueppm/-/issues/1862))
+
+**Monte Carlo**
+
+- Three-point estimates sample a Beta **fitted by method of moments to the classic PERT mean `(O + 4M + P) / 6` and σ = `(P − O) / 6`** — not the λ=4 Beta-PERT. Same mean; on a symmetric estimate the band is ~12% narrower (P80/P95 slightly earlier), on one whose mode sits at an end it is wider. **Differs** from @RISK's default. ([#4133](https://gitlab.com/trueppm/trueppm/-/issues/4133))
+- Every sampled duration is **floored at `Task.duration`** — the optimistic tail below the plan is not expressed. **Differs** — risk tools sample the whole estimate. ([#3765](https://gitlab.com/trueppm/trueppm/-/issues/3765))
+- "Never before the CPM finish" holds **only on FS/SS-only networks**; on an FF/SF network a percentile can land earlier, because CPM itself is non-monotone there. ([#3806](https://gitlab.com/trueppm/trueppm/-/issues/3806))
+- A fixed `seed` reproduces P50/P80/P95 on the **same numpy and `trueppm-scheduler` versions** — see [Reproducibility](#reproducibility-seeded-runs). ([#4099](https://gitlab.com/trueppm/trueppm/-/issues/4099))
+
 ## Errors and input limits
 
 Every exception the engine *documents* raising subclasses `ValueError` (via the
@@ -322,9 +363,18 @@ which also ships inside the wheel.
 ### Reproducibility (seeded runs)
 
 Monte Carlo simulation is **reproducible for a fixed seed**: the same `seed`
-always yields the same P50/P80/P95 forecast for the same input. This is a
-supported, tested property you can rely on for reproducible reports and
-regression baselines — not an implementation detail.
+always yields the same P50/P80/P95 forecast for the same input, **on the same
+numpy version and the same `trueppm-scheduler` version**. Within that envelope
+this is a supported, tested property you can rely on for reproducible reports
+and regression baselines — not an implementation detail.
+
+Outside it, it is not promised. The dependency range is `numpy>=1.26,<3`, and
+numpy guarantees a `Generator`'s random stream (`Generator.beta` included) only
+within one release ([NEP 19](https://numpy.org/neps/nep-0019-rng-policy.html)),
+so upgrading numpy can move seeded percentiles. A `trueppm-scheduler` release
+can move them too — a sampling fix or a change to the order tasks are sampled
+in is recorded in the changelog. If a seeded baseline must stay bit-identical,
+pin both packages alongside the seed.
 
 This is a statement about *repeatability of the sampling*, not about the shape
 of the answer — a seeded Monte Carlo run still returns a probability

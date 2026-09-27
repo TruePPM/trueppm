@@ -42,6 +42,28 @@ change between releases. Pin an exact version (e.g.
   docstring. Behavior change: schedules containing milestones finish earlier by
   one working day per milestone on the critical path.
 
+### Documentation
+
+- **Conventions reference (#4136).** The README gains a *Conventions* section
+  listing every modeling rule the engine commits to — lag units, the constraint
+  set, FF/SF placement, progress rules, float definitions, the sampling
+  distribution — each linked to the issue or ADR that decided it, with the rules
+  that differ from MS Project / Primavera P6 marked.
+- **PERT shape named (#4133).** `_sample_pert` and `monte_carlo()` now state the
+  convention: a Beta fitted by method of moments to the classic PERT mean and
+  `(p − o) / 6` standard deviation, not the λ=4 Beta-PERT. No sampling change.
+- **Seed reproducibility scoped (#4099).** A fixed `seed` reproduces P50/P80/P95
+  on the same numpy and `trueppm-scheduler` versions; numpy does not promise its
+  random streams across releases.
+- **FF/SF convention decided (#3806).** An FF/SF-driven task stays contiguous and
+  right-aligned on its pinned finish (the MS Project convention), so the
+  "never earlier than CPM" guarantee holds on FS/SS-only networks. No engine
+  change.
+- **Timing claim corrected (#3859).** `monte_carlo()`'s docstring said 10,000 runs
+  on a 200-task project took "well under 100 ms"; measured, it is about 60–100 ms
+  on a current laptop CPU and more on a CI runner. A loose benchmark in
+  `tests/test_bench.py` now keeps the figure from drifting.
+
 ## [0.4.0b4] - 2026-09-23
 
 ### Fixed

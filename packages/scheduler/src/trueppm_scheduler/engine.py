@@ -3071,7 +3071,15 @@ def _sample_pert(
 ) -> np.ndarray:
     """Sample n durations from a PERT-Beta distribution.
 
-    The PERT distribution is a Beta distribution scaled to [opt, pess].
+    The convention is a Beta scaled to [opt, pess] and **fitted by method of
+    moments to the classic PERT mean ``(opt + 4*ml + pess) / 6`` and standard
+    deviation ``(pess - opt) / 6``** — not the lambda=4 Beta-PERT of Vose / @RISK
+    (``alpha = 1 + 4(ml - opt)/(pess - opt)``). Both share the mean; the spread
+    differs. On a symmetric triple this fit is ~12% tighter than lambda=4 (so its
+    P80/P95 land slightly earlier); on a triple whose mode sits at an end it is
+    wider (#4133). Switching conventions would move every seeded percentile, so it
+    is a semantics change with a migration, not a bugfix.
+
     When opt == pess (degenerate task), returns the constant value.
     When estimates are missing, falls back to ml.
     """
@@ -4557,7 +4565,11 @@ def monte_carlo(
        sprint-delivered work contributes real velocity-driven risk to a mixed-mode
        schedule rather than being invisible to the simulation.
     2. **Three-point PERT** — a task with all of (optimistic, most_likely,
-       pessimistic) set samples from a PERT-Beta distribution.
+       pessimistic) set samples from a PERT-Beta distribution: a Beta fitted by
+       method of moments to the classic PERT mean ``(o + 4m + p) / 6`` and
+       standard deviation ``(p - o) / 6``, **not** the lambda=4 Beta-PERT of
+       @RISK / Vose (#4133). On a symmetric estimate its band is slightly
+       narrower than lambda=4's (see :func:`_sample_pert`).
     3. **Deterministic** — any other task uses its fixed ``duration`` every run.
 
     A mixed project (scrum subtree + waterfall tasks) therefore produces a single
@@ -4616,8 +4628,13 @@ def monte_carlo(
        scenario — measured at ~0.5% of random projects, all FF-carrying.
        ``test_monte_carlo_never_precedes_cpm`` in ``tests/test_contract_fuzz.py``
        scopes its finish-level assertion to FS/SS-only networks for exactly this
-       reason. Whether the FF/SF convention itself should change is tracked
-       separately in #3806 — a semantics decision for both engines, not a bugfix.
+       reason. This is a **decided convention**, not an open defect (#3806): an
+       FF/SF-driven task stays contiguous and right-aligned on its pinned finish,
+       as MS Project renders it, in both this engine and the Rust/WASM engine.
+       The alternative — start the task early and let the link push only its
+       finish — would restore monotonicity at the cost of a start-to-finish span
+       longer than the task's duration, which every downstream consumer (bar
+       rendering, float, Monte Carlo's offset space) reads as the duration.
 
     Per-task calendars (ADR-0120 D3) are honored, on the same rule
     :func:`schedule` applies: a task's duration expands on its own calendar, and
@@ -4628,12 +4645,15 @@ def monte_carlo(
     weeks are not otherwise comparable. A program-scoped project whose member
     projects each keep their own working week therefore gets a probabilistic band
     that agrees with its deterministic finish, rather than being refused (#1385).
-    Computation is vectorised with numpy:
-    10 000 runs on a 200-task project completes in well under 100 ms, so the
-    library imposes **no** run or task cap by default — ``monte_carlo(project,
-    runs=10_000)`` simulates as written. The ``max_runs`` / ``max_tasks`` knobs
-    exist for an *embedding* layer that needs to bound work on a synchronous
-    request path (the TruePPM API passes its own caps and returns
+    Computation is vectorised with numpy: 10 000 runs on a 200-task project
+    takes about 60-100 ms on a current laptop CPU (measured on Apple Silicon,
+    numpy 2.4, 2026-09: 63 ms for a PERT chain, 88 ms for a network mixing all
+    four link types with lag) and more on a shared CI runner or an older server
+    — ``tests/test_bench.py`` holds it under a 2 s regression tripwire, not the
+    laptop figure (#3859). So the library imposes **no** run or task cap by
+    default — ``monte_carlo(project, runs=10_000)`` simulates as written. The
+    ``max_runs`` / ``max_tasks`` knobs exist for an *embedding* layer that needs
+    to bound work on a synchronous request path (the TruePPM API passes its own caps and returns
     ``SimulationCapExceeded`` as a 402); a standalone caller leaves them ``None``.
 
     Args:
@@ -4642,7 +4662,11 @@ def monte_carlo(
         runs:      Number of Monte Carlo iterations. Default 1 000.
         seed:      Optional RNG seed for reproducibility. With a fixed seed the
                    sampled durations — and therefore P50/P80/P95 — are
-                   deterministic and independent of task insertion order.
+                   deterministic and independent of task insertion order, **for
+                   the same numpy version and the same trueppm-scheduler
+                   version**. numpy only guarantees a ``Generator``'s stream
+                   (``Generator.beta`` included) within one release (NEP 19), so
+                   upgrading numpy can move seeded percentiles (#4099).
         max_runs:  Maximum allowed value for ``runs``, or ``None`` for no cap.
                    Default ``None`` — the library does not cap by itself; an
                    embedding layer (e.g. the TruePPM API) passes its own value.

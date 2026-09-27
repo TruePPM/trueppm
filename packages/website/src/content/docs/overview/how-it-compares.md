@@ -76,10 +76,12 @@ every run, across all four dependency types, so paths trade places between runs 
 bias lands in the percentiles.
 
 That is a real, checkable difference, and it is the claim we will defend — not "LibrePlan
-does not have Monte Carlo," which is false. Nor is ours settled: a TruePPM percentile can
-still land before the CPM finish on a network carrying a Finish-to-Finish or
-Start-to-Finish edge, and the risk register does not yet feed the forecast. Both are open
-and written up under [Known issues](/overview/known-issues/).
+does not have Monte Carlo," which is false. Nor is ours without limits: the risk
+register does not yet feed the forecast, which is open and written up under
+[Known issues](/overview/known-issues/). And a TruePPM percentile can land before the CPM
+finish on a network carrying a Finish-to-Finish or Start-to-Finish edge — a consequence
+of keeping MS Project's placement of FF/SF-driven tasks, documented with the engine's
+other modeling choices under [Scheduler Conventions](/features/scheduler-conventions/).
 
 **The agile/waterfall split is a real fork, and most tools pick a side.** Plane and
 Taiga are agile-only; LibrePlan, ProjectLibre and GanttProject are schedule-only. OpenProject

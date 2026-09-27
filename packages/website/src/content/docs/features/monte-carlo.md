@@ -101,8 +101,8 @@ Content-Type: application/json
 
 The `n_simulations` field is optional; it defaults to the server's
 `MC_SIMULATION_CAP` setting (1,000 on OSS; operators can raise it). The
-endpoint is synchronous and fast — under 100 ms for a 200-task project at 10,000
-runs.
+endpoint is synchronous and fast — about 60–100 ms of engine time for a 200-task
+project at 10,000 runs on a current laptop CPU, more on slower server hardware.
 
 The endpoint also enforces a **task cap** (`MC_TASK_CAP`, 5,000 on OSS): a project
 with more tasks than the cap returns HTTP 402 rather than running an unbounded
@@ -312,6 +312,14 @@ different days will show different percentiles with different recorded
 
 Each task's duration is sampled from a **PERT-Beta distribution**, a standard
 technique for converting three-point estimates into a probability distribution.
+TruePPM's convention is a Beta **fitted by method of moments to the classic PERT
+mean and σ = (P − O) / 6** (below) — not the λ=4 Beta-PERT that @RISK and Primavera
+Risk Analysis default to. Both have the same mean. In practice: on a symmetric
+estimate the band here is slightly narrower (about 12% smaller σ) than @RISK's
+default, so P80 and P95 land a little earlier; on an estimate whose most-likely
+value sits at the optimistic end it is wider
+([#4133](https://gitlab.com/trueppm/trueppm/-/issues/4133)). Changing the
+convention would move every stored forecast, so it is not a setting.
 PERT is preferred over a triangular distribution because it gives more weight to
 the most-likely estimate, producing more realistic samples for human-estimated
 tasks.
@@ -354,7 +362,8 @@ duration_sample = O + Beta(α, β) · (P − O)
 For the symmetric example O = 3, M = 10, P = 17, this produces `Beta(4, 4)` —
 a unimodal distribution centered at 10 days whose standard deviation in the
 scaled domain is exactly `(P − O) / 6 = 2.33 days`. The PERT approximation is
-exact for symmetric inputs.
+exact for symmetric inputs. The λ=4 Beta-PERT would give `Beta(3, 3)` here — the
+same mean with a wider spread (σ ≈ 2.65 days).
 
 ### The plan is the floor
 
@@ -395,9 +404,10 @@ and an SS successor keyed on that start inherits the earlier start. A percentile
 can therefore still land before the deterministic finish on such a network, with
 the simulation reproducing CPM faithfully on every sampled scenario. FS and SS
 networks are unaffected — every percentile lands at or after the CPM finish
-there. The convention is under review in
-[#3806](https://gitlab.com/trueppm/trueppm/-/issues/3806); it is a semantics
-decision for both engines, not a bug.
+there. This is a decided convention, not a defect
+([#3806](https://gitlab.com/trueppm/trueppm/-/issues/3806)): a task driven by an FF
+or SF link stays contiguous and right-aligned on its pinned finish, as MS Project
+renders it. See [Scheduler Conventions](/features/scheduler-conventions/).
 :::
 
 ### Agile tasks: velocity-based sampling
@@ -454,8 +464,17 @@ are applied when converting numeric offsets back to finish dates.
 Project finish for each run is `max(early_finish)` across all tasks. The full
 set of simulated finish dates is sorted to produce the percentile output.
 
-At 10,000 runs on a 200-task project, the full simulation completes in under
-100 ms on commodity hardware (Apple M-series or equivalent x86-64).
+At 10,000 runs on a 200-task project, the full simulation takes about 60–100 ms
+on a current laptop CPU (measured on Apple Silicon with numpy 2.4: 63 ms for a
+chain, 88 ms for a network mixing all four dependency types with lag). Expect it
+to take longer on a shared or older server; the scheduler's test suite holds it
+under a loose 2 s regression bound
+([#3859](https://gitlab.com/trueppm/trueppm/-/issues/3859)).
+
+A fixed seed reproduces the same percentiles for the same input **on the same
+numpy and `trueppm-scheduler` versions**. numpy guarantees its random streams only
+within one release, so an upgrade of either can move a seeded forecast
+([#4099](https://gitlab.com/trueppm/trueppm/-/issues/4099)).
 
 ### Why the Central Limit Theorem compresses your spread
 
