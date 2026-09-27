@@ -127,7 +127,7 @@ Email & SMTP page carries the same guidance inline (the ⓘ next to the field):
 |---|---|---|
 | **STARTTLS** | 587 | Connects in the clear, then upgrades to TLS before login. Recommended — the right choice for almost every provider. |
 | **SSL/TLS** | 465 | TLS from the first byte (implicit). Use it when your provider only offers 465 (e.g. Fastmail). |
-| **None** | 25 | Plaintext, no encryption. Credentials and mail travel in the clear — **only** for a trusted internal relay on a private network, never over the public internet. Selecting it shows an explicit warning. |
+| **None** | 25 | Plaintext, no encryption. Credentials and mail travel in the clear — **only** for a trusted internal relay on a private network, never over the public internet. Selecting it shows an explicit warning. By default the SSRF guard described below rejects a private-network host outright, so pointing this at an internal relay also requires the `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` allowlist — see [SSRF egress guard](#ssrf-egress-guard). |
 
 ### The password is encrypted and never returned
 
@@ -144,8 +144,12 @@ SES password).
 A save **opens the candidate transport before it is persisted**. If the host,
 port, security, or credentials are wrong, the save is rejected with a `400` and
 **nothing is written** — a bad configuration can never lock the workspace out of
-mail. The error message is deliberately generic and never echoes the underlying
-SMTP exception (which could leak credentials).
+mail. A real connect failure gets a deliberately generic error and never echoes
+the underlying SMTP exception (which could leak credentials). A host rejected
+by the [SSRF egress guard](#ssrf-egress-guard) is the one case that gets a more
+specific message instead, since that message is curated to never leak the
+resolved address and telling you to recheck credentials would be wrong — see
+that section for what to do next.
 
 ### From identity and delivery limits
 
@@ -172,9 +176,32 @@ Alongside the transport, the page configures:
   **always sent** even once the allowance is spent; they *count* against it, so
   the queues yield to them rather than stacking on top.
 
+### SSRF egress guard
+
 The SMTP host is **SSRF-guarded**: a host that resolves to a private, loopback,
 link-local, or cloud-metadata address is rejected, and it is re-checked at send
-time to close the DNS-rebinding window.
+time to close the DNS-rebinding window. This is the case the **None** security
+row above calls out — a trusted internal relay on a private network is exactly
+what the guard blocks by default, so a save against one fails with a specific
+error naming the host as not permitted, distinct from a generic connect
+failure (it does not tell you to re-check credentials that are already fine).
+
+To point TruePPM at an internal relay, add its hostname to the
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` environment variable (a comma-separated
+list, matched as an exact, case-insensitive hostname — no wildcard or suffix
+match, so allow-listing `mail-relay` does not admit
+`mail-relay.attacker.example`). **Set it on the API, Celery worker, and Celery
+beat processes** — the API process validates the host at save time, and the
+worker and beat processes re-run the same check at send time, so a mismatch
+between them fails a save on one process and every actual send on another.
+After setting it, save the Email & SMTP settings again to re-run validation
+against the now-allowed host.
+
+The allowlist is a single **global** list, not scoped to the mail transport —
+allow-listing a relay for email also opens it to every other egress surface
+that shares this chokepoint (webhooks, SSO, PAT verification, git-link
+refresh). Until per-surface scoping ships (tracked in #3561), treat adding a
+host here as trusting it for outbound requests generally, not just for SMTP.
 
 :::note[No bounce webhook yet]
 This page previously offered a **Bounce webhook URL** field. It saved, validated
@@ -190,7 +217,9 @@ The page has a **Send test email** action that sends a fixed test message
 through the resolved transport. It always sends to the **requesting operator's
 own account address** — never an address from the request — so the action can
 never be used as an authenticated open relay. You get an immediate pass/fail
-result; a transport failure returns a generic `502`.
+result: a real transport failure returns a generic `502`, and a host rejected
+by the [SSRF egress guard](#ssrf-egress-guard) returns `502` with the same
+specific, allowlist-pointing message the save path gives.
 
 ### Deliverability health
 
