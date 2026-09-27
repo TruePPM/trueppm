@@ -278,7 +278,12 @@ def test_project_from_json_rejects_a_duplicate_key() -> None:
 
 
 def test_project_from_json_deep_nesting_message_is_exact() -> None:
-    payload = "[" * 20_000 + "1" + "]" * 20_000
+    # The depth at which the C JSON parser gives up is interpreter-dependent:
+    # 20,000 overflowed through 3.13 but parses cleanly on 3.14, which let the
+    # document fall through to the non-object message and never reach the
+    # RecursionError guard this pins. 1,000,000 exceeds it on every supported
+    # version and still fails in milliseconds.
+    payload = "[" * 1_000_000 + "1" + "]" * 1_000_000
     with pytest.raises(InvalidScheduleInput) as exc:
         Project.from_json(payload)
     assert str(exc.value) == "Project JSON is nested too deeply to parse."
