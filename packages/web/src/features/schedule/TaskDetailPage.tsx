@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams } from 'react-router';
 
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
+import { useProjectId } from '@/hooks/useProjectId';
+import { useProjectRef } from '@/hooks/useProjectRef';
+import { isUuid } from '@/lib/refPath';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import { canEditTask } from '@/lib/roles';
@@ -15,6 +18,28 @@ import { TaskScheduleStrip } from './TaskScheduleStrip';
 
 registerOssDrawerSections();
 
+type LoadedTask = NonNullable<ReturnType<typeof useScheduleTasks>['tasks']>[number];
+
+/**
+ * The task a `:taskId` segment names, by equality against the values the server
+ * formatted for each task: its UUID, its display reference (`T-10`, compared
+ * case-insensitively) or its raw hex short id (`0000000A`). No parsing.
+ */
+export function findTaskByRef(
+  tasks: ReadonlyArray<LoadedTask> | undefined,
+  ref: string | undefined,
+): LoadedTask | undefined {
+  if (!tasks || !ref) return undefined;
+  const wanted = ref.toUpperCase();
+  return (
+    tasks.find((t) => t.id === ref) ??
+    tasks.find(
+      (t) =>
+        t.shortIdDisplay?.toUpperCase() === wanted || t.shortId?.toUpperCase() === wanted,
+    )
+  );
+}
+
 /**
  * Full-page focus view of a single task (handoff "what changed" #13 — drawer for
  * context + expand-to-full-page for deep work). Renders the same registry-driven
@@ -22,17 +47,42 @@ registerOssDrawerSections();
  * at once (no tab switching). Reached from the drawer's Expand control at
  * `/projects/:projectId/tasks/:taskId`.
  *
+ * `:taskId` is the task's display reference under a keyed project
+ * (`/projects/PLAT/tasks/T-10`, ADR-1237 §7), and a UUID or raw hex short id
+ * resolves too and is rewritten to that form. The match is an equality test
+ * against the server-formatted `shortIdDisplay` / `shortId` of the project's
+ * already-loaded tasks — the reference is never split or decoded here. An
+ * unknown reference renders the page's task-not-found state inside the project.
+ *
  * The name and Description edit inline with a blur-PATCH (no drawer Save bar on
  * the page); every write gates on the same server-derived `canEdit` verdict the
  * drawer computes so the deep-work surface never diverges from it (#2154).
  */
 export function TaskDetailPage() {
-  const { projectId, taskId } = useParams<{ projectId: string; taskId: string }>();
+  const projectId = useProjectId();
+  const projectRef = useProjectRef();
+  const { taskId } = useParams<{ taskId: string }>();
   const { tasks, isLoading } = useScheduleTasks(projectId);
+  const navigate = useNavigate();
+  const location = useLocation();
   const { role: userRole } = useCurrentUserRole(projectId);
   const updateTask = useUpdateTask();
 
-  const task = tasks?.find((t) => t.id === taskId);
+  const task = useMemo(() => findTaskByRef(tasks, taskId), [tasks, taskId]);
+
+  // Rewrite the task segment to its display form (ADR-1237 UX §3) once the task is
+  // known: `T-10` under a keyed project, the UUID under a keyless one (a bare `T-10`
+  // there would be ambiguous across projects). Replace, never push.
+  const canonicalTaskRef =
+    task && projectRef && !isUuid(projectRef) && task.shortIdDisplay ? task.shortIdDisplay : task?.id;
+  useEffect(() => {
+    if (!canonicalTaskRef || !taskId || canonicalTaskRef === taskId) return;
+    const segments = location.pathname.split('/');
+    const at = segments.lastIndexOf(encodeURIComponent(taskId));
+    if (at < 0) return;
+    segments[at] = encodeURIComponent(canonicalTaskRef);
+    void navigate(`${segments.join('/')}${location.search}${location.hash}`, { replace: true });
+  }, [canonicalTaskRef, taskId, location.pathname, location.search, location.hash, navigate]);
 
   // Effective edit capability (ADR-0133): prefer the server per-task verdict,
   // fall back to the client role rule only when absent — the exact contract the
@@ -72,7 +122,7 @@ export function TaskDetailPage() {
     );
   }, [task, tasks]);
 
-  const backLink = projectId ? `/projects/${projectId}/schedule` : '/';
+  const backLink = projectRef ? `/projects/${projectRef}/schedule` : '/';
 
   if (!task) {
     return (

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link, useParams } from 'react-router';
+import { Link } from 'react-router';
 import { apiClient } from '@/api/client';
 import { useProgram } from '@/hooks/useProgram';
 import { QueryErrorState } from '@/components/QueryErrorState';
@@ -8,6 +8,7 @@ import { ProgramIdentitySquare } from './ProgramIdentitySquare';
 import { SampleDataBanner } from './SampleDataBanner';
 import { ROLE_OWNER } from '@/lib/roles';
 import { HEALTH_BAND_LABEL, type HealthBand as SharedHealthBand } from '@/lib/healthBand';
+import { useProgramId } from '@/hooks/useProgramId';
 
 // ---------------------------------------------------------------------------
 // API response types (GET /programs/{id}/rollup/ — ADR-0088, #713)
@@ -365,7 +366,7 @@ function HealthHero({ rollup }: { rollup: ProgramRollup }) {
  * with the reason rather than hidden, so a PM sees why a toggled KPI is blank.
  */
 export function ProgramOverviewPage() {
-  const { programId } = useParams<{ programId: string }>();
+  const programId = useProgramId();
   const { data: rollup, isLoading, error, refetch } = useProgramRollup(programId);
   const { data: program } = useProgram(programId);
 

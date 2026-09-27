@@ -10,6 +10,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { useGroupedProjectViews } from '@/features/shell/useGroupedProjectViews';
 import { methodologyStatusLabel } from '@/lib/methodologyLabel';
 import type { Program } from '@/api/types';
+import { programPath, projectPath, segmentAfterRef, type RefKind } from '@/lib/refPath';
 
 /**
  * Program-route view segment → display label. Mirrors the rail's `PROGRAM_VIEWS`
@@ -85,11 +86,13 @@ export interface LocationModel {
   leaf: string;
 }
 
-/** The path segment immediately after `id` — the active view (defaults to `fallback`). */
-function viewSegment(pathname: string, id: string, fallback: string): string {
-  const segments = pathname.split('/');
-  const idx = segments.indexOf(id);
-  return (idx >= 0 ? segments[idx + 1] : undefined) ?? fallback;
+/**
+ * The path segment right after the project/program segment — the active view
+ * (defaults to `fallback`). Positional, because on a key URL (ADR-1237) the
+ * segment is a key and the UUID is nowhere in the path to look up.
+ */
+function viewSegment(pathname: string, kind: RefKind, fallback: string): string {
+  return segmentAfterRef(pathname, kind) ?? fallback;
 }
 
 /**
@@ -176,7 +179,7 @@ export function useLocationModel(): LocationModel {
   // The project route's active view — reused for the leaf label and to preserve the
   // view when switching projects. Off a project this is unused.
   const projectView = projectId
-    ? viewSegment(location.pathname, projectId, 'overview')
+    ? viewSegment(location.pathname, 'project', 'overview')
     : 'overview';
   const grouped = useGroupedProjectViews(projectId);
 
@@ -188,12 +191,12 @@ export function useLocationModel(): LocationModel {
     // On a program route, preserve the active program view; from a project route,
     // jumping to a program lands on its Overview.
     const targetView = programId
-      ? viewSegment(location.pathname, programId, 'overview')
+      ? viewSegment(location.pathname, 'program', 'overview')
       : 'overview';
     const options: LocationSegmentOption[] = (programs ?? []).map((p) => ({
       id: p.id,
       name: p.name,
-      to: `/programs/${p.id}/${targetView}`,
+      to: programPath(p, targetView),
     }));
     return { options, current: currentProgram };
   }, [routeProgramId, currentProgram, programId, location.pathname, programs]);
@@ -219,7 +222,7 @@ export function useLocationModel(): LocationModel {
         options: list.map((p) => ({
           id: p.id,
           name: p.name,
-          to: `/projects/${p.id}/overview`,
+          to: projectPath(p, 'overview'),
         })),
         currentId: undefined,
         currentName: undefined,
@@ -229,7 +232,7 @@ export function useLocationModel(): LocationModel {
     const options: LocationSegmentOption[] = (projects ?? []).map((p) => ({
       id: p.id,
       name: p.name,
-      to: `/projects/${p.id}/${projectView}`,
+      to: projectPath(p, projectView),
     }));
     return {
       options,
@@ -259,7 +262,7 @@ export function useLocationModel(): LocationModel {
     if (projectUnavailable) return 'Project unavailable';
     if (projectId) return grouped.labelFor(projectView);
     if (programId) {
-      const seg = viewSegment(location.pathname, programId, 'overview');
+      const seg = viewSegment(location.pathname, 'program', 'overview');
       return PROGRAM_VIEW_LABEL[seg] ?? titleCase(seg);
     }
     const first = location.pathname.split('/').find(Boolean) ?? '';

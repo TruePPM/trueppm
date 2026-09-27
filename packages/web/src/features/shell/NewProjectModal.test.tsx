@@ -16,6 +16,27 @@ vi.mock('@/hooks/useProjectMutations', () => ({
   useCreateProject: () => mockMutation,
 }));
 
+// The key field (ADR-1237 UX §1) asks `/keys/` for a suggestion and an
+// availability answer. Stubbed so these tests stay offline: every name suggests
+// `KEYSUG`, and every typed key except `TAKEN` is free.
+vi.mock('@/hooks/useKeyCheck', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useKeyCheck')>()),
+  useKeySuggestion: (_kind: string, name: string) => ({
+    data: name.trim() ? { suggestion: 'KEYSUG' } : undefined,
+    isPlaceholderData: false,
+  }),
+  useKeyAvailability: (_kind: string, key: string, { enabled }: { enabled: boolean }) => ({
+    data: enabled
+      ? key === 'TAKEN'
+        ? { available: false, reason: 'taken', suggestion: 'TAKEN2' }
+        : { available: true, reason: null, suggestion: key }
+      : undefined,
+    debouncedKey: key,
+    pending: false,
+    fetching: false,
+  }),
+}));
+
 const applyTemplateMutateMock = vi.fn();
 vi.mock('@/hooks/useProjectTemplates', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -1004,5 +1025,70 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     expect(
       screen.getByRole('radiogroup', { name: /start from$/i }).querySelectorAll('[role="radio"]'),
     ).toHaveLength(3);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Project key (ADR-1237 UX §1)
+  // ---------------------------------------------------------------------------
+
+  it('places the key directly below Name and sends the suggestion that follows it', async () => {
+    renderModal();
+    const name = screen.getByRole('textbox', { name: /^name/i });
+    const key = screen.getByRole('textbox', { name: 'Key' });
+    const program = screen.getByRole('combobox', { name: 'Program' });
+    expect(precedes(name, key)).toBe(true);
+    expect(precedes(key, program)).toBe(true);
+    expect(key).toHaveAccessibleDescription(/Used in links and IDs like PM-T-12/);
+
+    await fillName('Platform Migration');
+    expect(key).toHaveValue('KEYSUG');
+    expect(key).toHaveAccessibleDescription(/Available.*Used in links and IDs like PM-T-12/);
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+    expect(mutateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'KEYSUG' }),
+      expect.anything(),
+    );
+  });
+
+  it('blocks submit on a confirmed "in use" and offers the free suggestion', async () => {
+    renderModal();
+    await fillName('Platform Migration');
+    const key = screen.getByRole('textbox', { name: 'Key' });
+    // Type over the suggestion (clearing the field outright would hand it back to
+    // Name, by design).
+    await userEvent.type(key, 'taken', {
+      initialSelectionStart: 0,
+      initialSelectionEnd: (key as HTMLInputElement).value.length,
+    });
+    expect(key).toHaveValue('TAKEN');
+    expect(screen.getByText(/Already in use — try/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /create project/i })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Use TAKEN2' }));
+    expect(key).toHaveValue('TAKEN2');
+    expect(screen.getByRole('button', { name: /create project/i })).toBeEnabled();
+  });
+
+  it('shows a 400 on code verbatim in the key status line and moves focus there', async () => {
+    const { AxiosError, AxiosHeaders } = await import('axios');
+    mutateMock.mockImplementation((_payload: unknown, opts: { onError?: (e: unknown) => void }) => {
+      const headers = new AxiosHeaders();
+      opts.onError?.(
+        new AxiosError('Bad Request', 'ERR_BAD_REQUEST', undefined, undefined, {
+          status: 400,
+          statusText: 'Bad Request',
+          data: { code: ['This key is already in use.'] },
+          headers,
+          config: { headers },
+        }),
+      );
+    });
+    renderModal();
+    await fillName('Platform Migration');
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+    const key = screen.getByRole('textbox', { name: 'Key' });
+    expect(key).toHaveFocus();
+    expect(key).toHaveAccessibleDescription(/This key is already in use\./);
+    // Nothing else resets.
+    expect(screen.getByRole('textbox', { name: /^name/i })).toHaveValue('Platform Migration');
   });
 });
