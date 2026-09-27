@@ -53,6 +53,12 @@ change between releases. Pin an exact version (e.g.
   `MAX_CALENDAR_SCAN_DAYS` / date-range errors are unchanged. `monte_carlo()` was
   never affected.
 
+- **The sdist's test suite runs (#3856).** Running `pytest` in an unpacked
+  sdist errored at collection on `tests/test_wasm_conformance.py`, which needs
+  the monorepo's `packages/wasm-scheduler/fixtures` tree, so zero tests ran.
+  That module now skips when its fixtures are absent, and the rest of the suite
+  runs. Inside a monorepo checkout a missing fixture is still a hard failure.
+
 ## [0.4.0b4] - 2026-09-23
 
 ### Fixed
