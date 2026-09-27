@@ -245,7 +245,7 @@ class TestProjectGeneralFields:
         r = client.patch(
             f"/api/v1/projects/{project.pk}/",
             {
-                "code": "ATLAS-1",
+                "code": "ATLAS1",
                 "health": "AT_RISK",
                 "visibility": "PRIVATE",
                 "timezone": "Europe/London",
@@ -255,7 +255,7 @@ class TestProjectGeneralFields:
         )
         assert r.status_code == 200, r.content
         project.refresh_from_db()
-        assert project.code == "ATLAS-1"
+        assert project.code == "ATLAS1"
         assert project.health == "AT_RISK"
         assert project.visibility == "PRIVATE"
         assert project.timezone == "Europe/London"
@@ -282,11 +282,23 @@ class TestProjectGeneralFields:
         assert project.timezone == ""
 
     @pytest.mark.parametrize(
-        "code",
-        ["", "A", "ATLAS", "ENG-2026", "AB1-CD2-EF3X"[:12], "0", "ABC-DEF-1234"],
+        ("code", "stored"),
+        [
+            ("AT", "AT"),
+            ("ATLAS", "ATLAS"),
+            ("ENG2026", "ENG2026"),
+            ("AB1CD2EF3X", "AB1CD2EF3X"),
+            # Case-insensitive; stored uppercased (ADR-1237 §2).
+            ("atlas", "ATLAS"),
+        ],
     )
     def test_patch_code_accepts_valid_formats(
-        self, client: APIClient, project: Project, membership: ProjectMembership, code: str
+        self,
+        client: APIClient,
+        project: Project,
+        membership: ProjectMembership,
+        code: str,
+        stored: str,
     ) -> None:
         r = client.patch(
             f"/api/v1/projects/{project.pk}/",
@@ -295,13 +307,26 @@ class TestProjectGeneralFields:
         )
         assert r.status_code == 200, r.content
         project.refresh_from_db()
-        assert project.code == code
+        assert project.code == stored
+
+    def test_patch_blank_code_heals_a_keyless_project(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """A blank ``code`` on a project that has none derives one (ADR-1237 §4)."""
+        assert project.code == ""
+        r = client.patch(f"/api/v1/projects/{project.pk}/", {"code": ""}, format="json")
+        assert r.status_code == 200, r.content
+        project.refresh_from_db()
+        assert project.code != ""
 
     @pytest.mark.parametrize(
         "code",
         [
             "ATLAS-2026-Q1",  # 13 chars — overlong
-            "atlas",  # lowercase
+            "ABCDEFGHIJK",  # 11 chars — new keys are 2-10
+            "ENG-2026",  # hyphens are grandfathered only, never new
+            "A",  # one character
+            "0",  # digit-led
             "-ATLAS",  # leading hyphen
             "ATLAS-",  # trailing hyphen
             "ATLAS!",  # disallowed punctuation

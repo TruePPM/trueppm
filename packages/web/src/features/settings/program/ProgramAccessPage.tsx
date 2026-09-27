@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useParams } from 'react-router';
 import { AvatarInitials } from '@/components/AvatarInitials';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
@@ -17,6 +16,7 @@ import { roleLabel } from '@/lib/roleLabels';
 import type { ProgramMembership } from '@/api/types';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { isSameUser } from '@/lib/userId';
+import { useProgramId } from '@/hooks/useProgramId';
 
 const GRID = '1.8fr 1.2fr 130px 170px 88px';
 
@@ -180,7 +180,7 @@ function MemberRow({
  * UX, not security.
  */
 export function ProgramAccessPage() {
-  const { programId } = useParams<{ programId: string }>();
+  const programId = useProgramId();
   const { user } = useCurrentUser();
   const { data: program } = useProgram(programId);
   const { data: members = [], isLoading, isError } = useProgramMembers(programId);

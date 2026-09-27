@@ -70,7 +70,11 @@ def _client(user: Any) -> APIClient:
 
 def _make_project(owner: Any, calendar: Calendar, name: str = "Apollo") -> Project:
     p = Project.objects.create(
-        name=name, code="APL", start_date=date(2026, 4, 1), calendar=calendar
+        # Codes are unique since ADR-1237, so each project needs its own.
+        name=name,
+        code=f"APL{name.upper()}"[:10] if name != "Apollo" else "APL",
+        start_date=date(2026, 4, 1),
+        calendar=calendar,
     )
     ProjectMembership.objects.create(project=p, user=owner, role=Role.OWNER)
     return p

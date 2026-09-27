@@ -90,7 +90,7 @@ const FIXTURE_TASKS = [
     // server-formatted refs below, never the raw value (#2430).
     short_id: '0000000A',
     short_id_display: 'T-10',
-    qualified_id: 'ENG-2026-10',
+    qualified_id: 'ENG-2026-T-10',
     story_points: 5,
     parent_epic: 'epic-alpha',
   },
@@ -406,7 +406,7 @@ test.describe('Board view', () => {
     });
     // The server-formatted, project-code-prefixed reference — never the raw
     // stored hex `short_id` (#2430).
-    await expect(page.getByText('ENG-2026-10')).toBeVisible();
+    await expect(page.getByText('ENG-2026-T-10')).toBeVisible();
     await expect(page.getByText('0000000A')).toHaveCount(0);
     await expect(page.getByLabel('5 story points')).toBeVisible();
   });

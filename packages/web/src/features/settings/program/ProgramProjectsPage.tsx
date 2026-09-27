@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
+import { useLocation, useNavigate, useSearchParams } from 'react-router';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useProgram } from '@/hooks/useProgram';
 import { useProgramProjects } from '@/hooks/useProgramProjects';
@@ -24,6 +24,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { SlidersIcon } from '@/components/Icons';
 import { ROLE_ADMIN } from '@/lib/roles';
 import type { Methodology, Project } from '@/types';
+import { useProgramId } from '@/hooks/useProgramId';
 
 /**
  * Deep-link arrival contract (#3293, D41). The canonical link is
@@ -117,7 +118,7 @@ function methodologyActiveFilterLabel(
 
 /** Program > Projects settings page — lists projects assigned to this program. */
 export function ProgramProjectsPage() {
-  const { programId } = useParams<{ programId: string }>();
+  const programId = useProgramId();
   const { data: program } = useProgram(programId);
   const { data: projects, isLoading, error } = useProgramProjects(programId);
   const { data: ws, isPending: wsPending, isError: wsError } = useWorkspaceSettings();
