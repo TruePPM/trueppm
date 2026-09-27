@@ -1061,3 +1061,59 @@ describe('useScheduleTasks demo preview overlay (#3926)', () => {
     expect(result.current.tasks!.map((t) => [t.id, t.wbs])).toEqual(before);
   });
 });
+
+describe('milestone_at_day_end (#4079)', () => {
+  const gate: ApiTask = {
+    ...base,
+    id: 'gate',
+    early_start: '2026-01-09',
+    early_finish: '2026-01-09',
+    planned_start: '2026-01-05',
+    duration: 0,
+    percent_complete: 0,
+    is_milestone: true,
+    milestone_at_day_end: true,
+  };
+
+  it('maps the server flag onto a milestone', () => {
+    expect(mapTask(gate).milestoneAtDayEnd).toBe(true);
+    expect(mapTask({ ...gate, milestone_at_day_end: false }).milestoneAtDayEnd).toBe(false);
+    // A payload predating the field reads as the start of the day.
+    const legacy: ApiTask = { ...gate };
+    delete legacy.milestone_at_day_end;
+    expect(mapTask(legacy).milestoneAtDayEnd).toBe(false);
+  });
+
+  it('never flags work, whatever the payload says', () => {
+    expect(mapTask({ ...base, milestone_at_day_end: true }).milestoneAtDayEnd).toBe(false);
+  });
+
+  it('reads a planned_start past the span as a floor — the start of the day', () => {
+    // A drag the recompute has not answered yet: the bar draws from the SNET,
+    // and a floor holds a milestone at the START of its day.
+    const dragged = mapTask({ ...gate, planned_start: '2026-01-14' });
+    expect(dragged.start).toBe('2026-01-14');
+    expect(dragged.milestoneAtDayEnd).toBe(false);
+  });
+
+  it('splices the flag from a CPM delta exactly as a re-fetch maps it', () => {
+    const existing = mapTask({ ...gate, milestone_at_day_end: false });
+    const delta: TaskDatesDelta = {
+      id: 'gate',
+      early_start: '2026-01-09',
+      early_finish: '2026-01-09',
+      late_start: '2026-01-09',
+      late_finish: '2026-01-09',
+      total_float: 0,
+      free_float: 0,
+      is_critical: true,
+      planned_start: '2026-01-05',
+      duration: 0,
+      milestone_at_day_end: true,
+    };
+    expect(applyTaskDatesDelta(existing, delta).milestoneAtDayEnd).toBe(true);
+    expect(
+      applyTaskDatesDelta(existing, { ...delta, milestone_at_day_end: false }).milestoneAtDayEnd,
+    ).toBe(false);
+  });
+});

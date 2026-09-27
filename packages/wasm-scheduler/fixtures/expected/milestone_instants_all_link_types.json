@@ -34,7 +34,8 @@
       "total_float": 0.0,
       "free_float": 0.0,
       "is_critical": true,
-      "scheduled_start": "2026-01-13"
+      "scheduled_start": "2026-01-13",
+      "milestone_at_day_end": true
     },
     {
       "id": "B",
@@ -78,7 +79,8 @@
       "total_float": 0.0,
       "free_float": 0.0,
       "is_critical": true,
-      "scheduled_start": "2026-01-20"
+      "scheduled_start": "2026-01-20",
+      "milestone_at_day_end": true
     },
     {
       "id": "D",
@@ -100,7 +102,8 @@
       "total_float": 0.0,
       "free_float": 0.0,
       "is_critical": true,
-      "scheduled_start": "2026-01-20"
+      "scheduled_start": "2026-01-20",
+      "milestone_at_day_end": true
     },
     {
       "id": "E",
@@ -133,7 +136,8 @@
       "total_float": 864000.0,
       "free_float": 864000.0,
       "is_critical": false,
-      "scheduled_start": "2026-01-05"
+      "scheduled_start": "2026-01-05",
+      "milestone_at_day_end": true
     },
     {
       "id": "Z",
@@ -144,7 +148,8 @@
       "total_float": 0.0,
       "free_float": 0.0,
       "is_critical": true,
-      "scheduled_start": "2026-01-21"
+      "scheduled_start": "2026-01-21",
+      "milestone_at_day_end": true
     }
   ],
   "critical_path": [

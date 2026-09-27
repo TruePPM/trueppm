@@ -18,7 +18,7 @@
 
 import { useEffect, useRef, type RefObject } from 'react';
 import type { GanttEngine } from '@/features/schedule/engine';
-import { leftToDate } from '@/features/schedule/engine';
+import { dragDropStartIso, leftToDate } from '@/features/schedule/engine';
 import type { Task, TaskLink } from '@/types';
 import type {
   DragEndMessage,
@@ -160,9 +160,13 @@ export function useDragCpm({
       const scaleData = engine.scales;
       if (!scaleData) return;
 
-      // ev.left is canvas-origin (rule 57) — convert directly to date
-      const newStartDate = leftToDate(ev.left, scaleData);
-      const newStartIso = newStartDate.toISOString().slice(0, 10);
+      // ev.left is canvas-origin (rule 57) — convert directly to date, through
+      // the same reading the commit uses so an end-of-day milestone held in
+      // place previews as unmoved rather than as the next day (#4079).
+      const dragged = tasksRef.current.find((t) => t.id === ev.id);
+      const newStartIso = dragged?.start
+        ? dragDropStartIso(ev.left, dragged, scaleData)
+        : leftToDate(ev.left, scaleData).toISOString().slice(0, 10);
 
       const seq = ++seqRef.current;
       const msg: DragMoveMessage = {

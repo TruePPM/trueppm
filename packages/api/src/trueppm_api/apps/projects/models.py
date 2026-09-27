@@ -219,6 +219,8 @@ _HISTORY_EXCLUDED_TASK = [
     # fact, exactly like early_start/early_finish above — tracking it would
     # name it on every recalc in the ADR-0217 merge header.
     "scheduled_start",
+    # milestone_at_day_end (#4079) is CPM output for the same reason.
+    "milestone_at_day_end",
     # Seed provenance (ADR-0786 §6). edited_at is excluded for a hard reason, not
     # to save space: it changes on *every* human write by construction, so tracking
     # it would name it in every ADR-0217 field-level merge header and make it a
@@ -3355,6 +3357,23 @@ class Task(VersionedModel):
     )
     is_critical = models.BooleanField(
         null=True, blank=True, help_text=CPM_OUTPUT_HELP.format(what="Critical-path membership")
+    )
+    # Which edge of its shown day a zero-duration milestone sits on (#4079). The
+    # engine treats a milestone as an instant; early_start == early_finish is only
+    # the day it is *shown* on. True: the END of that day — it follows work
+    # (A(Mon..Fri) -FS-> M shows M at the close of Friday). False: the START — held
+    # by a floor (project start, SNET, data date, actual start) or an SS link from
+    # work — and always False for work. Without it a client cannot tell the two
+    # apart and draws every diamond at the start of the day, overlapping the
+    # predecessor's last day. Non-null (False is a real answer for every row, not
+    # "unscheduled"); written by the CPM write-back only, never client-writable.
+    milestone_at_day_end = models.BooleanField(
+        default=False,
+        help_text=(
+            "CPM output: True when a zero-duration milestone sits at the END of its "
+            "early_start day (it follows work), False when it sits at the start of "
+            "that day or the task is not a milestone. Read-only engine output."
+        ),
     )
 
     # Explicit milestone flag — set by the PM or preserved from MS Project / P6 import.

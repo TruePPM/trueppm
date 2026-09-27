@@ -129,6 +129,9 @@ function leafTask(task: ProgramScheduleTask, laneId: string): Task {
     isComplete: false,
     isSummary: false,
     isMilestone: task.is_milestone,
+    // #4079: full and redacted rows both carry it — it only says which edge of
+    // an already-disclosed day the diamond sits on.
+    milestoneAtDayEnd: task.is_milestone && !!task.milestone_at_day_end,
     isExternal: task.is_external,
     status: 'NOT_STARTED',
     assignees: [],

@@ -55,6 +55,10 @@ export interface ApiTask {
    *  predate the field, which reads the same as the unassigned default. */
   board_lane?: string;
   is_milestone: boolean;
+  /** #4079: a milestone sits at the END of its early_start day (it follows
+   *  work). Optional: absent on payloads/deltas that predate the field, which
+   *  reads as the start of the day. */
+  milestone_at_day_end?: boolean;
   is_summary: boolean;
   /** Declared identity + parked values (#2950, ADR-0844). Optional: a row
    *  synced before the field existed simply omits them. */
@@ -332,6 +336,25 @@ export function deriveBarGeometry(opts: {
   return { start, finish };
 }
 
+/**
+ * Whether a milestone's diamond sits at the END of its shown day (#4079).
+ *
+ * The server's flag describes the instant CPM placed it on. When the bar's
+ * start came from `planned_start` instead — a drag the next CPM run has not
+ * answered yet, so the SNET sits past the span — the milestone is held by that
+ * floor, and a floor holds it at the START of the day. Without this the
+ * diamond would jump to the end of the dropped day between drop and recompute.
+ */
+export function resolveMilestoneAtDayEnd(opts: {
+  flag: boolean | undefined;
+  plannedStart: string | null;
+  spanStart: string | null | undefined;
+}): boolean {
+  const { flag, plannedStart, spanStart } = opts;
+  if (!flag) return false;
+  return !(plannedStart && spanStart && plannedStart > spanStart);
+}
+
 export function mapTask(t: ApiTask): Task {
   const { start, finish } = deriveBarGeometry({
     plannedStart: t.planned_start,
@@ -357,6 +380,11 @@ export function mapTask(t: ApiTask): Task {
     isComplete: t.percent_complete >= 100,
     isSummary: t.is_summary,
     isMilestone: t.is_milestone,
+    milestoneAtDayEnd: resolveMilestoneAtDayEnd({
+      flag: t.is_milestone && t.milestone_at_day_end,
+      plannedStart: t.planned_start,
+      spanStart: t.scheduled_start ?? t.early_start,
+    }),
     isPhase: t.is_phase,
     structureRole: t.structure_role,
     ownStatus: t.own_status,
@@ -517,6 +545,8 @@ export interface TaskDatesDelta {
   early_finish: string | null;
   /** The task's SPAN start (ADR-0752). See {@link ApiTask.scheduled_start}. */
   scheduled_start?: string | null;
+  /** #4079. See {@link ApiTask.milestone_at_day_end}. */
+  milestone_at_day_end?: boolean;
   late_start: string | null;
   late_finish: string | null;
   total_float: number | null;
@@ -554,6 +584,11 @@ export function applyTaskDatesDelta(existing: Task, delta: TaskDatesDelta): Task
     // (#3530) — spliced straight through, exactly as a re-fetch would map it.
     duration: delta.duration,
     isCritical: delta.is_critical,
+    milestoneAtDayEnd: resolveMilestoneAtDayEnd({
+      flag: existing.isMilestone && delta.milestone_at_day_end,
+      plannedStart: delta.planned_start,
+      spanStart: delta.scheduled_start ?? delta.early_start,
+    }),
     totalFloat: delta.total_float,
     freeFloat: delta.free_float,
     lateFinish: delta.late_finish ?? undefined,

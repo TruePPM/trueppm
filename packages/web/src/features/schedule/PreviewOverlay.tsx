@@ -35,7 +35,7 @@ import { useMemo, useEffect, useRef, useState, type RefObject } from 'react';
 import type { GanttEngine, GanttScaleData } from '@/features/schedule/engine';
 import type { DragPreviewResult, Task } from '@/types';
 import { useDragStore } from '@/stores/dragStore';
-import { dateToLeft } from '@/features/schedule/engine';
+import { dateToLeft, milestoneX } from '@/features/schedule/engine';
 import { ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from './engine/GanttHitIndex';
 import { useRowHeight } from '@/hooks/useRowHeight';
 import { isPinnedByActuals, PINNED_DRAG_EXPLANATION } from './pinnedByActuals';
@@ -86,9 +86,13 @@ function PreviewBar({
   rowIndex,
   showCpBadge,
 }: PreviewBarProps) {
-  // dateToLeft returns canvas-origin coords (rule 57); subtract scrollLeft for viewport-relative
-  const left = dateToLeft(result.earlyStart, scales) - scrollLeft;
-  const right = dateToLeft(result.earlyFinish, scales) - scrollLeft;
+  // dateToLeft returns canvas-origin coords (rule 57); subtract scrollLeft for viewport-relative.
+  // A previewed end-of-day milestone (#4079) is a tick at the END of its day,
+  // where the committed diamond will land (`milestoneX`), not over its predecessor.
+  const left = result.milestoneAtDayEnd
+    ? milestoneX(result.earlyStart, true, scales) - scrollLeft
+    : dateToLeft(result.earlyStart, scales) - scrollLeft;
+  const right = result.milestoneAtDayEnd ? left : dateToLeft(result.earlyFinish, scales) - scrollLeft;
   const width = Math.max(2, right - left);
   const top = barTop(rowIndex, scrollTop);
 

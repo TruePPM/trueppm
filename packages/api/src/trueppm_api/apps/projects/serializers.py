@@ -3175,6 +3175,15 @@ class ProgramScheduleTaskSerializer(serializers.Serializer[dict[str, Any]]):
     total_float_days = serializers.IntegerField(read_only=True, required=False)
     is_critical = serializers.BooleanField(read_only=True, allow_null=True)
     duration = serializers.IntegerField(read_only=True, required=False, allow_null=True)
+    milestone_at_day_end = serializers.BooleanField(
+        read_only=True,
+        required=False,
+        help_text=(
+            "#4079: True when a milestone sits at the END of its early_start day "
+            "(it follows work). Present on full and redacted rows alike — it only "
+            "says which edge of an already-disclosed day the milestone is on."
+        ),
+    )
 
 
 class ProgramScheduleLinkSerializer(serializers.Serializer[dict[str, Any]]):
@@ -4096,6 +4105,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "total_float",
             "free_float",
             "is_critical",
+            "milestone_at_day_end",
             "is_milestone",
             "optimistic_duration",
             "most_likely_duration",
@@ -4205,6 +4215,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "total_float",
             "free_float",
             "is_critical",
+            "milestone_at_day_end",
             "baseline_start",
             "baseline_finish",
             "latest_note_at",
@@ -7419,6 +7430,15 @@ class ExternalTaskCardSerializer(serializers.Serializer[Any]):
         read_only=True,
         allow_null=True,
         help_text=CPM_OUTPUT_HELP.format(what="Critical-path membership"),
+    )
+    # #4079: which edge of its early_start day a milestone sits on. Carried on the
+    # card because it discloses nothing beyond the date the card already shows.
+    milestone_at_day_end = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when a milestone sits at the END of its early_start day (it follows "
+            "work); False for every other task and for a floor-held milestone."
+        ),
     )
 
 

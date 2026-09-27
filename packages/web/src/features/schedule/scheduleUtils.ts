@@ -34,6 +34,24 @@ export function nudgeWorkingDays(isoDate: string, days: number): string {
 }
 
 /**
+ * The start date a keyboard reschedule of `delta` working days proposes (#4079).
+ *
+ * A nudge moves the bar's drawn position by `delta` working days, and the
+ * proposed date is an SNET, which draws a milestone at the START of that day.
+ * An end-of-day milestone (`atDayEnd`) is drawn at the end of its day D, so
+ * "one working day later" is the end of the next working day — the start of
+ * the one after it — and the nudge counts one extra working day. Without it a
+ * first nudge proposed the next working day, whose start is the very instant
+ * the milestone already sat on: announced as a move, drawn and scheduled as
+ * none. One nudge earlier reads back as D, which the commit treats as no move
+ * (an SNET of D cannot pull an instant that already sits at the end of D).
+ */
+export function keyboardNudgeStart(startIso: string, atDayEnd: boolean, delta: number): string {
+  if (delta === 0 || !atDayEnd) return nudgeWorkingDays(startIso, delta);
+  return nudgeWorkingDays(startIso, delta + 1);
+}
+
+/**
  * Clamp the initial-viewport scroll offset so today lands ~25% from the left
  * (design rule 81). Pure so it can be unit-tested without a canvas / DOM.
  *

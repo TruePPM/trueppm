@@ -90,6 +90,16 @@ pub struct Task {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scheduled_start: Option<NaiveDate>,
 
+    /// Where a zero-duration milestone sits within the day it is shown on (#4079),
+    /// populated by the engine: `true` = the END of `early_start`'s day (it
+    /// follows work), `false` = the start of it (held by a floor or an SS link
+    /// from work), and always `false` for anything that is not a network-placed
+    /// milestone. Mirrors the Python `Task.milestone_at_day_end`; declared so the
+    /// canonical `Project.to_json()` output, which always emits it, parses under
+    /// `deny_unknown_fields`. An input value is ignored and overwritten.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub milestone_at_day_end: bool,
+
     /// Total float in seconds (divide by 86400 for working days).
     #[serde(default)]
     pub total_float: f64,
@@ -325,6 +335,16 @@ pub struct TaskResult {
     pub is_critical: bool,
     /// The task's span start (ADR-0752) — see `Task::scheduled_start`.
     pub scheduled_start: NaiveDate,
+    /// A milestone shown at the end of its day (#4079) — see
+    /// `Task::milestone_at_day_end`. Omitted when false, matching the shared
+    /// conformance snapshots.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub milestone_at_day_end: bool,
+}
+
+/// `skip_serializing_if` predicate for a defaulted `bool`.
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 #[cfg(test)]
@@ -343,6 +363,7 @@ mod tests {
             late_start: None,
             late_finish: None,
             scheduled_start: None,
+            milestone_at_day_end: false,
             total_float: 0.0,
             free_float: 0.0,
             is_critical: false,

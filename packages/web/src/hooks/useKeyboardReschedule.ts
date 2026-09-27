@@ -33,7 +33,7 @@ import {
   PINNED_KEYBOARD_REFUSAL,
 } from '@/features/schedule/pinnedByActuals';
 import { milestoneDeltaAnnouncement } from '@/features/schedule/milestoneDeltaAnnouncement';
-import { nudgeWorkingDays } from '@/features/schedule/scheduleUtils';
+import { keyboardNudgeStart } from '@/features/schedule/scheduleUtils';
 import { createCpmWorker } from '@/workers/createCpmWorker';
 import { isTypingInInput } from '@/hooks/useGlobalShortcut';
 
@@ -118,6 +118,8 @@ export function useKeyboardReschedule({
   // Per-drag state kept in refs to avoid stale closure issues
   const selectedTaskIdRef = useRef<string | null>(null);
   const origStartRef = useRef<string>('');
+  /** The selected task is an end-of-day milestone (#4079) — see `keyboardNudgeStart`. */
+  const origAtDayEndRef = useRef(false);
   const cumulativeDeltaRef = useRef(0);
 
   // Stable refs for tasks/links (same pattern as useDragCpm)
@@ -186,7 +188,7 @@ export function useKeyboardReschedule({
       if (!worker || !taskId) return;
 
       cumulativeDeltaRef.current = newDelta;
-      const newStart = nudgeWorkingDays(origStartRef.current, newDelta);
+      const newStart = keyboardNudgeStart(origStartRef.current, origAtDayEndRef.current, newDelta);
       const subgraph = buildSubgraph(taskId, tasksRef.current, linksRef.current);
       const seq = ++seqRef.current;
 
@@ -277,6 +279,7 @@ export function useKeyboardReschedule({
 
       keyboardModeRef.current = true;
       origStartRef.current = task.start;
+      origAtDayEndRef.current = Boolean(task.isMilestone && task.milestoneAtDayEnd);
       cumulativeDeltaRef.current = 0;
       seqRef.current = 0;
       startDrag(taskId, true); // isKeyboard = true
@@ -295,7 +298,11 @@ export function useKeyboardReschedule({
         announce("You're offline — change not saved.");
         return;
       }
-      const confirmedStart = nudgeWorkingDays(origStartRef.current, cumulativeDeltaRef.current);
+      const confirmedStart = keyboardNudgeStart(
+        origStartRef.current,
+        origAtDayEndRef.current,
+        cumulativeDeltaRef.current,
+      );
       const taskId = selectedTaskIdRef.current;
       commitDrag(confirmedStart);
       exitKeyboardMode();

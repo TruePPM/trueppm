@@ -25,7 +25,7 @@ import {
 import { findUndatedRow } from './buildMode/undatedNav';
 import { ancestorIdsOf } from './unscheduledSelection';
 import type { GanttEngine, GanttScaleData } from './engine';
-import { dateToLeft, leftToDate, ZOOM_STEP_FACTOR } from './engine';
+import { dateToLeft, leftToDate, milestoneX, ZOOM_STEP_FACTOR } from './engine';
 import { computeInitialFraming, todayLocalIso, type RowBar } from './scheduleUtils';
 import { resolveOutlineLeftReserve, CHART_HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
 import { useCadenceRail, useChartHeaderHeight } from '@/hooks/useChartHeaderHeight';
@@ -865,7 +865,12 @@ function runTaskHashDeepLink(ctx: {
   // (the overlay subtracts scrollLeft at render time, rule §57).
   if (dateIso) {
     ctx.engine.scrollToDate(dateIso, 'instant');
-    const x = dateToLeft(dateIso, ctx.scheduleScales);
+    // Ring the diamond where it is drawn (#4079): a milestone that follows work
+    // sits at the end of its day, not at its planned_start.
+    const x =
+      target?.isMilestone && target.start
+        ? milestoneX(target.start, target.milestoneAtDayEnd, ctx.scheduleScales)
+        : dateToLeft(dateIso, ctx.scheduleScales);
     const y = CHART_HEADER_HEIGHT + rowIdx * ROW_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
     // Guard on the value, not on an exception. This was a try/catch commented
     // "dateToLeft can throw on out-of-range dates" — it cannot: it is

@@ -82,11 +82,19 @@ function placeTasks(tasks: PublicScheduleTask[]): Placed[] {
   // wbs starts with `parent.wbs + '.'`). Summaries render as spanning brackets.
   const paths = tasks.map((t) => t.wbs_path).filter(Boolean);
   return tasks.map((task) => {
-    const startMs =
+    let startMs =
       parseDay(task.scheduled_start) ?? parseDay(task.early_start) ?? parseDay(task.planned_start);
-    let endMs = parseDay(task.early_finish);
+    const finishMs = parseDay(task.early_finish);
+    // early_finish is INCLUSIVE — a bar paints through the end of that day (#950),
+    // which is exactly where an end-of-day milestone after it sits (#4079).
+    let endMs = finishMs === null ? null : task.is_milestone ? finishMs : finishMs + DAY_MS;
     if (startMs !== null && endMs === null) {
       endMs = startMs + Math.max(0, task.duration) * DAY_MS;
+    }
+    if (task.is_milestone && task.milestone_at_day_end && startMs !== null) {
+      // The instant a milestone that follows work sits on: the END of its day.
+      startMs += DAY_MS;
+      endMs = startMs;
     }
     const depth = task.wbs_path ? Math.min(task.wbs_path.split('.').length - 1, 6) : 0;
     const prefix = task.wbs_path ? `${task.wbs_path}.` : '';
@@ -192,7 +200,7 @@ function Lane({ placed, scale }: { placed: Placed; scale: Scale }) {
           className="absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-2 text-xs text-neutral-text-secondary"
           style={{ left: `${left}%` }}
         >
-          {task.name} · {dayLabel(startMs)}
+          {task.name} · {dayLabel(task.milestone_at_day_end ? startMs - DAY_MS : startMs)}
         </span>
       </>
     );

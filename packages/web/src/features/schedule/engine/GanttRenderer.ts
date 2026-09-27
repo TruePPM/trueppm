@@ -27,6 +27,7 @@ import {
   fiscalQuarterKey,
   fiscalYearKey,
   headerUnitsForPxPerDay,
+  milestoneX,
   parseUTCDate,
 } from './GanttScaleData';
 import { timescaleLabel } from './timescaleLabels';
@@ -2286,7 +2287,8 @@ export function drawMilestone(
   if (!task.start) return;
   // Issue #332: skip uncommitted milestones — same gate as drawTaskBar.
   if (!task.plannedStart && !task.sprintId) return;
-  const centerX = dateToLeft(task.start, scales) - scrollLeft;
+  // #4079: at the instant it sits on — the end of its day when it follows work.
+  const centerX = milestoneX(task.start, task.milestoneAtDayEnd, scales) - scrollLeft;
   const centerY = rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT + ROW_HEIGHT / 2;
   const half = MILESTONE_SIZE / 2;
 
@@ -2984,8 +2986,11 @@ function buildAnchorNodes(
 
     let anchorLeft: number, anchorRight: number;
     if (t.isMilestone) {
-      anchorLeft = cx - milestoneHalfDiag;
-      anchorRight = cx + milestoneHalfDiag;
+      // #4079: the diamond's own center, not the start of its day — an FS arrow
+      // into a work-driven milestone must land AFTER its predecessor's bar.
+      const mx = milestoneX(t.start, t.milestoneAtDayEnd, scales);
+      anchorLeft = mx - milestoneHalfDiag;
+      anchorRight = mx + milestoneHalfDiag;
     } else if (t.isSummary) {
       anchorLeft = cx - milestoneHalfDiag;
       anchorRight = rectRight + milestoneHalfDiag;
@@ -3021,7 +3026,10 @@ function buildObstacleRows(
   for (let i = 0; i < tasks.length; i++) {
     const t = tasks[i];
     if (!t.start || !t.finish) continue;
-    const cx = dateToLeft(t.start, scales);
+    // #4079: a milestone's box is centered on its diamond (see `milestoneX`).
+    const cx = t.isMilestone
+      ? milestoneX(t.start, t.milestoneAtDayEnd, scales)
+      : dateToLeft(t.start, scales);
     const rectLeft = t.isMilestone ? cx - milestoneHalfDiag : cx;
     // Non-milestone finish is inclusive — obstacle box ends at the true edge (#950).
     const rectRight = t.isMilestone ? cx + milestoneHalfDiag : dateToRight(t.finish, scales);

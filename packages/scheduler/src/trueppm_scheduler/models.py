@@ -206,6 +206,17 @@ class Task:
     # next insertion fails at test time rather than in a consumer's schedule.
     scheduled_start: date | None = None
 
+    # Where a zero-duration milestone sits within the day it is shown on (#4079).
+    # A milestone is an instant; ``early_start == early_finish`` is only the day it
+    # is *shown* on. ``True`` means the instant is the END of that day — the
+    # milestone follows work (``A(Mon..Fri) -FS-> M`` shows ``M`` at the close of
+    # Friday). ``False`` means the START of that day — it is held by a floor
+    # (project start, SNET, data date, recorded actual start) or an SS link from
+    # work — and for every task that is not a network-placed milestone. Computed by
+    # the engine; an input value is ignored and overwritten. Appended last for the
+    # positional-order reason given on ``scheduled_start`` above (#2836).
+    milestone_at_day_end: bool = False
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize the task to a JSON-safe dict.
 

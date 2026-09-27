@@ -241,6 +241,8 @@ _EXPECTED_FIELD_ORDER: dict[str, list[str]] = {
         # Appended (#2836) rather than grouped with the other CPM-computed
         # dates, so 0.3.0a3's positional order is preserved exactly.
         "scheduled_start",
+        # Appended (#4079) after scheduled_start for the same reason.
+        "milestone_at_day_end",
     ],
     "TaskSensitivity": ["task_id", "index"],
 }

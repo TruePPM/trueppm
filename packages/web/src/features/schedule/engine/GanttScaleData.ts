@@ -434,12 +434,59 @@ const MS_PER_DAY = 86_400_000;
  * This is the exclusive right edge the resize/duration math already assumes
  * (`useScheduleCommit`: `duration = round((right − start) / day)`), so it is the
  * canonical right-edge utility for every non-milestone bar. Milestones
- * (start == finish, drawn as a diamond) never use it.
+ * (start == finish, drawn as a diamond) are placed by {@link milestoneX}.
  *
  * DST-safe: pure UTC-ms arithmetic on the same basis as {@link dateToLeft}.
  */
 export function dateToRight(finishIso: string, scales: GanttScaleData): number {
   return dateToLeft(finishIso, scales) + MS_PER_DAY * scales.pxPerMs;
+}
+
+/**
+ * Canvas x of a milestone diamond's CENTER (#4079) — the instant it sits on.
+ *
+ * A milestone's `start` is only the day it is shown on. One that follows work
+ * sits at the END of that day (`atDayEnd`), exactly where its predecessor's bar
+ * ends ({@link dateToRight}); one held by a floor sits at the start of it
+ * ({@link dateToLeft}). Drawing every diamond at the start of its day put a
+ * work-driven milestone on top of its predecessor's last day and made the FS
+ * arrow run backward. Every consumer that positions a diamond — the paint,
+ * the arrow anchors, the routing obstacles, the hit index, the focus ring, the
+ * print export — goes through this one function so they cannot disagree.
+ */
+export function milestoneX(
+  startIso: string,
+  atDayEnd: boolean | undefined,
+  scales: GanttScaleData,
+): number {
+  return atDayEnd ? dateToRight(startIso, scales) : dateToLeft(startIso, scales);
+}
+
+/**
+ * The start date a move-drag proposes when it drops a bar's anchor at canvas
+ * `left` (a snapped day boundary) — the one reading the drop preview and the
+ * commit share (#4079).
+ *
+ * For every bar it is the day that begins at `left`, and a dropped milestone
+ * becomes floor-held, drawn at the start of that day — so the diamond lands
+ * exactly where it was let go. The one exception is an end-of-day milestone
+ * dropped where it already is: its anchor ({@link milestoneX}) is the end of
+ * its day D, which is the start of D+1, so the plain reading would propose an
+ * SNET of D+1 for a gesture that did not move (a Friday milestone released in
+ * place became Saturday, then Monday). That drop returns `task.start`, which
+ * every caller treats as no net move. A drop one day to the left also reads
+ * as D: an SNET of D is a floor below an instant already at the end of D, so
+ * it would not move the milestone either.
+ */
+export function dragDropStartIso(
+  left: number,
+  task: { start: string; isMilestone?: boolean; milestoneAtDayEnd?: boolean },
+  scales: GanttScaleData,
+): string {
+  const dropIso = leftToDate(left, scales).toISOString().slice(0, 10);
+  if (!task.isMilestone || !task.milestoneAtDayEnd || !task.start) return dropIso;
+  const dayAfterMs = new Date(task.start + 'T00:00:00Z').getTime() + MS_PER_DAY;
+  return dropIso === new Date(dayAfterMs).toISOString().slice(0, 10) ? task.start : dropIso;
 }
 
 /**

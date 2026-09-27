@@ -13,7 +13,7 @@
 
 import type { Task } from '@/types';
 import type { GanttScaleData } from './GanttScaleData';
-import { dateToLeft, dateToRight } from './GanttScaleData';
+import { dateToLeft, dateToRight, milestoneX } from './GanttScaleData';
 import { CHART_HEADER_HEIGHT, ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from '../scheduleConstants';
 
 // ---------------------------------------------------------------------------
@@ -249,10 +249,19 @@ export function buildHitIndex(tasks: Task[], scales: GanttScaleData): HitIndex {
     const task = tasks[i];
     // Skip unscheduled tasks — no valid bar position
     if (!task.start || !task.finish) continue;
-    const barLeft = dateToLeft(task.start, scales);
+    // A milestone's zone starts at its diamond's center — the instant it sits on
+    // (#4079, `milestoneX`) — and spans one day, so an end-of-day milestone's
+    // zone moves with its diamond instead of covering the predecessor's last
+    // day. `barLeft` is also the drag anchor (`_dragOffsetX`), so a drop reads
+    // the instant under the diamond as the new start.
+    const barLeft = task.isMilestone
+      ? milestoneX(task.start, task.milestoneAtDayEnd, scales)
+      : dateToLeft(task.start, scales);
     // finish is inclusive — hit zones must track the true (exclusive) edge so the
     // resize handle and link-dot sit on the visible bar edge, not a day early (#950).
-    const barRight = dateToRight(task.finish, scales);
+    const barRight = task.isMilestone
+      ? barLeft + (dateToRight(task.finish, scales) - dateToLeft(task.finish, scales))
+      : dateToRight(task.finish, scales);
     const barTop = i * rowH + CHART_HEADER_HEIGHT + barTopOffset;
     const barBottom = barTop + BAR_HEIGHT;
     const rowTop = i * rowH + CHART_HEADER_HEIGHT;

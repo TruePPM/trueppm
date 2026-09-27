@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   formatShortDate,
   nudgeWorkingDays,
+  keyboardNudgeStart,
   computeInitialScrollLeft,
   computeInitialFraming,
   framedBarCoverage,
@@ -40,6 +41,29 @@ describe('formatShortDate', () => {
   it('renders the UTC calendar day, not the local day west of UTC', () => {
     expect(formatShortDate('2025-04-07')).toBe('Apr 7');
     expect(formatShortDate('2026-01-01')).toBe('Jan 1');
+  });
+});
+
+describe('keyboardNudgeStart (#4079)', () => {
+  // 2025-03-18 is a Tuesday. An end-of-day milestone shown on it sits at the
+  // end of Tuesday = the start of Wednesday.
+  const TUESDAY = '2025-03-18';
+
+  it('does not move on a zero nudge', () => {
+    expect(keyboardNudgeStart(TUESDAY, true, 0)).toBe(TUESDAY);
+  });
+
+  it('moves an end-of-day milestone one working day: the end of Wed = SNET Thu', () => {
+    expect(keyboardNudgeStart(TUESDAY, true, 1)).toBe('2025-03-20');
+  });
+
+  it('reads one nudge earlier as its own day (no move)', () => {
+    expect(keyboardNudgeStart(TUESDAY, true, -1)).toBe(TUESDAY);
+  });
+
+  it('leaves everything else on plain working-day nudges', () => {
+    expect(keyboardNudgeStart(TUESDAY, false, 1)).toBe('2025-03-19');
+    expect(keyboardNudgeStart(TUESDAY, false, -1)).toBe('2025-03-17');
   });
 });
 
