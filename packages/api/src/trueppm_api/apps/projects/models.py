@@ -8542,6 +8542,11 @@ class ProgramImportJob(models.Model):
     replace = models.BooleanField(default=False)
     # The program this import tombstoned, if any. Not an FK — see the class docstring.
     replaced_program_id = models.UUIDField(null=True, blank=True)
+    # Ids of the projects the request moved to Trash. The replace detaches them
+    # (``program = NULL``), so this is the worker's only way back to them: it
+    # moves their keys to the rebuilt projects inside the build's transaction
+    # (ADR-1237 §3). A failed build rolls that back, leaving the originals keyed.
+    replaced_project_ids = models.JSONField(default=list, blank=True)
     # Terminal entity counts the polling client renders ({"projects": n, "tasks": n, ...}).
     result_summary = models.JSONField(default=dict, blank=True)
     error_detail = models.TextField(blank=True, default="")

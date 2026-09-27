@@ -1597,6 +1597,7 @@ def run_program_import(self: object, job_id: str) -> None:
             owner=job.requested_by,
             create_users=False,
             target_program=program,
+            adopt_keys_from=job.replaced_project_ids,
         )
     except SeedValidationError as exc:
         _fail_import_job(job_id, "; ".join(exc.errors)[:2000])

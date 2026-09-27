@@ -1443,11 +1443,15 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 # The replaced shell is unrecoverable, so its keys move to the new
                 # one: same slug, and links to the old program keep resolving.
                 released_keys = release_keys_for_replace(candidates[0])
-                soft_delete_program_subtree(
+                # The trashed projects keep their keys for now; the worker moves
+                # them to the rebuilt projects inside its build transaction, so a
+                # failed build leaves no original keyless (#4150).
+                replaced_project_ids = soft_delete_program_subtree(
                     candidates[0], actor=request.user, reason="seed_replace"
                 )
             else:
                 released_keys = []
+                replaced_project_ids = []
 
             program = create_program(
                 name=seed_program["name"],
@@ -1472,6 +1476,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 filename=getattr(upload, "name", "") or "",
                 replace=replace,
                 replaced_program_id=replaced_program_id,
+                replaced_project_ids=replaced_project_ids,
             )
 
         program_id = str(program.pk)
