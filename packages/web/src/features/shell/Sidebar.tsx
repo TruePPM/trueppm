@@ -23,9 +23,11 @@ import { useIsWorkspaceAdmin } from '@/hooks/useIsWorkspaceAdmin';
 import { useUnreadNotificationCount } from '@/hooks/useNotifications';
 import { useProject } from '@/hooks/useProject';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProjectRef } from '@/hooks/useProjectRef';
 import { useProjectUnavailable } from '@/hooks/useProjectUnavailable';
 import { useHasAnyProjects } from '@/hooks/useHasAnyProjects';
 import { useProgramId } from '@/hooks/useProgramId';
+import { useProgramRef } from '@/hooks/useProgramRef';
 import { usePinned } from '@/hooks/usePins';
 import { useHasScrollAbove } from '@/hooks/useHasScrollAbove';
 import { useHasScrollBelow } from '@/hooks/useHasScrollBelow';
@@ -63,6 +65,7 @@ import { VIEW_TAB_META } from '@/features/shell/viewMeta';
 import { methodologyStatusLabel } from '@/lib/methodologyLabel';
 import { ViewsMenu } from './ViewsMenu';
 import type { ProjectHealth } from '@/api/types';
+import { programPath, projectPath } from '@/lib/refPath';
 
 interface Props {
   isDrawer?: boolean;
@@ -1160,7 +1163,7 @@ function PinnedTier({
                 />
                 <button
                   type="button"
-                  onClick={() => go(`/programs/${prog.id}/overview`)}
+                  onClick={() => go(programPath(prog, 'overview'))}
                   className="min-w-0 flex-1 truncate rounded-control text-left focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
                 >
                   {prog.name}
@@ -1185,7 +1188,7 @@ function PinnedTier({
               openTaskCount={p.openTaskCount}
               pinned
               isDraft={p.isDraft}
-              onOpen={() => go(`/projects/${p.id}/overview`)}
+              onOpen={() => go(projectPath(p, 'overview'))}
             />
           ))}
         </>
@@ -1574,7 +1577,7 @@ function BrowseContent({
               <ProgramIdentitySquare program={prog} size="md" />
               <button
                 type="button"
-                onClick={() => go(`/programs/${prog.id}/overview`)}
+                onClick={() => go(programPath(prog, 'overview'))}
                 className="min-w-0 flex-1 truncate rounded-control text-left focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
               >
                 {prog.name}
@@ -1608,7 +1611,7 @@ function BrowseContent({
                       openTaskCount={p.openTaskCount}
                       pinned={p.isPinned ?? false}
                       isDraft={p.lifecycle === 'draft'}
-                      onOpen={() => go(`/projects/${p.id}/overview`)}
+                      onOpen={() => go(projectPath(p, 'overview'))}
                     />
                   ))
                 )}
@@ -1631,7 +1634,7 @@ function BrowseContent({
               openTaskCount={p.openTaskCount}
               pinned={p.isPinned ?? false}
               isDraft={p.lifecycle === 'draft'}
-              onOpen={() => go(`/projects/${p.id}/overview`)}
+              onOpen={() => go(projectPath(p, 'overview'))}
             />
           ))}
         </>
@@ -1702,6 +1705,9 @@ function ProjectViewsTier({
   onClose?: () => void;
 }) {
   const { groups, labelFor } = useGroupedProjectViews(projectId);
+  // Build the view links from the URL's own segment (key or UUID, ADR-1237) so
+  // NavLink's active match agrees with the address bar.
+  const projectRef = useProjectRef() ?? projectId;
   const project = useProject(projectId);
   const { data: programs } = usePrograms();
 
@@ -1749,7 +1755,7 @@ function ProjectViewsTier({
     return (
       <NavLink
         key={view}
-        to={`/projects/${projectId}/${view}`}
+        to={`/projects/${projectRef}/${view}`}
         onClick={closeDrawer}
         title={collapsed ? labelFor(view) : undefined}
         className={({ isActive }) => rowClass(isActive, onRaisedGround, collapsed)}
@@ -1957,6 +1963,8 @@ function ProgramViewsTier({
 }) {
   const { data: programs } = usePrograms();
   const program = programs?.find((p) => p.id === programId) ?? null;
+  // Same as the project tier: links match the address bar's key segment.
+  const programRef = useProgramRef() ?? programId;
   const name = program?.name ?? 'Program';
   const closeDrawer = () => {
     if (isDrawer) onClose?.();
@@ -1993,7 +2001,7 @@ function ProgramViewsTier({
         {PROGRAM_VIEWS.map(({ view, label, Icon }) => (
           <NavLink
             key={view}
-            to={`/programs/${programId}/${view}`}
+            to={`/programs/${programRef}/${view}`}
             onClick={closeDrawer}
             title={collapsed ? label : undefined}
             className={({ isActive }) => rowClass(isActive, false, collapsed)}

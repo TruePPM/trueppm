@@ -1,7 +1,7 @@
 import { screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
-import { NotFoundPage } from './NotFoundPage';
+import { NotFoundPage, PROGRAM_LINK_NEEDS_CONNECTION } from './NotFoundPage';
 
 describe('NotFoundPage (#2184)', () => {
   it('announces the dead-end assertively and offers recovery actions', () => {
@@ -17,5 +17,13 @@ describe('NotFoundPage (#2184)', () => {
     const heading = screen.getByRole('heading', { name: /page not found/i });
     await waitFor(() => expect(heading).toHaveFocus());
     expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('renders a custom body — ADR-1237 §7 uses this for the offline-never-resolved state', () => {
+    renderWithRouter(<NotFoundPage body={PROGRAM_LINK_NEEDS_CONNECTION} />, {
+      initialEntries: ['/programs/PLAT'],
+    });
+    expect(screen.getByText(PROGRAM_LINK_NEEDS_CONNECTION)).toBeInTheDocument();
+    expect(screen.queryByText(/We couldn.t find that page/)).not.toBeInTheDocument();
   });
 });

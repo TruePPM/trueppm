@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link } from 'react-router';
 import {
   DndContext,
   KeyboardSensor,
@@ -27,6 +27,7 @@ import {
   type SprintOutcome,
 } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { useProjectRef } from '@/hooks/useProjectRef';
 import {
   CelebrationIcon,
   CheckIcon,
@@ -603,10 +604,10 @@ function CriteriaFollowup({
   onFlagForBacklog: () => void;
 }) {
   // "+ Add criteria" opens the task detail rather than a dead hash link — the
-  // task drawer is where acceptance criteria are edited. Read via useParams
-  // rather than prop-drilling projectId through SprintReviewSection and
-  // DemoSortableList.
-  const { projectId } = useParams<{ projectId: string }>();
+  // task drawer is where acceptance criteria are edited. Read from the route
+  // (the key-or-UUID segment, so the link matches the address bar) rather than
+  // prop-drilling projectId through SprintReviewSection and DemoSortableList.
+  const projectId = useProjectRef();
   if (!((criteriaIncomplete || criteriaNotSet) && canCurate && story.outcome_id)) return null;
   return (
     <div className="mt-2 flex flex-col gap-2 pl-16">

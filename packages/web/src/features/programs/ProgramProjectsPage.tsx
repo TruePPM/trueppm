@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useProgram } from '@/hooks/useProgram';
 import { useProgramProjects } from '@/hooks/useProgramProjects';
 import { useAssignProjectToProgram } from '@/hooks/useProgramMutations';
@@ -12,6 +12,8 @@ import { PinToggle } from '@/components/PinToggle';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { ROLE_ADMIN } from '@/lib/roles';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
+import { useProgramId } from '@/hooks/useProgramId';
+import { projectPath } from '@/lib/refPath';
 
 /**
  * /programs/:programId/projects — projects belonging to the program (ADR-0070).
@@ -21,8 +23,7 @@ import { fmtUtcShort } from '@/lib/formatUtcDate';
  * program?" while Backlog is stubbed.
  */
 export function ProgramProjectsPage() {
-  const params = useParams<{ programId: string }>();
-  const programId = params.programId;
+  const programId = useProgramId();
   const navigate = useNavigate();
   const { data: program } = useProgram(programId);
   const { data: projects, isLoading, error, refetch } = useProgramProjects(programId);
@@ -254,7 +255,7 @@ export function ProgramProjectsPage() {
                 </span>
               ) : (
                 <Link
-                  to={`/projects/${p.id}/overview`}
+                  to={projectPath(p, 'overview')}
                   className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-text-primary
                     hover:text-brand-primary
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
