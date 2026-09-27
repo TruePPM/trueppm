@@ -935,5 +935,26 @@ mod tests {
             ..Calendar::default()
         };
         assert!(prev_working_day(NaiveDate::MIN + Duration::days(10), &near_min).is_err());
+        // The tie: the budget and the date range run out on the same day.
+        for back in [MAX_CALENDAR_SCAN_DAYS - 1, MAX_CALENDAR_SCAN_DAYS, MAX_CALENDAR_SCAN_DAYS + 1] {
+            let hi = NaiveDate::MAX - Duration::days(back);
+            let tie_hi = Calendar {
+                exceptions: vec![DateRange { start: hi, end: NaiveDate::MAX }],
+                ..Calendar::default()
+            };
+            assert_eq!(
+                next_working_day(hi, &tie_hi).ok(),
+                snap_by_day(hi, &tie_hi, 1, MAX_CALENDAR_SCAN_DAYS)
+            );
+            let lo = NaiveDate::MIN + Duration::days(back);
+            let tie_lo = Calendar {
+                exceptions: vec![DateRange { start: NaiveDate::MIN, end: lo }],
+                ..Calendar::default()
+            };
+            assert_eq!(
+                prev_working_day(lo, &tie_lo).ok(),
+                snap_by_day(lo, &tie_lo, -1, MAX_CALENDAR_SCAN_DAYS)
+            );
+        }
     }
 }

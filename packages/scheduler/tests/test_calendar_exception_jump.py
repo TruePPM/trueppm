@@ -159,6 +159,15 @@ def test_date_range_edges_raise_the_same_guard_as_the_day_walk() -> None:
     assert _outcome(_prev_working_day, d, near_min) == "overflow"
     assert _outcome(_ref_snap, d, near_min, -1) == "overflow"
 
+    # The tie: the budget and the date range run out on the same day.
+    for back in (MAX_CALENDAR_SCAN_DAYS - 1, MAX_CALENDAR_SCAN_DAYS, MAX_CALENDAR_SCAN_DAYS + 1):
+        hi = date.max - timedelta(days=back)
+        tie_hi = Calendar(exceptions=[DateRange(hi, date.max)])
+        assert _outcome(_next_working_day, hi, tie_hi) == _outcome(_ref_snap, hi, tie_hi, 1)
+        lo = date.min + timedelta(days=back)
+        tie_lo = Calendar(exceptions=[DateRange(date.min, lo)])
+        assert _outcome(_prev_working_day, lo, tie_lo) == _outcome(_ref_snap, lo, tie_lo, -1)
+
     far_start = date.max - timedelta(days=MAX_CALENDAR_SCAN_DAYS + 5)
     far = Calendar(exceptions=[DateRange(far_start, date.max)])
     assert _outcome(_next_working_day, far_start, far) == "scan"
