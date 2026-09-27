@@ -3551,7 +3551,7 @@ api:image-lock-check:
     - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-api-image-lock.py --self-test
     - echo "--- diff the image's installed set against packages/api/uv.lock ---"
     - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-api-image-lock.py
-    - echo "--- boot smoke self-test first (scripts/check-api-wheel-imports.py, same job per #3194) ---"
+    - 'echo "--- boot smoke self-test first (scripts/check-api-wheel-imports.py, same job per #3194) ---"'
     - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-api-wheel-imports.py --self-test
     - echo "--- boot smoke — walk every trueppm_api module + resolve every trueppm_scheduler symbol reference, as the actual runtime (non-root) user ---"
     - |
