@@ -829,6 +829,32 @@ mod tests {
         }
     }
 
+    /// #4173: a zero-lag FS milestone after a task whose recorded finish is a
+    /// Saturday sits at Sunday midnight, so it reads as the start of Monday.
+    #[test]
+    fn test_milestone_after_non_working_actual_finish_is_next_start() {
+        let mut a = make_task("A", 3);
+        a.percent_complete = 100.0;
+        a.actual_start = Some(NaiveDate::from_ymd_opt(2026, 1, 7).unwrap());
+        a.actual_finish = Some(NaiveDate::from_ymd_opt(2026, 1, 10).unwrap());
+        let project = Project {
+            id: "p1".to_string(),
+            name: "Test".to_string(),
+            start_date: NaiveDate::from_ymd_opt(2026, 1, 5).unwrap(),
+            tasks: vec![a, make_task("M", 0)],
+            dependencies: vec![dep("A", "M")],
+            calendar: Calendar::default(),
+            status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
+        };
+        let result = schedule_impl(&project).unwrap();
+        let m = result.tasks.iter().find(|t| t.id == "M").unwrap();
+        assert_eq!(m.early_start, NaiveDate::from_ymd_opt(2026, 1, 12).unwrap());
+        assert!(!m.milestone_at_day_end);
+    }
+
     #[test]
     fn test_planned_start_snet() {
         // A(3d) with planned_start = Apr 6 (Mon of second week)

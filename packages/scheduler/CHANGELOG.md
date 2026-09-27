@@ -50,8 +50,10 @@ change between releases. Pin an exact version (e.g.
   P50 before the CPM finish on a Finish-to-Start / Start-to-Start network. Such a
   milestone now sits at the start of the next working day
   (`milestone_at_day_end` is `False`), as MS Project places an elapsed lag that
-  ends on non-working time. A milestone reached with no lag, or whose lag ends a
-  working day, is unchanged. The Rust/WASM engine moves with it.
+  ends on non-working time. A milestone whose predecessor finishes on a working
+  day is unchanged when it has no lag or its lag ends on a working day; one
+  following a recorded `actual_finish` on a non-working day now also shows at
+  the start of the next working day rather than the working day before it. The Rust/WASM engine moves with it.
 - **A long calendar exception no longer makes `schedule()` slow in proportion
   to the number of dependencies (#4161).** Every dependency edge snaps a date to
   a working day in the forward pass, the backward pass, and the free-float

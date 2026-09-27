@@ -132,6 +132,7 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // #4173. The weekend-lag reading itself is asserted in `cpmEngine.test.ts`,
   // which can seed the fixture's two work sources directly.
   milestone_lag_after_weekend: 'adapter: 3 source tasks',
+  milestone_after_non_working_actual_finish: 'adapter: does not thread actuals/status date',
   // A genuine forward-pass divergence, unrelated to calendars or the adapter.
   fs_negative_lag_floored: 'engine gap: negative lag is not floored at the project start',
 };

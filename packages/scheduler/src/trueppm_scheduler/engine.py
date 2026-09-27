@@ -14,12 +14,15 @@ engine now follows the MS Project / Primavera P6 convention:
   finish day**: ``A(5d, Mon..Fri) -FS-> M`` puts ``M`` on Friday, not Monday.
 * A milestone held by a floor (project start, SNET, data date, recorded actual
   start) sits at the **start** of that day, and an FS successor starts that day.
-* A lag that lands a milestone just after **non-working** time (the midnight
-  opening Sunday or Monday after a weekend) is shown at the **start of the next
-  working day**, the way MS Project snaps an elapsed lag onto working time — never
-  at the end of the working day before it (#4173). Otherwise two midnights at the
-  same working-time position could be shown on different days, and a longer
-  predecessor would show the milestone, and ``project_finish``, a day *earlier*.
+* A milestone whose instant falls just after **non-working** time (the midnight
+  opening Sunday or Monday after a weekend) — because of a lag, or because its
+  predecessor's recorded finish is itself on a non-working day — is shown at the
+  **start of the next working day**, the way MS Project snaps an elapsed lag onto
+  working time, never at the end of the working day before it (#4173). Otherwise a
+  later midnight could be shown on an earlier day than an earlier midnight, and a
+  longer predecessor would show the milestone, and ``project_finish``, a day
+  *earlier*. The shown day is monotone in the instant; it is not a function of
+  working-time position alone (Saturday midnight is still the end of Friday).
 * Links **out of** a milestone measure from the instant (FS/SS) or the last working
   day before it (FF/SF). The instant is never rounded to a working day, so
   calendar-day lags compose through it: ``A -FS(l1)-> M -FS(l2)-> B`` schedules
