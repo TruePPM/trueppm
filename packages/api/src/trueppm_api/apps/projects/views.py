@@ -19276,7 +19276,16 @@ class ProgramApiTokenViewSet(ProjectApiTokenViewSet):
 
     def get_permissions(self) -> list[BasePermission]:
         # IsNotTokenAuthenticated on every branch — see ProjectApiTokenViewSet (#2878).
-        if self.action in ("create", "destroy"):
+        # `destroy` (revocation) deliberately carries no IsProgramNotClosed: a closed
+        # program stays readable, so a leaked program token keeps read access to every
+        # project in it, and closing the revoke route would leave it killable only by
+        # reopening the program — the same argument as the project side (#3414). Until
+        # #4014 this worked only by accident, through IsProgramNotClosed's name-only
+        # `destroy` bypass; that bypass is now scoped to ProgramViewSet. Minting stays
+        # gated.
+        if self.action == "destroy":
+            return [IsAuthenticated(), IsNotTokenAuthenticated(), IsProgramAdmin()]
+        if self.action == "create":
             return [
                 IsAuthenticated(),
                 IsNotTokenAuthenticated(),

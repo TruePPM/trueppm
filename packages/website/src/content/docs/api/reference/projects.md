@@ -148,7 +148,7 @@ Program membership is the same shape, one tier up:
 | POST | `/api/v1/programs/{id}/members/` | Add member (Program Admin only; same target rule) |
 | GET | `/api/v1/programs/{id}/members/{mid}/` | Retrieve |
 | PATCH | `/api/v1/programs/{id}/members/{mid}/` | Change `role` (Program Admin) or `role_title` (Program Manager+). `user` is not accepted |
-| DELETE | `/api/v1/programs/{id}/members/{mid}/` | Remove (Program Admin, or self) |
+| DELETE | `/api/v1/programs/{id}/members/{mid}/` | Remove (Program Admin, or self). On a closed program only self-removal is accepted; removing another member returns `403` |
 
 ### Who `user` may name
 

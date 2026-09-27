@@ -35,6 +35,7 @@ from rest_framework.viewsets import GenericViewSet
 from trueppm_api.apps.access.permissions import (
     IsProgramAdmin,
     IsProgramMember,
+    IsProgramNotClosed,
     IsProjectAdmin,
     IsProjectMember,
     IsProjectNotArchived,
@@ -351,14 +352,18 @@ class ProgramWebhookViewSet(WebhookViewSet):
         # information disclosure beyond plain project membership, so it is
         # Admin-only — consistent with webhook create/update/delete/test, which
         # are already Admin-gated (only an Admin could have created the webhook).
-        if self.action in (
-            "create",
-            "update",
-            "partial_update",
-            "destroy",
-            "test_ping",
-            "deliveries",
-        ):
+        #
+        # Lifecycle (#4014): a closed program's shell is read-only (#530), so
+        # registering or re-pointing a webhook is refused like minting a program API
+        # token. `destroy` is deliberately NOT gated: child projects keep accepting
+        # writes on a closed program, so a program webhook keeps delivering their
+        # events to an external URL, and deleting it is the only way to stop that
+        # outbound flow without reopening the program — the same containment argument
+        # as program token revocation. `test_ping` and `deliveries` touch no program
+        # state and stay available for diagnosing a still-live webhook.
+        if self.action in ("create", "update", "partial_update"):
+            return [IsAuthenticated(), IsProgramAdmin(), IsProgramNotClosed()]
+        if self.action in ("destroy", "test_ping", "deliveries"):
             return [IsAuthenticated(), IsProgramAdmin()]
         return [IsAuthenticated(), IsProgramMember()]
 
