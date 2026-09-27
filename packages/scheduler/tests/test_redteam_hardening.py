@@ -166,7 +166,9 @@ def test_too_many_calendar_exceptions_rejected() -> None:
 
 
 def test_deeply_nested_json_raises_documented_type() -> None:
-    payload = "[" * 20_000 + "1" + "]" * 20_000
+    # Deep enough to overflow the C parser on every supported version; at 20,000
+    # 3.14 parses it and the non-object path raised instead of the #1207 guard.
+    payload = "[" * 1_000_000 + "1" + "]" * 1_000_000
     with pytest.raises(InvalidScheduleInput):
         Project.from_json(payload)
 
