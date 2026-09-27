@@ -75,6 +75,13 @@ check_text() {
   while IFS= read -r line; do
     grep -qiE "$TRIGGER_RE" <<<"$line" || continue
     grep -q 'followup-ok' <<<"$line" && continue
+    # "Follow-up to !2805" / "follows up #4079" looks BACK at work already done; only a
+    # forward-looking follow-up owes anything. Skip the backward form unless the line
+    # also uses another trigger word.
+    if grep -qiE 'follow[- ]?ups? (to|of|on) [!#]|follows up (on )?[!#]' <<<"$line" &&
+      ! grep -qiE "$(sed -E 's/^follow\[- \]\?ups\?\|//' <<<"$TRIGGER_RE")" <<<"$line"; then
+      continue
+    fi
     refs="$(grep -oE '([A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+|[A-Za-z0-9_-]+)?#[0-9]+' <<<"$line" || true)"
     if [ -z "$refs" ]; then
       echo "UNTRACKED: ${line}" >&2
@@ -173,6 +180,8 @@ CURLMOCK
   expect_pass "opt-out marker" $'- The broadcast is deferred to on_commit. <!-- followup-ok -->'
   expect_pass "trigger words inside a code fence" $'```\n# follow-up later\n```'
   expect_pass "trigger words inside inline code" $'- Uses `deferred_until` from the model.'
+  expect_pass "backward-looking follow-up to an MR" $'- Follow-up to !2805 / !2806, which changed the roadmap only.'
+  expect_fail "backward form plus an untracked deferral" $'- Follow-up to !2805; the mobile page is left open.'
   expect_fail "second of two lines untracked" $'- Follow-up: #100\n- Left open: the mobile view.'
   # An unreachable tracker fails closed, and the escape hatch opens it.
   if PATH="$tmp/bin:$PATH" CI_PROJECT_ID=1 check_text $'- Follow-up in #999' >/dev/null 2>&1; then
