@@ -31,6 +31,11 @@ make doctor   # verifies prerequisites
 make up       # starts the full dev stack
 ```
 
+`make up` also starts a [Mailpit](https://mailpit.axllent.org/) catch-all SMTP
+relay (#4200), so password-reset, invite, and mention-notification emails sent
+by the dev stack are visible at <http://localhost:8025> instead of going
+nowhere against the production default's deliberately-blank `EMAIL_HOST`.
+
 ## Branch and commit conventions
 
 Branch from `main`. Branch names follow `<prefix>/<short-description>`:
