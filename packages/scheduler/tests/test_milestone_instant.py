@@ -351,3 +351,107 @@ def test_free_float_derivation_matches_the_engine_for_a_milestone() -> None:
     for tid in ("S", "M"):
         d = derive_value(p, tid, Quantity.FREE_FLOAT)
         assert d.value == by_id[tid].free_float.days
+
+
+# ---------------------------------------------------------------------------
+# Every late date is seeded from the project's finish instant (#4157)
+# ---------------------------------------------------------------------------
+
+
+def test_an_unlinked_terminal_milestone_seeds_ordinary_work_from_its_instant() -> None:
+    """A Saturday SNET milestone ends the project at Saturday's midnight.
+
+    The engine seeds T0's late finish from that instant — Friday — while the
+    result's ``project_finish`` is the Monday the milestone is *shown* on. The
+    derivation used to replay the milestone rule only when T0 or a neighbor was a
+    milestone, so it cited a non-binding Monday and blamed a pullback that never
+    ran.
+    """
+    m = _task("M", 0)
+    m.planned_start = date(2026, 1, 17)  # a Saturday
+    p = _project([_task("T0", 2), m], [])
+    assert schedule(p).project_finish == date(2026, 1, 19)
+
+    lf = derive_value(p, "T0", Quantity.LATE_FINISH)
+    assert lf.value == "2026-01-16"
+    assert [(c.kind, c.imposed_date, c.is_binding) for c in lf.contributions] == [
+        ("project_finish", date(2026, 1, 16), True)
+    ]
+    ls = derive_value(p, "T0", Quantity.LATE_START)
+    assert ls.value == "2026-01-15"
+    assert [(c.kind, c.imposed_date, c.is_binding) for c in ls.contributions] == [
+        ("project_finish", date(2026, 1, 16), False),
+        ("duration_from_late_finish", date(2026, 1, 15), True),
+    ]
+
+
+@st.composite
+def _networks_with_floored_milestones(draw: st.DrawFn) -> Project:
+    """A small random DAG where some tasks carry an SNET floor, weekends included.
+
+    An SNET on a zero-duration task that no link reaches is what lets a milestone
+    end the project at an instant other than the end of the latest finish day,
+    which is the seed every late date in the network is derived from.
+    """
+    n = draw(st.integers(min_value=1, max_value=6))
+    tasks: list[Task] = []
+    for i in range(n):
+        t = _task(f"T{i}", draw(st.sampled_from([0, 0, 1, 2, 3, 5])))
+        if draw(st.booleans()):
+            t.planned_start = MON + timedelta(days=draw(st.integers(min_value=0, max_value=20)))
+        tasks.append(t)
+    deps: list[Dependency] = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            if draw(st.booleans()) and draw(st.booleans()):
+                deps.append(
+                    _dep(
+                        f"T{i}",
+                        f"T{j}",
+                        draw(st.sampled_from(list(DependencyType))),
+                        draw(st.sampled_from([0, 0, 1, 3])),
+                    )
+                )
+    return _project(tasks, deps)
+
+
+@pytest.mark.fuzz
+@given(_networks_with_floored_milestones())
+def test_every_date_derivation_cites_the_engines_own_value(p: Project) -> None:
+    """ADR-0218 faithfulness over random networks with terminal SNET milestones.
+
+    For every task and every date quantity, the derivation reports the engine's
+    value and exactly one term binds, at that value. Float values agree too.
+
+    A matching date is not enough: #4157 reported the right late finish through
+    the wrong term, because a pullback reached the same day the misplaced seed
+    missed. So the seed is checked on its own: every ordinary task on the one
+    calendar cites the same ``project_finish`` date, and a task with no
+    successor is bound by it.
+    """
+    result = schedule(p)
+    has_succ = {d.predecessor_id for d in p.dependencies}
+    seeds: set[date | None] = set()
+    for t in result.tasks:
+        if t.duration.days > 0:
+            lf = derive_value(p, t.id, Quantity.LATE_FINISH, result)
+            seed = next(c for c in lf.contributions if c.kind == "project_finish")
+            seeds.add(seed.imposed_date)
+            if t.id not in has_succ:
+                assert lf.binding is seed, t.id
+        assert len(seeds) <= 1, seeds
+    for t in result.tasks:
+        for q in (
+            Quantity.EARLY_START,
+            Quantity.EARLY_FINISH,
+            Quantity.LATE_START,
+            Quantity.LATE_FINISH,
+        ):
+            d = derive_value(p, t.id, q, result)
+            assert d.value == getattr(t, q.value).isoformat(), (t.id, q)
+            binding = [c for c in d.contributions if c.is_binding]
+            assert binding == [d.binding], (t.id, q)
+            assert d.binding is not None and d.binding.imposed_date is not None
+            assert d.binding.imposed_date.isoformat() == d.value, (t.id, q)
+        for q in (Quantity.TOTAL_FLOAT, Quantity.FREE_FLOAT):
+            assert derive_value(p, t.id, q, result).value == getattr(t, q.value).days

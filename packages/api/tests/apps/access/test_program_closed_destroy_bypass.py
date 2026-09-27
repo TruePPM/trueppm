@@ -2,6 +2,10 @@
 
 Before the fix the bypass matched the action *name* ``destroy``, which every
 ModelViewSet mints, so nested program resources were deletable from a closed program.
+
+Scoping the bypass also closed three paths that had been riding on it and must stay
+open on a closed program: revoking a program API token, deleting a program webhook
+(child projects keep emitting events to it), and a member leaving the program.
 """
 
 from __future__ import annotations
@@ -14,12 +18,14 @@ from trueppm_api.apps.access.models import ProgramMembership, Role
 from trueppm_api.apps.access.permissions import IsProgramNotClosed
 from trueppm_api.apps.access.services import create_program
 from trueppm_api.apps.projects.models import (
+    ApiToken,
     BacklogItem,
     CeremonyCadenceType,
     CeremonyTemplate,
     Methodology,
     Program,
 )
+from trueppm_api.apps.webhooks.models import Webhook
 
 User = get_user_model()
 
@@ -87,7 +93,7 @@ def test_ceremony_template_destroy_blocked_on_closed_program(
 
 
 @pytest.mark.django_db
-def test_program_membership_destroy_blocked_on_closed_program(
+def test_owner_removing_another_member_blocked_on_closed_program(
     program: Program, owner: object
 ) -> None:
     peer = User.objects.create_user(username="peer4014", password="pw")
@@ -112,3 +118,71 @@ def test_reopen_close_and_destroy_of_the_program_itself_still_work(
     assert program.is_closed is False
     _close(program)
     assert c.delete(f"/api/v1/programs/{program.pk}/").status_code == 204
+
+
+@pytest.mark.django_db
+def test_member_can_leave_a_closed_program(program: Program) -> None:
+    leaver = User.objects.create_user(username="leaver4014", password="pw")
+    m = ProgramMembership.objects.create(program=program, user=leaver, role=Role.MEMBER)
+    _close(program)
+    resp = _client(leaver).delete(f"/api/v1/programs/{program.pk}/members/{m.pk}/")
+    assert resp.status_code == 204, resp.data
+    m.refresh_from_db()
+    assert m.is_deleted is True
+
+
+@pytest.mark.django_db
+def test_program_token_revoke_allowed_on_closed_program(program: Program, owner: object) -> None:
+    c = _client(owner)
+    created = c.post(
+        f"/api/v1/programs/{program.pk}/api-tokens/", {"name": "leaked"}, format="json"
+    )
+    assert created.status_code == 201, created.data
+    _close(program)
+    resp = c.delete(f"/api/v1/programs/{program.pk}/api-tokens/{created.data['id']}/")
+    assert resp.status_code == 204
+    assert ApiToken.objects.get(pk=created.data["id"]).revoked_at is not None
+
+
+@pytest.mark.django_db
+def test_program_token_create_blocked_on_closed_program(program: Program, owner: object) -> None:
+    _close(program)
+    resp = _client(owner).post(
+        f"/api/v1/programs/{program.pk}/api-tokens/", {"name": "new"}, format="json"
+    )
+    assert resp.status_code == 403
+    assert not ApiToken.objects.filter(program=program).exists()
+
+
+@pytest.mark.django_db
+def test_program_webhook_create_and_update_blocked_on_closed_program(
+    program: Program, owner: object
+) -> None:
+    wh = Webhook.objects.create(
+        program=program, url="https://example.com/h", secret="s", events=["task.created"]
+    )
+    _close(program)
+    c = _client(owner)
+    base = f"/api/v1/programs/{program.pk}/webhooks/"
+    created = c.post(
+        base,
+        {"url": "https://example.com/h2", "secret": "s" * 32, "events": ["task.created"]},
+        format="json",
+    )
+    assert created.status_code == 403
+    patched = c.patch(f"{base}{wh.pk}/", {"url": "https://example.com/moved"}, format="json")
+    assert patched.status_code == 403
+    wh.refresh_from_db()
+    assert wh.url == "https://example.com/h"
+    assert Webhook.objects.filter(program=program).count() == 1
+
+
+@pytest.mark.django_db
+def test_program_webhook_delete_allowed_on_closed_program(program: Program, owner: object) -> None:
+    wh = Webhook.objects.create(
+        program=program, url="https://example.com/h", secret="s", events=["task.created"]
+    )
+    _close(program)
+    resp = _client(owner).delete(f"/api/v1/programs/{program.pk}/webhooks/{wh.pk}/")
+    assert resp.status_code == 204
+    assert not Webhook.objects.filter(pk=wh.pk).exists()

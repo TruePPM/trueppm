@@ -1129,13 +1129,17 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def perform_update(self, serializer: BaseSerializer[Calendar]) -> None:
-        # working_days and hours_per_day are the only CPM inputs on Calendar —
-        # changing either shifts every finish date on every project scheduled
-        # against this calendar (#1492). timezone is round-tripped but not yet
-        # consumed by the scheduler (trueppm_scheduler.models.Calendar docstring),
-        # and name is pure metadata, so a PATCH touching only those must not fan
-        # out a recompute (over-triggering wastes a recalc pass on every project
-        # bound to the calendar for a no-op schedule change). Compare before/after
+        # working_days is the CPM input on Calendar — changing it shifts every
+        # finish date on every project scheduled against this calendar (#1492).
+        # hours_per_day does not move dates today (the engine counts whole working
+        # days, and hour-unit estimates are converted once, at entry). It stays in
+        # the trigger set because sub-day scheduling (#1216) will make it a CPM
+        # input, and a stale schedule then would be silent.
+        # timezone is round-tripped but not yet consumed by the scheduler
+        # (trueppm_scheduler.models.Calendar docstring), and name is pure metadata,
+        # so a PATCH touching only those must not fan out a recompute
+        # (over-triggering wastes a recalc pass on every project bound to the
+        # calendar for a no-op schedule change). Compare before/after
         # rather than inspecting serializer.validated_data so this also catches a
         # PUT that re-sends the same values under a different field set.
         old_working_days = serializer.instance.working_days if serializer.instance else None
@@ -19295,8 +19299,10 @@ class ProgramApiTokenViewSet(ProjectApiTokenViewSet):
     A program-scoped token authorizes inbound writes into any project within the
     program (ADR-0076). Reuses the one-time-reveal create, soft-delete revoke,
     and audit substrate from ProjectApiTokenViewSet via the scope hooks; only the
-    scope resolution and RBAC ladder change. Reads: Program Member+; create/revoke:
-    Program Admin+ on a non-closed program.
+    scope resolution and RBAC ladder change. Reads: Program Member+; create:
+    Program Admin+ on a non-closed program; revoke: Program Admin+ even on a
+    closed program, because a leaked token keeps its read access and must stay
+    killable.
     """
 
     _scope_field = "program"
@@ -19321,7 +19327,16 @@ class ProgramApiTokenViewSet(ProjectApiTokenViewSet):
 
     def get_permissions(self) -> list[BasePermission]:
         # IsNotTokenAuthenticated on every branch — see ProjectApiTokenViewSet (#2878).
-        if self.action in ("create", "destroy"):
+        # `destroy` (revocation) deliberately carries no IsProgramNotClosed: a closed
+        # program stays readable, so a leaked program token keeps read access to every
+        # project in it, and closing the revoke route would leave it killable only by
+        # reopening the program — the same argument as the project side (#3414). Until
+        # #4014 this worked only by accident, through IsProgramNotClosed's name-only
+        # `destroy` bypass; that bypass is now scoped to ProgramViewSet. Minting stays
+        # gated.
+        if self.action == "destroy":
+            return [IsAuthenticated(), IsNotTokenAuthenticated(), IsProgramAdmin()]
+        if self.action == "create":
             return [
                 IsAuthenticated(),
                 IsNotTokenAuthenticated(),

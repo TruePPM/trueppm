@@ -818,6 +818,139 @@ def test_viewer_refresh_of_credential_free_provider_persists(
     assert link.title == "Q3 Budget"
 
 
+@pytest.fixture
+def other_member(project: Project) -> object:
+    user = User.objects.create_user(username="other-member", password="pw")
+    ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+    return user
+
+
+def _creator_owned_refreshed_link(task: Task, creator: object) -> TaskLink:
+    """A link its creator added and already refreshed (cache populated)."""
+    from django.utils import timezone
+
+    return TaskLink.objects.create(
+        task=task,
+        url="https://github.com/acme/api/issues/1",
+        provider="github",
+        created_by=creator,
+        title="Creator's issue",
+        status="open",
+        description="cached description",
+        thumbnail_url="https://example.com/thumb.png",
+        preview_type="document",
+        fetched_at=timezone.now(),
+    )
+
+
+def test_url_edit_by_another_member_takes_ownership_and_clears_cache(
+    member: object,
+    other_member: object,
+    project: Project,
+    task: Task,
+    memberships: None,
+    monkeypatch: pytest.MonkeyPatch,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """Repointing someone else's link must not leave them as its owner (#4081).
+
+    Otherwise the creator's next Refresh fetches the editor's chosen URL with the
+    creator's token and persists + broadcasts the result to the project.
+    """
+    IntegrationCredential.upsert(user=member, provider="github", secret="ghp-creator")
+    link = _creator_owned_refreshed_link(task, member)
+    r = _client(other_member).patch(
+        _detail_url(project, task, link.pk),
+        {"url": "https://github.com/victim-org/private/issues/9"},
+        format="json",
+    )
+    assert r.status_code == 200
+    link.refresh_from_db()
+    assert link.created_by == other_member
+    assert link.title == ""
+    assert link.status == "unknown"
+    assert link.description == ""
+    assert link.thumbnail_url == ""
+    assert link.preview_type == ""
+    assert link.fetched_at is None
+
+    seen: list[str] = []
+    _fake_github(monkeypatch, seen)
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as bcast,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        r = _client(member).post(_refresh_url(project, task, link.pk))
+    assert r.status_code == 200
+    link.refresh_from_db()
+    assert link.title == ""
+    assert link.status == "unknown"
+    assert link.fetched_at is None
+    bcast.assert_not_called()
+
+
+def test_url_editor_refreshing_their_new_url_persists(
+    member: object,
+    other_member: object,
+    project: Project,
+    task: Task,
+    memberships: None,
+    monkeypatch: pytest.MonkeyPatch,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    IntegrationCredential.upsert(user=other_member, provider="github", secret="ghp-editor")
+    link = _creator_owned_refreshed_link(task, member)
+    r = _client(other_member).patch(
+        _detail_url(project, task, link.pk),
+        {"url": "https://github.com/acme/api/issues/2"},
+        format="json",
+    )
+    assert r.status_code == 200
+    _fake_github(monkeypatch)
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as bcast,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        r = _client(other_member).post(_refresh_url(project, task, link.pk))
+    assert r.status_code == 200
+    link.refresh_from_db()
+    assert link.title == "Private issue title"
+    assert link.status == "closed"
+    assert link.fetched_at is not None
+    assert bcast.call_args.args[1] == "task_link_updated"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"custom_title": "Renamed", "labels": ["spec"]},
+        # Re-sending the unchanged URL alongside other fields is not a repoint.
+        {"url": "https://github.com/acme/api/issues/1", "custom_title": "Renamed"},
+    ],
+)
+def test_non_url_edit_keeps_owner_and_cache(
+    member: object,
+    other_member: object,
+    project: Project,
+    task: Task,
+    memberships: None,
+    payload: dict[str, object],
+) -> None:
+    link = _creator_owned_refreshed_link(task, member)
+    before_fetched_at = link.fetched_at
+    r = _client(other_member).patch(_detail_url(project, task, link.pk), payload, format="json")
+    assert r.status_code == 200
+    link.refresh_from_db()
+    assert link.custom_title == "Renamed"
+    assert link.created_by == member
+    assert link.title == "Creator's issue"
+    assert link.status == "open"
+    assert link.description == "cached description"
+    assert link.thumbnail_url == "https://example.com/thumb.png"
+    assert link.preview_type == "document"
+    assert link.fetched_at == before_fetched_at
+
+
 @pytest.mark.parametrize(
     "url",
     [
@@ -862,3 +995,40 @@ def test_github_owner_repo_are_percent_encoded_in_api_path(
     assert seen[0].startswith("https://api.github.com/repos/")
     assert "?" not in seen[0] and "#" not in seen[0]
     assert seen[0].endswith("/issues/7")
+
+
+def test_refresh_does_not_persist_when_the_link_is_repointed_mid_fetch(
+    member: object,
+    other_member: object,
+    project: Project,
+    task: Task,
+    memberships: None,
+    monkeypatch: pytest.MonkeyPatch,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """A repoint that lands while the creator's refresh is fetching must win (#4081).
+
+    Otherwise the old target's title is stamped onto the row that now points at
+    the new URL (and is owned by the editor), and broadcast to the project.
+    """
+    IntegrationCredential.upsert(user=member, provider="github", secret="ghp-creator")
+    link = _creator_owned_refreshed_link(task, member)
+
+    def _repoint_during_fetch(url: str, **kwargs: object) -> http.EgressResponse:
+        TaskLink.objects.filter(pk=link.pk).update(
+            url="https://github.com/acme/api/issues/2", created_by=other_member, title=""
+        )
+        body = json.dumps({"state": "closed", "title": "Old target title"}).encode()
+        return http.EgressResponse(status=200, body=body, headers={})
+
+    monkeypatch.setattr(http, "get", _repoint_during_fetch)
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as bcast,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        r = _client(member).post(_refresh_url(project, task, link.pk))
+    assert r.status_code == 200
+    link.refresh_from_db()
+    assert link.url == "https://github.com/acme/api/issues/2"
+    assert link.title == ""
+    bcast.assert_not_called()

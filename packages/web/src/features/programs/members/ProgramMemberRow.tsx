@@ -10,6 +10,9 @@ interface Props {
   isOwnerRole: boolean;
   /** True when this member is the only OWNER — disables leave/remove to prevent lockout. */
   isSoleOwner: boolean;
+  /** The program is closed. Only self-leave survives: role changes and removing
+   *  another member are refused server-side (#4014). */
+  isClosed?: boolean;
   onChangeRole: (membershipId: string, role: number) => void;
   onRemove: (membershipId: string) => void;
   isUpdatingRole: boolean;
@@ -38,6 +41,7 @@ export function ProgramMemberRow({
   isSelf,
   isOwnerRole,
   isSoleOwner,
+  isClosed = false,
   onChangeRole,
   onRemove,
   isUpdatingRole,
@@ -47,8 +51,10 @@ export function ProgramMemberRow({
   const initials = user_detail.username.slice(0, 2).toUpperCase();
   const isOwnerMember = role === ROLE_OWNER;
 
-  const canEditRole = isOwnerRole && !isOwnerMember;
-  const canRemove = isOwnerRole && !(isSelf && isSoleOwner);
+  const canEditRole = isOwnerRole && !isOwnerMember && !isClosed;
+  // Self-leave survives a closed program; removing someone else does not (#4014),
+  // mirroring ProgramMembershipViewSet.destroy's `is_self` split.
+  const canRemove = isOwnerRole && (isSelf ? !isSoleOwner : !isClosed);
 
   const [confirmLeave, setConfirmLeave] = useState(false);
 

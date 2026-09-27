@@ -198,6 +198,21 @@ This is exactly what `values-prod.yaml` does. Two rules that bite people:
   `/2`, and `/3` itself.
 - **Cluster mode must be disabled** on a managed endpoint — a clustered server
   exposes only database `0`. See [Valkey HA](/administration/valkey-ha/).
+- **The database role must be able to create three extensions, or they must already
+  exist.** Migrations run `CREATE EXTENSION` for `ltree`, `pg_trgm`, and `btree_gist`.
+  On a managed service that refuses the role `CREATE` on extensions, the API
+  crash-loops on first start (and on upgrade to 0.4, which adds `btree_gist`). Allow
+  them in the provider's extension allowlist, or have an administrator pre-create them
+  in the TruePPM database:
+
+  ```sql
+  CREATE EXTENSION IF NOT EXISTS ltree;
+  CREATE EXTENSION IF NOT EXISTS pg_trgm;
+  CREATE EXTENSION IF NOT EXISTS btree_gist;
+  ```
+
+  See [Backup & restore](/administration/backup-restore/#why-the-ltree--pg_trgm--btree_gist-extension-ordering-matters)
+  for why the order matters on a restore.
 
 **The trade-off.**
 

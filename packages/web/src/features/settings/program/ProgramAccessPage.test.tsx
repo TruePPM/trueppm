@@ -181,18 +181,22 @@ describe('ProgramAccessPage (settings)', () => {
     expect(removeMember).toHaveBeenCalledWith('m-2');
   });
 
-  // #2549: create (Add member) and role changes both hit ProgramMembershipViewSet
-  // actions gated by IsProgramNotClosed, so an Owner on a closed program must not
-  // see a live Add-member button or role picker. Remove is deliberately exempt —
-  // `destroy` sits in the permission class's bypass set and the view body does
-  // not re-assert the closed check, so removal actually succeeds server-side even
-  // when the program is closed (unlike ExternalStakeholderViewSet/mention groups).
-  it('hides Add member + role picker but keeps Remove for an Owner on a closed program', async () => {
+  // #2549: create (Add member) and role changes are refused on a closed program,
+  // so an Owner there must not see a live Add-member button or role picker.
+  // #4014: removal splits on who is removed — ProgramMembershipViewSet.destroy
+  // refuses removing SOMEONE ELSE on a closed program but lets the caller leave.
+  it('hides Add member, role picker and Remove-other but keeps Leave for an Owner on a closed program', async () => {
     const user = userEvent.setup();
     useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER, is_closed: true } });
     useProgramMembers.mockReturnValue({
       data: [
         makeMembership({ id: 'm-1', user: 1 }),
+        // A second Owner, so the caller is not the sole Owner and may leave.
+        makeMembership({
+          id: 'm-3',
+          user: 3,
+          user_detail: { id: 3, username: 'ravi.s', email: 'ravi@example.com' },
+        }),
         makeMembership({
           id: 'm-2',
           user: 2,
@@ -216,10 +220,33 @@ describe('ProgramAccessPage (settings)', () => {
         .length,
     ).toBeGreaterThan(0);
 
-    // Remove still works — the server does not 403 it on a closed program.
-    await user.click(screen.getByRole('button', { name: /Remove sofia.p/i }));
-    await user.click(screen.getByRole('button', { name: /^Confirm$/ }));
-    expect(removeMember).toHaveBeenCalledWith('m-2');
+    // Removing someone else is refused server-side on a closed program.
+    expect(screen.queryByRole('button', { name: /^Remove / })).not.toBeInTheDocument();
+
+    // Leaving yourself still works.
+    await user.click(screen.getByRole('button', { name: 'Leave program' }));
+    await user.click(screen.getByRole('button', { name: /^Leave$/ }));
+    expect(removeMember).toHaveBeenCalledWith('m-1');
+  });
+
+  it('shows Remove-other for an Owner on an open program', () => {
+    useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER, is_closed: false } });
+    useProgramMembers.mockReturnValue({
+      data: [
+        makeMembership({ id: 'm-1', user: 1 }),
+        makeMembership({
+          id: 'm-2',
+          user: 2,
+          user_detail: { id: 2, username: 'sofia.p', email: 'sofia@example.com' },
+          role: ROLE_MEMBER,
+          role_label: 'Team Member',
+        }),
+      ],
+      isLoading: false,
+      isError: false,
+    });
+    renderPage();
+    expect(screen.getByRole('button', { name: 'Remove sofia.p' })).toBeInTheDocument();
   });
 
   it('shows the sole-owner guard when the only Owner is self', () => {

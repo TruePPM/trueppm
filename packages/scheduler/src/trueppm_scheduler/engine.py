@@ -2328,6 +2328,15 @@ def _validate_project_shape(project: Project) -> None:
     read, so the rest of ``_validate_project`` can assume every container holds what its
     type says it holds.
     """
+    # Project/Task id and name are ``String`` in the Rust engine, so a non-str value
+    # fails its parse; ``from_dict`` rejects it via ``_require_str``, and the direct-
+    # object path must too or the two engines disagree on the same input (#4130).
+    for field_name in ("id", "name"):
+        value = getattr(project, field_name)
+        if not isinstance(value, str):
+            raise InvalidScheduleInput(
+                f"Project {field_name} must be a string, got {type(value).__name__}: {value!r}."
+            )
     if not isinstance(project.calendar, Calendar):
         raise InvalidScheduleInput(
             f"Project calendar must be a Calendar instance, got {type(project.calendar).__name__}."
@@ -2336,10 +2345,16 @@ def _validate_project_shape(project: Project) -> None:
         raise InvalidScheduleInput(f"Project tasks must be a list of Task, got {project.tasks!r}.")
     # Task.id keys every lookup; a non-str id is unhashable (TypeError), None (bare
     # networkx ValueError), or an int the Rust engine's String serde rejects (#4130).
+    # Task.name is likewise a Rust ``String``; Python never reads it during a pass,
+    # so without this guard a non-str name schedules silently here and fails in Rust.
     for t in project.tasks:
         if not isinstance(t.id, str):
             raise InvalidScheduleInput(
                 f"Task id must be a string, got {type(t.id).__name__}: {t.id!r}."
+            )
+        if not isinstance(t.name, str):
+            raise InvalidScheduleInput(
+                f"Task {t.id!r} name must be a string, got {type(t.name).__name__}: {t.name!r}."
             )
     if not isinstance(project.dependencies, list) or any(
         not isinstance(d, Dependency) for d in project.dependencies

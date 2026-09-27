@@ -12,7 +12,9 @@ unbounded). Attachment blobs are streamed straight from storage into the tar.
 
 Security: credential-bearing rows (API tokens, integration credentials, webhook
 secrets) and the invite secret columns (``token_hash``/``email_token``) are
-deliberately excluded — an export is a data backup, not a secrets dump.
+deliberately excluded — an export is a data backup, not a secrets dump. Task
+``blocked_reason`` is excluded from ``tasks.json`` and the task history too: it is
+ADR-0124 contributor-private text that even a workspace admin may not read.
 """
 
 from __future__ import annotations
@@ -36,6 +38,8 @@ ARCHIVE_VERSION = 1
 EXPORT_DIR = "workspace-exports"
 # Spooled buffers keep small tables in RAM and spill larger ones to disk.
 _SPOOL_MAX_BYTES = 8 * 1024 * 1024
+# ADR-0124's private blocker free text, omitted from Task and its history (#4082).
+BLOCKER_REASON_EXCLUDE: tuple[str, ...] = ("blocked_reason",)
 
 
 def _add_json(tar: tarfile.TarFile, name: str, payload: Any) -> None:
@@ -138,7 +142,11 @@ def _table_specs() -> list[tuple[str, QuerySet[Any], tuple[str, ...]]]:
         ("programs/backlog_items.json", BacklogItem.objects.all(), ()),
         # Projects and the schedule
         ("projects/projects.json", Project.objects.all(), ()),
-        ("projects/tasks.json", Task.objects.all(), ()),
+        # ADR-0124: blocker reason text is readable only by the task's assignee or
+        # a user mentioned on it — not by a workspace admin — so a bulk backup
+        # drops the column (#4082). blocked_since/blocker_type/blocked_by, the
+        # ungated triage half, still mark which tasks were blocked.
+        ("projects/tasks.json", Task.objects.all(), BLOCKER_REASON_EXCLUDE),
         ("projects/dependencies.json", Dependency.objects.all(), ()),
         ("projects/baselines.json", Baseline.objects.all(), ()),
         ("projects/baseline_tasks.json", BaselineTask.objects.all(), ()),
@@ -167,7 +175,11 @@ def _add_history(tar: tarfile.TarFile, counts: dict[str, int]) -> None:
         history_mgr = getattr(model, "history", None)
         if history_mgr is None:  # pragma: no cover - all five are tracked today
             continue
-        counts[f"history.{label}"] = _add_table(tar, f"history/{label}.json", history_mgr.all())
+        # Every historical Task row carries the same ADR-0124-gated reason column.
+        exclude = BLOCKER_REASON_EXCLUDE if model is Task else ()
+        counts[f"history.{label}"] = _add_table(
+            tar, f"history/{label}.json", history_mgr.all(), exclude=exclude
+        )
 
 
 def _add_attachments(tar: tarfile.TarFile, counts: dict[str, int]) -> None:

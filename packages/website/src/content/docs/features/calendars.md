@@ -28,11 +28,21 @@ every read, but it is not consumed by CPM or Monte Carlo and never changes a com
 date; see [Calendar arithmetic](/features/scheduler/#calendar-arithmetic).
 
 **Hours per day** is a decimal, so part-time and custom-hour teams can record their real
-day length, and it does change resource capacity: the resource heatmap and the project
-Overview's Team utilization card compute a resource's daily capacity as hours per day ×
-units. It does **not** change task durations or finish dates. The scheduler counts whole
-working days, so a 6-hour calendar schedules the same task across the same elapsed days
-as an 8-hour one. Sub-day scheduling is planned for 0.6.
+day length. It is used in three places:
+
+- **Resource capacity.** The resource heatmap and the project Overview's Team utilization
+  card compute a resource's daily capacity as hours per day × units, and the sprint
+  capacity preflight counts committed and available hours the same way.
+- **Estimates entered in hours.** An `#4h`-style estimate is divided by the project
+  calendar's hours per day and rounded **up** to whole days when you enter it, so `7h` is
+  two days on a 6-hour calendar and one day on an 8-hour one — see
+  [Schedule build mode](/features/schedule-build-mode/). The task stores the whole-day
+  count. Changing hours per day later keeps that day count. A task whose duration unit is
+  set to hours then reads differently (two stored days show as `12h` on a 6-hour
+  calendar, `16h` on an 8-hour one); a task shown in days is unaffected.
+- It does **not** change how the scheduler counts a duration that is already in days.
+  The engine counts whole working days, so a 5-day task spans the same elapsed days on a
+  6-hour calendar as on an 8-hour one. Sub-day scheduling is planned for 0.6.
 
 ## How calendars attach
 

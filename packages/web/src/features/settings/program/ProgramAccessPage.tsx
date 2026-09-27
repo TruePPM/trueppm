@@ -39,11 +39,11 @@ interface RowProps {
   membership: ProgramMembership;
   isSelf: boolean;
   canManage: boolean;
-  /** Owner, independent of `is_closed` — member *removal* is not blocked by a
-   *  closed program server-side (see the `canManage` computation in
-   *  {@link ProgramAccessPage} for why), so Remove must not fold in `canManage`. */
+  /** Owner, independent of `is_closed` — Leave (self-removal) survives a closed
+   *  program server-side, so it must not fold in `canManage`. */
   isOwner: boolean;
-  /** Owner viewing a closed program — used only to pick the read-only tooltip. */
+  /** Owner viewing a closed program. Picks the read-only tooltip and hides
+   *  Remove on every row but the caller's own (see `canRemove`). */
   closedToOwner: boolean;
   isSoleOwner: boolean;
   onChangeRole: (membershipId: string, role: number) => void;
@@ -68,7 +68,9 @@ function MemberRow({
   const { user_detail, role, role_label } = membership;
   const isOwnerMember = role === ROLE_OWNER;
   const canEditRole = canManage && !isOwnerMember;
-  const canRemove = isOwner && !(isSelf && isSoleOwner);
+  // Self-leave survives a closed program; removing someone else does not (#4014),
+  // mirroring ProgramMembershipViewSet.destroy's `is_self` split.
+  const canRemove = isOwner && (isSelf ? !isSoleOwner : !closedToOwner);
 
   return (
     <div
@@ -198,15 +200,11 @@ export function ProgramAccessPage() {
   // already-scoped program. Mirrors the server gate on ProgramMembershipViewSet.
   // Do not lower this to Admin+ to "match" the other program settings.
   const isOwner = program?.my_role === ROLE_OWNER;
-  // #2549: Add-member (create) and role changes (partial_update with a role/user
-  // change) both hit ProgramMembershipViewSet actions that ARE gated by
-  // IsProgramNotClosed, so those two fold in `!is_closed`. Member *removal*
-  // (destroy) is deliberately excluded — "destroy" sits in the permission
-  // class's `_CLOSE_BYPASS_ACTIONS` and the view's own `destroy()` body does not
-  // re-assert the closed check (unlike ExternalStakeholderViewSet.perform_destroy
-  // and ProgramUserDefinedMentionGroupViewSet.destroy), so removing a member from
-  // a closed program actually succeeds server-side — hiding Remove here would be
-  // its own false negative, not a fix.
+  // #2549: Add-member (create) and role changes (partial_update) are refused on a
+  // closed program server-side, so both fold in `!is_closed`. Removal (destroy)
+  // splits on who is removed (#4014): leaving the program yourself still succeeds
+  // on a closed program, while removing another member is refused — so the row
+  // shows Leave on your own row and hides Remove on everyone else's.
   const canManage = isOwner && !program?.is_closed;
   const closedToOwner = isOwner && program?.is_closed === true;
   const ownerCount = members.filter((m) => m.role === ROLE_OWNER).length;

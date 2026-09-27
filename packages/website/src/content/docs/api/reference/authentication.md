@@ -227,6 +227,11 @@ this and keep their existing, more restrictive rules:
   step an attacker has already worked around. Manage tokens from a signed-in
   session; for an operator-side sweep see
   [`revoke_api_tokens`](/administration/management-commands/).
+- **Revocation outlives the scope's lifecycle.** Revoking (`DELETE`) a project
+  token still works on an archived project, and revoking a program token still
+  works on a closed program, because both stay readable and a leaked token keeps
+  that read access until it is revoked. Minting a new token on either is refused
+  with a `403`.
 - **SSO provider configuration is session-only too.**
   `/workspace/sso/providers/`, `/workspace/sso/providers/{slug}/` and
   `/workspace/sso/providers/{slug}/test-connection/` refuse token callers the same
