@@ -947,6 +947,24 @@ lint:todo-grep:
     - bash scripts/check-todo-grep.sh
     - bash scripts/check-todo-grep.sh --self-test
 
+lint:mr-followups:
+  extends: .fast-job
+  # An MR description that admits a follow-up must name an OPEN issue for it
+  # (#4159). Three merged MRs in one audit said "a follow-up would settle it" with
+  # no issue behind the sentence, and the owed work vanished at merge. The
+  # description is fetched from the API at job time, so fixing the text and
+  # retrying this job re-checks it. Same unauthenticated tracker read as
+  # lint:todo-grep (#3043); fails closed on an unresolvable lookup. ~2s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash curl jq grep sed gawk
+  script:
+    - bash scripts/check-mr-followups.sh
+    - bash scripts/check-mr-followups.sh --self-test
+
 lint:sonar-exclusions:
   extends: .fast-job
   # Sonar exclusion-integrity gate (#2520). Every

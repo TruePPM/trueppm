@@ -75,6 +75,12 @@ Using the research results from Step 1, analyse the commits and diff to produce:
 ## Changes
 - <bullet per logical change group: component/file → what it does now>
 
+## Requirements
+| Requirement (quoted from the issue, its comments, or its test plan) | Status |
+|---|---|
+| <criterion> | MET: <file:line or test name> |
+| <criterion> | DEFERRED: #<open issue, not one this MR closes> |
+
 ## Test plan
 - [ ] <specific thing to verify manually>
 - [ ] <another verification step>
@@ -93,6 +99,14 @@ Using the research results from Step 1, analyse the commits and diff to produce:
 
 Rules for the description:
 - Be specific about *what* changed, not just *that* it changed
+- **`## Requirements` lists every acceptance criterion and test-plan line of each closed
+  issue** — including scope changes made in the issue's comments — as MET with evidence
+  or DEFERRED to an open issue. It comes from the `completeness-check` gate, which runs
+  before the push. A line the MR silently leaves out is the failure this table exists to
+  expose (#4159). Omit the section only for chores with no issue.
+- **Any follow-up, deferral, or "left open" sentence names an open issue on the same
+  line.** `lint:mr-followups` fails the pipeline otherwise; mark a line that owes nothing
+  with `followup-ok` (e.g. `<!-- followup-ok -->`)
 - Link closing issues with `Closes #N` on a line after the Notes section if applicable
 - If it's a UI change, add a Screenshots section placeholder: `## Screenshots\n<!-- attach before/after -->`
 - Do not pad with filler text
@@ -111,7 +125,7 @@ Rules:
 - **One line per gate that ran**, using the gate's skill name exactly (`regression-check`,
   `security-review`, `rbac-check`, `perf-check`, `broadcast-check`, `migration-check`,
   `architect`, `ux-design`, `ux-review`, `voc`, `test-scaffold`, `enterprise-check`,
-  `ai-review`, `threat-model`, `api-docs`, `dependency`). Exact names matter — the
+  `ai-review`, `threat-model`, `api-docs`, `dependency`, `completeness-check`). Exact names matter — the
   parser matches on them. Every name above resolves to a skill in `.claude/skills/`
   with one deliberate exception: `voc` is the established shorthand for the
   `voice-of-customer` skill, and is the form both CLAUDE.md files and `/kaizen`'s yield
