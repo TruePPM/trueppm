@@ -169,6 +169,7 @@ These rules are enforced at review time. Violations block merge.
 359. **A control gated on "there is something to do" must be gated on a fact the server owns or the client can always re-derive — never on a counter that only counts this session's own mutations.** → [rule](../../docs/design/invariants/359-a-control-gated-on-there-is-something-to-do-must-be-gated.md)
 364. **`?? []` says "the query has not answered" and "the answer is empty" with the same word — so nothing that REMOVES may read it.** → [rule](../../docs/design/invariants/364-says-the-query-has-not-answered-and-the-answer-is-empty.md)
 415. **A capability claim that decays with TIME must be REPLACED when it stops being true — not left standing beside a warning that contradicts it — and the freshness fact it branches on is a SERVER field, never a client subtraction.** → [rule](../../docs/design/invariants/415-a-capability-claim-that-decays-with-time-must-be-replaced.md)
+432. **A route/ref boundary that distinguishes "offline, never resolved" from "not found" must render each through its own copy — collapsing both onto one 404 component tells a merely-offline visitor their link is broken.** → [rule](../../docs/design/invariants/432-a-route-ref-boundary-that-distinguishes-offline-never.md)
 
 ## Motion
 

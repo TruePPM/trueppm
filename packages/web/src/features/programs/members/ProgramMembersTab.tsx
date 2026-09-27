@@ -1,4 +1,3 @@
-import { useParams } from 'react-router';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useProgram } from '@/hooks/useProgram';
 import { useProgramMembers } from '../hooks/useProgramMembers';
@@ -10,6 +9,7 @@ import { ProgramInviteForm } from './ProgramInviteForm';
 import { ProgramMemberRow } from './ProgramMemberRow';
 import { ROLE_OWNER } from '@/lib/roles';
 import { isSameUser } from '@/lib/userId';
+import { useProgramId } from '@/hooks/useProgramId';
 
 /**
  * /programs/:programId/members — manage program membership (ADR-0070).
@@ -19,8 +19,7 @@ import { isSameUser } from '@/lib/userId';
  * because that is exactly where the gotcha is most likely to bite.
  */
 export function ProgramMembersTab() {
-  const params = useParams<{ programId: string }>();
-  const programId = params.programId;
+  const programId = useProgramId();
   const { user } = useCurrentUser();
   const { data: program } = useProgram(programId);
   const { data: members = [], isLoading, isError } = useProgramMembers(programId);
@@ -32,6 +31,9 @@ export function ProgramMembersTab() {
   if (!programId) return null;
 
   const isOwnerRole = program?.my_role === ROLE_OWNER;
+  // A closed program refuses new members, role changes and removing others
+  // server-side; only leaving it yourself still works (#4014).
+  const isClosed = program?.is_closed === true;
   const ownerCount = members.filter((m) => m.role === ROLE_OWNER).length;
 
   return (
@@ -97,6 +99,7 @@ export function ProgramMembersTab() {
                 isSelf={isSameUser(user?.id, m.user)}
                 isOwnerRole={isOwnerRole}
                 isSoleOwner={m.role === ROLE_OWNER && ownerCount === 1}
+                isClosed={isClosed}
                 onChangeRole={(membershipId, role) => updateRole({ membershipId, role })}
                 onRemove={(membershipId) => removeMember(membershipId)}
                 isUpdatingRole={isUpdatingRole}
@@ -107,7 +110,7 @@ export function ProgramMembersTab() {
         )}
       </section>
 
-      {isOwnerRole && (
+      {isOwnerRole && !isClosed && (
         <section aria-labelledby="program-invite-heading">
           <h2
             id="program-invite-heading"

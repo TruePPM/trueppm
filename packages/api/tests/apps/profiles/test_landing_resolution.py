@@ -421,6 +421,26 @@ def test_demo_visitor_falls_back_when_landing_project_archived(
 
 
 @pytest.mark.django_db
+def test_demo_visitor_falls_back_when_landing_project_trashed(
+    settings: pytest.FixtureRequest,
+) -> None:
+    """A soft-deleted landing project keeps its row and its membership — only the
+    project's own ``is_deleted`` flag stands between the visitor and a trashed plan."""
+    from trueppm_api.apps.projects.seed.demo_landing_overlay import LANDING_PROJECT_NAME
+
+    _arm_demo(settings)
+    user = _user("atlas-visitor")
+    proj = _project(LANDING_PROJECT_NAME)
+    proj.is_deleted = True
+    proj.save(update_fields=["is_deleted"])
+    ProjectMembership.objects.create(project=proj, user=user, role=Role.MEMBER)
+
+    landing = resolve_landing(user)
+    assert landing.resolved_by != "demo_landing"
+    assert str(proj.pk) not in landing.path
+
+
+@pytest.mark.django_db
 def test_demo_visitor_falls_back_when_landing_project_not_readable(
     settings: pytest.FixtureRequest,
 ) -> None:

@@ -435,9 +435,10 @@ export interface Task {
   /** Server-formatted compact task reference, e.g. `"T-8"` (#2430). */
   shortIdDisplay?: string;
   /**
-   * Server-formatted project-qualified task reference, e.g. `"ENG-2026-8"` —
+   * Server-formatted project-qualified task reference, e.g. `"ENG-2026-T-8"` —
    * honoring the project code Settings → General promises prefixes task IDs.
-   * Falls back to the compact form when the project has no code (#2430).
+   * Falls back to the compact form when the project has no code (#2430,
+   * ADR-1237).
    */
   qualifiedId?: string;
   /** Sprint scope-change audit rows — populated when subtasks are added to an in-sprint task (ADR-0060). */
@@ -632,6 +633,12 @@ export type BoardCadence = 'sprint' | 'continuous';
 export interface Project {
   id: string;
   name: string;
+  /**
+   * The project key (ADR-1237) — the wire field `code`. Links built with
+   * `projectPath()` use it so they land on the key URL directly; absent on list
+   * shapes and fixtures that do not carry it, in which case links use the UUID.
+   */
+  code?: string;
   /** Hex color for the 8px project dot, e.g. '#3E8C6D' */
   colorDot: string;
   healthState: HealthState;

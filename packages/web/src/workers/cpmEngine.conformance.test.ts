@@ -68,6 +68,9 @@ const IN_SCOPE_FIXTURES = [
   'ss_connected_critical',
   // #4079: milestones as instants across every link type and lags around them.
   'milestone_instant_links',
+  // #4145: SF from ordinary work, with the predecessor's start reached through
+  // an FS chain rather than a planned_start, so this adapter can place it.
+  'sf_from_work_chained',
 ] as const;
 
 /**
@@ -100,8 +103,8 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // project start, which is not how a fixture's own planned_start reads.
   planned_start_snet: 'adapter: seeds all tasks at project start, overriding SNET',
   // #4145. Both pin a source task with planned_start so an SF successor has room
-  // to finish before it; the SF-from-work rule itself is asserted in
-  // `cpmEngine.test.ts`, where the drag date is set directly.
+  // to finish before it. The SF-from-work rule itself is asserted here through
+  // `sf_from_work_chained` (in scope), which reaches the same shape via FS.
   sf_lag_weekend: 'adapter: seeds all tasks at project start, overriding SNET',
   sf_from_work_vs_milestone: 'adapter: seeds all tasks at project start, overriding SNET',
   // Progress fixtures need actuals and a status date threaded through the

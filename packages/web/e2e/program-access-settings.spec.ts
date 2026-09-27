@@ -9,6 +9,7 @@ import { setupCatchAll } from './fixtures';
  * - The Add-member panel toggles only for Owners.
  * - The remove flow requires a confirm click before the DELETE fires.
  * - Non-Owners see no role picker and no remove button.
+ * - On a closed program an Owner can still Leave, but not Remove another member (#4014).
  */
 
 const ME_ID = 'user-alice';
@@ -77,7 +78,22 @@ interface Captures {
   post?: { user?: string; role?: number };
 }
 
-async function setup(page: Page, captures: Captures, opts: { myRole?: number } = {}) {
+// A second Program Admin, so the caller is not the sole Owner and may leave.
+const CO_OWNER_MEMBERSHIP = {
+  id: 'mem-3',
+  server_version: 1,
+  program: PROGRAM_ID,
+  user: 'user-ravi',
+  user_detail: { id: 'user-ravi', username: 'ravi.s', email: 'ravi@example.com' },
+  role: 400,
+  role_label: 'Program Admin',
+};
+
+async function setup(
+  page: Page,
+  captures: Captures,
+  opts: { myRole?: number; isClosed?: boolean } = {},
+) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -89,7 +105,14 @@ async function setup(page: Page, captures: Captures, opts: { myRole?: number } =
   });
 
   const pj = (data: unknown) => JSON.stringify(data);
-  const program = { ...FIXTURE_PROGRAM, my_role: opts.myRole ?? 400 };
+  const program = {
+    ...FIXTURE_PROGRAM,
+    my_role: opts.myRole ?? 400,
+    ...(opts.isClosed ? { is_closed: true } : {}),
+  };
+  const roster = opts.isClosed
+    ? [OWNER_MEMBERSHIP, CO_OWNER_MEMBERSHIP, MEMBER_MEMBERSHIP]
+    : [OWNER_MEMBERSHIP, MEMBER_MEMBERSHIP];
 
   // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
   // falling through and 401ing, which trips the token-refresh session
@@ -141,29 +164,22 @@ async function setup(page: Page, captures: Captures, opts: { myRole?: number } =
   // Member-by-id (PATCH/DELETE) must register BEFORE the list route — Playwright
   // matches by last-registered, and the list URL exactly matches the trailing-
   // slash form so it wins when registered last.
-  await page.route(
-    `**/api/v1/programs/${PROGRAM_ID}/members/*/`,
-    async (route) => {
-      const url = route.request().url();
-      const method = route.request().method();
-      const id = url
-        .replace(/\?.*$/, '')
-        .split('/')
-        .filter(Boolean)
-        .pop();
-      if (method === 'DELETE') {
-        captures.deleted = id ?? undefined;
-        await route.fulfill({ status: 204, contentType: 'application/json', body: '' });
-        return;
-      }
-      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
-    },
-  );
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/*/`, async (route) => {
+    const url = route.request().url();
+    const method = route.request().method();
+    const id = url.replace(/\?.*$/, '').split('/').filter(Boolean).pop();
+    if (method === 'DELETE') {
+      captures.deleted = id ?? undefined;
+      await route.fulfill({ status: 204, contentType: 'application/json', body: '' });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  });
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/`, (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: pj([OWNER_MEMBERSHIP, MEMBER_MEMBERSHIP]),
+      body: pj(roster),
     }),
   );
   // The settings shell's live preview reads the rollup consumer (#673).
@@ -343,5 +359,24 @@ test.describe('Program Settings → Access', () => {
     await expect(page.getByText('alice', { exact: false }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /Add member/i })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /Remove/i })).toHaveCount(0);
+  });
+
+  test('closed program: Owner can Leave but sees no Remove for another member (#4014)', async ({
+    page,
+  }) => {
+    const captures: Captures = {};
+    await setup(page, captures, { isClosed: true });
+    await page.goto(`/programs/${PROGRAM_ID}/settings/access`);
+
+    // Every settings section on the one-page shell carries this badge; scope to Access.
+    const access = page.getByLabel(/^Access\d+ members$/);
+    await expect(access.getByText('Read-only — program closed')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Remove sofia.p' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Remove ravi.s' })).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Leave program' }).click();
+    expect(captures.deleted).toBeUndefined();
+    await page.getByRole('button', { name: /^Leave$/ }).click();
+    await expect.poll(() => captures.deleted).toBe('mem-1');
   });
 });
