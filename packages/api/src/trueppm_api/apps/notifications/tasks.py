@@ -53,7 +53,9 @@ EMAIL_MAX_RETRIES = 3
 # immediate, but on_commit nudges run the drain far more often than the 30 s Beat
 # tick, so without this floor a short relay outage would burn all three attempts in
 # seconds. Keeps retries about one Beat tick apart (~90 s to exhaustion).
-EMAIL_RETRY_SPACING = timedelta(seconds=30)
+# Slightly under the 30 s tick so a Beat-only retry lands on the NEXT tick rather
+# racing it (a floor equal to the tick would skip one about half the time).
+EMAIL_RETRY_SPACING = timedelta(seconds=25)
 # Fallback cap per drain tick, when no operator limit applies. Re-exported from
 # delivery_limits, which every mail path now shares (#2887 item 3).
 EMAIL_BATCH_SIZE = EMAIL_MAX_BATCH_SIZE

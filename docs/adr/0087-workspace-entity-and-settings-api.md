@@ -271,13 +271,15 @@ window never covered it either.
    running, the nudged run skips and the row goes on the next 30 s tick.
 3. **Beat stays the durability guarantee.** The nudge swallows broker errors; a
    dropped nudge costs at most one Beat interval.
-4. **Retries keep their spacing** (`EMAIL_RETRY_SPACING = 30 s` on both drains).
+4. **Retries keep their spacing** (`EMAIL_RETRY_SPACING = 25 s` on both drains).
    Neither drain had a retry backoff; retries were spaced only by the 30 s Beat
    cadence. Once nudges run the drain on every email-queuing commit, a 20-second
    relay restart during a burst of comments would burn all three attempts in
    seconds and fail the mail permanently (an invite goes to `FAILED`). A row
-   whose `email_failed_at` is set is therefore eligible again only 30 s after
-   that failure. First sends (`email_failed_at IS NULL`) are unaffected, and a
+   whose `email_failed_at` is set is therefore eligible again only 25 s after
+   that failure — just under the 30 s tick, so a Beat-only retry lands on the
+   next tick instead of racing it (a floor equal to the tick would skip a tick
+   about half the time). First sends (`email_failed_at IS NULL`) are unaffected, and a
    resend clears `email_failed_at`, so it too goes at once. Exhaustion still takes
    about 90 s, as `administration/email.md` states.
 
@@ -293,7 +295,8 @@ per-minute throttle under a burst.
   control operators actually set.
 - Each email-queuing fan-out **call** enqueues one small Celery message (Django
   does not dedupe `on_commit` callbacks, so a request that fans out K events
-  enqueues K). All but one find the lock held and return immediately.
+  enqueues K). Runs that find the lock held return immediately; runs that do not
+  overlap each drain only rows still pending, so they cannot resend.
 - The export, import, webhook, config-notice and workflow-outbox drains keep
   their windows: they re-dispatch per-row tasks and the window is what stops
   them racing the original dispatch.

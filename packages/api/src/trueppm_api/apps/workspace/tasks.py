@@ -34,7 +34,9 @@ EMAIL_MAX_RETRIES = 3
 # immediate, but on_commit nudges run the drain far more often than the 30 s Beat
 # tick, so without this floor a short relay outage would burn all three attempts in
 # seconds and mark the invite FAILED. Keeps retries about one Beat tick apart.
-EMAIL_RETRY_SPACING = timedelta(seconds=30)
+# Slightly under the 30 s tick so a Beat-only retry lands on the NEXT tick rather
+# racing it (a floor equal to the tick would skip one about half the time).
+EMAIL_RETRY_SPACING = timedelta(seconds=25)
 INVITE_RETENTION_DAYS = 30  # ADR-0087 §Durable item 6
 # Beat task name — also the key the per-minute throttle divisor is derived from
 # (#2887 item 4). This drain shares the workspace delivery limits with the
