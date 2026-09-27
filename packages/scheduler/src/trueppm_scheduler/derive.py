@@ -366,10 +366,11 @@ def _pred_forward_contribution(
 ) -> DerivationContribution:
     """One predecessor's early-* contribution, snapped to a working day.
 
-    Reproduces the FS/SS/FF/SF anchoring of ``engine._forward_pass``: FS/FF read
+    Reproduces the FS/SS/FF/SF anchoring of ``engine._edge_anchor``: FS/FF read
     the predecessor's ``early_finish`` (FS with the extra +1 inclusive→exclusive
-    interval day), SS/SF its ``early_start``, then snap ``anchor + lag`` forward
-    to the next working day.
+    interval day), SS its ``early_start``, and SF the last working day *before*
+    its ``early_start`` on the predecessor's calendar (#4145); then snap
+    ``anchor + lag`` forward to the next working day.
 
     Milestones (#4079): a milestone predecessor anchors on its instant
     (``engine._edge_anchor``), and a milestone *target* is shown on the day of the
