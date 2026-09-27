@@ -160,6 +160,7 @@ _EXPECTED_FIELD_ORDER: dict[str, list[str]] = {
         "timezone",
         "_exc_index",
         "_exc_src",
+        "_exc_mask",
     ],
     "CycleCheck": ["cycle"],
     "DateRange": ["start", "end"],
@@ -268,7 +269,8 @@ class TestDataclassFieldOrderContract:
     ``### Changed`` entry in ``packages/scheduler/CHANGELOG.md``.
 
     Private, ``init=False`` bookkeeping fields (``Calendar._exc_index`` /
-    ``_exc_src``) are pinned too — they consume no positional slot, but pinning
+    ``_exc_src`` / ``_exc_mask``) are pinned too — they consume no positional slot,
+    but pinning
     the full ``dataclasses.fields()`` order keeps this a single, unambiguous
     statement of what the class declares.
     """
