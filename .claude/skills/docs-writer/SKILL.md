@@ -45,6 +45,12 @@ When a feature's *behavior* changes (not just a field rename), the narrative des
 - For every changed user-visible behavior in the diff, grep `packages/website/src/content/docs/` for the old wording and confirm every match has been updated. Examples of behavior-drift phrases that survive prior reviews: "header turns red", "shows N/M", "click to expand", "double-click to edit", "Gantt bar darkens when selected". Anything that describes a visual or interaction state may be wrong after a UX change.
 - For every new user-visible feature, confirm it has *at least one entry* on the feature index or equivalent how-to / reference index page. A feature with no entry there is invisible to readers who don't know what to search for.
 - For every new schema migration that operators will see during upgrade (`packages/api/**/migrations/`), confirm the upgrade or release-notes page mentions it under the relevant version section. Even safe migrations (additive nullable columns) deserve a one-line note so operators have a complete picture.
+- **When a plan or a fact moves, sweep for the old statement everywhere it is restated** —
+  not just the page you edited. `packages/website/src/content/docs/`, `README.md`,
+  `changelog.d/` (fragments ship verbatim in release notes) and `docs/`. Moving the cost
+  model from 0.8 to 0.5 on the roadmap left five other pages and the README saying 0.8
+  (#4159); an SBOM backfill note left the old "no attestation" claim in a changelog
+  fragment. Grep for the old version number, the old date, and the old noun phrase.
 - Hard-flag any doc page that still references a feature name, env var, setting key, or enum value that grep can no longer find in the current source — that is a guaranteed reader confusion. Run `grep -r 'old_name' packages/website/src/content/docs/` before marking the update complete.
 
 ## What a docs pass verifies, and what it does not (read before reporting done)
