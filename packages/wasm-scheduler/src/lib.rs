@@ -817,6 +817,75 @@ mod tests {
         assert_eq!(m.early_start, m.early_finish);
     }
 
+    /// #4173: A(3d) -SS+6d-> M and B -FS+3d-> M on a Mon-Fri week from Mon
+    /// 2026-01-05. With B = 3d both links land on Sunday midnight; with B = 4d the
+    /// FS link lands on Monday midnight — the same working-time position. Reading
+    /// that later midnight at the end of the working day before it showed M on
+    /// Friday, so a longer B moved the project finish a working day EARLIER. An
+    /// instant just after non-working time is shown at the next working start.
+    #[test]
+    fn test_milestone_lag_after_weekend_is_monotone_in_duration() {
+        let lagged = |pred: &str, dep_type: DependencyType, days: f64| Dependency {
+            predecessor_id: pred.to_string(),
+            successor_id: "M".to_string(),
+            dep_type,
+            lag: days * 86400.0,
+        };
+        let finish = |b_days: i32| {
+            let project = Project {
+                id: "p1".to_string(),
+                name: "Test".to_string(),
+                start_date: NaiveDate::from_ymd_opt(2026, 1, 5).unwrap(),
+                tasks: vec![make_task("A", 3), make_task("B", b_days), make_task("M", 0)],
+                dependencies: vec![
+                    lagged("A", DependencyType::SS, 6.0),
+                    lagged("B", DependencyType::FS, 3.0),
+                ],
+                calendar: Calendar::default(),
+                status_date: None,
+                calendars: None,
+                velocity_samples: None,
+                sprint_length_days: None,
+            };
+            let result = schedule_impl(&project).unwrap();
+            let m = result.tasks.iter().find(|t| t.id == "M").unwrap().clone();
+            (result.project_finish, m)
+        };
+        let monday = NaiveDate::from_ymd_opt(2026, 1, 12).unwrap();
+        for b_days in [3, 4] {
+            let (project_finish, m) = finish(b_days);
+            assert_eq!(project_finish, monday, "B = {b_days}d");
+            assert_eq!(m.early_start, monday, "B = {b_days}d");
+            assert!(!m.milestone_at_day_end, "B = {b_days}d: start of Monday");
+        }
+    }
+
+    /// #4173: a zero-lag FS milestone after a task whose recorded finish is a
+    /// Saturday sits at Sunday midnight, so it reads as the start of Monday.
+    #[test]
+    fn test_milestone_after_non_working_actual_finish_is_next_start() {
+        let mut a = make_task("A", 3);
+        a.percent_complete = 100.0;
+        a.actual_start = Some(NaiveDate::from_ymd_opt(2026, 1, 7).unwrap());
+        a.actual_finish = Some(NaiveDate::from_ymd_opt(2026, 1, 10).unwrap());
+        let project = Project {
+            id: "p1".to_string(),
+            name: "Test".to_string(),
+            start_date: NaiveDate::from_ymd_opt(2026, 1, 5).unwrap(),
+            tasks: vec![a, make_task("M", 0)],
+            dependencies: vec![dep("A", "M")],
+            calendar: Calendar::default(),
+            status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
+        };
+        let result = schedule_impl(&project).unwrap();
+        let m = result.tasks.iter().find(|t| t.id == "M").unwrap();
+        assert_eq!(m.early_start, NaiveDate::from_ymd_opt(2026, 1, 12).unwrap());
+        assert!(!m.milestone_at_day_end);
+    }
+
     #[test]
     fn test_planned_start_snet() {
         // A(3d) with planned_start = Apr 6 (Mon of second week)

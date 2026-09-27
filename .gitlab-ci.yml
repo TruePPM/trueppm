@@ -94,7 +94,7 @@ variables:
   #
   # Bump by running `bash scripts/check-ci-api-tag.sh`, which prints the value
   # the current inputs require. Enforced by api:ci-api-tag.
-  CI_API_TAG: "py3.11-4df3c629abce"
+  CI_API_TAG: "py3.11-55832cb901cc"
 
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
@@ -3455,6 +3455,118 @@ api:wheel-install-probe:
   script:
     - python scripts/check-api-wheel-imports.py --self-test
     - bash scripts/api-wheel-install-probe.sh "$PROBE_MODE"
+
+api:image-lock-check:
+  # Build the REAL production api image (packages/api/Dockerfile — the same
+  # file api:publish and ci:arm64-smoke/ci:amd64-smoke build) and prove its
+  # installed dependency set matches packages/api/uv.lock exactly (#4078).
+  #
+  # Neither api:uv-lock-check nor api:wheel-install-probe covers this: both
+  # prove the LOCK is internally consistent with pyproject.toml and importable
+  # once installed from it — they never build packages/api/Dockerfile, which
+  # used to `pip install` fresh against live PyPI and ignore the lock
+  # entirely. That gap is how #4076 shipped: opentelemetry-exporter-otlp-
+  # proto-http 1.45 dropped its `requests` import for urllib3; uv.lock pinned
+  # 1.43 (which still needed it); every dev/test environment had `requests`
+  # anyway via an unrelated dev dependency, so the whole suite — including
+  # both jobs above — stayed green while only the image, the one artifact
+  # that actually resolved against live PyPI, crashed in `django.setup()`.
+  # The only signal was an `allow_failure` smoke drill on a SCHEDULED
+  # pipeline, days after the change that broke it had already merged.
+  #
+  # The Dockerfile fix makes this job pass by construction on this commit: it
+  # now installs from a hash-verified `uv export` of the lock instead of a
+  # fresh resolution. This job is the regression backstop — a future edit
+  # that reintroduces an unpinned `pip install`, drops a `--no-deps`, or
+  # forgets to re-export after a pyproject bump fails HERE, on the MR that
+  # made the change, which is #4078's second acceptance criterion.
+  #
+  # Three checks, in order (each self-tests in this same job/image, per
+  # #3194 — a check that only proves itself elsewhere is evidence about that
+  # other place, not this one):
+  #   1. scripts/check-api-image-lock.py — diffs /app/requirements-locked.txt
+  #      (baked into the image from the lock at build time, see the
+  #      Dockerfile's own comments) against `importlib.metadata` inside the
+  #      built image.
+  #   2. scripts/check-api-wheel-imports.py, run against the built image's
+  #      installed trueppm_api as the actual non-root runtime user — a
+  #      bare `django.setup()` only proves the settings module and its own
+  #      imports load; #4080 shipped an installed api that could not import
+  #      a scheduler symbol several call-frames deep, and `django.setup()`
+  #      alone stayed green through it. This walks every module in the
+  #      installed package (module-scope imports) and separately resolves
+  #      every `trueppm_scheduler` reference anywhere in its sources
+  #      (including function-local imports django.setup() never executes)
+  #      against the scheduler actually installed. The Dockerfile's own
+  #      builder-stage smoke (`django.setup()` + a bare `import
+  #      trueppm_scheduler`) still runs on every build, local and CI alike;
+  #      this is the deeper, CI-only check against the final shipped image.
+  #   3. `manage.py check` — Django's system-check framework, which loads
+  #      the URLconf, every registered view/viewset, and every serializer
+  #      it touches; cheap (no DB, no Valkey) and catches a class of
+  #      misconfiguration neither of the checks above would, since it walks
+  #      URL resolution specifically rather than a package's module tree.
+  #
+  # Scoped to the files that can move the image's resolved dependency set,
+  # same `changes:` shape as ci:build-api-image, plus the weekly scheduled
+  # run as a transitive-drift safety net (mirrors ci:build-api-image /
+  # ci:build-scheduler-image — a rebuild with nothing in `changes:` touched
+  # can still pick up a newer transitive release if a caret/floor in the lock
+  # itself admits one).
+  stage: test
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  # Start immediately instead of queueing behind every earlier stage — this
+  # job only needs the repo checkout, same as ci:arm64-smoke.
+  needs: []
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - packages/api/Dockerfile
+        - packages/api/pyproject.toml
+        - packages/api/uv.lock
+        - packages/scheduler/pyproject.toml
+        - scripts/check-api-image-lock.py
+        - scripts/check-api-wheel-imports.py
+        - .gitlab-ci.yml
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/api/Dockerfile
+        - packages/api/pyproject.toml
+        - packages/api/uv.lock
+        - packages/scheduler/pyproject.toml
+        - scripts/check-api-image-lock.py
+        - scripts/check-api-wheel-imports.py
+        - .gitlab-ci.yml
+  script:
+    - set -euo pipefail
+    - IMAGE="api-image-lock-check:${CI_COMMIT_SHORT_SHA}"
+    - echo "--- build the production api image (root build context, matching api:publish) ---"
+    - docker build -f packages/api/Dockerfile -t "$IMAGE" .
+    - echo "--- self-test first (a gate's failure mode is a green pipeline) ---"
+    - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-api-image-lock.py --self-test
+    - echo "--- diff the image's installed set against packages/api/uv.lock ---"
+    - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-api-image-lock.py
+    - 'echo "--- boot smoke self-test first (scripts/check-api-wheel-imports.py, same job per #3194) ---"'
+    - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-api-wheel-imports.py --self-test
+    - echo "--- boot smoke — walk every trueppm_api module + resolve every trueppm_scheduler symbol reference, as the actual runtime (non-root) user ---"
+    - |
+      docker run --rm -i \
+        -e DJANGO_SETTINGS_MODULE=trueppm_api.settings.dev \
+        -e TRUEPPM_ALLOW_DEV_SETTINGS=1 \
+        -e SECRET_KEY=ci-image-lock-check-smoke \
+        "$IMAGE" /venv/bin/python - < scripts/check-api-wheel-imports.py
+    - echo "--- boot smoke — manage.py check (loads the URLconf, views, and serializers) ---"
+    - |
+      docker run --rm \
+        -e DJANGO_SETTINGS_MODULE=trueppm_api.settings.dev \
+        -e TRUEPPM_ALLOW_DEV_SETTINGS=1 \
+        -e SECRET_KEY=ci-image-lock-check-smoke \
+        "$IMAGE" /venv/bin/python manage.py check
 
 scheduler:uv-lock-check:
   extends: .fast-job
@@ -7815,6 +7927,13 @@ ci:pypi-build-dry-run:
   # same build commands and `twine check`s the output; signs and uploads nothing.
   # The credential half is ci:pypi-mint-probe's job (release-time, protected ref).
   # Keep the image and build steps in lockstep with the real jobs.
+  #
+  # Also asserts NOTICE (and LICENSE) reach the built sdist/wheel for all three
+  # packages (#4177): the published trueppm-scheduler wheel and sdist carried no
+  # copyright statement, and trueppm-mcp / trueppm-api had the identical gap
+  # (trueppm-api shipped with neither file at all). `twine check` only validates
+  # metadata, never archive contents, so it stayed green through this the whole
+  # time — this is the check no other job in this pipeline performs.
   stage: publish
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   rules:
@@ -7841,6 +7960,17 @@ ci:pypi-build-dry-run:
         [ -n "$PKG_VERSION" ] || { echo "ERROR: no version in packages/${pkg}/pyproject.toml"; exit 1; }
         echo "packages/${pkg} version: ${PKG_VERSION}"
         (cd "packages/${pkg}" && python -m build && twine check --strict dist/*)
+        echo "packages/${pkg}: asserting LICENSE and NOTICE reached the built archives"
+        WHEEL=$(ls "packages/${pkg}"/dist/*.whl)
+        SDIST=$(ls "packages/${pkg}"/dist/*.tar.gz)
+        WHEEL_LIST=$(python3 -c "import zipfile,sys; print(chr(10).join(zipfile.ZipFile(sys.argv[1]).namelist()))" "$WHEEL")
+        SDIST_LIST=$(python3 -c "import tarfile,sys; print(chr(10).join(tarfile.open(sys.argv[1]).getnames()))" "$SDIST")
+        for required in LICENSE NOTICE; do
+          grep -qE "(^|/)${required}\$" <<<"$WHEEL_LIST" || { echo "ERROR: $(basename "$WHEEL") carries no ${required} file"; exit 1; }
+          grep -qE "(^|/)${required}\$" <<<"$SDIST_LIST" || { echo "ERROR: $(basename "$SDIST") carries no ${required} file"; exit 1; }
+        done
+        echo "  $(basename "$WHEEL"): LICENSE + NOTICE present"
+        echo "  $(basename "$SDIST"): LICENSE + NOTICE present"
       done
     - echo "DRY RUN COMPLETE - nothing was signed or uploaded."
 

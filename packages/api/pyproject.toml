@@ -8,6 +8,12 @@ version = "0.4.0-beta.4"
 description = "TruePPM Django REST API — projects, tasks, scheduling, real-time collaboration"
 readme = "README.md"
 license = "Apache-2.0"
+# `trueppm-api` also publishes to PyPI (api:publish:pypi, v* tags) as a
+# separate artifact from the Docker image — that wheel/sdist previously
+# carried no license or copyright text at all (#4177). LICENSE and NOTICE are
+# kept byte-identical to the repo-root copies via
+# scripts/check-package-licenses.sh.
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.11"
 authors = [
     { name = "Kelly Hair" },

@@ -455,3 +455,232 @@ def test_every_date_derivation_cites_the_engines_own_value(p: Project) -> None:
             assert d.binding.imposed_date.isoformat() == d.value, (t.id, q)
         for q in (Quantity.TOTAL_FLOAT, Quantity.FREE_FLOAT):
             assert derive_value(p, t.id, q, result).value == getattr(t, q.value).days
+
+
+# ---------------------------------------------------------------------------
+# A lag landing just after non-working time is shown at the next start (#4173)
+# ---------------------------------------------------------------------------
+
+_JAN_9_FRI = date(2026, 1, 9)
+_JAN_12_MON = date(2026, 1, 12)
+_JAN_13_TUE = date(2026, 1, 13)
+
+
+def _ss_fs_join(b_days: int) -> Project:
+    """``A(3d) -SS+6d-> M`` and ``B -FS+3d-> M`` from Monday 2026-01-05.
+
+    With ``B = 3d`` both links land on Sunday midnight; with ``B = 4d`` the FS link
+    lands on Monday midnight, the same working-time position one calendar day later.
+    """
+    b = Task(
+        id="B",
+        name="B",
+        duration=timedelta(days=b_days),
+        optimistic_duration=timedelta(days=3),
+        most_likely_duration=timedelta(days=4),
+        pessimistic_duration=timedelta(days=4),
+    )
+    return _project(
+        [_task("A", 3), b, _task("M", 0)],
+        [_dep("A", "M", DependencyType.SS, lag=6), _dep("B", "M", lag=3)],
+    )
+
+
+class TestLagAfterNonWorkingTime:
+    """An FS/SS instant just after a weekend or holiday reads as a day start (#4173).
+
+    The pre-fix engine showed a milestone driven by FS-from-work at the end of the
+    working day before its instant, whatever lay between. Monday midnight after a
+    weekend was therefore shown on *Friday* while Sunday midnight — the same
+    working-time position, proposed by an SS link — was shown on Monday, so a
+    longer predecessor moved ``project_finish`` a working day earlier and Monte
+    Carlo reported P50 before it. MS Project snaps an elapsed lag that lands on
+    non-working time to the next working start; so does the engine now.
+    """
+
+    @pytest.mark.parametrize("b_days", [3, 4])
+    def test_a_longer_predecessor_never_shows_the_milestone_earlier(self, b_days: int) -> None:
+        result = schedule(_ss_fs_join(b_days))
+        m = next(t for t in result.tasks if t.id == "M")
+        assert result.project_finish == _JAN_12_MON
+        assert m.early_start == m.early_finish == _JAN_12_MON
+        assert m.milestone_at_day_end is False
+
+    def test_monte_carlo_never_precedes_the_cpm_finish(self) -> None:
+        p = _ss_fs_join(3)
+        mc = monte_carlo(p, runs=2000, seed=1)
+        assert mc.p50 == mc.p80 == mc.p95 == schedule(p).project_finish == _JAN_12_MON
+
+    def test_fs_lag_onto_a_weekend_day_shows_monday(self) -> None:
+        # B(4d) finishes Thursday; FS+2 lands on Sunday midnight (Saturday's end).
+        by_id = _by_id(_project([_task("B", 4), _task("M", 0)], [_dep("B", "M", lag=2)]))
+        assert by_id["M"].early_start == _JAN_12_MON
+        assert by_id["M"].milestone_at_day_end is False
+
+    def test_fs_lag_ending_a_working_day_stays_end_of_day(self) -> None:
+        # FS+1 from a Thursday finish is the end of Friday, a working day: unchanged.
+        by_id = _by_id(_project([_task("B", 4), _task("M", 0)], [_dep("B", "M", lag=1)]))
+        assert by_id["M"].early_start == _JAN_9_FRI
+        assert by_id["M"].milestone_at_day_end is True
+
+    def test_fs_lag_onto_a_holiday_shows_the_next_working_start(self) -> None:
+        # A(2d) Mon-Tue; FS+1 is Wednesday's end, and Wednesday is a holiday.
+        wed = date(2026, 1, 7)
+        cal = Calendar(exceptions=[DateRange(wed, wed)])
+        by_id = _by_id(_project([_task("A", 2), _task("M", 0)], [_dep("A", "M", lag=1)], cal))
+        assert by_id["M"].early_start == date(2026, 1, 8)
+        assert by_id["M"].milestone_at_day_end is False
+
+    def test_ss_lag_out_of_a_snapped_milestone_counts_from_its_start(self) -> None:
+        # M sits at Monday's start, so SS+1 out of it is Tuesday's start — not the
+        # end of Monday, which the end-of-day reading it replaced would have shown.
+        p = _ss_fs_join(4)
+        p.tasks.append(_task("M2", 0))
+        p.dependencies.append(_dep("M", "M2", DependencyType.SS, lag=1))
+        by_id = _by_id(p)
+        assert by_id["M2"].early_start == _JAN_13_TUE
+        assert by_id["M2"].milestone_at_day_end is False
+
+    @pytest.mark.parametrize(
+        ("snet", "shown", "at_day_end"),
+        [(None, _JAN_9_FRI, True), (date(2026, 1, 6), _JAN_12_MON, False)],
+    )
+    def test_the_reading_follows_the_midnight_not_only_the_working_position(
+        self, snet: date | None, shown: date, at_day_end: bool
+    ) -> None:
+        """``A(4d) -FS+1-> M``: Saturday midnight is Friday's end, Sunday's is Monday's start.
+
+        The two midnights share a working-time position, and still show different
+        days — deliberately, and in the permitted direction: the later midnight
+        never shows earlier. MS Project does the same (Friday 17:00 vs Saturday
+        17:00 snapped to Monday 08:00). A reading decided by working position alone
+        cannot be made monotone once a milestone's reading is carried through a
+        calendar-day lag into another milestone; see the chain case below.
+        """
+        a = _task("A", 4)
+        a.planned_start = snet
+        by_id = _by_id(_project([a, _task("M", 0)], [_dep("A", "M", lag=1)]))
+        assert by_id["M"].early_start == shown
+        assert by_id["M"].milestone_at_day_end is at_day_end
+
+    @pytest.mark.parametrize("b_days", [4, 5])
+    def test_a_reading_carried_into_another_milestone_stays_monotone(self, b_days: int) -> None:
+        """``A -SS+6-> M1 <-FS+3- B`` then ``M1 -SS+5-> M2``; B from 4 to 5 days.
+
+        M1 moves from Monday midnight (start of Monday) to Tuesday midnight (end of
+        Monday), so M2's proposal moves from Saturday to Sunday midnight — one
+        working-time position — with the reading it inherits. Upgrading only the
+        readings that share a position with a start-of-day proposal (the other fix
+        #4173 considered) shows M2 on Friday 01-16 at B = 5 and Monday 01-19 at
+        B = 4; reading a midnight after non-working time as a start keeps Monday.
+        """
+        p = _project(
+            [_task("A", 3), _task("B", b_days), _task("M1", 0), _task("M2", 0)],
+            [
+                _dep("A", "M1", DependencyType.SS, lag=6),
+                _dep("B", "M1", lag=3),
+                _dep("M1", "M2", DependencyType.SS, lag=5),
+            ],
+        )
+        assert schedule(p).project_finish == date(2026, 1, 19)
+
+    def test_zero_lag_after_a_non_working_actual_finish_is_the_next_start(self) -> None:
+        """A recorded finish on Saturday puts ``A -FS-> M`` at Sunday midnight.
+
+        The same rule as a lag: the working day before that midnight is not a
+        working day, so M is the start of Monday — not the end of the Friday
+        before A actually finished, which is where the pre-#4173 engine put it.
+        """
+        done = Task(
+            id="A",
+            name="A",
+            duration=timedelta(days=3),
+            actual_start=date(2026, 1, 7),
+            actual_finish=date(2026, 1, 10),  # a Saturday
+            percent_complete=100.0,
+        )
+        by_id = _by_id(_project([done, _task("M", 0)], [_dep("A", "M")]))
+        assert by_id["M"].early_start == _JAN_12_MON
+        assert by_id["M"].milestone_at_day_end is False
+
+    def test_derivation_cites_the_fs_link_at_the_shown_day(self) -> None:
+        d = derive_value(_ss_fs_join(4), "M", Quantity.EARLY_START)
+        assert d.value == _JAN_12_MON.isoformat()
+        assert d.binding is not None
+        assert d.binding.source_task_id == "B"
+        assert d.binding.imposed_date == _JAN_12_MON
+
+
+@st.composite
+def _fs_ss_networks_with_a_bump(
+    draw: st.DrawFn,
+) -> tuple[list[tuple[str, int]], list[tuple[str, str, DependencyType, int]], int, Calendar]:
+    """An FS/SS-only DAG heavy in milestones, and the index of one task to lengthen.
+
+    The last task is always a milestone joined by one SS and one FS link from two
+    different earlier tasks: that join is the #4173 shape (two proposals whose
+    midnights straddle a weekend), which a uniform edge draw reaches too rarely
+    for the 200-example gate profile to find. Every other pair is linked at random.
+    """
+    n = draw(st.integers(min_value=3, max_value=6))
+    tasks = [(f"T{i}", draw(st.sampled_from([0, 0, 0, 1, 2, 3, 4]))) for i in range(n - 1)]
+    tasks.append((f"T{n - 1}", 0))
+    ss_src, fs_src = draw(
+        st.lists(st.integers(min_value=0, max_value=n - 2), min_size=2, max_size=2, unique=True)
+    )
+    lag = st.integers(min_value=0, max_value=9)
+    links = [
+        (f"T{ss_src}", f"T{n - 1}", DependencyType.SS, draw(lag)),
+        (f"T{fs_src}", f"T{n - 1}", DependencyType.FS, draw(lag)),
+    ]
+    joined = {ss_src, fs_src}
+    links += [
+        (
+            f"T{i}",
+            f"T{j}",
+            draw(st.sampled_from([DependencyType.FS, DependencyType.SS])),
+            draw(lag),
+        )
+        for i in range(n)
+        for j in range(i + 1, n)
+        if not (j == n - 1 and i in joined) and draw(st.booleans())
+    ]
+    holidays = draw(
+        st.lists(st.integers(min_value=0, max_value=20), max_size=2, unique=True).map(
+            lambda offs: [DateRange(MON + timedelta(days=o), MON + timedelta(days=o)) for o in offs]
+        )
+    )
+    return (
+        tasks,
+        links,
+        draw(st.integers(min_value=0, max_value=n - 1)),
+        Calendar(exceptions=holidays),
+    )
+
+
+@pytest.mark.fuzz
+@given(_fs_ss_networks_with_a_bump())
+def test_lengthening_any_task_never_moves_the_finish_earlier(
+    case: tuple[list[tuple[str, int]], list[tuple[str, str, DependencyType, int]], int, Calendar],
+) -> None:
+    """On an FS/SS network, +1 day on any single duration never decreases the finish.
+
+    This is the property ``monte_carlo()``'s "never before the CPM finish" contract
+    rests on: every percentile is drawn from durations at or above the planned
+    ones, so it is only a lower bound if the finish is monotone in duration. Zero-
+    duration tasks and calendar-day lags are drawn heavily because that is where
+    #4173 broke it — two readings of one working-time position shown on different
+    days — and lengthening a milestone to one day is in scope too.
+    """
+    tasks, links, bump, cal = case
+
+    def finish(extra: int) -> date:
+        return schedule(
+            _project(
+                [_task(tid, d + (extra if i == bump else 0)) for i, (tid, d) in enumerate(tasks)],
+                [_dep(u, v, t, lag) for u, v, t, lag in links],
+                cal,
+            )
+        ).project_finish
+
+    assert finish(1) >= finish(0)

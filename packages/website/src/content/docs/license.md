@@ -16,17 +16,18 @@ The authoritative text is the [`LICENSE`](https://gitlab.com/trueppm/trueppm/-/b
 
 ### Where the license text travels
 
-Apache 2.0 §4(a) requires anyone who receives a distribution to receive a copy of the License with it. The root `LICENSE` covers the repository, but it does not follow an artifact that leaves the repository on its own — so each separately-distributed package carries its own identical copy:
+Apache 2.0 §4(a) requires anyone who receives a distribution to receive a copy of the License with it. The root `LICENSE` covers the repository, but it does not follow an artifact that leaves the repository on its own — so each separately-distributed package carries its own identical copy. The three PyPI packages also carry a copy of the root `NOTICE` (the project's own copyright line) for the same reason — Apache 2.0 does not strictly require it, but a standalone package with no copyright statement anywhere in it is an attribution gap:
 
-| Package | How it is distributed | Carries `LICENSE` |
-|---|---|---|
-| `trueppm-scheduler` | PyPI wheel / sdist | yes |
-| `trueppm-mcp` | PyPI wheel / sdist | yes |
-| `wasm-scheduler` | publishable crate; compiled `.wasm` in the web bundle | yes |
-| `mobile` | app binary installed on a device | yes |
-| `helm` | packaged chart tarball | yes |
+| Package | How it is distributed | Carries `LICENSE` | Carries `NOTICE` |
+|---|---|---|---|
+| `trueppm-scheduler` | PyPI wheel / sdist | yes | yes |
+| `trueppm-mcp` | PyPI wheel / sdist | yes | yes |
+| `trueppm-api` | PyPI wheel / sdist (in addition to the Docker image) | yes | yes |
+| `wasm-scheduler` | publishable crate; compiled `.wasm` in the web bundle | yes | — |
+| `mobile` | app binary installed on a device | yes | — |
+| `helm` | packaged chart tarball | yes | — |
 
-`api`, `web` and `website` are not separately distributed — they ship inside the API Docker image or the docs site, both of which carry the root `LICENSE` and `NOTICES`.
+`web` and `website` are not separately distributed — they ship inside the docs site, which carries the root `LICENSE`. The API Docker image also carries the root `LICENSE` and `NOTICES` (the API's own Dockerfile copies both), independently of the `trueppm-api` PyPI package above.
 
 A CI gate (`lint:package-licenses`) enforces this. It also fails if a new directory appears under `packages/` without being classified as distributed or bundled, so the list cannot quietly go stale.
 
