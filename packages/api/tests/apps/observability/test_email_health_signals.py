@@ -50,7 +50,7 @@ def _recipient(username: str = "notif_user") -> object:
 
 
 def _queued(recipient: object, count: int = 1, *, age_minutes: int = 30) -> list[Notification]:
-    """Create ``count`` drainable notifications, aged past the orphan window."""
+    """Create ``count`` drainable notifications, ``age_minutes`` old."""
     created = timezone.now() - timedelta(minutes=age_minutes)
     rows = []
     for i in range(count):

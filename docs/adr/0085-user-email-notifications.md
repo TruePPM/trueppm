@@ -153,7 +153,7 @@ validation — material new infra and a credential-handling security surface tha
    touched on the request path, so a broker outage only delays the drain.
 2. **Drain task:** Reuses `drain_notification_emails` (ADR-0075) unchanged — the
    new event-sourced rows are ordinary `Notification` rows with `email_pending`.
-3. **Orphan window:** Unchanged — `EMAIL_ORPHAN_WINDOW_MINUTES = 5`.
+3. **Orphan window:** Unchanged — `EMAIL_ORPHAN_WINDOW_MINUTES = 5`. *Superseded 2026-09-27 (#4191): the email drains have no orphan window and are nudged on commit — see ADR-0087 §Amendment (#4191).*
 4. **Service layer:** `notifications/services.py::create_event_notifications`
    (new) + the existing `create_mention_notifications`. Both are the only paths
    that create Notification rows.

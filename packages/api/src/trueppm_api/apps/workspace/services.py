@@ -572,9 +572,17 @@ def create_invite(
 
     The raw token is generated here, hashed for the durable credential, and kept
     in ``email_token`` only until the drain sends the link (ADR-0087 §4).
+
+    The drain is nudged from ``on_commit`` so the email leaves in seconds rather
+    than on the next Beat tick (#4191). The nudge is only a latency optimization:
+    the row is the durable record and the periodic drain still sends it if the
+    broker drops the nudge. Deferring to commit means a rolled-back create never
+    enqueues anything, and the drain — the only sender — is lock-serialized, so the
+    nudge cannot cause a second send.
     """
     raw_token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    transaction.on_commit(drain_invite_emails_soon)
     return WorkspaceInvite.objects.create(
         workspace=workspace,
         email=email,
@@ -611,8 +619,7 @@ def _reissue_invite_token(invite: WorkspaceInvite) -> None:
     working, which is the correct posture for a re-issue (ADR-0149) — and clears the
     outbox columns (``email_pending`` on, ``email_sent_at``/``email_failed_at`` off,
     attempts zeroed) so the existing ``drain_invite_emails`` picks the row up on its
-    next 30 s tick. ``created_at`` is unchanged, so the resend clears the drain's
-    5-min orphan window immediately (unlike a fresh create).
+    next 30 s tick (or sooner, when the view nudges it on commit).
     """
     raw_token = secrets.token_urlsafe(32)
     invite.token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
@@ -638,18 +645,20 @@ def _is_in_flight(invite: WorkspaceInvite) -> bool:
 def drain_invite_emails_soon() -> None:
     """Best-effort nudge the invite-email drain to run now instead of next tick.
 
-    A resend re-queues a row whose ``created_at`` is already past the 5-min orphan
-    window, so it's drain-eligible immediately — this just shortens the wait from the
+    Every queued invite (a fresh create or a resend) is drain-eligible as soon as it
+    commits — the drain has no age floor (#4191) — so this shortens the wait from the
     30 s Beat cadence to "right after commit". Broker errors are swallowed: the
     periodic ``drain_invite_emails`` is the durability guarantee, this is only an
-    optimization (ADR-0149). Call inside ``transaction.on_commit``.
+    optimization (ADR-0149). If a drain already holds the singleton lock the nudged
+    run skips, and the row goes on the next tick. Call inside
+    ``transaction.on_commit``.
     """
     from trueppm_api.apps.workspace.tasks import drain_invite_emails
 
     try:
         drain_invite_emails.delay()
     except Exception:  # pragma: no cover - broker-down path, periodic drain recovers
-        logger.warning("broker unavailable; periodic drain_invite_emails will send resends")
+        logger.warning("broker unavailable; periodic drain_invite_emails will send queued invites")
 
 
 def resend_invite(invite_id: _PK) -> WorkspaceInvite | None:

@@ -486,7 +486,7 @@ A `user_{id}` WebSocket channel is **deferred to 0.3 as a follow-up** if polling
 
 1. **Broker-down behaviour**: Comment + attachment writes are synchronous transactional writes. Mention + Notification rows are created in the same transaction. WebSocket broadcast uses `transaction.on_commit()` per existing pattern (best-effort: broker-down = missed live update, never stale stored value). Email delivery is best-effort via outbox.
 2. **Drain task**: **New** `drain_notification_emails` Beat task every 30 s, processes `Notification.email_pending=True` rows older than the orphan window.
-3. **Orphan window**: 5 min (matches webhooks per ADR-0019 convention).
+3. **Orphan window**: 5 min (matches webhooks per ADR-0019 convention). *Superseded 2026-09-27 (#4191): the email drains have no orphan window and are nudged on commit — see ADR-0087 §Amendment (#4191).*
 4. **Service layer**: **New** `notifications/services.py::create_mention_notifications(mention: Mention) -> int` — called from `TaskCommentViewSet.perform_create()` after `on_commit`. Returns count of Notification rows created.
 5. **API response on best-effort dispatch**: Comment POST returns `201 Created` with the created comment (synchronous). Notification fan-out happens transactionally; email send is best-effort.
 6. **Outbox cleanup**: Notifications older than 90 days **and** `is_read=True` are soft-archived (`is_archived=True`) nightly. Hard-purge of archived notifications older than 365 days is a future operational concern (not in 0.2).

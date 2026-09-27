@@ -373,8 +373,9 @@ Workspace Admins send email invitations to bring new users into the workspace.
 2. The API creates a pending invite row and sets `email_pending=true`. The
    **raw token is emailed** to the recipient, never stored in the database
    (only its SHA-256 hash is persisted).
-3. The `drain_invite_emails` Celery Beat task dispatches the email every 30 s
-   (5-minute orphan window to avoid racing the create transaction). Email
+3. The `drain_invite_emails` task sends the email. The create starts it as soon
+   as the invite commits, so the email normally leaves within seconds; the
+   30-second Celery Beat run catches anything that start missed. Email
    delivery failures are retried up to 3 times; at exhaustion the invite is
    marked `failed`, and an admin can re-send it (see [Resend an invite](#resend-an-invite))
    without revoking and re-creating it.

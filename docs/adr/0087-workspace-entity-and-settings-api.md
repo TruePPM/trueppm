@@ -208,3 +208,88 @@ introduced above.
 N/A — a synchronous field write on an existing CRUD endpoint. No async side
 effects, no Celery dispatch, no broker interaction, no outbox. `WorkspaceMembership`
 is a `VersionedModel`; the write bumps `server_version` like any other edit.
+
+## Amendment (2026-09-27, #4191): no orphan window on the email drains; nudge on commit
+
+**Supersedes §Durable Execution item 3** above for `drain_invite_emails`, and the
+same item in ADR-0075 §Durable Execution / ADR-0085 / ADR-0149 for
+`drain_notification_emails`. History above is left as written.
+
+### What the window cost
+With `created_at < now - 5m` on both email drains and nothing else sending a new
+row, every first invite and every notification email arrived **at least 5
+minutes** after the action (measured 2026-09-27 against Mailpit: invite 5m15s,
+@mention 5m26s). A resend left in the same second, because its row was already
+old. `administration/email.md` described a 30 s drain and never mentioned the
+floor, so an admin who invited someone and checked the inbox concluded mail was
+broken.
+
+### Why the window protected nothing
+The 5-minute value was copied from the webhook drain (ADR-0019) and the
+export/import drains (ADR-0174, ADR-0219, ADR-0726). There it is load-bearing:
+those paths dispatch a **per-row task** from `on_commit`, and the drain
+*re-dispatches* rows whose task a broker outage lost. The window keeps the drain
+from re-dispatching a row whose original task is still queued or running — it
+excludes rows an in-flight owner may still hold.
+
+The email drains have no such owner. Tracing the send path:
+
+- **The drain is the only sender.** Neither `create_invite`, the resend service,
+  nor any notification fan-out sends mail; they only write
+  `email_pending=True`. There is no per-row send task that can be orphaned.
+- **Claiming is by lock, not by row.** Rows are not claimed with a status
+  transition or `select_for_update(skip_locked=True)`. Exactly-once across
+  overlapping runs comes from `@idempotent_task`'s singleton Valkey lock
+  (`drain_invite_emails` / `drain_notification_emails`, `SET NX`, extended by a
+  daemon thread while the run is alive, released compare-and-delete), with
+  `on_contention="skip"`. Two drains never hold the candidate set at once, and a
+  sent row is terminal (`email_pending=False`, `email_sent_at` set) before the
+  lock is released.
+- **"Racing the still-open create transaction" is not a race.** Under READ
+  COMMITTED the drain cannot see an uncommitted row at all, and once the row is
+  visible it is complete. Row age adds nothing to that.
+
+So the in-flight-owner window sized from the claim mechanism is **zero**: the
+only thing that can own a row is a live drain, and the lock already excludes it.
+The residual double-send case — a Valkey failover or eviction dropping the lock
+mid-run, or `acks_late` redelivery after a worker dies between the SMTP accept
+and the row update — exists identically for a row that is 5 minutes old, so the
+window never covered it either.
+
+### Decision
+1. **Remove the age predicate** from both email drains
+   (`EMAIL_ORPHAN_WINDOW_MINUTES` is deleted from `workspace.tasks` and
+   `notifications.tasks`). Every committed pending row is eligible on the next run.
+2. **Nudge the drain from `transaction.on_commit`** when a row is queued:
+   `workspace.services.create_invite` registers `drain_invite_emails_soon`, and
+   every notification fan-out that writes at least one `email_pending=True` row
+   goes through `notifications.services._bulk_create_notifications`, which
+   registers `drain_notification_emails_soon`. On commit, not inline, so a
+   rolled-back write enqueues nothing and the drain never runs before the rows are
+   visible. The nudge is `drain.delay()` of the **same singleton-locked drain**,
+   not a per-row send task, so it adds no second sender: if a drain is already
+   running, the nudged run skips and the row goes on the next 30 s tick.
+3. **Beat stays the durability guarantee.** The nudge swallows broker errors; a
+   dropped nudge costs at most one Beat interval.
+
+First-send latency is now seconds on a healthy install, bounded by ~30 s when a
+nudge collides with a running drain or is dropped, plus the operator's
+per-minute throttle under a burst.
+
+### Consequences
+- A nudged run reserves a per-tick share of the per-minute throttle like a Beat
+  run does, so a burst of nudges can spend the minute's allowance early in the
+  minute instead of spreading it over two ticks. The shared per-minute budget
+  (`delivery_limits.reserve_send_budget`) still bounds the total, which is the
+  control operators actually set.
+- Each email-queuing write enqueues one small Celery message. Runs that find the
+  lock held return immediately.
+- The export, import, webhook, config-notice and workflow-outbox drains keep
+  their windows: they re-dispatch per-row tasks and the window is what stops
+  them racing the original dispatch.
+- Pinned by `test_drain_sends_new_invite_immediately`,
+  `test_create_invite_nudges_drain_on_commit`,
+  `test_rolled_back_invite_create_does_not_nudge`,
+  `test_sends_just_created_notification_without_age_floor`,
+  `test_email_queuing_fan_out_nudges_drain_on_commit` and
+  `test_mention_email_nudges_drain_on_commit`.
