@@ -4659,7 +4659,7 @@ def _forecast_unmoved(prior: Any, snapshot: Any) -> bool:
     if _band_offsets(prior) != _band_offsets(snapshot):
         return False
     if prior.cpm_finish is None or snapshot.cpm_finish is None:
-        return prior.cpm_finish == snapshot.cpm_finish
+        return bool(prior.cpm_finish == snapshot.cpm_finish)
     shift = snapshot_finish_shift_days(
         prior, snapshot, lambda: _project_sched_calendar(snapshot.project_id)
     )
