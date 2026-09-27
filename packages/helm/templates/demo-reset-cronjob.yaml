@@ -36,7 +36,7 @@ and, with alerts.enabled, TruePPMDemoReset* rules fire.
 */}}
 {{- /* The schedule is interpolated into the CronJob spec, so constrain it to what a cron expression can contain rather than trusting the value: five whitespace-separated fields, or one of the @-macros. */ -}}
 {{- if not (regexMatch "^(@(hourly|daily|weekly|monthly|yearly|annually)|[0-9*/,?A-Za-z-]+( +[0-9*/,?A-Za-z-]+){4})$" (toString .Values.demo.reset.schedule)) }}
-{{- fail "demo.reset.schedule must be a five-field cron expression such as \"0 */6 * * *\" (or an @hourly/@daily/@weekly/@monthly/@yearly macro). It is evaluated in the CronJob controller's time zone, which is UTC on managed clusters." }}
+{{- fail "demo.reset.schedule must be a five-field cron expression such as \"0 8 * * *\" (or an @hourly/@daily/@weekly/@monthly/@yearly macro). It is evaluated in the CronJob controller's time zone, which is UTC on managed clusters." }}
 {{- end }}
 apiVersion: batch/v1
 kind: CronJob
