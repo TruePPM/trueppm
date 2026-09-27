@@ -788,7 +788,9 @@ class WorkspaceEmailTestView(IdempotencyMixin, APIView):
     (server-derived — never a recipient from the request body, which would make
     this an authenticated open relay, security review M5) through the resolved
     transport. Synchronous so the admin gets immediate pass/fail feedback; a
-    transport failure returns 502 with a generic message.
+    real transport failure returns 502 with a generic message, and a host
+    rejected by the SSRF egress guard returns 502 with the same curated,
+    already-safe-to-surface message the save path uses (#4189).
     """
 
     permission_classes = [IsAuthenticated, IsWorkspaceOperator]
@@ -846,6 +848,7 @@ class WorkspaceEmailTestView(IdempotencyMixin, APIView):
         from django.core.mail import EmailMessage
 
         from .email_backend import (
+            EmailHostNotAllowedError,
             resolve_email_connection,
             resolve_from_email,
             resolve_reply_to,
@@ -872,6 +875,18 @@ class WorkspaceEmailTestView(IdempotencyMixin, APIView):
                 reply_to=resolve_reply_to(obj) or None,
                 connection=connection,
             ).send(fail_silently=False)
+        except EmailHostNotAllowedError as exc:
+            # Distinct from a real transport failure (#4189): the egress guard
+            # blocked the host outright, and the generic "check the transport
+            # configuration" message below sends an operator whose transport is
+            # correctly configured looking in the wrong place. The message is
+            # curated by email_backend._assert_host_public and is safe to
+            # surface verbatim — it never echoes the DNS-resolved address.
+            logger.info("send-test: blocked by egress guard for %s", obj.transport_mode)
+            return Response(
+                {"sent": False, "error": str(exc)},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
         except Exception:
             # Never surface the underlying transport exception (may echo creds).
             logger.warning("send-test: transport failed for %s", obj.transport_mode)

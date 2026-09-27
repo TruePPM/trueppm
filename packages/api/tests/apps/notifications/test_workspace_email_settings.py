@@ -687,6 +687,44 @@ def test_send_test_requires_email_on_file(db: object) -> None:
     assert resp.data["sent"] is False
 
 
+def test_send_test_blocked_by_egress_guard_gets_specific_error(
+    operator_client: APIClient, _no_probe: None
+) -> None:
+    """Regression for #4189 on the send-test path.
+
+    ``WorkspaceEmailTestView.post`` had no coverage of its failure branch at
+    all. It resolves a live connection at send time
+    (``resolve_email_connection`` -> ``build_smtp_connection`` ->
+    ``_assert_host_public``), which the (neutralized) validate-before-persist
+    probe never reaches — so a host that was persisted before this stricter
+    egress posture, or the mocked-probe path used to configure it here, can
+    still be blocked at send time. Before the fix this fell into the view's
+    generic ``except Exception`` and returned "Could not send the test email.
+    Check the transport configuration.", the same wrong-direction message the
+    save path used to give.
+    """
+    operator_client.put(
+        URL,
+        {
+            "transport_mode": "smtp",
+            "host": "localhost",  # resolves to 127.0.0.1 -> loopback -> blocked
+            "port": 587,
+            "security": "tls",
+            "username": "u",
+            "password": "s3cret",
+        },
+        format="json",
+    )
+    resp = operator_client.post(TEST_URL, {}, format="json")
+    assert resp.status_code == 502
+    assert resp.data["sent"] is False
+    message = resp.data["error"]
+    assert "TRUEPPM_EGRESS_ALLOWLISTED_HOSTS" in message
+    assert "check the transport configuration" not in message.lower()
+    # Must not echo the DNS-resolved internal address (#2082).
+    assert "127.0.0.1" not in str(resp.data)
+
+
 # ---------------------------------------------------------------------------
 # Deliverability health
 # ---------------------------------------------------------------------------

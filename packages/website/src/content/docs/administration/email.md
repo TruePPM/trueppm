@@ -217,7 +217,9 @@ The page has a **Send test email** action that sends a fixed test message
 through the resolved transport. It always sends to the **requesting operator's
 own account address** — never an address from the request — so the action can
 never be used as an authenticated open relay. You get an immediate pass/fail
-result; a transport failure returns a generic `502`.
+result: a real transport failure returns a generic `502`, and a host rejected
+by the [SSRF egress guard](#ssrf-egress-guard) returns `502` with the same
+specific, allowlist-pointing message the save path gives.
 
 ### Deliverability health
 

@@ -416,6 +416,26 @@ describe('WorkspaceEmailPage — send test email', () => {
     expect(failMsg.querySelector('svg')).toBeInTheDocument();
   });
 
+  it('renders the SSRF-egress-blocked send-test error verbatim (#4189)', () => {
+    // useSendTestEmail normalizes ANY body carrying a boolean `sent` into `data`
+    // (including the 502 the egress-blocked path now returns), so the component
+    // renders `data.error` unchanged — this proves the specific, allowlist-
+    // pointing message reaches the screen rather than a generic fallback.
+    const egressMessage =
+      'The mail server host is not permitted — it resolves to a non-public ' +
+      'address. If this is a trusted internal relay on a private network, add ' +
+      'its hostname to TRUEPPM_EGRESS_ALLOWLISTED_HOSTS on the API, Celery ' +
+      'worker, and Celery beat processes, then save these settings again.';
+    useSendTestEmail.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      data: { sent: false, error: egressMessage },
+    });
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByText(egressMessage)).toBeInTheDocument();
+    expect(screen.queryByText(/check the transport configuration/i)).not.toBeInTheDocument();
+  });
+
   it('shows the pending label while a test send is in flight', () => {
     useSendTestEmail.mockReturnValue({ mutate: vi.fn(), isPending: true, data: undefined });
     render(<WorkspaceEmailPage />);
@@ -770,6 +790,32 @@ describe('WorkspaceEmailPage — save-failure surfacing', () => {
 
     expect(await screen.findByText('SMTP handshake timed out after 10s.')).toBeInTheDocument();
     expect(screen.queryByText(/correct the highlighted fields/i)).not.toBeInTheDocument();
+  });
+
+  it('surfaces the SSRF-egress-blocked message verbatim, not a generic connect failure (#4189)', async () => {
+    // The API now distinguishes a host the outbound egress guard rejects from a
+    // real connect failure, and gives it a specific, actionable message instead
+    // of "check the host, port, security, and credentials". The page renders
+    // whatever `non_field_errors` says (extractFormLevelMessage), so no
+    // component-side branching is needed — this just proves that path reaches
+    // the screen for this specific message shape.
+    const egressMessage =
+      'The mail server host is not permitted — it resolves to a non-public ' +
+      'address. If this is a trusted internal relay on a private network, add ' +
+      'its hostname to TRUEPPM_EGRESS_ALLOWLISTED_HOSTS on the API, Celery ' +
+      'worker, and Celery beat processes, then save these settings again.';
+    const mutateAsync = vi.fn().mockRejectedValue(axios400({ non_field_errors: [egressMessage] }));
+    mockHooks({ transport_mode: 'smtp', host: 'mail.example.com' });
+    useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
+    render(<WorkspaceEmailPage />);
+
+    fireEvent.change(screen.getByLabelText('SMTP host'), { target: { value: 'mail.internal.test' } });
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(await screen.findByText(egressMessage)).toBeInTheDocument();
+    expect(screen.queryByText(/check the host, port, security, and credentials/i)).not.toBeInTheDocument();
   });
 
   it('summarizes field-only rejections and highlights the credential inline', async () => {
