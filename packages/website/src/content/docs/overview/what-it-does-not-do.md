@@ -102,11 +102,16 @@ There is no cost model. No resource rates, no budgets, no actual-cost tracking, 
 earned value.
 
 - **0.5:** timesheet depth — manager approval, non-project time categories, and the
-  earned-value actuals feed — and a first cost model: a budget on the project, a
-  current rate on the resource, actual cost as time entries × rate, and a P80 cost
-  beside the P80 date. Labor cost only.
-- **0.8:** broader resource costs, cost reports, and EV-lite (PV/EV/AC with SPI/CPI)
-  computed from baselines and timesheet actuals.
+  earned-value actuals feed — and a first cost model
+  ([#754](https://gitlab.com/trueppm/trueppm/-/issues/754)): a budget on the
+  project, a current rate on the resource, actual cost as time entries × rate, and
+  a P80 cost beside the P80 date. Labor cost only — non-labor direct costs
+  (equipment, cloud, agent spend) follow later, unscheduled
+  ([#2557](https://gitlab.com/trueppm/trueppm/-/issues/2557)).
+- **0.8:** EV-lite ([#2139](https://gitlab.com/trueppm/trueppm/-/issues/2139)) —
+  PV/EV/AC with SPI/CPI — computed from the 0.5 baselines and timesheet actuals.
+  Cost reports, a configurable fiscal year, and deeper earned-value surfaces stay
+  Unsequenced until real programs ask for them.
 
 **If your practice is cost-centric — if the first question your PMO asks is "what's
 the CPI?" — TruePPM is not ready for you.** Planview, Clarity, and P6 are built
