@@ -94,6 +94,14 @@ Using the research results, evaluate each finding against the checklist below. P
 - [ ] No dependencies with known CVEs of severity High or Critical
 - [ ] License audit: no GPL/AGPL dependencies in Apache 2.0 codebase
 
+### Whose authority produced this stored value?
+
+For any outbound fetch that carries a **user's** credential (a personal access token, OAuth token, or connected account), trace where the response goes. If any part of it is persisted to a **shared** row or broadcast to other users, the fetch is a confused deputy: one user's access leaks to everyone who can read the row. Flag it unless the stored data is limited to what every reader could fetch themselves.
+
+### A gated field is gated at every reader, not just the serializer
+
+When a field has a privacy or visibility rule (for example restricted to the assignee or a mentioned user), enumerate **every** reader of that column by grepping the field name across exporters, export bundles, seed/fixture dumps, history tables and management commands. Do not stop at the serializers. A raw export that bypasses the serializer bypasses the rule.
+
 ## Peer-path divergence — check the set, not the instance
 
 The highest-yield structural check in this codebase: **when several implementations sit

@@ -176,6 +176,8 @@ Regenerating `openapi.json` is not documenting the endpoint. Check each that app
   versions at or below the latest shipped tag; future tense for anything the roadmap
   still lists as Underway or Planned
 
+- [ ] **A deprecation in a comment is not a deprecation.** If code, help text, or a docstring says a parameter, field, alias or event is deprecated or "removed in 0.X", the schema must mark it `deprecated: true`, and an open issue must track the removal. A promise that lives only in a comment is one no integrator sees and no one will remember to keep.
+
 ## How to verify locally
 
 ```bash

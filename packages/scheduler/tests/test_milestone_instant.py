@@ -13,6 +13,7 @@ corpus agreed with itself for as long as both engines carried the extra day.
 
 from __future__ import annotations
 
+import copy
 from datetime import date, timedelta
 
 import pytest
@@ -486,6 +487,161 @@ def test_every_date_derivation_cites_the_engines_own_value(p: Project) -> None:
             assert d.binding.imposed_date.isoformat() == d.value, (t.id, q)
         for q in (Quantity.TOTAL_FLOAT, Quantity.FREE_FLOAT):
             assert derive_value(p, t.id, q, result).value == getattr(t, q.value).days
+
+
+# ---------------------------------------------------------------------------
+# A terminal milestone that reads as start of day keeps its predecessor's float (#4174)
+# ---------------------------------------------------------------------------
+
+
+class TestTerminalMilestoneLateSeed:
+    """``A(4d) -FS+2d-> M``: M sits at Sunday midnight, shown as the start of Monday.
+
+    Slipping A one working day moves M to Monday midnight, which is still shown as
+    the start of Monday, so the project finish does not move and A has one day of
+    total float. The engine used to seed M's late instant at the raw finish instant
+    (Sunday), so it gave A zero float and put it on the critical path.
+
+    ``A -FS+1d-> M`` is a different case. M sits at Saturday midnight, shown as the
+    end of Friday. A one-day slip moves M to Sunday midnight, which #4173 shows as
+    the start of Monday. That is a real move of the shown finish, so A's zero float
+    is correct there, which matches MS Project.
+    """
+
+    def _project(self, lag: int, a_start: date | None = None) -> Project:
+        a = _task("A", 4)
+        a.planned_start = a_start
+        return _project([a, _task("M", 0)], [_dep("A", "M", lag=lag)])
+
+    def test_start_of_day_terminal_milestone_leaves_its_predecessor_float(self) -> None:
+        result = schedule(self._project(lag=2))
+        by_id = {t.id: t for t in result.tasks}
+        assert result.project_finish == date(2026, 1, 12)
+        assert by_id["M"].milestone_at_day_end is False
+        assert by_id["A"].total_float == timedelta(days=1)
+        assert by_id["A"].late_finish == date(2026, 1, 9)
+        assert not by_id["A"].is_critical
+        assert result.critical_path == ["M"]
+        # M itself has no float and is not shown past the finish.
+        assert by_id["M"].total_float == timedelta(0)
+        assert by_id["M"].late_start == by_id["M"].early_start == date(2026, 1, 12)
+
+    def test_slipping_the_predecessor_by_its_float_leaves_the_finish(self) -> None:
+        """One day moves M from Sunday to Monday midnight, both shown as Monday; two
+        days move the finish."""
+        assert schedule(self._project(lag=2, a_start=date(2026, 1, 6))).project_finish == (
+            date(2026, 1, 12)
+        )
+        assert schedule(self._project(lag=2, a_start=date(2026, 1, 7))).project_finish == (
+            date(2026, 1, 14)
+        )
+
+    def test_end_of_day_terminal_milestone_keeps_its_predecessor_critical(self) -> None:
+        """FS+1 is not a bug. A one-day slip moves the shown finish from Friday to
+        Monday, so A has no float. This guards against re-widening the seed."""
+        result = schedule(self._project(lag=1))
+        by_id = {t.id: t for t in result.tasks}
+        assert result.project_finish == date(2026, 1, 9)
+        assert by_id["M"].milestone_at_day_end is True
+        assert by_id["A"].total_float == timedelta(0)
+        assert by_id["A"].is_critical
+        assert result.critical_path == ["A", "M"]
+        slipped = schedule(self._project(lag=1, a_start=date(2026, 1, 6)))
+        assert slipped.project_finish == date(2026, 1, 12)
+
+    def test_derivation_cites_the_seed_the_engine_used(self) -> None:
+        for lag, a_late_finish in ((2, "2026-01-09"), (1, "2026-01-08")):
+            p = self._project(lag=lag)
+            result = schedule(p)
+            for q in (Quantity.LATE_START, Quantity.LATE_FINISH, Quantity.TOTAL_FLOAT):
+                d = derive_value(p, "M", q, result)
+                assert d.binding is not None
+            lf = derive_value(p, "A", Quantity.LATE_FINISH, result)
+            assert lf.value == a_late_finish
+            assert lf.binding is not None and lf.binding.source_task_id == "M"
+
+
+def _advance_working_days(d: date, n: int, cal: Calendar) -> date:
+    while n > 0:
+        d += timedelta(days=1)
+        if cal.is_working_day(d):
+            n -= 1
+    return d
+
+
+@st.composite
+def _fs_ss_networks_with_milestones(draw: st.DrawFn) -> Project:
+    """A small random FS/SS DAG with milestones and non-negative calendar-day lags."""
+    n = draw(st.integers(min_value=2, max_value=6))
+    tasks = [_task(f"T{i}", draw(st.sampled_from([0, 0, 1, 2, 3, 5]))) for i in range(n)]
+    deps: list[Dependency] = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            if draw(st.booleans()):
+                deps.append(
+                    _dep(
+                        f"T{i}",
+                        f"T{j}",
+                        draw(st.sampled_from([DependencyType.FS, DependencyType.SS])),
+                        draw(st.sampled_from([0, 0, 1, 2, 3])),
+                    )
+                )
+    return _project(tasks, deps)
+
+
+def _is_known_4183_tie(base: Project, shifted: Project) -> bool:
+    """The shifted network hits #4183: its finish instant has not moved, but a
+    start-of-day milestone now sits exactly on it, so the shown finish flips from
+    the end of one working day to the start of the next.
+
+    Present on main before #4174 and out of scope here.
+    """
+    from trueppm_scheduler.engine import _milestone_instants
+
+    finish = _milestone_instants(base)[2]
+    instants, _, shifted_finish = _milestone_instants(shifted)
+    return shifted_finish == finish and (finish, True) in instants.values()
+
+
+@pytest.mark.fuzz
+@given(_fs_ss_networks_with_milestones())
+def test_total_float_is_the_slip_the_finish_absorbs(p: Project) -> None:
+    """Definitional total float (#4174): slipping a live work task by its total
+    float must not move the project's finish, and one more working day must.
+
+    The two sides use different measures. "Does not move" compares the shown
+    ``project_finish``, because a milestone moving from Saturday to Sunday midnight
+    is shown on a different day (#4173) and so counts as a slip. "Must move" also
+    accepts a change in the finish instant's working position, because a
+    start-of-day milestone and a work task ending the same day are shown on the
+    same date even though the instant has moved.
+    """
+    from trueppm_scheduler.engine import _milestone_instants, _next_working_day
+
+    def position(q: Project) -> date:
+        return _next_working_day(_milestone_instants(q)[2], q.calendar)
+
+    result = schedule(p)
+    base_position = position(p)
+    for t in result.tasks:
+        if t.duration.days == 0:
+            continue
+        assert t.early_start is not None
+        tf = t.total_float.days
+        for slip, moves in ((tf, False), (tf + 1, True)):
+            shifted = copy.deepcopy(p)
+            pinned = next(x for x in shifted.tasks if x.id == t.id)
+            pinned.planned_start = _advance_working_days(t.early_start, slip, p.calendar)
+            finish_moved = schedule(shifted).project_finish != result.project_finish
+            if moves:
+                moved = finish_moved or position(shifted) != base_position
+            else:
+                moved = finish_moved
+                # TODO(#4183): drop this exemption when a start-of-day milestone
+                # tying the finish instant no longer overstates float.
+                if moved and _is_known_4183_tie(p, shifted):
+                    continue
+            assert moved is moves, (t.id, tf, slip)
 
 
 # ---------------------------------------------------------------------------
