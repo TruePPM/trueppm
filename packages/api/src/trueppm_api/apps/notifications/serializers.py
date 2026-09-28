@@ -1057,6 +1057,9 @@ class WorkspaceEmailSettingsSerializer(serializers.ModelSerializer[WorkspaceEmai
             # was stored under the previous auth-enabled config so it can never
             # be silently reused if a username is added back later without also
             # re-entering a password. Set in validate(), consumed once here.
+            # Same non-auth SMTP credential as the call above, so validate_password()
+            # does not apply; an empty value clears the stored ciphertext.
+            # nosemgrep: unvalidated-password
             instance.set_password("")
         request = self.context.get("request")
         if request is not None and getattr(request, "user", None) is not None:
