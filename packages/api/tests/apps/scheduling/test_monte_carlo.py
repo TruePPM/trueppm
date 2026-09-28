@@ -332,6 +332,48 @@ class TestMonteCarloEndpoint:
         )
         assert r.status_code == 400
 
+    @pytest.mark.parametrize("value", [10.7, 1.1, True, False])
+    def test_non_integer_type_n_simulations_returns_400(
+        self,
+        member_client: APIClient,
+        project: Project,
+        pert_task: Task,
+        value: object,
+    ) -> None:
+        """#4208: a JSON float or bool must not silently coerce via int().
+
+        int(10.7) == 10 and int(True) == 1 both succeed without raising, so the
+        prior bare `int(raw_n)` cast accepted them instead of rejecting the
+        contract violation — reject the type before the cast.
+        """
+        r = member_client.post(
+            f"/api/v1/projects/{project.pk}/monte-carlo/",
+            {"n_simulations": value},
+            format="json",
+        )
+        assert r.status_code == 400
+        # Exact match, not a substring: int(False) == 0 also 400s, but via the
+        # pre-existing "must be a positive integer" check further down — a
+        # substring assertion can't tell that apart from the type-rejection
+        # this test exists to prove, and False would pass either way (#4208).
+        assert r.data["detail"] == "n_simulations must be an integer."
+
+    def test_digit_string_n_simulations_still_accepted(
+        self,
+        member_client: APIClient,
+        project: Project,
+        pert_task: Task,
+    ) -> None:
+        """#4208: the digit-string allowance (e.g. "100") is not a casualty of
+        rejecting bool/float — string coercion still runs through int()."""
+        r = member_client.post(
+            f"/api/v1/projects/{project.pk}/monte-carlo/",
+            {"n_simulations": "100"},
+            format="json",
+        )
+        assert r.status_code == 200
+        assert r.data["runs"] == 100
+
     def test_simulation_honors_planned_start_floor(
         self,
         member_client: APIClient,
