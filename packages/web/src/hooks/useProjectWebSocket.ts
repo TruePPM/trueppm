@@ -78,6 +78,7 @@ import { useReconcileStore } from '@/stores/reconcileStore';
 import type { ReconcileObservation } from '@/features/schedule/reconcile/reconcileState';
 import { useWsConnectionStore } from '@/stores/wsConnectionStore';
 import { applyTaskDatesDelta, type TaskDatesDelta } from '@/hooks/useScheduleTasks';
+import { needsBaselineVarianceRefetch } from '@/lib/baselineFinishVariance';
 import { fetchWsTicket } from '@/api/wsTicket';
 import { toast } from '@/components/Toast/toast';
 import type { Task } from '@/types';
@@ -381,7 +382,12 @@ function registerPresenceAndCpmHandlers(on: OnFn, deps: WsHandlerDeps): void {
             // user never touched (#3041); the full-snapshot path cannot, and must
             // not, because it sees every task and knows nothing about movement.
             observations.push(
-              { taskId: t.id, field: 'start', value: next.start || null, previous: t.start || null },
+              {
+                taskId: t.id,
+                field: 'start',
+                value: next.start || null,
+                previous: t.start || null,
+              },
               {
                 taskId: t.id,
                 field: 'finish',
@@ -397,6 +403,15 @@ function registerPresenceAndCpmHandlers(on: OnFn, deps: WsHandlerDeps): void {
         // would make every bar-geometry unit test a store test.
         if (observations.length > 0) useReconcileStore.getState().observe(observations);
       }
+      // A splice that moved a baselined row's finish (or a CPM result landing on a
+      // row an optimistic drag already cleared) leaves it without the server's
+      // working-time variance, and the chip on the shown-day fallback — the ±3d
+      // bug #4203 fixed. The delta cannot carry the value, and with the socket
+      // live nothing else re-fetches, so ask for one. Scans the whole list, not
+      // only the delta rows: the dragged row's delta may equal its optimistic
+      // finish and not be the row that changed here.
+      const rows = queryClient.getQueryData<Task[]>(['tasks', projectIdRef.current]);
+      if (rows?.some(needsBaselineVarianceRefetch)) scheduleInvalidate('tasks');
     }
   });
 }
@@ -817,14 +832,11 @@ function registerSprintHandlers(on: OnFn, deps: WsHandlerDeps): void {
   // is the only failure mode of the best-effort channel; a blanket refetch
   // of the (at most one or two) open retro boards is cheap and reconciles
   // LWW collisions deterministically.
-  on(
-    ['retro_item_created', 'retro_item_updated', 'retro_item_deleted', 'retro_item_moved'],
-    () => {
-      void queryClient.invalidateQueries({
-        predicate: (q) => q.queryKey[0] === 'sprint' && q.queryKey[2] === 'retro-board',
-      });
-    },
-  );
+  on(['retro_item_created', 'retro_item_updated', 'retro_item_deleted', 'retro_item_moved'], () => {
+    void queryClient.invalidateQueries({
+      predicate: (q) => q.queryKey[0] === 'sprint' && q.queryKey[2] === 'retro-board',
+    });
+  });
 
   // --- Scope-injection accept/reject events (ADR-0102) ---
   // A peer accepting/rejecting a pending injection (or rejecting on close)

@@ -195,7 +195,7 @@ function BaselineVariance({ task, varianceDays }: { task: Task; varianceDays: nu
 interface CardHealthPeekProps {
   task: Task;
   view: BoardCardView;
-  /** Calendar days between forecast finish and baseline; null when unbaselined. */
+  /** Forecast finish vs baseline in days, working time (`baselineFinishVariance`); null when unbaselined. */
   baselineVarianceDays: number | null;
   peekOpen: boolean;
 }

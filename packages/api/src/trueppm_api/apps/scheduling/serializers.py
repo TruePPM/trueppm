@@ -54,6 +54,20 @@ class MonteCarloWhatIfRequestSerializer(serializers.Serializer[dict[str, Any]]):
         return attrs
 
 
+# Every Monte Carlo date delta is a calendar-day difference of the two *shown*
+# finish days, not a working-time comparison (#4203). The engine keeps only each
+# sample's finish day, not which edge of it the finish sits on, so a start-of-day
+# milestone finish can put two dates either side of a weekend with no difference
+# in working time and the delta reads ±3d. TODO(#4204): measure these in working
+# time once the engine exposes each percentile's edge-of-day reading.
+MC_SHOWN_DAY_DELTA_NOTE = (
+    "Calendar-day difference of the two shown finish days, not a working-time "
+    "comparison: when a finish is a start-of-day milestone, two dates either side "
+    "of a weekend or holiday can differ by several days here with no difference "
+    "in working time."
+)
+
+
 class MonteCarloDeltaSerializer(serializers.Serializer[dict[str, Any]]):
     """Signed calendar-day delta of a percentile finish, per field (#987/#993/#2483).
 
@@ -62,12 +76,19 @@ class MonteCarloDeltaSerializer(serializers.Serializer[dict[str, Any]]):
     deterministic CPM finish), the what-if endpoint's ``delta_vs_current``, and
     the history endpoint's per-run ``delta`` (ADR-0108) — one derivation, one
     schema, three call sites. ``None`` whenever either date it is measured
-    between is missing.
+    between is missing. A difference of shown days — see
+    :data:`MC_SHOWN_DAY_DELTA_NOTE`.
     """
 
-    p50 = serializers.IntegerField(allow_null=True)
-    p80 = serializers.IntegerField(allow_null=True)
-    p95 = serializers.IntegerField(allow_null=True)
+    p50 = serializers.IntegerField(
+        allow_null=True, help_text=f"Signed P50 delta; positive = later. {MC_SHOWN_DAY_DELTA_NOTE}"
+    )
+    p80 = serializers.IntegerField(
+        allow_null=True, help_text=f"Signed P80 delta; positive = later. {MC_SHOWN_DAY_DELTA_NOTE}"
+    )
+    p95 = serializers.IntegerField(
+        allow_null=True, help_text=f"Signed P95 delta; positive = later. {MC_SHOWN_DAY_DELTA_NOTE}"
+    )
 
 
 class MonteCarloHistogramBucketSerializer(serializers.Serializer[dict[str, Any]]):
@@ -156,7 +177,10 @@ class RiskPremiumFieldsSerializer(serializers.Serializer[dict[str, Any]]):
     and the schema mirrors that shape.
     """
 
-    risk_premium_days = serializers.IntegerField(allow_null=True)
+    risk_premium_days = serializers.IntegerField(
+        allow_null=True,
+        help_text=f"P80 finish minus the deterministic CPM finish. {MC_SHOWN_DAY_DELTA_NOTE}",
+    )
     risk_premium_ratio = serializers.FloatField(allow_null=True)
     # Always null until #2299 (the calibration flywheel); declared nullable now so
     # the schema does not have to change shape when a band is first populated.
@@ -257,7 +281,10 @@ class ScheduleMonteCarloDerivationSerializer(ForecastStalenessFieldsSerializer):
     quantity = serializers.ChoiceField(choices=["p50", "p80", "p95"])
     value = serializers.DateField(allow_null=True)
     cpm_finish = serializers.DateField(allow_null=True)
-    delta_vs_cpm_days = serializers.IntegerField(allow_null=True)
+    delta_vs_cpm_days = serializers.IntegerField(
+        allow_null=True,
+        help_text=f"The percentile minus the deterministic CPM finish. {MC_SHOWN_DAY_DELTA_NOTE}",
+    )
     drivers = MonteCarloSensitivitySerializer(many=True)
     runs = serializers.IntegerField()
     last_run_at = serializers.DateTimeField()
@@ -349,12 +376,20 @@ class MonteCarloWhatIfDeltaSerializer(serializers.Serializer[dict[str, Any]]):
 
     Same ``p50``/``p80``/``p95`` shape as :class:`MonteCarloDeltaSerializer`,
     plus ``cpm_finish`` — the what-if endpoint's own deterministic-pass delta,
-    distinct from ``delta_vs_cpm``'s MC-vs-CPM comparison elsewhere.
+    distinct from ``delta_vs_cpm``'s MC-vs-CPM comparison elsewhere. The
+    percentile deltas are differences of shown days (:data:`MC_SHOWN_DAY_DELTA_NOTE`);
+    ``cpm_finish`` is measured in working time.
     """
 
-    p50 = serializers.IntegerField(allow_null=True)
-    p80 = serializers.IntegerField(allow_null=True)
-    p95 = serializers.IntegerField(allow_null=True)
+    p50 = serializers.IntegerField(
+        allow_null=True, help_text=f"Signed P50 shift; positive = later. {MC_SHOWN_DAY_DELTA_NOTE}"
+    )
+    p80 = serializers.IntegerField(
+        allow_null=True, help_text=f"Signed P80 shift; positive = later. {MC_SHOWN_DAY_DELTA_NOTE}"
+    )
+    p95 = serializers.IntegerField(
+        allow_null=True, help_text=f"Signed P95 shift; positive = later. {MC_SHOWN_DAY_DELTA_NOTE}"
+    )
     cpm_finish = serializers.IntegerField(allow_null=True)
 
 

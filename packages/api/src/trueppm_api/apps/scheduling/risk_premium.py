@@ -78,6 +78,15 @@ def delta_vs_cpm_days(
     spine — the schedule risk pushes the date out (worse). ``None`` when either input
     is missing. Server-owned so a headless/MCP client reads the risk premium directly
     instead of re-subtracting dates (API-first, #987/#986).
+
+    A difference of *shown* days, not working time, and deliberately so: a
+    percentile is an order statistic over per-sample finish days, and the engine
+    keeps no sample's edge-of-day reading, so there is no reading to compare the
+    way :func:`~trueppm_api.apps.scheduling.finish_reading.finish_shift_days`
+    compares CPM finishes. Reading the percentile as end-of-day against a
+    start-of-day ``cpm_finish`` would only swap a phantom -3d for a phantom +3d.
+    The schema says so on every field that carries this number.
+    TODO(#4204): measure in working time once the engine reports the reading.
     """
     if percentile is None or cpm_finish is None:
         return None
