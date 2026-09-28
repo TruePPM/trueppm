@@ -349,6 +349,22 @@ class MonteCarloRun(models.Model):
     # The deterministic CPM spine at run time (max early_finish of committed
     # tasks), kept for context alongside the probabilistic band.
     cpm_finish = models.DateField(null=True, blank=True)
+    # Which edge of its shown day each finish above is (#4204): True = the START of
+    # the day (a start-of-day milestone finish, #4079), False = the end. The four
+    # dates are shown days, and the end of a Friday and the start of the next Monday
+    # are the same working-time position — so a delta between two of them
+    # (delta_vs_cpm, the risk premium, run-to-run history) is measured in working
+    # time from these readings by finish_reading.finish_shift_days, never as a
+    # shown-day difference.
+    #
+    # Nullable with NO backfill: a run persisted before #4204 has no reading and
+    # reads as unknown, which finish_shift_days treats as #4197 treats a legacy
+    # baseline — unmoved when the two shown days are equal, otherwise the END of
+    # its day (the reading every finish had before #4079).
+    p50_at_day_start = models.BooleanField(null=True, blank=True)
+    p80_at_day_start = models.BooleanField(null=True, blank=True)
+    p95_at_day_start = models.BooleanField(null=True, blank=True)
+    cpm_finish_at_day_start = models.BooleanField(null=True, blank=True)
     # Inputs needed to interpret the run.
     n_simulations = models.PositiveIntegerField()
     task_count = models.PositiveIntegerField(null=True, blank=True)

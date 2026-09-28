@@ -643,7 +643,10 @@ drivers.
 ## Added time
 
 **Added time** is the number of calendar days the P80 commitment date sits beyond
-the computed (CPM) finish. The computed finish is what your plan says if nothing
+the computed (CPM) finish, measured in working time. A finish at the start of a
+Monday and one at the end of the Friday before it are the same point in the
+working week, so a P80 that differs from the computed finish only by that hop
+over a weekend adds no time. The computed finish is what your plan says if nothing
 varies; P80 is the date 4 in 5 simulations finished by. The difference between
 them is the time schedule uncertainty adds on top of the plan.
 

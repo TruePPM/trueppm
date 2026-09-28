@@ -20,8 +20,14 @@ Read together with :class:`~trueppm_api.apps.scheduling.models.MonteCarloRun`.
 from __future__ import annotations
 
 import datetime
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, Literal, TypedDict
+
+from trueppm_api.apps.scheduling.finish_reading import lazy_finish_shift_days
+
+#: Returns the project's composed scheduler ``Calendar`` (or ``None``). Called only
+#: when a start-of-day reading makes the calendar matter (#4204).
+CalendarFor = Callable[[], Any | None]
 
 # A run older than this reads as stale: its premium is reported, but marked, because
 # the schedule it was computed against has had a week to move underneath it.
@@ -71,17 +77,34 @@ class RiskPremium(TypedDict):
 def delta_vs_cpm_days(
     percentile: datetime.date | None,
     cpm_finish: datetime.date | None,
+    *,
+    percentile_at_day_start: bool | None = None,
+    cpm_finish_at_day_start: bool | None = None,
+    calendar_for: CalendarFor | None = None,
 ) -> int | None:
-    """Signed calendar-day delta of a percentile finish vs the deterministic CPM finish.
+    """Signed delta of a percentile finish vs the deterministic CPM finish, in working time.
 
     Positive means the probabilistic finish lands *later* than the deterministic
     spine — the schedule risk pushes the date out (worse). ``None`` when either input
     is missing. Server-owned so a headless/MCP client reads the risk premium directly
     instead of re-subtracting dates (API-first, #987/#986).
+
+    Both dates are *shown* days (#4079), and a start-of-day milestone finish is shown
+    a weekend past the end of the Friday it equals in working time. So each is read
+    with its edge of the day — the engine's ``p80_at_day_start`` and the CPM finish's
+    reading — and the two are compared by
+    :func:`~.finish_reading.finish_shift_days` (#4204). The unit is still calendar
+    days. A reading of ``None`` (a run persisted before #4204) is unknown and read as
+    #4197 reads a legacy baseline: unmoved on the same day, the end of its day
+    otherwise.
     """
     if percentile is None or cpm_finish is None:
         return None
-    return (percentile - cpm_finish).days
+    return lazy_finish_shift_days(
+        (cpm_finish, cpm_finish_at_day_start),
+        (percentile, percentile_at_day_start),
+        calendar_for,
+    )
 
 
 def _premium_state(
@@ -152,6 +175,9 @@ def risk_premium_from_values(
     taken_at: datetime.datetime | None,
     diagnostic: dict[str, Any] | None,
     today: datetime.date,
+    p80_at_day_start: bool | None = None,
+    cpm_finish_at_day_start: bool | None = None,
+    calendar_for: CalendarFor | None = None,
 ) -> RiskPremium:
     """Derive the added-time metric from the four values a forecast run produces.
 
@@ -163,7 +189,8 @@ def risk_premium_from_values(
     Undefined is always ``None``, never ``0`` — the same discipline the per-task SPI
     serializer follows. Three quantities can independently be undefined:
 
-    * **days** — needs both a P80 and a CPM finish.
+    * **days** — needs both a P80 and a CPM finish. Measured in working time from
+      each date's edge-of-day reading (:func:`delta_vs_cpm_days`, #4204).
     * **ratio** — ``days`` divided by the remaining CPM duration (today → CPM finish),
       which is what makes the premium comparable across projects: 29 days on a
       six-week project and 29 days on a three-year one are not the same finding.
@@ -178,7 +205,13 @@ def risk_premium_from_values(
       distributions from the calibration flywheel (#2299). ``days`` and ``ratio`` are
       both fully true without it, and every consumer already renders a collapsed band.
     """
-    days = delta_vs_cpm_days(p80, cpm_finish)
+    days = delta_vs_cpm_days(
+        p80,
+        cpm_finish,
+        percentile_at_day_start=p80_at_day_start,
+        cpm_finish_at_day_start=cpm_finish_at_day_start,
+        calendar_for=calendar_for,
+    )
 
     ratio: float | None = None
     if days is not None and cpm_finish is not None:
@@ -215,12 +248,16 @@ def risk_premium_from_values(
     )
 
 
-def build_risk_premium(run: Any | None, *, today: datetime.date) -> RiskPremium:
+def build_risk_premium(
+    run: Any | None, *, today: datetime.date, calendar_for: CalendarFor | None = None
+) -> RiskPremium:
     """Derive the added-time metric from a project's most recent Monte Carlo run.
 
     ``run`` is a :class:`~trueppm_api.apps.scheduling.models.MonteCarloRun` or ``None``
     when the project has never been simulated. Thin adapter over
-    :func:`risk_premium_from_values`, which owns the derivation.
+    :func:`risk_premium_from_values`, which owns the derivation. ``calendar_for``
+    supplies the project calendar the working-time comparison needs when the P80 or
+    CPM finish is a start-of-day reading (#4204).
     """
     if run is None:
         return _empty_premium()
@@ -230,6 +267,9 @@ def build_risk_premium(run: Any | None, *, today: datetime.date) -> RiskPremium:
         taken_at=run.taken_at,
         diagnostic=run.diagnostic if isinstance(run.diagnostic, dict) else None,
         today=today,
+        p80_at_day_start=getattr(run, "p80_at_day_start", None),
+        cpm_finish_at_day_start=getattr(run, "cpm_finish_at_day_start", None),
+        calendar_for=calendar_for,
     )
 
 
@@ -259,8 +299,16 @@ def _parse_datetime(value: Any) -> datetime.datetime | None:
         return None
 
 
+def _parse_reading(value: Any) -> bool | None:
+    """An edge-of-day reading from a cache entry; ``None`` (unknown) unless a real bool."""
+    return value if isinstance(value, bool) else None
+
+
 def risk_premium_for_forecast_payload(
-    payload: Mapping[str, Any], *, today: datetime.date
+    payload: Mapping[str, Any],
+    *,
+    today: datetime.date,
+    calendar_for: CalendarFor | None = None,
 ) -> RiskPremium:
     """Derive the premium from a cached Monte Carlo forecast dict.
 
@@ -280,4 +328,7 @@ def risk_premium_for_forecast_payload(
         taken_at=_parse_datetime(payload.get("last_run_at")),
         diagnostic=diagnostic if isinstance(diagnostic, dict) else None,
         today=today,
+        p80_at_day_start=_parse_reading(payload.get("p80_at_day_start")),
+        cpm_finish_at_day_start=_parse_reading(payload.get("cpm_finish_at_day_start")),
+        calendar_for=calendar_for,
     )

@@ -12181,7 +12181,15 @@ class ProjectOverviewSerializer(serializers.Serializer[dict[str, Any]]):
         choices=["on_track", "at_risk", "critical", "unknown"], read_only=True
     )
     spi = serializers.FloatField(read_only=True, allow_null=True)
-    risk_premium_days = serializers.IntegerField(read_only=True, allow_null=True)
+    risk_premium_days = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "P80 minus the CPM finish, in signed calendar days measured in working "
+            "time (#4204): a start-of-day milestone finish on a Monday equals the end "
+            "of the Friday before it."
+        ),
+    )
     risk_premium_ratio = serializers.FloatField(read_only=True, allow_null=True)
     risk_premium_band = serializers.CharField(read_only=True, allow_null=True)
     risk_premium_as_of = serializers.CharField(read_only=True, allow_null=True)

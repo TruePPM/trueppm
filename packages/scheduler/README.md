@@ -270,6 +270,7 @@ convention. The same list, with the comparison spelled out, is on
 - `free_float` inverts the forward constraint across **all four** link types, capped at total float; no live successor → total float. ([#1828](https://gitlab.com/trueppm/trueppm/-/issues/1828))
 - The order of `ScheduleResult.tasks` is **unspecified** — look tasks up by `id`. ([#1862](https://gitlab.com/trueppm/trueppm/-/issues/1862))
 - `project_finish` and a milestone's `early_finish` are the **day the finish is shown on**, and `milestone_at_day_end` says which edge of it. The end of a Friday and the start of the next Monday are the same point in working time, so the shown day can hop a weekend or holiday with no working-time move. **Compute slip in working time**, reading a start-of-day milestone finish as the end of the working day before it — never as a calendar-day difference of two finishes. ([#4178](https://gitlab.com/trueppm/trueppm/-/issues/4178))
+- The same holds for Monte Carlo: `MonteCarloResult.p50`/`p80`/`p95` are shown days, and `p50_at_day_start`/`p80_at_day_start`/`p95_at_day_start` say which edge of each. Compare a percentile with the CPM finish, or with another run's percentile, in working time. ([#4204](https://gitlab.com/trueppm/trueppm/-/issues/4204))
 
 **Monte Carlo**
 

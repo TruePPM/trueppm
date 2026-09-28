@@ -54,20 +54,36 @@ class MonteCarloWhatIfRequestSerializer(serializers.Serializer[dict[str, Any]]):
         return attrs
 
 
+_WORKING_TIME_DELTA_HELP = (
+    "Signed calendar days, measured in working time (#4204): each finish is read "
+    "with its edge of the day (the `*_at_day_start` readings), so a start-of-day "
+    "milestone finish on a Monday equals the end of the Friday before it and diffs "
+    "as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days "
+    "diff as 0, otherwise it is read as the end of its day."
+)
+
+_AT_DAY_START_HELP = (
+    "Which edge of its shown day this finish is (#4204): true = the start of the "
+    "day (a start-of-day milestone finish), false = the end. Null on a run "
+    "persisted before #4204."
+)
+
+
 class MonteCarloDeltaSerializer(serializers.Serializer[dict[str, Any]]):
-    """Signed calendar-day delta of a percentile finish, per field (#987/#993/#2483).
+    """Signed delta of a percentile finish, per field, in working time (#987/#993/#2483/#4204).
 
     Positive means the field slipped later (worse). Shared shape for
     ``run_monte_carlo``/``latest``'s ``delta_vs_cpm`` (each percentile vs the
     deterministic CPM finish), the what-if endpoint's ``delta_vs_current``, and
     the history endpoint's per-run ``delta`` (ADR-0108) — one derivation, one
     schema, three call sites. ``None`` whenever either date it is measured
-    between is missing.
+    between is missing. Measured in working time from each date's edge-of-day
+    reading, still reported in calendar days.
     """
 
-    p50 = serializers.IntegerField(allow_null=True)
-    p80 = serializers.IntegerField(allow_null=True)
-    p95 = serializers.IntegerField(allow_null=True)
+    p50 = serializers.IntegerField(allow_null=True, help_text=_WORKING_TIME_DELTA_HELP)
+    p80 = serializers.IntegerField(allow_null=True, help_text=_WORKING_TIME_DELTA_HELP)
+    p95 = serializers.IntegerField(allow_null=True, help_text=_WORKING_TIME_DELTA_HELP)
 
 
 class MonteCarloHistogramBucketSerializer(serializers.Serializer[dict[str, Any]]):
@@ -156,7 +172,10 @@ class RiskPremiumFieldsSerializer(serializers.Serializer[dict[str, Any]]):
     and the schema mirrors that shape.
     """
 
-    risk_premium_days = serializers.IntegerField(allow_null=True)
+    risk_premium_days = serializers.IntegerField(
+        allow_null=True,
+        help_text="P80 minus the CPM finish. " + _WORKING_TIME_DELTA_HELP,
+    )
     risk_premium_ratio = serializers.FloatField(allow_null=True)
     # Always null until #2299 (the calibration flywheel); declared nullable now so
     # the schema does not have to change shape when a band is first populated.
@@ -256,8 +275,14 @@ class ScheduleMonteCarloDerivationSerializer(ForecastStalenessFieldsSerializer):
 
     quantity = serializers.ChoiceField(choices=["p50", "p80", "p95"])
     value = serializers.DateField(allow_null=True)
+    value_at_day_start = serializers.BooleanField(allow_null=True, help_text=_AT_DAY_START_HELP)
     cpm_finish = serializers.DateField(allow_null=True)
-    delta_vs_cpm_days = serializers.IntegerField(allow_null=True)
+    cpm_finish_at_day_start = serializers.BooleanField(
+        allow_null=True, help_text=_AT_DAY_START_HELP
+    )
+    delta_vs_cpm_days = serializers.IntegerField(
+        allow_null=True, help_text=_WORKING_TIME_DELTA_HELP
+    )
     drivers = MonteCarloSensitivitySerializer(many=True)
     runs = serializers.IntegerField()
     last_run_at = serializers.DateTimeField()
@@ -304,6 +329,9 @@ class MonteCarloForecastSerializer(
     p50 = serializers.DateField(allow_null=True)
     p80 = serializers.DateField(allow_null=True)
     p95 = serializers.DateField(allow_null=True)
+    p50_at_day_start = serializers.BooleanField(allow_null=True, help_text=_AT_DAY_START_HELP)
+    p80_at_day_start = serializers.BooleanField(allow_null=True, help_text=_AT_DAY_START_HELP)
+    p95_at_day_start = serializers.BooleanField(allow_null=True, help_text=_AT_DAY_START_HELP)
     distribution = serializers.ListField(
         child=serializers.DateField(),
         required=False,
@@ -313,6 +341,9 @@ class MonteCarloForecastSerializer(
         ),
     )
     cpm_finish = serializers.DateField(allow_null=True)
+    cpm_finish_at_day_start = serializers.BooleanField(
+        allow_null=True, help_text=_AT_DAY_START_HELP
+    )
     delta_vs_cpm = MonteCarloDeltaSerializer()
     forecast_diagnostic = MonteCarloForecastDiagnosticSerializer(allow_null=True)
     last_run_at = serializers.DateTimeField()
@@ -340,22 +371,28 @@ class MonteCarloWhatIfLegSerializer(serializers.Serializer[dict[str, Any]]):
     p50 = serializers.DateField()
     p80 = serializers.DateField()
     p95 = serializers.DateField()
+    p50_at_day_start = serializers.BooleanField(help_text=_AT_DAY_START_HELP)
+    p80_at_day_start = serializers.BooleanField(help_text=_AT_DAY_START_HELP)
+    p95_at_day_start = serializers.BooleanField(help_text=_AT_DAY_START_HELP)
     cpm_finish = serializers.DateField(allow_null=True)
+    cpm_finish_at_day_start = serializers.BooleanField(
+        allow_null=True, help_text=_AT_DAY_START_HELP
+    )
     critical_path = serializers.ListField(child=serializers.CharField())
 
 
 class MonteCarloWhatIfDeltaSerializer(serializers.Serializer[dict[str, Any]]):
-    """Signed calendar-day shift of ``whatif`` vs ``current``, per field (#993).
+    """Signed shift of ``whatif`` vs ``current``, per field, in working time (#993/#4204).
 
     Same ``p50``/``p80``/``p95`` shape as :class:`MonteCarloDeltaSerializer`,
     plus ``cpm_finish`` — the what-if endpoint's own deterministic-pass delta,
     distinct from ``delta_vs_cpm``'s MC-vs-CPM comparison elsewhere.
     """
 
-    p50 = serializers.IntegerField(allow_null=True)
-    p80 = serializers.IntegerField(allow_null=True)
-    p95 = serializers.IntegerField(allow_null=True)
-    cpm_finish = serializers.IntegerField(allow_null=True)
+    p50 = serializers.IntegerField(allow_null=True, help_text=_WORKING_TIME_DELTA_HELP)
+    p80 = serializers.IntegerField(allow_null=True, help_text=_WORKING_TIME_DELTA_HELP)
+    p95 = serializers.IntegerField(allow_null=True, help_text=_WORKING_TIME_DELTA_HELP)
+    cpm_finish = serializers.IntegerField(allow_null=True, help_text=_WORKING_TIME_DELTA_HELP)
 
 
 class MonteCarloWhatIfResponseSerializer(serializers.Serializer[dict[str, Any]]):
@@ -621,6 +658,10 @@ class MonteCarloRunSerializer(serializers.ModelSerializer[MonteCarloRun]):
             "p80",
             "p95",
             "cpm_finish",
+            "p50_at_day_start",
+            "p80_at_day_start",
+            "p95_at_day_start",
+            "cpm_finish_at_day_start",
             "n_simulations",
             "task_count",
             "status_date",

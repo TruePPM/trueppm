@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections.abc import Callable
 from datetime import date as _date
 from datetime import datetime as _datetime
 from datetime import timedelta
@@ -58,7 +59,13 @@ from trueppm_api.apps.projects.models import (
     three_point_estimates_ordered,
 )
 from trueppm_api.apps.scheduling.calendars import compose_project_calendar
-from trueppm_api.apps.scheduling.finish_reading import finish_shift_days, schedule_result_finish
+from trueppm_api.apps.scheduling.finish_reading import (
+    finish_shift_days,
+    latest_finish,
+    lazy_finish_shift_days,
+    schedule_result_finish,
+    task_finish_at_day_start,
+)
 from trueppm_api.apps.scheduling.forecast_staleness import (
     forecast_staleness_facts,
     forecast_staleness_for_payload,
@@ -119,7 +126,10 @@ logger = logging.getLogger(__name__)
 # This does NOT reach the persisted `MonteCarloRun` fallback that serves once the
 # TTL expires: those rows carry no engine-version column, so a project whose last
 # run predates a fix and is never re-run keeps reporting the old answer.
-MC_LATEST_CACHE_VERSION = 2
+#
+# v3 (#4204): percentiles are ordered by working-time finish and every delta is
+# measured in working time; a v2 entry's `delta_vs_cpm` diffed shown days.
+MC_LATEST_CACHE_VERSION = 3
 
 
 def mc_latest_cache_key(pk: object) -> str:
@@ -246,16 +256,77 @@ def trigger_schedule(request: Request, pk: str) -> Response:
 _delta_vs_cpm_days = delta_vs_cpm_days
 
 
-def _date_delta_days(later: _date | None, earlier: _date | None) -> int | None:
-    """Signed calendar-day delta ``later - earlier``, or ``None`` if either is missing.
+def _date_delta_days(
+    later: _date | None,
+    earlier: _date | None,
+    *,
+    later_at_day_start: bool | None = None,
+    earlier_at_day_start: bool | None = None,
+    calendar_for: Callable[[], Any] | None = None,
+) -> int | None:
+    """Signed delta ``later - earlier`` of two shown finishes, in working time.
 
     Positive means ``later`` lands after ``earlier`` (the forecast slipped). Shared
     by the what-if and history endpoints so a run-to-run / current-to-whatif delta is
-    computed one way.
+    computed one way. Each date is read with its edge of the day (a Monte Carlo
+    percentile's ``*_at_day_start``, #4204), so a percentile whose shown day hops a
+    weekend with no working-time move is 0; an unknown reading (a run persisted
+    before #4204) follows :func:`.finish_reading.finish_shift_days`. Still reported
+    in calendar days. ``None`` if either date is missing.
     """
     if later is None or earlier is None:
         return None
-    return (later - earlier).days
+    return lazy_finish_shift_days(
+        (earlier, earlier_at_day_start), (later, later_at_day_start), calendar_for
+    )
+
+
+def _mc_percentile_deltas(
+    later: Any, earlier: Any, calendar_for: Callable[[], Any] | None
+) -> dict[str, int | None]:
+    """``{p50, p80, p95}`` working-time deltas between two Monte Carlo results or runs."""
+    return {
+        q: _date_delta_days(
+            getattr(later, q),
+            getattr(earlier, q),
+            later_at_day_start=getattr(later, f"{q}_at_day_start", None),
+            earlier_at_day_start=getattr(earlier, f"{q}_at_day_start", None),
+            calendar_for=calendar_for,
+        )
+        for q in ("p50", "p80", "p95")
+    }
+
+
+def _mc_deltas_vs_cpm(
+    run: Any,
+    cpm_finish: _date | None,
+    cpm_finish_at_day_start: bool | None,
+    calendar_for: Callable[[], Any] | None,
+) -> dict[str, int | None]:
+    """``{p50, p80, p95}`` of ``run`` vs the CPM finish, in working time (#4204)."""
+    return {
+        q: _delta_vs_cpm_days(
+            getattr(run, q),
+            cpm_finish,
+            percentile_at_day_start=getattr(run, f"{q}_at_day_start", None),
+            cpm_finish_at_day_start=cpm_finish_at_day_start,
+            calendar_for=calendar_for,
+        )
+        for q in ("p50", "p80", "p95")
+    }
+
+
+def _mc_run_readings(run: Any) -> dict[str, bool | None]:
+    """The four edge-of-day readings of a persisted run, for a response payload."""
+    return {
+        f: getattr(run, f)
+        for f in (
+            "p50_at_day_start",
+            "p80_at_day_start",
+            "p95_at_day_start",
+            "cpm_finish_at_day_start",
+        )
+    }
 
 
 def _cpm_finish_delta_days(earlier: Any, later: Any, calendar: Any) -> int | None:
@@ -404,6 +475,7 @@ def _persist_mc_run_if_authorized(
     result_dict: dict[str, Any],
     status_date: _date | None,
     plan_version: int | None,
+    cpm_finish_at_day_start: bool | None = None,
 ) -> None:
     """Persist an author-attributed ``MonteCarloRun`` drift row for Scheduler+ callers.
 
@@ -457,6 +529,14 @@ def _persist_mc_run_if_authorized(
         # already on result_dict, so the persisted row and the cache entry give the
         # same answer once the TTL expires and the read falls back to history.
         plan_version=plan_version,
+        # Which edge of its shown day each finish is (#4204), so a later history or
+        # `latest` read measures its deltas in working time too.
+        readings={
+            "p50_at_day_start": mc_result.p50_at_day_start,
+            "p80_at_day_start": mc_result.p80_at_day_start,
+            "p95_at_day_start": mc_result.p95_at_day_start,
+            "cpm_finish_at_day_start": cpm_finish_at_day_start,
+        },
     )
     if run is not None:
         result_dict["run_id"] = str(run.id)
@@ -509,7 +589,12 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
                 "Monte Carlo simulation result. Includes the engine result fields "
                 "(P50/P80/P95 finish dates, mean, std dev, etc.) plus "
                 "cpm_finish (deterministic CPM project finish, ISO 8601 or null), "
-                "delta_vs_cpm ({p50,p80,p95} signed calendar-day premium vs CPM), "
+                "p50_at_day_start/p80_at_day_start/p95_at_day_start and "
+                "cpm_finish_at_day_start (which edge of its shown day each finish is — true = "
+                "the start of the day, a start-of-day milestone finish; #4204), "
+                "delta_vs_cpm ({p50,p80,p95} signed calendar-day premium vs CPM, measured "
+                "in working time: the start of a Monday vs the end of the Friday before it "
+                "is 0), "
                 "confidence_curve ([{date, pct}] cumulative finish-by-date S-curve), "
                 "histogram_buckets ([{date, count}]), sensitivity ([{task_id, index}] "
                 "duration tornado — tasks that move the finish most, index 0..1, "
@@ -810,6 +895,14 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         (t.early_finish for t in db_tasks if t.early_finish is not None),
         default=None,
     )
+    # Which edge of that day the CPM finish is (#4204) — the same reading rule as
+    # every other project finish (#4178), from the rows already in memory. A
+    # percentile is compared with it in working time, so a start-of-Monday
+    # milestone finish is not three days of risk premium over the end of Friday.
+    cpm_reading = latest_finish(
+        (t.early_finish, task_finish_at_day_start(t), t.wbs_path) for t in db_tasks
+    )
+    cpm_finish_at_day_start = cpm_reading[1] if cpm_reading is not None else None
 
     # `last_run_at` lets the frontend surface a "Last run: 2h ago" freshness
     # signal and decide whether to nudge a rerun (#335). Captured at cache-write
@@ -820,11 +913,10 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     result_dict = {
         **mc_result.to_dict(),
         "cpm_finish": cpm_finish.isoformat() if cpm_finish else None,
-        "delta_vs_cpm": {
-            "p50": _delta_vs_cpm_days(mc_result.p50, cpm_finish),
-            "p80": _delta_vs_cpm_days(mc_result.p80, cpm_finish),
-            "p95": _delta_vs_cpm_days(mc_result.p95, cpm_finish),
-        },
+        "cpm_finish_at_day_start": cpm_finish_at_day_start,
+        "delta_vs_cpm": _mc_deltas_vs_cpm(
+            mc_result, cpm_finish, cpm_finish_at_day_start, lambda: sched_calendar
+        ),
         "confidence_curve": _confidence_curve(histogram, len(dist)),
         "histogram_buckets": histogram,
         # Why the forecast has (or lacks) a band, so the UI can explain a flat
@@ -874,6 +966,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         result_dict=result_dict,
         status_date=mc_status_date,
         plan_version=plan_version,
+        cpm_finish_at_day_start=cpm_finish_at_day_start,
     )
     # Added time (#2531, ADR-0698) rides the response but NOT the cache entry above.
     # Two of its terms depend on when the response is built rather than when the run
@@ -891,6 +984,9 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
                 taken_at=run_at,
                 diagnostic=result_dict["forecast_diagnostic"],
                 today=timezone.localdate(),
+                p80_at_day_start=mc_result.p80_at_day_start,
+                cpm_finish_at_day_start=cpm_finish_at_day_start,
+                calendar_for=lambda: sched_calendar,
             ),
             # Staleness is re-read rather than assumed `current` (#3140). The project's
             # version is fetched again here because a synced write can land *during* the
@@ -936,8 +1032,11 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                 response=MonteCarloForecastSerializer,
                 description=(
                     "The most recent Monte Carlo result for the project. Keys: p50/p80/p95 "
-                    "(ISO-8601 finish dates), cpm_finish, delta_vs_cpm ({p50, p80, p95} "
-                    "calendar-day deltas vs the CPM finish), runs (n_simulations), "
+                    "(ISO-8601 finish dates), p50/p80/p95_at_day_start and cpm_finish, "
+                    "cpm_finish_at_day_start (which edge of its shown day each finish is; "
+                    "null on a run persisted before #4204), delta_vs_cpm ({p50, p80, p95} "
+                    "calendar-day deltas vs the CPM finish, measured in working time), "
+                    "runs (n_simulations), "
                     "confidence_curve, histogram_buckets, sensitivity, last_run_at, "
                     "status_date (the data date this run was computed against — "
                     "project.status_date or today when unset, ADR-0132/#2638; null for "
@@ -998,7 +1097,11 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
             return Response(
                 {
                     **cached,
-                    **risk_premium_for_forecast_payload(cached, today=timezone.localdate()),
+                    **risk_premium_for_forecast_payload(
+                        cached,
+                        today=timezone.localdate(),
+                        calendar_for=lambda: compose_project_calendar(project),
+                    ),
                     # Same read-time discipline, different reason (#3140): the entry
                     # carries the plan version the run SAW, and the project has been free
                     # to move for up to 24 hours since. `project` is already loaded, so
@@ -1028,6 +1131,16 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
         # legacy runs that pre-date persistence (the frontend shows the empty-state
         # prose then). Response shape is unchanged (snake_case keys).
         dist = latest.distribution or {}
+
+        # Composed only if a start-of-day reading makes the working-time comparison
+        # need it (#4204); memoized so the deltas and the premium share one.
+        calendar_memo: list[Any] = []
+
+        def calendar_for() -> Any:
+            if not calendar_memo:
+                calendar_memo.append(compose_project_calendar(project))
+            return calendar_memo[0]
+
         return Response(
             {
                 # The live-run payload has carried `project_id` since #172; the
@@ -1041,11 +1154,11 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                 "p80": latest.p80.isoformat() if latest.p80 else None,
                 "p95": latest.p95.isoformat() if latest.p95 else None,
                 "cpm_finish": latest.cpm_finish.isoformat() if latest.cpm_finish else None,
-                "delta_vs_cpm": {
-                    "p50": _delta_vs_cpm_days(latest.p50, latest.cpm_finish),
-                    "p80": _delta_vs_cpm_days(latest.p80, latest.cpm_finish),
-                    "p95": _delta_vs_cpm_days(latest.p95, latest.cpm_finish),
-                },
+                # null on a run persisted before #4204 (reading unknown).
+                **_mc_run_readings(latest),
+                "delta_vs_cpm": _mc_deltas_vs_cpm(
+                    latest, latest.cpm_finish, latest.cpm_finish_at_day_start, calendar_for
+                ),
                 "confidence_curve": dist.get("confidence_curve", []),
                 "runs": latest.n_simulations,
                 "histogram_buckets": dist.get("histogram_buckets", []),
@@ -1064,7 +1177,7 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                 # The same call `ProjectOverviewView` makes, on the same row — so the
                 # Overview card and every forecast surface read one derivation of what
                 # a premium of 0 means, and cannot disagree (ADR-0698).
-                **build_risk_premium(latest, today=timezone.localdate()),
+                **build_risk_premium(latest, today=timezone.localdate(), calendar_for=calendar_for),
                 # Persisted with the run since #3140. Legacy rows carry none and classify
                 # as `unknown` rather than `current` — the client then keeps Rerun
                 # reachable and makes no staleness claim it cannot support.
@@ -1165,12 +1278,13 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                 description=(
                     "What-if forecast. Keys: task_id; applied ({base_duration_days, "
                     "duration_delta_days, new_duration_days}); current and whatif (each "
-                    "{p50, p80, p95, cpm_finish (ISO-8601 or null), critical_path ([task_id])}); "
+                    "{p50, p80, p95, their *_at_day_start readings, cpm_finish (ISO-8601 or "
+                    "null), cpm_finish_at_day_start, critical_path ([task_id])}); "
                     "critical_path_changed (bool — did the set of critical tasks change); "
                     "delta_vs_current ({p50, p80, p95, cpm_finish} signed calendar-day shifts, "
-                    "positive = later/worse, null when a date is missing; cpm_finish is measured "
-                    "in working time, so a milestone finish that only moves from the end of a "
-                    "Friday to the start of the next Monday is 0); runs (n_simulations); "
+                    "positive = later/worse, null when a date is missing; every field is measured "
+                    "in working time (#4178, #4204), so a finish that only moves from the end of "
+                    "a Friday to the start of the next Monday is 0); runs (n_simulations); "
                     "seed (fixed RNG seed shared by both runs so the delta isolates the change); "
                     "cpm_status_date and mc_status_date (ADR-0132/#2638, floor armed on the "
                     "CPM path by ADR-0752 §4) — the resolved data dates (project.status_date, "
@@ -1394,20 +1508,23 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
         # path does not read as a change.
         critical_path_changed = set(baseline_cpm.critical_path) != set(perturbed_cpm.critical_path)
 
-        current = {
-            "p50": baseline_mc.p50.isoformat(),
-            "p80": baseline_mc.p80.isoformat(),
-            "p95": baseline_mc.p95.isoformat(),
-            "cpm_finish": baseline_cpm.project_finish.isoformat(),
-            "critical_path": list(baseline_cpm.critical_path),
-        }
-        whatif = {
-            "p50": perturbed_mc.p50.isoformat(),
-            "p80": perturbed_mc.p80.isoformat(),
-            "p95": perturbed_mc.p95.isoformat(),
-            "cpm_finish": perturbed_cpm.project_finish.isoformat(),
-            "critical_path": list(perturbed_cpm.critical_path),
-        }
+        def _leg(mc: Any, cpm: Any) -> dict[str, Any]:
+            cpm_reading = schedule_result_finish(cpm)
+            return {
+                "p50": mc.p50.isoformat(),
+                "p80": mc.p80.isoformat(),
+                "p95": mc.p95.isoformat(),
+                # Which edge of its shown day each finish is (#4204).
+                "p50_at_day_start": mc.p50_at_day_start,
+                "p80_at_day_start": mc.p80_at_day_start,
+                "p95_at_day_start": mc.p95_at_day_start,
+                "cpm_finish": cpm.project_finish.isoformat(),
+                "cpm_finish_at_day_start": cpm_reading[1] if cpm_reading is not None else None,
+                "critical_path": list(cpm.critical_path),
+            }
+
+        current = _leg(baseline_mc, baseline_cpm)
+        whatif = _leg(perturbed_mc, perturbed_cpm)
         return Response(
             {
                 "task_id": task_id,
@@ -1420,9 +1537,8 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                 "whatif": whatif,
                 "critical_path_changed": critical_path_changed,
                 "delta_vs_current": {
-                    "p50": _date_delta_days(perturbed_mc.p50, baseline_mc.p50),
-                    "p80": _date_delta_days(perturbed_mc.p80, baseline_mc.p80),
-                    "p95": _date_delta_days(perturbed_mc.p95, baseline_mc.p95),
+                    # In working time (#4204), like `cpm_finish` below.
+                    **_mc_percentile_deltas(perturbed_mc, baseline_mc, lambda: sched_calendar),
                     # Measured in working time (#4178): a what-if that only moves
                     # a milestone finish between the end of a Friday and the start
                     # of the next Monday is no shift, and one that moves it from the
@@ -1455,23 +1571,23 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
 MC_HISTORY_RESPONSE_MAX = 500
 
 
-def _annotate_run_deltas(runs: list[MonteCarloRun]) -> None:
+def _annotate_run_deltas(
+    runs: list[MonteCarloRun], calendar_for: Callable[[], Any] | None = None
+) -> None:
     """Attach a computed-on-read ``_delta`` to each run vs the next-older run (ADR-0108).
 
     ``runs`` is newest-first; positive days = the forecast slipped later (worse). The
     oldest row has no predecessor, so its ``_delta`` stays ``None`` (baseline). Mutates
-    each run in place for the serializer to read.
+    each run in place for the serializer to read. Measured in working time from each
+    run's persisted readings (#4204); ``calendar_for`` is called only when a reading
+    is a start-of-day one.
     """
     for i, run in enumerate(runs):
         older = runs[i + 1] if i + 1 < len(runs) else None
         if older is None:
             run._delta = None  # type: ignore[attr-defined]
         else:
-            run._delta = {  # type: ignore[attr-defined]
-                "p50": _date_delta_days(run.p50, older.p50),
-                "p80": _date_delta_days(run.p80, older.p80),
-                "p95": _date_delta_days(run.p95, older.p95),
-            }
+            run._delta = _mc_percentile_deltas(run, older, calendar_for)  # type: ignore[attr-defined]
 
 
 def _mc_attribution_visible(request: Request, project: Project, pk: str) -> bool:
@@ -1596,7 +1712,15 @@ class MonteCarloHistoryView(APIView):
         if not expand_distribution:
             qs = qs.defer("distribution")
         runs = list(qs[:limit])
-        _annotate_run_deltas(runs)
+        calendar_memo: list[Any] = []
+
+        def calendar_for() -> Any:
+            # Composed at most once, and only if some run's reading needs it (#4204).
+            if not calendar_memo:
+                calendar_memo.append(compose_project_calendar(project))
+            return calendar_memo[0]
+
+        _annotate_run_deltas(runs, calendar_for)
         can_see_attribution = _mc_attribution_visible(request, project, pk)
 
         data = MonteCarloRunSerializer(
@@ -2432,8 +2556,9 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
                     "quantity, value, pass, is_critical, binding, contributions[]}, "
                     "each contribution carrying its source task, dep_type, lag_days, "
                     "imposed_date, calendar_days_added, slack_days, and is_binding. "
-                    "Percentiles return {quantity, value, cpm_finish, "
-                    "delta_vs_cpm_days, drivers[]} from the latest simulation."
+                    "Percentiles return {quantity, value, value_at_day_start, cpm_finish, "
+                    "cpm_finish_at_day_start, delta_vs_cpm_days (measured in working time, "
+                    "#4204), drivers[]} from the latest simulation."
                 ),
             ),
         ],
@@ -2581,6 +2706,8 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
                     "value": cached.get(quantity),
                     "pass": "monte_carlo",
                     "cpm_finish": cached.get("cpm_finish"),
+                    "value_at_day_start": cached.get(f"{quantity}_at_day_start"),
+                    "cpm_finish_at_day_start": cached.get("cpm_finish_at_day_start"),
                     "delta_vs_cpm_days": (cached.get("delta_vs_cpm") or {}).get(quantity),
                     "drivers": cached.get("sensitivity", []),
                     "runs": cached.get("runs"),
@@ -2607,7 +2734,15 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
                 "value": percentile_date.isoformat() if percentile_date else None,
                 "pass": "monte_carlo",
                 "cpm_finish": latest.cpm_finish.isoformat() if latest.cpm_finish else None,
-                "delta_vs_cpm_days": _delta_vs_cpm_days(percentile_date, latest.cpm_finish),
+                "value_at_day_start": getattr(latest, f"{quantity}_at_day_start"),
+                "cpm_finish_at_day_start": latest.cpm_finish_at_day_start,
+                "delta_vs_cpm_days": _delta_vs_cpm_days(
+                    percentile_date,
+                    latest.cpm_finish,
+                    percentile_at_day_start=getattr(latest, f"{quantity}_at_day_start"),
+                    cpm_finish_at_day_start=latest.cpm_finish_at_day_start,
+                    calendar_for=lambda: compose_project_calendar(project),
+                ),
                 # ADR-0140 tornado: the tasks whose duration variance drives the
                 # finish — the honest "why" behind a probabilistic date.
                 "drivers": dist.get("sensitivity", []),
