@@ -426,9 +426,10 @@ def describe_client_address(request: HttpRequest | Request) -> dict[str, Any]:
       must be their own address, and must not change when they send their own
       ``X-Forwarded-For``.
 
-    Admin-only by construction: it is surfaced on ``/api/v1/health/system/``
-    (``IsAdminUser``) and never on the public probes, because it reveals the
-    proxies' internal addresses.
+    Workspace-operator-only by construction: it is surfaced on
+    ``/api/v1/health/system/`` (``IsWorkspaceOperator``, superuser-gated, #4009)
+    and never on the public probes, because it reveals the proxies' internal
+    addresses.
     """
     meta = request.META
     raw_xff = meta.get("HTTP_X_FORWARDED_FOR")

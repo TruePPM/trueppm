@@ -531,7 +531,7 @@ The other three signals do not, and each needs a job you add yourself:
   `trueppm_email_transport_unavailable` — which are likewise Prometheus text
   exposition, served by `/api/v1/health/email/`. Add a scrape job for that path
   (the same job that scrapes `/api/v1/health/dead-letter/` will do; both are
-  staff-gated and want the same bearer token) or `TruePPMEmailDeliveryFailing`,
+  workspace-operator-gated and want the same bearer token) or `TruePPMEmailDeliveryFailing`,
   `TruePPMEmailQueueAging`, and `TruePPMEmailTransportUnavailable` all evaluate
   empty vectors and a dead SMTP relay raises nothing. See [Outbound
   email](/administration/email/#knowing-when-mail-stops-working) for what each

@@ -1,7 +1,9 @@
 """Tests for the System Health overview endpoint (#692, ADR-0172).
 
 Covers:
-  - GET /api/v1/health/system/ IsAdminUser gating (401 unauth, 403 non-staff)
+  - GET /api/v1/health/system/ IsWorkspaceOperator gating (401 unauth, 403
+    non-operator, 403 for a stored WorkspaceRole.ADMIN, 403 for a formerly-allowed
+    is_staff-only account) — moved off Django is_staff/IsAdminUser by #4009
   - Response shape: 5 components (fixed order), beat panel, scheduled tasks,
     dead-letter summary, retention config
   - Beat component is crit when no heartbeat, ok when fresh
@@ -10,6 +12,8 @@ Covers:
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 import pytest
 from django.conf import settings
@@ -35,7 +39,7 @@ _COMPONENT_ORDER = [
 
 
 def _admin_client() -> APIClient:
-    admin = User.objects.create_user(username="sh_admin", password="pw", is_staff=True)
+    admin = User.objects.create_user(username="sh_admin", password="pw", is_superuser=True)
     client = APIClient()
     client.force_authenticate(user=admin)
     return client
@@ -63,8 +67,34 @@ class TestSystemHealthGating:
     def test_requires_authentication(self) -> None:
         assert APIClient().get(URL).status_code in (401, 403)
 
-    def test_forbidden_for_non_staff(self) -> None:
+    def test_forbidden_for_non_operator(self) -> None:
         user = User.objects.create_user(username="sh_member", password="pw")
+        client = APIClient()
+        client.force_authenticate(user=user)
+        assert client.get(URL).status_code == 403
+
+    def test_forbidden_for_staff_only(self) -> None:
+        """A formerly-allowed ``is_staff`` account with no superuser flag is refused.
+
+        Pre-#4009 this account passed ``IsAdminUser``. ``IsWorkspaceOperator`` checks
+        ``is_superuser`` only, so ``is_staff`` alone no longer buys access.
+        """
+        user = User.objects.create_user(username="sh_staff_only", password="pw", is_staff=True)
+        client = APIClient()
+        client.force_authenticate(user=user)
+        assert client.get(URL).status_code == 403
+
+    def test_forbidden_for_workspace_admin(self, grant_workspace_admin: Any) -> None:
+        """A stored ``WorkspaceRole.ADMIN`` is a different principal and is refused.
+
+        ``IsWorkspaceOperator`` checks ``is_superuser`` only; it does not resolve a
+        workspace ADMIN membership the way ``IsWorkspaceAdminStrict`` does. System
+        Health is install-operator work, not something a workspace owner can
+        delegate in-app (#4009).
+        """
+        user = grant_workspace_admin(
+            User.objects.create_user(username="sh_ws_admin", password="pw")
+        )
         client = APIClient()
         client.force_authenticate(user=user)
         assert client.get(URL).status_code == 403

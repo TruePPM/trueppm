@@ -387,6 +387,37 @@ an older API pod is still running during a rolling update, it can create a
 project with an empty code without failing. The new version gives that project a
 key the next time it is edited. The exclusion is planned to be removed in 0.5.
 
+### Dead-letter and observability scrape credentials now require superuser
+
+Upgrading from `0.4.0-beta.4` or earlier changes who can reach these endpoints.
+Through `0.4.0-beta.4`, `FailedTaskViewSet` (dead-letter requeue/drop/list) and
+the observability app's System Health, Prometheus metrics
+(`/api/v1/health/beat/`, `/api/v1/health/dead-letter/`, `/api/v1/health/email/`),
+retention policy, and telemetry-export endpoints were gated with Django's
+`IsAdminUser`, which passes for **any** `is_staff=True` account — including one
+that is not a superuser. They now use `IsWorkspaceOperator`, which checks
+`is_superuser` directly (#4009). Superusers are unaffected; a `WorkspaceRole.ADMIN`
+membership was never sufficient for these endpoints and still is not.
+
+This is a **least-privilege regression for anyone who provisioned a staff-only
+service account** for scraping or automation against these endpoints — it now
+gets `403 Forbidden`. Before upgrading:
+
+- Identify any Prometheus scrape job, alerting script, or automation that calls
+  `/api/v1/health/{beat,dead-letter,email}/`, the retention endpoints, or the
+  dead-letter queue admin API.
+- Confirm the JWT it uses belongs to a superuser account (`is_superuser=True`),
+  not merely a Django-admin (`is_staff=True`) account. `create_admin` produces a
+  superuser and is unaffected.
+- If it does not, mint a new token from a superuser account before or
+  immediately after the upgrade, or the scrape/automation starts failing
+  silently (a gauge that stops updating, not a loud error) the moment the new
+  code is live.
+
+See [Dead-letter Alerting](/administration/dead-letter-alerting/#wiring-it-into-prometheus)
+and [Beat Liveness](/administration/beat-liveness/#wiring-it-into-kubernetes--monitoring)
+for the affected scrape configs.
+
 ---
 
 ## Upgrading to 0.3

@@ -325,7 +325,7 @@ next section.
 #### Check the value
 
 The address the throttles actually used can't be seen from outside, so check it
-directly. A staff user can call the System Health endpoint, and its
+directly. A workspace operator can call the System Health endpoint, and its
 `security.client_address` block shows how *their own request* was resolved:
 
 ```bash
@@ -772,9 +772,9 @@ container starts, and Django's migration table makes concurrent runs safe.
 | `/api/v1/health/` | none (`AllowAny`) | **Nothing.** It returns `{"status": "ok"}` if the process is running and can route a request. | `200` only | Liveness. A load balancer target check where you want "is the process up". |
 | `/api/v1/readyz` | none (`AllowAny`) | Database reachable, cache reachable, and every migration shipped in the image applied. | `200` ready, **`503`** not ready | **Readiness — the right choice for an external LB's target-group health check.** It removes a pod whose datastore is down or whose schema and code disagree mid-upgrade. |
 | `/api/v1/edition/` | none (`AllowAny`) | Nothing. Returns edition, version, and build SHA. | `200` only | Build identification, not health. |
-| `/api/v1/health/beat/` | **staff only** (`IsAdminUser`) | Celery Beat heartbeat freshness. | `200` / `503` | Authenticated monitoring (Prometheus with a token). **Not usable as an LB probe** — it 403s without credentials. |
-| `/api/v1/health/system/` | **staff only** (`IsAdminUser`) | Deep system status for the admin UI. | `200` | Admin diagnostics. **Not an LB probe.** |
-| `/api/v1/health/dead-letter/`, `/api/v1/health/email/` | **staff only** (`IsAdminUser`) | Dead-letter and email gauges, Prometheus text exposition. | `200` | Scrape targets, with credentials. **Not LB probes.** |
+| `/api/v1/health/beat/` | **workspace operator only** (`IsWorkspaceOperator`) | Celery Beat heartbeat freshness. | `200` / `503` | Authenticated monitoring (Prometheus with a token). **Not usable as an LB probe** — it 403s without credentials. |
+| `/api/v1/health/system/` | **workspace operator only** (`IsWorkspaceOperator`) | Deep system status for the admin UI. | `200` | Admin diagnostics. **Not an LB probe.** |
+| `/api/v1/health/dead-letter/`, `/api/v1/health/email/` | **workspace operator only** (`IsWorkspaceOperator`) | Dead-letter and email gauges, Prometheus text exposition. | `200` | Scrape targets, with credentials. **Not LB probes.** |
 
 :::caution[`/api/v1/readyz` has no trailing slash]
 Every sibling path on this page ends in `/`. This one does not, and Django will

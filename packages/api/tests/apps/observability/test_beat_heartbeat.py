@@ -3,7 +3,9 @@
 Covers:
   - beat.heartbeat upserts a single BeatHeartbeat row (creates then updates)
   - beat.check_stale_heartbeat logs WARNING when stale / missing, silent when fresh
-  - GET /api/v1/health/beat/ shape, 200-fresh / 503-stale, and IsAdminUser gating
+  - GET /api/v1/health/beat/ shape, 200-fresh / 503-stale, and IsWorkspaceOperator
+    gating (401 unauth, 403 non-operator, 403 for a formerly-allowed is_staff-only
+    account) — moved off Django is_staff/IsAdminUser by #4009
   - The two tasks carry the expected idempotent_task names
 """
 
@@ -89,15 +91,27 @@ class TestBeatHealthEndpoint:
         res = APIClient().get(self.URL)
         assert res.status_code in (401, 403)
 
-    def test_forbidden_for_non_staff(self) -> None:
+    def test_forbidden_for_non_operator(self) -> None:
         user = User.objects.create_user(username="beat_member", password="pw")
         client = APIClient()
         client.force_authenticate(user=user)
         res = client.get(self.URL)
         assert res.status_code == 403
 
+    def test_forbidden_for_staff_only(self) -> None:
+        """A formerly-allowed ``is_staff`` account with no superuser flag is refused.
+
+        Pre-#4009 this account passed ``IsAdminUser``. ``IsWorkspaceOperator`` checks
+        ``is_superuser`` only, so ``is_staff`` alone no longer buys access.
+        """
+        user = User.objects.create_user(username="beat_staff_only", password="pw", is_staff=True)
+        client = APIClient()
+        client.force_authenticate(user=user)
+        res = client.get(self.URL)
+        assert res.status_code == 403
+
     def test_fresh_returns_200_not_stale(self) -> None:
-        admin = User.objects.create_user(username="beat_admin", password="pw", is_staff=True)
+        admin = User.objects.create_user(username="beat_admin", password="pw", is_superuser=True)
         _set_heartbeat(age_seconds=5)
         client = APIClient()
         client.force_authenticate(user=admin)
@@ -107,7 +121,7 @@ class TestBeatHealthEndpoint:
         assert res.data["last_heartbeat"] is not None
 
     def test_stale_returns_503_stale(self) -> None:
-        admin = User.objects.create_user(username="beat_admin2", password="pw", is_staff=True)
+        admin = User.objects.create_user(username="beat_admin2", password="pw", is_superuser=True)
         _set_heartbeat(age_seconds=300)
         client = APIClient()
         client.force_authenticate(user=admin)
@@ -116,7 +130,7 @@ class TestBeatHealthEndpoint:
         assert res.data["stale"] is True
 
     def test_no_heartbeat_returns_503_null(self) -> None:
-        admin = User.objects.create_user(username="beat_admin3", password="pw", is_staff=True)
+        admin = User.objects.create_user(username="beat_admin3", password="pw", is_superuser=True)
         client = APIClient()
         client.force_authenticate(user=admin)
         res = client.get(self.URL)

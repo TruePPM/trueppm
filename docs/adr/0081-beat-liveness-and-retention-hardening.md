@@ -85,6 +85,10 @@ diagnostic**, scrapeable by Prometheus with a bearer token (which keys on the 50
 status code). This deviates from the issue's "k8s liveness wiring" framing in favor of
 the security lens — accepted explicitly.
 
+> **Superseded by ADR-0034 amendment (#4009), 2026-09-28.** `IsAdminUser` (`is_staff`)
+> is no longer the gate on this endpoint — see the amendment for the current
+> `IsWorkspaceOperator` (superuser) gate.
+
 ### D. Setting naming
 
 New tunables use the **`TRUEPPM_` prefix** (`TRUEPPM_WEBHOOK_RETENTION_DAYS`,

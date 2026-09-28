@@ -51,8 +51,8 @@ ADR-0081 for the full rationale.
 
 ## The `/api/v1/health/beat/` endpoint
 
-Requires a **staff (admin)** account — it exposes operational state, so it is gated with
-`IsAdminUser`. Responses:
+Requires a **workspace operator (superuser)** account — it exposes operational state, so
+it is gated with `IsWorkspaceOperator`. Responses:
 
 | Condition | Status | Body |
 |---|---|---|
@@ -101,6 +101,14 @@ probe. Use it as follows:
 - **Beat liveness alerting** → scrape `GET /api/v1/health/beat/` from Prometheus (or any
   monitor) with a bearer token, and alert on a non-`200` status code. This is the
   recommended external detector for the single-Beat SPOF.
+
+  :::caution[Requires a superuser token]
+  As of 0.4, this endpoint is gated with `IsWorkspaceOperator`, which checks
+  `is_superuser` — a staff-only (`is_staff=True`, `is_superuser=False`) scrape
+  credential now gets `403 Forbidden`. See the
+  [0.4 upgrade notes](/getting-started/upgrade/#dead-letter-and-observability-scrape-credentials-now-require-superuser)
+  if your scrape token was minted for a staff-only account.
+  :::
 - **No external monitoring?** → the `beat.check_stale_heartbeat` WARNING in the worker
   logs is your fallback signal; forward worker logs to your aggregator and alert on the
   `check_stale_heartbeat` message.

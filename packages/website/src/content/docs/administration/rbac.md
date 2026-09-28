@@ -171,6 +171,36 @@ A project must always have at least one Owner. Removing or demoting the last Own
 
 When a user creates a project, they are automatically assigned the Owner role (labeled **Project Admin**) via `ProjectViewSet.perform_create()`.
 
+## Superuser / workspace operator axis
+
+The 5-role ladder above is **project- and program-scoped** — it answers "what can
+this user do on this project?" A small set of install-wide surfaces sit on a
+separate, orthogonal axis: **`IsWorkspaceOperator`**, which checks
+`user.is_superuser` directly and does not consult `ProjectMembership` or
+`ProgramMembership` at all. A stored `WorkspaceRole.ADMIN` (or project/program
+Owner) grant does **not** pass this gate — only a Django superuser does, the kind
+created by `create_admin`, `createsuperuser`, or the Django admin.
+
+This axis exists because a handful of endpoints expose install-wide operational
+state (tracebacks, retry/drop of any project's background jobs, retention
+windows, telemetry export config) with no natural project scope and no in-app
+delegation path — there is no role a workspace Owner can grant for them. An
+admin reviewing "who can do what" against the 5-role matrix above will not see
+these surfaces unless they know to look for this second axis, so they are listed
+here explicitly:
+
+- **Mail transport** and **notification transport** configuration
+- **Dead-letter queue** — `FailedTaskViewSet` (list/retrieve/requeue/drop, across
+  all projects)
+- **Observability retention and telemetry export** — System Health, the
+  Prometheus metrics endpoints (`/api/v1/health/{beat,dead-letter,email}/`),
+  retention policy read/write, retention impact and run history, and the
+  telemetry test-export probe
+
+See [ADR-0034's 2026-09-28 amendment](/architecture/decisions/) for why these
+moved off Django's `is_staff`/`IsAdminUser` (a similar-looking but distinct and
+previously-undocumented axis) onto `IsWorkspaceOperator`.
+
 ## IDOR prevention
 
 All querysets are scoped to projects the requesting user is a member of via `ProjectScopedViewSet`. Non-members receive an empty queryset rather than a 403, preventing information leakage about object existence.

@@ -95,6 +95,10 @@ Add `GET /api/v1/health/dead-letter/` (`IsAdminUser`, bearer-scrapeable, mirrori
 trueppm_task_dead_letter_parked{task_name="scheduling.recalculate_schedule"} 3
 ```
 
+> **Superseded by ADR-0034 amendment (#4009), 2026-09-28.** `IsAdminUser` (`is_staff`)
+> is no longer the gate on this endpoint — see the amendment for the current
+> `IsWorkspaceOperator` (superuser) gate.
+
 Computed as `FailedTask.objects.filter(status=DEAD).values("task_name").annotate(n=Count("id"))`.
 This is typed a **gauge**, not a counter: it counts *currently parked* dead-letters, so it falls
 when a task is dismissed, retried, or purged (the issue's informal "counter" wording is honored

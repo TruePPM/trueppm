@@ -30,9 +30,12 @@ console.
 :::
 
 :::caution[Access]
-These pages require a **staff (admin) account** (`is_staff`). They expose operational
-internals — including failed-task payloads — and are intentionally **not** gated by the
-per-project 5-role RBAC. A project Owner is not, by itself, a workspace operator.
+These pages require a **workspace operator account** — a Django superuser. They expose
+operational internals — including failed-task payloads — and are intentionally **not**
+gated by the per-project 5-role RBAC, and not gated by workspace `Admin` either: a
+project Owner is not, by itself, a workspace operator, and neither is a workspace
+`Admin`. A Django `is_staff` account that is not also a superuser does **not** have
+access.
 :::
 
 ## Overview dashboard
@@ -151,7 +154,7 @@ environment under that spelling.
 
 ## API
 
-The console is API-first; every surface is admin-only (`IsAdminUser`):
+The console is API-first; every surface is workspace-operator-only (`IsWorkspaceOperator`):
 
 - `GET /api/v1/health/system/` — the aggregated overview payload (component statuses,
   Beat panel, configured schedule, dead-letter summary, retention config).
