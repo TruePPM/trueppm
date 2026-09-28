@@ -9,12 +9,71 @@ use petgraph::Direction;
 
 use crate::backward::{milestone_latest, milestone_refs, sf_latest_start};
 use crate::calendar::{
-    checked_offset_days, prev_working_day, retreat_calendar_days, working_days_between,
-    PassCalendars, WorkingDayCounter,
+    checked_offset_days, next_working_day, prev_working_day, retreat_calendar_days,
+    working_days_between, PassCalendars, WorkingDayCounter,
 };
 use crate::forward::{start_anchored, start_reading, Instant};
 use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, DrivingEdge, Task};
+
+/// The latest instant each milestone may reach without moving anything, for free
+/// float (#4180). Mirrors the Python `_milestone_free_instants`.
+///
+/// A milestone's early position is its shown day plus its reading, not the raw
+/// instant. A start-of-day reading is shown on `next_wd(instant)`, and every
+/// midnight up to that one lies in the same stretch of non-working time, so the
+/// milestone admits any of them (`A(4d) -FS+2d-> M`: Sunday and Monday midnight
+/// are both the start of Monday). An end-of-day reading stays at the raw instant,
+/// because the next midnight is shown on the next working day (#4173).
+///
+/// The raw instant is still what the milestone's own links measure from, and a
+/// calendar-day lag carries it downstream, so the stretch is also capped by every
+/// live successor link, inverted with `milestone_latest` against that successor's
+/// early references — its own free instant when it is a milestone, which is why
+/// this walks the topological order backwards.
+fn milestone_free_instants(
+    tasks: &[Task],
+    topo_order: &[NodeIndex],
+    pg: &ProjectGraph,
+    deps: &[Dependency],
+    cals: &PassCalendars,
+    instants: &[Option<Instant>],
+) -> Result<Vec<Option<NaiveDate>>, String> {
+    let mut free: Vec<Option<NaiveDate>> = vec![None; tasks.len()];
+    for &idx in topo_order.iter().rev() {
+        let i = idx.index();
+        let Some((instant, start_display)) = instants[i] else {
+            continue;
+        };
+        if !start_display {
+            free[i] = Some(instant);
+            continue;
+        }
+        let cal = cals.for_node(i);
+        let mut bound = next_working_day(instant, cal)?;
+        for edge in pg.graph.edges_directed(idx, Direction::Outgoing) {
+            let s = edge.target().index();
+            let succ = &tasks[s];
+            if succ.is_complete() {
+                continue;
+            }
+            let dep = &deps[*edge.weight()];
+            let (start_ref, finish_ref) = match free[s] {
+                Some(x) => milestone_refs(x, cals.for_node(s))?,
+                None => (succ.early_start.unwrap(), succ.early_finish.unwrap()),
+            };
+            bound = bound.min(milestone_latest(
+                dep.dep_type,
+                dep.lag_days(),
+                start_ref,
+                finish_ref,
+                cal,
+            )?);
+        }
+        free[i] = Some(instant.max(bound));
+    }
+    Ok(free)
+}
 
 /// Working-day span counter that keeps the O(log n) fast path where it is valid.
 ///
@@ -118,8 +177,9 @@ fn free_start_ref(
 /// instant from `forward_pass` and, in `float_lates`, the late instant its own
 /// float runs to — `backward_pass` returns these already capped for the
 /// milestone's own reading (#4183), unlike the raw late instants its predecessors
-/// read inside the pass — and a milestone successor offers its early instant
-/// (`milestone_refs`, bounded by [`free_start_ref`] on a reading tie). Mirrors the
+/// read inside the pass — and a milestone successor offers its free instant
+/// (`milestone_free_instants`, #4180), further bounded by [`free_start_ref`] on a
+/// reading tie (#4183). Mirrors the
 /// Python `_compute_floats` / `_link_slack`, including a milestone's signed slack.
 pub fn compute_floats(
     tasks: &mut [Task],
@@ -136,6 +196,9 @@ pub fn compute_floats(
         calendar,
     };
     let mut driving_edges: Vec<DrivingEdge> = Vec::new();
+    // Free float compares a milestone successor by its shown position, not its raw
+    // instant (#4180).
+    let free_instants = milestone_free_instants(tasks, topo_order, pg, deps, cals, instants)?;
     for &idx in topo_order {
         let i = idx.index();
         let es = tasks[i].early_start.unwrap();
@@ -184,14 +247,24 @@ pub fn compute_floats(
             }
             let dep = &deps[*edge.weight()];
             let s = edge.target().index();
-            let raw_refs = match instants[s] {
-                Some(x) => milestone_refs(x.0, cals.for_node(s))?,
+            // The free-float instant a lagged milestone successor is measured at
+            // (#4180) is the baseline both the slack and the driving-edge check use.
+            let raw_refs = match free_instants[s] {
+                Some(x) => milestone_refs(x, cals.for_node(s))?,
                 None => (succ.early_start.unwrap(), succ.early_finish.unwrap()),
             };
-            // A tie that flips the milestone's reading moves it (#4183).
+            // A tie that flips the milestone's reading moves it (#4183), layered on
+            // top of that free instant. The two adjustments never both act on the
+            // same instant: #4180 only advances one that reads as start of day, and
+            // #4183's tie bound only adjusts one that reads as end of day.
             let refs = match instants[s] {
-                Some(x) => (
-                    free_start_ref(x, dep, instants[i], cals.for_node(s))?,
+                Some((_, start_display)) => (
+                    free_start_ref(
+                        (free_instants[s].unwrap(), start_display),
+                        dep,
+                        instants[i],
+                        cals.for_node(s),
+                    )?,
                     raw_refs.1,
                 ),
                 None => raw_refs,
@@ -221,10 +294,11 @@ pub fn compute_floats(
             };
             let slack = slack_to(refs)?;
             ff_days = ff_days.min(slack.max(0));
-            // Whether a link *drives* is read off the raw instant: a link bounded
-            // only by a reading tie does not set the milestone's instant, another
-            // link does, so it is not the driving predecessor even at zero free
-            // float. Mirrors the Python `_free_float_days`.
+            // Whether a link *drives* is read off the free instant, not #4183's
+            // further tie adjustment: a link bounded only by a reading tie does not
+            // set the milestone's instant, another link does, so it is not the
+            // driving predecessor even at zero free float. Mirrors the Python
+            // `_free_float_days`.
             let drive_slack = if refs == raw_refs {
                 slack
             } else {

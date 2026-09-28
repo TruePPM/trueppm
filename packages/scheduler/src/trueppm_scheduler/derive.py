@@ -54,6 +54,7 @@ from trueppm_scheduler.engine import (
     _milestone_refs,
     _next_working_day,
     _prev_working_day,
+    _project_free_instants,
     _resolve_task_calendars,
     _retreat_calendar_days,
     _safe_offset,
@@ -1166,6 +1167,9 @@ def _milestone_context(
         else ({}, {}, _safe_offset(result.project_finish, timedelta(days=1)))
     )
 
+    # Free float compares a milestone successor at its free-float instant (#4180).
+    free_instants = _project_free_instants(project, result.tasks, instants) if instants else {}
+
     def cal_of(tid: str) -> Calendar:
         return _cal_for(tid, default_cal, task_calendars)
 
@@ -1184,13 +1188,20 @@ def _milestone_context(
 
     def early_refs(succ: Task, dep_type: DependencyType, lag: timedelta) -> tuple[date, date]:
         assert succ.early_start is not None and succ.early_finish is not None
-        early = instants.get(succ.id)
+        early = free_instants.get(succ.id)
         if early is None:
             return succ.early_start, succ.early_finish
-        # The same reading-tie bound engine._free_float_days applies (#4183).
+        # The same reading-tie bound engine._free_float_days applies (#4183), on
+        # top of the free-float instant a lagged milestone successor is measured
+        # at (#4180). The two never both act on the same instant: #4180 only
+        # advances one that reads as start of day, and #4183's tie bound only
+        # adjusts one that reads as end of day.
         succ_cal = cal_of(succ.id)
-        _, finish_ref = _milestone_refs(early[0], succ_cal)
-        return _free_start_ref(early, dep_type, lag, own, succ_cal), finish_ref
+        _, finish_ref = _milestone_refs(early, succ_cal)
+        raw = instants.get(succ.id)
+        assert raw is not None  # free_instants is derived from instants (#4180)
+        start_ref = _free_start_ref((early, raw[1]), dep_type, lag, own, succ_cal)
+        return start_ref, finish_ref
 
     milestone: tuple[date, _DayFn] | None = None
     own_instants: tuple[date, date] | None = None

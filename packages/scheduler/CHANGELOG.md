@@ -85,6 +85,17 @@ change between releases. Pin an exact version (e.g.
   day is unchanged when it has no lag or its lag ends on a working day; one
   following a recorded `actual_finish` on a non-working day now also shows at
   the start of the next working day rather than the working day before it. The Rust/WASM engine moves with it.
+- **Free float before a milestone shown at the start of a day counts the
+  slip it absorbs (#4180).** Free float compared a milestone successor by its raw
+  instant, so `A(4d) -FS+2d-> M` (M at Sunday midnight, shown Monday) gave `A`
+  zero free float and reported `A -> M` as a driving edge, although slipping `A`
+  a day moves `M` only to Monday midnight, still shown Monday. A milestone that
+  reads as the start of a day now admits any midnight up to the one that opens
+  that day, capped by its own successor links so a lag cannot carry the move
+  downstream. `A` has one day of free float, and the edge no longer drives. A
+  milestone that reads as the end of a day is unchanged (`A -FS+1d-> M` keeps
+  zero). `derive_value(..., Quantity.FREE_FLOAT)` and the Rust/WASM engine move
+  with it. Introduced by the #4079 change above; never released.
 - **Work before a project-ending milestone shown at the start of a day keeps
   its total float (#4174).** When the finish instant already reads as the start
   of a day (`project_finish` on or after it), a milestone ending the project may

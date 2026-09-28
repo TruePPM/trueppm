@@ -1531,4 +1531,109 @@ mod tests {
         assert_eq!(m0.free_float, one_day);
         assert_eq!(m0.total_float, 2.0 * one_day);
     }
+
+    /// #4180: free float into a start-of-day milestone compares its shown position,
+    /// not its raw instant. `A(4d) -FS+2d-> M` puts M at Sunday midnight, shown as
+    /// the start of Monday; a one-day slip of A lands on Monday midnight, still the
+    /// start of Monday, so A has one day of free float and A→M does not drive M.
+    /// FS+1 (Saturday midnight, the end of Friday) stays at zero: the slip moves M
+    /// to the start of Monday (#4173). Both with and without `M -FS0-> B(1d)`.
+    #[test]
+    fn test_free_float_into_start_of_day_milestone_counts_shown_position() {
+        let d = |y, m, dd| NaiveDate::from_ymd_opt(y, m, dd).unwrap();
+        let build = |lag_days: f64, tail: bool| {
+            let mut tasks = vec![make_task("A", 4), make_task("M", 0)];
+            let mut dependencies = vec![Dependency {
+                lag: lag_days * 86400.0,
+                ..dep("A", "M")
+            }];
+            if tail {
+                tasks.push(make_task("B", 1));
+                dependencies.push(dep("M", "B"));
+            }
+            Project {
+                id: "p".to_string(),
+                name: "p".to_string(),
+                start_date: d(2026, 1, 5),
+                tasks,
+                dependencies,
+                calendar: Calendar::default(),
+                status_date: None,
+                calendars: None,
+                velocity_samples: None,
+                sprint_length_days: None,
+            }
+        };
+        let a_drives_m = |r: &ScheduleResult| {
+            r.driving_edges
+                .iter()
+                .any(|e| e.predecessor_id == "A" && e.successor_id == "M")
+        };
+        let find =
+            |r: &ScheduleResult, id: &str| r.tasks.iter().find(|t| t.id == id).cloned().unwrap();
+        for tail in [false, true] {
+            let fs2 = schedule_impl(&build(2.0, tail)).unwrap();
+            assert_eq!(find(&fs2, "M").early_start, d(2026, 1, 12));
+            assert!(!find(&fs2, "M").milestone_at_day_end);
+            assert_eq!(find(&fs2, "A").free_float, 86400.0, "tail={tail}");
+            assert!(!a_drives_m(&fs2), "tail={tail}");
+
+            let fs1 = schedule_impl(&build(1.0, tail)).unwrap();
+            assert_eq!(find(&fs1, "M").early_start, d(2026, 1, 9));
+            assert!(find(&fs1, "M").milestone_at_day_end);
+            assert_eq!(find(&fs1, "A").free_float, 0.0, "tail={tail}");
+            assert!(a_drives_m(&fs1), "tail={tail}");
+        }
+    }
+
+    /// #4180: a live successor link out of the milestone caps how far its free
+    /// instant may move. `A(4d) -FS+2d-> M -FS+1d-> B(1d)`: taken alone, M's
+    /// start-of-day reading would admit Monday midnight, same as the plain
+    /// `tail=true` case above (whose `M -FS-> B` carries no lag). But M's own
+    /// `FS+1d` link to B carries a calendar-day lag downstream: proposing Monday
+    /// midnight for M would propose Tuesday midnight to B, a day later than B's
+    /// actual early instant. So the cap pulls M's free instant back to the raw
+    /// Sunday midnight, and A keeps zero free float, not one day. `W` is
+    /// unrelated work that gives A total float to spend, so a bug that drops the
+    /// cap is not masked by A already being critical.
+    #[test]
+    fn test_free_float_successor_lag_caps_the_free_instant() {
+        let d = |y, m, dd| NaiveDate::from_ymd_opt(y, m, dd).unwrap();
+        let project = Project {
+            id: "p".to_string(),
+            name: "p".to_string(),
+            start_date: d(2026, 1, 5),
+            tasks: vec![
+                make_task("A", 4),
+                make_task("M", 0),
+                make_task("B", 1),
+                make_task("W", 15),
+            ],
+            dependencies: vec![
+                Dependency {
+                    lag: 2.0 * 86400.0,
+                    ..dep("A", "M")
+                },
+                Dependency {
+                    lag: 1.0 * 86400.0,
+                    ..dep("M", "B")
+                },
+            ],
+            calendar: Calendar::default(),
+            status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
+        };
+        let result = schedule_impl(&project).unwrap();
+        let find =
+            |r: &ScheduleResult, id: &str| r.tasks.iter().find(|t| t.id == id).cloned().unwrap();
+        let a = find(&result, "A");
+        assert!(a.total_float > 0.0);
+        assert_eq!(a.free_float, 0.0);
+        assert!(result
+            .driving_edges
+            .iter()
+            .any(|e| e.predecessor_id == "A" && e.successor_id == "M"));
+    }
 }

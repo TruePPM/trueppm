@@ -17,7 +17,7 @@ import copy
 from datetime import date, timedelta
 
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from trueppm_scheduler import (
@@ -27,6 +27,7 @@ from trueppm_scheduler import (
     DependencyType,
     Project,
     Quantity,
+    ScheduleResult,
     Task,
     derive_value,
     monte_carlo,
@@ -561,6 +562,94 @@ class TestTerminalMilestoneLateSeed:
             assert lf.binding is not None and lf.binding.source_task_id == "M"
 
 
+# ---------------------------------------------------------------------------
+# Free float before a start-of-day milestone counts by its shown position (#4180)
+# ---------------------------------------------------------------------------
+
+
+class TestFreeFloatBeforeStartOfDayMilestone:
+    """``A(4d) -FS+2d-> M``: M sits at Sunday midnight, shown as the start of Monday.
+
+    A one-day slip of A moves M to Monday midnight: the same working position, the
+    same shown day and reading. So A has one day of free float and A→M does not
+    drive M. Free float used to compare the raw instants, which reported zero and a
+    driving edge.
+
+    ``A -FS+1d-> M`` stays zero: Saturday midnight is shown as the end of Friday, and
+    the one-day slip lands on Sunday midnight, shown as the start of Monday (#4173).
+    """
+
+    def _project(self, lag: int, *, tail: bool = False, a_start: date | None = None) -> Project:
+        a = _task("A", 4)
+        a.planned_start = a_start
+        tasks = [a, _task("M", 0)]
+        deps = [_dep("A", "M", lag=lag)]
+        if tail:
+            tasks.append(_task("B", 1))
+            deps.append(_dep("M", "B"))
+        return _project(tasks, deps)
+
+    @staticmethod
+    def _edges(result: ScheduleResult) -> set[tuple[str, str]]:
+        return {(e.predecessor_id, e.successor_id) for e in result.driving_edges}
+
+    @pytest.mark.parametrize("tail", [False, True])
+    def test_start_of_day_milestone_leaves_its_predecessor_free_float(self, tail: bool) -> None:
+        p = self._project(lag=2, tail=tail)
+        result = schedule(p)
+        by_id = {t.id: t for t in result.tasks}
+        assert by_id["M"].early_start == date(2026, 1, 12)
+        assert by_id["M"].milestone_at_day_end is False
+        assert by_id["A"].free_float == timedelta(days=1)
+        assert ("A", "M") not in self._edges(result)
+        assert derive_value(p, "A", Quantity.FREE_FLOAT, result).value == 1
+        # The slip the float promises leaves M where it was; one more day moves it.
+        slipped = _by_id(self._project(lag=2, tail=tail, a_start=date(2026, 1, 6)))["M"]
+        assert (slipped.early_start, slipped.milestone_at_day_end) == (date(2026, 1, 12), False)
+        slipped2 = _by_id(self._project(lag=2, tail=tail, a_start=date(2026, 1, 7)))["M"]
+        assert slipped2.early_start == date(2026, 1, 14)
+
+    @pytest.mark.parametrize("tail", [False, True])
+    def test_end_of_day_milestone_keeps_its_predecessor_driving(self, tail: bool) -> None:
+        """FS+1 is not a bug: the slip moves M's shown day from Friday to Monday."""
+        p = self._project(lag=1, tail=tail)
+        result = schedule(p)
+        by_id = {t.id: t for t in result.tasks}
+        assert (by_id["M"].early_start, by_id["M"].milestone_at_day_end) == (
+            date(2026, 1, 9),
+            True,
+        )
+        assert by_id["A"].free_float == timedelta(0)
+        assert ("A", "M") in self._edges(result)
+        assert derive_value(p, "A", Quantity.FREE_FLOAT, result).value == 0
+        slipped = _by_id(self._project(lag=1, tail=tail, a_start=date(2026, 1, 6)))["M"]
+        assert slipped.early_start == date(2026, 1, 12)
+
+    def test_successor_lag_caps_the_free_instant(self) -> None:
+        """A live successor link out of M caps how far its free instant may move.
+
+        ``A(4d) -FS+2d-> M -FS+1d-> B``: taken alone, M's start-of-day reading
+        would admit Monday midnight, same as the plain ``tail=True`` case above
+        (whose ``M -FS-> B`` carries no lag). But M's own ``FS+1d`` link to B
+        carries a *calendar-day* lag downstream: proposing Monday midnight for M
+        would propose Tuesday midnight to B, a day later than B's actual early
+        instant. So the cap pulls M's free instant back to the raw Sunday
+        midnight, and A keeps zero free float, not one day. ``W`` is unrelated
+        work that gives A total float to spend, so a bug that drops the cap is
+        not masked by A already being critical.
+        """
+        p = _project(
+            [_task("A", 4), _task("M", 0), _task("B", 1), _task("W", 15)],
+            [_dep("A", "M", lag=2), _dep("M", "B", lag=1)],
+        )
+        result = schedule(p)
+        by_id = {t.id: t for t in result.tasks}
+        assert by_id["A"].total_float > timedelta(0)
+        assert by_id["A"].free_float == timedelta(0)
+        assert ("A", "M") in self._edges(result)
+        assert derive_value(p, "A", Quantity.FREE_FLOAT, result).value == 0
+
+
 def _advance_working_days(d: date, n: int, cal: Calendar) -> date:
     while n > 0:
         d += timedelta(days=1)
@@ -753,20 +842,34 @@ class TestFreeFloatStopsBeforeAReadingTie:
 
 
 def _early_position(t: Task) -> tuple[date | None, date | None, bool]:
-    """What a free slip must leave alone: a task's early days and a milestone's
-    reading (the end of Friday and the start of Monday differ)."""
+    """What a slip must leave alone for it to be free: a task's early days, plus a
+    milestone's reading (the end of Friday and the start of Monday differ)."""
     return t.early_start, t.early_finish, t.milestone_at_day_end
 
 
 @pytest.mark.fuzz
 @given(_fs_ss_networks_with_milestones())
-def test_slipping_by_free_float_moves_no_other_task(p: Project) -> None:
-    """Slipping a live work task by its free float moves no other task's early
-    position, a milestone's reading included (#4183).
+# The #4180 repro, pinned because the derandomized gate profile does not reach it.
+@example(_project([_task("A", 4), _task("M", 0)], [_dep("A", "M", lag=2)]))
+@example(
+    _project(
+        [_task("A", 4), _task("M", 0), _task("B", 1)],
+        [_dep("A", "M", lag=2), _dep("M", "B")],
+    )
+)
+def test_free_float_is_the_slip_every_successor_absorbs(p: Project) -> None:
+    """Definitional free float (#4180, #4183): slipping a live work task by its free
+    float moves no successor's early position, and one more working day moves one.
 
-    One-sided on purpose: it pins the overstatement a midnight reading tie caused.
-    Free float into a start-of-day milestone is still *understated* against the raw
-    instant (#4180), so the "one more day moves something" side does not hold here.
+    Free float is capped at total float, so the "moves" side only holds when a link
+    sets it — when free float is below total float. A milestone successor's position
+    is its shown day plus its reading, not the raw instant: Sunday and Monday
+    midnight are both the start of Monday, while Saturday midnight is the end of
+    Friday (#4173). A reading tie at an end-of-day milestone (#4183) is folded into
+    the same free-instant computation (``engine._free_start_ref`` layered on
+    ``engine._milestone_free_instants``), so this needs no exemption for it: the
+    ``TODO(#4183)`` this test carried before the two branches were combined is
+    resolved, and both directions hold unconditionally.
     """
     result = schedule(p)
     has_successor = {d.predecessor_id for d in p.dependencies}
@@ -774,16 +877,19 @@ def test_slipping_by_free_float_moves_no_other_task(p: Project) -> None:
         if t.duration.days == 0 or t.id not in has_successor:
             continue
         assert t.early_start is not None
-        shifted = copy.deepcopy(p)
-        pinned = next(x for x in shifted.tasks if x.id == t.id)
-        pinned.planned_start = _advance_working_days(t.early_start, t.free_float.days, p.calendar)
-        after = _by_id(shifted)
-        moved = [
-            x.id
-            for x in result.tasks
-            if x.id != t.id and _early_position(after[x.id]) != _early_position(x)
-        ]
-        assert not moved, (t.id, t.free_float.days, moved)
+        ff, tf = t.free_float.days, t.total_float.days
+        cases = [(ff, False)] + ([(ff + 1, True)] if ff < tf else [])
+        for slip, moves in cases:
+            shifted = copy.deepcopy(p)
+            pinned = next(x for x in shifted.tasks if x.id == t.id)
+            pinned.planned_start = _advance_working_days(t.early_start, slip, p.calendar)
+            after = _by_id(shifted)
+            moved = any(
+                _early_position(after[x.id]) != _early_position(x)
+                for x in result.tasks
+                if x.id != t.id
+            )
+            assert moved is moves, (t.id, ff, tf, slip)
 
 
 # ---------------------------------------------------------------------------
