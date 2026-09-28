@@ -256,8 +256,16 @@ export interface Task {
    *  task's schedule placement to it (ADR-0132/0136), so downstream forecasts depend
    *  on it. The server refuses to set it on a task not in review or complete. */
   actualFinish?: string;
-  /** actual_finish - early_finish in calendar days; positive = late */
+  /** actual_finish vs the active baseline finish, in working time (#4203); positive = late */
   scheduleVarianceDays?: number | null;
+  /**
+   * Server-computed forecast finish vs the active baseline finish, in working
+   * time (#4203); positive = late, null when either date is missing. `undefined`
+   * when the payload did not carry it (an older server, or after a CPM delta
+   * splice moved the finish) — read it through `baselineFinishVariance()`, which
+   * falls back to the shown-day difference.
+   */
+  baselineFinishVarianceDays?: number | null;
   baselineStart?: string;
   baselineFinish?: string;
   /**

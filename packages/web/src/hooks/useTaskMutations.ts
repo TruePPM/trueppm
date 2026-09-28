@@ -223,6 +223,12 @@ function optimisticCorePatch(vars: UpdateTaskPayload): Partial<Task> {
     // until the recompute says otherwise (see `resolveMilestoneAtDayEnd`).
     patch.milestoneAtDayEnd = false;
   }
+  // The server's working-time baseline variance was measured from the finish this
+  // write is about to move; drop it so the chip does not assert the old number.
+  // This hook's onSuccess re-fetches, which brings the new value back (#4203).
+  if (vars.planned_start !== undefined || vars.duration !== undefined) {
+    patch.baselineFinishVarianceDays = undefined;
+  }
   if (vars.story_points !== undefined) patch.storyPoints = vars.story_points;
   if (vars.remaining_points !== undefined) patch.remainingPoints = vars.remaining_points;
   if (vars.sprint !== undefined) patch.sprintId = vars.sprint;
@@ -241,6 +247,8 @@ function optimisticClassificationPatch(vars: UpdateTaskPayload): Partial<Task> {
     // refetch lands. On the way back the caller supplies the restored duration
     // itself, and the `vars.duration` branch in the core patch has already applied it.
     if (vars.is_milestone) patch.duration = 0;
+    // Milestone-ness decides which edge of the day the finish sits on (#4203).
+    patch.baselineFinishVarianceDays = undefined;
   }
   // Human blocker flag (ADR-0124). blocked_since / blocked_by / age are
   // server-stamped on the flag transition, so they are NOT optimistically set —
@@ -455,6 +463,12 @@ export function useRescheduleTask() {
                 ...(planned_start != null ? { milestoneAtDayEnd: false } : {}),
                 ...optimistic,
                 ...(willPromote ? { status: 'IN_PROGRESS' as const } : {}),
+                // The server variance was measured from the finish this drag just
+                // moved. Clear it: a later CPM delta whose finish equals this
+                // optimistic one would otherwise keep it, and this hook does not
+                // re-fetch. The WebSocket handler re-fetches a baselined row left
+                // without a value (#4203).
+                baselineFinishVarianceDays: undefined,
               };
             })
           : old,
@@ -672,6 +686,8 @@ export function usePromoteTask() {
               return {
                 ...t,
                 plannedStart: planned_start,
+                // A new SNET moves the finish; onSuccess re-fetches the value (#4203).
+                baselineFinishVarianceDays: undefined,
                 ...(status !== undefined ? { status: status as Task['status'] } : {}),
                 ...(willPromote ? { status: 'IN_PROGRESS' as const } : {}),
                 // Keep the card visible on a sprint-scoped board the instant it's

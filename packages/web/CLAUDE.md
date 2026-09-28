@@ -198,6 +198,7 @@ These rules are enforced at review time. Violations block merge.
 390. **A teaching surface's glyph is a claim about a control, and a removal justified by a replacement lands WITH the replacement — never on the promise of it (#3257).** → [rule](../../docs/design/invariants/390-a-teaching-surface-s-glyph-is-a-claim-about-a-control-and-a.md)
 393. **A row that hides its own label at phone width is a `shrink-0` budget problem, not a `min-w-0` problem — and the two have different fixes. Measure before you add either.** → [rule](../../docs/design/invariants/393-a-row-that-hides-its-own-label-at-phone-width-is-a-shrink-0.md)
 412. **`input[type="date"]` exposes NO `textbox` role — locate it with `getByLabel`, never `getByRole('textbox')`, and pass `{ exact: true }` in Playwright.** → [rule](../../docs/design/invariants/412-input-type-date-exposes-no-textbox-role-locate-it-with.md)
+433. **The `hidden` attribute is authoritative over display utilities, and a collapsed state is proven in a real browser — never by a jsdom `not.toBeVisible()`.** → [rule](../../docs/design/invariants/433-the-hidden-attribute-is-authoritative.md)
 
 ## Dialogs, focus and keyboard
 

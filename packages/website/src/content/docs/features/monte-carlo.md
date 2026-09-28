@@ -653,6 +653,13 @@ over a weekend adds no time. The computed finish is what your plan says if nothi
 varies; P80 is the date 4 in 5 simulations finished by. The difference between
 them is the time schedule uncertainty adds on top of the plan.
 
+Every Monte Carlo delta — `delta_vs_cpm`, the run-to-run deltas in the history
+and the what-if shifts — is measured the same way, from each finish's
+`*_at_day_start` reading. A run recorded before TruePPM kept those readings is
+read as the end of its day. For how the rest of TruePPM measures finish shifts, see
+[Scheduler Conventions](/features/scheduler-conventions/)
+([#4204](https://gitlab.com/trueppm/trueppm/-/issues/4204)).
+
 It appears on the project **Overview**, alongside both dates it spans, and in the
 **project health chip** in the top bar on every other project view — Schedule,
 Board, Table and the rest — so it is one glance away wherever you are working. On

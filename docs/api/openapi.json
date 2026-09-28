@@ -58215,17 +58215,17 @@
                     "p50": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
+                        "description": "Signed P50 delta; positive = later. Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
                     },
                     "p80": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
+                        "description": "Signed P80 delta; positive = later. Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
                     },
                     "p95": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
+                        "description": "Signed P95 delta; positive = later. Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
                     }
                 },
                 "required": [
@@ -58270,7 +58270,7 @@
                     "risk_premium_days": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "P80 minus the CPM finish. Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
+                        "description": "P80 finish minus the deterministic CPM finish. Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
                     },
                     "risk_premium_ratio": {
                         "type": "number",
@@ -58694,22 +58694,22 @@
             },
             "MonteCarloWhatIfDelta": {
                 "type": "object",
-                "description": "Signed shift of ``whatif`` vs ``current``, per field, in working time (#993/#4204).\n\nSame ``p50``/``p80``/``p95`` shape as :class:`MonteCarloDeltaSerializer`,\nplus ``cpm_finish`` — the what-if endpoint's own deterministic-pass delta,\ndistinct from ``delta_vs_cpm``'s MC-vs-CPM comparison elsewhere.",
+                "description": "Signed shift of ``whatif`` vs ``current``, per field, in working time (#993/#4204).\n\nSame ``p50``/``p80``/``p95`` shape as :class:`MonteCarloDeltaSerializer`,\nplus ``cpm_finish`` — the what-if endpoint's own deterministic-pass delta,\ndistinct from ``delta_vs_cpm``'s MC-vs-CPM comparison elsewhere. All four are\nmeasured in working time and reported in calendar days.",
                 "properties": {
                     "p50": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
+                        "description": "Signed P50 shift; positive = later. Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
                     },
                     "p80": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
+                        "description": "Signed P80 shift; positive = later. Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
                     },
                     "p95": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
+                        "description": "Signed P95 shift; positive = later. Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
                     },
                     "cpm_finish": {
                         "type": "integer",
@@ -71181,7 +71181,7 @@
                     "delta_vs_cpm_days": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
+                        "description": "The percentile minus the deterministic CPM finish. Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
                     },
                     "drivers": {
                         "type": "array",
@@ -74879,7 +74879,13 @@
                     "schedule_variance_days": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Compute schedule variance: actual_finish - baseline_finish in calendar days.\n\nUses the active-baseline snapshot date, not early_finish (CPM). early_finish\ndrifts toward actual_finish on each CPM recompute, making the variance appear\nto shrink even when work is running late. Without an active baseline the\nmetric is undefined — returns None rather than a misleading CPM-relative value.",
+                        "description": "How late the task actually finished against the active baseline: actual_finish minus the baseline finish, measured in working time and reported in calendar days. Positive = late. A milestone baselined at the start of a Monday and finished on the Friday before reads 0, not -3. Null without an actual finish or a baseline finish.",
+                        "readOnly": true
+                    },
+                    "baseline_finish_variance_days": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Current forecast finish (early_finish) against the active baseline finish, measured in working time and reported in calendar days. Positive = the forecast is later than the baseline. A start-of-day milestone whose shown finish hops a weekend without moving in working time reads 0. Null when the task has no forecast finish or no baseline finish.",
                         "readOnly": true
                     },
                     "spi": {
@@ -75280,6 +75286,7 @@
                     "assignee_is_overallocated",
                     "assignments",
                     "baseline_finish",
+                    "baseline_finish_variance_days",
                     "baseline_start",
                     "blocked_age_seconds",
                     "blocked_by",
@@ -78377,7 +78384,13 @@
                     "schedule_variance_days": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Compute schedule variance: actual_finish - baseline_finish in calendar days.\n\nUses the active-baseline snapshot date, not early_finish (CPM). early_finish\ndrifts toward actual_finish on each CPM recompute, making the variance appear\nto shrink even when work is running late. Without an active baseline the\nmetric is undefined — returns None rather than a misleading CPM-relative value.",
+                        "description": "How late the task actually finished against the active baseline: actual_finish minus the baseline finish, measured in working time and reported in calendar days. Positive = late. A milestone baselined at the start of a Monday and finished on the Friday before reads 0, not -3. Null without an actual finish or a baseline finish.",
+                        "readOnly": true
+                    },
+                    "baseline_finish_variance_days": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Current forecast finish (early_finish) against the active baseline finish, measured in working time and reported in calendar days. Positive = the forecast is later than the baseline. A start-of-day milestone whose shown finish hops a weekend without moving in working time reads 0. Null when the task has no forecast finish or no baseline finish.",
                         "readOnly": true
                     },
                     "spi": {
@@ -78785,6 +78798,7 @@
                     "assignee_is_overallocated",
                     "assignments",
                     "baseline_finish",
+                    "baseline_finish_variance_days",
                     "baseline_start",
                     "blocked_age_seconds",
                     "blocked_by",

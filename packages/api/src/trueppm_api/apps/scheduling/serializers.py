@@ -81,9 +81,15 @@ class MonteCarloDeltaSerializer(serializers.Serializer[dict[str, Any]]):
     reading, still reported in calendar days.
     """
 
-    p50 = serializers.IntegerField(allow_null=True, help_text=_WORKING_TIME_DELTA_HELP)
-    p80 = serializers.IntegerField(allow_null=True, help_text=_WORKING_TIME_DELTA_HELP)
-    p95 = serializers.IntegerField(allow_null=True, help_text=_WORKING_TIME_DELTA_HELP)
+    p50 = serializers.IntegerField(
+        allow_null=True, help_text=f"Signed P50 delta; positive = later. {_WORKING_TIME_DELTA_HELP}"
+    )
+    p80 = serializers.IntegerField(
+        allow_null=True, help_text=f"Signed P80 delta; positive = later. {_WORKING_TIME_DELTA_HELP}"
+    )
+    p95 = serializers.IntegerField(
+        allow_null=True, help_text=f"Signed P95 delta; positive = later. {_WORKING_TIME_DELTA_HELP}"
+    )
 
 
 class MonteCarloHistogramBucketSerializer(serializers.Serializer[dict[str, Any]]):
@@ -174,7 +180,7 @@ class RiskPremiumFieldsSerializer(serializers.Serializer[dict[str, Any]]):
 
     risk_premium_days = serializers.IntegerField(
         allow_null=True,
-        help_text="P80 minus the CPM finish. " + _WORKING_TIME_DELTA_HELP,
+        help_text=f"P80 finish minus the deterministic CPM finish. {_WORKING_TIME_DELTA_HELP}",
     )
     risk_premium_ratio = serializers.FloatField(allow_null=True)
     # Always null until #2299 (the calibration flywheel); declared nullable now so
@@ -281,7 +287,8 @@ class ScheduleMonteCarloDerivationSerializer(ForecastStalenessFieldsSerializer):
         allow_null=True, help_text=_AT_DAY_START_HELP
     )
     delta_vs_cpm_days = serializers.IntegerField(
-        allow_null=True, help_text=_WORKING_TIME_DELTA_HELP
+        allow_null=True,
+        help_text=f"The percentile minus the deterministic CPM finish. {_WORKING_TIME_DELTA_HELP}",
     )
     drivers = MonteCarloSensitivitySerializer(many=True)
     runs = serializers.IntegerField()
@@ -386,12 +393,19 @@ class MonteCarloWhatIfDeltaSerializer(serializers.Serializer[dict[str, Any]]):
 
     Same ``p50``/``p80``/``p95`` shape as :class:`MonteCarloDeltaSerializer`,
     plus ``cpm_finish`` — the what-if endpoint's own deterministic-pass delta,
-    distinct from ``delta_vs_cpm``'s MC-vs-CPM comparison elsewhere.
+    distinct from ``delta_vs_cpm``'s MC-vs-CPM comparison elsewhere. All four are
+    measured in working time and reported in calendar days.
     """
 
-    p50 = serializers.IntegerField(allow_null=True, help_text=_WORKING_TIME_DELTA_HELP)
-    p80 = serializers.IntegerField(allow_null=True, help_text=_WORKING_TIME_DELTA_HELP)
-    p95 = serializers.IntegerField(allow_null=True, help_text=_WORKING_TIME_DELTA_HELP)
+    p50 = serializers.IntegerField(
+        allow_null=True, help_text=f"Signed P50 shift; positive = later. {_WORKING_TIME_DELTA_HELP}"
+    )
+    p80 = serializers.IntegerField(
+        allow_null=True, help_text=f"Signed P80 shift; positive = later. {_WORKING_TIME_DELTA_HELP}"
+    )
+    p95 = serializers.IntegerField(
+        allow_null=True, help_text=f"Signed P95 shift; positive = later. {_WORKING_TIME_DELTA_HELP}"
+    )
     cpm_finish = serializers.IntegerField(allow_null=True, help_text=_WORKING_TIME_DELTA_HELP)
 
 

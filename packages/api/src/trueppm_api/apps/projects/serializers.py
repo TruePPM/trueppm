@@ -3811,8 +3811,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         code = self._project_code(obj)
         return f"{code}-{display}" if code and display else display
 
-    # Computed: actual_finish - early_finish in days.  Positive = late, negative = early.
+    # Computed against the active baseline in working time (#4203). Positive = late.
     schedule_variance_days = serializers.SerializerMethodField()
+    baseline_finish_variance_days = serializers.SerializerMethodField()
 
     # ADR-0752: scheduled_start (the model field) is exposed implicitly via
     # Meta.fields, same as early_start. scheduled_finish and remaining_duration
@@ -4115,6 +4116,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "baseline_finish",
             "latest_note_at",
             "schedule_variance_days",
+            "baseline_finish_variance_days",
             "spi",
             "spi_band",
             "dwell_days",
@@ -4220,6 +4222,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "baseline_finish",
             "latest_note_at",
             "schedule_variance_days",
+            "baseline_finish_variance_days",
             "spi",
             "spi_band",
             "dwell_days",
@@ -5740,19 +5743,109 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         """
         return bool((obj.blocked_reason or "").strip()) and bool(obj.blocker_type)
 
+    @extend_schema_field(
+        serializers.IntegerField(
+            allow_null=True,
+            help_text=(
+                "How late the task actually finished against the active baseline: "
+                "actual_finish minus the baseline finish, measured in working time and "
+                "reported in calendar days. Positive = late. A milestone baselined at the "
+                "start of a Monday and finished on the Friday before reads 0, not -3. "
+                "Null without an actual finish or a baseline finish."
+            ),
+        )
+    )
     def get_schedule_variance_days(self, obj: Task) -> int | None:
-        """Compute schedule variance: actual_finish - baseline_finish in calendar days.
+        """How late finished work landed against the active baseline (#4203).
 
         Uses the active-baseline snapshot date, not early_finish (CPM). early_finish
         drifts toward actual_finish on each CPM recompute, making the variance appear
         to shrink even when work is running late. Without an active baseline the
         metric is undefined — returns None rather than a misleading CPM-relative value.
+
+        An actual finish is a recorded day and is read as its end. The baseline
+        finish carries the edge of the day it was captured at
+        (``BaselineTask.finish_at_day_start``), so a start-of-day milestone is read
+        as the end of the working day before it — the same comparison
+        ``program_rollup._schedule_variance_by_project`` averages, so the per-task
+        and program-level numbers agree.
         """
         actual = obj.actual_finish
         baseline: date | None = getattr(obj, "baseline_finish", None)
-        if actual and baseline:
-            return (actual - baseline).days
-        return None
+        if not (actual and baseline):
+            return None
+        return self._finish_vs_baseline_days(
+            obj,
+            (baseline, getattr(obj, "baseline_finish_at_day_start", None)),
+            (actual, False),
+        )
+
+    @extend_schema_field(
+        serializers.IntegerField(
+            allow_null=True,
+            help_text=(
+                "Current forecast finish (early_finish) against the active baseline "
+                "finish, measured in working time and reported in calendar days. "
+                "Positive = the forecast is later than the baseline. A start-of-day "
+                "milestone whose shown finish hops a weekend without moving in working "
+                "time reads 0. Null when the task has no forecast finish or no "
+                "baseline finish."
+            ),
+        )
+    )
+    def get_baseline_finish_variance_days(self, obj: Task) -> int | None:
+        """Forecast finish vs the baseline finish, in working time (#4203).
+
+        The board card's and schedule drawer's baseline chip. It used to be the
+        client's shown-day subtraction of ``baseline_finish`` from the forecast,
+        which cannot be made right on the client: the edge of each day lives on
+        the server (the task's own milestone reading, and the baseline's stored
+        ``finish_at_day_start``).
+        """
+        from trueppm_api.apps.scheduling.finish_reading import task_finish_at_day_start
+
+        baseline: date | None = getattr(obj, "baseline_finish", None)
+        if baseline is None or obj.early_finish is None:
+            return None
+        return self._finish_vs_baseline_days(
+            obj,
+            (baseline, getattr(obj, "baseline_finish_at_day_start", None)),
+            (obj.early_finish, task_finish_at_day_start(obj)),
+        )
+
+    def _finish_vs_baseline_days(
+        self,
+        obj: Task,
+        base: tuple[date, bool | None],
+        cur: tuple[date, bool | None],
+    ) -> int:
+        """``finish_shift_days(base, cur)`` with a per-request project calendar.
+
+        The calendar is composed only when either side is a start-of-day reading —
+        an end-of-day pair diffs identically without one — and at most once per
+        project per serialization: it is memoized on the root serializer's context,
+        which every row of a list response shares. A task list with no start-of-day
+        baseline or milestone therefore issues no extra query, and one that has
+        them issues a fixed set per project, never one per row.
+        """
+        from trueppm_api.apps.scheduling.finish_reading import finish_shift_days
+
+        if base == cur or not (base[1] or cur[1]):
+            return finish_shift_days(base, cur, None)
+        return finish_shift_days(base, cur, self._project_sched_calendar(obj))
+
+    def _project_sched_calendar(self, obj: Task) -> Any:
+        """The task's composed project calendar, memoized per serialization."""
+        from trueppm_api.apps.scheduling.calendars import project_sched_calendars
+
+        # DRF types ``context`` as a Mapping; it is the root serializer's own dict,
+        # which is what makes the memo shared by every row of a list response.
+        context = cast("dict[str, Any]", self.context)
+        cache: dict[str, Any] = context.setdefault("_sched_calendars", {})
+        key = str(obj.project_id)
+        if key not in cache:
+            cache[key] = project_sched_calendars([obj.project_id]).get(key)
+        return cache[key]
 
     def get_scheduled_finish(self, obj: Task) -> str | None:
         """Mirror of ``early_finish`` under the ADR-0752 ``scheduled_*`` name.
