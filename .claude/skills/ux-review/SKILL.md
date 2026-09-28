@@ -180,6 +180,10 @@ A surface can pass every dimension above and still ship effectively unbuilt: unr
 
 Severity: a primary daily surface that is route-only, or a headline advertised capability that is inert, is **HIGH** (it makes the feature appear shipped when it is not). A secondary affordance missing one entry point is MEDIUM. This check requires reading the router and the component's data hooks, not just the rendered markup — a screenshot looks complete in both failure modes.
 
+### Enterprise controls on team-scoped surfaces (rule 231)
+
+Sweep project-settings, program-settings and modal surfaces as well as the daily-path shell for disabled or locked controls that advertise Enterprise capability ("Learn about Enterprise", locked rows, greyed-out formats). A dead Enterprise control on a surface a team uses to run its own project is a premature upsell, and it is worse when it does not check the running edition.
+
 ## Output Format
 
 Rate each dimension: ✓ Pass / ⚠ Needs Improvement / ✗ Fail
