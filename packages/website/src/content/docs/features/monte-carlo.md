@@ -232,7 +232,7 @@ same `MC_SIMULATION_CAP` as a normal run). The response will carry:
 | `current` | The unperturbed forecast — `p50`/`p80`/`p95`, `cpm_finish`, and the `critical_path` (task IDs). |
 | `whatif` | The same fields recomputed with your perturbation applied. |
 | `critical_path_changed` | `true` when the perturbation moved which tasks are on the critical path. |
-| `delta_vs_current` | Per-field signed calendar-day shift (`p50`/`p80`/`p95`/`cpm_finish`); positive = later/worse. `cpm_finish` is measured in working time: a milestone finish shown at the start of a Monday counts as the end of the Friday before it, so a finish whose shown date only hops a weekend is `0` ([Scheduler Conventions](/features/scheduler-conventions/)). |
+| `delta_vs_current` | Per-field signed calendar-day shift (`p50`/`p80`/`p95`/`cpm_finish`); positive = later/worse. `p50`/`p80`/`p95` subtract the two shown finish days. `cpm_finish` is measured in working time: a milestone finish shown at the start of a Monday counts as the end of the Friday before it, so a finish whose shown date only hops a weekend is `0` ([Scheduler Conventions](/features/scheduler-conventions/)). |
 | `applied` | The resolved perturbation (`base_duration_days`, `duration_delta_days`, `new_duration_days`). |
 | `cpm_status_date` / `mc_status_date` | The resolved data dates fed to the deterministic CPM and Monte Carlo passes respectively — both floor a null project status date at today, so they always agree — see [Progress-aware forecasting](#progress-aware-forecasting) below. Shared by both `current` and `whatif`, since one call resolves each once. This endpoint never persists a run, so these are the only record of which data date produced the answer. |
 
@@ -646,6 +646,14 @@ drivers.
 the computed (CPM) finish. The computed finish is what your plan says if nothing
 varies; P80 is the date 4 in 5 simulations finished by. The difference between
 them is the time schedule uncertainty adds on top of the plan.
+
+Added time, like every Monte Carlo delta (`delta_vs_cpm` and the run-to-run
+deltas in the history), subtracts the two **shown** finish days. It is not
+measured in working time. When the project ends on a milestone shown at the start
+of a Monday, a P80 shown at the end of the Friday before reads `-3d` even though
+the two are at the same point in working time. For how the rest of TruePPM measures
+finish shifts, see [Scheduler Conventions](/features/scheduler-conventions/)
+([#4204](https://gitlab.com/trueppm/trueppm/-/issues/4204)).
 
 It appears on the project **Overview**, alongside both dates it spans, and in the
 **project health chip** in the top bar on every other project view — Schedule,

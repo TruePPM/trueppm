@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Task } from '@/types';
 import type { EstimationScale } from '@/api/types';
 import { formatRelative } from '@/lib/formatRelative';
+import { baselineFinishVariance } from '@/lib/baselineFinishVariance';
 import { NoteIcon } from '@/components/Icons';
 import { formatStoryPoints, storyPointsUnit } from '@/lib/storyPoints';
 import type { ProjectCustomField } from '@/hooks/useProjectCustomFields';
@@ -15,17 +16,6 @@ import { CardHealthPeek } from './CardHealthPeek';
 import { CardTitleButton } from './CardTitleButton';
 import type { BoardCardView } from './useBoardCardView';
 import { useLaneCrumb } from '../LaneCrumbContext';
-
-/**
- * Baseline variance in calendar days between forecast finish and baseline
- * (issue 186). Positive = late. Null when the task is not baselined.
- */
-function baselineVariance(task: Task): number | null {
-  if (!task.baselineFinish) return null;
-  return Math.round(
-    (new Date(task.finish).getTime() - new Date(task.baselineFinish).getTime()) / 86_400_000,
-  );
-}
 
 /**
  * Identity meta row (issue 1230) — a stream/label color tag (keyed to the card's
@@ -265,7 +255,7 @@ export function CardFullBody({
       <CardHealthPeek
         task={task}
         view={view}
-        baselineVarianceDays={baselineVariance(task)}
+        baselineVarianceDays={baselineFinishVariance(task)}
         peekOpen={peekOpen}
       />
       {/* end health-chip peek (issue 1305) */}

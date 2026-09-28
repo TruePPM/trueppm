@@ -319,6 +319,135 @@ def test_hitting_a_start_of_day_milestone_the_friday_before_is_on_time(
 
 
 # ---------------------------------------------------------------------------
+# Per-task variances on the task list (#4203)
+# ---------------------------------------------------------------------------
+
+
+def _task_row(client: APIClient, project: Project, task: Task) -> dict[str, Any]:
+    res = client.get(f"/api/v1/tasks/?project={project.pk}&page_size=500")
+    assert res.status_code == 200, res.content
+    body = res.json()
+    rows = body["results"] if isinstance(body, dict) else body
+    return next(r for r in rows if r["id"] == str(task.pk))
+
+
+@pytest.mark.django_db
+def test_task_list_forecast_variance_reads_a_weekend_hop_as_zero(
+    client: APIClient, project: Project, network: tuple[Task, Dependency]
+) -> None:
+    """``baseline_finish_variance_days``: the board/drawer baseline chip's number."""
+    m, dep = network
+    _recompute(project)
+    _capture_baseline(client, project)  # end of Friday
+    _set_lag(project, dep, 1)  # start of Monday: same working-time point
+    row = _task_row(client, project, m)
+    assert (row["baseline_finish"], row["early_finish"]) == (FRI.isoformat(), MON.isoformat())
+    assert row["baseline_finish_variance_days"] == 0
+    # The Baseline tab endpoint (#4197) and the list now agree.
+    assert _task_baseline_deltas(client, project, m)[1] == 0
+
+
+@pytest.mark.django_db
+def test_task_list_forecast_variance_still_reports_a_real_slip(
+    client: APIClient, project: Project, network: tuple[Task, Dependency]
+) -> None:
+    m, dep = network
+    _recompute(project)
+    _capture_baseline(client, project)
+    _set_lag(project, dep, 3)  # end of Monday: one working day late
+    assert _task_row(client, project, m)["baseline_finish_variance_days"] == 3
+
+
+@pytest.mark.django_db
+def test_task_list_schedule_variance_matches_the_program_rollup(
+    client: APIClient, project: Project, network: tuple[Task, Dependency]
+) -> None:
+    """``schedule_variance_days``: a start-of-day milestone hit the Friday before is on time.
+
+    Previously -3 on the task list while the program rollup's average of the same
+    quantity (#4197) read 0 — the two must agree.
+    """
+    from trueppm_api.apps.projects.program_rollup import _schedule_variance_by_project
+
+    m, dep = network
+    _set_lag(project, dep, 1)  # baselined at the start of Monday
+    _capture_baseline(client, project)
+    Task.objects.filter(pk=m.pk).update(
+        status=TaskStatus.COMPLETE, actual_finish=FRI, percent_complete=100
+    )
+    assert _task_row(client, project, m)["schedule_variance_days"] == 0
+    assert _schedule_variance_by_project([project.pk]) == {project.pk: 0.0}
+
+    # A real lateness is still reported: finished the Monday after = +3.
+    Task.objects.filter(pk=m.pk).update(actual_finish=MON)
+    assert _task_row(client, project, m)["schedule_variance_days"] == 3
+
+
+@pytest.mark.django_db
+def test_task_variances_without_a_baseline_are_null(
+    client: APIClient, project: Project, network: tuple[Task, Dependency]
+) -> None:
+    m, _ = network
+    _recompute(project)
+    row = _task_row(client, project, m)
+    assert row["baseline_finish_variance_days"] is None
+    assert row["schedule_variance_days"] is None
+
+
+def test_task_list_variance_query_count_does_not_grow_with_rows(
+    client: APIClient, project: Project, admin: Any, django_assert_num_queries: Any
+) -> None:
+    """No N+1: the calendar is composed once per project per response, not per row.
+
+    Every row here is a start-of-day milestone against an end-of-day baseline —
+    the case that needs the project calendar — so a per-row compose would scale
+    the count with the page.
+    """
+    baseline = Baseline.objects.create(
+        project=project, name="B", created_by=admin, is_active=True, has_cpm_dates=True
+    )
+
+    def add(n: int) -> None:
+        for i in range(n):
+            ms = Task.objects.create(
+                project=project,
+                name=f"M{Task.objects.count()}-{i}",
+                duration=0,
+                is_milestone=True,
+                early_start=MON,
+                early_finish=MON,
+                milestone_at_day_end=False,
+            )
+            BaselineTask.objects.create(
+                baseline=baseline,
+                task_id=ms.pk,
+                task_name=ms.name,
+                start=FRI,
+                finish=FRI,
+                duration=0,
+                finish_at_day_start=False,
+            )
+
+    def fetch() -> list[dict[str, Any]]:
+        res = client.get(f"/api/v1/tasks/?project={project.pk}&page_size=500")
+        assert res.status_code == 200, res.content
+        body = res.json()
+        return body["results"] if isinstance(body, dict) else body
+
+    add(1)
+    fetch()  # warm-up: first-use singletons would count once only
+    with CaptureQueriesContext(connection) as ctx:
+        rows = fetch()
+    assert [r["baseline_finish_variance_days"] for r in rows] == [0]
+    one = len(ctx.captured_queries)
+
+    add(4)
+    with django_assert_num_queries(one):
+        rows = fetch()
+    assert [r["baseline_finish_variance_days"] for r in rows] == [0] * 5
+
+
+# ---------------------------------------------------------------------------
 # Units
 # ---------------------------------------------------------------------------
 

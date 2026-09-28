@@ -82,6 +82,10 @@ export interface ApiTask {
   actual_start: string | null;
   actual_finish: string | null;
   schedule_variance_days: number | null;
+  /** Forecast finish vs the active baseline finish, in working time (#4203).
+   *  Optional: a payload from a server before the field simply omits it, and the
+   *  baseline chips then fall back to subtracting the shown days. */
+  baseline_finish_variance_days?: number | null;
   // Server-owned per-task SPI + verdict (#990) and stalled verdict + dwell fact (#992).
   spi?: number | null;
   spi_band?: 'on_track' | 'at_risk' | 'behind' | null;
@@ -401,6 +405,7 @@ export function mapTask(t: ApiTask): Task {
     actualStart: t.actual_start ?? undefined,
     actualFinish: t.actual_finish ?? undefined,
     scheduleVarianceDays: t.schedule_variance_days,
+    baselineFinishVarianceDays: t.baseline_finish_variance_days,
     spi: t.spi ?? null,
     spiBand: t.spi_band ?? null,
     isStalled: t.is_stalled ?? false,
@@ -576,6 +581,11 @@ export function applyTaskDatesDelta(existing: Task, delta: TaskDatesDelta): Task
     duration: delta.duration,
     isSummary: existing.isSummary,
   });
+  const milestoneAtDayEnd = resolveMilestoneAtDayEnd({
+    flag: existing.isMilestone && delta.milestone_at_day_end,
+    plannedStart: delta.planned_start,
+    spanStart: delta.scheduled_start ?? delta.early_start,
+  });
   return {
     ...existing,
     start,
@@ -584,15 +594,19 @@ export function applyTaskDatesDelta(existing: Task, delta: TaskDatesDelta): Task
     // (#3530) — spliced straight through, exactly as a re-fetch would map it.
     duration: delta.duration,
     isCritical: delta.is_critical,
-    milestoneAtDayEnd: resolveMilestoneAtDayEnd({
-      flag: existing.isMilestone && delta.milestone_at_day_end,
-      plannedStart: delta.planned_start,
-      spanStart: delta.scheduled_start ?? delta.early_start,
-    }),
+    milestoneAtDayEnd,
     totalFloat: delta.total_float,
     freeFloat: delta.free_float,
     lateFinish: delta.late_finish ?? undefined,
     plannedStart: delta.planned_start,
+    // The server's working-time baseline variance is only still true while the
+    // finish it was measured from is unchanged. The delta does not carry a new
+    // one, so a moved finish drops it and the chip falls back to the shown-day
+    // difference until the next re-fetch (#4203).
+    baselineFinishVarianceDays:
+      finish === existing.finish && milestoneAtDayEnd === existing.milestoneAtDayEnd
+        ? existing.baselineFinishVarianceDays
+        : undefined,
   };
 }
 
