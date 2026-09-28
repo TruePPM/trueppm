@@ -868,8 +868,8 @@ def test_free_float_is_the_slip_every_successor_absorbs(p: Project) -> None:
     Friday (#4173). A reading tie at an end-of-day milestone (#4183) is folded into
     the same free-instant computation (``engine._free_start_ref`` layered on
     ``engine._milestone_free_instants``), so this needs no exemption for it: the
-    ``TODO(#4183)`` this test carried before the two branches were combined is
-    resolved, and both directions hold unconditionally.
+    open-issue placeholder this test carried before the two branches were combined
+    is resolved, and both directions hold unconditionally.
     """
     result = schedule(p)
     has_successor = {d.predecessor_id for d in p.dependencies}
