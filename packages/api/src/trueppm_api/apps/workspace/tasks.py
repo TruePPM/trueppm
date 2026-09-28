@@ -580,7 +580,7 @@ def _render_invite_email(invite: object) -> tuple[str, str]:
         ]
     body = "\n".join(
         [
-            f"{inviter_name} has invited you to join {workspace_name} as a {role_label}.",
+            f"{inviter_name} has invited you to join {workspace_name} with the {role_label} role.",
             "",
             *accept_lines,
             "",
