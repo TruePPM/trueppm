@@ -884,6 +884,62 @@ def _milestone_refs(instant: date, cal: Calendar) -> tuple[date, date]:
     return instant, _prev_working_day(_safe_offset(instant, -_ONE_DAY), cal)
 
 
+def _milestone_free_instants(
+    topo_order: list[str],
+    g: nx.DiGraph[str],
+    task_map: dict[str, Task],
+    instants: dict[str, _Instant],
+    cal_for: Callable[[str], Calendar],
+) -> dict[str, date]:
+    """The latest instant each milestone may reach without moving anything (#4180).
+
+    Free float asks how far a predecessor can slip before a successor moves, and a
+    milestone's early position is its shown day plus its reading, not the raw
+    instant. A start-of-day reading is shown on ``next_wd(instant)``, and every
+    midnight from the instant up to that one lies in the same stretch of
+    non-working time, with the same shown day and reading. So
+    ``A(4d) -FS+2d-> M`` (Sunday midnight, shown Monday) lets ``A`` slip one day to
+    Monday midnight without moving ``M``: one day of free float, not zero.
+
+    An end-of-day reading stays at the raw instant: ``A -FS+1d-> M`` puts ``M`` at
+    Saturday midnight shown Friday, and the next midnight is shown Monday (#4173).
+    This is the free-float twin of :func:`_milestone_finish_bound`.
+
+    The raw instant is still what the milestone's own links measure from, and a
+    calendar-day lag carries it downstream (``M -FS+1d-> N`` proposes Monday
+    midnight from Sunday, Tuesday midnight from Monday). So the stretch is also
+    capped by every live successor link, inverted with :func:`_milestone_latest`
+    against that successor's early references — its own free instant when it is
+    a milestone, which is why this runs in reverse topological order. Moving the
+    instant anywhere up to the result moves nothing downstream.
+    """
+    free: dict[str, date] = {}
+    for node_id in reversed(topo_order):
+        early = instants.get(node_id)
+        if early is None:
+            continue
+        instant, start_display = early
+        cal = cal_for(node_id)
+        if not start_display:
+            free[node_id] = instant
+            continue
+        bound = _next_working_day(instant, cal)
+        for succ_id in g.successors(node_id):
+            succ = task_map[succ_id]
+            if _is_complete(succ):
+                continue
+            dep: Dependency = g[node_id][succ_id]["dep"]
+            succ_free = free.get(succ_id)
+            if succ_free is None:
+                assert succ.early_start is not None and succ.early_finish is not None
+                refs = (succ.early_start, succ.early_finish)
+            else:
+                refs = _milestone_refs(succ_free, cal_for(succ_id))
+            bound = min(bound, _milestone_latest(dep.dep_type, dep.lag, *refs, cal))
+        free[node_id] = max(instant, bound)
+    return free
+
+
 def _milestone_latest(
     dep_type: DependencyType,
     lag: timedelta,
@@ -1968,6 +2024,15 @@ def _compute_floats(
     # predecessor that pins the successor's early date. Collected as a side output
     # of the same slack loop that computes free float; purely presentational.
     driving_edges: list[DrivingEdge] = []
+    # Free float compares a milestone successor by its shown position, not its raw
+    # instant (#4180).
+    free_instants = _milestone_free_instants(
+        topo_order,
+        g,
+        task_map,
+        early_instants,
+        lambda tid: calendar if task_calendars is None else task_calendars.get(tid, calendar),
+    )
 
     for node_id in topo_order:
         task = task_map[node_id]
@@ -2037,6 +2102,7 @@ def _compute_floats(
             driving_edges,
             early_instants,
             task_calendars,
+            free_instants,
         )
         task.free_float = timedelta(days=max(0, ff_days))
 
@@ -2074,6 +2140,7 @@ def _free_float_days(
     driving_edges: list[DrivingEdge],
     instants: dict[str, _Instant],
     task_calendars: dict[str, Calendar] | None,
+    free_instants: dict[str, date],
 ) -> int:
     """Working days this task can slip before it moves any live successor's early date.
 
@@ -2095,12 +2162,12 @@ def _free_float_days(
             continue
         dep: Dependency = g[node_id][succ_id]["dep"]
         assert succ.early_start is not None and succ.early_finish is not None
-        succ_instant = instants.get(succ_id)
+        succ_instant = free_instants.get(succ_id)
         if succ_instant is None:
             refs = (succ.early_start, succ.early_finish)
         else:
             succ_cal = calendar if task_calendars is None else task_calendars.get(succ_id, calendar)
-            refs = _milestone_refs(succ_instant[0], succ_cal)
+            refs = _milestone_refs(succ_instant, succ_cal)
         own = instants.get(node_id)
         slack = _link_slack(
             dep, task, refs, None if own is None else own[0], node_cal, wd_counter, calendar
@@ -2134,7 +2201,8 @@ def _link_slack(
     so the proxy both over- and under-counted the true slack (#1828).
 
     ``succ_refs`` is the successor's ``(early_start, early_finish)``, or a milestone
-    successor's late-instant references (:func:`_milestone_refs`); ``instant`` is
+    successor's references at its free-float instant (:func:`_milestone_refs` of
+    :func:`_milestone_free_instants`); ``instant`` is
     this task's own early instant when it is a milestone (#4079), whose slip is
     measured between instants.
     """
@@ -3241,6 +3309,29 @@ def _milestone_instants(
         task_map, topo_order, g, project_finish, project.calendar, task_calendars, instants
     )
     return instants, late_instants, _finish_instant(task_map, instants)
+
+
+def _project_free_instants(
+    project: Project, scheduled: list[Task], instants: dict[str, _Instant]
+) -> dict[str, date]:
+    """:func:`_milestone_free_instants` over a scheduled project, for :mod:`derive` (#4180).
+
+    ``scheduled`` is the result's task list, which carries the early dates the
+    project's own (unscheduled) tasks do not.
+    """
+    g = _build_graph(project)
+    task_calendars = _resolve_task_calendars(project)
+    return _milestone_free_instants(
+        list(nx.topological_sort(g)),
+        g,
+        {t.id: t for t in scheduled},
+        instants,
+        lambda tid: (
+            project.calendar
+            if task_calendars is None
+            else task_calendars.get(tid, project.calendar)
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

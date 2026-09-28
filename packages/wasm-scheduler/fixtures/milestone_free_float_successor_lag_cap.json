@@ -1,0 +1,21 @@
+{
+  "id": "p-milestone-free-float-successor-lag-cap",
+  "name": "A live successor lag out of a start-of-day milestone caps its free instant (#4180)",
+  "start_date": "2026-01-05",
+  "tasks": [
+    {"id": "A", "name": "Work", "duration": 345600.0},
+    {"id": "M", "name": "Done", "duration": 0.0},
+    {"id": "B", "name": "After", "duration": 86400.0},
+    {"id": "W", "name": "Unrelated", "duration": 1296000.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "M", "dep_type": "FS", "lag": 172800.0},
+    {"predecessor_id": "M", "successor_id": "B", "dep_type": "FS", "lag": 86400.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

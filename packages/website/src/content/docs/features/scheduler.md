@@ -109,6 +109,15 @@ an FS successor does. Two behaviors are worth knowing:
   not tighten free float.
 - **A task with no live successor falls back to its total float.** There is
   nothing downstream for it to move, so its free float is its total float.
+- **A milestone successor is measured by the day it is shown on.** A milestone
+  shown at the start of a working day may move to any midnight in the
+  non-working time before that day without moving. For example,
+  `A(4d) -FS+2d-> M` places `M` at Sunday midnight, shown on Monday, and a
+  one-day slip of `A` only moves it to Monday midnight, so `A` has one day of
+  free float. The exception is when a lag on one of `M`'s own links would carry
+  that move further downstream. A milestone shown at the end of a day stays
+  fixed: `A -FS+1d-> M` (shown on Friday) leaves `A` with no free float, because a
+  one-day slip moves `M` to Monday.
 :::
 
 ### Which float answers which question

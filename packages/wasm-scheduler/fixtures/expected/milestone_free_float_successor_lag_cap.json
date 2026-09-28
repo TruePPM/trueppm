@@ -1,0 +1,66 @@
+{
+  "project_id": "p-milestone-free-float-successor-lag-cap",
+  "project_start": "2026-01-05",
+  "project_finish": "2026-01-23",
+  "tasks": [
+    {
+      "id": "A",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-08",
+      "late_start": "2026-01-14",
+      "late_finish": "2026-01-19",
+      "total_float": 604800.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-01-05"
+    },
+    {
+      "id": "M",
+      "early_start": "2026-01-12",
+      "early_finish": "2026-01-12",
+      "late_start": "2026-01-22",
+      "late_finish": "2026-01-22",
+      "total_float": 691200.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-01-12"
+    },
+    {
+      "id": "B",
+      "early_start": "2026-01-12",
+      "early_finish": "2026-01-12",
+      "late_start": "2026-01-23",
+      "late_finish": "2026-01-23",
+      "total_float": 777600.0,
+      "free_float": 777600.0,
+      "is_critical": false,
+      "scheduled_start": "2026-01-12"
+    },
+    {
+      "id": "W",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-23",
+      "late_start": "2026-01-05",
+      "late_finish": "2026-01-23",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-05"
+    }
+  ],
+  "critical_path": [
+    "W"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "A",
+      "successor_id": "M",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "M",
+      "successor_id": "B",
+      "dep_type": "FS"
+    }
+  ]
+}
