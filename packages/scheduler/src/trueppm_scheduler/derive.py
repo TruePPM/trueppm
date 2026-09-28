@@ -41,10 +41,13 @@ from trueppm_scheduler.engine import (
     _edge_anchor,
     _effective_duration_days,
     _finish_from_start,
+    _float_late_instant,
+    _free_start_ref,
     _Instant,
     _instant_day,
     _is_complete,
     _late_display,
+    _link_start_ref,
     _milestone_finish_bound,
     _milestone_instants,
     _milestone_latest,
@@ -736,7 +739,9 @@ _RefsFn = Callable[..., tuple[date, date]]
 _DayFn = Callable[[date], date]
 
 
-def _late_dates(succ: Task, _dep_type: DependencyType | None = None) -> tuple[date, date]:
+def _late_dates(
+    succ: Task, _dep_type: DependencyType | None = None, _lag: timedelta | None = None
+) -> tuple[date, date]:
     """An ordinary successor's ``(late_start, late_finish)`` references."""
     assert succ.late_start is not None and succ.late_finish is not None
     return succ.late_start, succ.late_finish
@@ -791,7 +796,7 @@ def _backward_successor_terms(
         # a derivation term or the explanation would disagree with the late dates.
         if _is_complete(succ):
             continue
-        succ_start, succ_finish = (refs or _late_dates)(succ, dep_type)
+        succ_start, succ_finish = (refs or _late_dates)(succ, dep_type, lag)
 
         if dep_type == DependencyType.FS:
             raw = _safe_offset(succ_start, -timedelta(days=1) - lag)
@@ -1091,7 +1096,7 @@ def _derive_free_float(
             dep_type,
             lag,
             cal,
-            early_refs(succ, dep_type) if early_refs is not None else None,
+            early_refs(succ, dep_type, lag) if early_refs is not None else None,
             milestone,
         )
         slack = max(0, slack)
@@ -1164,20 +1169,29 @@ def _milestone_context(
     def cal_of(tid: str) -> Calendar:
         return _cal_for(tid, default_cal, task_calendars)
 
-    def late_refs(succ: Task, _dep_type: DependencyType) -> tuple[date, date]:
+    own = instants.get(task.id)
+
+    def late_refs(succ: Task, dep_type: DependencyType, lag: timedelta) -> tuple[date, date]:
         late = late_instants.get(succ.id)
         if late is None:
             return _late_dates(succ)
-        return _milestone_refs(late, cal_of(succ.id))
+        # The same per-link cap the backward pass applies (#4183).
+        succ_cal = cal_of(succ.id)
+        start_ref, finish_ref = _milestone_refs(late, succ_cal)
+        pf = result.project_finish
+        is_milestone = own is not None
+        return _link_start_ref(start_ref, dep_type, lag, is_milestone, succ_cal, pf), finish_ref
 
-    def early_refs(succ: Task, _dep_type: DependencyType) -> tuple[date, date]:
+    def early_refs(succ: Task, dep_type: DependencyType, lag: timedelta) -> tuple[date, date]:
         assert succ.early_start is not None and succ.early_finish is not None
         early = instants.get(succ.id)
         if early is None:
             return succ.early_start, succ.early_finish
-        return _milestone_refs(early[0], cal_of(succ.id))
+        # The same reading-tie bound engine._free_float_days applies (#4183).
+        succ_cal = cal_of(succ.id)
+        _, finish_ref = _milestone_refs(early[0], succ_cal)
+        return _free_start_ref(early, dep_type, lag, own, succ_cal), finish_ref
 
-    own = instants.get(task.id)
     milestone: tuple[date, _DayFn] | None = None
     own_instants: tuple[date, date] | None = None
     if own is not None and task.id in late_instants:
@@ -1189,7 +1203,10 @@ def _milestone_context(
             return _late_display(instant, task, own_early, cal, result.project_finish)
 
         milestone = (own[0], day_of)
-        own_instants = (own[0], late_instants[task.id])
+        own_instants = (
+            own[0],
+            _float_late_instant(late_instants[task.id], own, cal, result.project_finish),
+        )
     links = [_LinkContext(instants.get(p.id), cal_of(p.id), own is not None) for p, _, _ in preds]
     return _MilestoneContext(late_refs, early_refs, milestone, own_instants, links, finish_instant)
 

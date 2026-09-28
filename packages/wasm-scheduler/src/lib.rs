@@ -425,7 +425,7 @@ pub(crate) fn compute_full(project: &Project, pg: &ProjectGraph) -> Result<Sched
         .max()
         .ok_or("No tasks with early_finish after forward pass")?;
 
-    let late_instants = backward_pass(
+    let float_lates = backward_pass(
         &mut tasks,
         &pg.topo_order,
         pg,
@@ -442,7 +442,7 @@ pub(crate) fn compute_full(project: &Project, pg: &ProjectGraph) -> Result<Sched
         &project.dependencies,
         &cals,
         &instants,
-        &late_instants,
+        &float_lates,
     )?;
 
     // Deterministic, topologically-valid critical-path order keyed by
@@ -1389,5 +1389,146 @@ mod tests {
         assert_eq!(fs1.critical_path, vec!["A".to_string(), "M".to_string()]);
         let fs1_slipped = schedule_impl(&build(1.0, Some(d(2026, 1, 6)))).unwrap();
         assert_eq!(fs1_slipped.project_finish, d(2026, 1, 12));
+    }
+
+    /// #4183: `W(5d)` ends the project at Saturday midnight, shown Friday.
+    /// `X(2d) -SS+3d-> M` puts M at Thursday midnight, read as start of day. A
+    /// two-day slip of X lands M on Saturday midnight, the finish instant, but read
+    /// as start of day it is shown Monday and moves the finish, so X has one day of
+    /// float, not two. M's own float stops at Friday midnight for the same reason.
+    #[test]
+    fn test_start_of_day_milestone_tying_the_finish_instant_does_not_overstate_float() {
+        let d = |y, m, dd| NaiveDate::from_ymd_opt(y, m, dd).unwrap();
+        let build = |x_pin: Option<NaiveDate>| {
+            let mut x = make_task("X", 2);
+            x.planned_start = x_pin;
+            Project {
+                id: "p".to_string(),
+                name: "p".to_string(),
+                start_date: d(2026, 1, 5),
+                tasks: vec![make_task("W", 5), x, make_task("M", 0)],
+                dependencies: vec![Dependency {
+                    dep_type: DependencyType::SS,
+                    lag: 3.0 * 86400.0,
+                    ..dep("X", "M")
+                }],
+                calendar: Calendar::default(),
+                status_date: None,
+                calendars: None,
+                velocity_samples: None,
+                sprint_length_days: None,
+            }
+        };
+        let find =
+            |r: &ScheduleResult, id: &str| r.tasks.iter().find(|t| t.id == id).cloned().unwrap();
+        let one_day = 86400.0;
+
+        let result = schedule_impl(&build(None)).unwrap();
+        assert_eq!(result.project_finish, d(2026, 1, 9));
+        let x = find(&result, "X");
+        assert_eq!(x.total_float, one_day);
+        assert_eq!(x.late_start, d(2026, 1, 6));
+        let m = find(&result, "M");
+        assert!(!m.milestone_at_day_end);
+        assert_eq!(m.total_float, one_day);
+        assert_eq!(m.late_start, d(2026, 1, 9));
+
+        // Slipping X by its float leaves the finish; one more day moves it.
+        let slipped = schedule_impl(&build(Some(d(2026, 1, 6)))).unwrap();
+        assert_eq!(slipped.project_finish, d(2026, 1, 9));
+        let slipped2 = schedule_impl(&build(Some(d(2026, 1, 7)))).unwrap();
+        assert_eq!(slipped2.project_finish, d(2026, 1, 12));
+    }
+
+    /// #4183, free float: `A(3d) -FS-> M -FS-> B(1d)` puts M at Thursday midnight,
+    /// read as the end of Wednesday. `X(2d) -SS+1d-> M` proposes Tuesday midnight; a
+    /// two-day slip ties M's instant with a start-of-day proposal, which flips M to
+    /// the start of Thursday without moving its instant. X has one day of free
+    /// float, not two. `X -SS+1d-> M0 -FS-> M` is the same tie one hop later: M0's
+    /// start-of-day reading carries over the zero-lag link.
+    #[test]
+    fn test_free_float_stops_before_a_milestone_reading_tie() {
+        let d = |y, m, dd| NaiveDate::from_ymd_opt(y, m, dd).unwrap();
+        let build = |x_pin: Option<NaiveDate>, via_m0: bool| {
+            let mut x = make_task("X", 2);
+            x.planned_start = x_pin;
+            let mut tasks = vec![make_task("A", 3), x, make_task("M", 0), make_task("B", 1)];
+            let mut dependencies = vec![dep("A", "M"), dep("M", "B")];
+            let ss1 = |p: &str, s: &str| Dependency {
+                dep_type: DependencyType::SS,
+                lag: 86400.0,
+                ..dep(p, s)
+            };
+            if via_m0 {
+                tasks.push(make_task("M0", 0));
+                dependencies.push(ss1("X", "M0"));
+                dependencies.push(dep("M0", "M"));
+            } else {
+                dependencies.push(ss1("X", "M"));
+            }
+            Project {
+                id: "p".to_string(),
+                name: "p".to_string(),
+                start_date: d(2026, 1, 5),
+                tasks,
+                dependencies,
+                calendar: Calendar::default(),
+                status_date: None,
+                calendars: None,
+                velocity_samples: None,
+                sprint_length_days: None,
+            }
+        };
+        let find =
+            |r: &ScheduleResult, id: &str| r.tasks.iter().find(|t| t.id == id).cloned().unwrap();
+        let one_day = 86400.0;
+
+        let result = schedule_impl(&build(None, false)).unwrap();
+        let m = find(&result, "M");
+        assert!(m.milestone_at_day_end);
+        assert_eq!(m.early_start, d(2026, 1, 7));
+        let x = find(&result, "X");
+        assert_eq!(x.free_float, one_day);
+        assert_eq!(x.total_float, 2.0 * one_day);
+        assert_eq!(find(&result, "A").free_float, 0.0);
+        let edges: Vec<(&str, &str)> = result
+            .driving_edges
+            .iter()
+            .map(|e| (e.predecessor_id.as_str(), e.successor_id.as_str()))
+            .collect();
+        assert!(!edges.contains(&("X", "M")));
+        assert!(edges.contains(&("A", "M")));
+
+        // Slipping X by its free float leaves M; one more day flips its reading.
+        let slipped = schedule_impl(&build(Some(d(2026, 1, 6)), false)).unwrap();
+        let one = find(&slipped, "M");
+        assert_eq!(
+            (one.early_start, one.milestone_at_day_end),
+            (d(2026, 1, 7), true)
+        );
+        // One day before the tie X has no free float left, but A still sets M's
+        // instant, so X -> M is not a driving edge.
+        assert_eq!(find(&slipped, "X").free_float, 0.0);
+        let slipped_edges: Vec<(&str, &str)> = slipped
+            .driving_edges
+            .iter()
+            .map(|e| (e.predecessor_id.as_str(), e.successor_id.as_str()))
+            .collect();
+        assert!(!slipped_edges.contains(&("X", "M")));
+        assert!(slipped_edges.contains(&("A", "M")));
+        let two = find(
+            &schedule_impl(&build(Some(d(2026, 1, 7)), false)).unwrap(),
+            "M",
+        );
+        assert_eq!(
+            (two.early_start, two.milestone_at_day_end),
+            (d(2026, 1, 8), false)
+        );
+
+        let via = schedule_impl(&build(None, true)).unwrap();
+        let m0 = find(&via, "M0");
+        assert!(!m0.milestone_at_day_end);
+        assert_eq!(m0.free_float, one_day);
+        assert_eq!(m0.total_float, 2.0 * one_day);
     }
 }

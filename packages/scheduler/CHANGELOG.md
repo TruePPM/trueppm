@@ -98,8 +98,38 @@ change between releases. Pin an exact version (e.g.
   display rule, because a one-day slip moves the shown finish to Monday.
   Introduced by the #4079 change above; never released. The Rust/WASM engine
   moves with it. This fix measures float by the shown day, not the underlying
-  working-time position; #4183 tracks a separate open question about a
-  start-of-day milestone overstating float under that same measure.
+  working-time position; the next entry (#4183) fixes a start-of-day milestone
+  overstating float under that same measure.
+- **Float no longer lets a start-of-day milestone slip onto an end-of-day
+  finish (#4183).** When the project ends at the end of a day (`W(5d)` finishing
+  Friday, finish instant Saturday midnight), a milestone placed by an SS link
+  from work reads as the start of a day. `X(2d) -SS+3d-> M` puts `M` at Thursday
+  midnight and reported two days of float for `X`, but a two-day slip lands `M`
+  on Saturday midnight, which it shows as Monday, and `project_finish` moves.
+  The late pass now caps such a link at the last working day on or before
+  `project_finish`, so `X` has one day. The cap is per link: an FS predecessor
+  of the same milestone, which places it at the end of a day, keeps the full
+  window. The Rust/WASM engine moves with it.
+- **A milestone's own total float is measured to the reading it is shown with
+  (#4183).** This redefines a milestone's own float, beyond the case above: a
+  start-of-day milestone floats only as far as that reading can go without
+  moving the shown `project_finish` (`_float_late_instant`). Near the finish
+  this makes `total_float` the working-day span between the milestone's shown
+  `early_start` and `late_start`, which `_late_display` already capped. Other
+  networks change too: a lone milestone held by a floor, or `X -SF-> M`, can
+  report one day less float (5 → 4 in the cases found), and some such
+  milestones become `is_critical` and join `critical_path`. It is not a general
+  invariant: a start-of-day milestone whose late instant is a weekend midnight
+  before the finish is still shown late on the Friday while its float runs
+  through that Friday.
+- **Free float stops before a midnight reading tie (#4183).** An end-of-day
+  milestone (`A(3d) -FS-> M`, Thursday midnight, shown the end of Wednesday)
+  flips to the start-of-day reading when a start-of-day proposal ties its
+  instant, so `X(2d) -SS+1d-> M` moved `M`'s shown day on a two-day slip while
+  reporting two days of free float. Free float through a link that would read
+  the instant as start of day is now inverted against the day before it
+  (`_free_start_ref`, Rust `free_start_ref`), including a zero-lag link carrying
+  a start-of-day milestone's reading. `X` has one day.
 - **A long calendar exception no longer makes `schedule()` slow in proportion
   to the number of dependencies (#4161).** Every dependency edge snaps a date to
   a working day in the forward pass, the backward pass, and the free-float

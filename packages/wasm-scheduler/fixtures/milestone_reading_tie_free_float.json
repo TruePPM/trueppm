@@ -1,0 +1,28 @@
+{
+  "id": "p-milestone-reading-tie-free-float",
+  "name": "Free float stops before a start-of-day proposal ties an end-of-day milestone (#4183)",
+  "start_date": "2026-01-05",
+  "tasks": [
+    {"id": "A", "name": "FS driver", "duration": 259200.0},
+    {"id": "X", "name": "SS feeder", "duration": 172800.0},
+    {"id": "Y", "name": "SS feeder one day before the tie", "duration": 172800.0, "planned_start": "2026-01-06"},
+    {"id": "Z", "name": "SS feeder via milestone", "duration": 172800.0},
+    {"id": "M0", "name": "Handoff", "duration": 0.0},
+    {"id": "M", "name": "Gate", "duration": 0.0},
+    {"id": "B", "name": "After gate", "duration": 86400.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "M", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "X", "successor_id": "M", "dep_type": "SS", "lag": 86400.0},
+    {"predecessor_id": "Y", "successor_id": "M", "dep_type": "SS", "lag": 86400.0},
+    {"predecessor_id": "Z", "successor_id": "M0", "dep_type": "SS", "lag": 86400.0},
+    {"predecessor_id": "M0", "successor_id": "M", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "M", "successor_id": "B", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

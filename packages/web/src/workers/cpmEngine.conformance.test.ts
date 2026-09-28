@@ -138,6 +138,10 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // which can seed the fixture's two work sources directly.
   milestone_lag_after_weekend: 'adapter: 3 source tasks',
   milestone_after_non_working_actual_finish: 'adapter: does not thread actuals/status date',
+  // #4183. Both need several independent work sources feeding one milestone:
+  // the tie is between two of them, so a single seeded source cannot reach it.
+  milestone_start_of_day_ties_finish_instant: 'adapter: 3 source tasks',
+  milestone_reading_tie_free_float: 'adapter: 3 source tasks',
   // A genuine forward-pass divergence, unrelated to calendars or the adapter.
   fs_negative_lag_floored: 'engine gap: negative lag is not floored at the project start',
 };

@@ -162,7 +162,7 @@ fn run_passes(
         .max()
         .ok_or("No tasks with early_finish after forward pass")?;
 
-    let late_instants = backward_pass(
+    let float_lates = backward_pass(
         scratch,
         &pg.topo_order,
         pg,
@@ -179,7 +179,7 @@ fn run_passes(
         &project.dependencies,
         &cals,
         &instants,
-        &late_instants,
+        &float_lates,
     )?;
 
     Ok(project_finish)
