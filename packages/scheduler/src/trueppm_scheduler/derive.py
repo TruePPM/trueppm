@@ -754,9 +754,10 @@ def _backward_successor_terms(
     """
     end = finish_instant or _safe_offset(project_finish, timedelta(days=1))
     seed = _prev_working_day(_safe_offset(end, -timedelta(days=1)), cal)
-    # A milestone may sit as late as the finish instant's working position (#4079,
-    # #4174) — ``engine._milestone_finish_bound``, not the raw instant.
-    milestone_seed = _milestone_finish_bound(end, cal)
+    # A milestone may sit as late as the finish instant (#4079), widened to the
+    # next working day's midnight when that instant reads as start of day (#4174)
+    # — ``engine._milestone_finish_bound``, not the raw instant.
+    milestone_seed = _milestone_finish_bound(end, project_finish, cal)
     lf_terms: list[DerivationContribution] = [
         DerivationContribution(
             kind="project_finish",

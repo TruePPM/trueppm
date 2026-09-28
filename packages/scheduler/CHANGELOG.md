@@ -66,16 +66,19 @@ change between releases. Pin an exact version (e.g.
   day is unchanged when it has no lag or its lag ends on a working day; one
   following a recorded `actual_finish` on a non-working day now also shows at
   the start of the next working day rather than the working day before it. The Rust/WASM engine moves with it.
-- **Work before a project-ending milestone keeps its total float (#4174).** A
-  milestone that ends the project may sit at any midnight up to the one that
-  opens the next working day, since all of them end the project at the same
-  point. The late pass used to admit only the earliest, so `A(4d) -FS+1d-> M`
-  (M at Saturday midnight) gave `A` zero total float and put it on the critical
-  path, although slipping it a day left the finish unchanged in working time
-  (`M` moves to Sunday midnight; since #4173 it is shown at the start of Monday
-  rather than the end of Friday, the same working-time point). `A` now has one
-  day of float, as it does when a task follows `M`. Introduced by the #4079
-  change above; never released. The Rust/WASM engine moves with it.
+- **Work before a project-ending milestone shown at the start of a day keeps
+  its total float (#4174).** When the finish instant already reads as the start
+  of a day (`project_finish` on or after it), a milestone ending the project may
+  sit as late as the midnight that opens the next working day, since both show
+  the same finish. The late pass used to admit only the raw instant, so
+  `A(4d) -FS+2d-> M` (M at Sunday midnight, shown Monday) gave `A` zero total
+  float and put it on the critical path, although slipping it a day moves `M`
+  only to Monday midnight, still shown Monday. `A` now has one day of float. A
+  finish instant that reads as end of day is unchanged: `A -FS+1d-> M` (Saturday
+  midnight, shown Friday) keeps `A` at zero float, which is correct under #4173's
+  display rule, because a one-day slip moves the shown finish to Monday.
+  Introduced by the #4079 change above; never released. The Rust/WASM engine
+  moves with it.
 - **A long calendar exception no longer makes `schedule()` slow in proportion
   to the number of dependencies (#4161).** Every dependency edge snaps a date to
   a working day in the forward pass, the backward pass, and the free-float
