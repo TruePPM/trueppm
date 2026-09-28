@@ -69,6 +69,44 @@ User = get_user_model()
 
 
 # ---------------------------------------------------------------------------
+# Email-drain nudge (#4191)
+# ---------------------------------------------------------------------------
+
+
+def drain_notification_emails_soon() -> None:
+    """Best-effort nudge the notification-email drain to run now, not next tick.
+
+    Only a latency optimization: the ``Notification`` row is the durable outbox
+    record and the 30 s Beat ``drain_notification_emails`` still sends it if the
+    broker drops this nudge, so broker errors are logged and swallowed. The drain
+    is the only sender and is serialized by a singleton lock — a nudged run that
+    finds a drain already running skips — so the nudge cannot cause a second send.
+    Call from ``transaction.on_commit``.
+    """
+    from .tasks import drain_notification_emails
+
+    try:
+        drain_notification_emails.delay()
+    except Exception:
+        logger.warning("broker unavailable; periodic drain_notification_emails will send")
+
+
+def _bulk_create_notifications(
+    notifications: list[Notification], *, batch_size: int | None = None
+) -> None:
+    """Insert fan-out rows and, when any queues an email, nudge the drain on commit.
+
+    Every email-queuing fan-out in this module goes through here so first-send
+    latency is seconds everywhere, not only on the paths someone remembered to
+    wire (#4191). Deferred to ``on_commit`` so a rolled-back write enqueues nothing
+    and the drain never runs before the rows it should send are visible.
+    """
+    Notification.objects.bulk_create(notifications, batch_size=batch_size)
+    if any(n.email_pending for n in notifications):
+        transaction.on_commit(drain_notification_emails_soon)
+
+
+# ---------------------------------------------------------------------------
 # Mention parser
 # ---------------------------------------------------------------------------
 
@@ -1000,7 +1038,7 @@ def create_mention_notifications(
 
     All writes happen in the caller's transaction — the response can include
     the count immediately. Email delivery is best-effort via `email_pending`
-    + the `drain_notification_emails` Beat task (not this function).
+    + the `drain_notification_emails` task (not this function), nudged on commit.
     """
     if now is None:
         now = timezone.now()
@@ -1041,7 +1079,7 @@ def create_mention_notifications(
             notifications.append(notification)
     if not notifications:
         return 0
-    Notification.objects.bulk_create(notifications)
+    _bulk_create_notifications(notifications)
     return len(notifications)
 
 
@@ -1146,7 +1184,7 @@ def create_event_notifications(
         )
     if not notifications:
         return 0
-    Notification.objects.bulk_create(notifications)
+    _bulk_create_notifications(notifications)
     return len(notifications)
 
 
@@ -1263,7 +1301,7 @@ def create_event_notifications_multi_project(
         )
     if not notifications:
         return 0
-    Notification.objects.bulk_create(notifications, batch_size=NOTIFICATION_BULK_BATCH_SIZE)
+    _bulk_create_notifications(notifications, batch_size=NOTIFICATION_BULK_BATCH_SIZE)
     return len(notifications)
 
 
@@ -1446,6 +1484,6 @@ def create_stale_task_notifications(
         if rows:
             # batch_size caps the INSERT statement size so a pathologically large
             # single-project backlog is chunked rather than one unbounded statement.
-            Notification.objects.bulk_create(rows, batch_size=500)
+            _bulk_create_notifications(rows, batch_size=500)
             total += len(rows)
     return total

@@ -40,6 +40,8 @@ from django.db import transaction
 from django.db.models import DateField
 from django.db.models.functions import Coalesce
 
+from trueppm_api.apps.scheduling.finish_reading import values_finish_at_day_start
+
 if TYPE_CHECKING:
     # Unquoted in the signature below on purpose: `from __future__ import
     # annotations` makes every annotation lazy, so this stays type-only — and a
@@ -120,6 +122,11 @@ def commit_project(project: Project, *, user: User | None) -> CommitResult:
             "actual_finish",
             "story_points",
             "_span_start",
+            # With actual_start/actual_finish above: the FINISH_READING_FIELDS
+            # values_finish_at_day_start reads (#4197).
+            "is_milestone",
+            "milestone_at_day_end",
+            "percent_complete",
         )
     )
     has_cpm_dates = bool(live_tasks) and all(t["early_start"] is not None for t in live_tasks)
@@ -156,6 +163,9 @@ def commit_project(project: Project, *, user: User | None) -> CommitResult:
                 task_name=t["name"],
                 start=t["_span_start"],
                 finish=t["early_finish"],
+                # Which edge of that day the finish sits on (#4197), so drift is
+                # compared in working time rather than by the shown day.
+                finish_at_day_start=values_finish_at_day_start(t),
                 duration=t["duration"],
                 actual_start=t["actual_start"],
                 actual_finish=t["actual_finish"],

@@ -1263,6 +1263,10 @@ def _bind_milestone_with_baseline(
         is_milestone=True,
         early_finish=early_finish,
         actual_finish=actual_finish,
+        # At the END of its day (a milestone that follows work), so slip_days is
+        # the plain shown-day difference; the start-of-day reading is #4197's,
+        # pinned in test_baseline_finish_reading.py.
+        milestone_at_day_end=True,
     )
     sprint.target_milestone = milestone
     sprint.save(update_fields=["target_milestone"])

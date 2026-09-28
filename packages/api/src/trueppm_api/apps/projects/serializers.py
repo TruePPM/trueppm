@@ -6983,7 +6983,14 @@ class TaskClassificationResponseSerializer(serializers.Serializer[Any]):
 
 
 class BaselineTaskSerializer(serializers.ModelSerializer[BaselineTask]):
-    """Read-only snapshot of a single task within a baseline."""
+    """Read-only snapshot of a single task within a baseline.
+
+    ``finish_at_day_start`` says which edge of ``finish`` the snapshotted task sat
+    on (#4197): true for a milestone shown at the start of its day, whose finish is
+    the same working-time point as the end of the previous working day. Compare a
+    baseline finish to a current one in working time, not by subtracting days. Null
+    for a baseline captured before the reading was recorded.
+    """
 
     class Meta:
         model = BaselineTask
@@ -6992,6 +6999,7 @@ class BaselineTaskSerializer(serializers.ModelSerializer[BaselineTask]):
             "task_name",
             "start",
             "finish",
+            "finish_at_day_start",
             "duration",
             "actual_start",
             "actual_finish",

@@ -20,7 +20,7 @@ breaking change to an existing project's schedule.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Any
 
 from trueppm_api.apps.scheduling.services import build_sched_calendar
@@ -117,3 +117,28 @@ def compose_project_calendar(project: Project) -> Any:
 
     applied = resolve_applied_calendars(project)
     return SchedCalendar.compose([build_sched_calendar(c) for c in applied])
+
+
+def project_sched_calendars(project_ids: Iterable[Any]) -> dict[str, Any]:
+    """Composed scheduler ``Calendar`` per project, keyed by ``str(project_id)`` (#4197).
+
+    One project query plus a fixed set of prefetches for any number of projects,
+    so a read that compares finishes across a page of projects or milestones in
+    working time (:mod:`.finish_reading`) composes each calendar once instead of
+    once per row. A project that no longer exists is absent from the map.
+    """
+    from trueppm_api.apps.projects.models import Project
+
+    ids = {pid for pid in project_ids if pid is not None}
+    if not ids:
+        return {}
+    projects = (
+        Project.objects.filter(pk__in=ids)
+        .select_related("calendar", "program__calendar")
+        .prefetch_related(
+            "calendar__exceptions",
+            "calendar_layers__calendar__exceptions",
+            "program__calendar__exceptions",
+        )
+    )
+    return {str(p.pk): compose_project_calendar(p) for p in projects}

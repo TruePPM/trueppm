@@ -2,13 +2,13 @@
 
 Three Beat-scheduled tasks:
 
-- ``drain_notification_emails`` — every 30 s, finds Notification rows with
-  ``email_pending=True`` older than the 5-min orphan window, renders an email
-  for each, sends via SMTP, and updates delivery state. Best-effort — broker
-  outage logs but doesn't propagate. Re-checks the recipient's account and
-  project-membership status at drain time, not just at creation time (#3523,
-  #3675) — a row queued before an off-boarding or a project removal is
-  retired unsent rather than delivered on a stale grant.
+- ``drain_notification_emails`` — every 30 s (and on an ``on_commit`` nudge from
+  the fan-outs that queue email, #4191), finds Notification rows with
+  ``email_pending=True``, renders an email for each, sends via SMTP, and updates
+  delivery state. Best-effort — broker outage logs but doesn't propagate.
+  Re-checks the recipient's account and project-membership status at drain time,
+  not just at creation time (#3523, #3675) — a row queued before an off-boarding
+  or a project removal is retired unsent rather than delivered on a stale grant.
 
 - ``archive_old_notifications`` — nightly, sets ``is_archived=True`` on any
   Notification older than 90 days that has ``is_read=True``. Keeps the
@@ -49,7 +49,13 @@ logger = logging.getLogger(__name__)
 # Locked constants for email delivery — kept in this module so they're
 # adjacent to the drain task that owns them.
 EMAIL_MAX_RETRIES = 3
-EMAIL_ORPHAN_WINDOW_MINUTES = 5  # ADR-0075 §F durable-execution checklist item 3
+# Minimum gap between a failed attempt and the next one (#4191). First sends are
+# immediate, but on_commit nudges run the drain far more often than the 30 s Beat
+# tick, so without this floor a short relay outage would burn all three attempts in
+# seconds. Keeps retries about one Beat tick apart (~90 s to exhaustion).
+# Slightly under the 30 s tick so a Beat-only retry lands on the NEXT tick rather
+# racing it (a floor equal to the tick would skip one about half the time).
+EMAIL_RETRY_SPACING = timedelta(seconds=25)
 # Fallback cap per drain tick, when no operator limit applies. Re-exported from
 # delivery_limits, which every mail path now shares (#2887 item 3).
 EMAIL_BATCH_SIZE = EMAIL_MAX_BATCH_SIZE
@@ -81,15 +87,17 @@ def drain_notification_emails(self: object) -> None:
 
     Runs every 30 seconds via Celery Beat. Finds Notification rows where
     ``email_pending=True`` and ``email_sent_at IS NULL`` and ``email_attempts
-    < EMAIL_MAX_RETRIES`` and ``created_at < (now - orphan_window)``.
+    < EMAIL_MAX_RETRIES``. The fan-outs in ``services`` also nudge it from
+    ``transaction.on_commit`` so a new row leaves in seconds (#4191).
 
-    The orphan-window filter prevents racing the comment-create transaction —
-    a Notification inserted inside a still-open atomic block isn't visible
-    to this drain until commit AND has aged past the window. The 5-min value
-    matches the webhook drain (ADR-0019).
-
-    The singleton lock + ``on_contention="skip"`` ensures at most one drain
-    runs at a time; the next Beat tick picks up anything missed.
+    There is deliberately no ``created_at`` age floor. This drain is the only
+    code that sends a notification email — there is no per-row send task that
+    could be lost and need re-dispatching, which is what the webhook/export
+    "orphan window" guards against — and an uncommitted row is invisible to it
+    anyway. Exactly-once across overlapping runs comes from the singleton lock
+    + ``on_contention="skip"``: at most one drain runs at a time, and a nudged
+    or Beat run that finds the lock held skips; the next tick picks up anything
+    missed (ADR-0075 §Durable Execution item 3, amended by #4191).
     """
     _do_drain_emails()
 
@@ -365,8 +373,6 @@ def _do_drain_emails() -> None:
     from .models import Notification, WorkspaceEmailSettings
 
     now = timezone.now()
-    orphan_cutoff = now - timedelta(minutes=EMAIL_ORPHAN_WINDOW_MINUTES)
-
     _retire_pending_for_deactivated_recipients()
     _retire_pending_for_revoked_membership()
 
@@ -392,7 +398,7 @@ def _do_drain_emails() -> None:
             email_pending=True,
             email_sent_at__isnull=True,
             email_attempts__lt=EMAIL_MAX_RETRIES,
-            created_at__lt=orphan_cutoff,
+            # No created_at age floor (#4191) — see drain_notification_emails.
             # Fail closed on the account axis (#3523). The retirement pass above has
             # already cleared these rows, so this predicate normally matches nothing;
             # it is here for the row deactivated in the gap between that UPDATE and
@@ -405,6 +411,8 @@ def _do_drain_emails() -> None:
         # this SELECT. A row with no project (account-scoped digests) has no
         # membership boundary and always passes.
         .filter(_current_project_membership_exists() | Q(project_id__isnull=True))
+        # Retries stay one tick apart even when nudges run the drain more often.
+        .filter(Q(email_failed_at__isnull=True) | Q(email_failed_at__lt=now - EMAIL_RETRY_SPACING))
         .select_related("recipient", "mention", "mention__task_comment", "mention__mentioner")
         .order_by("created_at")[:granted]
     )

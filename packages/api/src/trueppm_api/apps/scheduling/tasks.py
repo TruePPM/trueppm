@@ -23,6 +23,10 @@ from trueppm_api.apps.scheduling.finish_reading import (
 )
 from trueppm_api.core.idempotent import idempotent_task
 
+#: An active-baseline finish for one task: ``(baseline_id, finish, at_day_start)``,
+#: ``at_day_start`` being ``BaselineTask.finish_at_day_start`` (#4197).
+BaselineFinish = tuple[str, date, bool | None]
+
 logger = logging.getLogger(__name__)
 
 # Exceptions that are transient and should trigger Celery's built-in retry.
@@ -571,13 +575,16 @@ project-start shift.
 # Per-task schedule-shift activity events (ADR-0207, #1604). The CPM writeback
 # persists only the history-excluded early_*/late_* fields via bulk_update, so a
 # recompute leaves no per-task audit row; these helpers emit one instead.
-def _active_baseline_finishes(project_ids: list[Any]) -> dict[str, tuple[str, date]]:
-    """Return ``{task_id: (baseline_id, baseline_finish)}`` for each project's active baseline.
+def _active_baseline_finishes(project_ids: list[Any]) -> dict[str, BaselineFinish]:
+    """Return ``{task_id: (baseline_id, baseline_finish, at_day_start)}`` per active baseline.
 
     One entry per snapshotted task with a non-null finish, drawn from the single
     active baseline per project (enforced by a DB unique constraint). Two indexed
     queries; empty and cheap when no project in ``project_ids`` has an active
     baseline, so the drift check adds no cost to the common no-baseline recalc.
+    ``at_day_start`` is ``BaselineTask.finish_at_day_start`` (#4197) — which edge
+    of the day the baselined finish sat on, ``None`` for a row captured before
+    that was recorded.
     """
     from trueppm_api.apps.projects.models import Baseline, BaselineTask
 
@@ -588,14 +595,18 @@ def _active_baseline_finishes(project_ids: list[Any]) -> dict[str, tuple[str, da
     )
     if not baseline_ids:
         return {}
-    finishes: dict[str, tuple[str, date]] = {}
+    finishes: dict[str, BaselineFinish] = {}
     for row in BaselineTask.objects.filter(
         baseline_id__in=baseline_ids, finish__isnull=False
-    ).values("task_id", "finish", "baseline_id"):
+    ).values("task_id", "finish", "finish_at_day_start", "baseline_id"):
         finish = row["finish"]
         if finish is None:  # narrows the nullable DateField for mypy; excluded by the filter
             continue
-        finishes[str(row["task_id"])] = (str(row["baseline_id"]), finish)
+        finishes[str(row["task_id"])] = (
+            str(row["baseline_id"]),
+            finish,
+            row["finish_at_day_start"],
+        )
     return finishes
 
 
@@ -720,15 +731,40 @@ def _cpm_recalculated_event(
     )
 
 
-def _baseline_drift_event(t: Any, old_ef: Any, baseline: tuple[str, date]) -> Any | None:
+def _baseline_drift_event(
+    t: Any,
+    old_ef: Any,
+    baseline: BaselineFinish,
+    *,
+    prior_day_end: bool | None = None,
+    calendar: Any | None = None,
+) -> Any | None:
     """Build a ``baseline_drift_detected`` row, but only on the transition *into* drift.
 
     Emitted only when a task was within its baseline finish and is now past it, so a
     persistently-drifted task does not re-fire every recalc. Returns ``None`` otherwise.
+
+    Drift is measured in working time (:func:`.finish_reading.finish_shift_days`,
+    #4197), not by the shown day: a start-of-day milestone whose shown day hops a
+    weekend relative to its baseline — the end of Friday against the start of the
+    next Monday — has not drifted, and ``drift_days`` stays a calendar-day count.
+    ``prior_day_end`` is the task's ``milestone_at_day_end`` before this pass
+    overwrote it (``None`` reads the current flag); ``calendar`` is the project's
+    composed scheduler calendar, and without one the comparison falls back to the
+    shown-day difference.
     """
-    baseline_id, baseline_finish = baseline
-    was_drifted = old_ef is not None and old_ef > baseline_finish
-    is_drifted = t.early_finish is not None and t.early_finish > baseline_finish
+    baseline_id, baseline_finish, baseline_at_start = baseline
+    base: Finish = (baseline_finish, baseline_at_start)
+
+    def drift(finish: Any, at_start: bool) -> int | None:
+        if finish is None:
+            return None
+        return finish_shift_days(base, (finish, at_start), calendar)
+
+    old_drift = drift(old_ef, task_finish_at_day_start(t, milestone_at_day_end=prior_day_end))
+    new_drift = drift(t.early_finish, task_finish_at_day_start(t))
+    was_drifted = old_drift is not None and old_drift > 0
+    is_drifted = new_drift is not None and new_drift > 0
     if not (is_drifted and not was_drifted):
         return None
 
@@ -742,7 +778,7 @@ def _baseline_drift_event(t: Any, old_ef: Any, baseline: tuple[str, date]) -> An
             "baseline_id": baseline_id,
             "baseline_finish": baseline_finish.isoformat(),
             "early_finish": t.early_finish.isoformat(),
-            "drift_days": (t.early_finish - baseline_finish).days,
+            "drift_days": new_drift,
         },
     )
 
@@ -750,7 +786,7 @@ def _baseline_drift_event(t: Any, old_ef: Any, baseline: tuple[str, date]) -> An
 def _build_schedule_shift_events(
     tasks_to_update: list[Any],
     old_dates: dict[str, tuple[Any, Any, Any, Any]],
-    baseline_finishes: dict[str, tuple[str, date]],
+    baseline_finishes: dict[str, BaselineFinish],
     *,
     suppress_movement_events: bool = False,
     old_day_end: Mapping[str, bool] | None = None,
@@ -807,7 +843,13 @@ def _build_schedule_shift_events(
             )
         baseline = baseline_finishes.get(str(t.id))
         if baseline is not None:
-            drift = _baseline_drift_event(t, old[1], baseline)
+            drift = _baseline_drift_event(
+                t,
+                old[1],
+                baseline,
+                prior_day_end=old_day_end.get(str(t.id)) if old_day_end is not None else None,
+                calendar=calendars.get(str(t.project_id)) if calendars is not None else None,
+            )
             if drift is not None:
                 events.append(drift)
     return events

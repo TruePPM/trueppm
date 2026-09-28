@@ -257,7 +257,7 @@ server-side reason behind the number the tool just returned.
   "cpm_finish": "2026-10-30",
   "why": {
     "top_driver": {"task_id": "…", "index": 0.62},
-    "explanation": "This forecast: the P80 finish 2026-11-14 is 11 working day(s) past the deterministic CPM finish 2026-10-30; the largest single driver of that spread is task ….",
+    "explanation": "This forecast: the P80 finish 2026-11-14 is 15 calendar day(s) past the deterministic CPM finish 2026-10-30; the largest single driver of that spread is task ….",
     "see_also": "get_schedule_derivation(project_id, quantity='p50'|'p80'|'p95') for the full risk-premium and per-driver derivation"
   }
 }
