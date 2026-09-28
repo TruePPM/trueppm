@@ -17,6 +17,7 @@ import { RouteErrorBoundary } from '@/components/RouteErrorBoundary';
 import { NotFoundPage } from '@/components/NotFoundPage';
 import { RouteTitle } from '@/components/RouteTitle';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { RouteLoadingFallback } from '@/components/RouteLoadingFallback';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import type { RouteHandle } from '@/router/routeHandle';
 
@@ -295,20 +296,6 @@ const ProgramSettingsPage = lazy(() =>
     default: m.ProgramSettingsPage,
   })),
 );
-
-/**
- * Fallback rendered inside Suspense while a lazy chunk is loading.
- *
- * This is the first frame of *every* navigation, so it is the most-seen loading
- * state in the app — and it used to be the one place that broke rule 248 with a
- * bare centred "Loading…" (#2431). It ghosts the generic shell shape (toolbar
- * band + content rows) rather than a per-route shape: the chunk hasn't resolved,
- * so which surface is arriving is precisely what we don't yet know. Once it
- * resolves, the surface's own rule-248 skeleton takes over for its query.
- */
-function RouteLoadingFallback() {
-  return <LoadingSkeleton label="Loading…" variant="shell" rows={4} />;
-}
 
 /**
  * Redirects `/` to the server-resolved app front door (ADR-0129, #1181).
