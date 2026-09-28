@@ -66,8 +66,8 @@
       "early_finish": "2026-01-07",
       "late_start": "2026-01-12",
       "late_finish": "2026-01-12",
-      "total_float": 345600.0,
-      "free_float": 345600.0,
+      "total_float": 259200.0,
+      "free_float": 259200.0,
       "is_critical": false,
       "scheduled_start": "2026-01-07"
     },
@@ -88,7 +88,7 @@
       "early_finish": "2026-01-06",
       "late_start": "2026-01-12",
       "late_finish": "2026-01-12",
-      "total_float": 432000.0,
+      "total_float": 345600.0,
       "free_float": 0.0,
       "is_critical": false,
       "scheduled_start": "2026-01-06"
@@ -99,8 +99,8 @@
       "early_finish": "2026-01-06",
       "late_start": "2026-01-12",
       "late_finish": "2026-01-12",
-      "total_float": 432000.0,
-      "free_float": 432000.0,
+      "total_float": 345600.0,
+      "free_float": 345600.0,
       "is_critical": false,
       "scheduled_start": "2026-01-06"
     }
