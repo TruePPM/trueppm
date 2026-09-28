@@ -11,7 +11,7 @@ use crate::calendar::{
     checked_offset_days, finish_from_start, next_working_day, prev_working_day,
     retreat_calendar_days, start_from_finish, PassCalendars,
 };
-use crate::forward::{start_anchored, Instant};
+use crate::forward::{start_anchored, start_reading, Instant};
 use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, Task};
 
@@ -107,6 +107,52 @@ pub(crate) fn milestone_finish_bound(
     }
 }
 
+/// Latest instant up to `instant` that a given reading still shows by
+/// `project_finish` (#4183). When the project ends at the end of a day (`W`
+/// finishing Friday: finish instant Saturday midnight, `project_finish` Friday), a
+/// milestone at Saturday midnight read as end of day is shown Friday, but read as
+/// start of day it is shown Monday and moves the finish. A start-of-day reading is
+/// therefore capped at the last working day on or before `project_finish`. With a
+/// start-of-day finish (#4174) the cap never binds. Mirrors the Python
+/// `_start_read_cap`.
+fn start_read_cap(
+    instant: NaiveDate,
+    start_display: bool,
+    cal: &Calendar,
+    project_finish: NaiveDate,
+) -> Result<NaiveDate, String> {
+    if !start_reading(instant, start_display, cal)?
+        || next_working_day(instant, cal)? <= project_finish
+    {
+        return Ok(instant);
+    }
+    prev_working_day(project_finish, cal)
+}
+
+/// The milestone `start_ref` one FS/SS link into it may use (#4183): capped by
+/// [`start_read_cap`] when the link gives the milestone a start-of-day reading
+/// (SS from work). A zero-lag link from a milestone carries that milestone's
+/// reading, and late instants are computed for the end-of-day reading, so it is
+/// not capped here; the start-of-day bound follows from the same cap where it is
+/// read (the cap is a `min`, so it commutes with the `min` over links). The cap is
+/// per link rather than on the shared late instant, because an FS predecessor of
+/// the same milestone really can slip it to the finish instant. Mirrors the
+/// Python `_link_start_ref`.
+fn link_start_ref(
+    start_ref: NaiveDate,
+    dep: &Dependency,
+    pred_is_milestone: bool,
+    succ_cal: &Calendar,
+    project_finish: NaiveDate,
+) -> Result<NaiveDate, String> {
+    if !start_anchored(dep.dep_type) {
+        return Ok(start_ref);
+    }
+    let inherits = pred_is_milestone && dep.lag_days() == 0;
+    let base_display = dep.dep_type == DependencyType::SS && !inherits;
+    start_read_cap(start_ref, base_display, succ_cal, project_finish)
+}
+
 /// The day a milestone's late instant is shown on. Mirrors the Python
 /// `_late_display`: zero float shows the early day; otherwise the early reading
 /// is kept, except that a start-of-day reading is never shown past the project
@@ -127,15 +173,26 @@ fn late_display(
     prev_working_day(checked_offset_days(late, -1)?, cal)
 }
 
-/// `(start_ref, finish_ref)` a live successor's late window offers its predecessor.
+/// `(start_ref, finish_ref)` a live successor's late window offers its predecessor
+/// along `dep`; a milestone successor's start reference is capped per link
+/// ([`link_start_ref`], #4183).
 fn late_refs(
     succ_idx: usize,
     succ: &Task,
     late_instants: &[Option<NaiveDate>],
     cals: &PassCalendars,
+    link: (&Dependency, bool, NaiveDate),
 ) -> Result<(NaiveDate, NaiveDate), String> {
     match late_instants[succ_idx] {
-        Some(x) => milestone_refs(x, cals.for_node(succ_idx)),
+        Some(x) => {
+            let succ_cal = cals.for_node(succ_idx);
+            let (start_ref, finish_ref) = milestone_refs(x, succ_cal)?;
+            let (dep, pred_is_milestone, project_finish) = link;
+            Ok((
+                link_start_ref(start_ref, dep, pred_is_milestone, succ_cal, project_finish)?,
+                finish_ref,
+            ))
+        }
         None => Ok((succ.late_start.unwrap(), succ.late_finish.unwrap())),
     }
 }
@@ -156,7 +213,12 @@ fn late_refs(
 /// late instant is the latest one every successor link admits, a milestone
 /// successor offers its instant to its predecessors (`milestone_refs`), and every
 /// late date is seeded from the project's finish instant. Returns each live
-/// milestone's late instant, which float is measured from.
+/// milestone's late instant as its own float is measured to it: capped by
+/// [`start_read_cap`] for the reading that places it early (#4183). Predecessors
+/// read the uncapped instant, capped per link. The result is therefore named
+/// `float_lates` at every call site (`lib.rs`, `typed.rs`, `incremental.rs`),
+/// matching the Python engine, which caps in `schedule()` via
+/// `_float_late_instant` instead of inside the pass.
 pub fn backward_pass(
     tasks: &mut [Task],
     topo_order: &[NodeIndex],
@@ -168,6 +230,7 @@ pub fn backward_pass(
 ) -> Result<Vec<Option<NaiveDate>>, String> {
     let end = finish_instant(tasks, instants, project_finish)?;
     let mut late_instants: Vec<Option<NaiveDate>> = vec![None; tasks.len()];
+    let mut float_lates: Vec<Option<NaiveDate>> = vec![None; tasks.len()];
     for &idx in topo_order.iter().rev() {
         let i = idx.index();
         // This node is the predecessor of its outgoing edges; its own calendar lays
@@ -199,7 +262,13 @@ pub fn backward_pass(
                     continue;
                 }
                 let dep = &deps[*edge.weight()];
-                let (start_ref, finish_ref) = late_refs(s, &tasks[s], &late_instants, cals)?;
+                let (start_ref, finish_ref) = late_refs(
+                    s,
+                    &tasks[s],
+                    &late_instants,
+                    cals,
+                    (dep, true, project_finish),
+                )?;
                 bound = bound.min(milestone_latest(
                     dep.dep_type,
                     dep.lag_days(),
@@ -212,6 +281,20 @@ pub fn backward_pass(
             let early_day = tasks[i].early_start.unwrap();
             let day = late_display(late, early_day, early, node_cal, project_finish)?;
             late_instants[i] = Some(late);
+            // A milestone's own total float is *defined* against the reading that
+            // places it early (#4183). The reason is not insertion invariance —
+            // `A -FS-> M -FS-> B` scheduling as `A -FS-> B` holds either way,
+            // since it asserts nothing about M's own float. It is that near the
+            // finish this makes M's float the working-day span between its shown
+            // early start and its shown late start, which `late_display` already
+            // caps at `project_finish`. It is a semantic choice with effects beyond
+            // the reported tie (a floored milestone, `X -SF-> M`: 5 -> 4 days, and
+            // new critical milestones), and not a general invariant: a start-of-day
+            // milestone whose late instant is a weekend midnight before the finish
+            // is still shown late on the Friday while its float runs through it.
+            // Mirrors the Python `_float_late_instant`.
+            float_lates[i] =
+                Some(start_read_cap(late, early.1, node_cal, project_finish)?.max(early.0));
             let t = &mut tasks[i];
             t.late_start = Some(day);
             t.late_finish = Some(day);
@@ -232,8 +315,15 @@ pub fn backward_pass(
         // resolved once, at the end of this iteration (#3963).
         let mut lf_constraints: Vec<NaiveDate> =
             vec![prev_working_day(checked_offset_days(end, -1)?, node_cal)?];
-        let (succ_lf_constraints, ls_constraints) =
-            successor_constraints(idx, tasks, pg, deps, node_cal, cals, &late_instants)?;
+        let (succ_lf_constraints, ls_constraints) = successor_constraints(
+            idx,
+            tasks,
+            pg,
+            deps,
+            node_cal,
+            cals,
+            (&late_instants, project_finish),
+        )?;
         lf_constraints.extend(succ_lf_constraints);
 
         // LF = earliest of all LF constraints.
@@ -284,7 +374,7 @@ pub fn backward_pass(
         task.late_start = Some(ls.max(es));
         task.late_finish = Some(final_lf.max(ef));
     }
-    Ok(late_instants)
+    Ok(float_lates)
 }
 
 /// Split a node's outgoing edges into late-finish and late-start constraints.
@@ -296,7 +386,8 @@ pub fn backward_pass(
 ///
 /// `node_cal` is the calendar of the node *being computed* — the predecessor —
 /// not the successor's. Every retreat here produces a date that predecessor must
-/// be able to work (ADR-0120 D3, Python #1490).
+/// be able to work (ADR-0120 D3, Python #1490). `project_finish` rides with
+/// `late_instants` for the per-link milestone cap ([`link_start_ref`], #4183).
 fn successor_constraints(
     idx: NodeIndex,
     tasks: &[Task],
@@ -304,7 +395,7 @@ fn successor_constraints(
     deps: &[Dependency],
     node_cal: &Calendar,
     cals: &PassCalendars,
-    late_instants: &[Option<NaiveDate>],
+    (late_instants, project_finish): (&[Option<NaiveDate>], NaiveDate),
 ) -> Result<(Vec<NaiveDate>, Vec<NaiveDate>), String> {
     let mut lf_constraints: Vec<NaiveDate> = Vec::new();
     let mut ls_constraints: Vec<NaiveDate> = Vec::new();
@@ -322,7 +413,13 @@ fn successor_constraints(
         let lag_days = dep.lag_days();
 
         // A milestone successor offers its late instant (#4079).
-        let (succ_ls, succ_lf) = late_refs(edge.target().index(), succ, late_instants, cals)?;
+        let (succ_ls, succ_lf) = late_refs(
+            edge.target().index(),
+            succ,
+            late_instants,
+            cals,
+            (dep, false, project_finish),
+        )?;
 
         match dep.dep_type {
             DependencyType::FS => {

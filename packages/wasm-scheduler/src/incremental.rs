@@ -68,7 +68,7 @@ pub(crate) fn compute_downstream(
 
     let project_finish = tasks.iter().filter_map(|t| t.early_finish).max().unwrap();
 
-    let late_instants = backward_pass(
+    let float_lates = backward_pass(
         &mut tasks,
         &pg.topo_order,
         pg,
@@ -88,7 +88,7 @@ pub(crate) fn compute_downstream(
         &project.dependencies,
         &cals,
         &instants,
-        &late_instants,
+        &float_lates,
     )?;
 
     // Collect results for downstream tasks only

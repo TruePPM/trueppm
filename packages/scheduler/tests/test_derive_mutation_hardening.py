@@ -221,20 +221,21 @@ def test_a_milestone_predecessor_passes_on_its_own_start_of_day_reading() -> Non
 
 def test_milestone_total_float_is_measured_between_instants() -> None:
     # A Sunday data date puts the milestone's early instant on Sunday while it is
-    # shown Monday. Its late instant is the project's finish instant (Saturday
-    # midnight), shown Friday. Between the displayed days the span is 4 working
-    # days; between the instants it is 5 — which is what the engine reports.
+    # shown Monday. The project's finish instant is Saturday midnight, but M reads
+    # as start of day, so at Saturday midnight it would be shown Monday and move
+    # the finish: its own float stops at Friday midnight (#4183). Sunday to Friday
+    # midnight is 4 working days, and the derivation must cite the engine's value.
     project = _project([_task("M", 0), _task("A", 5)], [], status_date=date(2026, 1, 11))
     assert _rows(project, "M", Quantity.TOTAL_FLOAT) == (
-        5,
+        4,
         [
-            ("early_start", None, "2026-01-12", 5, True),
+            ("early_start", None, "2026-01-12", 4, True),
             ("late_start", None, "2026-01-16", None, True),
         ],
     )
     assert _rows(project, "M", Quantity.FREE_FLOAT) == (
-        5,
-        [("total_float", None, None, 5, True)],
+        4,
+        [("total_float", None, None, 4, True)],
     )
 
 
@@ -599,4 +600,4 @@ def test_milestone_context_early_refs_refuse_an_unscheduled_successor() -> None:
     task = result.tasks[0]
     mctx = _milestone_context(project, result, task, [], Calendar(), Calendar())
     with pytest.raises(AssertionError):
-        mctx.early_refs(_half("S", early_finish=_D), DependencyType.FS)
+        mctx.early_refs(_half("S", early_finish=_D), DependencyType.FS, timedelta(0))

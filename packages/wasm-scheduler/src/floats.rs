@@ -12,7 +12,7 @@ use crate::calendar::{
     checked_offset_days, next_working_day, prev_working_day, retreat_calendar_days,
     working_days_between, PassCalendars, WorkingDayCounter,
 };
-use crate::forward::Instant;
+use crate::forward::{start_anchored, start_reading, Instant};
 use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, DrivingEdge, Task};
 
@@ -132,6 +132,33 @@ fn free_float_anchor(
     })
 }
 
+/// The start reference an FS/SS link's free float may run to in a milestone
+/// successor (#4183). An end-of-day milestone at instant `I` flips to the
+/// start-of-day reading, and its shown day moves, when a start-of-day proposal
+/// ties it at `I` (the tie rule in `place_milestone`). So when this link would read
+/// `I` as start of day, read exactly as `place_milestone` reads it, the latest
+/// proposal that leaves the milestone alone is one day before `I`. Mirrors the
+/// Python `_free_start_ref`.
+fn free_start_ref(
+    succ_early: Instant,
+    dep: &Dependency,
+    own: Option<Instant>,
+    succ_cal: &Calendar,
+) -> Result<NaiveDate, String> {
+    let (instant, start_display) = succ_early;
+    if start_display || !start_anchored(dep.dep_type) {
+        return Ok(instant);
+    }
+    let base_display = match own {
+        Some(o) if dep.lag_days() == 0 => o.1,
+        _ => dep.dep_type == DependencyType::SS,
+    };
+    if !start_reading(instant, base_display, succ_cal)? {
+        return Ok(instant);
+    }
+    checked_offset_days(instant, -1)
+}
+
 /// Compute total_float, free_float, and is_critical for every task (in-place).
 ///
 /// Dense-index (#1535): tasks are carried in a `Vec<Task>` indexed by node
@@ -147,8 +174,12 @@ fn free_float_anchor(
 /// `(predecessor_id, successor_id, dep_type_str)` to match the Python engine.
 ///
 /// Milestones (#4079): a milestone's spans run between *instants* — its early
-/// instant from `forward_pass` and its late instant from `backward_pass` — and a
-/// milestone successor offers its free instant (`milestone_free_instants`). Mirrors the
+/// instant from `forward_pass` and, in `float_lates`, the late instant its own
+/// float runs to — `backward_pass` returns these already capped for the
+/// milestone's own reading (#4183), unlike the raw late instants its predecessors
+/// read inside the pass — and a milestone successor offers its free instant
+/// (`milestone_free_instants`, #4180), further bounded by [`free_start_ref`] on a
+/// reading tie (#4183). Mirrors the
 /// Python `_compute_floats` / `_link_slack`, including a milestone's signed slack.
 pub fn compute_floats(
     tasks: &mut [Task],
@@ -157,7 +188,7 @@ pub fn compute_floats(
     deps: &[Dependency],
     cals: &PassCalendars,
     instants: &[Option<Instant>],
-    late_instants: &[Option<NaiveDate>],
+    float_lates: &[Option<NaiveDate>],
 ) -> Result<Vec<DrivingEdge>, String> {
     let calendar = cals.default_calendar();
     let spans = SpanCounter {
@@ -181,7 +212,7 @@ pub fn compute_floats(
 
         // Total float: working days between ES and LS — between the early and late
         // instants for a milestone (#4079).
-        let tf_days = match (instants[i], late_instants[i]) {
+        let tf_days = match (instants[i], float_lates[i]) {
             (Some(early), Some(late)) => spans.between(early.0, late, node_cal)?,
             _ => spans.between(es, ls, node_cal)?,
         };
@@ -216,36 +247,67 @@ pub fn compute_floats(
             }
             let dep = &deps[*edge.weight()];
             let s = edge.target().index();
-            let (succ_start, succ_finish) = match free_instants[s] {
+            // The free-float instant a lagged milestone successor is measured at
+            // (#4180) is the baseline both the slack and the driving-edge check use.
+            let raw_refs = match free_instants[s] {
                 Some(x) => milestone_refs(x, cals.for_node(s))?,
                 None => (succ.early_start.unwrap(), succ.early_finish.unwrap()),
             };
-            let slack = match instants[i] {
-                Some(own) => {
-                    let latest = milestone_latest(
-                        dep.dep_type,
-                        dep.lag_days(),
-                        succ_start,
-                        succ_finish,
-                        node_cal,
-                    )?;
-                    if latest < own.0 {
-                        -spans.between(latest, own.0, node_cal)?
-                    } else {
-                        spans.between(own.0, latest, node_cal)?
-                    }
-                }
-                None => {
-                    let (anchor, latest) =
-                        free_float_anchor(dep, es, ef, succ_start, succ_finish, node_cal)?;
-                    spans.between(anchor, latest, node_cal)?
-                }
+            // A tie that flips the milestone's reading moves it (#4183), layered on
+            // top of that free instant. The two adjustments never both act on the
+            // same instant: #4180 only advances one that reads as start of day, and
+            // #4183's tie bound only adjusts one that reads as end of day.
+            let refs = match instants[s] {
+                Some((_, start_display)) => (
+                    free_start_ref(
+                        (free_instants[s].unwrap(), start_display),
+                        dep,
+                        instants[i],
+                        cals.for_node(s),
+                    )?,
+                    raw_refs.1,
+                ),
+                None => raw_refs,
             };
+            let slack_to = |(succ_start, succ_finish): (NaiveDate, NaiveDate)| {
+                Ok::<i32, String>(match instants[i] {
+                    Some(own) => {
+                        let latest = milestone_latest(
+                            dep.dep_type,
+                            dep.lag_days(),
+                            succ_start,
+                            succ_finish,
+                            node_cal,
+                        )?;
+                        if latest < own.0 {
+                            -spans.between(latest, own.0, node_cal)?
+                        } else {
+                            spans.between(own.0, latest, node_cal)?
+                        }
+                    }
+                    None => {
+                        let (anchor, latest) =
+                            free_float_anchor(dep, es, ef, succ_start, succ_finish, node_cal)?;
+                        spans.between(anchor, latest, node_cal)?
+                    }
+                })
+            };
+            let slack = slack_to(refs)?;
             ff_days = ff_days.min(slack.max(0));
+            // Whether a link *drives* is read off the free instant, not #4183's
+            // further tie adjustment: a link bounded only by a reading tie does not
+            // set the milestone's instant, another link does, so it is not the
+            // driving predecessor even at zero free float. Mirrors the Python
+            // `_free_float_days`.
+            let drive_slack = if refs == raw_refs {
+                slack
+            } else {
+                slack_to(raw_refs)?
+            };
             // Zero relationship free float ⇒ this link drives the successor's early
             // date (#2095). The forward pass guarantees slack >= 0, so the exact
             // zero test matches the Python engine bit-for-bit.
-            if slack == 0 {
+            if drive_slack == 0 {
                 driving_edges.push(DrivingEdge {
                     predecessor_id: pred_id.clone(),
                     successor_id: succ.id.clone(),

@@ -385,8 +385,8 @@ C late_finish = 2026-01-12
 C total_float = 3
     early_start - - - 2026-01-05 - 3 B
     late_start - - - 2026-01-08 - - B
-C free_float = 1
-    successor_free_slack M SS 4 2026-01-06 - 1 B
+C free_float = 0
+    successor_free_slack M SS 4 2026-01-05 - 0 B
 C scheduled_start = 2026-01-05
     early_start - - - 2026-01-05 - - B
 M early_start = 2026-01-09
@@ -892,8 +892,8 @@ C late_finish = 2026-01-06
 C total_float = 1
     early_start - - - 2026-01-05 - 1 B
     late_start - - - 2026-01-06 - - B
-C free_float = 1
-    successor_free_slack M SS 7 2026-01-06 - 1 B
+C free_float = 0
+    successor_free_slack M SS 7 2026-01-05 - 0 B
 C scheduled_start = 2026-01-05
     early_start - - - 2026-01-05 - - B
 M early_start = 2026-01-12

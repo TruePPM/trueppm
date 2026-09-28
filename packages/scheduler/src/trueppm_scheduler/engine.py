@@ -1001,6 +1001,136 @@ def _milestone_finish_bound(finish_instant: date, project_finish: date, node_cal
     return finish_instant
 
 
+def _start_read_cap(
+    instant: date, start_display: bool, cal: Calendar, project_finish: date
+) -> date:
+    """Latest instant up to ``instant`` that a given reading shows by ``project_finish`` (#4183).
+
+    A milestone's late instant is the latest midnight its successors and the
+    finish seed admit, but the day it is *shown* on also depends on its reading
+    (:func:`_start_reading`). When the project ends at the end of a day (``W``
+    finishing Friday: finish instant Saturday midnight, ``project_finish``
+    Friday), a milestone at Saturday midnight read as end of day is shown Friday,
+    but read as start of day it is shown Monday and moves ``project_finish``. So a
+    start-of-day reading is capped at the last working day on or before
+    ``project_finish``, the latest midnight it still shows by then. With a
+    start-of-day finish (``project_finish`` on or after the instant, #4174) the
+    cap never binds.
+    """
+    if not _start_reading(instant, start_display, cal):
+        return instant
+    if _next_working_day(instant, cal) <= project_finish:
+        return instant
+    return _prev_working_day(project_finish, cal)
+
+
+def _link_start_ref(
+    start_ref: date,
+    dep_type: DependencyType,
+    lag: timedelta,
+    pred_is_milestone: bool,
+    succ_cal: Calendar,
+    project_finish: date,
+) -> date:
+    """The milestone ``start_ref`` one FS/SS link into it may use (#4183).
+
+    The reading is the one this link would give the milestone
+    (:func:`_place_milestone`): start of day after SS from work, end of day after
+    FS from work. Measured against the raw late instant, ``X(2d) -SS+3-> M`` beside
+    ``W(5d)`` reported two days of float when a two-day slip lands ``M`` on Saturday
+    midnight, shown Monday.
+
+    The cap is per link, not on the milestone's late instant itself: an FS
+    predecessor of the same milestone really can slip it to Saturday midnight, where
+    it is shown Friday, so capping the shared instant would understate its float.
+
+    A zero-lag link from a milestone carries that milestone's reading over, and the
+    backward pass computes each milestone's late instant for the end-of-day reading
+    (the uncapped one). The start-of-day bound follows from it by the same cap —
+    the cap is a ``min``, so it commutes with the ``min`` over successor links — and
+    is applied where it is read: :func:`_float_late_instant` for the milestone's own
+    float, and this function for an SS or work predecessor reaching it.
+    """
+    if dep_type not in _START_ANCHORED:
+        return start_ref
+    inherits = pred_is_milestone and lag == timedelta(0)
+    base_display = dep_type == DependencyType.SS and not inherits
+    return _start_read_cap(start_ref, base_display, succ_cal, project_finish)
+
+
+def _float_late_instant(late: date, early: _Instant, cal: Calendar, project_finish: date) -> date:
+    """The late instant a milestone's *own* total float is measured to (#4183).
+
+    This *defines* a milestone's own total float: slipping the milestone keeps the
+    reading that places it early, so its float stops where that reading would show
+    it past ``project_finish`` — the same cap :func:`_link_start_ref` applies to a
+    predecessor reaching it with that reading. Predecessors still read the uncapped
+    instant (:func:`_late_refs`).
+
+    Why this definition: in the tie case (a start-of-day milestone whose late
+    instant is an end-of-day finish instant) it makes ``total_float`` the
+    working-day span between the milestone's shown ``early_start`` and its shown
+    ``late_start``, the rule the scheduler conventions page states for every task.
+    :func:`_late_display` already capped the *shown* late start at
+    ``project_finish``; measuring float to the raw instant reported ``M`` with
+    early start 01-08, late start 01-09 and total float 2 in the #4183 repro. It is
+    **not** needed for insertion invariance: ``A -FS-> M -FS-> B`` scheduling as
+    ``A -FS-> B`` asserts nothing about ``M``'s own float and holds either way.
+
+    It is a semantic choice with collateral effects beyond the reported tie: a
+    lone start-of-day milestone held by a floor, or one reached by ``X -SF-> M``,
+    also reports one day less float when its late instant is the end-of-day finish
+    instant, and can now be ``is_critical`` / on ``critical_path`` where it was not.
+
+    It is also **not** a general "float == shown-day span" invariant. The cap only
+    reaches a late instant past the last working day of ``project_finish``, i.e.
+    the window near the *finish* instant. Elsewhere a milestone can still report a
+    float that differs from the span between its shown days: the remaining cases
+    seen are a start-of-day milestone whose late instant is a Saturday or Sunday
+    midnight before the finish, shown late on the Friday before it while its float
+    runs through that Friday. A derandomized sample of 1,500 fuzzed networks during
+    review found 43 such milestones left, down from 643 before this change.
+    """
+    return max(_start_read_cap(late, early[1], cal, project_finish), early[0])
+
+
+def _free_start_ref(
+    succ_early: _Instant,
+    dep_type: DependencyType,
+    lag: timedelta,
+    own: _Instant | None,
+    succ_cal: Calendar,
+) -> date:
+    """The start reference an FS/SS link's free float may run to in a milestone (#4183).
+
+    The free-float face of the same midnight tie. An end-of-day milestone at
+    instant ``I`` (``A -FS-> M``, shown the end of Friday for Saturday midnight)
+    changes its shown day without its instant moving when a start-of-day proposal
+    reaches ``I``: two proposals at one midnight resolve to the start-of-day
+    reading (:func:`_place_milestone`), so ``M`` flips to the start of Monday. Its
+    ``early_start`` moves, and so does the reading any zero-lag milestone after it
+    inherits. Inverting such a link against ``I`` itself counted that flip as free.
+
+    So when this link would read ``I`` as start of day, computed exactly as
+    :func:`_place_milestone` reads it (SS from work, a lagged SS from a milestone,
+    or a zero-lag link carrying a start-of-day predecessor milestone's reading),
+    the latest proposal that leaves ``M`` alone is one day before ``I``. An FS link
+    from work, or any link into a milestone already read as start of day, keeps
+    ``I``: a tie there changes nothing. The slipping predecessor milestone keeps
+    its early reading, as :func:`_float_late_instant` assumes for total float.
+    """
+    instant, start_display = succ_early
+    if start_display or dep_type not in _START_ANCHORED:
+        return instant
+    if own is not None and lag == timedelta(0):
+        base_display = own[1]
+    else:
+        base_display = dep_type == DependencyType.SS
+    if not _start_reading(instant, base_display, succ_cal):
+        return instant
+    return _safe_offset(instant, -_ONE_DAY)
+
+
 def _late_display(
     late_instant: date, task: Task, early: _Instant, cal: Calendar, project_finish: date
 ) -> date:
@@ -1711,7 +1841,9 @@ def _backward_pass(
     its late instant (:func:`_milestone_refs`) in place of a late start/finish it
     does not occupy. Returns each live milestone's late instant: the day it is
     shown on does not determine it (the end of Tuesday is the start of
-    Wednesday), so float is measured from these.
+    Wednesday). These are the *uncapped* instants predecessors read; a milestone's
+    own total float is measured to :func:`_float_late_instant` of them, which the
+    caller computes (#4183).
     """
     early_instants = instants or {}
     late_instants: dict[str, date] = {}
@@ -1759,7 +1891,7 @@ def _backward_pass(
             continue
 
         lf_constraints, ls_constraints = _collect_backward_constraints(
-            node_id, g, task_map, node_cal, finish_instant, late_instants, cal_for
+            node_id, g, task_map, node_cal, (project_finish, finish_instant), late_instants, cal_for
         )
         _apply_late_dates(task, lf_constraints, ls_constraints, node_cal)
 
@@ -1771,11 +1903,24 @@ def _late_refs(
     succ: Task,
     late_instants: dict[str, date],
     cal_for: Callable[[str], Calendar],
+    link: tuple[Dependency, bool, date],
 ) -> tuple[date, date]:
-    """``(start_ref, finish_ref)`` a live successor's late window offers its predecessor."""
+    """``(start_ref, finish_ref)`` a live successor's late window offers its predecessor.
+
+    ``link`` is ``(dep, pred_is_milestone, project_finish)``: a milestone successor's
+    start reference depends on how that link would show it (:func:`_link_start_ref`).
+    """
     late = late_instants.get(succ_id)
     if late is not None:
-        return _milestone_refs(late, cal_for(succ_id))
+        succ_cal = cal_for(succ_id)
+        start_ref, finish_ref = _milestone_refs(late, succ_cal)
+        dep, pred_is_milestone, project_finish = link
+        return (
+            _link_start_ref(
+                start_ref, dep.dep_type, dep.lag, pred_is_milestone, succ_cal, project_finish
+            ),
+            finish_ref,
+        )
     assert succ.late_start is not None and succ.late_finish is not None
     return succ.late_start, succ.late_finish
 
@@ -1805,7 +1950,9 @@ def _apply_milestone_late_date(
         if _is_complete(succ):
             continue
         dep: Dependency = g[node_id][succ_id]["dep"]
-        start_ref, finish_ref = _late_refs(succ_id, succ, late_instants, cal_for)
+        start_ref, finish_ref = _late_refs(
+            succ_id, succ, late_instants, cal_for, (dep, True, project_finish)
+        )
         bounds.append(_milestone_latest(dep.dep_type, dep.lag, start_ref, finish_ref, node_cal))
     late = max(min(bounds), early[0])
     task.late_start = task.late_finish = _late_display(late, task, early, node_cal, project_finish)
@@ -1817,14 +1964,15 @@ def _collect_backward_constraints(
     g: nx.DiGraph[str],
     task_map: dict[str, Task],
     node_cal: Calendar,
-    finish_instant: date,
+    finish: tuple[date, date],
     late_instants: dict[str, date],
     cal_for: Callable[[str], Calendar],
 ) -> tuple[list[date], list[date]]:
     """Gather the LF and LS constraints this task's successors impose on it.
 
-    ``finish_instant`` is the midnight the project ends (the day after
-    ``project_finish`` unless a start-of-day milestone ends it, #4079). The
+    ``finish`` is ``(project_finish, finish_instant)``; ``finish_instant`` is the
+    midnight the project ends (the day after ``project_finish`` unless a
+    start-of-day milestone ends it, #4079). The
     project-finish seed floors the task's late finish at the project end, but
     snapped to *this node's own* last workable day: ``project_finish`` is
     ``max(early_finish)`` across all tasks and can land on a day this node cannot
@@ -1846,6 +1994,7 @@ def _collect_backward_constraints(
     mismatch that creates is resolved once, in :func:`_apply_late_dates` (#3963),
     rather than by special-casing each constraint.
     """
+    project_finish, finish_instant = finish
     lf_constraints: list[date] = [
         _prev_working_day(_safe_offset(finish_instant, -_ONE_DAY), node_cal)
     ]
@@ -1856,7 +2005,9 @@ def _collect_backward_constraints(
         if _is_complete(succ):
             continue
         dep: Dependency = g[node_id][succ_id]["dep"]
-        start_ref, finish_ref = _late_refs(succ_id, succ, late_instants, cal_for)
+        start_ref, finish_ref = _late_refs(
+            succ_id, succ, late_instants, cal_for, (dep, False, project_finish)
+        )
         _append_successor_constraint(
             dep, start_ref, finish_ref, node_cal, lf_constraints, ls_constraints
         )
@@ -2011,8 +2162,9 @@ def _compute_floats(
     resolves to ``calendar`` and the fast ``wd_counter`` is used for all of them.
 
     A milestone's spans are measured between *instants* (#4079): its early instant
-    (``instants``, from :func:`_forward_pass`) and the late instant
-    :func:`_backward_pass` returned in ``late_instants``. The day a milestone is
+    (``instants``, from :func:`_forward_pass`) and, in ``late_instants``, the late
+    instant its own float runs to — :func:`_backward_pass`'s instant already capped
+    by :func:`_float_late_instant` (#4183), not the raw one. The day a milestone is
     shown on can name the end of Tuesday as "Tuesday" and the start of Wednesday as
     "Wednesday", one instant apart by zero working days, so a span between shown
     days would miscount.
@@ -2162,17 +2314,34 @@ def _free_float_days(
             continue
         dep: Dependency = g[node_id][succ_id]["dep"]
         assert succ.early_start is not None and succ.early_finish is not None
-        succ_instant = free_instants.get(succ_id)
-        if succ_instant is None:
-            refs = (succ.early_start, succ.early_finish)
+        succ_instant = instants.get(succ_id)
+        succ_free = free_instants.get(succ_id)
+        own = instants.get(node_id)
+        own_instant = None if own is None else own[0]
+        if succ_free is None:
+            refs = raw_refs = (succ.early_start, succ.early_finish)
         else:
             succ_cal = calendar if task_calendars is None else task_calendars.get(succ_id, calendar)
-            refs = _milestone_refs(succ_instant, succ_cal)
-        own = instants.get(node_id)
-        slack = _link_slack(
-            dep, task, refs, None if own is None else own[0], node_cal, wd_counter, calendar
-        )
+            # The free-float instant a lagged milestone successor is measured at
+            # (#4180) is the baseline both the slack and the driving-edge check use.
+            raw_refs = _milestone_refs(succ_free, succ_cal)
+            # A tie that flips the milestone's reading moves it (#4183), layered on
+            # top of that free instant. The two adjustments never both act on the
+            # same instant: #4180 only advances one that reads as start of day, and
+            # #4183's tie bound only adjusts one that reads as end of day.
+            assert succ_instant is not None  # free_instants mirrors instants' domain
+            start_ref = _free_start_ref(
+                (succ_free, succ_instant[1]), dep.dep_type, dep.lag, own, succ_cal
+            )
+            refs = (start_ref, raw_refs[1])
+        slack = _link_slack(dep, task, refs, own_instant, node_cal, wd_counter, calendar)
         ff_days = min(ff_days, max(0, slack))
+        # Whether a link *drives* is read off the free instant, not #4183's further
+        # tie adjustment: a link bounded only by a reading tie does not set the
+        # milestone's instant, another link does, so it is not the milestone's
+        # driving predecessor even at zero free float.
+        if refs != raw_refs:
+            slack = _link_slack(dep, task, raw_refs, own_instant, node_cal, wd_counter, calendar)
         if slack == 0:
             driving_edges.append(DrivingEdge(node_id, succ_id, dep.dep_type.value))
     return ff_days
@@ -3230,6 +3399,19 @@ def schedule(project: Project) -> ScheduleResult:
     late_instants = _backward_pass(
         task_map, topo_order, g, project_finish, project.calendar, task_calendars, instants
     )
+    # A milestone's own float stops where its reading would show it past the
+    # finish (#4183); its predecessors already read the uncapped instant.
+    float_lates = {
+        tid: _float_late_instant(
+            late,
+            instants[tid],
+            project.calendar
+            if task_calendars is None
+            else task_calendars.get(tid, project.calendar),
+            project_finish,
+        )
+        for tid, late in late_instants.items()
+    }
     # Precompute a working-day index over the schedule's span so float
     # computation is O(log n) per span instead of O(span) (#822, ADR-0142). Every
     # date _compute_floats measures lies within [start_date, project_finish]. The
@@ -3244,7 +3426,7 @@ def schedule(project: Project) -> ScheduleResult:
         wd_counter,
         task_calendars,
         instants,
-        late_instants,
+        float_lates,
     )
 
     # Order the critical path deterministically AND topologically. Filtering a

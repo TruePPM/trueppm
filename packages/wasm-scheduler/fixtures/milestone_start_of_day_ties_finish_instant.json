@@ -1,0 +1,23 @@
+{
+  "id": "p-milestone-start-of-day-ties-finish-instant",
+  "name": "Start-of-day milestone slipping onto an end-of-day finish instant (#4183)",
+  "start_date": "2026-01-05",
+  "tasks": [
+    {"id": "W", "name": "Work", "duration": 432000.0},
+    {"id": "X", "name": "SS driver", "duration": 172800.0},
+    {"id": "Y", "name": "FS driver", "duration": 172800.0},
+    {"id": "M", "name": "Gate", "duration": 0.0},
+    {"id": "N", "name": "Signoff", "duration": 0.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "X", "successor_id": "M", "dep_type": "SS", "lag": 259200.0},
+    {"predecessor_id": "Y", "successor_id": "M", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "M", "successor_id": "N", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

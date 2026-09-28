@@ -678,20 +678,6 @@ def _fs_ss_networks_with_milestones(draw: st.DrawFn) -> Project:
     return _project(tasks, deps)
 
 
-def _is_known_4183_tie(base: Project, shifted: Project) -> bool:
-    """The shifted network hits #4183: its finish instant has not moved, but a
-    start-of-day milestone now sits exactly on it, so the shown finish flips from
-    the end of one working day to the start of the next.
-
-    Present on main before #4174 and out of scope here.
-    """
-    from trueppm_scheduler.engine import _milestone_instants
-
-    finish = _milestone_instants(base)[2]
-    instants, _, shifted_finish = _milestone_instants(shifted)
-    return shifted_finish == finish and (finish, True) in instants.values()
-
-
 @pytest.mark.fuzz
 @given(_fs_ss_networks_with_milestones())
 def test_total_float_is_the_slip_the_finish_absorbs(p: Project) -> None:
@@ -722,15 +708,137 @@ def test_total_float_is_the_slip_the_finish_absorbs(p: Project) -> None:
             pinned = next(x for x in shifted.tasks if x.id == t.id)
             pinned.planned_start = _advance_working_days(t.early_start, slip, p.calendar)
             finish_moved = schedule(shifted).project_finish != result.project_finish
-            if moves:
-                moved = finish_moved or position(shifted) != base_position
-            else:
-                moved = finish_moved
-                # TODO(#4183): drop this exemption when a start-of-day milestone
-                # tying the finish instant no longer overstates float.
-                if moved and _is_known_4183_tie(p, shifted):
-                    continue
+            moved = finish_moved or (moves and position(shifted) != base_position)
             assert moved is moves, (t.id, tf, slip)
+
+
+class TestStartOfDayMilestoneTyingTheFinishInstant:
+    """``W(5d)`` and ``X(2d) -SS+3d-> M`` from Monday 2026-01-05 (#4183).
+
+    W ends the project at Saturday midnight, shown as the end of Friday. M sits at
+    Thursday midnight, read as start of day because an SS link from work places
+    it. Slipping X two working days lands M on Saturday midnight: the finish
+    instant does not move, but M is shown as the start of Monday, so
+    ``project_finish`` does. X has one day of float, not two, and so does M.
+    An FS link from work into the same milestone reads as end of day, so it keeps
+    the uncapped instant.
+    """
+
+    def _project(self, x_start: date | None = None, *, fs_pred: bool = False) -> Project:
+        x = _task("X", 2)
+        x.planned_start = x_start
+        tasks = [_task("W", 5), x, _task("M", 0)]
+        deps = [_dep("X", "M", DependencyType.SS, lag=3)]
+        if fs_pred:
+            tasks.append(_task("Y", 2))
+            deps.append(_dep("Y", "M"))
+        return _project(tasks, deps)
+
+    def test_float_stops_where_the_start_of_day_reading_moves_the_finish(self) -> None:
+        result = schedule(self._project())
+        by_id = {t.id: t for t in result.tasks}
+        assert result.project_finish == date(2026, 1, 9)
+        assert by_id["M"].milestone_at_day_end is False
+        assert by_id["X"].total_float == timedelta(days=1)
+        assert by_id["X"].late_start == date(2026, 1, 6)
+        assert by_id["M"].total_float == timedelta(days=1)
+        assert by_id["M"].late_start == date(2026, 1, 9)
+
+    def test_slipping_x_by_its_float_leaves_the_finish(self) -> None:
+        assert schedule(self._project(date(2026, 1, 6))).project_finish == date(2026, 1, 9)
+        assert schedule(self._project(date(2026, 1, 7))).project_finish == date(2026, 1, 12)
+
+    def test_an_end_of_day_predecessor_keeps_the_uncapped_instant(self) -> None:
+        """``Y(2d) -FS-> M`` can finish Friday: M at Saturday midnight, placed by
+        FS from work, is shown Friday. Capping M's shared late instant instead of
+        the SS link would have given Y one day less."""
+        p = self._project(fs_pred=True)
+        by_id = {t.id: t for t in schedule(p).tasks}
+        assert by_id["Y"].total_float == timedelta(days=3)
+        assert by_id["X"].total_float == timedelta(days=1)
+        shifted = copy.deepcopy(p)
+        next(t for t in shifted.tasks if t.id == "Y").planned_start = date(2026, 1, 8)
+        assert schedule(shifted).project_finish == date(2026, 1, 9)
+
+    def test_derivation_cites_the_engines_values(self) -> None:
+        p = self._project()
+        result = schedule(p)
+        for tid in ("X", "M"):
+            for q in (Quantity.LATE_START, Quantity.TOTAL_FLOAT):
+                d = derive_value(p, tid, q, result)
+                engine = getattr(next(t for t in result.tasks if t.id == tid), q.value)
+                expected = engine.days if isinstance(engine, timedelta) else engine.isoformat()
+                assert d.value == expected, (tid, q)
+
+
+class TestFreeFloatStopsBeforeAReadingTie:
+    """``A(3d) -FS-> M -FS-> B(1d)`` from Monday 2026-01-05, plus ``X(2d)`` (#4183).
+
+    ``A`` places ``M`` at Thursday midnight, read as the end of Wednesday. ``X
+    -SS+1d-> M`` proposes Tuesday midnight. Slipping ``X`` two working days lands
+    that start-of-day proposal on Thursday midnight too, and the tie resolves to the
+    start-of-day reading: ``M``'s instant stays, but it is now shown on Thursday.
+    Inverting the link against the raw instant gave ``X`` two days of free float;
+    it has one. ``X -SS+1d-> M0 -FS-> M`` is the same tie one hop later: ``M0``
+    reads as start of day and hands that reading to ``M`` over a zero-lag link.
+    """
+
+    def _project(self, x_start: date | None = None, *, via_m0: bool = False) -> Project:
+        x = _task("X", 2)
+        x.planned_start = x_start
+        tasks = [_task("A", 3), x, _task("M", 0), _task("B", 1)]
+        deps = [_dep("A", "M"), _dep("M", "B")]
+        if via_m0:
+            tasks.append(_task("M0", 0))
+            deps += [_dep("X", "M0", DependencyType.SS, lag=1), _dep("M0", "M")]
+        else:
+            deps.append(_dep("X", "M", DependencyType.SS, lag=1))
+        return _project(tasks, deps)
+
+    def test_free_float_stops_before_the_tie(self) -> None:
+        result = schedule(self._project())
+        by_id = {t.id: t for t in result.tasks}
+        assert by_id["M"].milestone_at_day_end is True
+        assert by_id["M"].early_start == date(2026, 1, 7)
+        assert by_id["X"].free_float == timedelta(days=1)
+        assert by_id["X"].total_float == timedelta(days=2)
+        edges = {(e.predecessor_id, e.successor_id) for e in result.driving_edges}
+        assert ("X", "M") not in edges
+
+    def test_slipping_x_by_its_free_float_leaves_m(self) -> None:
+        slipped = schedule(self._project(date(2026, 1, 6)))
+        one = {t.id: t for t in slipped.tasks}
+        assert (one["M"].early_start, one["M"].milestone_at_day_end) == (date(2026, 1, 7), True)
+        # One day before the tie X has no free float left, but A still sets M's
+        # instant: X -> M is not a driving edge.
+        assert one["X"].free_float == timedelta(0)
+        edges = {(e.predecessor_id, e.successor_id) for e in slipped.driving_edges}
+        assert ("X", "M") not in edges
+        assert ("A", "M") in edges
+        two = {t.id: t for t in schedule(self._project(date(2026, 1, 7))).tasks}
+        assert (two["M"].early_start, two["M"].milestone_at_day_end) == (date(2026, 1, 8), False)
+
+    def test_a_milestone_carrying_its_reading_over_stops_before_the_tie(self) -> None:
+        by_id = {t.id: t for t in schedule(self._project(via_m0=True)).tasks}
+        assert by_id["M0"].milestone_at_day_end is False
+        assert by_id["M0"].free_float == timedelta(days=1)
+        assert by_id["M0"].total_float == timedelta(days=2)
+
+    def test_an_fs_link_from_work_keeps_the_raw_instant(self) -> None:
+        """An FS link from work reads the instant as end of day, so a tie with it
+        changes nothing: ``A`` keeps zero free float, and ``M`` stays driven."""
+        result = schedule(self._project())
+        by_id = {t.id: t for t in result.tasks}
+        assert by_id["A"].free_float == timedelta(0)
+        assert ("A", "M") in {(e.predecessor_id, e.successor_id) for e in result.driving_edges}
+
+    @pytest.mark.parametrize("via_m0", [False, True])
+    def test_derivation_cites_the_engines_free_float(self, via_m0: bool) -> None:
+        p = self._project(via_m0=via_m0)
+        result = schedule(p)
+        for t in result.tasks:
+            d = derive_value(p, t.id, Quantity.FREE_FLOAT, result)
+            assert d.value == t.free_float.days, t.id
 
 
 def _early_position(t: Task) -> tuple[date | None, date | None, bool]:
@@ -750,14 +858,18 @@ def _early_position(t: Task) -> tuple[date | None, date | None, bool]:
     )
 )
 def test_free_float_is_the_slip_every_successor_absorbs(p: Project) -> None:
-    """Definitional free float (#4180): slipping a live work task by its free float
-    moves no successor's early position, and one more working day moves one.
+    """Definitional free float (#4180, #4183): slipping a live work task by its free
+    float moves no successor's early position, and one more working day moves one.
 
     Free float is capped at total float, so the "moves" side only holds when a link
     sets it — when free float is below total float. A milestone successor's position
     is its shown day plus its reading, not the raw instant: Sunday and Monday
     midnight are both the start of Monday, while Saturday midnight is the end of
-    Friday (#4173).
+    Friday (#4173). A reading tie at an end-of-day milestone (#4183) is folded into
+    the same free-instant computation (``engine._free_start_ref`` layered on
+    ``engine._milestone_free_instants``), so this needs no exemption for it: the
+    ``TODO(#4183)`` this test carried before the two branches were combined is
+    resolved, and both directions hold unconditionally.
     """
     result = schedule(p)
     has_successor = {d.predecessor_id for d in p.dependencies}
@@ -777,22 +889,7 @@ def test_free_float_is_the_slip_every_successor_absorbs(p: Project) -> None:
                 for x in result.tasks
                 if x.id != t.id
             )
-            # TODO(#4183): drop this exemption with the total-float tie. It is the
-            # free-float face of the same midnight tie: the slip lands a start-of-day
-            # proposal on the very instant an end-of-day milestone sits on (the
-            # successor, or one reached through it), and the tie rule flips that
-            # milestone's reading without moving its instant.
-            if moved and not moves and _is_reading_tie(p, shifted):
-                continue
             assert moved is moves, (t.id, ff, tf, slip)
-
-
-def _is_reading_tie(base: Project, shifted: Project) -> bool:
-    """Some milestone kept its instant and only its reading flipped."""
-    from trueppm_scheduler.engine import _milestone_instants
-
-    before, after = _milestone_instants(base)[0], _milestone_instants(shifted)[0]
-    return any(after[m] != early and after[m][0] == early[0] for m, early in before.items())
 
 
 # ---------------------------------------------------------------------------
