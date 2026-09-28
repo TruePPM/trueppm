@@ -346,7 +346,7 @@ def notification_email_signals() -> dict[str, Any]:
         path ever writes again** — so unlike ``email_failed_at`` it cannot be reset
         out from under the comparison. The drain's only two exits from
         ``email_pending=True`` are a success and an attempt-exhaustion, both of which
-        occur within the 5-minute orphan window plus three ticks (~6 min 30 s). A row
+        occur within about three retry-spaced ticks (~90 s) of the first attempt. A row
         still pending at one hour therefore means rows are not being completed at all:
         Beat is dead, the worker is gone, or the transport cannot even be built (the
         #2886 item-2 fail-closed path, which deliberately leaves rows pending rather

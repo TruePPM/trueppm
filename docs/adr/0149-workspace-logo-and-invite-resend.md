@@ -174,7 +174,7 @@ bar and General page consume `logo_url`; absence → the existing letter-mark.
 3. **Orphan window:** unchanged 5 min (`created_at < now-5m`) inherited from the existing
    drain filter. (The resend bumps `expires_at`, not `created_at`, so an old invite is
    immediately eligible — correct, since it is a deliberate admin action, not an
-   in-flight commit.)
+   in-flight commit.) *Superseded 2026-09-27 (#4191): the email drains have no orphan window and are nudged on commit — see ADR-0087 §Amendment (#4191).*
 4. **Service layer:** new `workspace/services.py::resend_invite(invite)` and
    `resend_all_pending(workspace)` encapsulate the field re-set + `on_commit` dispatch so
    the view and any future caller share one code path. Logo write goes through

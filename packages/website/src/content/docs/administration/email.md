@@ -312,8 +312,18 @@ the records are in place before mail goes out.
 ## Delivery behavior
 
 - Email is queued as a notification row and sent by the
-  `drain_notification_emails` Beat task (every 30 s), never inline — a broker or
+  `drain_notification_emails` background task, never inline — a broker or
   SMTP outage delays delivery but does not block the triggering action.
+- **A new email normally leaves within a few seconds.** When the action that
+  queues it (an @mention, a task assignment, a workspace invite) commits, TruePPM
+  starts the delivery task straight away; the 30-second Beat run
+  catches anything that start missed, so the worst case on a healthy install is
+  about 30 seconds plus your relay's own latency. The per-minute throttle below
+  can hold a burst longer. Workspace invites are sent the same way by
+  `drain_invite_emails`. Releases up to and including `0.4.0-beta.4` held every
+  *first* send for at least 5 minutes (a resend went out at once), so on those
+  versions an invite or @mention email arriving about 5 minutes late is expected
+  behavior, not a broken relay.
 - Each message is retried up to 3 times; after that the notification remains in
   the in-app inbox but stops attempting email. On a 30-second cadence that is
   roughly 90 seconds from first attempt to permanent failure — see

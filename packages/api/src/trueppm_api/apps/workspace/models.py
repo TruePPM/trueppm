@@ -518,7 +518,7 @@ class WorkspaceInvite(models.Model):
     token_hash = models.CharField(max_length=64, unique=True, db_index=True)
     # Transient raw token, populated at create time so the async email drain can
     # build the accept link, then CLEARED on first successful send (and on
-    # accept). Bounds at-rest exposure to the orphan window; after send only the
+    # accept). Bounds at-rest exposure to the send delay; after send only the
     # hash remains, so a later DB leak cannot be replayed.
     email_token = models.CharField(max_length=64, blank=True, default="")
     invited_by = models.ForeignKey(

@@ -2,7 +2,8 @@
 
 - ``drain_invite_emails`` — every 30 s, sends queued invite emails via the
   transactional-outbox pattern (mirrors ``notifications.drain_notification_emails``).
-  Respects a 5-min orphan window so it never races the invite-create transaction.
+  A new invite is drain-eligible as soon as it commits and ``create_invite`` nudges
+  the drain from ``on_commit``, so first-send latency is seconds (#4191).
 - ``purge_stale_invites`` — nightly, marks expired pending invites and deletes
   accepted/revoked/expired invites older than the retention window.
 - ``run_workspace_export`` — builds a full-workspace archive for one job and emails
@@ -29,7 +30,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 EMAIL_MAX_RETRIES = 3
-EMAIL_ORPHAN_WINDOW_MINUTES = 5  # ADR-0087 §Durable item 3 — matches the notification drain
+# Minimum gap between a failed attempt and the next one (#4191). First sends are
+# immediate, but on_commit nudges run the drain far more often than the 30 s Beat
+# tick, so without this floor a short relay outage would burn all three attempts in
+# seconds and mark the invite FAILED. Keeps retries about one Beat tick apart.
+# Slightly under the 30 s tick so a Beat-only retry lands on the NEXT tick rather
+# racing it (a floor equal to the tick would skip one about half the time).
+EMAIL_RETRY_SPACING = timedelta(seconds=25)
 INVITE_RETENTION_DAYS = 30  # ADR-0087 §Durable item 6
 # Beat task name — also the key the per-minute throttle divisor is derived from
 # (#2887 item 4). This drain shares the workspace delivery limits with the
@@ -80,6 +87,7 @@ def purge_stale_invites(self: object) -> None:
 
 
 def _do_drain_invite_emails() -> None:
+    from django.db.models import Q
     from django.utils import timezone
 
     from trueppm_api.apps.notifications.delivery_limits import (
@@ -98,7 +106,6 @@ def _do_drain_invite_emails() -> None:
     from .models import WorkspaceInvite
 
     now = timezone.now()
-    orphan_cutoff = now - timedelta(minutes=EMAIL_ORPHAN_WINDOW_MINUTES)
 
     # Same two-stage bound as the notification drain: a per-tick cap for smoothing,
     # then a reservation against the per-minute budget every mail path shares.
@@ -120,8 +127,14 @@ def _do_drain_invite_emails() -> None:
             email_pending=True,
             email_sent_at__isnull=True,
             email_attempts__lt=EMAIL_MAX_RETRIES,
-            created_at__lt=orphan_cutoff,
+            # No ``created_at`` age floor (#4191, ADR-0087 §Durable item 3 amendment).
+            # This drain is the only code that sends an invite, and overlapping drains
+            # are serialized by the singleton lock on ``drain_invite_emails`` — not by
+            # row age — so a 5-min floor excluded no in-flight owner and only delayed
+            # every first send. The drain cannot see an uncommitted row either way.
         )
+        # Retries stay one tick apart even when nudges run the drain more often.
+        .filter(Q(email_failed_at__isnull=True) | Q(email_failed_at__lt=now - EMAIL_RETRY_SPACING))
         .select_related("invited_by")
         .order_by("created_at")[:granted]
     )
