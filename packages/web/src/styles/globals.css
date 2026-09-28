@@ -371,6 +371,17 @@
     --allocation-partial-stripe: rgba(255, 255, 255, 0.13);
     --allocation-partial-stripe-legend: rgba(255, 255, 255, 0.20);
   }
+
+  /* The `hidden` attribute is authoritative (#4181). Preflight's
+     `[hidden] { display: none }` sits in the base layer, so any display
+     utility on the same element (`flex`, `grid`, `block`) outranks it and a
+     "collapsed" disclosure body stays painted while its toggle reports
+     `aria-expanded="false"`. That kept the Board/Today sprint panel's
+     velocity/capacity/WIP cards permanently open and pushed the board
+     columns below the fold. Tailwind v4's preflight ships this same rule. */
+  [hidden]:where(:not([hidden='until-found'])) {
+    display: none !important;
+  }
 }
 
 @layer utilities {
