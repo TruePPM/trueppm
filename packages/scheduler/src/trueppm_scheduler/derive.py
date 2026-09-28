@@ -51,6 +51,7 @@ from trueppm_scheduler.engine import (
     _milestone_refs,
     _next_working_day,
     _prev_working_day,
+    _project_free_instants,
     _resolve_task_calendars,
     _retreat_calendar_days,
     _safe_offset,
@@ -1161,6 +1162,9 @@ def _milestone_context(
         else ({}, {}, _safe_offset(result.project_finish, timedelta(days=1)))
     )
 
+    # Free float compares a milestone successor at its free-float instant (#4180).
+    free_instants = _project_free_instants(project, result.tasks, instants) if instants else {}
+
     def cal_of(tid: str) -> Calendar:
         return _cal_for(tid, default_cal, task_calendars)
 
@@ -1172,10 +1176,10 @@ def _milestone_context(
 
     def early_refs(succ: Task, _dep_type: DependencyType) -> tuple[date, date]:
         assert succ.early_start is not None and succ.early_finish is not None
-        early = instants.get(succ.id)
+        early = free_instants.get(succ.id)
         if early is None:
             return succ.early_start, succ.early_finish
-        return _milestone_refs(early[0], cal_of(succ.id))
+        return _milestone_refs(early, cal_of(succ.id))
 
     own = instants.get(task.id)
     milestone: tuple[date, _DayFn] | None = None
