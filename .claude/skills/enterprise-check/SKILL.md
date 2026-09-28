@@ -251,6 +251,10 @@ These rules are **non-negotiable**:
    enterprise registers against them without OSS knowing
 4. The community edition must be **fully functional** without the enterprise package
 
+### Extension points must isolate transaction state, not just exceptions
+
+A dispatch wrapper that catches a receiver's Python exception does **not** isolate the OSS write path when the receiver raises a database error. Under `ATOMIC_REQUESTS`, an `IntegrityError` or statement timeout inside a receiver leaves the enclosing transaction aborted. The OSS save then 500s, or loses its write with no error. For every extension signal fired inside a request transaction, check that each receiver runs inside its own savepoint and that a test covers a receiver raising a `DatabaseError`.
+
 ## Decision Framework
 
 Ask in order:
