@@ -141,6 +141,9 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // #4173. The weekend-lag reading itself is asserted in `cpmEngine.test.ts`,
   // which can seed the fixture's two work sources directly.
   milestone_lag_after_weekend: 'adapter: 3 source tasks',
+  // #4206. The lag-vs-reading rule itself is asserted directly in
+  // `cpmEngine.test.ts`, which can build this shape with two source tasks.
+  milestone_lag_display_fresh: 'adapter: 3 source tasks',
   milestone_after_non_working_actual_finish: 'adapter: does not thread actuals/status date',
   // #4183. Both need several independent work sources feeding one milestone:
   // the tie is between two of them, so a single seeded source cannot reach it.

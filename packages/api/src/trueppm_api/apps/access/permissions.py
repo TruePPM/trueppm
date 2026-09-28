@@ -1694,8 +1694,9 @@ class IsOrgAdmin(BasePermission):
     install-wide work (the resource catalog's deactivation lifecycle, its email
     exposure, the cross-project assignments view) uses
     :class:`~trueppm_api.apps.workspace.permissions.IsWorkspaceAdminStrict`, the
-    workspace ADMIN role, which an owner can grant in-app; set-once infrastructure
-    (mail transport) uses :class:`IsWorkspaceOperator`, the install superuser
+    workspace ADMIN role, which an owner can grant in-app; surfaces with no in-app
+    delegation path — mail transport, the dead-letter queue, and observability
+    internals (#4009) — use :class:`IsWorkspaceOperator`, the install superuser
     (ADR-0213 C1). What is left on *this* gate is shared-catalog curation, where the
     worst outcome is a bad edit another admin can revert.
 
@@ -1718,9 +1719,15 @@ class IsOrgAdmin(BasePermission):
 def is_workspace_operator(user: Any) -> bool:
     """Return True when ``user`` is the install operator — a Django superuser (#3569).
 
-    The single definition behind :class:`IsWorkspaceOperator`, and as of #3569 its
-    only caller. It gates the install-global *infrastructure* config — mail
-    transport (ADR-0213 C1) and the notification transport views.
+    The single definition behind :class:`IsWorkspaceOperator`. It gates the
+    install-global *infrastructure* config — mail transport (ADR-0213 C1), the
+    notification transport views, and, as of #4009, the dead-letter queue
+    (``FailedTaskViewSet``) and the observability endpoints (System Health,
+    Prometheus metrics, retention policy, telemetry export). #4009 moved those two
+    surfaces off Django ``is_staff`` (``IsAdminUser``), an undocumented second admin
+    axis that ``WorkspaceRole`` never governed, onto this stored principal —
+    narrowing the population to superusers, since ``is_staff`` alone no longer
+    passes.
 
     An earlier revision of this branch also routed the resource catalog's email
     exposure and deactivated pool through here. Those moved to
@@ -1746,12 +1753,28 @@ class IsWorkspaceOperator(BasePermission):
     the correct and only such principal; Enterprise may widen this via a
     registered override without changing the OSS baseline.
 
-    **Scope: set-once infrastructure only. This gate does NOT cover the resource
-    catalog.** An intermediate revision of #3569 routed the catalog's deactivation
-    lifecycle, ``email`` exposure and the cross-project assignments view here; they
-    were re-gated onto
+    **Scope: this gate does NOT cover the resource catalog.** An intermediate
+    revision of #3569 routed the catalog's deactivation lifecycle, ``email``
+    exposure and the cross-project assignments view here; they were re-gated onto
     :class:`~trueppm_api.apps.workspace.permissions.IsWorkspaceAdminStrict` before
-    merge. The live callers of this class are the notification transport views.
+    merge.
+
+    **"Set-once infrastructure only" is stale as of #4009 — corrected here rather
+    than silently rewritten.** At #712 the only caller was mail transport, genuinely
+    set-once. #4009 added the dead-letter queue and the observability endpoints,
+    which are routine *operational* surfaces (an operator requeues/drops dead
+    letters and tunes retention regularly, not once) rather than infrastructure
+    configured once at install time. The unifying property that actually governs
+    which gate a surface takes is not "how often", it is "who is allowed to do
+    it at all": mail transport, dead-letter recovery, and observability internals
+    all belong to the install operator specifically (traceback/args/kwargs
+    disclosure, arbitrary re-enqueue, retention/telemetry config), with no in-app
+    delegation path for any of them — unlike
+    :class:`~trueppm_api.apps.workspace.permissions.IsWorkspaceAdminStrict` surfaces,
+    which a workspace owner can hand out. The live callers of this class
+    are the notification transport views, ``FailedTaskViewSet`` (dead-letter
+    requeue/drop, #4009), and the observability app's System Health, Prometheus
+    metrics, retention policy, and telemetry-export views (#4009).
 
     The reason that split is the right one, and the rule for choosing next time: the
     defect #3569 fixed was that org authority came from a *self-grantable* project

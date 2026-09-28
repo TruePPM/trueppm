@@ -100,9 +100,11 @@ pub(crate) fn start_reading(
 /// start-of-day reading winning a tie (floors are offered first, so a floor keeps
 /// its verbatim day on a tie). Floors propose the start of their day; FS/SS links
 /// propose `anchor + lag`, shown at the end of the previous working day after FS
-/// from work, at the start of the day after SS from work, and as the predecessor
-/// is shown after another milestone — except that an instant just after
-/// non-working time is always shown at the start of the next working day
+/// from work, at the start of the day after SS from work, and — only at zero lag,
+/// where the proposed instant is the very midnight the predecessor milestone
+/// occupies — as that predecessor is shown (a lagged link out of a milestone
+/// falls back to the FS/SS-from-work rule, #4206) — except that an instant just
+/// after non-working time is always shown at the start of the next working day
 /// ([`start_reading`], #4173); FF/SF links propose the end of the finish day
 /// `next_wd(anchor + lag)`. Mirrors the Python `_place_milestone` (#4079).
 fn place_milestone(
@@ -137,14 +139,18 @@ fn place_milestone(
         )?;
         let raw = checked_offset_days(anchor, dep.lag_days())?;
         if start_anchored(dep.dep_type) {
-            let start_display = start_reading(
-                raw,
-                match pred_instant {
-                    Some(i) => i.1,
-                    None => dep.dep_type == DependencyType::SS,
-                },
-                cal,
-            )?;
+            let base_display = match pred_instant {
+                // Same midnight as the predecessor milestone (#4079): its own
+                // reading carries over verbatim.
+                Some(i) if dep.lag_days() == 0 => i.1,
+                // Ordinary work, or a milestone reached through a nonzero lag: a
+                // different midnight than the predecessor's own instant, so its
+                // reading is computed fresh. Inheriting it would leak a display
+                // quirk of the predecessor's instant (the Sunday/Monday snap,
+                // #4173) onto an instant it has nothing to do with (#4206).
+                _ => dep.dep_type == DependencyType::SS,
+            };
+            let start_display = start_reading(raw, base_display, cal)?;
             offer((raw, start_display, instant_day(raw, start_display, cal)?));
         } else {
             let finish_day = next_working_day(raw, cal)?;
@@ -455,4 +461,92 @@ fn edge_constraints(
         }
     }
     Ok((es_constraints, ef_constraints))
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::NaiveDate;
+    use serde_json::json;
+
+    use crate::models::{Project, TaskResult};
+    use crate::schedule_impl;
+
+    /// Schedule a Mon-Fri project starting Mon 2026-01-05 from `(id, days)` tasks
+    /// and `(pred, succ, type, lag_days)` links, returning one task's result.
+    fn schedule_one(
+        tasks: &[(&str, i64)],
+        deps: &[(&str, &str, &str, i64)],
+        id: &str,
+    ) -> TaskResult {
+        let project: Project = serde_json::from_value(json!({
+            "id": "p",
+            "name": "p",
+            "start_date": "2026-01-05",
+            "tasks": tasks.iter().map(|(t, d)| json!({
+                "id": t, "name": t, "duration": (*d as f64) * 86400.0,
+            })).collect::<Vec<_>>(),
+            "dependencies": deps.iter().map(|(p, s, k, lag)| json!({
+                "predecessor_id": p, "successor_id": s, "dep_type": k,
+                "lag": (*lag as f64) * 86400.0,
+            })).collect::<Vec<_>>(),
+        }))
+        .expect("test project parses");
+        let result = schedule_impl(&project).expect("test project schedules");
+        result
+            .tasks
+            .into_iter()
+            .find(|t| t.id == id)
+            .expect("task present")
+    }
+
+    fn d(day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(2026, 1, day).unwrap()
+    }
+
+    /// #4206 (Rust port of #4205): `M` sits on Sunday 2026-01-11 midnight, which
+    /// the #4173 non-working snap reads as the start of Monday. `M2`'s FS+2d
+    /// instant is Tue 2026-01-13 midnight, whose previous day is a working
+    /// Monday — so nothing masks the inherited reading. Read fresh (FS), it is
+    /// the end of Monday 2026-01-12; the inherited start-of-day reading showed it
+    /// a working day later, on Tuesday.
+    #[test]
+    fn lagged_fs_out_of_a_snapped_milestone_reads_fresh() {
+        let m2 = schedule_one(
+            &[("T0", 5), ("M", 0), ("M2", 0)],
+            &[("T0", "M", "FS", 1), ("M", "M2", "FS", 2)],
+            "M2",
+        );
+        assert_eq!(m2.early_start, d(12));
+        assert!(m2.milestone_at_day_end);
+    }
+
+    /// #4206: the SS direction. `N` follows one day of work at zero lag, so it
+    /// reads as the end of Mon 2026-01-05. `N2`'s SS+1d instant is Wed 2026-01-07
+    /// midnight and, read fresh (SS), is the start of Wednesday; inheriting `N`'s
+    /// end-of-day reading showed it on Tuesday instead.
+    #[test]
+    fn lagged_ss_out_of_an_end_of_day_milestone_reads_fresh() {
+        let n2 = schedule_one(
+            &[("A", 1), ("N", 0), ("N2", 0)],
+            &[("A", "N", "FS", 0), ("N", "N2", "SS", 1)],
+            "N2",
+        );
+        assert_eq!(n2.early_start, d(7));
+        assert!(!n2.milestone_at_day_end);
+    }
+
+    /// The zero-lag half of the rule is unchanged: `P` is the start of Tue
+    /// 2026-01-06 (SS+1d from work), and `P2`, FS+0d from it, is the same
+    /// midnight, so it keeps that reading rather than the fresh FS one (end of
+    /// Monday).
+    #[test]
+    fn zero_lag_out_of_a_milestone_still_inherits_its_reading() {
+        let p2 = schedule_one(
+            &[("S", 3), ("P", 0), ("P2", 0)],
+            &[("S", "P", "SS", 1), ("P", "P2", "FS", 0)],
+            "P2",
+        );
+        assert_eq!(p2.early_start, d(6));
+        assert!(!p2.milestone_at_day_end);
+    }
 }

@@ -22,7 +22,8 @@ URL = "/api/v1/admin/failed-tasks/"
 
 
 def _admin_client() -> APIClient:
-    admin = User.objects.create_user(username="ft_admin", password="pw", is_staff=True)
+    """A workspace operator (Django superuser) — the only principal that passes."""
+    admin = User.objects.create_user(username="ft_admin", password="pw", is_superuser=True)
     client = APIClient()
     client.force_authenticate(user=admin)
     return client
@@ -47,8 +48,15 @@ def _ids(res) -> set[str]:
 
 @pytest.mark.django_db
 class TestFailedTaskFilters:
-    def test_requires_admin(self) -> None:
+    def test_requires_operator(self) -> None:
         user = User.objects.create_user(username="ft_member", password="pw")
+        client = APIClient()
+        client.force_authenticate(user=user)
+        assert client.get(URL).status_code == 403
+
+    def test_staff_only_is_forbidden(self) -> None:
+        """``is_staff`` alone no longer passes (#4009) — only a superuser does."""
+        user = User.objects.create_user(username="ft_staff_only", password="pw", is_staff=True)
         client = APIClient()
         client.force_authenticate(user=user)
         assert client.get(URL).status_code == 403

@@ -176,6 +176,10 @@ Every action keeps `permission_classes=[IsAdminUser]`, consistent with ADR-0172 
 ADR-0081/0084. Single-deployment OSS operator hygiene has no project in scope; this is
 the workspace-admin gate, not project 5-role RBAC. Non-admins get 403.
 
+> **Superseded by ADR-0034 amendment (#4009), 2026-09-28.** `IsAdminUser` (`is_staff`)
+> is no longer the gate on these actions — see the amendment for the current
+> `IsWorkspaceOperator` (superuser) gate.
+
 ### 7. Audit / broadcast
 
 `FailedTask` is **not** board-scoped, so `broadcast_board_event()` is **N/A** — there

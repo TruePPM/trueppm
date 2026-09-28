@@ -33,7 +33,7 @@ from rest_framework.decorators import action, api_view, permission_classes, thro
 from rest_framework.generics import ListAPIView
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle, SimpleRateThrottle
@@ -45,6 +45,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectMember,
     IsProjectNotArchived,
     IsProjectScheduler,
+    IsWorkspaceOperator,
     McpReadableViewMixin,
     McpScope,
     assert_project_not_archived,
@@ -1869,12 +1870,20 @@ class FailedTaskPagination(PageNumberPagination):
     ),
 )
 class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):  # type: ignore[type-arg]
-    """Admin endpoint for dead-lettered Celery tasks.
+    """Workspace-operator endpoint for dead-lettered Celery tasks.
 
-    List/detail/requeue/drop and the bulk ``requeue_all``/``drop_all``: admin users
-    only. The serializer exposes tracebacks, args, and kwargs which may contain
-    internal paths or partial secrets and must not be visible to unprivileged
-    members.
+    List/detail/requeue/drop and the bulk ``requeue_all``/``drop_all``: workspace
+    operators (Django superusers, :class:`IsWorkspaceOperator`) only (#4009). The
+    serializer exposes tracebacks, args, and kwargs which may contain internal
+    paths or partial secrets and must not be visible to unprivileged members.
+
+    **Not gated on Django ``is_staff`` (#4009).** Before #4009 this viewset used
+    ``IsAdminUser``, an undocumented second admin axis that is not governed by
+    ``WorkspaceRole`` and is not self-grantable — but also not visible anywhere in
+    the RBAC docs. Moving to ``IsWorkspaceOperator`` folds dead-letter access into
+    the one stored-principal story the resource catalog and mail transport already
+    use (ADR-0034, ADR-0213 C1) and narrows the population: an ``is_staff=True``
+    account that is not also a superuser now gets 403 where it previously passed.
 
     The list endpoint backs the dead-letter inspector (#694, ADR-0172) and
     accepts read-only filters: ``?status=`` (one of the FailedTaskStatus
@@ -1895,7 +1904,7 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
     """
 
     serializer_class = FailedTaskSerializer
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsWorkspaceOperator]
     pagination_class = FailedTaskPagination
     queryset = FailedTask.objects.all()
 
@@ -1958,7 +1967,7 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
         responses={200: FailedTaskSerializer},
         summary="Requeue a dead-lettered task with an operator-chosen backoff",
     )
-    @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
+    @action(detail=True, methods=["post"], permission_classes=[IsWorkspaceOperator])
     def requeue(self, request: Request, pk: str | None = None) -> Response:
         """Re-enqueue a parked task via the durable workflow backend (ADR-0210).
 
@@ -2004,7 +2013,7 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
         responses={200: FailedTaskSerializer},
         summary="Drop (dismiss) a dead-lettered task with an optional audit note",
     )
-    @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
+    @action(detail=True, methods=["post"], permission_classes=[IsWorkspaceOperator])
     def drop(self, request: Request, pk: str | None = None) -> Response:
         """Soft-remove a parked task (→ DISMISSED) with an optional audit note.
 
@@ -2042,7 +2051,10 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
         summary="Requeue every actionable task in the current filter set (bounded)",
     )
     @action(
-        detail=False, methods=["post"], url_path="requeue-all", permission_classes=[IsAdminUser]
+        detail=False,
+        methods=["post"],
+        url_path="requeue-all",
+        permission_classes=[IsWorkspaceOperator],
     )
     def requeue_all(self, request: Request) -> Response:
         """Bulk-requeue the current filter set, bounded (ADR-0210 §4).
@@ -2087,7 +2099,12 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
         responses={200: OpenApiResponse(description="{processed, matched, capped}")},
         summary="Drop every task in the current filter set (bounded)",
     )
-    @action(detail=False, methods=["post"], url_path="drop-all", permission_classes=[IsAdminUser])
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="drop-all",
+        permission_classes=[IsWorkspaceOperator],
+    )
     def drop_all(self, request: Request) -> Response:
         """Bulk-drop the current filter set, bounded (ADR-0210 §4).
 

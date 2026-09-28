@@ -1,7 +1,9 @@
 """Tests for the dead-letter Prometheus metrics endpoint (ADR-0084, issue #660).
 
 Covers:
-  - GET /api/v1/health/dead-letter/ IsAdminUser gating
+  - GET /api/v1/health/dead-letter/ IsWorkspaceOperator gating (401 unauth, 403
+    non-operator, 403 for a formerly-allowed is_staff-only account) — moved off
+    Django is_staff/IsAdminUser by #4009
   - Prometheus text exposition: content type, HELP/TYPE header, per-task gauge
   - Only DEAD (parked) tasks are counted, not dismissed/retried
   - Empty state emits the header with no series
@@ -36,7 +38,7 @@ def _failed(task_name: str, task_id: str, status: str = FailedTaskStatus.DEAD) -
 
 
 def _admin_client() -> APIClient:
-    admin = User.objects.create_user(username="dl_admin", password="pw", is_staff=True)
+    admin = User.objects.create_user(username="dl_admin", password="pw", is_superuser=True)
     client = APIClient()
     client.force_authenticate(user=admin)
     return client
@@ -48,8 +50,21 @@ class TestDeadLetterMetricsEndpoint:
         res = APIClient().get(URL)
         assert res.status_code in (401, 403)
 
-    def test_forbidden_for_non_staff(self) -> None:
+    def test_forbidden_for_non_operator(self) -> None:
         user = User.objects.create_user(username="dl_member", password="pw")
+        client = APIClient()
+        client.force_authenticate(user=user)
+        assert client.get(URL).status_code == 403
+
+    def test_forbidden_for_staff_only(self) -> None:
+        """A formerly-allowed ``is_staff`` account with no superuser flag is refused.
+
+        Pre-#4009 this account passed ``IsAdminUser``. ``IsWorkspaceOperator`` checks
+        ``is_superuser`` only, so ``is_staff`` alone no longer buys access.
+        """
+        user = User.objects.create_user(
+            username="dl_metrics_staff_only", password="pw", is_staff=True
+        )
         client = APIClient()
         client.force_authenticate(user=user)
         assert client.get(URL).status_code == 403

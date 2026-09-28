@@ -154,6 +154,10 @@ bar than a workspace `ADMIN` role, and the overview page that links here is alre
 `is_staff`. Gating this one write surface on `WorkspaceRole.ADMIN` would split the operator
 UI across two trust models. Deviation from the issue wording is explicit and justified.
 
+> **Superseded by ADR-0034 amendment (#4009), 2026-09-28.** `IsAdminUser` (`is_staff`)
+> is no longer the gate on this endpoint — see the amendment for the current
+> `IsWorkspaceOperator` (superuser) gate.
+
 ### F. New ADR (this one), amending two
 
 A net-new model + write surface + coordinator + schedule is too much to fold into accepted
@@ -171,6 +175,10 @@ collision with ADR-0090 (Recurring Tasks) — see #918.
 
 Frontend route: `/settings/health/retention`, a sibling of `/settings/health` in the
 existing "System" nav group.
+
+> **Superseded by ADR-0034 amendment (#4009), 2026-09-28.** `IsAdminUser` (`is_staff`)
+> is no longer the gate on these endpoints — see the amendment for the current
+> `IsWorkspaceOperator` (superuser) gate.
 
 ## Alternatives Considered
 

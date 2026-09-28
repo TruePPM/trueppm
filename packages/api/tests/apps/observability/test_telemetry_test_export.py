@@ -1,7 +1,9 @@
 """Tests for the telemetry test-export probe (#2110, ADR-0223 follow-up).
 
 Covers:
-  - POST /api/v1/health/telemetry/test/ IsAdminUser gating (401 unauth, 403 non-staff)
+  - POST /api/v1/health/telemetry/test/ IsWorkspaceOperator gating (401 unauth, 403
+    non-operator, 403 for a formerly-allowed is_staff-only account) — moved off
+    Django is_staff/IsAdminUser by #4009
   - export mode: canary SUCCESS -> outcome "success", FAILURE -> "failure"
   - probe mode (export switched off): TCP reachable -> "reachable", refused -> "failure"
   - not configured -> "failure" with a canned "no endpoint" detail
@@ -49,7 +51,7 @@ _DISABLED = {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4317", "TRUEPPM_OT
 
 
 def _admin_client() -> APIClient:
-    admin = User.objects.create_user(username="tel_admin", password="pw", is_staff=True)
+    admin = User.objects.create_user(username="tel_admin", password="pw", is_superuser=True)
     client = APIClient()
     client.force_authenticate(user=admin)
     return client
@@ -69,8 +71,19 @@ class TestGating:
     def test_requires_authentication(self) -> None:
         assert APIClient().post(URL).status_code in (401, 403)
 
-    def test_forbidden_for_non_staff(self) -> None:
+    def test_forbidden_for_non_operator(self) -> None:
         user = User.objects.create_user(username="tel_member", password="pw")
+        client = APIClient()
+        client.force_authenticate(user=user)
+        assert client.post(URL).status_code == 403
+
+    def test_forbidden_for_staff_only(self) -> None:
+        """A formerly-allowed ``is_staff`` account with no superuser flag is refused.
+
+        Pre-#4009 this account passed ``IsAdminUser``. ``IsWorkspaceOperator`` checks
+        ``is_superuser`` only, so ``is_staff`` alone no longer buys access.
+        """
+        user = User.objects.create_user(username="tel_staff_only", password="pw", is_staff=True)
         client = APIClient()
         client.force_authenticate(user=user)
         assert client.post(URL).status_code == 403

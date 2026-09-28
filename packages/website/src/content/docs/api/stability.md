@@ -298,7 +298,8 @@ deprecation window rather than being removed outright:
    so a broker outage cannot silently drop it. The old `dismiss` had no audit trail beyond
    the status flip; `drop` retains the row with an optional operator note
    (`resolution_note`/`resolved_by`/`resolved_at`) so the audit survives (ADR-0084,
-   "no silent discards"). Both are admin-only (`IsAdminUser`) System Health operator
+   "no silent discards"). Both are workspace-operator-only (`IsWorkspaceOperator`,
+   superuser-gated — moved off `IsAdminUser` by #4009) System Health operator
    actions with no documented external integration and no caller in the web client's
    Playwright suite, the mobile app, or the MCP server referencing the old names.
 

@@ -431,9 +431,17 @@ that reports:
 ### Prometheus metrics and alerts
 
 `GET /api/v1/health/email/` serves four gauges in Prometheus text-exposition format
-(staff-only; scrape it with a bearer token). Like the dead-letter gauge, these are
+(workspace-operator-only; scrape it with a bearer token). Like the dead-letter gauge, these are
 **not** OTLP metrics and need their own scrape job — see
 [OpenTelemetry & OTLP export](/administration/observability/).
+
+:::caution[Requires a superuser token]
+As of 0.4, this endpoint is gated with `IsWorkspaceOperator`, which checks
+`is_superuser` — a staff-only (`is_staff=True`, `is_superuser=False`) scrape
+credential now gets `403 Forbidden`. See the
+[0.4 upgrade notes](/getting-started/upgrade/#dead-letter-and-observability-scrape-credentials-now-require-superuser)
+if your scrape token was minted for a staff-only account.
+:::
 
 | Gauge | Meaning |
 |---|---|

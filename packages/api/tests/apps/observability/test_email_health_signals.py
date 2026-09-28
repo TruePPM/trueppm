@@ -281,7 +281,7 @@ def test_email_metrics_endpoint_exposes_the_four_gauges() -> None:
     with _dead_relay():
         _drain_beat_ticks(EMAIL_MAX_RETRIES)
 
-    admin = User.objects.create_user(username="metrics_admin", password="pw", is_staff=True)
+    admin = User.objects.create_user(username="metrics_admin", password="pw", is_superuser=True)
     client = APIClient()
     client.force_authenticate(user=admin)
     resp = client.get(reverse("email-metrics"))
@@ -299,15 +299,27 @@ def test_email_metrics_endpoint_exposes_the_four_gauges() -> None:
 
 def test_email_metrics_flags_the_unusable_transport() -> None:
     _break_the_credential()
-    admin = User.objects.create_user(username="metrics_admin2", password="pw", is_staff=True)
+    admin = User.objects.create_user(username="metrics_admin2", password="pw", is_superuser=True)
     client = APIClient()
     client.force_authenticate(user=admin)
     body = client.get(reverse("email-metrics")).content.decode()
     assert "trueppm_email_transport_unavailable 1" in body
 
 
-def test_email_metrics_requires_staff() -> None:
+def test_email_metrics_requires_operator() -> None:
     client = APIClient()
     assert client.get(reverse("email-metrics")).status_code in (401, 403)
     client.force_authenticate(user=_recipient("plain_user"))
+    assert client.get(reverse("email-metrics")).status_code == 403
+
+
+def test_email_metrics_staff_only_is_forbidden() -> None:
+    """A formerly-allowed ``is_staff`` account with no superuser flag is refused.
+
+    Pre-#4009 this account passed ``IsAdminUser``. ``IsWorkspaceOperator`` checks
+    ``is_superuser`` only, so ``is_staff`` alone no longer buys access.
+    """
+    user = User.objects.create_user(username="metrics_staff_only", password="pw", is_staff=True)
+    client = APIClient()
+    client.force_authenticate(user=user)
     assert client.get(reverse("email-metrics")).status_code == 403
