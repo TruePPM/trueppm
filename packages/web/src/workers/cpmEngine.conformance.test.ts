@@ -94,6 +94,10 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // Adapter limitations — the harness below places exactly one source task.
   all_dep_types: 'adapter: 4 source tasks',
   parallel_critical: 'adapter: 2 source tasks',
+  // #4180. The unrelated `W` task is a second source alongside `A`, kept in the
+  // fixture to hold the project's critical path steady while the free-float
+  // fix is exercised on the A->M->B chain.
+  milestone_free_float_successor_lag_cap: 'adapter: 2 source tasks',
   canonical_to_json_roundtrip: 'serialization fixture, not a scheduling scenario',
   // Calendar capability the browser does not have at drag time (ADR-0120).
   calendar_exceptions: 'engine gap: CalendarException holidays not modeled',
@@ -137,6 +141,9 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // #4173. The weekend-lag reading itself is asserted in `cpmEngine.test.ts`,
   // which can seed the fixture's two work sources directly.
   milestone_lag_after_weekend: 'adapter: 3 source tasks',
+  // #4206. The lag-vs-reading rule itself is asserted directly in
+  // `cpmEngine.test.ts`, which can build this shape with two source tasks.
+  milestone_lag_display_fresh: 'adapter: 3 source tasks',
   milestone_after_non_working_actual_finish: 'adapter: does not thread actuals/status date',
   // A genuine forward-pass divergence, unrelated to calendars or the adapter.
   fs_negative_lag_floored: 'engine gap: negative lag is not floored at the project start',

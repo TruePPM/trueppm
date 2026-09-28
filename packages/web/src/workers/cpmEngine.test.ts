@@ -951,4 +951,35 @@ describe('runCpmForwardPass — zero-duration milestones are instants (#4079)', 
     );
     expect(unflagged.results.find((r) => r.taskId === 'B')!.earlyStart).toBe('2026-01-09');
   });
+
+  it('only inherits a milestone predecessor\'s reading across a zero-lag link (#4206)', () => {
+    // A -SS-> M1 gives M1 a start-of-day reading (SS's fresh-reading fallback).
+    // M1 -FS+3-> M2 lands on a working-day midnight, ambiguous between the two
+    // readings. At zero lag M2 must inherit M1's own reading (same midnight,
+    // #4079); at a nonzero lag the connecting edge proposes a different
+    // midnight than M1's own, so M2 must seed fresh instead (mirrors the
+    // Python #4205 / Rust #4206 fix).
+    const a = task('A', '2026-01-05', '2026-01-07', { durationDays: 3 });
+    const m1 = milestone('M1', '2026-01-05');
+    const lagged = runCpmForwardPass(
+      [a, m1, milestone('M2', '2026-01-05')],
+      [edge('A', 'M1', 'SS'), edge('M1', 'M2', 'FS', 3)],
+      'A',
+      '2026-01-05',
+    );
+    const m1Result = lagged.results.find((r) => r.taskId === 'M1')!;
+    expect(m1Result.milestoneAtDayEnd).toBe(false); // start-of-day
+    const m2Lagged = lagged.results.find((r) => r.taskId === 'M2')!;
+    expect(m2Lagged.earlyStart).toBe('2026-01-07');
+    expect(m2Lagged.milestoneAtDayEnd).toBe(true); // seeded fresh, not inherited
+
+    const zeroLag = runCpmForwardPass(
+      [a, m1, milestone('M2', '2026-01-05')],
+      [edge('A', 'M1', 'SS'), edge('M1', 'M2', 'FS', 0)],
+      'A',
+      '2026-01-05',
+    );
+    const m2ZeroLag = zeroLag.results.find((r) => r.taskId === 'M2')!;
+    expect(m2ZeroLag.milestoneAtDayEnd).toBe(false); // inherited M1's own reading
+  });
 });

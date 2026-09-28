@@ -87,6 +87,12 @@ vi.mock('@/stores/authStore', () => ({
   useAuthStore: (selector: (s: { clearTokens: () => void }) => unknown) =>
     selector({ clearTokens }),
 }));
+// Branch coverage here is all Owner-golden-path (export status states, mutation
+// outcomes, …) — the role gate itself (#4210) has its own spec.
+vi.mock('@/hooks/useIsWorkspaceOwner', () => ({
+  useIsWorkspaceOwner: () => true,
+  WORKSPACE_OWNER_ROLE: 400,
+}));
 
 function renderPage() {
   return render(

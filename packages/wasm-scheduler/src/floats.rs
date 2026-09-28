@@ -9,12 +9,71 @@ use petgraph::Direction;
 
 use crate::backward::{milestone_latest, milestone_refs, sf_latest_start};
 use crate::calendar::{
-    checked_offset_days, prev_working_day, retreat_calendar_days, working_days_between,
-    PassCalendars, WorkingDayCounter,
+    checked_offset_days, next_working_day, prev_working_day, retreat_calendar_days,
+    working_days_between, PassCalendars, WorkingDayCounter,
 };
 use crate::forward::Instant;
 use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, DrivingEdge, Task};
+
+/// The latest instant each milestone may reach without moving anything, for free
+/// float (#4180). Mirrors the Python `_milestone_free_instants`.
+///
+/// A milestone's early position is its shown day plus its reading, not the raw
+/// instant. A start-of-day reading is shown on `next_wd(instant)`, and every
+/// midnight up to that one lies in the same stretch of non-working time, so the
+/// milestone admits any of them (`A(4d) -FS+2d-> M`: Sunday and Monday midnight
+/// are both the start of Monday). An end-of-day reading stays at the raw instant,
+/// because the next midnight is shown on the next working day (#4173).
+///
+/// The raw instant is still what the milestone's own links measure from, and a
+/// calendar-day lag carries it downstream, so the stretch is also capped by every
+/// live successor link, inverted with `milestone_latest` against that successor's
+/// early references — its own free instant when it is a milestone, which is why
+/// this walks the topological order backwards.
+fn milestone_free_instants(
+    tasks: &[Task],
+    topo_order: &[NodeIndex],
+    pg: &ProjectGraph,
+    deps: &[Dependency],
+    cals: &PassCalendars,
+    instants: &[Option<Instant>],
+) -> Result<Vec<Option<NaiveDate>>, String> {
+    let mut free: Vec<Option<NaiveDate>> = vec![None; tasks.len()];
+    for &idx in topo_order.iter().rev() {
+        let i = idx.index();
+        let Some((instant, start_display)) = instants[i] else {
+            continue;
+        };
+        if !start_display {
+            free[i] = Some(instant);
+            continue;
+        }
+        let cal = cals.for_node(i);
+        let mut bound = next_working_day(instant, cal)?;
+        for edge in pg.graph.edges_directed(idx, Direction::Outgoing) {
+            let s = edge.target().index();
+            let succ = &tasks[s];
+            if succ.is_complete() {
+                continue;
+            }
+            let dep = &deps[*edge.weight()];
+            let (start_ref, finish_ref) = match free[s] {
+                Some(x) => milestone_refs(x, cals.for_node(s))?,
+                None => (succ.early_start.unwrap(), succ.early_finish.unwrap()),
+            };
+            bound = bound.min(milestone_latest(
+                dep.dep_type,
+                dep.lag_days(),
+                start_ref,
+                finish_ref,
+                cal,
+            )?);
+        }
+        free[i] = Some(instant.max(bound));
+    }
+    Ok(free)
+}
 
 /// Working-day span counter that keeps the O(log n) fast path where it is valid.
 ///
@@ -89,7 +148,7 @@ fn free_float_anchor(
 ///
 /// Milestones (#4079): a milestone's spans run between *instants* — its early
 /// instant from `forward_pass` and its late instant from `backward_pass` — and a
-/// milestone successor offers its early instant (`milestone_refs`). Mirrors the
+/// milestone successor offers its free instant (`milestone_free_instants`). Mirrors the
 /// Python `_compute_floats` / `_link_slack`, including a milestone's signed slack.
 pub fn compute_floats(
     tasks: &mut [Task],
@@ -106,6 +165,9 @@ pub fn compute_floats(
         calendar,
     };
     let mut driving_edges: Vec<DrivingEdge> = Vec::new();
+    // Free float compares a milestone successor by its shown position, not its raw
+    // instant (#4180).
+    let free_instants = milestone_free_instants(tasks, topo_order, pg, deps, cals, instants)?;
     for &idx in topo_order {
         let i = idx.index();
         let es = tasks[i].early_start.unwrap();
@@ -154,8 +216,8 @@ pub fn compute_floats(
             }
             let dep = &deps[*edge.weight()];
             let s = edge.target().index();
-            let (succ_start, succ_finish) = match instants[s] {
-                Some(x) => milestone_refs(x.0, cals.for_node(s))?,
+            let (succ_start, succ_finish) = match free_instants[s] {
+                Some(x) => milestone_refs(x, cals.for_node(s))?,
                 None => (succ.early_start.unwrap(), succ.early_finish.unwrap()),
             };
             let slack = match instants[i] {

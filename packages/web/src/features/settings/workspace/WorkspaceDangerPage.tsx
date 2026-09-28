@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuthStore } from '@/stores/authStore';
+import { useIsWorkspaceOwner, WORKSPACE_OWNER_ROLE } from '@/hooks/useIsWorkspaceOwner';
 import { SettingsPageTitle, LearnMoreLink } from '../SettingsShell';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { useWorkspaceMembers } from '../hooks/useWorkspaceMembers';
@@ -11,8 +12,6 @@ import {
   useTransferWorkspaceOwnership,
   useWorkspaceExportJob,
 } from '../hooks/useWorkspaceLifecycle';
-
-const WORKSPACE_OWNER_ROLE = 400; // WorkspaceRole.OWNER ordinal
 
 interface InlineToast {
   message: string;
@@ -26,7 +25,21 @@ function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
-/** Workspace > Archive / Delete danger zone — transfer / export / delete (#641). */
+const OWNER_REQUIRED_TEXT = 'Requires the workspace Owner role.';
+
+/**
+ * Visible note shown under a control this page has disabled for a non-Owner
+ * (#4210) — not just a hover title, since a disabled control's `title`
+ * tooltip is easy to miss and gives no signal to a screen reader.
+ */
+function OwnerRequiredNote() {
+  return (
+    <p className="mt-2 text-[11px] text-neutral-text-secondary" role="note">
+      {OWNER_REQUIRED_TEXT}
+    </p>
+  );
+}
+
 /**
  * The export card's single action, which swaps once an archive exists.
  *
@@ -38,21 +51,26 @@ function ExportActionButton({
   ready,
   downloading,
   exportBusy,
+  ownerBlocked,
   onDownload,
   onStartExport,
 }: {
   ready: boolean;
   downloading: boolean;
   exportBusy: boolean;
+  /** True for a positively-resolved non-Owner (#4210) — see the module docstring. */
+  ownerBlocked: boolean;
   onDownload: () => void | Promise<void>;
   onStartExport: () => void;
 }) {
+  const ownerTitle = ownerBlocked ? OWNER_REQUIRED_TEXT : undefined;
   if (ready) {
     return (
       <button
         type="button"
         onClick={() => void onDownload()}
-        disabled={downloading}
+        disabled={downloading || ownerBlocked}
+        title={ownerTitle}
         className="shrink-0 px-3 py-1.5 rounded-control border border-brand-primary text-[13px] font-medium text-brand-primary hover:bg-brand-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-60"
       >
         {downloading ? 'Downloading…' : 'Download archive'}
@@ -63,7 +81,8 @@ function ExportActionButton({
     <button
       type="button"
       onClick={onStartExport}
-      disabled={exportBusy}
+      disabled={exportBusy || ownerBlocked}
+      title={ownerTitle}
       className="shrink-0 px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary"
     >
       {exportBusy ? 'Building export…' : 'Export all data'}
@@ -108,12 +127,34 @@ function DangerToast({ toast }: { toast: InlineToast }) {
   );
 }
 
+/**
+ * Workspace > Archive / Delete danger zone — transfer / export / delete (#641).
+ *
+ * Role gate (#4210). Export, Transfer ownership, and Delete are Owner-only
+ * server-side (`IsWorkspaceOwner`, and the inline `request_is_workspace_owner()`
+ * check on workspace delete) — one band above the Admin threshold
+ * `RequireWorkspaceAdmin` enforces on the route this page sits inside. Before
+ * this gate, a plain Admin (role 300) saw all three controls enabled and every
+ * click 403'd — the same "enabled-but-403 shell of controls" defect #2012/#3330
+ * fixed at the route level, recurring one role band down. This page fails
+ * **closed** on its own, mirroring `WorkspaceMethodologyPage` (#3314): only a
+ * positively-resolved `useIsWorkspaceOwner() === true` enables the controls;
+ * loading, an error, or a payload missing `workspace_role` all render disabled
+ * rather than armed. The server remains authoritative regardless — this is UI
+ * integrity, not the security boundary.
+ */
 export function WorkspaceDangerPage() {
   const navigate = useNavigate();
   const clearTokens = useAuthStore((s) => s.clearTokens);
 
   const { data: workspace } = useWorkspaceSettings();
   const { members } = useWorkspaceMembers();
+
+  // Fail closed (#4210): only a positively-resolved Owner may act. Loading, an
+  // error, or a payload without `workspace_role` all render the three controls
+  // disabled rather than armed — see the module docstring.
+  const isOwner = useIsWorkspaceOwner() === true;
+  const ownerBlocked = !isOwner;
 
   // Confirm phrase is the workspace name (always populated; subdomain may be
   // blank). The DELETE endpoint matches the X-Confirm-Workspace header to it.
@@ -231,6 +272,7 @@ export function WorkspaceDangerPage() {
               ready={exportStatus === 'success' && exportJob != null}
               downloading={downloading}
               exportBusy={exportBusy}
+              ownerBlocked={ownerBlocked}
               onDownload={onDownload}
               onStartExport={onStartExport}
             />
@@ -238,6 +280,7 @@ export function WorkspaceDangerPage() {
               {exportStatusMessage(exportStatus)}
             </p>
           </div>
+          {ownerBlocked ? <OwnerRequiredNote /> : null}
         </div>
 
         {/* Transfer ownership ---------------------------------------------- */}
@@ -258,7 +301,7 @@ export function WorkspaceDangerPage() {
               id="new-owner"
               value={newOwnerId}
               onChange={(e) => setNewOwnerId(e.target.value)}
-              disabled={transfer.isPending || transferCandidates.length === 0}
+              disabled={transfer.isPending || transferCandidates.length === 0 || ownerBlocked}
               className="h-8 px-2 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-60"
             >
               <option value="">
@@ -273,12 +316,14 @@ export function WorkspaceDangerPage() {
             <button
               type="button"
               onClick={onTransfer}
-              disabled={!newOwnerId || transfer.isPending}
+              disabled={!newOwnerId || transfer.isPending || ownerBlocked}
+              title={ownerBlocked ? OWNER_REQUIRED_TEXT : undefined}
               className="shrink-0 px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary"
             >
               {transfer.isPending ? 'Transferring…' : 'Transfer ownership…'}
             </button>
           </div>
+          {ownerBlocked ? <OwnerRequiredNote /> : null}
         </div>
 
         {/* Delete — critical zone ------------------------------------------ */}
@@ -309,7 +354,7 @@ export function WorkspaceDangerPage() {
                 onChange={(e) => setConfirmText(e.target.value)}
                 placeholder={confirmTarget ? `Type ${confirmTarget} to confirm` : 'Loading…'}
                 aria-label="Confirm delete by typing the workspace name"
-                disabled={!confirmTarget}
+                disabled={!confirmTarget || ownerBlocked}
                 className={[
                   'w-[260px] h-8 px-2.5 rounded-control border tppm-mono text-[12px] text-neutral-text-primary bg-neutral-surface-raised',
                   'placeholder:text-neutral-text-secondary',
@@ -321,12 +366,13 @@ export function WorkspaceDangerPage() {
           </div>
           <button
             type="button"
-            disabled={!confirmed || remove.isPending}
+            disabled={!confirmed || remove.isPending || ownerBlocked}
+            title={ownerBlocked ? OWNER_REQUIRED_TEXT : undefined}
             onClick={onDelete}
             className={[
               'px-4 py-2 rounded-control text-[13px] font-semibold text-white bg-semantic-critical transition-opacity',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1',
-              confirmed && !remove.isPending
+              confirmed && !remove.isPending && !ownerBlocked
                 ? 'opacity-100 hover:opacity-90'
                 : 'opacity-40 cursor-not-allowed',
             ].join(' ')}
@@ -338,6 +384,7 @@ export function WorkspaceDangerPage() {
               {deleteError}
             </p>
           ) : null}
+          {ownerBlocked ? <OwnerRequiredNote /> : null}
         </div>
       </div>
 
