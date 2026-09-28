@@ -67,6 +67,8 @@ You are auditing Django migrations for a TruePPM branch before merge.
 - [ ] Squash only unapplied migrations on a feature branch, or do a full squash on a
   dedicated `chore/squash-migrations` branch after a major release
 
+- [ ] **Additive does not mean downtime-free.** For every `AddConstraint`, non-concurrent `AddIndex`, `ExclusionConstraint`, or `RunSQL CREATE EXTENSION` in the release's migration set, check whether it takes a table lock proportional to row count or needs a database privilege. If it does, check that the release's upgrade notes (`getting-started/upgrade.md`) name it. Upgrade notes that list only the destructive ops, and claim "no downtime beyond migrate", are wrong when an additive op locks a large table.
+
 ## How to Verify Locally
 
 ```bash

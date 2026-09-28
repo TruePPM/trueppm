@@ -396,11 +396,18 @@ def _pred_forward_contribution(
     key: tuple[date, bool] | None = None
     if ctx.to_milestone:
         if dep_type in _START_ANCHORED:
-            start_display = _start_reading(
-                raw,
-                pred_instant[1] if pred_instant is not None else dep_type == DependencyType.SS,
-                cal,
+            # Mirrors engine._place_milestone (#4079 fuzz regression): a
+            # predecessor milestone's own reading only carries over at zero lag,
+            # where the proposed instant is that same midnight. A nonzero lag
+            # proposes a different midnight and is read fresh, like an ordinary
+            # FS/SS predecessor, or it would inherit a display quirk that
+            # belongs to the predecessor's instant and not this one.
+            base_display = (
+                pred_instant[1]
+                if pred_instant is not None and lag == timedelta(0)
+                else dep_type == DependencyType.SS
             )
+            start_display = _start_reading(raw, base_display, cal)
             imposed = _instant_day(raw, start_display, cal)
             key = (raw, start_display)
         else:

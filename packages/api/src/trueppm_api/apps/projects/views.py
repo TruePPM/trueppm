@@ -4878,9 +4878,16 @@ def annotate_tasks_queryset(
             baseline_id=resolved_baseline_id,
             task_id=OuterRef("id"),
         ).values("finish")[:1]
+        # The baseline finish's edge of the day (#4197), read by the serializer's
+        # working-time variances (#4203). A column on the same query, not a query.
+        finish_at_day_start_sub = BaselineTask.objects.filter(
+            baseline_id=resolved_baseline_id,
+            task_id=OuterRef("id"),
+        ).values("finish_at_day_start")[:1]
         qs = qs.annotate(
             baseline_start=Subquery(start_sub),
             baseline_finish=Subquery(finish_sub),
+            baseline_finish_at_day_start=Subquery(finish_at_day_start_sub),
         )
 
     # Wave 3 (#210) — passive overalloc indicator in the task detail drawer.
@@ -10186,10 +10193,15 @@ class TaskBulkView(IdempotencyMixin, APIView):
             )
             by_id = {t.pk: t for t in annotated}
             _attach_milestone_rollups(list(by_id.values()))
+            # One context dict shared by every row, so per-response memos the
+            # serializer keeps on it (the project calendar the working-time
+            # baseline variances compose, #4203) span the batch instead of being
+            # rebuilt for each row.
+            row_ctx: dict[str, Any] = {}
             for entry in out.applied:
                 task = by_id.get(uuid.UUID(entry["id"]))
                 if task is not None:
-                    entry["task"] = TaskSerializer(task).data
+                    entry["task"] = TaskSerializer(task, context=row_ctx).data
 
         return Response(
             {

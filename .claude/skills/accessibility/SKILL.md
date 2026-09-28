@@ -49,3 +49,7 @@ A green axe run proves only that the rules axe was *allowed to check* passed. Au
 - **A suppression comment is not a suppression.** Check that the mechanism actually suppresses what the comment claims, and that the comment's stated condition ("remove when #N lands") is re-read when #N does land. Nothing enforces that automatically.
 - **Count what is excluded, and say so in the report.** "axe passes" and "axe passes with `aria-required-attr`, `aria-required-children`, and `nested-interactive` disabled on the three densest surfaces" are very different claims. Always report the second form — the excluded set is the finding.
 - **Check the gate's coverage, not just its result.** Which routes and themes does the spec actually scan? A contrast gate that never opens the dark theme, or a keyboard gate that never visits the canvas, is passing on a subset it does not disclose.
+
+## Recurring-class check: modal focus containment
+
+A dialog that sets `aria-modal="true"` promises that keyboard focus stays inside it (WCAG 2.4.3). Implementing Escape and initial focus is not enough; Tab and Shift+Tab must also be contained. For every component that renders `aria-modal="true"`, verify it either uses the shared `useFocusTrap()` hook or hand-rolls equivalent Tab containment, and check that a test covers the wrap. This class has been fixed and has recurred, so a lint rule or unit gate that pairs the attribute with a trap beats re-auditing it.

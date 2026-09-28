@@ -315,6 +315,37 @@ def test_monte_carlo_p50_equals_cpm_on_milestone_chains(
     assert mc.p50 == mc.p80 == mc.p95 == finish
 
 
+def test_monte_carlo_agrees_with_cpm_through_a_completed_milestone_reached_by_lag() -> None:
+    """#4205 regression: a completed milestone predecessor, read fresh.
+
+    ``_completed_edge_constraints`` reads a completed milestone's own display
+    reading off a scratch ``_forward_pass`` run and used to inherit it onto a
+    successor unconditionally — even across a nonzero lag, proposing a midnight
+    the predecessor never occupied. This is the completed-predecessor sibling of
+    the live-predecessor case :func:`test_monte_carlo_p50_equals_cpm_on_milestone_chains`
+    already covers; that one never exercises this function, because a live
+    predecessor's edge is read by :func:`_mc_milestone_bounds` instead — only a
+    *completed* one is fixed at simulation time via ``completed_edge``.
+
+    ``M``'s own instant lands on Sunday 2026-01-11 (the #4173 non-working snap
+    gives it ``start_display=True``); ``T1``'s raw instant (``M``'s instant + the
+    2-day lag) lands on Tue 2026-01-13, whose previous day (Mon 2026-01-12) *is*
+    a working day — so the ``after_non_working`` override in
+    ``_mc_milestone_bounds`` cannot mask a wrong inherited reading here, unlike
+    most inputs of this shape.
+    """
+    t0 = _task("T0", 5)
+    m = Task(id="M", name="M", duration=timedelta(0), percent_complete=100.0)
+    t1 = _task("T1", 0)
+    p = _project(
+        [t0, m, t1],
+        [_dep("T0", "M", lag=1), _dep("M", "T1", lag=2)],
+    )
+    result = schedule(p)
+    mc = monte_carlo(p, runs=48, seed=1, max_runs=None, max_tasks=None)
+    assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
+
+
 @pytest.mark.parametrize(
     "quantity",
     [Quantity.EARLY_START, Quantity.EARLY_FINISH, Quantity.LATE_START, Quantity.LATE_FINISH],
