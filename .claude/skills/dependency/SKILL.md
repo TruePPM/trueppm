@@ -53,6 +53,9 @@ You are auditing a new dependency before it is added to TruePPM.
 - npm/pnpm: use `^X.Y.Z` with lock file committed
 - Dev dependencies: can be more permissive (`>=X.Y`)
 
+- [ ] **Sibling-package floors track the symbols actually imported.** When one package in this monorepo depends on another (for example `trueppm-api` → `trueppm-scheduler`), check that the declared lower bound is at least the first published version that exports every symbol the consumer imports, including private `_names`. Also check what the committed lockfile resolves that dependency to. `uv lock --check` only verifies the lock is internally consistent, not that it is current, so a stale floor plus an old lock stays green in CI while `uv sync --frozen` installs a version the code cannot import.
+- [ ] **Every module imported at runtime is declared.** A package that reaches production only transitively (it arrived through another dependency) breaks when that dependency drops it. Grep production imports against the declared dependencies, not only against the lock.
+
 ## Audit the Gate's Scope, Not Just Its Result
 
 A green `security:osv` or `license:check` proves only that the manifests **in the scan list** are clean. This project's recurring dependency failure has never been a missed CVE — it has been a **manifest nobody was scanning**. An unscanned lockfile is worse than a known vulnerability, because nothing will ever tell you about it.
