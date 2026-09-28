@@ -109,7 +109,7 @@ outside, nothing in the app cares — it only ever sees the `Host` header. But
 TruePPM's **outbound** SSRF guard does care: every host TruePPM connects to must
 resolve to a globally routable address, or the request is refused. That blocks
 an in-cluster identity provider (`keycloak.sso.svc`), an internal SMTP relay, or
-a MinIO endpoint on a private VIP.
+a MinIO or SeaweedFS endpoint on a private VIP.
 
 `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` is the escape hatch — a comma-separated list
 of exact, case-insensitive hostnames exempted from that check:
@@ -747,12 +747,12 @@ through it before raising `replicaCount`:
 - [ ] **One shared Valkey.** It is the Celery broker, the Channels layer, the
       WebSocket ticket store, and the per-project scheduling lock. Splitting it
       breaks real-time collaboration and duplicates CPM runs.
-- [ ] **Shared storage for attachments** — object storage (S3, MinIO, Ceph) or a
+- [ ] **Shared storage for attachments** — object storage (S3, MinIO, SeaweedFS, Ceph) or a
       `ReadWriteMany` volume. This is a **hard requirement above one replica**, not
       a durability nicety: with attachments on each pod's local disk, a file
       uploaded through replica A returns 404 when the download lands on replica B.
       Set `TRUEPPM_DEFAULT_FILE_STORAGE` and `TRUEPPM_S3_BUCKET_NAME` — see
-      [object storage](/administration/configuration/storage-and-networking/#object-storage-s3--minio).
+      [object storage](/administration/configuration/storage-and-networking/#object-storage-s3-compatible).
 - [ ] **Celery beat stays at exactly one replica.** It fires the periodic drains;
       two overlapping beats double-dispatch every job. The chart pins it to one
       replica with a `Recreate` strategy.
@@ -874,7 +874,7 @@ network one — you still need the firewall rules below.
 | API, worker | SMTP relay | `EMAIL_PORT`, default 587/tcp (465 implicit TLS, 25 plain) | If email notifications are enabled | Notification and invitation email. `EMAIL_USE_TLS` defaults to `true`. |
 | API | OIDC / OAuth2 identity provider | 443/tcp | If SSO is configured | Discovery document, authorization, token exchange, JWKS. An in-cluster IdP needs `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`. |
 | Browsers | OIDC identity provider | 443/tcp | If SSO is configured | The login redirect happens in the user's browser, not server-side — the *client* network needs this too. |
-| API, worker | S3 endpoint or MinIO | 443/tcp (MinIO commonly 9000/tcp) | If object storage is enabled — required above one replica | Attachment upload, download, and presigned URLs (`TRUEPPM_S3_ENDPOINT_URL`). |
+| API, worker | S3 endpoint, MinIO, or SeaweedFS | 443/tcp (MinIO commonly 9000/tcp, SeaweedFS S3 gateway commonly 8333/tcp) | If object storage is enabled — required above one replica | Attachment upload, download, and presigned URLs (`TRUEPPM_S3_ENDPOINT_URL`). |
 | API, worker | OTLP collector | 4317/tcp (gRPC) or 4318/tcp (HTTP) | If `OTEL_EXPORTER_OTLP_ENDPOINT` is set | Traces and metrics. Off by default — no endpoint, no egress. |
 | API, worker | Slack, and your own webhook receivers | 443/tcp | If webhooks or the Slack integration are configured | Outbound webhook delivery from the outbox. |
 | API, worker | Jira / GitLab / self-hosted trackers | 443/tcp | If a user connects an external task source | Read-only pull of a contributor's assigned items. |

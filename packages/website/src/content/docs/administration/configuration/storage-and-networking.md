@@ -1,10 +1,10 @@
 ---
 title: "Object storage, TLS and split-origin deploys"
-description: "S3/MinIO object storage, the TLS redirect posture, and the settings for deploys that split the web and API origins."
+description: "S3-compatible object storage (MinIO, SeaweedFS, and others), the TLS redirect posture, and the settings for deploys that split the web and API origins."
 documentedFor: "0.4"
 ---
 
-## Object storage (S3 / MinIO)
+## Object storage (S3-compatible)
 
 Task attachments are the only user data TruePPM writes outside PostgreSQL. The
 local `FileSystemStorage` default is **ephemeral in a container**, and production
@@ -23,14 +23,14 @@ Credentials are deliberately **not** required. Left unset, the AWS SDK resolves
 them from its own chain — IRSA on EKS, an IAM instance profile, or `~/.aws` —
 which is preferable to pinning static keys into a Secret. Set
 `TRUEPPM_S3_ACCESS_KEY_ID` / `TRUEPPM_S3_SECRET_ACCESS_KEY` only when no such
-role is available (MinIO, Ceph, Wasabi).
+role is available (MinIO, SeaweedFS, Ceph, Wasabi).
 
 | Variable | Default | Description |
 |---|---|---|
 | `TRUEPPM_S3_BUCKET_NAME` | _(empty)_ | Bucket that holds task attachments. **Required** when `TRUEPPM_DEFAULT_FILE_STORAGE` names an S3 backend — startup fails with `trueppm.E008` if it is missing, rather than accepting the config and failing on the first upload. |
 | `TRUEPPM_S3_ENDPOINT_URL` | _(empty)_ | Endpoint for a non-AWS S3-compatible store, e.g. `http://minio:9000`. Leave empty for AWS S3 so the SDK resolves the real regional endpoint. |
 | `TRUEPPM_S3_REGION_NAME` | `us-east-1` | Region for the bucket. Must be non-empty even against MinIO: SigV4 embeds the region in the credential scope, so an empty value produces an unusable signature. |
-| `TRUEPPM_S3_ADDRESSING_STYLE` | _(SDK default `auto`)_ | Set to `path` for MinIO and Ceph RGW, which do not serve virtual-hosted bucket URLs without per-bucket DNS. Leave unset for AWS S3. |
+| `TRUEPPM_S3_ADDRESSING_STYLE` | _(SDK default `auto`)_ | Set to `path` for MinIO, SeaweedFS, and Ceph RGW, which do not serve virtual-hosted bucket URLs without per-bucket DNS. Leave unset for AWS S3. |
 | `TRUEPPM_S3_ACCESS_KEY_ID` | _(empty)_ | Static access key. Omit to use the SDK credential chain (IRSA / instance profile). |
 | `TRUEPPM_S3_SECRET_ACCESS_KEY` | _(empty)_ | Static secret key. Omit to use the SDK credential chain. |
 | `TRUEPPM_S3_SIGNATURE_VERSION` | `s3v4` | Signing algorithm for presigned URLs. Leave at the default — the SDK would otherwise fall back to the deprecated SigV2 whenever an endpoint URL is set, and AWS rejects SigV2 in every region created after 2014. |
@@ -65,6 +65,34 @@ server. Two separate things to get right:
    itself), and put *that* key pair in the two variables above. TruePPM never
    needs to create buckets, read other buckets, or administer the server, so a
    leaked application credential should not be able to.
+:::
+
+### SeaweedFS
+
+```bash
+TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage
+TRUEPPM_S3_BUCKET_NAME=trueppm-attachments
+TRUEPPM_S3_ENDPOINT_URL=http://seaweedfs:8333
+TRUEPPM_S3_ADDRESSING_STYLE=path
+TRUEPPM_S3_ACCESS_KEY_ID=your-access-key
+TRUEPPM_S3_SECRET_ACCESS_KEY=your-secret-key
+```
+
+[SeaweedFS](https://github.com/seaweedfs/seaweedfs) (Apache 2.0) exposes an
+S3-compatible gateway — `weed server -s3` in the all-in-one binary, or a
+standalone `weed s3` process — on port `8333` by default. Create the bucket
+before first use here too; TruePPM does not create it for you.
+
+:::caution[The SeaweedFS S3 gateway has no authentication until you configure one]
+Unlike MinIO, SeaweedFS ships no root-user pair. Its S3 gateway serves requests
+**unauthenticated** unless you pass it an identity/access-key config (`-s3.config`,
+a JSON file of named identities, each scoped to specific actions and, optionally,
+specific buckets — see SeaweedFS's own S3 API documentation for the current
+schema, which has changed across releases). Leaving that config out is not a safe
+default to run with: every request succeeds with no credential check at all.
+Scope the identity TruePPM uses to `Read`/`Write`/`List`/`Delete` on the
+`trueppm-attachments` bucket only — the same principle as the MinIO access key
+above.
 :::
 
 ### Which backends the image can import

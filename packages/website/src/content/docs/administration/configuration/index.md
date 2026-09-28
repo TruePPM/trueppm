@@ -17,7 +17,7 @@ development, `docker-compose.yml` sets sensible defaults.
 - [Optional and advanced settings](/administration/configuration/advanced/) — optional and advanced environment variables, and the in-product feedback settings.
 - [Rate limits and import caps](/administration/configuration/limits/) — aPI and login rate limiting, the MCP read-surface limits, and the size caps on MS Project, Jira, CSV/Excel and seed imports and on Monte Carlo runs.
 - [Logging, telemetry and retention](/administration/configuration/logging-and-telemetry/) — log output, OpenTelemetry export, and data-retention settings.
-- [Object storage, TLS and split-origin deploys](/administration/configuration/storage-and-networking/) — s3/MinIO object storage, the TLS redirect posture, and the settings for deploys that split the web and API origins.
+- [Object storage, TLS and split-origin deploys](/administration/configuration/storage-and-networking/) — S3-compatible (MinIO, SeaweedFS, etc.) object storage, the TLS redirect posture, and the settings for deploys that split the web and API origins.
 
 ## Required in production
 
@@ -34,7 +34,7 @@ development, `docker-compose.yml` sets sensible defaults.
 | `DJANGO_SETTINGS_MODULE` | Settings module to load. | `trueppm_api.settings.prod` |
 | `ALLOWED_HOSTS` | Comma-separated list of allowed hostnames. Must include every name a request arrives under, not just your public one — see [Host names you must include](#host-names-you-must-include). | `trueppm.example.com,localhost,127.0.0.1` |
 | `INTEGRATION_ENCRYPTION_KEY` | Fernet key that encrypts stored integration credentials (connected-account PATs) at rest. **Production refuses to boot if this is empty** — the guard runs at settings-import time, so a missing key crash-loops the deploy rather than failing later. | `$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")` |
-| Attachment storage | Pick one: set `TRUEPPM_DEFAULT_FILE_STORAGE` to a persistent object-storage backend **and** `TRUEPPM_S3_BUCKET_NAME` to its bucket, **or** set `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` **and give `TRUEPPM_MEDIA_ROOT` a writable volume**. **Production refuses to boot on the ephemeral local default** otherwise, and from 0.4 it also refuses the local opt-in when that path is not writable (see [object storage](/administration/configuration/storage-and-networking/#object-storage-s3--minio) for the full variable set). | `storages.backends.s3.S3Storage` |
+| Attachment storage | Pick one: set `TRUEPPM_DEFAULT_FILE_STORAGE` to a persistent object-storage backend **and** `TRUEPPM_S3_BUCKET_NAME` to its bucket, **or** set `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` **and give `TRUEPPM_MEDIA_ROOT` a writable volume**. **Production refuses to boot on the ephemeral local default** otherwise, and from 0.4 it also refuses the local opt-in when that path is not writable (see [object storage](/administration/configuration/storage-and-networking/#object-storage-s3-compatible) for the full variable set). | `storages.backends.s3.S3Storage` |
 
 ## Default values (development only)
 

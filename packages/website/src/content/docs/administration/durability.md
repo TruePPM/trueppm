@@ -73,7 +73,7 @@ artifact. Two supported shapes:
   S3-compatible backend plus `TRUEPPM_S3_BUCKET_NAME`. Durability and versioning
   become the bucket's problem, the API pods stay stateless, and a second replica
   needs no coordination. See [object
-  storage](/administration/configuration/storage-and-networking/#object-storage-s3--minio).
+  storage](/administration/configuration/storage-and-networking/#object-storage-s3-compatible).
 - **Local disk**, behind the explicit `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE`
   opt-in. This needs storage that is both **persistent** and **shared across every
   API replica** — an `emptyDir` is neither, and a `ReadWriteOnce` volume is not
@@ -277,7 +277,7 @@ backup:
     enabled: true
     bucket: "my-trueppm-backups"
     region: "eu-west-1"
-    endpoint: ""            # set for MinIO; empty for real S3
+    endpoint: ""            # set for MinIO/SeaweedFS; empty for real S3
     prefix: "prod"
     existingSecret: "trueppm-backup-s3"   # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
   persistence:

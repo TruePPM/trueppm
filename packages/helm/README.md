@@ -172,7 +172,7 @@ kubectl get secret <release>-trueppm-connection \
 | `backup.keepDaily` / `backup.keepWeekly` | `7` / `4` | Retention for the **local** output directory only. Neither ever deletes from a bucket — use the object store's lifecycle policy for remote retention. |
 | `backup.persistence.enabled` | `false` | Mount a chart-managed PVC at `backup.outputDir`. |
 | `backup.s3.enabled` | `false` | Upload each finished artifact to an S3-compatible bucket. Adds a second container to the job (the PostgreSQL image has no S3 client). A failed upload fails the job. |
-| `backup.s3.endpoint` | `""` | Leave empty for real AWS S3. Set it for MinIO — a custom endpoint forces path-style addressing. |
+| `backup.s3.endpoint` | `""` | Leave empty for real AWS S3. Set it for MinIO, SeaweedFS, or another self-hosted store — a custom endpoint forces path-style addressing. |
 | `backup.s3.allowPlaintext` | `false` | Silence the warning logged when `endpoint` is `http://` and doesn't look in-cluster/private (see [Backup & Restore](https://trueppm.com/administration/backup-restore/#off-cluster-plaintext-warning)). The upload is never blocked either way — this only controls the log line. |
 | `backup.s3.prefix` | `""` | Optional key prefix; the object key is `<prefix>/trueppm-backup-<UTC>.tar.gz`. |
 | `backup.s3.image.repository` / `.tag` | `amazon/aws-cli` / `2.17.0` | Image for the upload container. Must provide `aws`. |
@@ -518,14 +518,14 @@ therefore only works while all three land on the same node; see
 for why, and for the `ReadWriteMany` alternative.
 
 The API image bundles the S3 backend, so those two keys are all an AWS S3 deploy
-needs — credentials resolve from IRSA or the instance profile. For MinIO or
-another non-AWS endpoint add `TRUEPPM_S3_ENDPOINT_URL`,
+needs — credentials resolve from IRSA or the instance profile. For MinIO,
+SeaweedFS, or another non-AWS endpoint add `TRUEPPM_S3_ENDPOINT_URL`,
 `TRUEPPM_S3_ADDRESSING_STYLE=path`, and an access/secret key pair **scoped to the
-attachments bucket** — not the MinIO root account. The bucket name is
+attachments bucket** — not the backend's admin/root account. The bucket name is
 **required** whenever the backend is S3: startup fails with `trueppm.E008` if it
 is missing, instead of booting and failing on the first upload. GCS and Azure Blob
 backends are **not** bundled — see
-[object storage](https://trueppm.com/administration/configuration/#object-storage-s3--minio).
+[object storage](https://trueppm.com/administration/configuration/storage-and-networking/#object-storage-s3-compatible).
 
 Reference it in your values override (this is the `envFrom` pattern the templates
 render — explicit `env:` entries such as the chart-built `DATABASE_URL` always

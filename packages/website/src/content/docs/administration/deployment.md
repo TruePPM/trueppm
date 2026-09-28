@@ -304,7 +304,7 @@ on a single-node evaluation cluster running one replica can you use
 It is a reasonable choice for a first install you are evaluating and the wrong
 one for anything you intend to keep on a multi-node cluster — swap it for the S3
 pair when you are ready (see
-[object storage](/administration/configuration/storage-and-networking/#object-storage-s3--minio)).
+[object storage](/administration/configuration/storage-and-networking/#object-storage-s3-compatible)).
 
 `values-prod.yaml` already disables the bundled datastores. That means the
 chart **requires** `env.DATABASE_URL` and `env.REDIS_URL`, and fails the render
@@ -909,7 +909,7 @@ with every other volume. If you point `TRUEPPM_MEDIA_ROOT` somewhere else,
 move the volume mount in `docker-compose.prod.yml` to match — the API probes the
 path at boot and refuses to start if it cannot write there, rather than failing
 on the first upload. See [Configuration](/administration/configuration/) for the
-full S3 variable list, including non-AWS endpoints such as MinIO or Ceph.
+full S3 variable list, including non-AWS endpoints such as MinIO, SeaweedFS, or Ceph.
 :::
 
 You do not need to set `sslmode` on a database URL here. The stack composes its

@@ -1223,10 +1223,11 @@ env:
 #     --from-literal=TRUEPPM_S3_BUCKET_NAME=trueppm-attachments
 #
 # The API image bundles the S3 backend, so those two keys suffice on AWS S3
-# (credentials resolve via IRSA / instance profile). For MinIO or another non-AWS
-# endpoint also set TRUEPPM_S3_ENDPOINT_URL, TRUEPPM_S3_ADDRESSING_STYLE=path, and
-# TRUEPPM_S3_ACCESS_KEY_ID / TRUEPPM_S3_SECRET_ACCESS_KEY -- scoped to the
-# attachments bucket, not the MinIO root account. The bucket name is
+# (credentials resolve via IRSA / instance profile). For MinIO, SeaweedFS, or
+# another non-AWS endpoint also set TRUEPPM_S3_ENDPOINT_URL,
+# TRUEPPM_S3_ADDRESSING_STYLE=path, and TRUEPPM_S3_ACCESS_KEY_ID /
+# TRUEPPM_S3_SECRET_ACCESS_KEY -- scoped to the attachments bucket, not the
+# backend's admin/root account. The bucket name is
 # REQUIRED whenever the backend is S3 — startup fails with trueppm.E008 without
 # it. GCS and Azure Blob backends are NOT bundled; they need a derived image.
 #
@@ -1524,7 +1525,7 @@ backup:
   outputDir: /backups
   # Include the local media/attachment directory in the artifact. Only relevant
   # when attachments are on a local PVC (TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE);
-  # with object storage (S3/MinIO) the bucket is backed up by the object store and
+  # with object storage (S3/MinIO/SeaweedFS) the bucket is backed up by the object store and
   # this should stay empty. Set it to persistence.media.mountPath (default
   # /var/lib/trueppm/media) and mount that same claim read-only through
   # extraVolumes / extraVolumeMounts below.
@@ -1576,7 +1577,7 @@ backup:
     enabled: false
     bucket: ""
     # S3-compatible endpoint. Leave empty for real AWS S3 (the region below
-    # selects the endpoint). Set it for MinIO and friends — when it is set, the
+    # selects the endpoint). Set it for MinIO, SeaweedFS, and friends — when it is set, the
     # upload forces path-style addressing, because a self-hosted object store is
     # normally reached by IP or by a single hostname with no wildcard DNS, and
     # virtual-hosted-style requests would resolve to nothing.
