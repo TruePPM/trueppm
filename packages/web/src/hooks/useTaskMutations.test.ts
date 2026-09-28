@@ -32,6 +32,8 @@ import {
   parseGuardrailBlockedError,
 } from './useTaskMutations';
 import type { Task } from '@/types';
+import { applyTaskDatesDelta } from '@/hooks/useScheduleTasks';
+import { needsBaselineVarianceRefetch } from '@/lib/baselineFinishVariance';
 import { useDemoOverlayStore } from '@/stores/demoOverlayStore';
 import { useReconcileStore } from '@/stores/reconcileStore';
 import { queryClient as appQueryClient } from '@/lib/queryClient';
@@ -221,6 +223,52 @@ describe('useRescheduleTask', () => {
   // IN_PROGRESS once the server response lands. Pinning Date is enough — we
   // don't need fake timers for setTimeout because waitFor uses real time.
   // -------------------------------------------------------------------------
+  // #4203: the drawer and card baseline chip read the server's working-time
+  // variance. A drag moves the finish, so the old value must not survive — not
+  // even after the CPM delta lands with a finish equal to the optimistic one,
+  // which is the case `applyTaskDatesDelta` alone cannot tell apart.
+  it('clears the server baseline variance, and an equal-finish CPM delta keeps it cleared', async () => {
+    const baselined: Task = {
+      ...baseTask,
+      baselineFinish: '2026-01-08',
+      baselineFinishVarianceDays: 0,
+    };
+    qc.setQueryData<Task[]>(['tasks', 'proj1'], [baselined]);
+    const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({
+      id: 't1',
+      projectId: 'proj1',
+      planned_start: '2026-01-06',
+      optimistic: { start: '2026-01-06', finish: '2026-01-13' },
+    });
+
+    await waitFor(() => {
+      const cached = qc.getQueryData<Task[]>(['tasks', 'proj1']);
+      expect(cached?.[0].finish).toBe('2026-01-13');
+    });
+    const dragged = qc.getQueryData<Task[]>(['tasks', 'proj1'])![0];
+    expect(dragged.baselineFinishVarianceDays).toBeUndefined();
+
+    const spliced = applyTaskDatesDelta(dragged, {
+      id: 't1',
+      early_start: '2026-01-06',
+      early_finish: '2026-01-13',
+      late_start: '2026-01-06',
+      late_finish: '2026-01-13',
+      total_float: 0,
+      free_float: 0,
+      is_critical: false,
+      planned_start: '2026-01-06',
+      duration: 7,
+    });
+    expect(spliced.finish).toBe('2026-01-13');
+    expect(spliced.baselineFinishVarianceDays).toBeUndefined();
+    // …so the chip is on its fallback, and the WebSocket handler's refetch
+    // trigger (`needsBaselineVarianceRefetch`) fires for this row.
+    expect(needsBaselineVarianceRefetch(spliced)).toBe(true);
+  });
+
   describe('date-gated optimistic status promotion (#336)', () => {
     const TODAY = '2026-05-05';
 
@@ -956,6 +1004,23 @@ describe('usePromoteTask', () => {
       expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', {
         planned_start: '2026-06-15',
       }),
+    );
+  });
+
+  it('clears the server baseline variance on the promoted row (#4203)', async () => {
+    qc.setQueryData<Task[]>(
+      ['tasks', 'proj1'],
+      [{ ...baseTask, baselineFinish: '2026-01-08', baselineFinishVarianceDays: 0 }],
+    );
+    const { result } = renderHook(() => usePromoteTask(), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ id: 't1', projectId: 'proj1', planned_start: '2026-06-15' });
+
+    await waitFor(() => {
+      const cached = qc.getQueryData<Task[]>(['tasks', 'proj1']);
+      expect(cached?.[0].plannedStart).toBe('2026-06-15');
+    });
+    expect(qc.getQueryData<Task[]>(['tasks', 'proj1'])![0].baselineFinishVarianceDays).toBe(
+      undefined,
     );
   });
 

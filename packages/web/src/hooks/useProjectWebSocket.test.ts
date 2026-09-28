@@ -918,6 +918,80 @@ describe('useProjectWebSocket — task_dates_updated splice (ADR-0091)', () => {
     expect(entries['t2:start']).toBeUndefined();
   });
 
+  // #4203: the delta carries no working-time baseline variance, so a splice that
+  // moves a baselined row's finish drops it and the chip falls back to shown-day
+  // subtraction. With the socket live nothing else re-fetches — the handler must.
+  it('re-fetches tasks when a splice leaves a baselined row without its server variance', () => {
+    seedTasks();
+    const rows = qc.getQueryData<Task[]>(['tasks', 'proj-1'])!;
+    qc.setQueryData(
+      ['tasks', 'proj-1'],
+      rows.map((t) =>
+        t.id === 't1' ? { ...t, baselineFinish: '2026-10-15', baselineFinishVarianceDays: 0 } : t,
+      ),
+    );
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch({
+      count: 1,
+      tasks: [
+        {
+          id: 't1',
+          early_start: '2026-10-12',
+          early_finish: '2026-10-22',
+          late_start: '2026-10-12',
+          late_finish: '2026-10-22',
+          total_float: 0,
+          free_float: 0,
+          is_critical: true,
+          planned_start: null,
+          duration: 10,
+        },
+      ],
+    });
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
+  it('does not re-fetch when the spliced baselined row keeps its server variance', () => {
+    seedTasks();
+    const rows = qc.getQueryData<Task[]>(['tasks', 'proj-1'])!;
+    qc.setQueryData(
+      ['tasks', 'proj-1'],
+      rows.map((t) =>
+        t.id === 't1' ? { ...t, baselineFinish: '2026-10-15', baselineFinishVarianceDays: 0 } : t,
+      ),
+    );
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    // Only float moved; the finish (and so the variance) is unchanged.
+    dispatch({
+      count: 1,
+      tasks: [
+        {
+          id: 't1',
+          early_start: '2026-10-05',
+          early_finish: '2026-10-15',
+          late_start: '2026-10-07',
+          late_finish: '2026-10-17',
+          total_float: 2,
+          free_float: 2,
+          is_critical: false,
+          planned_start: null,
+          duration: 10,
+        },
+      ],
+    });
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
   it('invalidates the tasks query on a truncated payload', () => {
     seedTasks();
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
@@ -1776,7 +1850,12 @@ describe('useProjectWebSocket — task-run lifecycle store effects', () => {
     });
 
     const run = useTaskRunStore.getState().runs['run-1'];
-    expect(run).toMatchObject({ taskRunId: 'run-1', taskName: 'export.pdf', status: 'running', pct: 0 });
+    expect(run).toMatchObject({
+      taskRunId: 'run-1',
+      taskName: 'export.pdf',
+      status: 'running',
+      pct: 0,
+    });
     expect(run.projectId).toBe('proj-1');
     // A non-scheduling run must NOT flip the recalculating badge.
     expect(useSchedulerStore.getState().isRecalculating).toBe(false);
@@ -1797,7 +1876,11 @@ describe('useProjectWebSocket — task-run lifecycle store effects', () => {
   it('updates progress pct/msg on task_run_progress for a known run', () => {
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
-    dispatch('task_run_started', { task_run_id: 'r', task_name: 'export.pdf', project_id: 'proj-1' });
+    dispatch('task_run_started', {
+      task_run_id: 'r',
+      task_name: 'export.pdf',
+      project_id: 'proj-1',
+    });
     dispatch('task_run_progress', { task_run_id: 'r', pct: 42, msg: 'halfway' });
 
     const run = useTaskRunStore.getState().runs['r'];
@@ -1808,7 +1891,11 @@ describe('useProjectWebSocket — task-run lifecycle store effects', () => {
   it('defaults pct to 0 and msg to empty when task_run_progress carries wrong types', () => {
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
-    dispatch('task_run_started', { task_run_id: 'r', task_name: 'export.pdf', project_id: 'proj-1' });
+    dispatch('task_run_started', {
+      task_run_id: 'r',
+      task_name: 'export.pdf',
+      project_id: 'proj-1',
+    });
     // pct/msg present but wrong types → the type-guards fall back to defaults.
     dispatch('task_run_progress', { task_run_id: 'r', pct: 'nope', msg: 99 });
 
@@ -1820,7 +1907,11 @@ describe('useProjectWebSocket — task-run lifecycle store effects', () => {
   it('marks a run failed and records the error detail on task_run_failed', () => {
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
-    dispatch('task_run_started', { task_run_id: 'r', task_name: 'export.pdf', project_id: 'proj-1' });
+    dispatch('task_run_started', {
+      task_run_id: 'r',
+      task_name: 'export.pdf',
+      project_id: 'proj-1',
+    });
     dispatch('task_run_failed', { task_run_id: 'r', error_detail: 'boom' });
 
     const run = useTaskRunStore.getState().runs['r'];
@@ -1847,7 +1938,11 @@ describe('useProjectWebSocket — task-run lifecycle store effects', () => {
   it('marks a run cancelled on task_run_cancelled', () => {
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
-    dispatch('task_run_started', { task_run_id: 'r', task_name: 'export.pdf', project_id: 'proj-1' });
+    dispatch('task_run_started', {
+      task_run_id: 'r',
+      task_name: 'export.pdf',
+      project_id: 'proj-1',
+    });
     dispatch('task_run_cancelled', { task_run_id: 'r' });
 
     expect(useTaskRunStore.getState().runs['r'].status).toBe('cancelled');
@@ -1918,7 +2013,10 @@ describe('useProjectWebSocket — presence and CPM handlers', () => {
 
     dispatch('cpm_error', { error: 'cyclic_dependency' });
 
-    expect(useSchedulerStore.getState().cpmError).toEqual({ error: 'cyclic_dependency', cycle: [] });
+    expect(useSchedulerStore.getState().cpmError).toEqual({
+      error: 'cyclic_dependency',
+      cycle: [],
+    });
     expect(useSchedulerStore.getState().isRecalculating).toBe(false);
   });
 
@@ -2017,18 +2115,21 @@ describe('useProjectWebSocket — remaining invalidation handlers', () => {
     },
   );
 
-  it.each(['tasks_reordered', 'tasks_restructured', 'tasks_bulk_mutated', 'phases_reordered', 'queue_reordered'])(
-    'coalesces a tasks invalidation on the bulk-mutation event %s',
-    (eventType) => {
-      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
-      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+  it.each([
+    'tasks_reordered',
+    'tasks_restructured',
+    'tasks_bulk_mutated',
+    'phases_reordered',
+    'queue_reordered',
+  ])('coalesces a tasks invalidation on the bulk-mutation event %s', (eventType) => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
-      dispatch(eventType);
-      flushDebounce();
+    dispatch(eventType);
+    flushDebounce();
 
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
-    },
-  );
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
 
   it('invalidates dependencies as well as tasks on tasks_restructured', () => {
     // Ungroup deletes the wrapper's own dependency edges and structural undo restores
@@ -2159,7 +2260,9 @@ describe('useProjectWebSocket — remaining invalidation handlers', () => {
 
     dispatch('mention_group_changed', { scope: 'program' });
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['program-mention-groups', undefined] });
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['program-mention-groups', undefined],
+    });
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['mention-groups', 'proj-1'] });
   });
 
@@ -3206,7 +3309,7 @@ describe('useProjectWebSocket — Overview rollup invalidation (#2912)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['monte-carlo-latest', 'proj-1'] });
   });
 
-  it('invalidates monte-carlo-latest on the EDITOR\'s own edit too, not just a collaborator\'s', () => {
+  it("invalidates monte-carlo-latest on the EDITOR's own edit too, not just a collaborator's", () => {
     // Web rule 331(a): self-echo suppression exists because the editing client already
     // applied its own row change optimistically. Nobody optimistically recomputes a
     // server-side classification, so suppressing it here would leave the editor's own

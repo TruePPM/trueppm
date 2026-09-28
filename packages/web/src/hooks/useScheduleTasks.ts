@@ -604,7 +604,7 @@ export function applyTaskDatesDelta(existing: Task, delta: TaskDatesDelta): Task
     // one, so a moved finish drops it and the chip falls back to the shown-day
     // difference until the next re-fetch (#4203).
     baselineFinishVarianceDays:
-      finish === existing.finish && milestoneAtDayEnd === existing.milestoneAtDayEnd
+      finish === existing.finish && milestoneAtDayEnd === (existing.milestoneAtDayEnd ?? false)
         ? existing.baselineFinishVarianceDays
         : undefined,
   };

@@ -447,6 +447,67 @@ def test_task_list_variance_query_count_does_not_grow_with_rows(
     assert [r["baseline_finish_variance_days"] for r in rows] == [0] * 5
 
 
+def test_bulk_response_composes_the_calendar_once_not_per_row(
+    client: APIClient, project: Project, admin: Any
+) -> None:
+    """The bulk endpoint serializes each applied row on its own; the calendar memo
+    must still span the batch — one compose per response, not one per row."""
+    from trueppm_api.apps.scheduling import calendars
+
+    baseline = Baseline.objects.create(
+        project=project, name="B", created_by=admin, is_active=True, has_cpm_dates=True
+    )
+    milestones = []
+    for i in range(4):
+        ms = Task.objects.create(
+            project=project,
+            name=f"BM{i}",
+            duration=0,
+            is_milestone=True,
+            early_start=MON,
+            early_finish=MON,
+            milestone_at_day_end=False,
+        )
+        BaselineTask.objects.create(
+            baseline=baseline,
+            task_id=ms.pk,
+            task_name=ms.name,
+            start=FRI,
+            finish=FRI,
+            duration=0,
+            finish_at_day_start=False,
+        )
+        milestones.append(ms)
+
+    real = calendars.project_sched_calendars
+    calls: list[Any] = []
+
+    def counting(project_ids: Any) -> dict[str, Any]:
+        ids = list(project_ids)
+        calls.append(ids)
+        return real(ids)
+
+    with (
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate"),
+        patch.object(calendars, "project_sched_calendars", counting),
+    ):
+        res = client.post(
+            f"/api/v1/projects/{project.pk}/tasks/bulk/",
+            {
+                "operations": [
+                    {"op": "update", "id": str(ms.pk), "data": {"name": f"{ms.name} renamed"}}
+                    for ms in milestones
+                ]
+            },
+            format="json",
+        )
+    assert res.status_code == 207, res.content
+    assert [e["task"]["baseline_finish_variance_days"] for e in res.data["applied"]] == [0] * 4
+    # Other batched readers (the milestone rollup attach) call it with no ids,
+    # which composes nothing and issues no query; count real composes only.
+    assert len([ids for ids in calls if ids]) == 1
+
+
 # ---------------------------------------------------------------------------
 # Units
 # ---------------------------------------------------------------------------
