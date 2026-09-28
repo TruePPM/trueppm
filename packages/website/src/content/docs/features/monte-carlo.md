@@ -131,6 +131,9 @@ operators can raise or remove it.
 | `p50` | 50% of simulated runs finished on or before this date. Closest to the deterministic CPM date. |
 | `p80` | 80% of runs finished by this date. The standard commitment date for most project plans. |
 | `p95` | 95% of runs finished by this date. Use for contractual deadlines and hard external commitments. |
+| `p50_at_day_start` / `p80_at_day_start` / `p95_at_day_start` | Which edge of its day each percentile is. `true` means the start of the day: the finish is a milestone that a lag or a floor puts at the start of that day, such as a milestone a one-day lag lands on a Sunday, shown at the start of Monday. `false` means the end of the day. The start of a Monday and the end of the Friday before it are the same point in the working week. |
+| `cpm_finish` / `cpm_finish_at_day_start` | The deterministic CPM finish the percentiles are compared with, and which edge of its day it is. |
+| `delta_vs_cpm` | Signed calendar days each percentile sits past `cpm_finish` (`p50`/`p80`/`p95`), measured in working time from the two readings. A percentile at the start of a Monday against a CPM finish at the end of the Friday before it is `0`, not `3`. A run recorded before TruePPM kept these readings has none: two equal days count as `0`, and otherwise each date is read as the end of its day. |
 | `status_date` | *(added in 0.4)* The data date this run was actually computed against — the project's explicit status date (set at **Project settings → General → Status date**, not API-only), or today when unset (see [Progress-aware forecasting](#progress-aware-forecasting) below). Recorded on every run so a past forecast states which "today" produced it. |
 | `distribution` | Full sorted list of all simulated finish dates. Use this to render a histogram or answer "what is the probability of finishing by date X?" |
 
@@ -229,10 +232,10 @@ same `MC_SIMULATION_CAP` as a normal run). The response will carry:
 
 | Field | Meaning |
 |---|---|
-| `current` | The unperturbed forecast — `p50`/`p80`/`p95`, `cpm_finish`, and the `critical_path` (task IDs). |
+| `current` | The unperturbed forecast — `p50`/`p80`/`p95` with their `*_at_day_start` readings, `cpm_finish` with `cpm_finish_at_day_start`, and the `critical_path` (task IDs). |
 | `whatif` | The same fields recomputed with your perturbation applied. |
 | `critical_path_changed` | `true` when the perturbation moved which tasks are on the critical path. |
-| `delta_vs_current` | Per-field signed calendar-day shift (`p50`/`p80`/`p95`/`cpm_finish`); positive = later/worse. `cpm_finish` is measured in working time: a milestone finish shown at the start of a Monday counts as the end of the Friday before it, so a finish whose shown date only hops a weekend is `0` ([Scheduler Conventions](/features/scheduler-conventions/)). |
+| `delta_vs_current` | Per-field signed calendar-day shift (`p50`/`p80`/`p95`/`cpm_finish`); positive = later/worse. All four are measured in working time: a finish shown at the start of a Monday counts as the end of the Friday before it, so a finish whose shown date only hops a weekend is `0` ([Scheduler Conventions](/features/scheduler-conventions/)). |
 | `applied` | The resolved perturbation (`base_duration_days`, `duration_delta_days`, `new_duration_days`). |
 | `cpm_status_date` / `mc_status_date` | The resolved data dates fed to the deterministic CPM and Monte Carlo passes respectively — both floor a null project status date at today, so they always agree — see [Progress-aware forecasting](#progress-aware-forecasting) below. Shared by both `current` and `whatif`, since one call resolves each once. This endpoint never persists a run, so these are the only record of which data date produced the answer. |
 

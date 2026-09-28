@@ -39,10 +39,12 @@ change between releases. Pin an exact version (e.g.
   (#4204).** A start-of-day milestone is shown one working day past the working
   time it occupies, so ordering runs by shown day ranked the start of a Monday
   after the end of the Friday before it although neither is later. `p50`/`p80`/
-  `p95` are now order statistics over each run's working-time finish position,
-  shown on the day and with the reading those runs share. A project with no
-  start-of-day milestone finish gets exactly the dates it got before; the
-  `distribution` is unchanged.
+  `p95` are now order statistics over each run's working-time finish position.
+  Each is shown on the latest day any run at that position is shown on, and reads
+  as the start of the day when any of those runs does, so it stays a true quantile
+  of `distribution` (at least 80% of runs are shown on or before P80). When no run
+  finishes on a start-of-day milestone the dates are exactly those the previous
+  shown-day ranking gave; the `distribution` is unchanged.
 - **A deterministic `monte_carlo()` now finishes on the CPM finish when a live
   task's `actual_start` falls on non-working time (#4175).** `schedule()` keeps a
   recorded start verbatim, even on a weekend or holiday, but Monte Carlo's

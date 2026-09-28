@@ -4815,6 +4815,54 @@ def _offset_to_date(
     return resolved
 
 
+def _mc_percentiles(
+    completion_offsets: np.ndarray,
+    shown_offsets: np.ndarray,
+    wd_index: list[date],
+    finish_floor: date | None,
+    floor_at_day_start: bool,
+) -> list[tuple[date, bool]]:
+    """P50/P80/P95 as ``(shown day, at_day_start)`` from per-run finish offsets (#4204).
+
+    ``completion_offsets`` is each run's **working-time** finish position and
+    ``shown_offsets`` the exclusive offset of the day that finish is shown on; they
+    differ only for a run whose finish is a start-of-day milestone, shown one working
+    day past its position.
+
+    Percentile convention (documented for the public surface, #826): numpy.percentile
+    — linear interpolation between the two nearest ranks — over the FULL run set,
+    mapped to a working-day date. The order statistic is taken over working-time
+    positions, not shown days: ordering by shown day ranked the start of a Monday
+    after the end of the Friday before it, although neither is later in working time.
+
+    The percentile is then shown on the **latest day any run at its (rounded)
+    position is shown on**, and is a start-of-day reading when any of those runs is.
+    Every such day is the same working-time position, so a delta measured in working
+    time does not depend on the choice — but the latest one is what keeps the
+    percentile a true quantile of ``distribution`` (at least that share of runs is
+    shown on or before it), and it is exactly the day the pre-#4204 shown-day ranking
+    reported whenever no run is a start-of-day finish. With no run at the position
+    (interpolation between two), it is the end of the working day before it.
+    """
+    run_at_day_start = np.rint(shown_offsets) > np.rint(completion_offsets)
+    rounded_positions = np.rint(completion_offsets)
+    out: list[tuple[date, bool]] = []
+    for pct in np.percentile(completion_offsets, [50, 80, 95]).tolist():
+        k = round(pct)
+        at_k = rounded_positions == k
+        if at_k.any():
+            shown = float(np.rint(shown_offsets[at_k]).max())
+            at_start = bool(run_at_day_start[at_k].any())
+        else:
+            shown, at_start = float(k), False
+        resolved = _offset_to_date(shown, wd_index, None)
+        if finish_floor is not None and finish_floor > resolved:
+            out.append((finish_floor, floor_at_day_start))
+        else:
+            out.append((resolved, at_start))
+    return out
+
+
 def monte_carlo(
     project: Project,
     *,
@@ -5201,44 +5249,13 @@ def monte_carlo(
         ef_mat = ef_mat_ref
     shown_offsets = ef_mat.max(axis=1)  # shape (runs,): the day each run is shown on
     completion_offsets = wt_mat.max(axis=1)  # shape (runs,): its working-time position
-    # A run's finish is the start of its shown day exactly when that day lies past
-    # its working-time position — only a start-of-day milestone does that; any work
-    # ending on the same day makes it the end of the day (#4204).
-    run_at_day_start = np.rint(shown_offsets) > np.rint(completion_offsets)
-
     # Convert offsets back to dates via the working-day index (reused from above).
-    # Percentile convention (documented for the public surface, #826): use
-    # numpy.percentile — the de-facto Python standard (linear interpolation between
-    # the two nearest ranks) — then map the resulting offset to a working-day date.
-    # numpy.percentile is what PyPI consumers expect and stays reproducible under the
-    # same seed. Percentiles use the FULL distribution.
-    #
-    # The order statistic is taken over WORKING-TIME positions, not over shown days
-    # (#4204): a start-of-day milestone is shown a day past its position, so ordering
-    # by shown day would rank the start of a Monday after the end of that Friday
-    # although neither is later in working time. The percentile's reading is then the
-    # one every run at that position agrees on, as ``project_finish``'s is the one
-    # every task finishing on its day agrees on; with none there (interpolation
-    # between two positions) it is the end of the day, the pre-#4079 reading.
     all_dates = sorted(
         _offset_to_date(o, wd_index, completed_finish_floor) for o in shown_offsets.tolist()
     )
-    rounded_positions = np.rint(completion_offsets)
-    percentiles: list[tuple[date, bool]] = []
-    for pct in np.percentile(completion_offsets, [50, 80, 95]).tolist():
-        k = round(pct)
-        at_k = rounded_positions == k
-        at_start = bool(at_k.any() and run_at_day_start[at_k].all())
-        # An end-of-day reading is shown on the working day before the (exclusive)
-        # position. A start-of-day one is shown on the day those runs show — the
-        # first working day at the position on one calendar; on mixed calendars the
-        # reference ruler can hold days the milestone's own calendar skips.
-        shown = float(np.rint(shown_offsets[at_k]).max()) if at_start else float(k)
-        resolved = _offset_to_date(shown, wd_index, None)
-        if completed_finish_floor is not None and completed_finish_floor > resolved:
-            percentiles.append((completed_finish_floor, floor_at_day_start))
-        else:
-            percentiles.append((resolved, at_start))
+    percentiles = _mc_percentiles(
+        completion_offsets, shown_offsets, wd_index, completed_finish_floor, floor_at_day_start
+    )
     (p50, p50_start), (p80, p80_start), (p95, p95_start) = percentiles
 
     # Duration-sensitivity tornado (ADR-0140) — which tasks' sampled durations

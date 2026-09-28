@@ -230,6 +230,41 @@ def network(project: Project) -> tuple[Task, Task]:
     return a, m
 
 
+def _recompute(project: Project) -> None:
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        _run_schedule(str(project.pk))
+
+
+@pytest.fixture
+def straddling_network(project: Project) -> Task:
+    """CPM finishes at the END of Friday; the simulated P80 at the START of Monday.
+
+    ``W`` (5d) ends Friday. ``A`` is planned at 4 days, so on the plan ``A -FS+1d-> M``
+    lands ``M`` at the end of Friday too. ``A``'s estimate band is 4..5 and mostly
+    samples 5, which ends ``A`` on Friday and lands ``M`` on Sunday, shown at the start
+    of Monday. The two finishes straddle a weekend at the same working-time position,
+    so a shown-day subtraction reports +3 and a working-time one 0.
+    """
+    Task.objects.create(project=project, name="W", duration=5)
+    a = Task.objects.create(
+        project=project,
+        name="A",
+        duration=4,
+        optimistic_duration=4,
+        most_likely_duration=5,
+        pessimistic_duration=5,
+    )
+    m = Task.objects.create(project=project, name="M", duration=0, is_milestone=True)
+    Dependency.objects.create(predecessor=a, successor=m, dep_type="FS", lag=1)
+    _recompute(project)
+    m.refresh_from_db()
+    assert (m.early_finish, m.milestone_at_day_end) == (FRI, True)
+    return m
+
+
 def _mc(client: APIClient, project: Project) -> dict[str, Any]:
     res = client.post(
         f"/api/v1/projects/{project.pk}/monte-carlo/", {"n_simulations": 50}, format="json"
@@ -241,18 +276,50 @@ def _mc(client: APIClient, project: Project) -> dict[str, Any]:
 @pytest.mark.django_db
 class TestEndToEnd:
     def test_live_run_reports_readings_and_zero_deltas(
-        self, client: APIClient, project: Project, network: tuple[Task, Task]
+        self, client: APIClient, project: Project, straddling_network: Task
     ) -> None:
         data = _mc(client, project)
-        assert data["p80"] == MON.isoformat()
-        assert data["p80_at_day_start"] is True
-        assert data["cpm_finish"] == MON.isoformat()
-        assert data["cpm_finish_at_day_start"] is True
-        assert data["delta_vs_cpm"] == {"p50": 0, "p80": 0, "p95": 0}
+        assert (data["cpm_finish"], data["cpm_finish_at_day_start"]) == (FRI.isoformat(), False)
+        assert (data["p80"], data["p80_at_day_start"]) == (MON.isoformat(), True)
+        # A shown-day subtraction would report +3 here.
+        assert data["delta_vs_cpm"]["p80"] == 0
         assert data["risk_premium_days"] == 0
 
         run = MonteCarloRun.objects.get(project=project)
-        assert (run.p80_at_day_start, run.cpm_finish_at_day_start) == (True, True)
+        assert (run.p80_at_day_start, run.cpm_finish_at_day_start) == (True, False)
+
+        # The cached read serves the same working-time numbers.
+        cached = client.get(f"/api/v1/projects/{project.pk}/monte-carlo/latest/").json()
+        assert "from_history" not in cached
+        assert cached["delta_vs_cpm"]["p80"] == 0
+        assert cached["risk_premium_days"] == 0
+
+    def test_whatif_percentile_deltas_are_measured_in_working_time(
+        self, client: APIClient, project: Project
+    ) -> None:
+        """``A(5d) -FS-> M`` and ``B(4d) -FS+1d-> M``; lengthening B by a day moves M
+        from the end of Friday to the start of Monday — no working-time move."""
+        a = Task.objects.create(project=project, name="A", duration=5)
+        b = Task.objects.create(project=project, name="B", duration=4)
+        m = Task.objects.create(project=project, name="M", duration=0, is_milestone=True)
+        Dependency.objects.create(predecessor=a, successor=m, dep_type="FS", lag=0)
+        Dependency.objects.create(predecessor=b, successor=m, dep_type="FS", lag=1)
+        _recompute(project)
+        res = client.get(
+            f"/api/v1/projects/{project.pk}/monte-carlo/whatif/",
+            {"task_id": str(b.pk), "duration_delta": 1, "n_simulations": 20},
+        )
+        assert res.status_code == 200, res.content
+        data = res.json()
+        assert (data["current"]["p50"], data["current"]["p50_at_day_start"]) == (
+            FRI.isoformat(),
+            False,
+        )
+        assert (data["whatif"]["p50"], data["whatif"]["p50_at_day_start"]) == (
+            MON.isoformat(),
+            True,
+        )
+        assert data["delta_vs_current"] == {"p50": 0, "p80": 0, "p95": 0, "cpm_finish": 0}
 
     def test_history_fallback_and_derivation_read_the_persisted_readings(
         self, client: APIClient, project: Project, network: tuple[Task, Task]
