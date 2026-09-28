@@ -954,9 +954,15 @@ def _place_milestone(
       start of their day, shown on that day;
     * FS/SS links propose ``anchor + lag`` (:func:`_edge_anchor`) — shown at the end
       of the previous working day after FS from work, at the start of the day after
-      SS from work, and the way the predecessor is shown after another milestone,
-      except that an instant just after non-working time is always shown at the
-      start of the next working day (:func:`_start_reading`, #4173);
+      SS from work, and — only at zero lag, where the proposed instant is the very
+      same midnight the predecessor milestone occupies — the way that predecessor is
+      shown; a *lagged* link out of a milestone proposes a different midnight and
+      falls back to the FS/SS-from-work rule, or the composed lag would inherit a
+      display quirk (Sunday/Monday snapping, #4173) that belongs to the
+      predecessor's own instant and not to this one (#4079 fuzz regression). Every
+      case is subject to the same override: an instant just after non-working time
+      is always shown at the start of the next working day (:func:`_start_reading`,
+      #4173);
     * FF/SF links propose the end of the finish day ``next_wd(anchor + lag)``.
 
     Two proposals at the same midnight resolve to the start-of-day reading, so a
@@ -988,11 +994,20 @@ def _place_milestone(
         )
         raw = _safe_offset(anchor, dep.lag)
         if dep.dep_type in _START_ANCHORED:
-            start_display = _start_reading(
-                raw,
-                pred_instant[1] if pred_instant is not None else dep.dep_type == DependencyType.SS,
-                cal,
-            )
+            if pred_instant is not None and dep.lag == timedelta(0):
+                # Same midnight as the predecessor milestone (#4079): its own
+                # reading carries over verbatim.
+                base_display = pred_instant[1]
+            else:
+                # Ordinary work, or a milestone predecessor reached through a
+                # nonzero lag: this is a different midnight than the
+                # predecessor's own instant, so its reading is computed fresh
+                # rather than inherited (#4079 fuzz regression) — inheriting it
+                # would let a display quirk of the predecessor's instant (the
+                # Sunday/Monday snap, #4173) leak into an instant it has nothing
+                # to do with.
+                base_display = dep.dep_type == DependencyType.SS
+            start_display = _start_reading(raw, base_display, cal)
             offer((raw, start_display, _instant_day(raw, start_display, cal)))
         else:
             finish_day = _next_working_day(raw, cal)
@@ -4069,8 +4084,14 @@ def _completed_edge_constraints(
         raw = _safe_offset(anchor, dep.lag)
         imposed = _next_working_day(raw, succ_cal)
         if dep.dep_type in _START_ANCHORED:
+            # Mirrors engine._place_milestone (#4079 fuzz regression): the
+            # predecessor's own reading only carries over at zero lag, the same
+            # midnight it occupies; a nonzero lag proposes a different midnight
+            # and reads fresh, like an ordinary FS/SS predecessor.
             start_display = (
-                pred_instant[1] if pred_instant is not None else dep.dep_type == DependencyType.SS
+                pred_instant[1]
+                if pred_instant is not None and dep.lag == timedelta(0)
+                else dep.dep_type == DependencyType.SS
             )
             constraints[(u, v)] = (
                 False,
@@ -4571,7 +4592,14 @@ def _mc_milestone_bounds(
         p = task_idx[pred_id]
         if pred_id in milestone_ids:
             if dep.dep_type in _START_ANCHORED:
-                offer(instant_mat[:, p] + lag, start_display_mat[:, p])
+                # Mirrors engine._place_milestone (#4079 fuzz regression): the
+                # predecessor's own reading only carries over at zero lag, the
+                # same midnight it occupies; a nonzero lag proposes a different
+                # midnight and reads fresh, like an ordinary FS/SS predecessor.
+                base_display = (
+                    start_display_mat[:, p] if lag == 0 else dep.dep_type == DependencyType.SS
+                )
+                offer(instant_mat[:, p] + lag, base_display)
                 continue
             anchor = index.prev_wd_ordinal(p, instant_mat[:, p] - 1)
         elif dep.dep_type == DependencyType.FS:
