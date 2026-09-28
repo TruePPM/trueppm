@@ -90,3 +90,29 @@ def test_export_email_never_emits_a_relative_link_when_unconfigured(db: object) 
 def test_frontend_base_url_trailing_slash_is_stripped(invite: object) -> None:
     _subject, body = _render_invite_email(invite)
     assert "//invite" not in body
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("role", list(WorkspaceRole))
+def test_invite_email_role_copy_avoids_hard_coded_article(
+    inviter: object, role: WorkspaceRole
+) -> None:
+    """The invite body must not hard-code "a" ahead of the role label (#4192).
+
+    ``WorkspaceRole.ADMIN`` and ``WorkspaceRole.OWNER`` both start with a vowel
+    sound, so a literal "as a {role_label}" reads as "as a Admin" / "as a Owner".
+    Rewording to "with the <Role> role" sidesteps article selection for every
+    role, present and future (enterprise roles land in the same 100-unit band
+    per ADR-0072), rather than hard-coding a table of exceptions.
+    """
+    invite = services.create_invite(
+        workspace=Workspace.load(),
+        email="new-hire@example.com",
+        role=role,
+        invited_by=inviter,
+    )
+    _subject, body = _render_invite_email(invite)
+    role_label = WorkspaceRole(role).label
+    assert f"a {role_label}" not in body
+    assert f"an {role_label}" not in body
+    assert f"with the {role_label} role" in body

@@ -1153,6 +1153,14 @@ env:
   #   EMAIL_USE_SSL: "false"
   #   EMAIL_HOST_USER: "notifications@example.com"
   #   DEFAULT_FROM_EMAIL: "notifications@example.com"
+  # TruePPM defaults EMAIL_USE_TLS to "true" (Django itself defaults it to
+  # false), so implicit-SSL relays on port 465 need EMAIL_USE_TLS explicitly
+  # set to "false" — setting only EMAIL_USE_SSL leaves both flags "true" and
+  # Django's SMTP backend raises at send time. Example for a 465/implicit-SSL
+  # relay (#4198):
+  #   EMAIL_PORT: "465"
+  #   EMAIL_USE_TLS: "false"         # MUST be explicit — do not rely on the default
+  #   EMAIL_USE_SSL: "true"
   # EMAIL_HOST_PASSWORD MUST come from a Kubernetes Secret — NEVER a plaintext
   # value here. Create the Secret, then reference it via secretKeyRef (the same
   # map form the chart uses for DATABASE_URL). Uncomment to wire it:
