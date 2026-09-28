@@ -32,6 +32,12 @@ vi.mock('@/stores/authStore', () => ({
   useAuthStore: (selector: (s: { clearTokens: () => void }) => unknown) =>
     selector({ clearTokens: vi.fn() }),
 }));
+// This spec covers the wired golden paths as the workspace Owner (#4210's own
+// gate is covered separately in WorkspaceDangerPage.ownerGate.test.tsx).
+vi.mock('@/hooks/useIsWorkspaceOwner', () => ({
+  useIsWorkspaceOwner: () => true,
+  WORKSPACE_OWNER_ROLE: 400,
+}));
 
 function renderPage() {
   return render(
