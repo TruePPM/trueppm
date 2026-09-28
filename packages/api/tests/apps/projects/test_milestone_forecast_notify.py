@@ -13,7 +13,7 @@ ForecastSnapshot rows; the close-drain wiring is covered in test_sprint_close_dr
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
@@ -31,7 +31,10 @@ from trueppm_api.apps.projects.models import (
     SprintState,
     Task,
 )
-from trueppm_api.apps.projects.services import notify_milestone_forecast_shift
+from trueppm_api.apps.projects.services import (
+    _forecast_unmoved,
+    notify_milestone_forecast_shift,
+)
 
 User = get_user_model()
 
@@ -199,3 +202,56 @@ def test_soft_removed_pm_not_notified(
 
     assert not Notification.objects.filter(recipient=people["admin"]).exists()
     assert Notification.objects.filter(recipient=people["owner"]).count() == 1
+
+
+# ---------------------------------------------------------------------------
+# #4178: the band is compared as offsets from a working-time finish
+# ---------------------------------------------------------------------------
+
+_FRI = date(2026, 8, 7)
+_MON = date(2026, 8, 10)
+
+
+def _unsaved(
+    project: Project,
+    finish: date,
+    at_day_start: bool | None,
+    p80: date,
+    confidence: str = ForecastConfidence.MEDIUM,
+) -> ForecastSnapshot:
+    return ForecastSnapshot(
+        project=project,
+        basis=ForecastBasis.VELOCITY_BAND,
+        cpm_finish=finish,
+        cpm_finish_at_day_start=at_day_start,
+        p50=finish,
+        p80=p80,
+        confidence=confidence,
+    )
+
+
+@pytest.mark.django_db
+class TestForecastUnmovedBand:
+    """``_forecast_unmoved`` with a real velocity band (p80 != cpm_finish)."""
+
+    def test_weekend_hop_with_the_same_band_is_unmoved(self, project: Project) -> None:
+        prior = _unsaved(project, _FRI, False, _FRI + timedelta(days=5))
+        new = _unsaved(project, _MON, True, _MON + timedelta(days=5))
+        assert _forecast_unmoved(prior, new) is True
+
+    def test_a_wider_band_is_a_move(self, project: Project) -> None:
+        prior = _unsaved(project, _FRI, False, _FRI + timedelta(days=5))
+        new = _unsaved(project, _MON, True, _MON + timedelta(days=6))
+        assert _forecast_unmoved(prior, new) is False
+
+    def test_unknown_prior_reading_with_equal_offsets_is_unmoved(self, project: Project) -> None:
+        prior = _unsaved(project, _FRI, None, _FRI + timedelta(days=5))
+        new = _unsaved(project, _MON, True, _MON + timedelta(days=5))
+        assert _forecast_unmoved(prior, new) is True
+
+    def test_a_confidence_change_is_a_move(self, project: Project) -> None:
+        prior = _unsaved(project, _FRI, False, _FRI + timedelta(days=5))
+        new = _unsaved(
+            project, _MON, True, _MON + timedelta(days=5), confidence=ForecastConfidence.LOW
+        )
+        assert _forecast_unmoved(prior, new) is False

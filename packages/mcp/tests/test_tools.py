@@ -610,7 +610,7 @@ async def test_monte_carlo_forecast_attaches_compact_why(settings: Settings) -> 
         result = await _get_monte_carlo_forecast(client, "p-1")
     why = result["why"]
     assert why["top_driver"] == {"task_id": "t-hot", "index": 0.82}
-    assert "18 working day(s)" in why["explanation"]
+    assert "18 calendar day(s)" in why["explanation"]
     assert "2026-08-20" in why["explanation"]
     assert why["see_also"].startswith("get_schedule_derivation")
 
@@ -776,7 +776,7 @@ async def test_whatif_attaches_compact_why(settings: Settings) -> None:
     async with _client(settings, routes) as client:
         result = await _whatif(client, "p-1", "t-9", duration_delta=5)
     why = result["why"]
-    assert "7 working day(s) later" in why["explanation"]
+    assert "7 calendar day(s) later" in why["explanation"]
     assert "critical path changes" in why["explanation"]
     assert why["see_also"].startswith("get_schedule_derivation")
 

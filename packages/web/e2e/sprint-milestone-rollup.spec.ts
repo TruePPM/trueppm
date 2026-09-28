@@ -485,6 +485,10 @@ test.describe('Sprint → milestone rollup card (ADR-0074)', () => {
               milestone_name: 'FAT review',
               basis: 'velocity_band',
               cpm_finish: '2026-04-21',
+              cpm_finish_at_day_start: false,
+              // Server-computed working-time move since `previous` (#4178); the
+              // card renders this, not a diff of the two dates.
+              cpm_finish_shift_days: 3,
               p50: '2026-04-24',
               p80: '2026-05-02',
               velocity_low: 24,
@@ -494,6 +498,7 @@ test.describe('Sprint → milestone rollup card (ADR-0074)', () => {
               taken_at: '2026-06-01T00:00:00Z',
               previous: {
                 cpm_finish: '2026-04-18',
+                cpm_finish_at_day_start: false,
                 p50: '2026-04-20',
                 p80: '2026-04-28',
                 velocity_low: 24,

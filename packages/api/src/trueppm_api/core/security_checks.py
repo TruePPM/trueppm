@@ -25,6 +25,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from django.core.checks import Error, register
+from django.core.checks import Warning as CheckWarning
 from django.core.checks.messages import CheckMessage
 from django.core.checks.registry import Tags
 from django.core.exceptions import ImproperlyConfigured
@@ -969,4 +970,65 @@ def check_allowed_hosts(
         getattr(settings, "ALLOWED_HOSTS", None),
         debug=bool(getattr(settings, "DEBUG", False)),
         allow_wildcard=bool(getattr(settings, "ALLOW_WILDCARD_ALLOWED_HOSTS", False)),
+    )
+
+
+# ---------------------------------------------------------------------------
+# FRONTEND_BASE_URL — warn (not refuse) when unset in prod (#4188).
+#
+# Every outbound email that used to build an absolute link from this setting
+# already degrades gracefully when it is empty: blocker/task deep-links, the
+# password-reset link, and the mention-notification footer all omit the link
+# rather than emit a relative path that resolves nowhere. Workspace-invite and
+# export-ready emails did not — they emitted a bare relative path
+# (``/invite/accept?token=...``, ``/settings/workspace/danger``) that no mail
+# client can follow, which this issue's ``_render_invite_email`` /
+# ``_render_export_email`` fix closes. This check is the boot-time half: an
+# empty value is a legitimate zero-config dev default, so it is a Warning, not
+# an Error — refusing to boot over it would break every existing
+# self-hosted single-origin install that never configured it and has managed
+# fine on the in-app/SSO fallbacks. What it cannot do is warn an operator who
+# never runs `manage.py check --deploy`, which is why the invite email's own
+# copy (above) repeats the fix inline for the one recipient who will actually
+# read it.
+# ---------------------------------------------------------------------------
+
+
+def validate_frontend_base_url(base_url: str | None, *, debug: bool) -> list[CheckMessage]:
+    """Warn when ``FRONTEND_BASE_URL`` is empty outside DEBUG.
+
+    Returns an empty list under ``debug`` so developer workstations — which
+    routinely run without a configured public origin — keep booting silently.
+    """
+    if debug or base_url:
+        return []
+    return [
+        CheckWarning(
+            "TRUEPPM_FRONTEND_BASE_URL is empty in a non-DEBUG environment.",
+            hint=(
+                "Workspace-invite emails cannot include an accept link without it "
+                "— an invited user has no account yet and no other way to reach "
+                "the link, so any invite sent while this is unset must be resent "
+                "once it is fixed. Password-reset, export-ready, and "
+                "mention-notification emails also degrade to plain prose instead "
+                "of a clickable link. Set TRUEPPM_FRONTEND_BASE_URL to the public "
+                "origin the web app is served from, e.g. "
+                "https://trueppm.example.com."
+            ),
+            id="trueppm.W001",
+        )
+    ]
+
+
+@register(Tags.security, deploy=True)
+def check_frontend_base_url(
+    app_configs: Sequence[object] | None = None,
+    **kwargs: object,
+) -> list[CheckMessage]:
+    """Django system check entry point — reads live settings."""
+    from django.conf import settings
+
+    return validate_frontend_base_url(
+        getattr(settings, "FRONTEND_BASE_URL", None),
+        debug=bool(getattr(settings, "DEBUG", False)),
     )

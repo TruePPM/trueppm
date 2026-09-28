@@ -15,7 +15,17 @@ from celery.exceptions import SoftTimeLimitExceeded
 from django.db import OperationalError
 
 from trueppm_api.apps.projects.services import clear_uncommitted_cpm_output
+from trueppm_api.apps.scheduling.finish_reading import (
+    Finish,
+    finish_shift_days,
+    latest_finish,
+    task_finish_at_day_start,
+)
 from trueppm_api.core.idempotent import idempotent_task
+
+#: An active-baseline finish for one task: ``(baseline_id, finish, at_day_start)``,
+#: ``at_day_start`` being ``BaselineTask.finish_at_day_start`` (#4197).
+BaselineFinish = tuple[str, date, bool | None]
 
 logger = logging.getLogger(__name__)
 
@@ -565,13 +575,16 @@ project-start shift.
 # Per-task schedule-shift activity events (ADR-0207, #1604). The CPM writeback
 # persists only the history-excluded early_*/late_* fields via bulk_update, so a
 # recompute leaves no per-task audit row; these helpers emit one instead.
-def _active_baseline_finishes(project_ids: list[Any]) -> dict[str, tuple[str, date]]:
-    """Return ``{task_id: (baseline_id, baseline_finish)}`` for each project's active baseline.
+def _active_baseline_finishes(project_ids: list[Any]) -> dict[str, BaselineFinish]:
+    """Return ``{task_id: (baseline_id, baseline_finish, at_day_start)}`` per active baseline.
 
     One entry per snapshotted task with a non-null finish, drawn from the single
     active baseline per project (enforced by a DB unique constraint). Two indexed
     queries; empty and cheap when no project in ``project_ids`` has an active
     baseline, so the drift check adds no cost to the common no-baseline recalc.
+    ``at_day_start`` is ``BaselineTask.finish_at_day_start`` (#4197) — which edge
+    of the day the baselined finish sat on, ``None`` for a row captured before
+    that was recorded.
     """
     from trueppm_api.apps.projects.models import Baseline, BaselineTask
 
@@ -582,14 +595,18 @@ def _active_baseline_finishes(project_ids: list[Any]) -> dict[str, tuple[str, da
     )
     if not baseline_ids:
         return {}
-    finishes: dict[str, tuple[str, date]] = {}
+    finishes: dict[str, BaselineFinish] = {}
     for row in BaselineTask.objects.filter(
         baseline_id__in=baseline_ids, finish__isnull=False
-    ).values("task_id", "finish", "baseline_id"):
+    ).values("task_id", "finish", "finish_at_day_start", "baseline_id"):
         finish = row["finish"]
         if finish is None:  # narrows the nullable DateField for mypy; excluded by the filter
             continue
-        finishes[str(row["task_id"])] = (str(row["baseline_id"]), finish)
+        finishes[str(row["task_id"])] = (
+            str(row["baseline_id"]),
+            finish,
+            row["finish_at_day_start"],
+        )
     return finishes
 
 
@@ -611,10 +628,22 @@ def _cpm_dates_changed(old: tuple[Any, Any, Any, Any], t: Any) -> bool:
 def _recalc_project_aggregates(
     tasks_to_update: list[Any],
     old_dates: dict[str, tuple[Any, Any, Any, Any]],
-) -> tuple[dict[Any, int], dict[Any, date], dict[Any, date]]:
+    old_day_end: Mapping[str, bool] | None = None,
+) -> tuple[dict[Any, int], dict[Any, Finish], dict[Any, Finish]]:
     """Per-project recalc summary denormalized onto every ``cpm_recalculated`` row (#1948).
 
-    Returns ``(moved_by_project, new_finish_by_project, prior_finish_by_project)``.
+    Returns ``(moved_by_project, new_finish_by_project, prior_finish_by_project)``,
+    each finish a ``(day, at_day_start)`` pair (:mod:`.finish_reading`, #4178) so
+    the delta can be measured in working time. ``old_day_end`` is each task's
+    ``milestone_at_day_end`` before the writeback overwrote it; a task missing
+    from it is read with its current flag.
+
+    Known limit: the prior reading's "pinned by actuals" test reads the task's
+    *current* ``actual_start``/``actual_finish``/``percent_complete``. The CPM
+    writeback never changes those, but a user edit between two recalculations
+    does, and the row no longer holds the old values — so recording a milestone's
+    actual finish in the same pass that moves it can misread the prior edge of
+    the day by one reading, for that one pass only.
     WHY grouped strictly per ``project_id`` and not globally: this feeds a helper
     shared by the program-scoped writeback, where ``tasks_to_update`` spans several
     member projects in one call. A single program-wide count stamped onto every row
@@ -623,24 +652,34 @@ def _recalc_project_aggregates(
     each row carries only *its own* project's aggregate.
     """
     moved_by_project: dict[Any, int] = {}
-    new_finish_by_project: dict[Any, date] = {}
-    prior_finish_by_project: dict[Any, date] = {}
+    new_rows: dict[Any, list[tuple[Any, bool, Any]]] = {}
+    prior_rows: dict[Any, list[tuple[Any, bool, Any]]] = {}
     for t in tasks_to_update:
         pid = t.project_id
+        wbs_path = getattr(t, "wbs_path", None)
         # New finish: latest early_finish across every task in this project,
         # moved or not (an unmoved late task still defines where finish sits).
-        cur_new = new_finish_by_project.get(pid)
-        if t.early_finish is not None and (cur_new is None or t.early_finish > cur_new):
-            new_finish_by_project[pid] = t.early_finish
-        old = old_dates.get(str(t.id))
+        new_rows.setdefault(pid, []).append((t.early_finish, task_finish_at_day_start(t), wbs_path))
+        task_key = str(t.id)
+        old = old_dates.get(task_key)
         if old is None:
             continue
-        old_ef = old[1]
-        cur_prior = prior_finish_by_project.get(pid)
-        if old_ef is not None and (cur_prior is None or old_ef > cur_prior):
-            prior_finish_by_project[pid] = old_ef
+        prior_day_end = old_day_end.get(task_key) if old_day_end is not None else None
+        prior_rows.setdefault(pid, []).append(
+            (
+                old[1],
+                task_finish_at_day_start(t, milestone_at_day_end=prior_day_end),
+                wbs_path,
+            )
+        )
         if _cpm_dates_changed(old, t):
             moved_by_project[pid] = moved_by_project.get(pid, 0) + 1
+    new_finish_by_project = {
+        pid: f for pid, rows in new_rows.items() if (f := latest_finish(rows)) is not None
+    }
+    prior_finish_by_project = {
+        pid: f for pid, rows in prior_rows.items() if (f := latest_finish(rows)) is not None
+    }
     return moved_by_project, new_finish_by_project, prior_finish_by_project
 
 
@@ -648,10 +687,17 @@ def _cpm_recalculated_event(
     t: Any,
     old: tuple[Any, Any, Any, Any],
     moved_by_project: dict[Any, int],
-    new_finish_by_project: dict[Any, date],
-    prior_finish_by_project: dict[Any, date],
+    new_finish_by_project: dict[Any, Finish],
+    prior_finish_by_project: dict[Any, Finish],
+    calendars: Mapping[str, Any] | None = None,
 ) -> Any:
-    """Build a ``cpm_recalculated`` activity row for a task whose CPM dates moved."""
+    """Build a ``cpm_recalculated`` activity row for a task whose CPM dates moved.
+
+    ``recalc_finish_delta_days`` is measured in working time on the project's own
+    calendar (:func:`.finish_reading.finish_shift_days`, #4178): a finish whose
+    shown day hops a weekend without moving in working time reports 0, not 3.
+    With no calendar for the project it falls back to the shown-day difference.
+    """
     from trueppm_api.apps.projects.models import TaskActivityEvent
 
     old_es, old_ef, old_ls, old_lf = old
@@ -660,7 +706,12 @@ def _cpm_recalculated_event(
     # Signed day delta of the project finish (+ = slip later, - = pulled in).
     # None when either side is missing — most importantly the first-ever recalc,
     # where no prior early_finish exists for any task.
-    delta = (new_f - prior_f).days if new_f is not None and prior_f is not None else None
+    cal = calendars.get(str(t.project_id)) if calendars is not None else None
+    delta = (
+        finish_shift_days(prior_f, new_f, cal)
+        if new_f is not None and prior_f is not None
+        else None
+    )
     return TaskActivityEvent(
         task_id=t.id,
         actor=None,
@@ -674,21 +725,46 @@ def _cpm_recalculated_event(
             "is_critical": t.is_critical,
             # Per-project recalc summary (#1948) — see _recalc_project_aggregates.
             "recalc_moved_count": moved_by_project.get(t.project_id, 0),
-            "recalc_finish": _iso_or_none(new_f),
+            "recalc_finish": _iso_or_none(new_f[0] if new_f is not None else None),
             "recalc_finish_delta_days": delta,
         },
     )
 
 
-def _baseline_drift_event(t: Any, old_ef: Any, baseline: tuple[str, date]) -> Any | None:
+def _baseline_drift_event(
+    t: Any,
+    old_ef: Any,
+    baseline: BaselineFinish,
+    *,
+    prior_day_end: bool | None = None,
+    calendar: Any | None = None,
+) -> Any | None:
     """Build a ``baseline_drift_detected`` row, but only on the transition *into* drift.
 
     Emitted only when a task was within its baseline finish and is now past it, so a
     persistently-drifted task does not re-fire every recalc. Returns ``None`` otherwise.
+
+    Drift is measured in working time (:func:`.finish_reading.finish_shift_days`,
+    #4197), not by the shown day: a start-of-day milestone whose shown day hops a
+    weekend relative to its baseline — the end of Friday against the start of the
+    next Monday — has not drifted, and ``drift_days`` stays a calendar-day count.
+    ``prior_day_end`` is the task's ``milestone_at_day_end`` before this pass
+    overwrote it (``None`` reads the current flag); ``calendar`` is the project's
+    composed scheduler calendar, and without one the comparison falls back to the
+    shown-day difference.
     """
-    baseline_id, baseline_finish = baseline
-    was_drifted = old_ef is not None and old_ef > baseline_finish
-    is_drifted = t.early_finish is not None and t.early_finish > baseline_finish
+    baseline_id, baseline_finish, baseline_at_start = baseline
+    base: Finish = (baseline_finish, baseline_at_start)
+
+    def drift(finish: Any, at_start: bool) -> int | None:
+        if finish is None:
+            return None
+        return finish_shift_days(base, (finish, at_start), calendar)
+
+    old_drift = drift(old_ef, task_finish_at_day_start(t, milestone_at_day_end=prior_day_end))
+    new_drift = drift(t.early_finish, task_finish_at_day_start(t))
+    was_drifted = old_drift is not None and old_drift > 0
+    is_drifted = new_drift is not None and new_drift > 0
     if not (is_drifted and not was_drifted):
         return None
 
@@ -702,7 +778,7 @@ def _baseline_drift_event(t: Any, old_ef: Any, baseline: tuple[str, date]) -> An
             "baseline_id": baseline_id,
             "baseline_finish": baseline_finish.isoformat(),
             "early_finish": t.early_finish.isoformat(),
-            "drift_days": (t.early_finish - baseline_finish).days,
+            "drift_days": new_drift,
         },
     )
 
@@ -710,9 +786,11 @@ def _baseline_drift_event(t: Any, old_ef: Any, baseline: tuple[str, date]) -> An
 def _build_schedule_shift_events(
     tasks_to_update: list[Any],
     old_dates: dict[str, tuple[Any, Any, Any, Any]],
-    baseline_finishes: dict[str, tuple[str, date]],
+    baseline_finishes: dict[str, BaselineFinish],
     *,
     suppress_movement_events: bool = False,
+    old_day_end: Mapping[str, bool] | None = None,
+    calendars: Mapping[str, Any] | None = None,
 ) -> list[Any]:
     """Build ``TaskActivityEvent`` rows for CPM recomputes and baseline-drift crossings.
 
@@ -744,7 +822,7 @@ def _build_schedule_shift_events(
     exists to make sense of.
     """
     moved_by_project, new_finish_by_project, prior_finish_by_project = _recalc_project_aggregates(
-        tasks_to_update, old_dates
+        tasks_to_update, old_dates, old_day_end
     )
 
     events: list[Any] = []
@@ -760,11 +838,18 @@ def _build_schedule_shift_events(
                     moved_by_project,
                     new_finish_by_project,
                     prior_finish_by_project,
+                    calendars,
                 )
             )
         baseline = baseline_finishes.get(str(t.id))
         if baseline is not None:
-            drift = _baseline_drift_event(t, old[1], baseline)
+            drift = _baseline_drift_event(
+                t,
+                old[1],
+                baseline,
+                prior_day_end=old_day_end.get(str(t.id)) if old_day_end is not None else None,
+                calendar=calendars.get(str(t.project_id)) if calendars is not None else None,
+            )
             if drift is not None:
                 events.append(drift)
     return events
@@ -932,10 +1017,14 @@ def _apply_cpm_results(
     db_tasks: Iterable[Any],
     result_map: dict[str, Any],
     summary_durations: Mapping[str, int],
-) -> tuple[list[Any], dict[str, tuple[Any, Any, Any, Any]], list[Any]]:
+) -> tuple[list[Any], dict[str, tuple[Any, Any, Any, Any]], list[Any], dict[str, bool]]:
     """Write engine CPM results onto Task rows in memory.
 
-    Returns ``(tasks_to_update, old_cpm_dates, moved_tasks)``.
+    Returns ``(tasks_to_update, old_cpm_dates, moved_tasks, old_day_end)``.
+
+    ``old_day_end`` is each task's ``milestone_at_day_end`` before the overwrite,
+    which the shift-events helper needs to read the *prior* project finish in
+    working time rather than by its shown day (#4178).
 
     ``old_cpm_dates`` snapshots each task's four CPM dates *before* they are
     overwritten, so :func:`_build_schedule_shift_events` can tell which tasks
@@ -962,6 +1051,7 @@ def _apply_cpm_results(
     """
     tasks_to_update: list[Any] = []
     old_cpm_dates: dict[str, tuple[Any, Any, Any, Any]] = {}
+    old_day_end: dict[str, bool] = {}
     moved_tasks: list[Any] = []
     for db_task in db_tasks:
         # One `str(UUID)` for the row, reused by all three lookups below. Same
@@ -977,6 +1067,7 @@ def _apply_cpm_results(
             db_task.late_start,
             db_task.late_finish,
         )
+        old_day_end[task_key] = bool(db_task.milestone_at_day_end)
         before = _cpm_delta_snapshot(db_task)
         db_task.early_start = sched.early_start
         db_task.early_finish = sched.early_finish
@@ -1018,7 +1109,7 @@ def _apply_cpm_results(
         tasks_to_update.append(db_task)
         if _cpm_delta_snapshot(db_task) != before:
             moved_tasks.append(db_task)
-    return tasks_to_update, old_cpm_dates, moved_tasks
+    return tasks_to_update, old_cpm_dates, moved_tasks, old_day_end
 
 
 def _apply_driving_flags(deps: list[Any], driving_edges: Iterable[Any]) -> None:
@@ -1321,7 +1412,7 @@ def _run_schedule(
     # each task's dates before the overwrite so the shift-events helper can tell
     # which tasks actually moved (ADR-0207); moved_tasks is that same moved subset
     # as a list, and is what the ADR-0091 delta broadcast ships (#2573).
-    tasks_to_update, old_cpm_dates, moved_tasks = _apply_cpm_results(
+    tasks_to_update, old_cpm_dates, moved_tasks, old_day_end = _apply_cpm_results(
         db_tasks, result_map, summary_durations
     )
 
@@ -1398,6 +1489,8 @@ def _run_schedule(
         old_cpm_dates,
         _active_baseline_finishes([project_id]),
         suppress_movement_events=is_arming_status_date_floor,
+        old_day_end=old_day_end,
+        calendars={str(db_project.pk): sched_calendar},
     )
 
     with transaction.atomic():
@@ -1870,6 +1963,7 @@ def _run_program_schedule(program_id: str) -> None:
     program_db_deps: list[Dependency] = []
     # Snapshot CPM dates before overwrite, for the schedule-shift events (ADR-0207).
     old_cpm_dates: dict[str, tuple[Any, Any, Any, Any]] = {}
+    old_day_end: dict[str, bool] = {}
     if graph.result is not None:
         result_map = graph.result_map
         # Roll summary dates up from leaves through the shared helper (parity with
@@ -1886,7 +1980,7 @@ def _run_program_schedule(program_id: str) -> None:
         # incremental subgraph writes are a later optimization). Shared helper with
         # _run_schedule, so field assignment — milestone single-point normalisation
         # and summary working-day duration included — can never drift.
-        tasks_to_update, old_cpm_dates, moved_tasks = _apply_cpm_results(
+        tasks_to_update, old_cpm_dates, moved_tasks, old_day_end = _apply_cpm_results(
             graph.db_task_by_id.values(), result_map, summary_durations
         )
 
@@ -1919,7 +2013,11 @@ def _run_program_schedule(program_id: str) -> None:
     # Per-task schedule-shift activity events across every member project (ADR-0207),
     # keyed off each project's own active baseline for the drift crossings.
     schedule_shift_events = _build_schedule_shift_events(
-        tasks_to_update, old_cpm_dates, _active_baseline_finishes(member_ids)
+        tasks_to_update,
+        old_cpm_dates,
+        _active_baseline_finishes(member_ids),
+        old_day_end=old_day_end,
+        calendars=graph.calendars,
     )
 
     with transaction.atomic():

@@ -381,15 +381,17 @@ const USERNAME_GUIDANCE = {
     ),
   },
   custom: {
-    hint: 'Required — the account your relay authenticates.',
+    hint: 'Leave blank, with Password, for a relay with no authentication — otherwise required.',
     placeholder: 'postmaster@example.com',
     detail: (
       <p>
         Enter whatever account your SMTP server signs in as — many relays expect the full email
-        address, others a bare login name. Check your provider&apos;s SMTP documentation. A relay
-        that accepts mail with no credentials at all cannot be configured here; use{' '}
-        <strong>Server default (built-in)</strong> and your deploy-time{' '}
-        <span className="tppm-mono">EMAIL_*</span> settings for that.
+        address, others a bare login name. Check your provider&apos;s SMTP documentation. Leave{' '}
+        <strong>both</strong> Username and Password blank if your relay accepts unauthenticated
+        connections — for example a trusted internal relay on a private network (Postfix{' '}
+        <span className="tppm-mono">mynetworks</span>, an in-cluster relay). TruePPM will not
+        attempt SMTP AUTH in that case. A password with no username is never used and is rejected
+        — the two are a pair or neither is set.
       </p>
     ),
   },
@@ -433,6 +435,9 @@ function credentialHintFor(id: ProviderId, passwordIsSet: boolean): string | und
   if (passwordIsSet) return 'Leave blank to keep the current secret.';
   if (id === 'gmail' || id === 'fastmail') {
     return 'Use an App Password, not your account password.';
+  }
+  if (id === 'custom') {
+    return 'Leave blank, with Username, for a relay that accepts unauthenticated connections.';
   }
   return undefined;
 }

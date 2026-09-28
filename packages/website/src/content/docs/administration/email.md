@@ -58,7 +58,17 @@ Fastmail wants.
 | **Fastmail** | Pre-fills `smtp.fastmail.com` · `465` · SSL/TLS. Use a Fastmail app password. |
 | **SendGrid** | Sends through SendGrid's SMTP relay. You supply only the API key (the host and username are fixed). |
 | **Amazon SES** | Sends through the region's SES SMTP relay. You supply the region-derived host, username, and password. |
-| **Custom (generic) SMTP** | You supply the host, port, connection security ([None / STARTTLS / SSL-TLS](#smtp-security)), username, and password. |
+| **Custom (generic) SMTP** | You supply the host, port, connection security ([None / STARTTLS / SSL-TLS](#smtp-security)), and — unless the relay accepts unauthenticated connections — a username and password. |
+
+:::caution[Not every SES region has an SMTP endpoint]
+Amazon SES offers SMTP in most, but not all, regions where it offers the
+service — a handful (as of this writing: Cape Town, Hyderabad, Jakarta,
+Milan, Zurich, Tel Aviv, Bahrain, UAE, Calgary, and Malaysia) are HTTPS-API-only.
+Picking the SES preset in one of those regions produces a connection failure
+with no further detail. Check [AWS's current SES endpoint list](https://docs.aws.amazon.com/general/latest/gr/ses.html)
+before choosing SES if you're self-hosting outside a major region — Custom
+(generic) SMTP against another relay is the fallback.
+:::
 
 The presets, SendGrid, SES, and Custom SMTP all build a standard SMTP
 connection — a preset is just a Custom SMTP configuration with the host, port,
@@ -76,11 +86,12 @@ account, the password proves it. An app password replaces your account
 *password* — never your username — so **a username is required whenever a
 password is**, app password or not.
 
-TruePPM rejects a save with a blank username on the Custom SMTP, preset, and
-Amazon SES transports. This is deliberate: an SMTP connection with no username
-does not authenticate *at all*, so it would connect successfully and then fail
-every real send with `530 Authentication Required` — the save would look fine
-and mail would silently stop.
+TruePPM rejects a save with a blank username paired with a password on the
+Custom SMTP, preset, and Amazon SES transports. This is deliberate: an SMTP
+connection with no username does not authenticate *at all*, so a lone password
+would connect successfully and then fail every real send with `530
+Authentication Required` — the save would look fine and mail would silently
+stop.
 
 | Provider | What to enter | Where to get it |
 |---|---|---|
@@ -91,9 +102,30 @@ and mail would silently stop.
 | **SendGrid** | Nothing — the field is not shown. The username is fixed server-side to the literal `apikey` and the API key travels as the password. | n/a |
 | **Custom (generic) SMTP** | Whatever account your relay signs in as — many expect the full email address, others a bare login name. | Your relay's SMTP documentation |
 
-A relay that accepts mail with **no** credentials at all cannot be configured on
-this page (a password is required for every non-default transport). Use **Server
-default (built-in)** and the deploy-time `EMAIL_*` settings for that case.
+### No authentication (Custom SMTP only)
+
+Custom SMTP is the one transport that may be saved with **both** Username and
+Password left blank — for a relay on a trusted network that accepts
+unauthenticated connections, such as Postfix's `mynetworks`, an in-cluster
+relay, or any server behind a network boundary you already control. This
+pairs with [Security: None](#smtp-security) below, which the docs have always
+named for exactly this use case. Leave both fields blank and TruePPM will not
+attempt SMTP AUTH at all — Django's SMTP backend skips the login step whenever
+username and password are both empty, so there is nothing to fail.
+
+A blank username with a **non-blank** password is not the same thing and is
+still rejected: the password would never be presented to the server (no
+username to pair it with), so it is a dead credential rather than "no auth."
+Username and password are a pair — both set, or both blank.
+
+Switching an already-credentialed Custom SMTP config to no authentication
+(clearing the username) also clears the stored password, even if you don't
+touch the password field — a no-auth relay needs no password, and TruePPM
+does not keep a secret around that a re-added username could silently start
+using again later.
+
+SendGrid and Amazon SES have no unauthenticated mode and always require a
+credential — the no-auth carve-out is Custom SMTP only.
 
 A username that does not match the account the password belongs to fails with
 `535 Username and Password not accepted` on save, because the transport is
@@ -127,7 +159,7 @@ Email & SMTP page carries the same guidance inline (the ⓘ next to the field):
 |---|---|---|
 | **STARTTLS** | 587 | Connects in the clear, then upgrades to TLS before login. Recommended — the right choice for almost every provider. |
 | **SSL/TLS** | 465 | TLS from the first byte (implicit). Use it when your provider only offers 465 (e.g. Fastmail). |
-| **None** | 25 | Plaintext, no encryption. Credentials and mail travel in the clear — **only** for a trusted internal relay on a private network, never over the public internet. Selecting it shows an explicit warning. |
+| **None** | 25 | Plaintext, no encryption. Credentials and mail travel in the clear — **only** for a trusted internal relay on a private network, never over the public internet. Selecting it shows an explicit warning. By default the SSRF guard described below rejects a private-network host outright, so pointing this at an internal relay also requires the `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` allowlist — see [SSRF egress guard](#ssrf-egress-guard). A relay reachable only this way often has no SMTP AUTH either — see [No authentication](#no-authentication-custom-smtp-only) above. |
 
 ### The password is encrypted and never returned
 
@@ -137,15 +169,21 @@ the page shows only whether a password is set (`password_is_set`), never the
 value. Leaving the password field blank on save **keeps the stored secret**, so
 you can edit other fields without re-entering it. Switching to a different
 transport does require re-entering the password (a SendGrid API key is not an
-SES password).
+SES password) — except when switching a Custom SMTP config to
+[no authentication](#no-authentication-custom-smtp-only), which never carries a
+password forward and instead clears whatever was stored.
 
 ### Validation before save
 
 A save **opens the candidate transport before it is persisted**. If the host,
 port, security, or credentials are wrong, the save is rejected with a `400` and
 **nothing is written** — a bad configuration can never lock the workspace out of
-mail. The error message is deliberately generic and never echoes the underlying
-SMTP exception (which could leak credentials).
+mail. A real connect failure gets a deliberately generic error and never echoes
+the underlying SMTP exception (which could leak credentials). A host rejected
+by the [SSRF egress guard](#ssrf-egress-guard) is the one case that gets a more
+specific message instead, since that message is curated to never leak the
+resolved address and telling you to recheck credentials would be wrong — see
+that section for what to do next.
 
 ### From identity and delivery limits
 
@@ -172,9 +210,32 @@ Alongside the transport, the page configures:
   **always sent** even once the allowance is spent; they *count* against it, so
   the queues yield to them rather than stacking on top.
 
+### SSRF egress guard
+
 The SMTP host is **SSRF-guarded**: a host that resolves to a private, loopback,
 link-local, or cloud-metadata address is rejected, and it is re-checked at send
-time to close the DNS-rebinding window.
+time to close the DNS-rebinding window. This is the case the **None** security
+row above calls out — a trusted internal relay on a private network is exactly
+what the guard blocks by default, so a save against one fails with a specific
+error naming the host as not permitted, distinct from a generic connect
+failure (it does not tell you to re-check credentials that are already fine).
+
+To point TruePPM at an internal relay, add its hostname to the
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` environment variable (a comma-separated
+list, matched as an exact, case-insensitive hostname — no wildcard or suffix
+match, so allow-listing `mail-relay` does not admit
+`mail-relay.attacker.example`). **Set it on the API, Celery worker, and Celery
+beat processes** — the API process validates the host at save time, and the
+worker and beat processes re-run the same check at send time, so a mismatch
+between them fails a save on one process and every actual send on another.
+After setting it, save the Email & SMTP settings again to re-run validation
+against the now-allowed host.
+
+The allowlist is a single **global** list, not scoped to the mail transport —
+allow-listing a relay for email also opens it to every other egress surface
+that shares this chokepoint (webhooks, SSO, PAT verification, git-link
+refresh). Until per-surface scoping ships (tracked in #3561), treat adding a
+host here as trusting it for outbound requests generally, not just for SMTP.
 
 :::note[No bounce webhook yet]
 This page previously offered a **Bounce webhook URL** field. It saved, validated
@@ -190,7 +251,9 @@ The page has a **Send test email** action that sends a fixed test message
 through the resolved transport. It always sends to the **requesting operator's
 own account address** — never an address from the request — so the action can
 never be used as an authenticated open relay. You get an immediate pass/fail
-result; a transport failure returns a generic `502`.
+result: a real transport failure returns a generic `502`, and a host rejected
+by the [SSRF egress guard](#ssrf-egress-guard) returns `502` with the same
+specific, allowlist-pointing message the save path gives.
 
 ### Deliverability health
 
@@ -273,8 +336,18 @@ the records are in place before mail goes out.
 ## Delivery behavior
 
 - Email is queued as a notification row and sent by the
-  `drain_notification_emails` Beat task (every 30 s), never inline — a broker or
+  `drain_notification_emails` background task, never inline — a broker or
   SMTP outage delays delivery but does not block the triggering action.
+- **A new email normally leaves within a few seconds.** When the action that
+  queues it (an @mention, a task assignment, a workspace invite) commits, TruePPM
+  starts the delivery task straight away; the 30-second Beat run
+  catches anything that start missed, so the worst case on a healthy install is
+  about 30 seconds plus your relay's own latency. The per-minute throttle below
+  can hold a burst longer. Workspace invites are sent the same way by
+  `drain_invite_emails`. Releases up to and including `0.4.0-beta.4` held every
+  *first* send for at least 5 minutes (a resend went out at once), so on those
+  versions an invite or @mention email arriving about 5 minutes late is expected
+  behavior, not a broken relay.
 - Each message is retried up to 3 times; after that the notification remains in
   the in-app inbox but stops attempting email. On a 30-second cadence that is
   roughly 90 seconds from first attempt to permanent failure — see
@@ -287,10 +360,28 @@ the records are in place before mail goes out.
   `trueppm_email_transport_unavailable` metric both name this cause directly.
 - Bodies are plain text. A recipient with no email address is skipped (the in-app
   notification still appears).
-- Bodies carry a direct deep-link to the affected task when
+- Bodies carry a direct deep-link to the affected task, workspace danger zone, or
+  notification-preferences page when
   [`FRONTEND_BASE_URL`](/administration/configuration/) is set (e.g. the
-  `task.blocked` email links straight to the blocked task). Leave it empty and the
-  email still renders — it just omits the link.
+  `task.blocked` email links straight to the blocked task). Leave it empty and
+  every one of those emails still renders — it just omits the link line and
+  substitutes plain prose (e.g. "Open the task in TruePPM" instead of a URL). No
+  outbound email ever contains a bare relative link (`/settings/...`,
+  `/invite/accept?...`): a link with no scheme or host is not clickable in a mail
+  client, so it is never emitted at all.
+
+  **Workspace-invite email is the one case where this is not a graceful
+  degradation.** An invited user has no account yet, so the accept link is the
+  *only* way in — there is no "sign in and find it elsewhere" fallback the way
+  there is for task and settings deep-links. Set `FRONTEND_BASE_URL` (or the Helm
+  `TRUEPPM_FRONTEND_BASE_URL` value) **before** inviting anyone by email; any
+  invite already sent while it was unset must be resent (**Workspace → Members →
+  pending invite → Resend**) once you fix it, since resending mints a fresh
+  token. Three things warn you it is unset outside local development: the API
+  process itself logs a `trueppm.settings` warning at boot (so a plain `docker
+  run` or systemd deploy with no Helm and no one running `manage.py check` is
+  still told), `manage.py check --deploy` reports the same condition, and the
+  Helm chart's post-install NOTES carry it too.
 - Comment/mention snippets embedded in the body are bounded and word-wrapped
   before sending, so a very long unbroken string (a pasted URL, log line, or
   base64 blob) can't render as one unbounded line in the recipient's mail

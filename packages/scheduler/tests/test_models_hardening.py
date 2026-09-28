@@ -201,7 +201,9 @@ def test_exception_index_is_served_from_cache_until_exceptions_change() -> None:
     cal.exceptions = [DateRange(date(2027, 1, 1), date(2027, 1, 1))]
     rebuilt = cal._exception_intervals()
     assert rebuilt is not first
-    assert rebuilt == ([date(2027, 1, 1).toordinal()], [date(2027, 1, 1).toordinal()])
+    # Third array is the prefix sum of each run's mask-working-day count (#4176);
+    # Jan 1 2027 is a Friday, one mask-working day.
+    assert rebuilt == ([date(2027, 1, 1).toordinal()], [date(2027, 1, 1).toordinal()], [0, 1])
 
 
 def test_exception_index_merges_adjacent_ranges_into_one_interval() -> None:
@@ -214,10 +216,14 @@ def test_exception_index_merges_adjacent_ranges_into_one_interval() -> None:
     assert cal._exception_intervals() == (
         [date(2026, 12, 22).toordinal()],
         [date(2026, 12, 28).toordinal()],
+        # Dec 22-28 2026 is Tue-Mon: 5 mask-working days (Tue-Fri, Mon).
+        [0, 5],
     )
 
 
 def test_exception_index_keeps_a_one_day_gap_as_two_intervals() -> None:
+    # Thursday 2026-12-24 sits in the gap and — unlike a weekend gap (#4176) — is
+    # itself a mask-working day, so the runs are NOT coalesced across it.
     cal = Calendar(
         exceptions=[
             DateRange(date(2026, 12, 22), date(2026, 12, 23)),
@@ -227,9 +233,51 @@ def test_exception_index_keeps_a_one_day_gap_as_two_intervals() -> None:
     assert cal._exception_intervals() == (
         [date(2026, 12, 22).toordinal(), date(2026, 12, 25).toordinal()],
         [date(2026, 12, 23).toordinal(), date(2026, 12, 28).toordinal()],
+        # 2 mask-working days in Dec 22-23 (Tue-Wed), 2 more in Dec 25-28
+        # (Fri, Mon — Sat/Sun off), cumulative [0, 2, 4].
+        [0, 2, 4],
     )
-    # Thursday 2026-12-24 sits in the gap and must stay workable.
     assert cal.is_working_day(date(2026, 12, 24))
+
+
+def test_exception_index_rebuilds_when_working_days_changes() -> None:
+    """The coalescing decision depends on ``working_days``, not just the identity
+    of ``exceptions`` (#4176) — reassigning the mask on a live ``Calendar`` must
+    invalidate the cached index even though ``exceptions`` itself never changed.
+    A mutant that keys the cache on exceptions identity alone would keep serving
+    the pre-reassignment index and silently reuse a merge decision made for a
+    mask no longer in effect.
+    """
+    cal = Calendar(
+        working_days=0b0011111,  # Mon-Fri
+        exceptions=[
+            DateRange(date(2026, 12, 22), date(2026, 12, 23)),  # Tue-Wed
+            DateRange(date(2026, 12, 25), date(2026, 12, 28)),  # Fri-Mon
+        ],
+    )
+    # Thursday 2026-12-24 sits in the gap and is a mask-working day under the
+    # default Mon-Fri mask, so the runs stay separate — same fixture as
+    # test_exception_index_keeps_a_one_day_gap_as_two_intervals above.
+    first = cal._exception_intervals()
+    assert first == (
+        [date(2026, 12, 22).toordinal(), date(2026, 12, 25).toordinal()],
+        [date(2026, 12, 23).toordinal(), date(2026, 12, 28).toordinal()],
+        [0, 2, 4],
+    )
+    assert cal._exception_intervals() is first
+
+    # Same `exceptions` object, but Thursday is no longer a mask-working day, so
+    # the whole gap is now mask-off and the runs must coalesce into one.
+    cal.working_days = 0b0010111  # Mon, Tue, Wed, Fri — no Thursday
+    rebuilt = cal._exception_intervals()
+    assert rebuilt is not first
+    assert rebuilt == (
+        [date(2026, 12, 22).toordinal()],
+        [date(2026, 12, 28).toordinal()],
+        # Dec 22-28 under Mon/Tue/Wed/Fri: Tue, Wed, Fri, Mon = 4 mask-working days
+        # (Thu excluded by the mask, Sat/Sun always excluded).
+        [0, 4],
+    )
 
 
 def test_compose_ands_masks_that_are_not_subsets_of_each_other() -> None:
@@ -301,9 +349,10 @@ def test_project_to_json_forwards_keyword_arguments() -> None:
 # ---------------------------------------------------------------------------
 #
 # The #4130 rejection tests live in ``test_reject_in_both_engines.py``, which the
-# mutation gate excludes (it reads the shared ``fixtures/`` tree, absent from
-# mutmut's sandbox). So every ``_require_str`` call was executed but unasserted
-# *inside the measured suite*: swapping the field name to ``"XXidXX"`` or the
+# mutation gate used to exclude on the mistaken belief that it reads the shared
+# ``fixtures/`` tree (it does not; it has counted since #4179). While it was
+# excluded, every ``_require_str`` call was executed but unasserted *inside the
+# measured suite*: swapping the field name to ``"XXidXX"`` or the
 # owner label to ``"PROJECT"`` changed nothing any measured test could see, and
 # the score fell 96.6% -> 90.6% on the nightly. These assert the offending field
 # **and** the exact message, so the owner label, the field label, the type name

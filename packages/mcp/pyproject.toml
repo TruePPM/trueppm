@@ -8,7 +8,10 @@ version = "0.4.0b4"
 description = "Read-only Model Context Protocol (MCP) server for self-hosted TruePPM — query the live schedule, board, risks, and My Work from any MCP client"
 readme = "README.md"
 license = "Apache-2.0"
-license-files = ["LICENSE"]
+# NOTICE carries the MacroDream, LLC copyright line (#4177) — see
+# packages/scheduler/pyproject.toml's comment for the full rationale. Kept
+# byte-identical to the repo-root copy via scripts/check-package-licenses.sh.
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.11"
 authors = [
     { name = "Kelly Hair" },

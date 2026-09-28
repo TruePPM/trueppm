@@ -74,6 +74,20 @@ class EmailTransportError(RuntimeError):
     """
 
 
+class EmailHostNotAllowedError(EmailTransportError):
+    """The configured relay host was rejected by the SSRF egress guard.
+
+    A distinct subclass from the generic connect-failure ``EmailTransportError``
+    so a caller can tell the two apart (#4189): before this split,
+    ``notifications/serializers.py::_probe_or_raise`` caught every
+    ``EmailTransportError`` alike and told the operator to "check the host,
+    port, security, and credentials" — sending someone whose credentials are
+    fine, and whose relay is simply on a private network, looking in the wrong
+    place. The message is curated by :func:`_assert_host_public` and is safe to
+    surface to the client verbatim: it never echoes the DNS-resolved address.
+    """
+
+
 def _effective_smtp(
     *,
     transport_mode: str,
@@ -114,7 +128,7 @@ def build_smtp_connection(
     already validated the exact same host in the same request.
 
     Raises:
-        EmailTransportError: The host resolves to a non-public address.
+        EmailHostNotAllowedError: The host resolves to a non-public address.
     """
     eff_host, eff_port, eff_username, eff_security = _effective_smtp(
         transport_mode=transport_mode,
@@ -162,8 +176,12 @@ def _assert_host_public(host: str, port: int) -> None:
         # otherwise surface to the client (SSRF oracle). Log the detail, raise a
         # curated message (security review M1; CodeQL py/stack-trace-exposure).
         logger.info("SMTP host rejected by egress guard (host=%s port=%s): %s", host, port, exc)
-        raise EmailTransportError(
-            "The mail server host is not permitted — it resolves to a non-public address."
+        raise EmailHostNotAllowedError(
+            "The mail server host is not permitted — it resolves to a non-public "
+            "address. If this is a trusted internal relay on a private network, "
+            "add its hostname to TRUEPPM_EGRESS_ALLOWLISTED_HOSTS on the API, "
+            "Celery worker, and Celery beat processes, then save these settings "
+            "again."
         ) from exc
     except EgressError:
         # Unresolvable now; the connect attempt re-checks and fails cleanly.
@@ -183,9 +201,11 @@ def probe_transport(
 
     The validate-before-persist gate (ADR-0213 §3): a bad transport must be
     rejected *before* the row is written so the workspace can't be locked out of
-    mail. Raises :class:`EmailTransportError` with a **generic** message on any
-    build or connect failure — the underlying ``smtplib`` exception (which can
-    echo credentials) is deliberately swallowed (security review M1).
+    mail. Raises :class:`EmailHostNotAllowedError` (a curated, client-safe
+    message) when the SSRF egress guard rejects the host, and a generic
+    :class:`EmailTransportError` on any other build or connect failure — the
+    underlying ``smtplib`` exception (which can echo credentials) is
+    deliberately swallowed (security review M1).
     """
     try:
         conn = build_smtp_connection(

@@ -950,6 +950,7 @@ FORECAST_DEDUP_WINDOW_SECONDS = 3600
 # schedule-shape context. captured_at/triggered_by are intentionally excluded.
 _FORECAST_DEDUP_FIELDS = (
     "cpm_finish",
+    "cpm_finish_at_day_start",
     "total_float_days",
     "mc_p50_finish",
     "mc_p80_finish",
@@ -982,6 +983,7 @@ def capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) -> Any 
     from django.utils import timezone
 
     from trueppm_api.apps.projects.models import Task, TaskStatus
+    from trueppm_api.apps.scheduling.finish_reading import latest_finish, task_finish_at_day_start
     from trueppm_api.apps.scheduling.models import MonteCarloRun, ProjectForecastSnapshot
 
     # One aggregate query for the whole-project schedule shape. cpm_finish is the
@@ -1028,8 +1030,30 @@ def capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) -> Any 
         .first()
     )
 
+    # Which edge of cpm_finish the project ends on (#4178). Only the rows on the
+    # finish day decide it, so this reads a handful of rows off the same index the
+    # Max just used, and is skipped outright when there is no finish.
+    cpm_finish_at_day_start: bool | None = None
+    if agg["cpm_finish"] is not None:
+        on_finish_day = Task.committed.filter(
+            project_id=project_id, early_finish=agg["cpm_finish"]
+        ).only(
+            "early_finish",
+            "wbs_path",
+            "is_milestone",
+            "milestone_at_day_end",
+            "actual_start",
+            "actual_finish",
+            "percent_complete",
+        )
+        reading = latest_finish(
+            (t.early_finish, task_finish_at_day_start(t), t.wbs_path) for t in on_finish_day
+        )
+        cpm_finish_at_day_start = reading is not None and reading[1]
+
     fields = {
         "cpm_finish": agg["cpm_finish"],
+        "cpm_finish_at_day_start": cpm_finish_at_day_start,
         "total_float_days": agg["total_float_days"],
         "mc_p50_finish": latest_mc["p50"] if latest_mc else None,
         "mc_p80_finish": latest_mc["p80"] if latest_mc else None,
@@ -1069,7 +1093,12 @@ def notify_project_end_date_shift(snapshot: Any) -> None:
     Compares ``snapshot`` (the just-captured row) against the immediately-prior
     ``ProjectForecastSnapshot`` for the same project. Material shift = the
     absolute day delta between the two ``cpm_finish`` values is strictly
-    greater than ``Project.end_date_shift_threshold_days``. A project with no
+    greater than ``Project.end_date_shift_threshold_days``. The delta is taken
+    between the two finishes' positions in working time
+    (:func:`~trueppm_api.apps.scheduling.finish_reading.finish_shift_days`), not
+    between the shown days: a start-of-day milestone finish on a Monday is the
+    same finish as the end of the Friday before it, so a shown day that hops a
+    weekend with no working-time move notifies nobody (#4178). A project with no
     prior snapshot (or no cpm_finish on either side) has nothing to compare
     against and is skipped — the first-ever finish is not a "shift".
 
@@ -1091,6 +1120,8 @@ def notify_project_end_date_shift(snapshot: Any) -> None:
     from trueppm_api.apps.notifications.models import NotificationEventType
     from trueppm_api.apps.notifications.services import create_event_notifications
     from trueppm_api.apps.projects.models import Project
+    from trueppm_api.apps.scheduling.calendars import compose_project_calendar
+    from trueppm_api.apps.scheduling.finish_reading import finish_shift_days
     from trueppm_api.apps.scheduling.models import ProjectForecastSnapshot
 
     if snapshot.cpm_finish is None:
@@ -1105,14 +1136,25 @@ def notify_project_end_date_shift(snapshot: Any) -> None:
     if prior is None or prior.cpm_finish is None:
         return  # no prior finish to compare against — not a "shift"
 
-    delta_days = abs((snapshot.cpm_finish - prior.cpm_finish).days)
+    prior_finish = (prior.cpm_finish, prior.cpm_finish_at_day_start)
+    new_finish = (snapshot.cpm_finish, snapshot.cpm_finish_at_day_start)
+    if new_finish == prior_finish:
+        return
 
-    project_row = (
+    project = (
         Project.objects.filter(pk=snapshot.project_id)
-        .values("name", "end_date_shift_threshold_days")
+        .select_related("calendar")
+        .prefetch_related("calendar__exceptions", "calendar_layers__calendar__exceptions")
         .first()
     )
-    if project_row is None or delta_days <= project_row["end_date_shift_threshold_days"]:
+    if project is None:
+        return
+    # Measured in working time, not between the shown days (#4178): the end of a
+    # Friday and the start of the next Monday are the same finish, so a milestone
+    # whose shown day hops a weekend is not a shift and must not email anyone.
+    signed_days = finish_shift_days(prior_finish, new_finish, compose_project_calendar(project))
+    delta_days = abs(signed_days)
+    if delta_days <= project.end_date_shift_threshold_days:
         return
 
     # rbac-check: recipients are computed server-side from role, never taken from
@@ -1126,12 +1168,15 @@ def notify_project_end_date_shift(snapshot: Any) -> None:
     if not recipient_ids:
         return
 
-    direction = "pushed out" if snapshot.cpm_finish > prior.cpm_finish else "pulled in"
+    direction = "pushed out" if signed_days > 0 else "pulled in"
     day_word = "day" if delta_days == 1 else "days"
-    subject = f"Project end date shifted — {project_row['name']}"
+    subject = f"Project end date shifted — {project.name}"
     body = (
-        f"The project finish {direction} by {delta_days} {day_word}: "
-        f"{prior.cpm_finish.isoformat()} → {snapshot.cpm_finish.isoformat()}."
+        # "measured in working time": the shown dates below can be further apart
+        # than the move (a start-of-day milestone finish on a Monday counts as the
+        # end of the Friday before it, #4178), so the body says which one it counts.
+        f"The project finish {direction} by {delta_days} {day_word}, measured in "
+        f"working time: {prior.cpm_finish.isoformat()} → {snapshot.cpm_finish.isoformat()}."
     )
 
     project_id_str = str(snapshot.project_id)

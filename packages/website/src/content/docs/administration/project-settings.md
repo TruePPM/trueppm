@@ -282,7 +282,11 @@ project's **end-date shift threshold** — `end_date_shift_threshold_days`, defa
 notified. The comparison is against the project's most recently recorded forecast
 snapshot (a background record of the project's schedule finish over time, captured on
 every recompute), so a slip is reported once, not once per recompute — a recompute
-that leaves the finish unchanged produces no repeat notification. Notifies only
+that leaves the finish unchanged produces no repeat notification. The move is measured
+in working time: a milestone finish shown at the start of a Monday is the same finish as
+the end of the Friday before it, so a finish whose shown date only hops a weekend or
+holiday is not a shift and notifies nobody (see
+[Scheduler Conventions](/features/scheduler-conventions/)). Notifies only
 Project Manager and Project Admin members; Resource Manager, Team Member, and Viewer roles do not receive this digest.
 
 The threshold is a board-level setting on the project, editable by a **Project Manager

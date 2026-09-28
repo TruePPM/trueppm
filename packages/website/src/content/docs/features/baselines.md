@@ -189,6 +189,12 @@ curl -H "Authorization: Bearer $JWT" \
 The response is discriminated by `has_baseline` / `in_baseline`: it reports no baseline,
 a task added after the baseline was taken, or a full comparison row with
 `start_delta_days` / `finish_delta_days` (positive = slipping later than planned).
+Both are calendar days, measured in working time: a milestone shown at the start of a
+Monday is at the same point as one shown at the end of the Friday before it, so a
+milestone baselined at Friday's end and now shown at Monday's start reads `0`, not `3`.
+Each task in a baseline's detail (`GET /api/v1/projects/{id}/baselines/{baseline_id}/`,
+`tasks[]`) records which edge of the day its finish sat on as `finish_at_day_start`.
+For a baseline captured before TruePPM recorded it, the finish is read as the end of its day.
 
 `current_start` and `start_delta_days` compare against the task's **span**
 (`scheduled_start` — see [the bar vs. the remaining-work

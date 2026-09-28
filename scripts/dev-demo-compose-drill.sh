@@ -55,8 +55,8 @@
 #
 # Consequence worth stating plainly: this proves the demo BOOT CHAIN (compose
 # wiring, migrations, seed, the nginx allowlist, the share-link mint) against
-# HEAD. It does not exercise Cloudflare Access, the try.trueppm.com TLS
-# termination, or anything about the real hosted demo's edge — those are
+# HEAD. It does not exercise the edge WAF / challenge rules, the try.trueppm.com
+# TLS termination, or anything about the real hosted demo's edge — those are
 # outside a compose file entirely.
 #
 # Asserts:

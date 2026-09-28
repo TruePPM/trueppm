@@ -379,11 +379,25 @@ def _milestone_health_by_project(project_ids: list[Any], today: datetime.date) -
 def _baseline_variance_by_project(project_ids: list[Any]) -> dict[Any, float]:
     """project_id → projected-end drift in calendar days vs the active baseline.
 
-    ``max(Task.early_finish)`` (current projected end) minus
-    ``max(BaselineTask.finish)`` (baseline end). Positive = the project is
-    trending later than baseline. Projects without an active baseline are absent
-    from the map (no comparison basis).
+    The current projected end (the latest ``Task.early_finish``) minus the baseline
+    end (the latest ``BaselineTask.finish``). Positive = the project is trending
+    later than baseline. Projects without an active baseline are absent from the
+    map (no comparison basis).
+
+    Measured in working time (#4197): each end is read with the edge of its day it
+    sits on (:func:`~trueppm_api.apps.scheduling.finish_reading.latest_finish`), so
+    a plan whose finishing milestone moves from the end of a Friday to the start of
+    the next Monday reports 0, not +3. Only the rows *on* each end day are read for
+    that — the max itself stays a grouped aggregate.
     """
+    from trueppm_api.apps.scheduling.calendars import project_sched_calendars
+    from trueppm_api.apps.scheduling.finish_reading import (
+        FINISH_READING_FIELDS,
+        finish_shift_days,
+        latest_finish,
+        task_finish_at_day_start,
+    )
+
     if not project_ids:
         return {}
     active_baseline = dict(
@@ -399,6 +413,7 @@ def _baseline_variance_by_project(project_ids: list[Any]) -> dict[Any, float]:
         for r in Task.objects.filter(project_id__in=list(active_baseline.keys()), is_deleted=False)
         .values("project_id")
         .annotate(end=Max("early_finish"))
+        if r["end"] is not None
     }
     baseline_to_project = {bid: pid for pid, bid in active_baseline.items()}
     baseline_end = {
@@ -406,27 +421,85 @@ def _baseline_variance_by_project(project_ids: list[Any]) -> dict[Any, float]:
         for r in BaselineTask.objects.filter(baseline_id__in=list(active_baseline.values()))
         .values("baseline_id")
         .annotate(end=Max("finish"))
+        if r["end"] is not None
     }
+    compared = [pid for pid in active_baseline if pid in current_end and pid in baseline_end]
+    if not compared:
+        return {}
 
-    out: dict[Any, float] = {}
-    for pid in active_baseline:
-        cur = current_end.get(pid)
-        base = baseline_end.get(pid)
-        if cur is not None and base is not None:
-            out[pid] = float((cur - base).days)
-    return out
+    # The rows ON each end day, with their reading (#4197). ``__in`` over the end
+    # days can over-select another project's day; the equality check drops those.
+    current_rows: dict[Any, list[tuple[Any, bool, Any]]] = {}
+    for t in Task.objects.filter(
+        project_id__in=compared,
+        is_deleted=False,
+        early_finish__in={current_end[pid] for pid in compared},
+    ).only("project_id", "early_finish", "wbs_path", *FINISH_READING_FIELDS):
+        if t.early_finish == current_end[t.project_id]:
+            current_rows.setdefault(t.project_id, []).append(
+                (t.early_finish, task_finish_at_day_start(t), t.wbs_path)
+            )
+    base_rows_raw = [
+        r
+        for r in BaselineTask.objects.filter(
+            baseline_id__in=[active_baseline[pid] for pid in compared],
+            finish__in={baseline_end[pid] for pid in compared},
+        ).values("baseline_id", "task_id", "finish", "finish_at_day_start")
+        if r["finish"] == baseline_end[baseline_to_project[r["baseline_id"]]]
+    ]
+    # A baseline row carries no WBS path; the task's (live or soft-deleted) path is
+    # what lets latest_finish drop a summary row sharing its leaf's end day.
+    wbs_by_task = dict(
+        Task.objects.filter(id__in={r["task_id"] for r in base_rows_raw}).values_list(
+            "id", "wbs_path"
+        )
+    )
+    base_rows: dict[Any, list[tuple[Any, bool, Any]]] = {}
+    base_unknown: set[Any] = set()
+    for r in base_rows_raw:
+        pid = baseline_to_project[r["baseline_id"]]
+        if r["finish_at_day_start"] is None:
+            base_unknown.add(pid)
+        base_rows.setdefault(pid, []).append(
+            (r["finish"], bool(r["finish_at_day_start"]), wbs_by_task.get(r["task_id"]))
+        )
+
+    readings: dict[Any, tuple[Any, Any]] = {}
+    for pid in compared:
+        cur = latest_finish(current_rows.get(pid, [])) or (current_end[pid], False)
+        base = latest_finish(base_rows.get(pid, [])) or (baseline_end[pid], None)
+        if pid in base_unknown:
+            # A baseline captured before the reading was recorded (#4197): unknown.
+            base = (base[0], None)
+        readings[pid] = (base, cur)
+    calendars = project_sched_calendars(
+        pid for pid, (base, cur) in readings.items() if base[1] or cur[1]
+    )
+    return {
+        pid: float(finish_shift_days(base, cur, calendars.get(str(pid))))
+        for pid, (base, cur) in readings.items()
+    }
 
 
 def _schedule_variance_by_project(project_ids: list[Any]) -> dict[Any, float]:
     """project_id → mean lateness of completed work, in calendar days.
 
-    Per-task ``actual_finish − baseline_finish`` (the per-task definition in
-    serializers ``get_schedule_variance_days``) averaged over the project's
+    Per-task ``actual_finish − baseline_finish`` (the quantity serializers
+    ``get_schedule_variance_days`` reports per task, which still diffs shown days
+    until #4203) averaged over the project's
     completed tasks that exist in the active baseline. Distinct from
     ``baseline_variance``: SV measures *how late finished work landed*, not where
     the project end is heading. Absent for projects without an active baseline or
     with no matched completed work.
+
+    Each delta is measured in working time (#4197): an actual finish is a recorded
+    day, read as its end, and a baselined start-of-day milestone finish is read as
+    the end of the working day before it — so a milestone baselined at the start
+    of a Monday and hit on the Friday before landed on time, not three days early.
     """
+    from trueppm_api.apps.scheduling.calendars import project_sched_calendars
+    from trueppm_api.apps.scheduling.finish_reading import finish_shift_days
+
     if not project_ids:
         return {}
     active_baseline = dict(
@@ -437,16 +510,21 @@ def _schedule_variance_by_project(project_ids: list[Any]) -> dict[Any, float]:
     if not active_baseline:
         return {}
 
-    # Baseline finish per (project, task_id).
+    # Baseline finish, with its edge of the day, per (project, task_id).
     baseline_to_project = {bid: pid for pid, bid in active_baseline.items()}
-    baseline_finish: dict[tuple[Any, Any], datetime.date | None] = {}
+    baseline_finish: dict[tuple[Any, Any], tuple[datetime.date, bool | None]] = {}
     for bt in BaselineTask.objects.filter(
         baseline_id__in=list(active_baseline.values()), finish__isnull=False
-    ).values("baseline_id", "task_id", "finish"):
-        baseline_finish[(baseline_to_project[bt["baseline_id"]], bt["task_id"])] = bt["finish"]
+    ).values("baseline_id", "task_id", "finish", "finish_at_day_start"):
+        if bt["finish"] is None:  # narrows for mypy; excluded by the filter
+            continue
+        baseline_finish[(baseline_to_project[bt["baseline_id"]], bt["task_id"])] = (
+            bt["finish"],
+            bt["finish_at_day_start"],
+        )
 
     # Completed tasks with an actual finish.
-    deltas: dict[Any, list[int]] = {}
+    pairs: dict[Any, list[tuple[tuple[datetime.date, bool | None], datetime.date]]] = {}
     for t in Task.objects.filter(
         project_id__in=list(active_baseline.keys()),
         is_deleted=False,
@@ -456,8 +534,19 @@ def _schedule_variance_by_project(project_ids: list[Any]) -> dict[Any, float]:
         base = baseline_finish.get((t["project_id"], t["id"]))
         actual = t["actual_finish"]
         if base is not None and actual is not None:
-            deltas.setdefault(t["project_id"], []).append((actual - base).days)
+            pairs.setdefault(t["project_id"], []).append((base, actual))
 
+    # A calendar only for the projects with a start-of-day baseline finish; an
+    # end-of-day pair diffs identically without one.
+    calendars = project_sched_calendars(
+        pid for pid, ps in pairs.items() if any(base[1] for base, _ in ps)
+    )
+    deltas = {
+        pid: [
+            finish_shift_days(base, (actual, False), calendars.get(str(pid))) for base, actual in ps
+        ]
+        for pid, ps in pairs.items()
+    }
     return {pid: sum(ds) / len(ds) for pid, ds in deltas.items() if ds}
 
 

@@ -17,7 +17,12 @@
 #
 # Base image pinned by digest (#904 supply-chain hardening). Renovate
 # (pinDigests) keeps the digest current; bump the tag + digest together.
-FROM python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+# CI overrides this with the GitLab Dependency Proxy prefix so dind builds
+# don't pull Docker Hub anonymously (#4201); the default keeps local and
+# release builds unchanged.
+ARG DOCKERHUB_PREFIX=docker.io
+
+FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
 
 # git is needed by diff-cover and by some scheduler:* tooling.
 RUN apt-get update -qq \

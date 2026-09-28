@@ -14,7 +14,6 @@ from trueppm_api.apps.notifications.models import Mention, Notification
 from trueppm_api.apps.notifications.tasks import (
     ARCHIVE_AFTER_DAYS,
     EMAIL_MAX_RETRIES,
-    EMAIL_ORPHAN_WINDOW_MINUTES,
     SNIPPET_MAX_CHARS,
     SNIPPET_WRAP_WIDTH,
     _do_archive,
@@ -83,7 +82,7 @@ def _make_pending_notification(
     attempts: int = 0,
     sent: bool = False,
 ) -> Notification:
-    """Build a Notification with backdated created_at so orphan-window filter passes."""
+    """Build a pending Notification, optionally with a backdated ``created_at``."""
     mention = Mention.objects.create(
         mentioner=author,
         mentioned_user=recipient,
@@ -98,7 +97,6 @@ def _make_pending_notification(
         email_attempts=attempts,
         email_sent_at=timezone.now() if sent else None,
     )
-    # Backdate created_at so the orphan-window filter (5 min) is past.
     Notification.objects.filter(pk=notif.pk).update(
         created_at=timezone.now() - timedelta(minutes=aged_minutes)
     )
@@ -107,7 +105,7 @@ def _make_pending_notification(
 
 
 # ---------------------------------------------------------------------------
-# _do_drain_emails — success + retry + cap + orphan-window
+# _do_drain_emails — success + retry + cap + no age floor
 # ---------------------------------------------------------------------------
 
 
@@ -130,20 +128,45 @@ class TestDoDrainEmails:
         assert notif.email_attempts == 0
 
     @pytest.mark.django_db
-    def test_skips_notification_inside_orphan_window(
+    def test_sends_just_created_notification_without_age_floor(
         self, recipient: object, project: Project, comment: TaskComment, author: object
     ) -> None:
-        # created_at is < 5 min ago → drain MUST skip (avoids racing in-flight txn).
-        _make_pending_notification(
-            recipient=recipient,
-            project=project,
-            comment=comment,
-            author=author,
-            aged_minutes=EMAIL_ORPHAN_WINDOW_MINUTES - 1,
+        # #4191: a row created this instant is eligible. The old 5-min "orphan
+        # window" guarded no in-flight owner (this drain is the only sender and is
+        # lock-serialized) and made every mention email arrive >= 5 min late.
+        notif = _make_pending_notification(
+            recipient=recipient, project=project, comment=comment, author=author, aged_minutes=0
         )
-        with patch("django.core.mail.EmailMessage.send") as send:
+        with patch("django.core.mail.EmailMessage.send", return_value=1) as send:
             _do_drain_emails()
-        assert send.call_count == 0
+            _do_drain_emails()  # a second run must not re-send a sent row
+        assert send.call_count == 1
+        notif.refresh_from_db()
+        assert notif.email_pending is False
+        assert notif.email_sent_at is not None
+
+    @pytest.mark.django_db
+    def test_failed_notification_retry_waits_one_tick(
+        self, recipient: object, project: Project, comment: TaskComment, author: object
+    ) -> None:
+        # #4191: nudges run the drain far more often than Beat; a failed row must
+        # still wait one tick, or a short relay outage burns all three attempts.
+        from trueppm_api.apps.notifications.tasks import EMAIL_RETRY_SPACING
+
+        notif = _make_pending_notification(
+            recipient=recipient, project=project, comment=comment, author=author, aged_minutes=0
+        )
+        with patch("django.core.mail.EmailMessage.send", side_effect=OSError("smtp down")):
+            _do_drain_emails()
+            _do_drain_emails()
+            notif.refresh_from_db()
+            assert notif.email_attempts == 1
+            Notification.objects.filter(pk=notif.pk).update(
+                email_failed_at=timezone.now() - EMAIL_RETRY_SPACING - timedelta(seconds=1)
+            )
+            _do_drain_emails()
+        notif.refresh_from_db()
+        assert notif.email_attempts == 2
 
     @pytest.mark.django_db
     def test_smtp_failure_increments_attempts_and_keeps_pending(
@@ -690,15 +713,42 @@ class TestRenderEmail:
         assert "@scrum-team" in subject
 
     @pytest.mark.django_db
-    def test_body_includes_snippet_and_settings_link(
-        self, recipient: object, project: Project, comment: TaskComment, author: object
+    def test_body_includes_snippet_and_absolute_settings_link_when_configured(
+        self,
+        recipient: object,
+        project: Project,
+        comment: TaskComment,
+        author: object,
+        settings: object,
     ) -> None:
+        settings.FRONTEND_BASE_URL = "https://ppm.example.com"
         notif = _make_pending_notification(
             recipient=recipient, project=project, comment=comment, author=author
         )
         _, body = _render_email(notif)
         assert "Hello @alice please review" in body
-        assert "/me/settings/notifications/" in body
+        assert "https://ppm.example.com/me/settings/notifications/" in body
+
+    @pytest.mark.django_db
+    def test_body_never_emits_a_relative_settings_link_when_unconfigured(
+        self,
+        recipient: object,
+        project: Project,
+        comment: TaskComment,
+        author: object,
+        settings: object,
+    ) -> None:
+        """#4188: a bare '/me/settings/notifications/' is not a valid URL and is not
+        reachable from an email — the footer must fall back to prose instead."""
+        settings.FRONTEND_BASE_URL = ""
+        notif = _make_pending_notification(
+            recipient=recipient, project=project, comment=comment, author=author
+        )
+        _, body = _render_email(notif)
+        assert "Hello @alice please review" in body
+        for line in body.splitlines():
+            assert not line.strip().startswith("/"), f"relative link leaked into email: {line!r}"
+        assert "Account settings" in body
 
     @pytest.mark.django_db
     def test_soft_deleted_comment_returns_empty(

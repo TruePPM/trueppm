@@ -678,7 +678,7 @@ for the full design. Four layers combine to make it safe to expose:
    trips, so it cannot protect any one of them. This is a shared-fate
    resource-consumption tradeoff, not a per-visitor fairness guarantee: the real
    bounds are the api pod's capacity and whatever edge sits in front of the host
-   (see the Cloudflare Access caveat below). The demo's login page tells
+   (an edge rate limit such as a Cloudflare WAF rule). The demo's login page tells
    visitors the limits are lifted for the demo account only. See the `demo.throttle.*` keys
    in [Helm values](/administration/helm-values/#public-read-only-demo-mode).
 
@@ -733,6 +733,20 @@ inventory are narrower: see [Vulnerability scanning](#vulnerability-scanning)
 and [SBOM](#sbom-software-bill-of-materials) below for exactly what each
 covers — `trueppm-api`'s PyPI package is signed but does not carry a
 CycloneDX SBOM.
+
+### Reproducible dependency resolution
+
+The `api` image's Python dependencies are installed from a hash-verified
+export of `packages/api/uv.lock` — the same lockfile CI tests against —
+rather than a fresh resolution against PyPI at build time. Building the same
+commit weeks apart therefore produces the same package versions every time.
+The `trueppm-scheduler` package is the one exception: it is built from this
+image's own copy of `packages/scheduler`'s source, not resolved from the
+lock, so the engine you get always matches the commit the image was built
+from. The image carries the resolved set it installed from at
+`/app/requirements-locked.txt` for anyone auditing a running container, and
+CI's `api:image-lock-check` job fails the merge request if a future change
+ever lets the installed set drift from the lock again.
 
 ### Vulnerability scanning
 

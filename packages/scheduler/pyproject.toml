@@ -8,7 +8,12 @@ version = "0.4.0b4"
 description = "Critical-path method (CPM) and Monte Carlo schedule-risk engine for project management"
 readme = "README.md"
 license = "Apache-2.0"
-license-files = ["LICENSE"]
+# NOTICE carries the MacroDream, LLC copyright line — Apache 2.0 does not
+# require it, but a standalone PyPI package with no copyright statement at all
+# is a gap (#4177). hatchling packages license-files into the wheel's
+# .dist-info/licenses/ and into the sdist; kept byte-identical to the repo-root
+# copies via scripts/check-package-licenses.sh.
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.11"
 authors = [
     { name = "Kelly Hair" },
@@ -128,16 +133,18 @@ only_mutate = [
 #
 # The exclusions below are NOT behavioral coverage — they are tests that cannot
 # run inside mutmut's copied `mutants/` sandbox or that carry no kill signal:
-#   * test_wasm_conformance / test_reject_in_both_engines — compare the Python and
-#     Rust engines against the shared fixtures/ tree, which is not copied into the
-#     sandbox; both hard-fail (by design, #1506) when the dir is absent.
+#   * test_wasm_conformance — compares the Python and Rust engines against the
+#     shared packages/wasm-scheduler/fixtures tree, which is not copied into the
+#     sandbox; it hard-fails (by design, #1506) when the dir is absent.
+#     test_reject_in_both_engines is NOT excluded: despite its name it reads no
+#     fixtures (the Rust half of that parity lives in fixtures/invalid/, checked
+#     by the conformance suite), so its assertions count toward the score.
 #   * test_bench — a timing benchmark (hard-fails at 2s), non-behavioral and would
 #     collide with per-mutant timeouts.
 #   * test_contract_fuzz — Hypothesis property fuzzing; stochastic, run separately
 #     by scheduler:fuzz-deep.
 pytest_add_cli_args = [
     "--ignore=tests/test_wasm_conformance.py",
-    "--ignore=tests/test_reject_in_both_engines.py",
     "--ignore=tests/test_bench.py",
     "--ignore=tests/test_contract_fuzz.py",
 ]

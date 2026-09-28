@@ -46,7 +46,14 @@ logger = logging.getLogger(__name__)
 # DNS-name injection into the deliverability health lookup (security review M3).
 _DKIM_SELECTOR_RE = re.compile(r"^[A-Za-z0-9._-]{1,63}$")
 
-# Transports that require a stored/submitted credential.
+# Transports that require a stored/submitted credential. SMTP is the one
+# exception with a carve-out: it is the only transport that may run with NO
+# credential at all (see `_is_no_auth_smtp`, #4190) — an internal relay that
+# accepts unauthenticated connections (Postfix `mynetworks`, an in-cluster
+# relay), which the docs page has always named as a valid "Security: None"
+# use case without any in-app way to configure it. SendGrid and SES are
+# provider-issued credentials with no unauthenticated mode, so they keep
+# requiring one unconditionally.
 _CREDENTIAL_MODES = {
     EmailTransportMode.SMTP,
     EmailTransportMode.SENDGRID,
@@ -56,7 +63,8 @@ _CREDENTIAL_MODES = {
 _HOST_REQUIRED_MODES = {EmailTransportMode.SMTP, EmailTransportMode.SES}
 # Transports where the admin supplies the SMTP AUTH username. SendGrid is excluded
 # because its username is server-fixed to the literal "apikey" (the key travels as
-# the password), and CLOUD stores no credentials at all.
+# the password), and CLOUD stores no credentials at all. SMTP's entry here is
+# skipped when `_is_no_auth_smtp` holds (#4190).
 _USERNAME_REQUIRED_MODES = {EmailTransportMode.SMTP, EmailTransportMode.SES}
 
 
@@ -72,6 +80,24 @@ def _effective(attrs: dict[str, Any], instance: Any, field: str, default: Any = 
     return getattr(instance, field, default)
 
 
+def _is_no_auth_smtp(*, mode: Any, username: str, incoming_password: str) -> bool:
+    """True when this save is an explicit, credential-free SMTP config (#4190).
+
+    Only SMTP may run unauthenticated — a relay on a trusted network that
+    accepts unauthenticated connections (Postfix ``mynetworks``, an in-cluster
+    relay). Both ``username`` AND ``incoming_password`` must be blank.
+    ``incoming_password`` is deliberately the *submitted* value, not the
+    merged/effective one: password carries rotate-vs-keep secrecy (an
+    omitted/blank submission normally means "keep the stored secret"), so
+    reading the effective value here would read "I didn't touch the password
+    field" as "no auth" even when a credential is already stored under the
+    row — exactly the stale-secret survival this fix closes. ``username`` has
+    no such secrecy, so its merged/effective value is safe to use elsewhere in
+    this module; this function is the one place that must not.
+    """
+    return mode == EmailTransportMode.SMTP and not username and not incoming_password
+
+
 def _assert_transport_fields(
     *,
     mode: Any,
@@ -79,14 +105,22 @@ def _assert_transport_fields(
     username: str,
     effective_pw: str,
     needs_fresh_password: bool,
+    no_auth: bool,
 ) -> None:
     """Reject a transport config that is missing something the transport needs.
 
     Runs before the live probe so a config that cannot possibly work is refused
-    without opening a connection.
+    without opening a connection. ``no_auth`` (#4190) short-circuits the
+    username/password checks for the one transport that may legitimately run
+    with neither: a Custom SMTP relay on a trusted network that accepts
+    unauthenticated connections. It is never true for SendGrid/SES, which keep
+    requiring a credential unconditionally.
     """
     # Reusing a stale secret across a transport switch is a footgun — a
-    # SendGrid API key is not an SES password (security review M2).
+    # SendGrid API key is not an SES password (security review M2). Not
+    # applicable when switching *into* a no-auth SMTP config: there is no
+    # password to re-enter because none is being kept (validate() forces
+    # effective_pw to "" and update() clears the stored ciphertext).
     if needs_fresh_password and mode in _CREDENTIAL_MODES:
         raise serializers.ValidationError(
             {"password": "Re-enter the password when changing the transport."}
@@ -95,19 +129,34 @@ def _assert_transport_fields(
     if mode in _HOST_REQUIRED_MODES and not host:
         raise serializers.ValidationError({"host": "Host is required for this transport."})
 
-    # SMTP AUTH is a (username, password) pair, so a blank username is not a
-    # weaker credential — it is *no* credential. Django's SMTP backend calls
-    # login() only when both are truthy, so a blank username makes the probe
-    # open an unauthenticated connection that succeeds, persisting a config
-    # whose every real send then fails 530 Authentication Required. Requiring
-    # it here is what makes the validate-before-persist gate honest.
+    if no_auth:
+        # An explicit, unambiguous choice: both username and password are
+        # blank. Django's SMTP backend already skips login() when both are
+        # empty, so there is nothing further to validate — the probe below
+        # opens a plain unauthenticated connection.
+        return
+
+    # SMTP AUTH is a (username, password) pair, so a blank username paired
+    # with a non-blank password is not a weaker credential — it is a
+    # credential that can never be used (Django's SMTP backend calls login()
+    # only when both are truthy), so the probe would open an unauthenticated
+    # connection that succeeds and persist a config whose every real send then
+    # fails 530 Authentication Required. Requiring the pair here is what makes
+    # the validate-before-persist gate honest. (A blank username with a blank
+    # password is the `no_auth` branch above, not this one.)
     if mode in _USERNAME_REQUIRED_MODES and not username:
+        hint = (
+            " Leave both Username and Password blank instead to use no "
+            "authentication (Custom SMTP only)."
+            if mode == EmailTransportMode.SMTP
+            else ""
+        )
         raise serializers.ValidationError(
             {
                 "username": (
                     "A username is required for this transport — the mail server "
                     "authenticates as this account. It is usually the full email "
-                    "address that owns the password or app password."
+                    "address that owns the password or app password." + hint
                 )
             }
         )
@@ -129,9 +178,17 @@ def _probe_or_raise(
 ) -> None:
     """Validate-before-persist: open the candidate transport now.
 
-    Generic error only — never leak the underlying smtplib exception (M1).
+    Distinguishes an SSRF-egress-blocked host from every other connect failure
+    (#4189): the two used to share one generic "check the host, port, security,
+    and credentials" message, which sent an operator whose relay is simply on a
+    private network — and whose credentials are fine — looking in the wrong
+    place. ``EmailHostNotAllowedError``'s message is curated by
+    ``email_backend._assert_host_public`` to never leak the DNS-resolved
+    address, so it is safe to surface to the client verbatim. Every other
+    failure still gets the generic message only — never the underlying
+    smtplib exception (M1).
     """
-    from .email_backend import EmailTransportError, probe_transport
+    from .email_backend import EmailHostNotAllowedError, EmailTransportError, probe_transport
 
     try:
         probe_transport(
@@ -142,11 +199,20 @@ def _probe_or_raise(
             username=username,
             password=password,
         )
+    except EmailHostNotAllowedError as exc:
+        logger.info(
+            "email transport probe blocked by egress guard (host=%s port=%s): %s",
+            host,
+            port,
+            exc,
+        )
+        raise serializers.ValidationError({"non_field_errors": [str(exc)]}) from exc
     except EmailTransportError as exc:
         # Curated message only — never surface the exception object. The
         # SSRF-guarded host path can carry the DNS-resolved internal address
-        # (scrubbed from the client at email_backend._assert_host_public);
-        # log the detail server-side (CodeQL py/stack-trace-exposure).
+        # (scrubbed from the client at email_backend._assert_host_public, and
+        # caught above before reaching here); log the detail server-side
+        # (CodeQL py/stack-trace-exposure).
         logger.info("email transport probe failed (host=%s port=%s): %s", host, port, exc)
         raise serializers.ValidationError(
             {
@@ -824,6 +890,14 @@ class WorkspaceEmailSettingsSerializer(serializers.ModelSerializer[WorkspaceEmai
     so a bad configuration cannot lock the workspace out of mail. All admin-
     supplied network/header inputs are validated against SSRF and header
     injection (security review H1/M2/M3).
+
+    Custom SMTP may be saved with **no authentication** — both ``username`` and
+    ``password`` blank (#4190) — for a relay on a trusted network that accepts
+    unauthenticated connections (Postfix ``mynetworks``, an in-cluster relay).
+    This is the in-app counterpart to the ``EMAIL_*`` env fallback, which has
+    always supported it. SendGrid and SES keep requiring a credential
+    unconditionally — they have no unauthenticated mode. See
+    ``_assert_transport_fields`` / the ``no_auth`` branch of ``validate()``.
     """
 
     # Write-only credential. required=False so other fields can be edited
@@ -920,13 +994,36 @@ class WorkspaceEmailSettingsSerializer(serializers.ModelSerializer[WorkspaceEmai
         stored_pw = instance.get_password() if instance is not None else ""
         mode_changed = instance is not None and instance.transport_mode != mode
 
-        effective_pw = incoming_pw or stored_pw
+        # SMTP is the one transport that may run with no SMTP AUTH at all — a
+        # relay on a trusted network that accepts unauthenticated connections
+        # (Postfix `mynetworks`, an in-cluster relay), which the docs page has
+        # always named as a valid use for "Security: None" without any in-app
+        # way to configure it (#4190). A blank username carries no rotate-vs-
+        # keep secrecy (unlike password), so it always reflects what will
+        # actually be persisted — but password does, so the "no auth" signal
+        # has to be read off the *incoming* password, not the merged one: an
+        # operator who blanks the username while leaving password untouched
+        # (because a no-auth relay needs no password) must not have a stale
+        # credential from a previous auth-enabled config silently survive the
+        # switch. `_should_clear_password` tells `update()` to blank the
+        # stored ciphertext in that case even though no password was submitted
+        # this request — the alternative (leaving it in place) is exactly the
+        # "silently keep sending an old password" failure this closes.
+        no_auth = _is_no_auth_smtp(mode=mode, username=username, incoming_password=incoming_pw)
+        if no_auth:
+            effective_pw = ""
+            self._should_clear_password = bool(stored_pw)
+        else:
+            effective_pw = incoming_pw or stored_pw
+            self._should_clear_password = False
+
         _assert_transport_fields(
             mode=mode,
             host=host,
             username=username,
             effective_pw=effective_pw,
-            needs_fresh_password=mode_changed and not incoming_pw,
+            needs_fresh_password=mode_changed and not incoming_pw and not no_auth,
+            no_auth=no_auth,
         )
         _probe_or_raise(
             mode=mode,
@@ -954,6 +1051,16 @@ class WorkspaceEmailSettingsSerializer(serializers.ModelSerializer[WorkspaceEmai
             # meaningless for a provider-issued secret the operator cannot change.
             # nosemgrep: unvalidated-password
             instance.set_password(password)
+        elif getattr(self, "_should_clear_password", False):
+            # The operator switched this SMTP transport to "no authentication"
+            # (#4190) without submitting a new password — clear whatever secret
+            # was stored under the previous auth-enabled config so it can never
+            # be silently reused if a username is added back later without also
+            # re-entering a password. Set in validate(), consumed once here.
+            # Same non-auth SMTP credential as the call above, so validate_password()
+            # does not apply; an empty value clears the stored ciphertext.
+            # nosemgrep: unvalidated-password
+            instance.set_password("")
         request = self.context.get("request")
         if request is not None and getattr(request, "user", None) is not None:
             instance.updated_by = request.user

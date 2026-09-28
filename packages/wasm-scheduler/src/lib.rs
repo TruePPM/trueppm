@@ -532,55 +532,86 @@ mod tests {
         }
     }
 
-    /// #4161: a century-long exception after the one working start day made every
-    /// per-edge snap (forward, backward, free float) walk ~36k days. The engine
-    /// must stay flat in edge count and land on the same dates.
+    /// The same closed day-set as the blanket exception below, written as
+    /// ~5,218 weekly Mon-Fri `DateRange` entries instead of one merged range
+    /// (#4176) — the shape a real "closed until further notice" period takes
+    /// from an MSPDI import or an RRULE expansion (#1454). Every gap between
+    /// consecutive entries is a weekend, which the default Mon-Fri mask already
+    /// excludes, so `build_exception_index` must coalesce it back down to one run.
+    fn weekly_blanket_ranges() -> Vec<crate::models::DateRange> {
+        use crate::models::DateRange;
+        let end = NaiveDate::from_ymd_opt(2126, 1, 1).unwrap();
+        let mut ranges = vec![DateRange {
+            start: NaiveDate::from_ymd_opt(2026, 1, 6).unwrap(),
+            end: NaiveDate::from_ymd_opt(2026, 1, 9).unwrap(),
+        }];
+        let mut d = NaiveDate::from_ymd_opt(2026, 1, 12).unwrap();
+        while d < end {
+            let week_end = (d + chrono::Duration::days(4)).min(end);
+            ranges.push(DateRange { start: d, end: week_end });
+            d += chrono::Duration::days(7);
+        }
+        ranges
+    }
+
+    /// #4161/#4176: a century-long exception after the one working start day made
+    /// every per-edge snap (forward, backward, free float) walk ~36k days. The
+    /// engine must stay flat in edge count and land on the same dates — whether
+    /// the closure is one merged range or (#4176) thousands of weekly ranges
+    /// separated only by weekends.
     #[test]
     fn test_fan_out_over_blanket_exception_is_flat_in_edges() {
         use crate::models::DateRange;
-        let cal = Calendar {
+        let blanket = Calendar {
             exceptions: vec![DateRange {
                 start: NaiveDate::from_ymd_opt(2026, 1, 6).unwrap(),
                 end: NaiveDate::from_ymd_opt(2126, 1, 1).unwrap(),
             }],
             ..Calendar::default()
         };
-        for (dep_type, lag_days, finish) in [
-            (DependencyType::FS, 0.0, (2126, 1, 2)),
-            (DependencyType::SS, 1.0, (2126, 1, 2)),
-            (DependencyType::FF, 1.0, (2126, 1, 2)),
-            (DependencyType::SF, 0.0, (2026, 1, 5)),
-        ] {
-            let mut tasks = vec![make_task("r", 1)];
-            let mut dependencies = Vec::new();
-            for i in 0..200 {
-                let id = format!("s{i}");
-                tasks.push(make_task(&id, 1));
-                dependencies.push(Dependency {
-                    dep_type,
-                    lag: lag_days * 86400.0,
-                    ..dep("r", &id)
-                });
+        let weekly = Calendar {
+            exceptions: weekly_blanket_ranges(),
+            ..Calendar::default()
+        };
+        for (cal_name, cal) in [("one-range", &blanket), ("weekly-ranges", &weekly)] {
+            for (dep_type, lag_days, finish) in [
+                (DependencyType::FS, 0.0, (2126, 1, 2)),
+                (DependencyType::SS, 1.0, (2126, 1, 2)),
+                (DependencyType::FF, 1.0, (2126, 1, 2)),
+                (DependencyType::SF, 0.0, (2026, 1, 5)),
+            ] {
+                let mut tasks = vec![make_task("r", 1)];
+                let mut dependencies = Vec::new();
+                for i in 0..200 {
+                    let id = format!("s{i}");
+                    tasks.push(make_task(&id, 1));
+                    dependencies.push(Dependency {
+                        dep_type,
+                        lag: lag_days * 86400.0,
+                        ..dep("r", &id)
+                    });
+                }
+                let project = Project {
+                    id: "p".to_string(),
+                    name: "p".to_string(),
+                    start_date: NaiveDate::from_ymd_opt(2026, 1, 5).unwrap(),
+                    tasks,
+                    dependencies,
+                    calendar: cal.clone(),
+                    status_date: None,
+                    calendars: None,
+                    velocity_samples: None,
+                    sprint_length_days: None,
+                };
+                let t0 = std::time::Instant::now();
+                let result = schedule_impl(&project).unwrap();
+                let elapsed = t0.elapsed();
+                let (y, m, dd) = finish;
+                assert_eq!(result.project_finish, NaiveDate::from_ymd_opt(y, m, dd).unwrap());
+                // Debug build; before the #4161/#4176 fixes this took seconds per
+                // dependency type (and, for weekly-ranges, scaled with edge count).
+                assert!(elapsed.as_millis() < 500, "{cal_name}/{dep_type:?}: {elapsed:?}");
             }
-            let project = Project {
-                id: "p".to_string(),
-                name: "p".to_string(),
-                start_date: NaiveDate::from_ymd_opt(2026, 1, 5).unwrap(),
-                tasks,
-                dependencies,
-                calendar: cal.clone(),
-                status_date: None,
-                calendars: None,
-                velocity_samples: None,
-                sprint_length_days: None,
-            };
-            let t0 = std::time::Instant::now();
-            let result = schedule_impl(&project).unwrap();
-            let elapsed = t0.elapsed();
-            let (y, m, dd) = finish;
-            assert_eq!(result.project_finish, NaiveDate::from_ymd_opt(y, m, dd).unwrap());
-            // Debug build; before the fix this took seconds per dependency type.
-            assert!(elapsed.as_millis() < 500, "{dep_type:?}: {elapsed:?}");
         }
     }
 
@@ -784,6 +815,75 @@ mod tests {
         let m = result.tasks.iter().find(|t| t.id == "M").unwrap();
         // Milestone: ES == EF
         assert_eq!(m.early_start, m.early_finish);
+    }
+
+    /// #4173: A(3d) -SS+6d-> M and B -FS+3d-> M on a Mon-Fri week from Mon
+    /// 2026-01-05. With B = 3d both links land on Sunday midnight; with B = 4d the
+    /// FS link lands on Monday midnight — the same working-time position. Reading
+    /// that later midnight at the end of the working day before it showed M on
+    /// Friday, so a longer B moved the project finish a working day EARLIER. An
+    /// instant just after non-working time is shown at the next working start.
+    #[test]
+    fn test_milestone_lag_after_weekend_is_monotone_in_duration() {
+        let lagged = |pred: &str, dep_type: DependencyType, days: f64| Dependency {
+            predecessor_id: pred.to_string(),
+            successor_id: "M".to_string(),
+            dep_type,
+            lag: days * 86400.0,
+        };
+        let finish = |b_days: i32| {
+            let project = Project {
+                id: "p1".to_string(),
+                name: "Test".to_string(),
+                start_date: NaiveDate::from_ymd_opt(2026, 1, 5).unwrap(),
+                tasks: vec![make_task("A", 3), make_task("B", b_days), make_task("M", 0)],
+                dependencies: vec![
+                    lagged("A", DependencyType::SS, 6.0),
+                    lagged("B", DependencyType::FS, 3.0),
+                ],
+                calendar: Calendar::default(),
+                status_date: None,
+                calendars: None,
+                velocity_samples: None,
+                sprint_length_days: None,
+            };
+            let result = schedule_impl(&project).unwrap();
+            let m = result.tasks.iter().find(|t| t.id == "M").unwrap().clone();
+            (result.project_finish, m)
+        };
+        let monday = NaiveDate::from_ymd_opt(2026, 1, 12).unwrap();
+        for b_days in [3, 4] {
+            let (project_finish, m) = finish(b_days);
+            assert_eq!(project_finish, monday, "B = {b_days}d");
+            assert_eq!(m.early_start, monday, "B = {b_days}d");
+            assert!(!m.milestone_at_day_end, "B = {b_days}d: start of Monday");
+        }
+    }
+
+    /// #4173: a zero-lag FS milestone after a task whose recorded finish is a
+    /// Saturday sits at Sunday midnight, so it reads as the start of Monday.
+    #[test]
+    fn test_milestone_after_non_working_actual_finish_is_next_start() {
+        let mut a = make_task("A", 3);
+        a.percent_complete = 100.0;
+        a.actual_start = Some(NaiveDate::from_ymd_opt(2026, 1, 7).unwrap());
+        a.actual_finish = Some(NaiveDate::from_ymd_opt(2026, 1, 10).unwrap());
+        let project = Project {
+            id: "p1".to_string(),
+            name: "Test".to_string(),
+            start_date: NaiveDate::from_ymd_opt(2026, 1, 5).unwrap(),
+            tasks: vec![a, make_task("M", 0)],
+            dependencies: vec![dep("A", "M")],
+            calendar: Calendar::default(),
+            status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
+        };
+        let result = schedule_impl(&project).unwrap();
+        let m = result.tasks.iter().find(|t| t.id == "M").unwrap();
+        assert_eq!(m.early_start, NaiveDate::from_ymd_opt(2026, 1, 12).unwrap());
+        assert!(!m.milestone_at_day_end);
     }
 
     #[test]
@@ -1273,9 +1373,20 @@ mod tests {
         assert_eq!(m.total_float, 0.0);
         assert_eq!(m.late_start, d(2026, 1, 9));
 
-        // Slipping A by its one day of float leaves the finish where it was.
+        // Slipping A by its one day of float moves M to Sunday midnight — no move
+        // in working time. Since #4173 that midnight is *shown* as the start of
+        // Monday rather than the end of Friday, but the two are the same
+        // working-time position (#4178), so the finish has not slipped.
         let slipped = schedule_impl(&build(false, Some(d(2026, 1, 6)))).unwrap();
-        assert_eq!(slipped.project_finish, d(2026, 1, 9));
+        let m_slipped = slipped.tasks.iter().find(|t| t.id == "M").unwrap();
+        assert_eq!(slipped.project_finish, d(2026, 1, 12));
+        assert!(!m_slipped.milestone_at_day_end);
+        let working_end = crate::calendar::prev_working_day(
+            slipped.project_finish - chrono::Duration::days(1),
+            &Calendar::default(),
+        )
+        .unwrap();
+        assert_eq!(working_end, d(2026, 1, 9));
 
         // And the successor variant agrees.
         let with_b = schedule_impl(&build(true, None)).unwrap();

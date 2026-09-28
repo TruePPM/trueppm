@@ -260,6 +260,9 @@ def test_bad_transport_rejected_and_not_persisted(
     assert resp.status_code == 400
     # The row must remain unconfigured — the workspace is not locked out.
     assert WorkspaceEmailSettings.load().transport_mode == EmailTransportMode.CLOUD
+    # A real connect failure (not an egress block) keeps the generic message —
+    # only EmailHostNotAllowedError gets the specific one (#4189).
+    assert "Check the host, port, security, and credentials." in resp.data["non_field_errors"][0]
 
 
 def test_empty_password_on_update_keeps_secret(operator_client: APIClient, _no_probe: None) -> None:
@@ -401,6 +404,203 @@ def test_username_preserved_on_unrelated_patch(operator_client: APIClient, _no_p
 
 
 # ---------------------------------------------------------------------------
+# Custom SMTP with no authentication (#4190)
+# ---------------------------------------------------------------------------
+
+
+def test_smtp_no_auth_saves_with_blank_username_and_password(
+    operator_client: APIClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An internal relay with no SMTP AUTH (Postfix `mynetworks`) can be saved.
+
+    Before #4190 this was rejected — either "re-enter the password" (mode
+    change) or "a username is required" — leaving the docs' own "trusted
+    internal relay" use case for Security: None configurable only via the
+    EMAIL_* env fallback, never in-app. Asserts the probe reaches
+    `probe_transport` with blank credentials, not merely that the save 200s.
+    """
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(email_backend, "probe_transport", lambda **kw: calls.append(kw))
+
+    resp = operator_client.put(
+        URL,
+        {
+            "transport_mode": "smtp",
+            "host": "mail.corp.test",
+            "port": 25,
+            "security": "none",
+            "username": "",
+            "password": "",
+        },
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert calls == [
+        {
+            "transport_mode": "smtp",
+            "host": "mail.corp.test",
+            "port": 25,
+            "security": "none",
+            "username": "",
+            "password": "",
+        }
+    ]
+    obj = WorkspaceEmailSettings.load()
+    assert obj.transport_mode == EmailTransportMode.SMTP
+    assert obj.username == ""
+    assert obj.password_is_set is False
+
+
+def test_smtp_no_auth_clears_a_previously_stored_password(
+    operator_client: APIClient, _no_probe: None
+) -> None:
+    """Switching an already-credentialed SMTP transport to no-auth clears the secret.
+
+    Blanking the username while leaving password untouched (the natural thing
+    to do — a no-auth relay needs no password) must not leave the old
+    credential sitting in storage: `resolve_email_connection` would never send
+    it (username stays blank so Django's backend skips login()), but a stale
+    secret at rest is exactly the "silently keep sending an old password"
+    failure the issue calls out, and it would resurface unexpectedly if a
+    username were ever added back without also re-entering a password.
+    """
+    operator_client.put(
+        URL,
+        {
+            "transport_mode": "smtp",
+            "host": "mail.corp.test",
+            "port": 587,
+            "security": "tls",
+            "username": "postmaster@corp.test",
+            "password": "s3cret",
+        },
+        format="json",
+    )
+    assert WorkspaceEmailSettings.load().get_password() == "s3cret"
+
+    resp = operator_client.patch(URL, {"username": ""}, format="json")
+    assert resp.status_code == 200
+    obj = WorkspaceEmailSettings.load()
+    assert obj.username == ""
+    assert obj.get_password() == ""
+    assert obj.password_is_set is False
+
+
+def test_mode_change_into_smtp_no_auth_does_not_require_password_reentry(
+    operator_client: APIClient, _no_probe: None
+) -> None:
+    """Switching transports into a no-auth SMTP config skips the M2 re-entry gate.
+
+    `needs_fresh_password` normally fires on any mode change with no incoming
+    password (M2 — don't reuse a SendGrid key as an SES password). That gate
+    doesn't apply here: there is no password to reuse, because a no-auth
+    config never carries one forward.
+    """
+    operator_client.put(
+        URL,
+        {"transport_mode": "sendgrid", "username": "", "password": "SG.key"},
+        format="json",
+    )
+    resp = operator_client.patch(
+        URL,
+        {
+            "transport_mode": "smtp",
+            "host": "mail.corp.test",
+            "username": "",
+            "password": "",
+        },
+        format="json",
+    )
+    assert resp.status_code == 200
+    obj = WorkspaceEmailSettings.load()
+    assert obj.transport_mode == EmailTransportMode.SMTP
+    assert obj.password_is_set is False
+
+
+def test_ses_still_requires_a_credential_with_no_auth_carve_out(
+    operator_client: APIClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SES has no unauthenticated mode — the #4190 carve-out is SMTP-only.
+
+    Configures a working SES transport first (no mode change in play), then
+    tries the same blank-username/blank-password pair that a Custom SMTP relay
+    may use — it must still 400 on the username, and the probe must not run.
+    """
+    monkeypatch.setattr(email_backend, "probe_transport", lambda **kw: None)
+    operator_client.put(
+        URL,
+        {
+            "transport_mode": "ses",
+            "host": "email-smtp.us-east-1.amazonaws.com",
+            "username": "AKIA123",
+            "password": "sespw",
+        },
+        format="json",
+    )
+
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(email_backend, "probe_transport", lambda **kw: calls.append(kw))
+    resp = operator_client.patch(URL, {"username": "", "password": ""}, format="json")
+    assert resp.status_code == 400
+    assert "username" in resp.data
+    assert calls == []
+
+
+def test_sendgrid_still_requires_a_credential_with_no_auth_carve_out(
+    operator_client: APIClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SendGrid has no unauthenticated mode either — only its username is fixed."""
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(email_backend, "probe_transport", lambda **kw: calls.append(kw))
+
+    resp = operator_client.put(
+        URL, {"transport_mode": "sendgrid", "username": "", "password": ""}, format="json"
+    )
+    assert resp.status_code == 400
+    assert "password" in resp.data
+    assert calls == []
+
+
+def test_smtp_password_with_no_username_is_still_rejected(
+    operator_client: APIClient, _no_probe: None
+) -> None:
+    """A password with no username is a dead credential, not "no auth" — reject it.
+
+    Distinguishes the two blank-username cases: BOTH username and password
+    blank is the new no-auth path; a password with a still-blank username is
+    the original #2552 bug class (a credential the backend will never present)
+    and must keep failing.
+    """
+    resp = operator_client.put(
+        URL,
+        {
+            "transport_mode": "smtp",
+            "host": "mail.corp.test",
+            "username": "",
+            "password": "pw",
+        },
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert "username" in resp.data
+    assert "no authentication" in resp.data["username"][0].lower()
+
+
+def test_resolver_smtp_no_auth_builds_connection_without_credentials(db: object) -> None:
+    """`resolve_email_connection` builds a connection Django's backend won't auth with."""
+    obj = WorkspaceEmailSettings.load()
+    obj.transport_mode = EmailTransportMode.SMTP
+    obj.host = "mail.corp.test"
+    obj.port = 25
+    obj.security = "none"
+    obj.username = ""
+    obj.save()
+    conn = resolve_email_connection(obj)
+    assert conn.username == ""
+    assert conn.password == ""
+
+
+# ---------------------------------------------------------------------------
 # SSRF + header-injection guards (H1/M3)
 # ---------------------------------------------------------------------------
 
@@ -425,6 +625,55 @@ def test_internal_smtp_host_rejected(operator_client: APIClient) -> None:
     # The SSRF guard must not echo the DNS-resolved internal address back to the
     # client (#2082 — CodeQL py/stack-trace-exposure). localhost → 127.0.0.1.
     assert "127.0.0.1" not in str(resp.data)
+    # #4189: an egress-blocked host must get a specific, actionable message —
+    # not the generic "check the host, port, security, and credentials" a real
+    # connect failure gets, which sends an operator with a fine credential
+    # looking in the wrong place. It must point at the escape hatch.
+    message = resp.data["non_field_errors"][0]
+    assert "TRUEPPM_EGRESS_ALLOWLISTED_HOSTS" in message
+    assert "check the host, port, security, and credentials" not in message.lower()
+
+
+def test_egress_blocked_host_error_is_distinct_from_generic_connect_failure(
+    operator_client: APIClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression for #4189 at the serializer layer.
+
+    ``_probe_or_raise`` used to catch every ``EmailTransportError`` alike and
+    always raise the generic connect-failure message, discarding the curated,
+    already-safe-to-surface ``EmailHostNotAllowedError`` text from
+    ``_assert_host_public``. Exercised here via a monkeypatched ``probe_transport``
+    so the assertion is about the serializer's exception handling, independent of
+    ``test_internal_smtp_host_rejected``'s real DNS-resolution path above.
+    """
+
+    def blocked(**kwargs: object) -> None:
+        raise email_backend.EmailHostNotAllowedError(
+            "The mail server host is not permitted — it resolves to a non-public "
+            "address. If this is a trusted internal relay on a private network, "
+            "add its hostname to TRUEPPM_EGRESS_ALLOWLISTED_HOSTS on the API, "
+            "Celery worker, and Celery beat processes, then save these settings "
+            "again."
+        )
+
+    monkeypatch.setattr(email_backend, "probe_transport", blocked)
+    resp = operator_client.put(
+        URL,
+        {
+            "transport_mode": "smtp",
+            "host": "mail.internal.test",
+            "port": 587,
+            "security": "tls",
+            "username": "u",
+            "password": "s3cret",
+        },
+        format="json",
+    )
+    assert resp.status_code == 400
+    message = resp.data["non_field_errors"][0]
+    assert "TRUEPPM_EGRESS_ALLOWLISTED_HOSTS" in message
+    assert "check the host, port, security, and credentials" not in message.lower()
+    assert WorkspaceEmailSettings.load().transport_mode == EmailTransportMode.CLOUD
 
 
 def test_an_internal_bounce_webhook_can_no_longer_be_stored_at_all(
@@ -460,9 +709,13 @@ def test_smtp_egress_block_does_not_leak_resolved_ip(monkeypatch: pytest.MonkeyP
 
     monkeypatch.setattr(egress_http, "assert_host_allowed", _blocked)
 
-    with pytest.raises(email_backend.EmailTransportError) as excinfo:
+    with pytest.raises(email_backend.EmailHostNotAllowedError) as excinfo:
         email_backend._assert_host_public("mail.internal.test", 587)
     assert "10.9.8.7" not in str(excinfo.value)
+    # #4189: the raised type must be the distinguishable subclass, not the bare
+    # EmailTransportError a real connect failure raises — it is what lets
+    # _probe_or_raise tell the two apart and give an actionable message.
+    assert isinstance(excinfo.value, email_backend.EmailTransportError)
 
 
 def test_the_bounce_webhook_field_is_no_longer_writable(
@@ -629,6 +882,44 @@ def test_send_test_requires_email_on_file(db: object) -> None:
     resp = client.post(TEST_URL, {}, format="json")
     assert resp.status_code == 400
     assert resp.data["sent"] is False
+
+
+def test_send_test_blocked_by_egress_guard_gets_specific_error(
+    operator_client: APIClient, _no_probe: None
+) -> None:
+    """Regression for #4189 on the send-test path.
+
+    ``WorkspaceEmailTestView.post`` had no coverage of its failure branch at
+    all. It resolves a live connection at send time
+    (``resolve_email_connection`` -> ``build_smtp_connection`` ->
+    ``_assert_host_public``), which the (neutralized) validate-before-persist
+    probe never reaches — so a host that was persisted before this stricter
+    egress posture, or the mocked-probe path used to configure it here, can
+    still be blocked at send time. Before the fix this fell into the view's
+    generic ``except Exception`` and returned "Could not send the test email.
+    Check the transport configuration.", the same wrong-direction message the
+    save path used to give.
+    """
+    operator_client.put(
+        URL,
+        {
+            "transport_mode": "smtp",
+            "host": "localhost",  # resolves to 127.0.0.1 -> loopback -> blocked
+            "port": 587,
+            "security": "tls",
+            "username": "u",
+            "password": "s3cret",
+        },
+        format="json",
+    )
+    resp = operator_client.post(TEST_URL, {}, format="json")
+    assert resp.status_code == 502
+    assert resp.data["sent"] is False
+    message = resp.data["error"]
+    assert "TRUEPPM_EGRESS_ALLOWLISTED_HOSTS" in message
+    assert "check the transport configuration" not in message.lower()
+    # Must not echo the DNS-resolved internal address (#2082).
+    assert "127.0.0.1" not in str(resp.data)
 
 
 # ---------------------------------------------------------------------------

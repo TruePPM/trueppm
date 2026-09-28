@@ -1482,7 +1482,8 @@ class TestMonteCarloActualStartFloor:
         start a working day early and walk SS/SF successors — and a task whose
         remaining work fits in its start day — back before work demonstrably
         began, which is exactly the under-reporting #2833 was. So it snaps
-        forward: at most one working day late, never early.
+        forward — late, never early. (#4175 since resolves the SS and milestone
+        readers from the verbatim date, so a deterministic project is now exact.)
         """
         p = self._in_progress_project(actual)
         cpm = schedule(p)

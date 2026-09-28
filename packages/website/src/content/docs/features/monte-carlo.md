@@ -232,7 +232,7 @@ same `MC_SIMULATION_CAP` as a normal run). The response will carry:
 | `current` | The unperturbed forecast — `p50`/`p80`/`p95`, `cpm_finish`, and the `critical_path` (task IDs). |
 | `whatif` | The same fields recomputed with your perturbation applied. |
 | `critical_path_changed` | `true` when the perturbation moved which tasks are on the critical path. |
-| `delta_vs_current` | Per-field signed calendar-day shift (`p50`/`p80`/`p95`/`cpm_finish`); positive = later/worse. |
+| `delta_vs_current` | Per-field signed calendar-day shift (`p50`/`p80`/`p95`/`cpm_finish`); positive = later/worse. `cpm_finish` is measured in working time: a milestone finish shown at the start of a Monday counts as the end of the Friday before it, so a finish whose shown date only hops a weekend is `0` ([Scheduler Conventions](/features/scheduler-conventions/)). |
 | `applied` | The resolved perturbation (`base_duration_days`, `duration_delta_days`, `new_duration_days`). |
 | `cpm_status_date` / `mc_status_date` | The resolved data dates fed to the deterministic CPM and Monte Carlo passes respectively — both floor a null project status date at today, so they always agree — see [Progress-aware forecasting](#progress-aware-forecasting) below. Shared by both `current` and `whatif`, since one call resolves each once. This endpoint never persists a run, so these are the only record of which data date produced the answer. |
 

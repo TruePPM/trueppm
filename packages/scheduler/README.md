@@ -255,7 +255,7 @@ convention. The same list, with the comparison spelled out, is on
 
 - An **FF/SF**-driven task stays contiguous and right-aligned on its pinned finish, so its start moves back — the MS Project convention. Consequence: CPM is non-monotone in duration on an FF/SF network (a longer task can start earlier). ([#3806](https://gitlab.com/trueppm/trueppm/-/issues/3806), decided: keep)
 - An **SF** link finishes the successor at the start of the predecessor's start day — with zero lag, its last working day is the day before. ([#4145](https://gitlab.com/trueppm/trueppm/-/issues/4145))
-- A zero-duration **milestone** is an instant: at the end of its driver's finish day, or the start of the day a floor holds it to. ([#4079](https://gitlab.com/trueppm/trueppm/-/issues/4079))
+- A zero-duration **milestone** is an instant: at the end of its driver's finish day, or the start of the day a floor holds it to. A lag, or a predecessor's recorded finish on a non-working day, that places it after a weekend or holiday shows it at the start of the next working day. ([#4079](https://gitlab.com/trueppm/trueppm/-/issues/4079), [#4173](https://gitlab.com/trueppm/trueppm/-/issues/4173))
 - The **only** date constraint is start-no-earlier-than, via `planned_start`; `planned_finish` is reserved and inert — no deadline, finish, must-start-on or ALAP constraint. **Differs.** ([#3345](https://gitlab.com/trueppm/trueppm/-/issues/3345), [#804](https://gitlab.com/trueppm/trueppm/-/issues/804))
 - An **SS or SF link from a summary task** is rejected (FS/FF from a summary expand to its leaves). **Differs** — MS Project accepts it. ([ADR-0370](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0370-reject-ss-sf-from-summary-tasks.md))
 
@@ -269,6 +269,7 @@ convention. The same list, with the comparison spelled out, is on
 - `is_critical` is exactly `total_float == 0`; total float is the working days from early to late start.
 - `free_float` inverts the forward constraint across **all four** link types, capped at total float; no live successor → total float. ([#1828](https://gitlab.com/trueppm/trueppm/-/issues/1828))
 - The order of `ScheduleResult.tasks` is **unspecified** — look tasks up by `id`. ([#1862](https://gitlab.com/trueppm/trueppm/-/issues/1862))
+- `project_finish` and a milestone's `early_finish` are the **day the finish is shown on**, and `milestone_at_day_end` says which edge of it. The end of a Friday and the start of the next Monday are the same point in working time, so the shown day can hop a weekend or holiday with no working-time move. **Compute slip in working time**, reading a start-of-day milestone finish as the end of the working day before it — never as a calendar-day difference of two finishes. ([#4178](https://gitlab.com/trueppm/trueppm/-/issues/4178))
 
 **Monte Carlo**
 

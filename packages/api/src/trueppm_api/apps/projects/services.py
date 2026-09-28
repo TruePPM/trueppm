@@ -14,7 +14,7 @@ from __future__ import annotations
 import calendar
 import logging
 import uuid
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from functools import partial
@@ -1854,6 +1854,10 @@ def _milestone_slip_for_sprint(sprint: Any) -> dict[str, Any] | None:
     finish date for that milestone.
     """
     from trueppm_api.apps.projects.models import Baseline, BaselineTask
+    from trueppm_api.apps.scheduling.finish_reading import (
+        finish_shift_days,
+        task_finish_at_day_start,
+    )
 
     milestone = sprint.target_milestone
     if milestone is None or milestone.is_deleted:
@@ -1871,19 +1875,35 @@ def _milestone_slip_for_sprint(sprint: Any) -> dict[str, Any] | None:
         return None
     # .first() returns None both when there is no row and when the row's finish is
     # null — either way the slip is uncomputable and the line is hidden.
-    baseline_finish = (
+    baseline_row = (
         BaselineTask.objects.filter(baseline=active_baseline, task_id=milestone.pk)
-        .values_list("finish", flat=True)
+        .values_list("finish", "finish_at_day_start")
         .first()
     )
-    if baseline_finish is None:
+    baseline_finish = baseline_row[0] if baseline_row is not None else None
+    if baseline_row is None or baseline_finish is None:
         return None
+
+    # Measured in working time (#4197): a milestone baselined at the end of a
+    # Friday and now forecast at the start of the next Monday has not slipped. An
+    # actual finish is a recorded day, read as its end; a forecast carries the
+    # engine's edge of the day.
+    base = (baseline_finish, baseline_row[1])
+    forecast = (
+        forecast_finish,
+        False if milestone.actual_finish is not None else task_finish_at_day_start(milestone),
+    )
+    slip_days = finish_shift_days(
+        base,
+        forecast,
+        _project_sched_calendar(sprint.project_id) if (base[1] or forecast[1]) else None,
+    )
 
     return {
         "milestone_id": str(milestone.pk),
         "milestone_name": milestone.name,
         "milestone_short_id": f"T-{milestone.short_id}" if milestone.short_id else "",
-        "slip_days": (forecast_finish - baseline_finish).days,
+        "slip_days": slip_days,
         "baseline_finish": baseline_finish.isoformat(),
         "forecast_finish": forecast_finish.isoformat(),
         "basis": "actual" if milestone.actual_finish is not None else "forecast",
@@ -3580,8 +3600,42 @@ def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
     if not targeting:
         return None
     current_committed_by_sprint, live_completed_by_sprint = _sprint_rollup_aggregates(targeting)
+    calendars = _rollup_calendars([milestone], {milestone.pk: targeting})
     return _assemble_milestone_rollup(
-        milestone, targeting, current_committed_by_sprint, live_completed_by_sprint
+        milestone,
+        targeting,
+        current_committed_by_sprint,
+        live_completed_by_sprint,
+        calendars.get(str(milestone.project_id)),
+    )
+
+
+def _variance_needs_calendar(milestone: Any, targeting: list[Any]) -> bool:
+    """Whether the rollup's ``variance_days`` must be read in working time (#4197).
+
+    Only a start-of-day milestone finish differs between its shown day and its
+    working-time position; a sprint's ``finish_date`` is always the end of its
+    day. So an end-of-day milestone, or one with no ``early_finish`` or no
+    targeting sprint, diffs identically without a calendar — and the batch path
+    composes calendars only for the projects that actually need one.
+    """
+    from trueppm_api.apps.scheduling.finish_reading import task_finish_at_day_start
+
+    return (
+        bool(targeting)
+        and milestone.early_finish is not None
+        and task_finish_at_day_start(milestone)
+    )
+
+
+def _rollup_calendars(
+    milestones: list[Any], by_milestone: Mapping[Any, list[Any]]
+) -> dict[str, Any]:
+    """Composed calendars for every project whose milestone variance needs one, in one batch."""
+    from trueppm_api.apps.scheduling.calendars import project_sched_calendars
+
+    return project_sched_calendars(
+        m.project_id for m in milestones if _variance_needs_calendar(m, by_milestone.get(m.pk, []))
     )
 
 
@@ -3638,6 +3692,7 @@ def _assemble_milestone_rollup(
     targeting: list[Any],
     current_committed_by_sprint: dict[Any, int],
     live_completed_by_sprint: dict[Any, tuple[int, int]],
+    calendar: Any | None = None,
 ) -> dict[str, Any] | None:
     """Assemble a milestone rollup payload from pre-fetched per-sprint aggregates.
 
@@ -3645,7 +3700,19 @@ def _assemble_milestone_rollup(
     (single milestone) and ``batch_compute_milestone_rollups`` (page-batched, #999)
     so the two paths cannot drift. See ``compute_milestone_rollup_payload`` for the
     state-by-state contribution rules.
+
+    ``variance_days`` is measured in working time (#4197): a sprint ending on a
+    Friday and a milestone shown at the start of the following Monday are the same
+    point in working time, so their variance is 0, not -3. It stays a calendar-day
+    count. ``calendar`` is the milestone's project calendar, which the caller loads
+    only when :func:`_variance_needs_calendar` says so; without it the variance is
+    the shown-day difference, which is exact for an end-of-day milestone.
     """
+    from trueppm_api.apps.scheduling.finish_reading import (
+        finish_shift_days,
+        task_finish_at_day_start,
+    )
+
     if not targeting:
         return None
 
@@ -3654,7 +3721,12 @@ def _assemble_milestone_rollup(
 
     latest_finish = totals["latest_active_planned_finish"]
     variance_days = (
-        (latest_finish - milestone.early_finish).days
+        finish_shift_days(
+            (milestone.early_finish, task_finish_at_day_start(milestone)),
+            # A sprint's finish_date is the end of its last day.
+            (latest_finish, False),
+            calendar,
+        )
         if latest_finish is not None and milestone.early_finish is not None
         else None
     )
@@ -3797,12 +3869,13 @@ def _rollup_basis(totals: dict[str, Any]) -> tuple[float | None, str]:
 
 
 def batch_compute_milestone_rollups(milestones: Any) -> dict[Any, dict[str, Any] | None]:
-    """Compute rollup payloads for a page of milestones in 2 queries total.
+    """Compute rollup payloads for a page of milestones in a constant number of queries.
 
     Returns ``{milestone_pk: payload_or_None}``. Used by ``TaskViewSet.list`` and
     ``SprintViewSet.list`` to fix the O(milestones × sprints) N+1 (#999): one query
     for every targeting sprint across the whole page, one grouped aggregate for
-    every sprint's committed/complete points, then pure-Python assembly per
+    every sprint's committed/complete points, one calendar batch only when some
+    milestone sits at the start of its day (#4197), then pure-Python assembly per
     milestone. Behavior-identical to calling ``compute_milestone_rollup_payload``
     once per milestone, but constant in query count regardless of page size.
     A milestone with no targeting sprints maps to ``None`` (the no-rollup case).
@@ -3834,6 +3907,9 @@ def batch_compute_milestone_rollups(milestones: Any) -> dict[Any, dict[str, Any]
         by_milestone[sprint.target_milestone_id].append(sprint)
 
     current_committed_by_sprint, live_completed_by_sprint = _sprint_rollup_aggregates(targeting)
+    # One batch for every project whose variance needs its calendar (#4197) —
+    # usually none (end-of-day milestones), at most one per distinct project.
+    calendars = _rollup_calendars(milestone_list, by_milestone)
 
     return {
         m.pk: _assemble_milestone_rollup(
@@ -3841,6 +3917,7 @@ def batch_compute_milestone_rollups(milestones: Any) -> dict[Any, dict[str, Any]
             by_milestone.get(m.pk, []),
             current_committed_by_sprint,
             live_completed_by_sprint,
+            calendars.get(str(m.project_id)),
         )
         for m in milestone_list
     }
@@ -3861,11 +3938,14 @@ def recompute_milestone_rollup(
     no longer exists or is not actually a milestone — caller handles silently.
     """
     from trueppm_api.apps.projects.models import Task
+    from trueppm_api.apps.scheduling.finish_reading import FINISH_READING_FIELDS
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
     milestone = (
         Task.objects.filter(pk=milestone_id, is_milestone=True, is_deleted=False)
-        .only("pk", "project_id", "early_finish")
+        # FINISH_READING_FIELDS: the rollup reads which edge of its day the
+        # milestone sits on (#4197); deferring them would cost a query each.
+        .only("pk", "project_id", "early_finish", *FINISH_READING_FIELDS)
         .first()
     )
     if milestone is None:
@@ -4259,6 +4339,35 @@ def _velocity_band_percentiles(
     return p50, p80, p95, False
 
 
+def _project_sched_calendar(project_id: Any) -> Any:
+    """The project's composed scheduler ``Calendar`` (``None`` if the project is gone)."""
+    from trueppm_api.apps.scheduling.calendars import project_sched_calendars
+
+    return project_sched_calendars([project_id]).get(str(project_id))
+
+
+def snapshot_finish_shift_days(prior: Any, latest: Any, calendar_for: Any) -> int | None:
+    """Signed move of a milestone snapshot's ``cpm_finish`` since ``prior``, in working time.
+
+    ``None`` when either side has no finish. Reads each finish with its edge of the
+    day (``cpm_finish_at_day_start``) through
+    :func:`~trueppm_api.apps.scheduling.finish_reading.finish_shift_days`, so a
+    finish whose shown day only hops a weekend — the end of Friday to the start of
+    Monday — is 0 (#4178). ``calendar_for`` is a zero-argument callable returning
+    the project's calendar; it is called only when the two finishes differ, so an
+    unmoved milestone costs no calendar query.
+    """
+    from trueppm_api.apps.scheduling.finish_reading import finish_shift_days
+
+    if prior.cpm_finish is None or latest.cpm_finish is None:
+        return None
+    before = (prior.cpm_finish, prior.cpm_finish_at_day_start)
+    after = (latest.cpm_finish, latest.cpm_finish_at_day_start)
+    if before == after:
+        return 0
+    return finish_shift_days(before, after, calendar_for())
+
+
 def reforecast_preview(
     sprint: Any,
     *,
@@ -4480,12 +4589,22 @@ def reforecast_bound_milestone(
         Task,
     )
     from trueppm_api.apps.projects.signals import milestone_forecast_recomputed
+    from trueppm_api.apps.scheduling.finish_reading import task_finish_at_day_start
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
     from trueppm_api.core.extension_signals import dispatch_extension_signal
 
     milestone = (
         Task.objects.filter(pk=milestone_id, is_milestone=True, is_deleted=False)
-        .only("pk", "project_id", "early_finish")
+        .only(
+            "pk",
+            "project_id",
+            "early_finish",
+            "is_milestone",
+            "milestone_at_day_end",
+            "actual_start",
+            "actual_finish",
+            "percent_complete",
+        )
         .first()
     )
     if milestone is None:
@@ -4534,6 +4653,11 @@ def reforecast_bound_milestone(
         milestone=milestone,
         basis=ForecastBasis.VELOCITY_BAND,
         cpm_finish=cpm_finish,
+        # Which edge of cpm_finish the milestone sits on (#4178), so the digest and
+        # the bridge card can compare two snapshots in working time.
+        cpm_finish_at_day_start=(
+            task_finish_at_day_start(milestone) if cpm_finish is not None else None
+        ),
         p50=p50,
         p80=p80,
         velocity_low=velocity_low,
@@ -4582,6 +4706,39 @@ def reforecast_bound_milestone(
     return snapshot
 
 
+def _band_offsets(snap: Any) -> tuple[Any, Any]:
+    """``p50`` / ``p80`` as calendar-day offsets from ``cpm_finish`` (raw dates without one)."""
+    if snap.cpm_finish is None:
+        return snap.p50, snap.p80
+
+    def offset(d: Any) -> int | None:
+        return (d - snap.cpm_finish).days if d is not None else None
+
+    return offset(snap.p50), offset(snap.p80)
+
+
+def _forecast_unmoved(prior: Any, snapshot: Any) -> bool:
+    """Whether two milestone snapshots forecast the same finish (#861, #4178).
+
+    ``p50``/``p80`` are ``cpm_finish`` plus a velocity penalty in calendar days
+    (:func:`_velocity_band_percentiles`), so they hop a weekend whenever the CPM
+    finish does. The band is therefore compared as offsets from ``cpm_finish``,
+    and ``cpm_finish`` itself in working time: a milestone whose shown day moves
+    from the end of a Friday to the start of the next Monday has not moved, and
+    its PM cohort must not be told its forecast shifted.
+    """
+    if prior.confidence != snapshot.confidence:
+        return False
+    if _band_offsets(prior) != _band_offsets(snapshot):
+        return False
+    if prior.cpm_finish is None or snapshot.cpm_finish is None:
+        return bool(prior.cpm_finish == snapshot.cpm_finish)
+    shift = snapshot_finish_shift_days(
+        prior, snapshot, lambda: _project_sched_calendar(snapshot.project_id)
+    )
+    return shift == 0
+
+
 def notify_milestone_forecast_shift(
     snapshot: Any,
     sprint: Any,
@@ -4623,12 +4780,7 @@ def notify_milestone_forecast_shift(
         .order_by("-taken_at")
         .first()
     )
-    if prior is not None and (
-        prior.p50 == snapshot.p50
-        and prior.p80 == snapshot.p80
-        and prior.cpm_finish == snapshot.cpm_finish
-        and prior.confidence == snapshot.confidence
-    ):
+    if prior is not None and _forecast_unmoved(prior, snapshot):
         return  # no-op recompute — nothing material changed, so no digest
 
     # is_deleted=False is load-bearing for privacy: member removal is a soft
@@ -5180,6 +5332,7 @@ def _prior_snapshot_by_milestone(bound_milestone_ids: list[Any]) -> dict[Any, An
             "milestone_id",
             "taken_at",
             "cpm_finish",
+            "cpm_finish_at_day_start",
             "p50",
             "p80",
             "velocity_low",
@@ -5206,10 +5359,23 @@ def _attach_bridge_proof(
     or an ambiguous multi-close window honestly degrades to "since the last
     forecast" client-side rather than naming a sprint it cannot prove.
     """
+    cal_cache: list[Any] = []
+
+    def calendar_for() -> Any:
+        # Loaded once, and only when some milestone's finish actually differs.
+        if not cal_cache:
+            cal_cache.append(_project_sched_calendar(milestones[0].project_id))
+        return cal_cache[0]
+
     for latest in milestones:
         prev = prior_by_ms.get(latest.milestone_id)
         # Plain attributes read back by ForecastSnapshotSerializer (not model fields).
         latest.previous = prev
+        # The card's "+Nd later" chip, measured in working time (#4178) so a finish
+        # that only hops a weekend reads as unmoved.
+        latest.cpm_finish_shift_days = (
+            snapshot_finish_shift_days(prev, latest, calendar_for) if prev is not None else None
+        )
         latest.previous_sprint_name = (
             _attributed_sprint_name(prev, latest, closed_sprints) if prev is not None else None
         )

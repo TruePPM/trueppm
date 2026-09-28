@@ -147,6 +147,106 @@ test.describe('Workspace Email & SMTP — writable', () => {
     await expect(page.getByText(/Sent — check your inbox/i)).toBeVisible();
   });
 
+  test('golden path: a Custom SMTP relay with no authentication can be saved (#4190)', async ({
+    page,
+  }) => {
+    // A relay that accepts unauthenticated connections (Postfix `mynetworks`,
+    // an in-cluster relay) — the docs page has always named this as a valid
+    // use for Security: None without any in-app way to configure it. Leaving
+    // both Username and Password blank must now save successfully.
+    await setup(page);
+    let putBody: Record<string, unknown> | undefined;
+    await page.route('**/api/v1/workspace/email-settings/', (r) => {
+      if (r.request().method() === 'PUT') {
+        putBody = r.request().postDataJSON() as Record<string, unknown>;
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: pj({
+            ...EMAIL_GET,
+            transport_mode: 'smtp',
+            host: 'mail.internal.truescope.io',
+            security: 'none',
+            username: '',
+            password_is_set: false,
+          }),
+        });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(EMAIL_GET) });
+    });
+
+    await page.goto('/settings/email');
+    await expect(page.getByRole('heading', { name: 'Email & SMTP' })).toBeVisible();
+
+    await page.getByLabel('Provider', { exact: true }).selectOption('custom');
+    await page.getByLabel('SMTP host').fill('mail.internal.truescope.io');
+    await page.getByLabel('Security', { exact: true }).selectOption('none');
+    // Username and Password are both left blank.
+    await page.getByRole('button', { name: 'Save changes' }).click();
+
+    // No transport-validation error, and the save-bar reports a clean save.
+    const email = page.locator('[data-settings-section="email"]');
+    await expect(email.getByText('Transport validation failed')).toHaveCount(0);
+    await expect(page.getByTestId('settings-saved-footer')).toBeVisible();
+    expect(putBody).toMatchObject({ transport_mode: 'smtp', username: '', password: '' });
+  });
+
+  test('a stored password is cleared when switching to no authentication (#4190)', async ({
+    page,
+  }) => {
+    await setup(page);
+    // Stateful GET/PUT — the update hook invalidates the query on save, which
+    // refetches GET; a stateless mock would re-serve the pre-save
+    // `password_is_set: true` and mask the exact bug this test targets (a
+    // stale credential surviving the switch to no-auth).
+    let putBody: { username?: string; password?: string } | undefined;
+    let current = {
+      ...EMAIL_GET,
+      transport_mode: 'smtp' as const,
+      host: 'mail.truescope.io',
+      username: 'postmaster',
+      password_is_set: true,
+    };
+    await page.route('**/api/v1/workspace/email-settings/', (r) => {
+      if (r.request().method() === 'PUT') {
+        putBody = r.request().postDataJSON() as { username?: string; password?: string };
+        const username = putBody.username ?? '';
+        const password = putBody.password ?? '';
+        current = {
+          ...current,
+          username,
+          // Mirrors the serializer: a non-blank password rotates the secret;
+          // a blank username with a blank password clears it (no-auth); a
+          // blank password otherwise keeps whatever was already stored.
+          password_is_set: password ? true : username === '' ? false : current.password_is_set,
+        };
+        return r.fulfill({ status: 200, contentType: 'application/json', body: pj(current) });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(current) });
+    });
+
+    await page.goto('/settings/email');
+    await expect(page.getByRole('heading', { name: 'Email & SMTP' })).toBeVisible();
+    // Loaded as Custom (unknown host) with a stored secret already set.
+    await expect(page.getByLabel('Password')).toHaveAttribute(
+      'placeholder',
+      /leave blank to keep/i,
+    );
+
+    // Clear the username, leave Password blank (nothing to re-enter for no-auth).
+    await page.getByLabel('SMTP username', { exact: true }).fill('');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+
+    await expect(page.getByTestId('settings-saved-footer')).toBeVisible();
+    expect(putBody).toMatchObject({ username: '', password: '' });
+    // The saved response reports the secret is gone — the credential hint no
+    // longer offers to "keep" it, it now describes the no-auth blank pair.
+    await expect(page.getByLabel('Password')).toHaveAttribute(
+      'placeholder',
+      'Enter password',
+    );
+  });
+
   test('error path: a failed transport validation keeps values and shows the inline alert', async ({
     page,
   }) => {

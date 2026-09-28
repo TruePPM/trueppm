@@ -407,7 +407,10 @@ FORECAST_SNAPSHOT_RETENTION = {"daily_days": 180, "weekly_days": 730}
 ```
 
 History is read-only at `GET /api/v1/projects/{id}/forecast-snapshots/` (any project
-member). Snapshots are server-generated; there is no write surface.
+member). Snapshots are server-generated; there is no write surface. Each row's
+`cpm_finish_at_day_start` says whether `cpm_finish` is the start of that day (a milestone
+finish) rather than its end; compare two snapshots' finishes in working time, since the
+start of a Monday is the same finish as the end of the Friday before it.
 
 :::note[Enterprise]
 **Compliance-grade retention is an Enterprise feature.** This page covers basic operational

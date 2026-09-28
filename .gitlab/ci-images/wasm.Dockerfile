@@ -28,7 +28,12 @@
 # "Pinned-Dependencies"). Renovate (pinDigests) keeps the digest current; bump
 # the tag + digest together. Resolve a new digest with:
 #   docker buildx imagetools inspect rust:1.85-slim --format '{{.Manifest.Digest}}'
-FROM rust:1.85-slim@sha256:9f841bbe9e7d8e37ceb96ed907265a3a0df7f44e3737d0b100e7907a679acb36
+# CI overrides this with the GitLab Dependency Proxy prefix so dind builds
+# don't pull Docker Hub anonymously (#4201); the default keeps local and
+# release builds unchanged.
+ARG DOCKERHUB_PREFIX=docker.io
+
+FROM ${DOCKERHUB_PREFIX}/rust:1.85-slim@sha256:9f841bbe9e7d8e37ceb96ed907265a3a0df7f44e3737d0b100e7907a679acb36
 
 # git is needed by cargo-deny's advisories check (it clones the RustSec
 # advisory DB via git on first run); curl + ca-certificates fetch the pinned

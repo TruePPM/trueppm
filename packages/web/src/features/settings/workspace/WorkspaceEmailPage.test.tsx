@@ -314,6 +314,30 @@ describe('WorkspaceEmailPage — save contract', () => {
     );
   });
 
+  it('saves a Custom SMTP relay with no authentication — blank username and password (#4190)', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue(undefined);
+    useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
+    render(<WorkspaceEmailPage />);
+
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'custom' } });
+    fireEvent.change(screen.getByLabelText('SMTP host'), { target: { value: 'mail.internal' } });
+    // Username and Password are both left blank — the no-auth relay path.
+    expect(useSettingsSaveStore.getState().dirty).toBe(true);
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transport_mode: 'smtp',
+        host: 'mail.internal',
+        username: '',
+        password: '',
+      }),
+    );
+  });
+
   it('PUTs the edited From name and re-snapshots clean on success', async () => {
     const mutateAsync = vi.fn().mockResolvedValue(undefined);
     useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
@@ -414,6 +438,26 @@ describe('WorkspaceEmailPage — send test email', () => {
     const failMsg = screen.getByText('Connection refused');
     expect(failMsg).toBeInTheDocument();
     expect(failMsg.querySelector('svg')).toBeInTheDocument();
+  });
+
+  it('renders the SSRF-egress-blocked send-test error verbatim (#4189)', () => {
+    // useSendTestEmail normalizes ANY body carrying a boolean `sent` into `data`
+    // (including the 502 the egress-blocked path now returns), so the component
+    // renders `data.error` unchanged — this proves the specific, allowlist-
+    // pointing message reaches the screen rather than a generic fallback.
+    const egressMessage =
+      'The mail server host is not permitted — it resolves to a non-public ' +
+      'address. If this is a trusted internal relay on a private network, add ' +
+      'its hostname to TRUEPPM_EGRESS_ALLOWLISTED_HOSTS on the API, Celery ' +
+      'worker, and Celery beat processes, then save these settings again.';
+    useSendTestEmail.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      data: { sent: false, error: egressMessage },
+    });
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByText(egressMessage)).toBeInTheDocument();
+    expect(screen.queryByText(/check the transport configuration/i)).not.toBeInTheDocument();
   });
 
   it('shows the pending label while a test send is in flight', () => {
@@ -772,6 +816,32 @@ describe('WorkspaceEmailPage — save-failure surfacing', () => {
     expect(screen.queryByText(/correct the highlighted fields/i)).not.toBeInTheDocument();
   });
 
+  it('surfaces the SSRF-egress-blocked message verbatim, not a generic connect failure (#4189)', async () => {
+    // The API now distinguishes a host the outbound egress guard rejects from a
+    // real connect failure, and gives it a specific, actionable message instead
+    // of "check the host, port, security, and credentials". The page renders
+    // whatever `non_field_errors` says (extractFormLevelMessage), so no
+    // component-side branching is needed — this just proves that path reaches
+    // the screen for this specific message shape.
+    const egressMessage =
+      'The mail server host is not permitted — it resolves to a non-public ' +
+      'address. If this is a trusted internal relay on a private network, add ' +
+      'its hostname to TRUEPPM_EGRESS_ALLOWLISTED_HOSTS on the API, Celery ' +
+      'worker, and Celery beat processes, then save these settings again.';
+    const mutateAsync = vi.fn().mockRejectedValue(axios400({ non_field_errors: [egressMessage] }));
+    mockHooks({ transport_mode: 'smtp', host: 'mail.example.com' });
+    useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
+    render(<WorkspaceEmailPage />);
+
+    fireEvent.change(screen.getByLabelText('SMTP host'), { target: { value: 'mail.internal.test' } });
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(await screen.findByText(egressMessage)).toBeInTheDocument();
+    expect(screen.queryByText(/check the host, port, security, and credentials/i)).not.toBeInTheDocument();
+  });
+
   it('summarizes field-only rejections and highlights the credential inline', async () => {
     const mutateAsync = vi
       .fn()
@@ -904,14 +974,20 @@ describe('WorkspaceEmailPage — Username guidance (#2552)', () => {
     expect(screen.getByText(/has to go through SES/i)).toBeInTheDocument();
   });
 
-  it('tells Custom SMTP admins a no-credential relay belongs on the built-in transport', () => {
+  it('tells Custom SMTP admins a blank Username + Password means no authentication (#4190)', () => {
     render(<WorkspaceEmailPage />);
     fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'custom' } });
 
-    expect(screen.getByText(/Required — the account your relay authenticates/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Leave blank, with Password, for a relay with no authentication/i),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'About the SMTP username options' }));
     expect(
-      screen.getByText(/A relay that accepts mail with no credentials/i),
+      screen.getByText(/if your relay accepts unauthenticated connections/i),
+    ).toBeInTheDocument();
+    // Credential hint mirrors it from the other side of the pair.
+    expect(
+      screen.getByText(/Leave blank, with Username, for a relay that accepts unauthenticated/i),
     ).toBeInTheDocument();
   });
 

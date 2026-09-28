@@ -4573,6 +4573,16 @@ class BaselineTask(models.Model):
     task_name = models.CharField(max_length=512)
     start = models.DateField(null=True, blank=True)
     finish = models.DateField(null=True, blank=True)
+    # Whether ``finish`` is the START of that day (a milestone the engine shows at
+    # the start of its day, #4079/#4173) rather than its end (#4197). The start of
+    # a Monday is the same point in working time as the end of the Friday before
+    # it, so every baseline-drift consumer compares through this bit with
+    # ``finish_reading.finish_shift_days`` instead of subtracting shown days.
+    # NULL = unknown: a row captured before the field existed (the milestone edge
+    # was never snapshotted, so it cannot be backfilled), a seeded row, or one
+    # written by a pod still on the previous image mid-upgrade. finish_shift_days
+    # reads an unknown edge as unmoved on the same day, else as the end of its day.
+    finish_at_day_start = models.BooleanField(null=True, blank=True)
     duration = models.IntegerField()
     actual_start = models.DateField(null=True, blank=True)
     actual_finish = models.DateField(null=True, blank=True)
@@ -8320,6 +8330,13 @@ class ForecastSnapshot(models.Model):
     # time); p50/p80 are anchored on it. Nullable: a milestone with no CPM pass
     # yet has no finish to anchor.
     cpm_finish = models.DateField(null=True, blank=True)
+    # Whether cpm_finish is the START of that day (a milestone the engine shows at
+    # the start of its day, #4079/#4173) rather than its end (#4178). The start of
+    # a Monday is the same point in working time as the end of the Friday before
+    # it, so the digest and the bridge card compare finishes through this bit
+    # instead of subtracting shown days. NULL = unknown: a row written before the
+    # field existed, or by a pod still on the previous image mid-upgrade.
+    cpm_finish_at_day_start = models.BooleanField(null=True, blank=True)
     p50 = models.DateField(null=True, blank=True)
     p80 = models.DateField(null=True, blank=True)
     # The band, NEVER the series (§3 privacy). Null below the 2-closed-sprint floor.

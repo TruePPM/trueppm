@@ -961,12 +961,16 @@ env:
   # Public origin the web app is served from, e.g. "https://trueppm.example.com".
   # Used to build absolute task deep-links in notification emails (ADR-0143, #1158)
   # AND the page the OIDC callback sends the browser to once sign-in completes.
-  # Leave empty on a single-origin Ingress (the default this chart renders) —
-  # emails omit the link line (blocker type/age/actor still ride along) and the
-  # OIDC callback falls back to a same-origin relative redirect, which resolves
-  # correctly because the SPA and the API share one Ingress host. No trailing
-  # slash, no path. Standardized on the TRUEPPM_ prefix pre-0.3 (#1355); the
-  # legacy bare FRONTEND_BASE_URL still works as a fallback.
+  # Leaving it empty is fine for the OIDC callback on a single-origin Ingress
+  # (the default this chart renders) — it falls back to a same-origin relative
+  # redirect, which resolves correctly because the SPA and the API share one
+  # Ingress host. It is NOT fine for workspace-invite email (#4188): an invited
+  # user has no account yet, so the accept link is the only way in, and every
+  # other email (task deep-links, password reset, export-ready,
+  # mention-notification) degrades to plain prose instead of a link. Set this
+  # before inviting anyone by email. No trailing slash, no path. Standardized
+  # on the TRUEPPM_ prefix pre-0.3 (#1355); the legacy bare FRONTEND_BASE_URL
+  # still works as a fallback.
   TRUEPPM_FRONTEND_BASE_URL: ""
   # Public origin of the API itself, e.g. "https://trueppm.example.com". Pins the
   # two absolute URLs the API would otherwise derive from the request's Host
@@ -1149,6 +1153,14 @@ env:
   #   EMAIL_USE_SSL: "false"
   #   EMAIL_HOST_USER: "notifications@example.com"
   #   DEFAULT_FROM_EMAIL: "notifications@example.com"
+  # TruePPM defaults EMAIL_USE_TLS to "true" (Django itself defaults it to
+  # false), so implicit-SSL relays on port 465 need EMAIL_USE_TLS explicitly
+  # set to "false" — setting only EMAIL_USE_SSL leaves both flags "true" and
+  # Django's SMTP backend raises at send time. Example for a 465/implicit-SSL
+  # relay (#4198):
+  #   EMAIL_PORT: "465"
+  #   EMAIL_USE_TLS: "false"         # MUST be explicit — do not rely on the default
+  #   EMAIL_USE_SSL: "true"
   # EMAIL_HOST_PASSWORD MUST come from a Kubernetes Secret — NEVER a plaintext
   # value here. Create the Secret, then reference it via secretKeyRef (the same
   # map form the chart uses for DATABASE_URL). Uncomment to wire it:
