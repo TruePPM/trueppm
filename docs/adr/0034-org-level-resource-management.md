@@ -122,6 +122,55 @@
 > editing catalog rows is unchanged"). #3583 and #3600's siblings #3599/#3625 are
 > unaffected by this change.
 
+> **Amended (2026-09-28, #4009) — Django `is_staff` retired as an undocumented
+> second admin axis; the dead-letter queue and observability endpoints move to
+> `IsWorkspaceOperator`.** #4009 was a `decide` issue: `IsAdminUser` (Django
+> `is_staff`) gated `FailedTaskViewSet` (dead-letter requeue/drop/list, all
+> projects) and the observability app's System Health, Prometheus metrics,
+> retention policy, and telemetry-export endpoints. `is_staff` is set via Django
+> admin or `create_admin`/`createsuperuser` only, so it is not self-grantable —
+> this was never the vulnerability the `IsOrgAdmin` self-creation path was — but
+> it is a **second RBAC axis with no relationship to `WorkspaceRole`** and no
+> mention anywhere in the RBAC docs. The user decided against documenting it as a
+> parallel axis and instead **retired it**: both surfaces now use
+> `IsWorkspaceOperator` (superuser-gated, ADR-0213 C1), joining mail transport and
+> the notification transport views on the same stored/implicit principal.
+>
+> **Why `IsWorkspaceOperator` and not `IsWorkspaceAdminStrict`.** The choice
+> follows the rule this ADR's #3600 amendment already recorded: pick by *who is
+> allowed to do the work at all*, not by how often it happens. Dead-letter
+> recovery discloses tracebacks, args, and kwargs that may carry internal paths or
+> partial secrets, and lets the caller re-enqueue or discard any project's failed
+> jobs — a blast radius wider than one workspace ADMIN's ordinary lifecycle work.
+> Observability internals (retention windows, telemetry export config, the raw
+> `X-Forwarded-For` proxy chain) are the same class of set-once/rarely-touched
+> install configuration mail transport already sits on. Neither surface has an
+> in-app delegation path today, so superuser is the correct floor — not because
+> the work is *infrequent* (dead-letter triage is routine incident response, not
+> set-once), but because nothing here is a role a workspace owner grants.
+>
+> **Superusers are unaffected.** `IsWorkspaceOperator.has_permission` calls
+> `is_workspace_operator()`, which checks `user.is_superuser` directly — it does
+> not route through `workspace_role_for_user`, so it needs no `WorkspaceMembership`
+> row at all. A Django superuser passes exactly as it did under `IsAdminUser`.
+>
+> **What narrows.** An `is_staff=True` account that is not also a superuser
+> (a Django-admin-only account, the shape `create_admin` used to produce before
+> `#712`) loses access to both surfaces. A stored `WorkspaceRole.ADMIN` membership
+> also does **not** pass — `IsWorkspaceOperator` is a different, narrower
+> principal than `IsWorkspaceAdminStrict`, and that is deliberate here for the
+> reasons above.
+>
+> **Scope.** This amendment covers exactly `packages/api/src/trueppm_api/apps/scheduling/views.py`
+> (`FailedTaskViewSet` and its four write actions) and
+> `packages/api/src/trueppm_api/apps/observability/views.py` (`beat_health`,
+> `dead_letter_metrics`, `email_metrics`, `system_health`, `retention_settings`,
+> `retention_impact`, `retention_runs`, `telemetry_test_export`). No other
+> `IsAdminUser` call sites exist in the OSS tree as of this amendment (verified by
+> grep across `packages/api/src`). Non-endpoint `is_staff` reads — `create_admin`
+> (sets the flag), and two seed/sample-data management commands that check it —
+> are unrelated to this RBAC boundary and are out of scope.
+
 ## Status
 Accepted (2026-05-31) — implemented in #155
 

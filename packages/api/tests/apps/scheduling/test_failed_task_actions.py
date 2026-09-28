@@ -8,12 +8,18 @@ Covers the operator write slice of the System Health dead-letter inspector:
   - drop soft-removes (→ dismissed) and records the note/operator/timestamp audit,
     retaining the row;
   - bulk requeue_all/drop_all respect the current filter set and are bounded;
-  - every action is workspace-admin gated (401 unauth, 403 non-staff);
+  - every action is workspace-operator gated (401 unauth, 403 non-operator) — moved
+    off Django ``is_staff``/``IsAdminUser`` onto ``IsWorkspaceOperator`` (superuser)
+    by #4009, since ``is_staff`` was an undocumented second admin axis ungoverned
+    by ``WorkspaceRole``;
   - idempotency: the status guard blocks a double requeue, and the workflow
     idempotency key collapses a same-failure re-requeue to a single workflow.
 """
 
 from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -29,7 +35,8 @@ BASE = "/api/v1/admin/failed-tasks"
 
 
 def _admin_client() -> APIClient:
-    admin = User.objects.create_user(username="dl_admin", password="pw", is_staff=True)
+    """A workspace operator (Django superuser) — the only principal that passes."""
+    admin = User.objects.create_user(username="dl_admin", password="pw", is_superuser=True)
     client = APIClient()
     client.force_authenticate(user=admin)
     return client
@@ -37,6 +44,32 @@ def _admin_client() -> APIClient:
 
 def _member_client() -> APIClient:
     user = User.objects.create_user(username="dl_member", password="pw")
+    client = APIClient()
+    client.force_authenticate(user=user)
+    return client
+
+
+def _staff_only_client() -> APIClient:
+    """An ``is_staff=True`` account with no workspace role or superuser flag.
+
+    Pre-#4009 this passed ``IsAdminUser``. Post-#4009 it is refused — ``is_staff``
+    is no longer a second, undocumented admin axis on this surface (#4009).
+    """
+    user = User.objects.create_user(username="dl_staff_only", password="pw", is_staff=True)
+    client = APIClient()
+    client.force_authenticate(user=user)
+    return client
+
+
+def _workspace_admin_client(grant_workspace_admin: Callable[[Any], Any]) -> APIClient:
+    """A stored ``WorkspaceRole.ADMIN`` — not the same principal as the operator.
+
+    ``IsWorkspaceOperator`` checks ``is_superuser`` only; it does not resolve a
+    workspace ADMIN membership the way ``IsWorkspaceAdminStrict`` does. This client
+    is refused, and that is the point: dead-letter recovery is install-operator
+    work, not a role a workspace owner can hand out in-app (#4009).
+    """
+    user = grant_workspace_admin(User.objects.create_user(username="dl_ws_admin", password="pw"))
     client = APIClient()
     client.force_authenticate(user=user)
     return client
@@ -135,7 +168,7 @@ class TestRequeue:
 class TestDrop:
     def test_drop_soft_removes_and_records_audit(self) -> None:
         failed = _failed()
-        admin = User.objects.create_user(username="dropper", password="pw", is_staff=True)
+        admin = User.objects.create_user(username="dropper", password="pw", is_superuser=True)
         client = APIClient()
         client.force_authenticate(user=admin)
 
@@ -271,7 +304,7 @@ class TestPermissions:
             ("/drop-all/", {}),
         ],
     )
-    def test_non_staff_is_forbidden(self, path_suffix: str, body: dict) -> None:
+    def test_non_operator_is_forbidden(self, path_suffix: str, body: dict) -> None:
         failed = _failed()
         url = BASE + path_suffix.format(id=failed.id)
         assert _member_client().post(url, body, format="json").status_code == 403
@@ -279,3 +312,68 @@ class TestPermissions:
         assert WorkflowInstance.objects.count() == 0
         failed.refresh_from_db()
         assert failed.status == FailedTaskStatus.DEAD
+
+    @pytest.mark.parametrize(
+        "path_suffix,body",
+        [
+            ("/{id}/requeue/", {}),
+            ("/{id}/drop/", {}),
+            ("/requeue-all/", {}),
+            ("/drop-all/", {}),
+        ],
+    )
+    def test_staff_only_is_now_forbidden(self, path_suffix: str, body: dict) -> None:
+        """A formerly-allowed ``is_staff`` account with no superuser flag is refused.
+
+        Before #4009 this account passed ``IsAdminUser``. ``IsWorkspaceOperator``
+        checks ``is_superuser`` only, so ``is_staff`` alone no longer buys access to
+        the dead-letter queue.
+        """
+        failed = _failed()
+        url = BASE + path_suffix.format(id=failed.id)
+        assert _staff_only_client().post(url, body, format="json").status_code == 403
+        assert WorkflowInstance.objects.count() == 0
+        failed.refresh_from_db()
+        assert failed.status == FailedTaskStatus.DEAD
+
+    @pytest.mark.parametrize(
+        "path_suffix,body",
+        [
+            ("/{id}/requeue/", {}),
+            ("/{id}/drop/", {}),
+            ("/requeue-all/", {}),
+            ("/drop-all/", {}),
+        ],
+    )
+    def test_workspace_admin_is_not_a_workspace_operator(
+        self, path_suffix: str, body: dict, grant_workspace_admin: Any
+    ) -> None:
+        """A stored ``WorkspaceRole.ADMIN`` is refused — it is a different principal.
+
+        Dead-letter recovery (traceback/args/kwargs disclosure, arbitrary re-enqueue)
+        is install-operator work, not lifecycle work a workspace owner can delegate
+        in-app (#4009).
+        """
+        failed = _failed()
+        url = BASE + path_suffix.format(id=failed.id)
+        client = _workspace_admin_client(grant_workspace_admin)
+        assert client.post(url, body, format="json").status_code == 403
+        assert WorkflowInstance.objects.count() == 0
+        failed.refresh_from_db()
+        assert failed.status == FailedTaskStatus.DEAD
+
+    @pytest.mark.parametrize(
+        "path_suffix,body",
+        [
+            ("/{id}/requeue/", {}),
+            ("/{id}/drop/", {}),
+            ("/requeue-all/", {}),
+            ("/drop-all/", {}),
+        ],
+    )
+    def test_operator_is_allowed(self, path_suffix: str, body: dict) -> None:
+        """A Django superuser passes every dead-letter write action (#4009)."""
+        failed = _failed()
+        url = BASE + path_suffix.format(id=failed.id)
+        res = _admin_client().post(url, body, format="json")
+        assert res.status_code == 200

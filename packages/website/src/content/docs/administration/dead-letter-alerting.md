@@ -80,9 +80,9 @@ Prometheus.
 ## The `/api/v1/health/dead-letter/` metrics endpoint
 
 For metrics-based alerting, scrape the Prometheus-text endpoint. It requires a
-**staff (admin)** account — it exposes operational state, so it is gated with
-`IsAdminUser` and is bearer-scrapeable, mirroring `/api/v1/health/beat/` (see
-[Beat Liveness](/administration/beat-liveness/)).
+**workspace operator (superuser)** account — it exposes operational state, so it is
+gated with `IsWorkspaceOperator` and is bearer-scrapeable, mirroring
+`/api/v1/health/beat/` (see [Beat Liveness](/administration/beat-liveness/)).
 
 It emits a single gauge, `trueppm_task_dead_letter_parked`, labeled by task name:
 

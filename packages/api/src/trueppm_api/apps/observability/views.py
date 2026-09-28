@@ -11,12 +11,13 @@ from django.utils import timezone
 from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers, status
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
-from rest_framework.permissions import AllowAny, IsAdminUser
+from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle, SimpleRateThrottle
 from rest_framework.views import APIView
 
+from trueppm_api.apps.access.permissions import IsWorkspaceOperator
 from trueppm_api.apps.observability.models import BeatHeartbeat, PurgeRun
 from trueppm_api.apps.observability.selectors import (
     get_readiness,
@@ -119,7 +120,8 @@ def readyz(_request: Request) -> Response:
 
     Deliberately unauthenticated: kubelet issues probe requests with no
     credentials, and the dependency-aware ``/health/system/`` endpoint is
-    ``IsAdminUser``-gated so it cannot serve as a probe (#1894). Safe to expose
+    ``IsWorkspaceOperator``-gated (superuser only, #4009) so it cannot serve as a
+    probe (#1894). Safe to expose
     because the response is coarse — ``ok``/``fail`` per dependency plus a
     four-value ``migration_state`` enum, with no infrastructure detail — and the
     probes themselves are read-only round-trips.
@@ -152,8 +154,8 @@ def readyz(_request: Request) -> Response:
         "(older than TRUEPPM_BEAT_STALE_SECONDS). Responds **200** when fresh and "
         "**503** when stale or never recorded, so status-code-driven monitoring "
         "(e.g. Prometheus with a bearer token) can alert without parsing the body. "
-        "Requires a staff (admin) account — it exposes operational state. Basic "
-        "unauthenticated liveness lives at `/api/v1/health/`."
+        "Requires a workspace operator (superuser) account — it exposes operational "
+        "state. Basic unauthenticated liveness lives at `/api/v1/health/`."
     ),
     responses={
         200: inline_serializer(
@@ -168,7 +170,7 @@ def readyz(_request: Request) -> Response:
     tags=["meta"],
 )
 @api_view(["GET"])
-@permission_classes([IsAdminUser])
+@permission_classes([IsWorkspaceOperator])
 def beat_health(_request: Request) -> Response:
     """Report Beat liveness for admin diagnostics and token-auth monitoring.
 
@@ -198,8 +200,8 @@ def beat_health(_request: Request) -> Response:
         "Derived on read from the `FailedTask` table — no metrics client or "
         "scrape agent runs in-process (ADR-0084). A gauge, not a counter: the "
         "value falls when a task is dismissed, retried, or purged. Requires a "
-        "staff (admin) account; scrape with a bearer token. The OSS receiver "
-        "also emits a structured WARNING log line per new dead-letter, so "
+        "workspace operator (superuser) account; scrape with a bearer token. The "
+        "OSS receiver also emits a structured WARNING log line per new dead-letter, so "
         "log-based alerting works without scraping this endpoint."
     ),
     responses={
@@ -208,7 +210,7 @@ def beat_health(_request: Request) -> Response:
     tags=["meta"],
 )
 @api_view(["GET"])
-@permission_classes([IsAdminUser])
+@permission_classes([IsWorkspaceOperator])
 def dead_letter_metrics(_request: Request) -> HttpResponse:
     """Expose the parked dead-letter gauge in Prometheus text format.
 
@@ -253,8 +255,8 @@ def dead_letter_metrics(_request: Request) -> HttpResponse:
         "- `trueppm_email_transport_unavailable` — `1` when the workspace has an SMTP "
         "transport configured whose stored credential will not decrypt, so no mail "
         "can be sent until an operator re-enters it; `0` otherwise.\n\n"
-        "Requires a staff (admin) account; scrape with a bearer token. Needs its own "
-        "scrape job — these are not OTLP metrics."
+        "Requires a workspace operator (superuser) account; scrape with a bearer "
+        "token. Needs its own scrape job — these are not OTLP metrics."
     ),
     responses={
         200: OpenApiResponse(description="Prometheus text-format outbound-email gauges."),
@@ -262,7 +264,7 @@ def dead_letter_metrics(_request: Request) -> HttpResponse:
     tags=["meta"],
 )
 @api_view(["GET"])
-@permission_classes([IsAdminUser])
+@permission_classes([IsWorkspaceOperator])
 def email_metrics(_request: Request) -> HttpResponse:
     """Expose the outbound-email health gauges in Prometheus text format.
 
@@ -327,8 +329,8 @@ def email_metrics(_request: Request) -> HttpResponse:
         "proxy-depth setting against the path their own request took. Composes "
         "existing committed state and settings — no payloads or task "
         "arguments are exposed here. Always responds 200 with statuses in the body "
-        "(unlike `/health/beat/`, which is a 200/503 probe). Requires a staff "
-        "(admin) account."
+        "(unlike `/health/beat/`, which is a 200/503 probe). Requires a workspace "
+        "operator (superuser) account."
     ),
     responses={
         200: inline_serializer(
@@ -348,7 +350,7 @@ def email_metrics(_request: Request) -> HttpResponse:
     tags=["meta"],
 )
 @api_view(["GET"])
-@permission_classes([IsAdminUser])
+@permission_classes([IsWorkspaceOperator])
 def system_health(request: Request) -> Response:
     """Return the aggregated System Health overview payload.
 
@@ -370,7 +372,8 @@ def system_health(request: Request) -> Response:
         "purge schedule, and the "
         "seven most recent purge runs. Row counts and sizes are PostgreSQL "
         "estimates. Workspace operators tune these from Settings → System health → "
-        "Retention & purge (ADR-0173). Requires a staff (admin) account."
+        "Retention & purge (ADR-0173). Requires a workspace operator (superuser) "
+        "account."
     ),
     responses={200: RetentionStateSerializer},
     tags=["meta"],
@@ -381,14 +384,15 @@ def system_health(request: Request) -> Response:
     description=(
         "Persist retention-window overrides and/or the purge schedule, then return "
         "the refreshed editor state. Lowering a window makes more data purge-eligible "
-        "on the next run — irreversible. Requires a staff (admin) account."
+        "on the next run — irreversible. Requires a workspace operator (superuser) "
+        "account."
     ),
     request=RetentionUpdateSerializer,
     responses={200: RetentionStateSerializer},
     tags=["meta"],
 )
 @api_view(["GET", "PATCH"])
-@permission_classes([IsAdminUser])
+@permission_classes([IsWorkspaceOperator])
 def retention_settings(request: Request) -> Response:
     """Read or update the retention policy + schedule (ADR-0173 §G).
 
@@ -410,15 +414,15 @@ def retention_settings(request: Request) -> Response:
         "Returns how many rows (and best-effort bytes) would become purge-eligible "
         "for `key` at the proposed `value` (its native unit — days, or hours for sync "
         "batches). A pure count: nothing is deleted. Backs the dirty-state "
-        "irreversibility warning when an operator lowers a window. Requires a staff "
-        "(admin) account."
+        "irreversibility warning when an operator lowers a window. Requires a "
+        "workspace operator (superuser) account."
     ),
     parameters=[RetentionImpactQuerySerializer],
     responses={200: RetentionImpactSerializer},
     tags=["meta"],
 )
 @api_view(["GET"])
-@permission_classes([IsAdminUser])
+@permission_classes([IsWorkspaceOperator])
 def retention_impact(request: Request) -> Response:
     """Count rows that would become purge-eligible at a proposed window."""
     query = RetentionImpactQuerySerializer(data=request.query_params)
@@ -435,14 +439,15 @@ def retention_impact(request: Request) -> Response:
         "Dispatch the retention purge coordinator across all six operational tables. "
         "`dry_run=true` counts eligible rows without deleting. Best-effort dispatch: "
         "returns 202 with the new run's id; the run completes asynchronously and "
-        "appears in the recent-runs log. Requires a staff (admin) account."
+        "appears in the recent-runs log. Requires a workspace operator (superuser) "
+        "account."
     ),
     request=PurgeRunRequestSerializer,
     responses={202: PurgeRunQueuedSerializer},
     tags=["meta"],
 )
 @api_view(["POST"])
-@permission_classes([IsAdminUser])
+@permission_classes([IsWorkspaceOperator])
 def retention_runs(request: Request) -> Response:
     """Queue a manual purge or dry-run; returns 202 with the run id (ADR-0173 §G).
 
@@ -507,14 +512,14 @@ class TelemetryTestThrottle(ScopedRateThrottle):
         "runs a bounded TCP reachability probe instead. Config is never editable here "
         "(ADR-0223) and the OTLP bearer token is never returned. Takes no request body. "
         "Always responds 200 — the probe outcome (`success` / `reachable` / `failure`) "
-        "is in the body. Requires a staff (admin) account."
+        "is in the body. Requires a workspace operator (superuser) account."
     ),
     request=None,
     responses={200: TelemetryTestExportResultSerializer},
     tags=["meta"],
 )
 @api_view(["POST"])
-@permission_classes([IsAdminUser])
+@permission_classes([IsWorkspaceOperator])
 @throttle_classes([TelemetryTestThrottle])
 def telemetry_test_export(request: Request) -> Response:
     """Probe the configured OTLP export path and report an honest outcome (#2110).

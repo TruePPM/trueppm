@@ -23,15 +23,16 @@ bounded by a **Celery Beat** purge (Beat is TruePPM's background job scheduler; 
 on the drain paths stay fast, and backups don't bloat.
 
 You can tune retention two ways: from the **System health → Retention & purge** editor in
-the UI (workspace admins), or via Django settings / environment variables (the default,
+the UI (workspace operators), or via Django settings / environment variables (the default,
 applied when no UI override exists). The UI is the fast path for a running deployment; the
 settings remain the source of the defaults.
 
 ## Editing retention from the UI
 
-Workspace admins (Django `is_staff`) manage retention at **Settings → Workspace → System
-health → Retention & purge**. From there you can, without editing env/settings or
-restarting pods:
+Workspace operators (Django superusers) manage retention at **Settings → Workspace →
+System health → Retention & purge**. This is a narrower principal than a stored workspace
+`Admin` role — see [System Health](/administration/system-health/) for why. From there
+you can, without editing env/settings or restarting pods:
 
 - **Edit each retention window** and **enable/disable** a purge per table.
 - **Configure the purge schedule** (frequency, time of day, on-failure behavior).

@@ -51,8 +51,8 @@ ADR-0081 for the full rationale.
 
 ## The `/api/v1/health/beat/` endpoint
 
-Requires a **staff (admin)** account — it exposes operational state, so it is gated with
-`IsAdminUser`. Responses:
+Requires a **workspace operator (superuser)** account — it exposes operational state, so
+it is gated with `IsWorkspaceOperator`. Responses:
 
 | Condition | Status | Body |
 |---|---|---|

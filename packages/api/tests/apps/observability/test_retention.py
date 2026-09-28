@@ -1,7 +1,9 @@
 """Tests for the retention policy editor + purge runs (#693, ADR-0173).
 
 Covers:
-  - IsAdminUser gating (401 unauth / 403 non-staff) on all four endpoints
+  - IsWorkspaceOperator gating (401 unauth / 403 non-operator / 403 for a
+    formerly-allowed is_staff-only account) on all four endpoints — moved off
+    Django is_staff/IsAdminUser by #4009
   - GET returns the six operational policies, schedule, and recent runs
   - PATCH persists RetentionPolicy overrides + schedule; weekly requires a day;
     the non-disablable sync window is forced enabled
@@ -57,7 +59,7 @@ _EXPECTED_KEYS = [
 
 
 def _admin_client() -> APIClient:
-    admin = User.objects.create_user(username="ret_admin", password="pw", is_staff=True)
+    admin = User.objects.create_user(username="ret_admin", password="pw", is_superuser=True)
     client = APIClient()
     client.force_authenticate(user=admin)
     return client
@@ -88,10 +90,21 @@ class TestGating:
         assert anon.get(IMPACT_URL).status_code in (401, 403)
         assert anon.post(RUNS_URL, {}, format="json").status_code in (401, 403)
 
-    def test_non_staff_forbidden(self) -> None:
+    def test_non_operator_forbidden(self) -> None:
         client = _member_client()
         assert client.get(URL).status_code == 403
         assert client.post(RUNS_URL, {"dry_run": True}, format="json").status_code == 403
+
+    def test_staff_only_forbidden(self) -> None:
+        """A formerly-allowed ``is_staff`` account with no superuser flag is refused.
+
+        Pre-#4009 this account passed ``IsAdminUser``. ``IsWorkspaceOperator`` checks
+        ``is_superuser`` only, so ``is_staff`` alone no longer buys access.
+        """
+        user = User.objects.create_user(username="ret_staff_only", password="pw", is_staff=True)
+        client = APIClient()
+        client.force_authenticate(user=user)
+        assert client.get(URL).status_code == 403
 
 
 @pytest.mark.django_db

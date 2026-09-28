@@ -87,16 +87,16 @@ The safe default for any install with more than one API pod is object storage.
 ## Health and readiness endpoints
 
 There are five health endpoints and they are not interchangeable. Two of them are
-unauthenticated and probe-safe; three require a staff account and are for
-operators and scrapers.
+unauthenticated and probe-safe; three require a workspace operator (superuser)
+account and are for operators and scrapers.
 
 | Endpoint | Auth | What it checks | Codes |
 |---|---|---|---|
 | `GET /api/v1/health/` | None | **Nothing.** Returns `200 {"status": "ok"}` while the Django process is up. | `200` only |
 | `GET /api/v1/readyz` *(no trailing slash)* | None | A bounded `SELECT 1` against PostgreSQL, a **write-then-read round-trip** against Valkey, and whether this image's migrations match the schema. Body: `{"status", "checks": {database, cache, migrations}, "migration_state"}`. | `200` / `503` |
-| `GET /api/v1/health/beat/` | Staff | Celery Beat heartbeat freshness. See [Beat Liveness](/administration/beat-liveness/). | `200` / `503` |
-| `GET /api/v1/health/dead-letter/` | Staff | Prometheus gauge of permanently failed tasks. See [Dead-letter Alerting](/administration/dead-letter-alerting/). | `200` |
-| `GET /api/v1/health/system/` | Staff | The full operator view behind [System Health](/administration/system-health/). | `200` |
+| `GET /api/v1/health/beat/` | Workspace operator | Celery Beat heartbeat freshness. See [Beat Liveness](/administration/beat-liveness/). | `200` / `503` |
+| `GET /api/v1/health/dead-letter/` | Workspace operator | Prometheus gauge of permanently failed tasks. See [Dead-letter Alerting](/administration/dead-letter-alerting/). | `200` |
+| `GET /api/v1/health/system/` | Workspace operator | The full operator view behind [System Health](/administration/system-health/). | `200` |
 
 :::caution[`/api/v1/health/` is a liveness probe, never a readiness probe]
 It opens no database connection and touches no cache, so a pod whose datastores

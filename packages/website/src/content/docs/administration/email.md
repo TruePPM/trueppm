@@ -431,7 +431,7 @@ that reports:
 ### Prometheus metrics and alerts
 
 `GET /api/v1/health/email/` serves four gauges in Prometheus text-exposition format
-(staff-only; scrape it with a bearer token). Like the dead-letter gauge, these are
+(workspace-operator-only; scrape it with a bearer token). Like the dead-letter gauge, these are
 **not** OTLP metrics and need their own scrape job — see
 [OpenTelemetry & OTLP export](/administration/observability/).
 
