@@ -325,7 +325,6 @@ test.describe('Board view', () => {
   // anything, and a vacuous green is worse than an absent test. Escape on the surface
   // this page actually has is covered above.
 
-
   test('column headers render (issue #211)', async ({ page }) => {
     // BACKLOG was lifted out of the phase grid into the BacklogBand rail
     // (#381 / epic #361). The four committed columns remain. Scope by
@@ -649,6 +648,27 @@ test.describe('Board view', () => {
     await expect(page.getByLabel(/Baseline variance: \+10d/)).toBeAttached();
   });
 
+  test('baseline variance chip shows the server working-time value (#4203)', async ({ page }) => {
+    // The shown days still differ by 10 (Jan 20 vs Jan 10), but the card must
+    // render the server's working-time `baseline_finish_variance_days`, not
+    // re-subtract the dates — only the server knows which edge of each day a
+    // finish sits on. A distinct value proves which path rendered.
+    const results = FIXTURE_TASKS.map((t) =>
+      t.id === 'b5' ? { ...t, baseline_finish_variance_days: 7 } : t,
+    );
+    await page.route('**/api/v1/tasks/**', async (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: results.length, next: null, previous: null, results }),
+      });
+    });
+    await page.goto(`${BASE_URL}/board`);
+    await expect(page.getByLabel('Baseline variance: +7d')).toBeAttached();
+    await expect(page.getByLabel('Baseline variance: +10d')).toHaveCount(0);
+  });
+
   // -------------------------------------------------------------------------
   // Issue #192 — Card aging (b4 and b5 have status_changed_at in 2025 — >SLA)
   // -------------------------------------------------------------------------
@@ -748,7 +768,6 @@ test.describe('Board view — fetch error', () => {
     // Not silently rendered as an empty/ready board.
     await expect(page.getByText('Alpha Phase')).toHaveCount(0);
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -833,19 +852,84 @@ const SLOT_BASE = {
 
 const SLOT_TASKS = [
   // Lane 1 — mid-progress. Server-owned rollup on the summary (ADR-0115).
-  { ...SLOT_BASE, id: 's1', wbs_path: '1', name: 'Delivery Phase', percent_complete: 55, is_summary: true, parent_id: null, status: 'IN_PROGRESS' },
-  { ...SLOT_BASE, id: 's1a', wbs_path: '1.1', name: 'Delivery card', planned_start: '2026-01-05', percent_complete: 55, is_summary: false, parent_id: 's1', status: 'IN_PROGRESS' },
+  {
+    ...SLOT_BASE,
+    id: 's1',
+    wbs_path: '1',
+    name: 'Delivery Phase',
+    percent_complete: 55,
+    is_summary: true,
+    parent_id: null,
+    status: 'IN_PROGRESS',
+  },
+  {
+    ...SLOT_BASE,
+    id: 's1a',
+    wbs_path: '1.1',
+    name: 'Delivery card',
+    planned_start: '2026-01-05',
+    percent_complete: 55,
+    is_summary: false,
+    parent_id: 's1',
+    status: 'IN_PROGRESS',
+  },
 
   // Lane 2 — complete. 100% must be distinguishable from 97% by form.
-  { ...SLOT_BASE, id: 's2', wbs_path: '2', name: 'Shipped Phase', percent_complete: 100, is_summary: true, parent_id: null, status: 'COMPLETE' },
-  { ...SLOT_BASE, id: 's2a', wbs_path: '2.1', name: 'Shipped card', planned_start: '2026-01-05', percent_complete: 100, is_summary: false, parent_id: 's2', status: 'COMPLETE' },
+  {
+    ...SLOT_BASE,
+    id: 's2',
+    wbs_path: '2',
+    name: 'Shipped Phase',
+    percent_complete: 100,
+    is_summary: true,
+    parent_id: null,
+    status: 'COMPLETE',
+  },
+  {
+    ...SLOT_BASE,
+    id: 's2a',
+    wbs_path: '2.1',
+    name: 'Shipped card',
+    planned_start: '2026-01-05',
+    percent_complete: 100,
+    is_summary: false,
+    parent_id: 's2',
+    status: 'COMPLETE',
+  },
 
   // Lane 3 — uncommitted. Cards exist; none carries a PM-committed
   // `planned_start`, so `isTaskScheduled` counts zero committed work and there
   // is no delivery to roll up.
-  { ...SLOT_BASE, id: 's3', wbs_path: '3', name: 'Ideas Phase', percent_complete: 0, is_summary: true, parent_id: null, status: 'NOT_STARTED' },
-  { ...SLOT_BASE, id: 's3a', wbs_path: '3.1', name: 'Idea one', percent_complete: 0, is_summary: false, parent_id: 's3', status: 'NOT_STARTED' },
-  { ...SLOT_BASE, id: 's3b', wbs_path: '3.2', name: 'Idea two', percent_complete: 0, is_summary: false, parent_id: 's3', status: 'NOT_STARTED' },
+  {
+    ...SLOT_BASE,
+    id: 's3',
+    wbs_path: '3',
+    name: 'Ideas Phase',
+    percent_complete: 0,
+    is_summary: true,
+    parent_id: null,
+    status: 'NOT_STARTED',
+  },
+  {
+    ...SLOT_BASE,
+    id: 's3a',
+    wbs_path: '3.1',
+    name: 'Idea one',
+    percent_complete: 0,
+    is_summary: false,
+    parent_id: 's3',
+    status: 'NOT_STARTED',
+  },
+  {
+    ...SLOT_BASE,
+    id: 's3b',
+    wbs_path: '3.2',
+    name: 'Idea two',
+    percent_complete: 0,
+    is_summary: false,
+    parent_id: 's3',
+    status: 'NOT_STARTED',
+  },
 ];
 
 async function setupSlotBoard(page: import('@playwright/test').Page) {

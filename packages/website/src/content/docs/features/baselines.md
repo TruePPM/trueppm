@@ -196,6 +196,13 @@ Each task in a baseline's detail (`GET /api/v1/projects/{id}/baselines/{baseline
 `tasks[]`) records which edge of the day its finish sat on as `finish_at_day_start`.
 For a baseline captured before TruePPM recorded it, the finish is read as the end of its day.
 
+The task list carries the same comparison on every task, so a client does not have to
+subtract dates itself: `baseline_finish_variance_days` is the forecast finish against the
+active baseline's finish, and `schedule_variance_days` is the actual finish of completed
+work against it. Both are measured in working time the same way and are `null` when
+either date is missing. The baseline chip on a board card and in the task drawer shows
+`baseline_finish_variance_days`.
+
 `current_start` and `start_delta_days` compare against the task's **span**
 (`scheduled_start` — see [the bar vs. the remaining-work
 window](/features/schedule/dates/#the-bar-vs-the-remaining-work-window)), not the

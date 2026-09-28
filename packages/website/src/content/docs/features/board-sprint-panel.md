@@ -19,7 +19,7 @@ sprint is tracking without leaving the board to check the separate Sprints page.
 
 ## What you see
 
-- **Header band** (always visible while the panel is open): the sprint's short id,
+- **Header band** (always visible, even while the panel is collapsed): the sprint's short id,
   its goal, its dates, which day of the sprint you're on, how many days remain, and
   how many points are committed.
 - **Body** (collapsible):
@@ -44,10 +44,12 @@ The panel is hidden in two situations:
    summarize (see [Methodology presets](/features/methodology-preset/)).
 2. The project has no sprint currently active — again, nothing to summarize.
 
-By default, Viewers and Team Members see the panel collapsed, and anyone with the
-Resource Manager role or above sees it expanded. Whichever way you leave it, TruePPM
-remembers your choice in this browser and uses it again on your next visit,
-overriding the role-based default.
+The panel starts **collapsed for everyone**, whatever their role: only the header band
+shows, so the board's columns sit above the fold when you open the Board or the
+[Today view](/features/view-focus/#the-today-view). Select the chevron at the right of
+the header band to expand the velocity, capacity, and work-in-progress cards and the
+**Burndown** disclosure. Whichever way you leave it, TruePPM remembers your choice for
+that project in this browser, and the Board and Today views share it.
 
 ## Planning capacity
 

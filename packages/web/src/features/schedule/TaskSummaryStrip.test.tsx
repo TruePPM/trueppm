@@ -101,6 +101,23 @@ describe('TaskSummaryStrip', () => {
       expect(screen.getByText('On baseline')).toBeInTheDocument();
     });
 
+    it('shows the server working-time variance over the shown-day difference (#4203)', () => {
+      // A milestone baselined at the end of Friday Apr 17 and now shown at the
+      // start of Monday Apr 20 has not moved in working time: the shown days
+      // differ by 3, the server says 0, and the server wins.
+      render(
+        <TaskSummaryStrip
+          task={makeTask({
+            finish: '2026-04-20',
+            baselineFinish: '2026-04-17',
+            baselineFinishVarianceDays: 0,
+          })}
+        />,
+      );
+      expect(screen.getByText('On baseline')).toBeInTheDocument();
+      expect(screen.queryByText('+3d')).not.toBeInTheDocument();
+    });
+
     it('reads "No baseline" when the task is not baselined', () => {
       render(<TaskSummaryStrip task={makeTask({ baselineFinish: undefined })} />);
       expect(screen.getByText('No baseline')).toBeInTheDocument();

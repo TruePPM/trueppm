@@ -20568,7 +20568,7 @@
                                 }
                             }
                         },
-                        "description": "Monte Carlo simulation result. Includes the engine result fields (P50/P80/P95 finish dates, mean, std dev, etc.) plus cpm_finish (deterministic CPM project finish, ISO 8601 or null), delta_vs_cpm ({p50,p80,p95} signed calendar-day premium vs CPM), confidence_curve ([{date, pct}] cumulative finish-by-date S-curve), histogram_buckets ([{date, count}]), sensitivity ([{task_id, index}] duration tornado — tasks that move the finish most, index 0..1, ADR-0140), forecast_diagnostic ({deterministic, reason, tasks_total, tasks_with_variance, tasks_pending_approval, agile_tasks_without_velocity, tasks_estimates_below_plan} — explains a flat forecast; reason is null when a real band exists), last_run_at (ISO 8601), status_date (the data date this run was actually computed against — project.status_date or today when unset, ADR-0132/#2638), and the risk_premium_* family (ADR-0698): risk_premium_state (not_run|unmeasurable|stale|zero|premium|negative — the discriminant every client renders from, never null), risk_premium_days, risk_premium_ratio, risk_premium_band (always null until #2299), risk_premium_as_of, risk_premium_reason, risk_premium_cpm_finish, risk_premium_p80. Derived at response time, never cached, so the ratio never describes a remaining duration that has since elapsed. Plus the forecast-staleness family (#3140): forecast_staleness (current|project_changed|aged|unknown — the discriminant every client renders from, never null; only `current` means the forecast still describes the plan, and clients keep the recompute action reachable on the other three), plan_version (the project's sync version this run was computed against; null for runs recorded before #3140, which classify as `unknown`, never `current`), and plan_version_current (that version as of this response). `project_changed` is deliberately not named `plan_changed`: the underlying counter advances on ANY write in the project, so a description or label edit raises it without moving a date. It is a sound trigger for offering a recompute and NOT evidence that a schedule value changed — do not narrate it as one."
+                        "description": "Monte Carlo simulation result. Includes the engine result fields (P50/P80/P95 finish dates, mean, std dev, etc.) plus cpm_finish (deterministic CPM project finish, ISO 8601 or null), delta_vs_cpm ({p50,p80,p95} signed premium vs CPM — a calendar-day difference of shown days, not working time), confidence_curve ([{date, pct}] cumulative finish-by-date S-curve), histogram_buckets ([{date, count}]), sensitivity ([{task_id, index}] duration tornado — tasks that move the finish most, index 0..1, ADR-0140), forecast_diagnostic ({deterministic, reason, tasks_total, tasks_with_variance, tasks_pending_approval, agile_tasks_without_velocity, tasks_estimates_below_plan} — explains a flat forecast; reason is null when a real band exists), last_run_at (ISO 8601), status_date (the data date this run was actually computed against — project.status_date or today when unset, ADR-0132/#2638), and the risk_premium_* family (ADR-0698): risk_premium_state (not_run|unmeasurable|stale|zero|premium|negative — the discriminant every client renders from, never null), risk_premium_days, risk_premium_ratio, risk_premium_band (always null until #2299), risk_premium_as_of, risk_premium_reason, risk_premium_cpm_finish, risk_premium_p80. Derived at response time, never cached, so the ratio never describes a remaining duration that has since elapsed. Plus the forecast-staleness family (#3140): forecast_staleness (current|project_changed|aged|unknown — the discriminant every client renders from, never null; only `current` means the forecast still describes the plan, and clients keep the recompute action reachable on the other three), plan_version (the project's sync version this run was computed against; null for runs recorded before #3140, which classify as `unknown`, never `current`), and plan_version_current (that version as of this response). `project_changed` is deliberately not named `plan_changed`: the underlying counter advances on ANY write in the project, so a description or label edit raises it without moving a date. It is a sound trigger for offering a recompute and NOT evidence that a schedule value changed — do not narrate it as one."
                     },
                     "400": {
                         "content": {
@@ -20763,7 +20763,7 @@
                                 }
                             }
                         },
-                        "description": "The most recent Monte Carlo result for the project. Keys: p50/p80/p95 (ISO-8601 finish dates), cpm_finish, delta_vs_cpm ({p50, p80, p95} calendar-day deltas vs the CPM finish), runs (n_simulations), confidence_curve, histogram_buckets, sensitivity, last_run_at, status_date (the data date this run was computed against — project.status_date or today when unset, ADR-0132/#2638; null for runs persisted before #2638), from_history (true when served from a persisted run after the 24h cache TTL expired), and the risk_premium_* family (ADR-0698): risk_premium_state (not_run|unmeasurable|stale|zero|premium|negative — the discriminant every client renders from, never null), risk_premium_days, risk_premium_ratio, risk_premium_band (always null until #2299), risk_premium_as_of, risk_premium_reason, risk_premium_cpm_finish, risk_premium_p80. The premium is derived on every response and is never stored in the cache entry. Legacy runs with no stored distribution return empty confidence_curve/histogram_buckets/sensitivity arrays. Plus the forecast-staleness family (#3140): forecast_staleness (current|project_changed|aged|unknown — never null; only `current` means the forecast still describes the plan, and a client keeps the recompute action reachable on the other three), plan_version (the project's sync version this run was computed against — unlike the risk_premium family this one IS carried on the cache entry and the persisted row, because it is a run-time observation that cannot be re-derived later; null for runs recorded before #3140, which classify as `unknown`, never `current`), and plan_version_current (that version as of this response). `project_changed` is deliberately not named `plan_changed`: the underlying counter advances on ANY write in the project, so a description or label edit raises it without moving a date. It is a sound trigger for offering a recompute and NOT evidence that a schedule value changed — do not narrate it as one."
+                        "description": "The most recent Monte Carlo result for the project. Keys: p50/p80/p95 (ISO-8601 finish dates), cpm_finish, delta_vs_cpm ({p50, p80, p95} calendar-day differences of shown days vs the CPM finish, not working time), runs (n_simulations), confidence_curve, histogram_buckets, sensitivity, last_run_at, status_date (the data date this run was computed against — project.status_date or today when unset, ADR-0132/#2638; null for runs persisted before #2638), from_history (true when served from a persisted run after the 24h cache TTL expired), and the risk_premium_* family (ADR-0698): risk_premium_state (not_run|unmeasurable|stale|zero|premium|negative — the discriminant every client renders from, never null), risk_premium_days, risk_premium_ratio, risk_premium_band (always null until #2299), risk_premium_as_of, risk_premium_reason, risk_premium_cpm_finish, risk_premium_p80. The premium is derived on every response and is never stored in the cache entry. Legacy runs with no stored distribution return empty confidence_curve/histogram_buckets/sensitivity arrays. Plus the forecast-staleness family (#3140): forecast_staleness (current|project_changed|aged|unknown — never null; only `current` means the forecast still describes the plan, and a client keeps the recompute action reachable on the other three), plan_version (the project's sync version this run was computed against — unlike the risk_premium family this one IS carried on the cache entry and the persisted row, because it is a run-time observation that cannot be re-derived later; null for runs recorded before #3140, which classify as `unknown`, never `current`), and plan_version_current (that version as of this response). `project_changed` is deliberately not named `plan_changed`: the underlying counter advances on ANY write in the project, so a description or label edit raises it without moving a date. It is a sound trigger for offering a recompute and NOT evidence that a schedule value changed — do not narrate it as one."
                     },
                     "404": {
                         "content": {
@@ -58210,19 +58210,22 @@
             },
             "MonteCarloDelta": {
                 "type": "object",
-                "description": "Signed calendar-day delta of a percentile finish, per field (#987/#993/#2483).\n\nPositive means the field slipped later (worse). Shared shape for\n``run_monte_carlo``/``latest``'s ``delta_vs_cpm`` (each percentile vs the\ndeterministic CPM finish), the what-if endpoint's ``delta_vs_current``, and\nthe history endpoint's per-run ``delta`` (ADR-0108) — one derivation, one\nschema, three call sites. ``None`` whenever either date it is measured\nbetween is missing.",
+                "description": "Signed calendar-day delta of a percentile finish, per field (#987/#993/#2483).\n\nPositive means the field slipped later (worse). Shared shape for\n``run_monte_carlo``/``latest``'s ``delta_vs_cpm`` (each percentile vs the\ndeterministic CPM finish), the what-if endpoint's ``delta_vs_current``, and\nthe history endpoint's per-run ``delta`` (ADR-0108) — one derivation, one\nschema, three call sites. ``None`` whenever either date it is measured\nbetween is missing. A difference of shown days — see\n:data:`MC_SHOWN_DAY_DELTA_NOTE`.",
                 "properties": {
                     "p50": {
                         "type": "integer",
-                        "nullable": true
+                        "nullable": true,
+                        "description": "Signed P50 delta; positive = later. Calendar-day difference of the two shown finish days, not a working-time comparison: when a finish is a start-of-day milestone, two dates either side of a weekend or holiday can differ by several days here with no difference in working time."
                     },
                     "p80": {
                         "type": "integer",
-                        "nullable": true
+                        "nullable": true,
+                        "description": "Signed P80 delta; positive = later. Calendar-day difference of the two shown finish days, not a working-time comparison: when a finish is a start-of-day milestone, two dates either side of a weekend or holiday can differ by several days here with no difference in working time."
                     },
                     "p95": {
                         "type": "integer",
-                        "nullable": true
+                        "nullable": true,
+                        "description": "Signed P95 delta; positive = later. Calendar-day difference of the two shown finish days, not a working-time comparison: when a finish is a start-of-day milestone, two dates either side of a weekend or holiday can differ by several days here with no difference in working time."
                     }
                 },
                 "required": [
@@ -58266,7 +58269,8 @@
                 "properties": {
                     "risk_premium_days": {
                         "type": "integer",
-                        "nullable": true
+                        "nullable": true,
+                        "description": "P80 finish minus the deterministic CPM finish. Calendar-day difference of the two shown finish days, not a working-time comparison: when a finish is a start-of-day milestone, two dates either side of a weekend or holiday can differ by several days here with no difference in working time."
                     },
                     "risk_premium_ratio": {
                         "type": "number",
@@ -58642,19 +58646,22 @@
             },
             "MonteCarloWhatIfDelta": {
                 "type": "object",
-                "description": "Signed calendar-day shift of ``whatif`` vs ``current``, per field (#993).\n\nSame ``p50``/``p80``/``p95`` shape as :class:`MonteCarloDeltaSerializer`,\nplus ``cpm_finish`` — the what-if endpoint's own deterministic-pass delta,\ndistinct from ``delta_vs_cpm``'s MC-vs-CPM comparison elsewhere.",
+                "description": "Signed calendar-day shift of ``whatif`` vs ``current``, per field (#993).\n\nSame ``p50``/``p80``/``p95`` shape as :class:`MonteCarloDeltaSerializer`,\nplus ``cpm_finish`` — the what-if endpoint's own deterministic-pass delta,\ndistinct from ``delta_vs_cpm``'s MC-vs-CPM comparison elsewhere. The\npercentile deltas are differences of shown days (:data:`MC_SHOWN_DAY_DELTA_NOTE`);\n``cpm_finish`` is measured in working time.",
                 "properties": {
                     "p50": {
                         "type": "integer",
-                        "nullable": true
+                        "nullable": true,
+                        "description": "Signed P50 shift; positive = later. Calendar-day difference of the two shown finish days, not a working-time comparison: when a finish is a start-of-day milestone, two dates either side of a weekend or holiday can differ by several days here with no difference in working time."
                     },
                     "p80": {
                         "type": "integer",
-                        "nullable": true
+                        "nullable": true,
+                        "description": "Signed P80 shift; positive = later. Calendar-day difference of the two shown finish days, not a working-time comparison: when a finish is a start-of-day milestone, two dates either side of a weekend or holiday can differ by several days here with no difference in working time."
                     },
                     "p95": {
                         "type": "integer",
-                        "nullable": true
+                        "nullable": true,
+                        "description": "Signed P95 shift; positive = later. Calendar-day difference of the two shown finish days, not a working-time comparison: when a finish is a start-of-day milestone, two dates either side of a weekend or holiday can differ by several days here with no difference in working time."
                     },
                     "cpm_finish": {
                         "type": "integer",
@@ -67992,7 +67999,8 @@
                     "risk_premium_days": {
                         "type": "integer",
                         "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "P80 finish minus the deterministic CPM finish. Calendar-day difference of the two shown finish days, not a working-time comparison (#4204)."
                     },
                     "risk_premium_ratio": {
                         "type": "number",
@@ -71092,7 +71100,8 @@
                     },
                     "delta_vs_cpm_days": {
                         "type": "integer",
-                        "nullable": true
+                        "nullable": true,
+                        "description": "The percentile minus the deterministic CPM finish. Calendar-day difference of the two shown finish days, not a working-time comparison: when a finish is a start-of-day milestone, two dates either side of a weekend or holiday can differ by several days here with no difference in working time."
                     },
                     "drivers": {
                         "type": "array",
@@ -74788,7 +74797,13 @@
                     "schedule_variance_days": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Compute schedule variance: actual_finish - baseline_finish in calendar days.\n\nUses the active-baseline snapshot date, not early_finish (CPM). early_finish\ndrifts toward actual_finish on each CPM recompute, making the variance appear\nto shrink even when work is running late. Without an active baseline the\nmetric is undefined — returns None rather than a misleading CPM-relative value.",
+                        "description": "How late the task actually finished against the active baseline: actual_finish minus the baseline finish, measured in working time and reported in calendar days. Positive = late. A milestone baselined at the start of a Monday and finished on the Friday before reads 0, not -3. Null without an actual finish or a baseline finish.",
+                        "readOnly": true
+                    },
+                    "baseline_finish_variance_days": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Current forecast finish (early_finish) against the active baseline finish, measured in working time and reported in calendar days. Positive = the forecast is later than the baseline. A start-of-day milestone whose shown finish hops a weekend without moving in working time reads 0. Null when the task has no forecast finish or no baseline finish.",
                         "readOnly": true
                     },
                     "spi": {
@@ -75189,6 +75204,7 @@
                     "assignee_is_overallocated",
                     "assignments",
                     "baseline_finish",
+                    "baseline_finish_variance_days",
                     "baseline_start",
                     "blocked_age_seconds",
                     "blocked_by",
@@ -78286,7 +78302,13 @@
                     "schedule_variance_days": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Compute schedule variance: actual_finish - baseline_finish in calendar days.\n\nUses the active-baseline snapshot date, not early_finish (CPM). early_finish\ndrifts toward actual_finish on each CPM recompute, making the variance appear\nto shrink even when work is running late. Without an active baseline the\nmetric is undefined — returns None rather than a misleading CPM-relative value.",
+                        "description": "How late the task actually finished against the active baseline: actual_finish minus the baseline finish, measured in working time and reported in calendar days. Positive = late. A milestone baselined at the start of a Monday and finished on the Friday before reads 0, not -3. Null without an actual finish or a baseline finish.",
+                        "readOnly": true
+                    },
+                    "baseline_finish_variance_days": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Current forecast finish (early_finish) against the active baseline finish, measured in working time and reported in calendar days. Positive = the forecast is later than the baseline. A start-of-day milestone whose shown finish hops a weekend without moving in working time reads 0. Null when the task has no forecast finish or no baseline finish.",
                         "readOnly": true
                     },
                     "spi": {
@@ -78694,6 +78716,7 @@
                     "assignee_is_overallocated",
                     "assignments",
                     "baseline_finish",
+                    "baseline_finish_variance_days",
                     "baseline_start",
                     "blocked_age_seconds",
                     "blocked_by",

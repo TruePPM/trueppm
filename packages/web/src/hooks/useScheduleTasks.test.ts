@@ -261,6 +261,17 @@ describe('useScheduleTasks mapper', () => {
     expect(task.scheduleVarianceDays).toBe(1);
   });
 
+  it('maps the server working-time baseline variance (#4203)', () => {
+    expect(mapTask({ ...base, baseline_finish_variance_days: 0 }).baselineFinishVarianceDays).toBe(
+      0,
+    );
+    expect(
+      mapTask({ ...base, baseline_finish_variance_days: null }).baselineFinishVarianceDays,
+    ).toBeNull();
+    // A payload that predates the field leaves it undefined, so the chip falls back.
+    expect(mapTask(base).baselineFinishVarianceDays).toBeUndefined();
+  });
+
   it('maps actual dates as undefined when null', () => {
     const task = mapTask(base);
     expect(task.actualStart).toBeUndefined();
@@ -888,6 +899,21 @@ describe('applyTaskDatesDelta', () => {
     planned_start: null,
     duration: 10,
   };
+
+  it('keeps the server baseline variance only while the finish is unchanged (#4203)', () => {
+    const unmoved = mapTask({
+      ...base,
+      early_start: delta.early_start,
+      early_finish: delta.early_finish,
+      baseline_finish_variance_days: 0,
+    });
+    expect(applyTaskDatesDelta(unmoved, delta).baselineFinishVarianceDays).toBe(0);
+    // The delta carries no fresh variance, so a moved finish must not keep the
+    // stale one — undefined sends the chip to its shown-day fallback.
+    const moved = applyTaskDatesDelta(unmoved, { ...delta, early_finish: '2026-11-13' });
+    expect(moved.finish).toBe('2026-11-13');
+    expect(moved.baselineFinishVarianceDays).toBeUndefined();
+  });
 
   it('produces the same bar fields a full re-fetch would (parity with mapTask)', () => {
     const existing = mapTask(base);

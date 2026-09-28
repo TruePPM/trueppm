@@ -251,7 +251,8 @@ def _date_delta_days(later: _date | None, earlier: _date | None) -> int | None:
 
     Positive means ``later`` lands after ``earlier`` (the forecast slipped). Shared
     by the what-if and history endpoints so a run-to-run / current-to-whatif delta is
-    computed one way.
+    computed one way. For Monte Carlo percentiles this is a difference of shown days,
+    for the reason :func:`delta_vs_cpm_days` gives. TODO(#4204): working time.
     """
     if later is None or earlier is None:
         return None
@@ -509,7 +510,8 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
                 "Monte Carlo simulation result. Includes the engine result fields "
                 "(P50/P80/P95 finish dates, mean, std dev, etc.) plus "
                 "cpm_finish (deterministic CPM project finish, ISO 8601 or null), "
-                "delta_vs_cpm ({p50,p80,p95} signed calendar-day premium vs CPM), "
+                "delta_vs_cpm ({p50,p80,p95} signed premium vs CPM — a calendar-day "
+                "difference of shown days, not working time), "
                 "confidence_curve ([{date, pct}] cumulative finish-by-date S-curve), "
                 "histogram_buckets ([{date, count}]), sensitivity ([{task_id, index}] "
                 "duration tornado — tasks that move the finish most, index 0..1, "
@@ -937,7 +939,8 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                 description=(
                     "The most recent Monte Carlo result for the project. Keys: p50/p80/p95 "
                     "(ISO-8601 finish dates), cpm_finish, delta_vs_cpm ({p50, p80, p95} "
-                    "calendar-day deltas vs the CPM finish), runs (n_simulations), "
+                    "calendar-day differences of shown days vs the CPM finish, not working "
+                    "time), runs (n_simulations), "
                     "confidence_curve, histogram_buckets, sensitivity, last_run_at, "
                     "status_date (the data date this run was computed against — "
                     "project.status_date or today when unset, ADR-0132/#2638; null for "

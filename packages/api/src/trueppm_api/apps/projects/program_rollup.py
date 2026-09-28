@@ -485,8 +485,7 @@ def _schedule_variance_by_project(project_ids: list[Any]) -> dict[Any, float]:
     """project_id → mean lateness of completed work, in calendar days.
 
     Per-task ``actual_finish − baseline_finish`` (the quantity serializers
-    ``get_schedule_variance_days`` reports per task, which still diffs shown days
-    until #4203) averaged over the project's
+    ``get_schedule_variance_days`` reports per task) averaged over the project's
     completed tasks that exist in the active baseline. Distinct from
     ``baseline_variance``: SV measures *how late finished work landed*, not where
     the project end is heading. Absent for projects without an active baseline or

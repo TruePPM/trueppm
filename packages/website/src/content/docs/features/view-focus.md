@@ -50,7 +50,9 @@ the Board:
   board feeds the pulse, never the reverse, and nothing about the sprint can be edited
   from the pulse.
 - **The sprint board below** — the full board you already use, unchanged, filling the
-  rest of the screen.
+  rest of the screen. Its [sprint panel](/features/board-sprint-panel/) starts
+  collapsed, so on a typical laptop screen the first several rows of cards are visible
+  without scrolling.
 
 `Today` is also a regular **Today** tab in the project view bar (in the *Track* group),
 so anyone can open it — Unified Today focus just makes it your starting point. On a

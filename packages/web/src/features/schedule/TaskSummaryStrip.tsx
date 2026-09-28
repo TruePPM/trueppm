@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { Task } from '@/types';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
+import { baselineFinishVariance } from '@/lib/baselineFinishVariance';
 import { Tooltip } from '@/components/Tooltip';
 import { TaskFlagsSection } from './TaskFlagsSection';
 
@@ -33,16 +34,6 @@ function initials(name: string): string {
   if (parts.length === 0 || parts[0] === '') return '?';
   if (parts.length === 1) return parts[0][0].toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-/** Finish-vs-baseline variance in whole days, or null when either end is absent. */
-function computeVariance(task: Task): number | null {
-  if (!task.finish || !task.baselineFinish) return null;
-  return Math.round(
-    (new Date(task.finish + 'T00:00:00Z').getTime() -
-      new Date(task.baselineFinish + 'T00:00:00Z').getTime()) /
-      86_400_000,
-  );
 }
 
 /** Signed day label for a variance ("+2d" / "-1d" / "On baseline"). */
@@ -83,7 +74,7 @@ function Cell({ label, first, children }: { label: string; first?: boolean; chil
 }
 
 function BaselineCell({ task }: { task: Task }) {
-  const variance = computeVariance(task);
+  const variance = baselineFinishVariance(task);
   if (variance === null) {
     return <span className="text-sm text-neutral-text-secondary">No baseline</span>;
   }
