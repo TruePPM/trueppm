@@ -93,10 +93,13 @@ class TestGating:
     def test_non_operator_forbidden(self) -> None:
         client = _member_client()
         assert client.get(URL).status_code == 403
+        assert client.patch(URL, {}, format="json").status_code == 403
+        assert client.get(IMPACT_URL, {"key": _EXPECTED_KEYS[0]}).status_code == 403
         assert client.post(RUNS_URL, {"dry_run": True}, format="json").status_code == 403
 
     def test_staff_only_forbidden(self) -> None:
-        """A formerly-allowed ``is_staff`` account with no superuser flag is refused.
+        """A formerly-allowed ``is_staff`` account with no superuser flag is refused
+        on all four endpoints.
 
         Pre-#4009 this account passed ``IsAdminUser``. ``IsWorkspaceOperator`` checks
         ``is_superuser`` only, so ``is_staff`` alone no longer buys access.
@@ -105,6 +108,9 @@ class TestGating:
         client = APIClient()
         client.force_authenticate(user=user)
         assert client.get(URL).status_code == 403
+        assert client.patch(URL, {}, format="json").status_code == 403
+        assert client.get(IMPACT_URL, {"key": _EXPECTED_KEYS[0]}).status_code == 403
+        assert client.post(RUNS_URL, {"dry_run": True}, format="json").status_code == 403
 
 
 @pytest.mark.django_db

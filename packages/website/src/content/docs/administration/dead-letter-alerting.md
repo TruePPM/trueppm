@@ -116,6 +116,17 @@ held in worker memory would be invisible to the scraper. Reading committed
 The endpoint is **authenticated**, so it is not a drop-in unauthenticated scrape
 target. Configure the scrape job with a bearer token:
 
+:::caution[Requires a superuser token]
+As of 0.4, this endpoint is gated with `IsWorkspaceOperator`, which checks
+`is_superuser` — a staff-only (`is_staff=True`, `is_superuser=False`) account's JWT
+now gets `403 Forbidden`. If your scrape credential was minted for a staff-only
+service account, mint a new token for a superuser account (e.g. the one created by
+`create_admin`) before upgrading, or the dead-letter gauge silently stops updating
+and the alert rule below goes dark. See the
+[0.4 upgrade notes](/getting-started/upgrade/#dead-letter-and-observability-scrape-credentials-now-require-superuser)
+for the full list of affected endpoints.
+:::
+
 ```yaml
 scrape_configs:
   - job_name: trueppm-dead-letter

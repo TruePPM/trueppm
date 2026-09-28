@@ -151,6 +151,10 @@ sensitive) to `is_staff` only is acceptable — it is the same trust level that 
 aggregation endpoint exposes **no** payloads (counts + config only); payloads appear only in
 the dead-letter **detail** view, which the operator explicitly drills into.
 
+> **Superseded by ADR-0034 amendment (#4009), 2026-09-28.** `IsAdminUser` (`is_staff`)
+> is no longer the gate on these endpoints — see the amendment for the current
+> `IsWorkspaceOperator` (superuser) gate.
+
 ### 6. OSS/Enterprise boundary
 
 No extension point is required for #692/#694. ADR-0029 governs *frontend* slot injection;

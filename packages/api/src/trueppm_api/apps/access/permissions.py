@@ -1694,8 +1694,9 @@ class IsOrgAdmin(BasePermission):
     install-wide work (the resource catalog's deactivation lifecycle, its email
     exposure, the cross-project assignments view) uses
     :class:`~trueppm_api.apps.workspace.permissions.IsWorkspaceAdminStrict`, the
-    workspace ADMIN role, which an owner can grant in-app; set-once infrastructure
-    (mail transport) uses :class:`IsWorkspaceOperator`, the install superuser
+    workspace ADMIN role, which an owner can grant in-app; surfaces with no in-app
+    delegation path — mail transport, the dead-letter queue, and observability
+    internals (#4009) — use :class:`IsWorkspaceOperator`, the install superuser
     (ADR-0213 C1). What is left on *this* gate is shared-catalog curation, where the
     worst outcome is a bad edit another admin can revert.
 

@@ -369,6 +369,10 @@ to #2109**. This follow-up ships the *verification core*.
    only from settings — see Security) and **always responds 200**; the probe outcome
    is in the body, so a collector transport failure is never miscoded as an API
    failure.
+
+   > **Superseded by ADR-0034 amendment (#4009), 2026-09-28.** `IsAdminUser`
+   > (`is_staff`) is no longer the gate on this endpoint — see the amendment for
+   > the current `IsWorkspaceOperator` (superuser) gate.
 2. **Two modes, three outcomes.** When `provider.is_enabled()`: build a one-off OTLP
    span exporter from the same settings, export one synthetic canary span
    (`trueppm.telemetry.canary`, `trueppm.telemetry.test=true`) synchronously, and map

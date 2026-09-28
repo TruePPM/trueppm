@@ -435,6 +435,14 @@ that reports:
 **not** OTLP metrics and need their own scrape job — see
 [OpenTelemetry & OTLP export](/administration/observability/).
 
+:::caution[Requires a superuser token]
+As of 0.4, this endpoint is gated with `IsWorkspaceOperator`, which checks
+`is_superuser` — a staff-only (`is_staff=True`, `is_superuser=False`) scrape
+credential now gets `403 Forbidden`. See the
+[0.4 upgrade notes](/getting-started/upgrade/#dead-letter-and-observability-scrape-credentials-now-require-superuser)
+if your scrape token was minted for a staff-only account.
+:::
+
 | Gauge | Meaning |
 |---|---|
 | `trueppm_email_sends_failed_recent` | Notification emails that permanently failed in the last hour. |

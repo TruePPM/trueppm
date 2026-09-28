@@ -336,6 +336,18 @@ class TestPermissions:
         failed.refresh_from_db()
         assert failed.status == FailedTaskStatus.DEAD
 
+    def test_staff_only_is_forbidden_on_retrieve(self) -> None:
+        """The detail view (exposes ``traceback``/``args``/``kwargs``) is also refused.
+
+        The write-action parametrization above never exercises plain ``GET``
+        detail, which is the read surface #4009 was partly about — a formerly
+        allowed ``is_staff`` account must not still be able to read a traceback
+        even though it can no longer requeue/drop.
+        """
+        failed = _failed()
+        url = f"{BASE}/{failed.id}/"
+        assert _staff_only_client().get(url).status_code == 403
+
     @pytest.mark.parametrize(
         "path_suffix,body",
         [

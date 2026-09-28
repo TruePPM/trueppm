@@ -368,7 +368,7 @@ function SystemHealthErrorState({ is403, onRetry }: { is403: boolean; onRetry: (
     <div className="px-6 py-8 flex flex-col gap-3 items-start">
       <p className="text-[13px] text-semantic-critical">
         {is403
-          ? 'Admin access required. Contact your workspace owner.'
+          ? 'Admin access required. This page requires a workspace operator (superuser) account — ask whoever ran create_admin for this installation to grant one.'
           : "Couldn't load system health — the API may be unreachable."}
       </p>
       {!is403 && (

@@ -131,10 +131,12 @@
 > admin or `create_admin`/`createsuperuser` only, so it is not self-grantable —
 > this was never the vulnerability the `IsOrgAdmin` self-creation path was — but
 > it is a **second RBAC axis with no relationship to `WorkspaceRole`** and no
-> mention anywhere in the RBAC docs. The user decided against documenting it as a
-> parallel axis and instead **retired it**: both surfaces now use
-> `IsWorkspaceOperator` (superuser-gated, ADR-0213 C1), joining mail transport and
-> the notification transport views on the same stored/implicit principal.
+> mention anywhere in the RBAC docs. The issue's decision thread briefly recorded
+> a choice to keep `is_staff` and document it as a separate install-operator axis
+> (2026-09-28 17:05); that decision was **superseded the same day** (17:54) by the
+> final call: **retire the axis**. Both surfaces now use `IsWorkspaceOperator`
+> (superuser-gated, ADR-0213 C1), joining mail transport and the notification
+> transport views on the same stored/implicit principal.
 >
 > **Why `IsWorkspaceOperator` and not `IsWorkspaceAdminStrict`.** The choice
 > follows the rule this ADR's #3600 amendment already recorded: pick by *who is
@@ -155,11 +157,13 @@
 > row at all. A Django superuser passes exactly as it did under `IsAdminUser`.
 >
 > **What narrows.** An `is_staff=True` account that is not also a superuser
-> (a Django-admin-only account, the shape `create_admin` used to produce before
-> `#712`) loses access to both surfaces. A stored `WorkspaceRole.ADMIN` membership
-> also does **not** pass — `IsWorkspaceOperator` is a different, narrower
-> principal than `IsWorkspaceAdminStrict`, and that is deliberate here for the
-> reasons above.
+> (a Django-admin-only account) loses access to both surfaces. `create_admin` has
+> set `is_superuser` alongside `is_staff` since its introducing commit
+> (`912d98425`), so this account shape is not something `create_admin` ever
+> produced — it can only come from Django admin or a hand-rolled `is_staff=True`
+> assignment. A stored `WorkspaceRole.ADMIN` membership also does **not** pass —
+> `IsWorkspaceOperator` is a different, narrower principal than
+> `IsWorkspaceAdminStrict`, and that is deliberate here for the reasons above.
 >
 > **Scope.** This amendment covers exactly `packages/api/src/trueppm_api/apps/scheduling/views.py`
 > (`FailedTaskViewSet` and its four write actions) and
