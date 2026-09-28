@@ -70,6 +70,8 @@ A completed docs pass is **not a claims review.** 0.4 had docs sweeps and a pre-
 
 When you report a docs pass, name which classes were checked and state that the three above were not. Do not describe the result as "docs reviewed" or "claims verified".
 
+- **Pinned prerelease claims.** Grep for present-tense statements that name a specific prerelease or patch as current ("the latest tagged release is `X.Y.Z-beta.N`"). The version-status gate compares only major.minor, so it cannot see these go stale. Prefer wording that does not name a pinned tag, or point to the roadmap as the source of truth.
+
 ## Tone
 - Direct, no fluff. Respect the reader's time.
 - "You" addressing the reader. Active voice.

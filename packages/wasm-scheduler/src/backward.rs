@@ -85,6 +85,28 @@ pub(crate) fn finish_instant(
     Ok(latest.expect("a project has at least one task"))
 }
 
+/// Latest instant the project-finish seed admits for a milestone (#4174).
+///
+/// When `end` already reads as start of day (`project_finish >= end`, e.g.
+/// `A(4d) -FS+2d-> M` placing `M` at Sunday midnight, shown Monday), every
+/// midnight up to the one opening the next working day shows the same finish, so
+/// the bound widens to it. When `end` reads as end of day (`A -FS+1d-> M` at
+/// Saturday midnight, shown Friday), the raw `end` is the bound: Sunday midnight
+/// is shown Monday under #4173's display rule, so landing there moves the finish.
+/// The shown day stays capped by `late_display`. Mirrors the Python
+/// `_milestone_finish_bound`.
+pub(crate) fn milestone_finish_bound(
+    end: NaiveDate,
+    project_finish: NaiveDate,
+    node_cal: &Calendar,
+) -> Result<NaiveDate, String> {
+    if project_finish >= end {
+        next_working_day(end, node_cal)
+    } else {
+        Ok(end)
+    }
+}
+
 /// The day a milestone's late instant is shown on. Mirrors the Python
 /// `_late_display`: zero float shows the early day; otherwise the early reading
 /// is kept, except that a start-of-day reading is never shown past the project
@@ -170,7 +192,7 @@ pub fn backward_pass(
         }
 
         if let Some(early) = instants[i] {
-            let mut bound = end;
+            let mut bound = milestone_finish_bound(end, project_finish, node_cal)?;
             for edge in pg.graph.edges_directed(idx, Direction::Outgoing) {
                 let s = edge.target().index();
                 if tasks[s].is_complete() {

@@ -735,7 +735,7 @@ backup:restore-drill:
     # in .gitlab-ci.yml for the full story and why this points at
     # `bitnamilegacy/minio` pinned by digest and at `/bitnami/minio/data` rather
     # than `/data`.
-    - name: bitnamilegacy/minio@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20
+    - name: bitnamilegacy/minio@sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c
       alias: minio
       command: ["server", "/bitnami/minio/data"]
       variables:

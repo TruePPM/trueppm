@@ -161,7 +161,7 @@ project — see [Projects](/api/reference/projects/#projects)):
 - External-URL attachments must use an `http(s)` scheme.
 
 **Signed URLs** require an object-storage backend that actually signs its URLs
-(S3/MinIO, GCS, or Azure Blob via `django-storages` — see
+(S3/MinIO/SeaweedFS, GCS, or Azure Blob via `django-storages` — see
 [Configuration](/administration/configuration/advanced/#optional--advanced-settings)).
 On `FileSystemStorage` (the default) or an unrecognized backend, the
 `signed-url` action returns `501` rather than a link claiming an `expires_at`

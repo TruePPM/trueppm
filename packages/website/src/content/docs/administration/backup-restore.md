@@ -25,7 +25,7 @@ The logical backup here is the foundation those build on, not a lesser version o
 | Data | In backup? | Why |
 |---|---|---|
 | PostgreSQL (`trueppm` database) | **Yes** | The authoritative store — every project, task, sprint, dependency, baseline, comment, and setting. The `pg_dump --format=custom` artifact preserves the `ltree`, `pg_trgm`, and `btree_gist` extensions and the `wbs_path` GiST index. |
-| Media / attachments (local disk) | **Yes**, when local | `TaskAttachment` files when `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` is on. When you use S3/MinIO object storage instead, the bucket is backed up by the object store — not by this artifact (see below). |
+| Media / attachments (local disk) | **Yes**, when local | `TaskAttachment` files when `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` is on. When you use S3-compatible object storage instead (MinIO, SeaweedFS, etc.), the bucket is backed up by the object store — not by this artifact (see below). |
 | Redis / Valkey (cache + broker) | **No** (by design) | Valkey holds only **ephemeral, reconstructible** state: the Django cache, the Celery broker queue, and the Channels real-time layer. None of it is a source of truth. Restoring a stale Redis snapshot onto a running instance would resurrect dead queue entries and serve stale cache — worse than an empty cache, which simply refills on first read. In-flight Celery tasks are re-triggered by the next write; WebSocket clients reconnect. So the backup omits it deliberately. |
 | `INTEGRATION_ENCRYPTION_KEY` | **No** — and the dump is **useless without it** | Lives in a Kubernetes Secret / `.env`, not in PostgreSQL. See the warning immediately below. |
 
@@ -138,7 +138,7 @@ The script writes a single timestamped `trueppm-backup-<UTC>.tar.gz` containing
 `db.dump`, `media.tar.gz` (when a media dir is given), and a `MANIFEST`.
 
 To upload the artifact to a bucket in the same run, add `--s3-bucket` (and
-`--s3-endpoint` for MinIO):
+`--s3-endpoint` for MinIO, SeaweedFS, or another self-hosted S3-compatible store):
 
 ```bash
 export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...
@@ -150,9 +150,11 @@ DATABASE_URL="postgres://trueppm:trueppm@localhost:5432/trueppm" \
 ```
 
 The upload uses the AWS CLI (`aws`) when it is installed and the MinIO client
-(`mc`) otherwise; force one with `TRUEPPM_S3_CLIENT`. If a bucket is configured
-and neither client is installed, the run **fails before the dump starts** rather
-than quietly leaving the artifact on local disk.
+(`mc`) otherwise — despite the name, `mc` is a generic S3 client and works
+against any compatible endpoint, including SeaweedFS; force one with
+`TRUEPPM_S3_CLIENT`. If a bucket is configured and neither client is installed,
+the run **fails before the dump starts** rather than quietly leaving the
+artifact on local disk.
 
 ### Docker Compose (production)
 
@@ -238,9 +240,9 @@ docker run --rm \
   alpine tar -czf "/backup/trueppm-media-$(date -u +%Y%m%dT%H%M%SZ).tar.gz" -C /media .
 ```
 
-Skip this entirely if attachments are on S3/MinIO
-(`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` unset) — the bucket is the backup, per
-the [object storage note](#object-storage-note) above.
+Skip this entirely if attachments are on S3-compatible object storage (MinIO,
+SeaweedFS, etc.) (`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` unset) — the bucket
+is the backup, per the [object storage note](#object-storage-note) above.
 
 ### Kubernetes / Helm
 
@@ -465,7 +467,7 @@ backup:
   s3:
     enabled: true
     bucket: trueppm-backups
-    endpoint: ""              # empty for real AWS S3; set it for MinIO
+    endpoint: ""              # empty for real AWS S3; set it for MinIO/SeaweedFS
     region: us-east-1
     prefix: prod/daily        # optional key prefix
     existingSecret: trueppm-backup-s3   # keys: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
@@ -477,7 +479,7 @@ The object key is `<prefix>/trueppm-backup-<UTC timestamp>.tar.gz`.
 PVC while the CronJob reports success — a green backup job means the copy really
 did leave the cluster.
 
-For MinIO or another self-hosted store, set `endpoint` to its URL:
+For MinIO, SeaweedFS, or another self-hosted store, set `endpoint` to its URL:
 
 ```yaml
 backup:

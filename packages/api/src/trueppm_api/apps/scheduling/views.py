@@ -753,6 +753,16 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     # letting None.get(...) raise AttributeError → 500 (#2310).
     body = request.data if isinstance(request.data, dict) else {}
     raw_n = body.get("n_simulations", cap or 1_000)
+    # int() coerces without raising on a JSON bool (bool is an int subtype) or a
+    # JSON float (silently truncated) — neither is the documented integer
+    # contract, so reject both before the cast rather than trusting int() to
+    # catch them (#4208). Digit strings ("100") stay allowed for callers that
+    # send n_simulations as text.
+    if isinstance(raw_n, bool) or not isinstance(raw_n, (int, str)):
+        return Response(
+            {"detail": "n_simulations must be an integer."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     try:
         n_simulations: int = int(raw_n)
     except (TypeError, ValueError):

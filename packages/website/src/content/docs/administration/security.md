@@ -606,8 +606,8 @@ Two gaps are therefore yours to close at the platform layer:
 
 [Ports and firewall](/administration/networking/#ports-and-firewall) is the full
 source → destination → port matrix to build both allow-lists from, including every
-optional egress need (SMTP, OIDC, S3/MinIO, OTLP, image registry, ACME, outbound
-webhooks).
+optional egress need (SMTP, OIDC, S3/MinIO/SeaweedFS, OTLP, image registry, ACME,
+outbound webhooks).
 
 #### Adding a component that talks to a datastore
 

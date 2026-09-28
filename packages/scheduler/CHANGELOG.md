@@ -85,6 +85,21 @@ change between releases. Pin an exact version (e.g.
   day is unchanged when it has no lag or its lag ends on a working day; one
   following a recorded `actual_finish` on a non-working day now also shows at
   the start of the next working day rather than the working day before it. The Rust/WASM engine moves with it.
+- **Work before a project-ending milestone shown at the start of a day keeps
+  its total float (#4174).** When the finish instant already reads as the start
+  of a day (`project_finish` on or after it), a milestone ending the project may
+  sit as late as the midnight that opens the next working day, since both show
+  the same finish. The late pass used to admit only the raw instant, so
+  `A(4d) -FS+2d-> M` (M at Sunday midnight, shown Monday) gave `A` zero total
+  float and put it on the critical path, although slipping it a day moves `M`
+  only to Monday midnight, still shown Monday. `A` now has one day of float. A
+  finish instant that reads as end of day is unchanged: `A -FS+1d-> M` (Saturday
+  midnight, shown Friday) keeps `A` at zero float, which is correct under #4173's
+  display rule, because a one-day slip moves the shown finish to Monday.
+  Introduced by the #4079 change above; never released. The Rust/WASM engine
+  moves with it. This fix measures float by the shown day, not the underlying
+  working-time position; #4183 tracks a separate open question about a
+  start-of-day milestone overstating float under that same measure.
 - **A long calendar exception no longer makes `schedule()` slow in proportion
   to the number of dependencies (#4161).** Every dependency edge snaps a date to
   a working day in the forward pass, the backward pass, and the free-float

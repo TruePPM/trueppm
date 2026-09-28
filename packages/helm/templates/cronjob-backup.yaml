@@ -166,8 +166,9 @@ racing a concurrent write.
 {{/*
 The upload step. Runs only when backup.s3.enabled, in an image that carries the
 AWS CLI. Path-style addressing is forced whenever a custom endpoint is set,
-because a self-hosted MinIO is normally reached by IP or by a single hostname
-with no wildcard DNS, so virtual-hosted-style requests resolve to nothing.
+because a self-hosted object store (MinIO, SeaweedFS, etc.) is normally reached
+by IP or by a single hostname with no wildcard DNS, so virtual-hosted-style
+requests resolve to nothing.
 
 Credentials are passed as AWS_* environment variables and never assembled into
 a URL: a real 40-char secret key routinely contains "/", "+", and ":", which

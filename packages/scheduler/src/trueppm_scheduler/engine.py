@@ -32,7 +32,10 @@ engine now follows the MS Project / Primavera P6 convention:
 * The backward pass and free float invert the same rule (:func:`_milestone_latest`,
   :func:`_milestone_refs`), and every late date is seeded from the instant the
   project ends (:func:`_finish_instant`), so a milestone on the critical path
-  carries zero float.
+  carries zero float. When that instant already reads as start of day, a
+  milestone may sit as late as the midnight opening the next working day
+  (:func:`_milestone_finish_bound`, #4174): landing on Monday rather than Sunday
+  midnight does not move the shown finish.
 
 Start-to-Finish from ordinary work (#4145)
 ------------------------------------------
@@ -920,6 +923,28 @@ def _sf_latest_start(succ_finish: date, lag: timedelta, node_cal: Calendar) -> d
     return _scan_for_working_day(last, node_cal, forward=True)
 
 
+def _milestone_finish_bound(finish_instant: date, project_finish: date, node_cal: Calendar) -> date:
+    """Latest instant the project-finish seed admits for a milestone (#4174).
+
+    When the finish instant already reads as start of day — ``project_finish`` is
+    on or after it, e.g. ``A(4d) -FS+2d-> M`` placing ``M`` at Sunday midnight,
+    shown Monday — every midnight up to the one that opens the next working day
+    shows the same finish, so a milestone at any of them does not move it. Seeding
+    at the raw instant told that milestone Monday midnight was a slip, which gave
+    ``A`` zero float and put it on the critical path.
+
+    When the instant reads as end of day instead (``project_finish`` before it —
+    ``A -FS+1d-> M`` at Saturday midnight, shown Friday), the raw instant is the
+    bound: under #4173's display rule Sunday midnight is shown Monday, so landing
+    there *does* move the finish and the predecessor has no float to give.
+
+    The shown day stays capped at ``project_finish`` by :func:`_late_display`.
+    """
+    if project_finish >= finish_instant:
+        return _next_working_day(finish_instant, node_cal)
+    return finish_instant
+
+
 def _late_display(
     late_instant: date, task: Task, early: _Instant, cal: Calendar, project_finish: date
 ) -> date:
@@ -1713,12 +1738,12 @@ def _apply_milestone_late_date(
     """Set a milestone's late date (``late_start == late_finish``); return its instant.
 
     The latest instant every live successor link still admits, capped at the
-    project's finish instant (:func:`_finish_instant`; ``finish`` is
+    project's finish (:func:`_milestone_finish_bound`; ``finish`` is
     ``(project_finish, finish_instant)``) and floored at the early instant for the
     same coordinate-system reason as :func:`_apply_late_dates` (#4079).
     """
     project_finish, finish_instant = finish
-    bounds: list[date] = [finish_instant]
+    bounds: list[date] = [_milestone_finish_bound(finish_instant, project_finish, node_cal)]
     for succ_id in g.successors(node_id):
         succ = task_map[succ_id]
         if _is_complete(succ):
