@@ -94,6 +94,10 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // Adapter limitations — the harness below places exactly one source task.
   all_dep_types: 'adapter: 4 source tasks',
   parallel_critical: 'adapter: 2 source tasks',
+  // #4180. The unrelated `W` task is a second source alongside `A`, kept in the
+  // fixture to hold the project's critical path steady while the free-float
+  // fix is exercised on the A->M->B chain.
+  milestone_free_float_successor_lag_cap: 'adapter: 2 source tasks',
   canonical_to_json_roundtrip: 'serialization fixture, not a scheduling scenario',
   // Calendar capability the browser does not have at drag time (ADR-0120).
   calendar_exceptions: 'engine gap: CalendarException holidays not modeled',
