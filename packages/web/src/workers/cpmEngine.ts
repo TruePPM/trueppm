@@ -676,9 +676,13 @@ function placeMilestone(task: TaskState, preds: CpmEdge[], stateMap: Map<string,
     linked = true;
     const raw = edgeAnchor(edge, source) + edge.lag * MS_PER_DAY;
     if (edge.type === 'FS' || edge.type === 'SS') {
+      // A milestone predecessor's own reading is only the same midnight as `raw`
+      // when the edge carries no lag (#4206 class, TS instance). A nonzero lag
+      // lands on a different midnight, so a lagged edge must seed fresh, same as
+      // when the source isn't itself a milestone.
       const startDisplay = startReading(
         raw,
-        source.instantMs !== null ? source.startDisplay : edge.type === 'SS',
+        source.instantMs !== null && edge.lag === 0 ? source.startDisplay : edge.type === 'SS',
       );
       offer(raw, startDisplay, instantDay(raw, startDisplay));
     } else {
