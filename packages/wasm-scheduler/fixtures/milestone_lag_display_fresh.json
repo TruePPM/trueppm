@@ -1,0 +1,30 @@
+{
+  "id": "p-milestone-lag-display-fresh",
+  "name": "A lagged link out of a milestone reads its instant fresh, not the predecessor's reading (#4205, #4206)",
+  "start_date": "2026-01-05",
+  "tasks": [
+    {"id": "T0", "name": "Work before a Sunday gate", "duration": 432000.0},
+    {"id": "M", "name": "Gate snapped onto Sunday midnight", "duration": 0.0},
+    {"id": "M2", "name": "FS+2d from the snapped gate", "duration": 0.0},
+    {"id": "A", "name": "One-day work", "duration": 86400.0},
+    {"id": "N", "name": "End-of-day gate", "duration": 0.0},
+    {"id": "N2", "name": "SS+1d from the end-of-day gate", "duration": 0.0},
+    {"id": "S", "name": "SS source", "duration": 259200.0},
+    {"id": "P", "name": "Start-of-day gate", "duration": 0.0},
+    {"id": "P2", "name": "FS+0d from the start-of-day gate", "duration": 0.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "T0", "successor_id": "M", "dep_type": "FS", "lag": 86400.0},
+    {"predecessor_id": "M", "successor_id": "M2", "dep_type": "FS", "lag": 172800.0},
+    {"predecessor_id": "A", "successor_id": "N", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "N", "successor_id": "N2", "dep_type": "SS", "lag": 86400.0},
+    {"predecessor_id": "S", "successor_id": "P", "dep_type": "SS", "lag": 86400.0},
+    {"predecessor_id": "P", "successor_id": "P2", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

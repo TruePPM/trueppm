@@ -1310,13 +1310,34 @@ const DANGER_MEMBER = {
   two_fa: false,
 };
 
-async function setupDanger(page: Page) {
+// Export / Transfer ownership / Delete are Owner-only server-side (#4210:
+// `IsWorkspaceOwner`, and the inline `request_is_workspace_owner()` check on
+// delete). `setup()` seeds a plain workspace Admin (300, matching every other
+// spec in this file), so tests exercising the three actions must promote to
+// Owner explicitly — route registration order means this re-mock (after
+// `setup()`) wins.
+async function setupDanger(page: Page, opts: { workspaceRole?: number } = {}) {
   await setup(page);
   await page.route('**/api/v1/workspace/members/', (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
       body: pjPage([MEMBER, DANGER_MEMBER]),
+    }),
+  );
+  await page.route('**/api/v1/auth/me/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        id: 'u1',
+        username: 'alice',
+        display_name: 'Alice',
+        initials: 'AL',
+        email: 'alice@truescope.io',
+        can_access_admin_settings: true,
+        workspace_role: opts.workspaceRole ?? 400, // Owner, unless a test asks otherwise.
+      }),
     }),
   );
 }
@@ -1413,6 +1434,55 @@ test.describe('Workspace Danger page', () => {
 
     await expect(page.getByText(/ownership transferred/i)).toBeVisible();
     expect(transferBody?.new_owner_user_id).toBe(2);
+  });
+
+  // #4210 — Export / Transfer / Delete are Owner-only server-side; a plain
+  // Admin used to see all three enabled and 403 on every click. Every write
+  // endpoint below is mocked to fail the pipeline (500) rather than succeed, so
+  // this proves the point by construction: if any control were reachable, the
+  // spec would surface that failure instead of passing quietly.
+  test('an Admin (workspace_role 300) gets no enabled danger-zone button that 403s', async ({
+    page,
+  }) => {
+    await setupDanger(page, { workspaceRole: 300 });
+    await page.route('**/api/v1/workspace/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) }),
+    );
+    await page.route('**/api/v1/workspace/export/', (r) =>
+      r.fulfill({ status: 403, contentType: 'application/json', body: pj({ detail: 'Only the workspace Owner can perform this action.' }) }),
+    );
+    await page.route('**/api/v1/workspace/transfer-ownership/', (r) =>
+      r.fulfill({ status: 403, contentType: 'application/json', body: pj({ detail: 'Only the workspace Owner can perform this action.' }) }),
+    );
+    await page.route('**/api/v1/workspace/', async (r) => {
+      if (r.request().method() === 'DELETE') {
+        await r.fulfill({ status: 403, contentType: 'application/json', body: pj({ detail: 'Only the workspace Owner can delete the workspace.' }) });
+        return;
+      }
+      await r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) });
+    });
+
+    await page.goto('/settings/danger');
+
+    const exportBtn = page.getByRole('button', { name: 'Export all data' });
+    const transferBtn = page.getByRole('button', { name: /Transfer ownership/i });
+    const ownerSelect = page.getByLabel('New owner');
+    const confirmInput = page.getByLabel(/Confirm delete by typing the workspace name/i);
+    const deleteBtn = page.getByRole('button', { name: 'Delete workspace permanently' });
+
+    await expect(exportBtn).toBeDisabled();
+    await expect(transferBtn).toBeDisabled();
+    await expect(ownerSelect).toBeDisabled();
+    await expect(confirmInput).toBeDisabled();
+    await expect(deleteBtn).toBeDisabled();
+
+    // The reason is stated, not just implied by a disabled attribute.
+    await expect(page.getByText('Requires the workspace Owner role.')).toHaveCount(3);
+
+    // A workspace Admin still has a project-admin front door to /auth/me's
+    // can_access_admin_settings, so the page itself renders (no redirect) —
+    // the gate is the disabled state above, not route access.
+    await expect(page.getByRole('heading', { name: 'Archive / Delete' })).toBeVisible();
   });
 });
 
