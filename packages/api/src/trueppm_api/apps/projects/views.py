@@ -290,6 +290,7 @@ from trueppm_api.apps.projects.task_bulk import (
     MSG_ZERO_DURATION_NOT_MILESTONE,
     BulkOutcome,
 )
+from trueppm_api.apps.scheduling.finish_reading import FINISH_READING_FIELDS
 from trueppm_api.apps.scheduling.models import ScheduleRequestReason
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
 from trueppm_api.apps.sync.conflict import FieldLevelMergeMixin, check_field_conflict
@@ -5732,7 +5733,8 @@ def _attach_milestone_rollups(tasks: list[Task]) -> None:
     """Pre-compute and attach milestone rollups for a page of tasks (#999).
 
     Batches every milestone task in ``tasks`` through
-    ``batch_compute_milestone_rollups`` (2 queries total) and stashes the payload
+    ``batch_compute_milestone_rollups`` (a constant query count: 2, plus one calendar
+    batch when a start-of-day milestone needs one, #4197) and stashes the payload
     on each as ``_milestone_rollup`` so ``TaskSerializer.get_milestone_rollup``
     reads an attribute instead of an O(milestones × sprints) per-row cascade.
     Non-milestone tasks are skipped (the serializer short-circuits on them).
@@ -5751,8 +5753,9 @@ def _attach_target_milestone_rollups(sprints: list[Sprint]) -> None:
     """Pre-compute and attach target-milestone rollups for a page of sprints (#999).
 
     Mirror of ``_attach_milestone_rollups`` for ``SprintSerializer
-    .get_target_milestone_detail`` — batches every linked target milestone in 2
-    queries and stashes the payload as ``_target_milestone_rollup`` on each sprint.
+    .get_target_milestone_detail`` — batches every linked target milestone in a
+    constant number of queries and stashes the payload as
+    ``_target_milestone_rollup`` on each sprint.
     """
     from trueppm_api.apps.projects.services import batch_compute_milestone_rollups
 
@@ -6222,9 +6225,9 @@ class TaskViewSet(
         """Attach batched milestone rollups to the page before serialization.
 
         ``TaskSerializer.milestone_rollup`` is O(milestones × sprints) when computed
-        per row on the hot Gantt fetch (#999). Batch every milestone in the page in
-        2 queries here and stash the payload on each task instance so the serializer
-        reads an attribute instead of re-querying per milestone.
+        per row on the hot Gantt fetch (#999). Batch every milestone in the page in a
+        constant number of queries here and stash the payload on each task instance
+        so the serializer reads an attribute instead of re-querying per milestone.
         """
         queryset = self.filter_queryset(self.get_queryset())
         # #2815: pagination count re-ran every annotation (RawSQL/Exists/Subquery)
@@ -7966,6 +7969,8 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
             from django.db.models import DateField
             from django.db.models.functions import Coalesce
 
+            from trueppm_api.apps.scheduling.finish_reading import values_finish_at_day_start
+
             # Snapshot the task's SPAN (ADR-0752's scheduled_start), not
             # early_start. Since ADR-0132, early_start on an in-progress task
             # is the remaining-work window and narrows toward early_finish as
@@ -7990,6 +7995,11 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
                     "actual_finish",
                     "story_points",
                     "_span_start",
+                    # With actual_start/actual_finish above: the fields
+                    # values_finish_at_day_start reads (#4197).
+                    "is_milestone",
+                    "milestone_at_day_end",
+                    "percent_complete",
                 )
             )
             has_cpm_dates = bool(live_tasks) and all(
@@ -8010,6 +8020,9 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
                         task_name=t["name"],
                         start=t["_span_start"],
                         finish=t["early_finish"],
+                        # Which edge of that day the finish sits on (#4197), so
+                        # drift is compared in working time, not by shown day.
+                        finish_at_day_start=values_finish_at_day_start(t),
                         duration=t["duration"],
                         actual_start=t["actual_start"],
                         actual_finish=t["actual_finish"],
@@ -12616,6 +12629,12 @@ class ProjectAttentionView(APIView):
     # Maximum items returned per severity bucket — keeps the panel scannable.
     _MAX_PER_BUCKET = 3
 
+    # Ceiling on the baseline-drift candidates compared in Python (#4197). The
+    # working-time comparison needs the calendar, so the ordering and the
+    # _MAX_PER_BUCKET cut moved out of SQL; this bounds the worst case. Critical
+    # tasks at or past their baseline on one project — well under this in practice.
+    _MAX_DRIFT_CANDIDATES = 500
+
     # Ceiling on the rows _overallocation_items pulls back to compare in Python.
     # Distinct assignees on one project, so roster-scale in practice; the cap makes
     # the worst case explicit now that the comparison is no longer a HAVING clause.
@@ -12749,10 +12768,14 @@ class ProjectAttentionView(APIView):
         if not active_baseline:
             return []
 
-        # Tasks where CPM early_finish is later than the baseline snapshot finish.
-        # BaselineTask.finish mirrors Task.early_finish at snapshot time (field is
-        # named "finish", not "early_finish" — see BaselineTask model).
-        drift_items = (
+        # Candidates: critical tasks whose CPM early_finish is on or after the
+        # baseline snapshot finish. BaselineTask.finish mirrors Task.early_finish at
+        # snapshot time (field is named "finish", not "early_finish" — see
+        # BaselineTask model). ``>=``, not ``>``: a baseline finish at the START of
+        # a day that is now at the END of the same day slipped a working day with
+        # no change of shown day. The shown-day SQL filter can only over-select;
+        # the working-time comparison below decides (#4197).
+        candidates = list(
             Task.objects.filter(
                 project=project,
                 is_deleted=False,
@@ -12762,33 +12785,73 @@ class ProjectAttentionView(APIView):
             .annotate(
                 baseline_finish=Subquery(
                     active_baseline.tasks.filter(task_id=OuterRef("pk")).values("finish")[:1]
-                )
+                ),
+                baseline_finish_at_day_start=Subquery(
+                    active_baseline.tasks.filter(task_id=OuterRef("pk")).values(
+                        "finish_at_day_start"
+                    )[:1]
+                ),
             )
             .filter(
                 baseline_finish__isnull=False,
-                early_finish__gt=db_models.F("baseline_finish"),
+                early_finish__gte=db_models.F("baseline_finish"),
             )
-            .order_by((db_models.F("early_finish") - db_models.F("baseline_finish")).desc())[
-                : self._MAX_PER_BUCKET
+            # Largest shown slip first, so the candidate cap keeps the likeliest.
+            .order_by((db_models.F("early_finish") - db_models.F("baseline_finish")).desc())
+            .only("id", "name", "early_finish", *FINISH_READING_FIELDS)[
+                : self._MAX_DRIFT_CANDIDATES
             ]
         )
-        out: list[dict[str, Any]] = []
-        for task in drift_items:
+        drifted = self._working_time_drift(project, candidates)
+        drifted.sort(key=lambda pair: pair[1], reverse=True)
+        return [
+            {
+                "severity": "info",
+                "type": "baseline_drift",
+                "task_id": str(task.id),
+                "task_name": task.name,
+                "assignee_name": None,
+                "date": task.early_finish.isoformat() if task.early_finish else None,
+                "detail": f"Slipped +{drift_days}d vs baseline",
+                "link_target": None,
+            }
+            for task, drift_days in drifted[: self._MAX_PER_BUCKET]
+        ]
+
+    @staticmethod
+    def _working_time_drift(project: Project, candidates: Sequence[Task]) -> list[tuple[Task, int]]:
+        """``(task, drift_days)`` for each candidate that slipped in working time (#4197).
+
+        A start-of-day milestone whose shown finish hops a weekend relative to its
+        baseline — the end of Friday against the start of the next Monday — has not
+        slipped, so it is dropped rather than reported as "+3d". ``drift_days`` is
+        still a calendar-day count. The project calendar is composed only when some
+        candidate carries a start-of-day reading on either side, since an
+        end-of-day pair diffs identically without it.
+        """
+        from trueppm_api.apps.scheduling.calendars import project_sched_calendars
+        from trueppm_api.apps.scheduling.finish_reading import (
+            finish_shift_days,
+            task_finish_at_day_start,
+        )
+
+        pairs = []
+        for task in candidates:
             baseline_finish = getattr(task, "baseline_finish", None)
-            if baseline_finish and task.early_finish:
-                drift_days = (task.early_finish - baseline_finish).days
-                out.append(
-                    {
-                        "severity": "info",
-                        "type": "baseline_drift",
-                        "task_id": str(task.id),
-                        "task_name": task.name,
-                        "assignee_name": None,
-                        "date": task.early_finish.isoformat(),
-                        "detail": f"Slipped +{drift_days}d vs baseline",
-                        "link_target": None,
-                    }
-                )
+            if baseline_finish is None or task.early_finish is None:
+                continue
+            base = (baseline_finish, getattr(task, "baseline_finish_at_day_start", None))
+            pairs.append((task, base, (task.early_finish, task_finish_at_day_start(task))))
+        calendar = (
+            project_sched_calendars([project.pk]).get(str(project.pk))
+            if any(base[1] or cur[1] for _, base, cur in pairs)
+            else None
+        )
+        out: list[tuple[Task, int]] = []
+        for task, base, cur in pairs:
+            drift_days = finish_shift_days(base, cur, calendar)
+            if drift_days > 0:
+                out.append((task, drift_days))
         return out
 
     def _overallocation_items(self, project: Project) -> list[dict[str, Any]]:
@@ -14185,6 +14248,12 @@ class TaskBaselineDetailView(APIView):
         except Baseline.DoesNotExist:
             return Response({"has_baseline": False})
 
+        from trueppm_api.apps.projects.services import _project_sched_calendar
+        from trueppm_api.apps.scheduling.finish_reading import (
+            finish_shift_days,
+            task_finish_at_day_start,
+        )
+
         try:
             bt = BaselineTask.objects.get(baseline=baseline, task_id=task.pk)
         except BaselineTask.DoesNotExist:
@@ -14218,6 +14287,32 @@ class TaskBaselineDetailView(APIView):
             task.scheduled_start if task.scheduled_start is not None else task.early_start
         )
 
+        # Finish delta in working time (#4197): a milestone baselined at the end of a
+        # Friday and now shown at the start of the next Monday has not moved, so it
+        # reads 0, not 3. A milestone's start is its shown day too, so its start
+        # delta is read the same way; a work task's start is always the start of its
+        # day, and its shown-day difference is already exact.
+        current_at_start = task_finish_at_day_start(task)
+        base_at_start = bt.finish_at_day_start
+        calendar = (
+            _project_sched_calendar(project.pk) if (current_at_start or base_at_start) else None
+        )
+
+        def _finish_delta(
+            current: datetime.date | None, planned: datetime.date | None
+        ) -> int | None:
+            if current is None or planned is None:
+                return None
+            return finish_shift_days(
+                (planned, base_at_start), (current, current_at_start), calendar
+            )
+
+        start_delta = (
+            _finish_delta(current_start, bt.start)
+            if task.is_milestone
+            else _day_delta(current_start, bt.start)
+        )
+
         return Response(
             {
                 "has_baseline": True,
@@ -14239,8 +14334,8 @@ class TaskBaselineDetailView(APIView):
                 "current_actual_finish": (
                     task.actual_finish.isoformat() if task.actual_finish else None
                 ),
-                "start_delta_days": _day_delta(current_start, bt.start),
-                "finish_delta_days": _day_delta(task.early_finish, bt.finish),
+                "start_delta_days": start_delta,
+                "finish_delta_days": _finish_delta(task.early_finish, bt.finish),
                 "duration_delta": task.duration - bt.duration,
             }
         )

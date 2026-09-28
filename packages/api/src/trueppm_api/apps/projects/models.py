@@ -4573,6 +4573,16 @@ class BaselineTask(models.Model):
     task_name = models.CharField(max_length=512)
     start = models.DateField(null=True, blank=True)
     finish = models.DateField(null=True, blank=True)
+    # Whether ``finish`` is the START of that day (a milestone the engine shows at
+    # the start of its day, #4079/#4173) rather than its end (#4197). The start of
+    # a Monday is the same point in working time as the end of the Friday before
+    # it, so every baseline-drift consumer compares through this bit with
+    # ``finish_reading.finish_shift_days`` instead of subtracting shown days.
+    # NULL = unknown: a row captured before the field existed (the milestone edge
+    # was never snapshotted, so it cannot be backfilled), a seeded row, or one
+    # written by a pod still on the previous image mid-upgrade. finish_shift_days
+    # reads an unknown edge as unmoved on the same day, else as the end of its day.
+    finish_at_day_start = models.BooleanField(null=True, blank=True)
     duration = models.IntegerField()
     actual_start = models.DateField(null=True, blank=True)
     actual_finish = models.DateField(null=True, blank=True)

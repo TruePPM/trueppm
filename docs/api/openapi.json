@@ -45402,7 +45402,7 @@
         "/api/v1/tasks/": {
             "get": {
                 "operationId": "v1_tasks_list",
-                "description": "Attach batched milestone rollups to the page before serialization.\n\n``TaskSerializer.milestone_rollup`` is O(milestones × sprints) when computed\nper row on the hot Gantt fetch (#999). Batch every milestone in the page in\n2 queries here and stash the payload on each task instance so the serializer\nreads an attribute instead of re-querying per milestone.",
+                "description": "Attach batched milestone rollups to the page before serialization.\n\n``TaskSerializer.milestone_rollup`` is O(milestones × sprints) when computed\nper row on the hot Gantt fetch (#999). Batch every milestone in the page in a\nconstant number of queries here and stash the payload on each task instance\nso the serializer reads an attribute instead of re-querying per milestone.",
                 "parameters": [
                     {
                         "in": "query",
@@ -52785,7 +52785,7 @@
             },
             "BaselineTask": {
                 "type": "object",
-                "description": "Read-only snapshot of a single task within a baseline.",
+                "description": "Read-only snapshot of a single task within a baseline.\n\n``finish_at_day_start`` says which edge of ``finish`` the snapshotted task sat\non (#4197): true for a milestone shown at the start of its day, whose finish is\nthe same working-time point as the end of the previous working day. Compare a\nbaseline finish to a current one in working time, not by subtracting days. Null\nfor a baseline captured before the reading was recorded.",
                 "properties": {
                     "task_id": {
                         "type": "string",
@@ -52805,6 +52805,11 @@
                     "finish": {
                         "type": "string",
                         "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "finish_at_day_start": {
+                        "type": "boolean",
                         "readOnly": true,
                         "nullable": true
                     },
@@ -52830,6 +52835,7 @@
                     "actual_start",
                     "duration",
                     "finish",
+                    "finish_at_day_start",
                     "start",
                     "task_id",
                     "task_name"

@@ -26,8 +26,9 @@ engine's public surface.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
+from types import SimpleNamespace
 from typing import Any
 
 #: A shown finish: ``(day, at_day_start)``. ``at_day_start`` True means the finish
@@ -35,6 +36,16 @@ from typing import Any
 #: ``None`` that the reading is unknown — a snapshot row written before the reading
 #: was recorded (see :func:`finish_shift_days`).
 Finish = tuple[date, bool | None]
+
+#: The ``Task`` columns :func:`task_finish_at_day_start` reads. Name them in any
+#: ``.only()`` / ``.values()`` that feeds it, or each deferred read is a query.
+FINISH_READING_FIELDS: tuple[str, ...] = (
+    "is_milestone",
+    "milestone_at_day_end",
+    "actual_start",
+    "actual_finish",
+    "percent_complete",
+)
 
 
 def task_finish_at_day_start(task: Any, *, milestone_at_day_end: bool | None = None) -> bool:
@@ -68,6 +79,18 @@ def task_finish_at_day_start(task: Any, *, milestone_at_day_end: bool | None = N
     complete = actual_finish is not None or (getattr(task, "percent_complete", 0) or 0) >= 100
     pinned = complete and (actual_finish is not None or actual_start is not None)
     return not pinned
+
+
+def values_finish_at_day_start(row: Mapping[str, Any]) -> bool | None:
+    """:func:`task_finish_at_day_start` for a ``Task`` ``.values()`` row (#4197).
+
+    ``None`` when the row has no ``early_finish`` — there is no finish to read an
+    edge of. The row must carry :data:`FINISH_READING_FIELDS`. Used at baseline
+    capture, whose task read is a ``.values()`` query.
+    """
+    if row.get("early_finish") is None:
+        return None
+    return task_finish_at_day_start(SimpleNamespace(**{f: row[f] for f in FINISH_READING_FIELDS}))
 
 
 def latest_finish(rows: Iterable[tuple[date | None, bool, Any]]) -> Finish | None:
