@@ -498,6 +498,30 @@ def test_backward_seed_without_a_finish_instant_is_the_finish_day_itself() -> No
     assert ls == []
 
 
+def test_backward_seed_widens_a_start_of_day_finish_instant() -> None:
+    # #4174: a scheduled network never separates this from the pre-#4174 mutant
+    # (a real successor's own term always ties or beats the anchor before the
+    # widening is visible in `imposed_date`, since `_late_display` independently
+    # re-derives the shown day from either instant) — so `bounds_out`, the raw
+    # value `_backward_successor_terms` hands the caller for its own "tightest
+    # term" comparison, is the only place a regression to the raw instant shows.
+    cal = Calendar()
+    bounds: dict[int, date] = {}
+    # Sunday midnight reads as the start of Monday (`project_finish` on or after
+    # it) — the seed widens to Monday, the next working day.
+    lf, _ = _backward_successor_terms(
+        [], cal, date(2026, 1, 12), finish_instant=date(2026, 1, 11), bounds_out=bounds
+    )
+    assert bounds[id(lf[0])] == date(2026, 1, 12)
+    # Saturday midnight reads as the end of Friday (`project_finish` before it) —
+    # the seed stays at the raw instant.
+    bounds.clear()
+    lf, _ = _backward_successor_terms(
+        [], cal, date(2026, 1, 9), finish_instant=date(2026, 1, 10), bounds_out=bounds
+    )
+    assert bounds[id(lf[0])] == date(2026, 1, 10)
+
+
 def test_free_float_without_early_references_reads_successor_early_dates() -> None:
     a = _scheduled("A", MON, date(2026, 1, 6))
     b = _scheduled("B", date(2026, 1, 9), date(2026, 1, 9))
