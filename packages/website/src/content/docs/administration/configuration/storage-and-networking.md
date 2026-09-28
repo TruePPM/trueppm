@@ -11,6 +11,27 @@ local `FileSystemStorage` default is **ephemeral in a container**, and productio
 refuses to boot on it, so a durable deploy points
 `TRUEPPM_DEFAULT_FILE_STORAGE` at an S3-compatible bucket.
 
+:::note[Choosing a backend]
+The `TRUEPPM_S3_*` settings are backend-neutral by design — any store that speaks the
+S3 API works, in three broad categories:
+
+- **A hyperscaler's own object store** — AWS S3 (the example directly below), or GCS /
+  Azure Blob through their own dedicated `django-storages` backends rather than this S3
+  config (see [Which backends the image can import](#which-backends-the-image-can-import)).
+- **A commercial S3-compatible service** — Cloudflare R2, Backblaze B2, Wasabi,
+  DigitalOcean Spaces, and similar. These use the same `TRUEPPM_S3_*` variables as AWS,
+  just with `TRUEPPM_S3_ENDPOINT_URL` pointed at the provider.
+- **A self-hosted S3-compatible store** — see [MinIO](#minio) and
+  [SeaweedFS](#seaweedfs) below for worked examples; Ceph RGW works the same way.
+
+**A note on MinIO specifically:** MinIO's own OSS distribution has grown harder to rely
+on for a *new* deployment — `minio/minio` was pulled from Docker Hub entirely in
+September 2026, and the upstream MinIO community project is now source-only and in
+maintenance mode as the company focuses on its commercial offering. An existing MinIO
+deployment keeps working — nothing here requires migrating off it — but for a new
+self-hosted deployment, SeaweedFS is the better-supported starting point.
+:::
+
 The API image bundles the S3 backend, so the two variables below are all a
 deploy against AWS S3 needs:
 
