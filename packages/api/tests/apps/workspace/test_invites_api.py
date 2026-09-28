@@ -11,11 +11,13 @@ joined via invite" and never who sent it.
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.core import mail
-from django.db import connection
+from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -418,17 +420,16 @@ def test_accept_new_user_requires_credentials(admin: object) -> None:
 
 
 @pytest.mark.django_db
-def test_drain_sends_after_orphan_window(admin: object, settings: object) -> None:
+def test_drain_sends_new_invite_immediately(admin: object, settings: object) -> None:
+    """A just-committed invite is drain-eligible at once — no 5-min age floor (#4191).
+
+    The floor used to make every first invite arrive >= 5 min late while a resend (an
+    already-old row) left in the same second. Exactly-once comes from the drain's
+    singleton lock, not from row age.
+    """
     settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
     invite = services.create_invite(
         workspace=Workspace.load(), email="drain@x.io", role=WorkspaceRole.MEMBER, invited_by=admin
-    )
-    # Inside the orphan window → not yet eligible.
-    _do_drain_invite_emails()
-    assert len(mail.outbox) == 0
-    # Backdate past the 5-min orphan window.
-    WorkspaceInvite.objects.filter(pk=invite.pk).update(
-        created_at=timezone.now() - timedelta(minutes=10)
     )
     _do_drain_invite_emails()
     assert len(mail.outbox) == 1
@@ -436,6 +437,99 @@ def test_drain_sends_after_orphan_window(admin: object, settings: object) -> Non
     invite.refresh_from_db()
     assert invite.email_pending is False
     assert invite.email_token == ""  # cleared after successful send
+
+
+@pytest.mark.django_db
+def test_second_drain_does_not_resend(admin: object, settings: object) -> None:
+    """Removing the age floor must not open a double send: a sent row is terminal."""
+    settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    services.create_invite(
+        workspace=Workspace.load(), email="once@x.io", role=WorkspaceRole.MEMBER, invited_by=admin
+    )
+    _do_drain_invite_emails()
+    _do_drain_invite_emails()
+    assert len(mail.outbox) == 1
+
+
+@pytest.mark.django_db
+def test_failed_invite_retry_waits_one_tick(admin: object, settings: object) -> None:
+    """Back-to-back drains after a failure make one attempt, not three (#4191).
+
+    Nudges run the drain far more often than Beat, so without a retry floor a short
+    relay outage would exhaust every attempt in seconds and mark the invite FAILED.
+    """
+    from unittest.mock import patch as _patch
+
+    from trueppm_api.apps.workspace.tasks import EMAIL_RETRY_SPACING
+
+    invite = services.create_invite(
+        workspace=Workspace.load(), email="retry@x.io", role=WorkspaceRole.MEMBER, invited_by=admin
+    )
+    with _patch("trueppm_api.apps.workspace.tasks._send_invite_email", return_value=False):
+        _do_drain_invite_emails()
+        _do_drain_invite_emails()
+        invite.refresh_from_db()
+        assert invite.email_attempts == 1
+        assert invite.status == InviteStatus.PENDING
+        # One tick later the retry is eligible again.
+        WorkspaceInvite.objects.filter(pk=invite.pk).update(
+            email_failed_at=timezone.now() - EMAIL_RETRY_SPACING - timedelta(seconds=1)
+        )
+        _do_drain_invite_emails()
+    invite.refresh_from_db()
+    assert invite.email_attempts == 2
+
+
+@pytest.mark.django_db
+def test_create_invite_nudges_drain_on_commit(
+    admin: object, django_capture_on_commit_callbacks: Any
+) -> None:
+    """The create path nudges the drain after commit, so first send is seconds (#4191)."""
+    with (
+        patch("trueppm_api.apps.workspace.tasks.drain_invite_emails.delay") as delay,
+        django_capture_on_commit_callbacks(execute=True) as callbacks,
+    ):
+        resp = _client(admin).post(
+            LIST_URL, {"email": "nudge@x.io", "role": WorkspaceRole.MEMBER}, format="json"
+        )
+        # Deferred to commit: nothing is enqueued while the create transaction is open.
+        assert delay.call_count == 0
+    assert resp.status_code == 201
+    assert services.drain_invite_emails_soon in callbacks
+    assert delay.call_count == 1
+
+
+@pytest.mark.django_db
+def test_rolled_back_invite_create_does_not_nudge(
+    admin: object, django_capture_on_commit_callbacks: Any
+) -> None:
+    """A create that rolls back enqueues nothing — on_commit never fires for it."""
+    with (
+        patch("trueppm_api.apps.workspace.tasks.drain_invite_emails.delay") as delay,
+        django_capture_on_commit_callbacks(execute=True) as callbacks,
+    ):
+        try:
+            with transaction.atomic():
+                services.create_invite(
+                    workspace=Workspace.load(),
+                    email="rollback@x.io",
+                    role=WorkspaceRole.MEMBER,
+                    invited_by=admin,
+                )
+                raise RuntimeError("abort")
+        except RuntimeError:
+            pass
+    assert services.drain_invite_emails_soon not in callbacks
+    assert delay.call_count == 0
+
+
+def test_drain_nudge_swallows_broker_errors() -> None:
+    """The nudge is an optimization; a broker outage must not fail the create."""
+    with patch(
+        "trueppm_api.apps.workspace.tasks.drain_invite_emails.delay",
+        side_effect=OSError("broker down"),
+    ):
+        services.drain_invite_emails_soon()  # does not raise
 
 
 @pytest.mark.django_db
@@ -595,8 +689,7 @@ def test_drain_terminal_failure_clears_token(admin: object, monkeypatch: object)
     invite = services.create_invite(
         workspace=Workspace.load(), email="fail@x.io", role=WorkspaceRole.MEMBER, invited_by=admin
     )
-    # Backdate past the orphan window and pre-load attempts to the retry ceiling so
-    # this drain pass is the terminal one.
+    # Pre-load attempts to the retry ceiling so this drain pass is the terminal one.
     WorkspaceInvite.objects.filter(pk=invite.pk).update(
         created_at=timezone.now() - timedelta(minutes=10),
         email_attempts=EMAIL_MAX_RETRIES - 1,
@@ -652,7 +745,6 @@ def test_resend_then_drain_sends_again(admin: object) -> None:
     invite = _sent_invite(admin)
     mail.outbox.clear()
     _client(admin).post(f"{LIST_URL}{invite.pk}/resend/")
-    # created_at is unchanged (old), so the resend clears the orphan window at once.
     _do_drain_invite_emails()
     invite.refresh_from_db()
     assert invite.email_pending is False

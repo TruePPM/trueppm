@@ -412,6 +412,47 @@ class TestCreateMentionNotifications:
         n = Notification.objects.get(recipient=alice)
         assert n.email_pending is True
 
+    def test_mention_email_nudges_drain_on_commit(
+        self,
+        project: Project,
+        author: object,
+        alice: object,
+        comment: TaskComment,
+        memberships: dict[str, ProjectMembership],
+        django_capture_on_commit_callbacks: Any,
+    ) -> None:
+        """An @mention that queues an email nudges the drain after commit (#4191).
+
+        The issue's evidence was an @mention delivered 5m26s late: nothing sent a new
+        row before the drain's 5-min age floor let it through.
+        """
+        from unittest.mock import patch
+
+        from trueppm_api.apps.notifications.services import drain_notification_emails_soon
+
+        NotificationPreference.objects.create(
+            user=alice,
+            event_type=NotificationEventType.MENTION_INDIVIDUAL,
+            channel=NotificationChannel.EMAIL,
+            enabled=True,
+        )
+        resolved = resolve_parsed_mentions(
+            [ParsedMention("user", "alice")], project.pk, actor_role=Role.ADMIN
+        )
+        with (
+            patch("trueppm_api.apps.notifications.tasks.drain_notification_emails.delay") as delay,
+            django_capture_on_commit_callbacks(execute=True) as callbacks,
+        ):
+            create_mention_notifications(
+                task_comment=comment,
+                mentioner=author,
+                parsed_result=resolved,
+                project_id=project.pk,
+                now=NOON_UTC,
+            )
+        assert drain_notification_emails_soon in callbacks
+        assert delay.call_count == 1
+
     def test_quiet_hours_suppresses_email_but_not_in_app(
         self,
         project: Project,

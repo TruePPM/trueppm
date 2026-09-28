@@ -133,6 +133,28 @@ def _run_config_notices_inline(settings: Any) -> Iterator[None]:
         yield
 
 
+@pytest.fixture(autouse=True)
+def _no_broker_for_email_drain_nudges() -> Iterator[None]:
+    """Keep the on_commit email-drain nudges off the real broker (#4191).
+
+    Creating an invite or an email-queuing notification nudges its drain from
+    ``on_commit``. Celery is not eager under test, so an executed callback would
+    publish to the live broker, where a dev-stack worker could run the drain against
+    a different database. The nudge is a latency optimization with no effect on what
+    a test asserts; tests about the nudge patch ``delay`` again locally.
+    """
+    from unittest.mock import patch
+
+    from trueppm_api.apps.notifications.tasks import drain_notification_emails
+    from trueppm_api.apps.workspace.tasks import drain_invite_emails
+
+    with (
+        patch.object(drain_notification_emails, "delay"),
+        patch.object(drain_invite_emails, "delay"),
+    ):
+        yield
+
+
 @pytest.fixture
 def django_capture_on_commit_callbacks() -> Callable[..., Any]:
     """Override pytest-django's fixture with the savepoint-safe capture (#2945).

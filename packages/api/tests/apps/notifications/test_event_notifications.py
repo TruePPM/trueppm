@@ -572,16 +572,89 @@ def test_blocked_email_fires_for_opted_in_recipient_without_reason(
     assert resp.status_code == 200, resp.data
     notif = Notification.objects.get(recipient=bob, event_type="task.blocked")
     assert notif.email_pending is True
-    # Backdate past the email orphan window so the drain picks it up (the window
-    # exists so a rolled-back transaction never strands an email — not relevant here).
-    from datetime import timedelta as _td
-
-    from django.utils import timezone as _tz
-
-    Notification.objects.filter(pk=notif.pk).update(created_at=_tz.now() - _td(minutes=30))
     _do_drain_emails()
     assert len(mail.outbox) == 1
     assert mail.outbox[0].to == ["bob@x.io"]
     assert secret not in mail.outbox[0].subject
     assert secret not in mail.outbox[0].body
     assert "Decision needed" in mail.outbox[0].body
+
+
+# ---------------------------------------------------------------------------
+# On-commit drain nudge (#4191)
+# ---------------------------------------------------------------------------
+
+_DRAIN_DELAY = "trueppm_api.apps.notifications.tasks.drain_notification_emails.delay"
+
+
+@pytest.mark.django_db
+def test_email_queuing_fan_out_nudges_drain_on_commit(
+    project: Project, bob: Any, django_capture_on_commit_callbacks: Callable[..., Any]
+) -> None:
+    """A row that queues an email nudges the drain after commit, not on the next tick.
+
+    Before #4191 nothing sent a new notification email sooner than the drain's 5-min
+    age floor, so every mention/assignment email arrived >= 5 min late.
+    """
+    from unittest.mock import patch
+
+    from trueppm_api.apps.notifications.services import drain_notification_emails_soon
+
+    NotificationPreference.objects.create(
+        user=bob,
+        event_type=NotificationEventType.TASK_ASSIGNED,
+        channel=NotificationChannel.EMAIL,
+        enabled=True,
+    )
+    with (
+        patch(_DRAIN_DELAY) as delay,
+        django_capture_on_commit_callbacks(execute=True) as callbacks,
+    ):
+        n = create_event_notifications(
+            event_type=NotificationEventType.TASK_ASSIGNED.value,
+            recipient_ids=[bob.pk],
+            subject="Assigned",
+            body="You were assigned",
+            project_id=project.pk,
+        )
+        assert delay.call_count == 0  # deferred until the write commits
+    assert n == 1
+    assert Notification.objects.get(recipient=bob).email_pending is True
+    assert drain_notification_emails_soon in callbacks
+    assert delay.call_count == 1
+
+
+@pytest.mark.django_db
+def test_in_app_only_fan_out_does_not_nudge_drain(
+    project: Project, bob: Any, django_capture_on_commit_callbacks: Callable[..., Any]
+) -> None:
+    """No email queued (default: email OFF) → no drain enqueue for nothing to send."""
+    from unittest.mock import patch
+
+    from trueppm_api.apps.notifications.services import drain_notification_emails_soon
+
+    with (
+        patch(_DRAIN_DELAY) as delay,
+        django_capture_on_commit_callbacks(execute=True) as callbacks,
+    ):
+        n = create_event_notifications(
+            event_type=NotificationEventType.TASK_ASSIGNED.value,
+            recipient_ids=[bob.pk],
+            subject="Assigned",
+            body="You were assigned",
+            project_id=project.pk,
+        )
+    assert n == 1
+    assert Notification.objects.get(recipient=bob).email_pending is False
+    assert drain_notification_emails_soon not in callbacks
+    assert delay.call_count == 0
+
+
+def test_notification_drain_nudge_swallows_broker_errors() -> None:
+    """The nudge is best-effort; a broker outage must not fail the write path."""
+    from unittest.mock import patch
+
+    from trueppm_api.apps.notifications.services import drain_notification_emails_soon
+
+    with patch(_DRAIN_DELAY, side_effect=OSError("broker down")):
+        drain_notification_emails_soon()  # does not raise
