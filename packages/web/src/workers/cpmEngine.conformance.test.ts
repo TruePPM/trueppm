@@ -71,6 +71,11 @@ const IN_SCOPE_FIXTURES = [
   // #4145: SF from ordinary work, with the predecessor's start reached through
   // an FS chain rather than a planned_start, so this adapter can place it.
   'sf_from_work_chained',
+  // #4174: the fix is backward-pass only (a terminal milestone's late seed);
+  // this fixture's forward-pass shape (a calendar-aware FS+lag reaching a
+  // milestone) is ordinary and unaffected, and this suite asserts only
+  // early_start/early_finish.
+  'milestone_terminal_lag_seed',
 ] as const;
 
 /**
