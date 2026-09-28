@@ -20568,7 +20568,7 @@
                                 }
                             }
                         },
-                        "description": "Monte Carlo simulation result. Includes the engine result fields (P50/P80/P95 finish dates, mean, std dev, etc.) plus cpm_finish (deterministic CPM project finish, ISO 8601 or null), delta_vs_cpm ({p50,p80,p95} signed premium vs CPM — a calendar-day difference of shown days, not working time), confidence_curve ([{date, pct}] cumulative finish-by-date S-curve), histogram_buckets ([{date, count}]), sensitivity ([{task_id, index}] duration tornado — tasks that move the finish most, index 0..1, ADR-0140), forecast_diagnostic ({deterministic, reason, tasks_total, tasks_with_variance, tasks_pending_approval, agile_tasks_without_velocity, tasks_estimates_below_plan} — explains a flat forecast; reason is null when a real band exists), last_run_at (ISO 8601), status_date (the data date this run was actually computed against — project.status_date or today when unset, ADR-0132/#2638), and the risk_premium_* family (ADR-0698): risk_premium_state (not_run|unmeasurable|stale|zero|premium|negative — the discriminant every client renders from, never null), risk_premium_days, risk_premium_ratio, risk_premium_band (always null until #2299), risk_premium_as_of, risk_premium_reason, risk_premium_cpm_finish, risk_premium_p80. Derived at response time, never cached, so the ratio never describes a remaining duration that has since elapsed. Plus the forecast-staleness family (#3140): forecast_staleness (current|project_changed|aged|unknown — the discriminant every client renders from, never null; only `current` means the forecast still describes the plan, and clients keep the recompute action reachable on the other three), plan_version (the project's sync version this run was computed against; null for runs recorded before #3140, which classify as `unknown`, never `current`), and plan_version_current (that version as of this response). `project_changed` is deliberately not named `plan_changed`: the underlying counter advances on ANY write in the project, so a description or label edit raises it without moving a date. It is a sound trigger for offering a recompute and NOT evidence that a schedule value changed — do not narrate it as one."
+                        "description": "Monte Carlo simulation result. Includes the engine result fields (P50/P80/P95 finish dates, mean, std dev, etc.) plus cpm_finish (deterministic CPM project finish, ISO 8601 or null), p50_at_day_start/p80_at_day_start/p95_at_day_start and cpm_finish_at_day_start (which edge of its shown day each finish is — true = the start of the day, a start-of-day milestone finish; #4204), delta_vs_cpm ({p50,p80,p95} signed calendar-day premium vs CPM, measured in working time: the start of a Monday vs the end of the Friday before it is 0), confidence_curve ([{date, pct}] cumulative finish-by-date S-curve), histogram_buckets ([{date, count}]), sensitivity ([{task_id, index}] duration tornado — tasks that move the finish most, index 0..1, ADR-0140), forecast_diagnostic ({deterministic, reason, tasks_total, tasks_with_variance, tasks_pending_approval, agile_tasks_without_velocity, tasks_estimates_below_plan} — explains a flat forecast; reason is null when a real band exists), last_run_at (ISO 8601), status_date (the data date this run was actually computed against — project.status_date or today when unset, ADR-0132/#2638), and the risk_premium_* family (ADR-0698): risk_premium_state (not_run|unmeasurable|stale|zero|premium|negative — the discriminant every client renders from, never null), risk_premium_days, risk_premium_ratio, risk_premium_band (always null until #2299), risk_premium_as_of, risk_premium_reason, risk_premium_cpm_finish, risk_premium_p80. Derived at response time, never cached, so the ratio never describes a remaining duration that has since elapsed. Plus the forecast-staleness family (#3140): forecast_staleness (current|project_changed|aged|unknown — the discriminant every client renders from, never null; only `current` means the forecast still describes the plan, and clients keep the recompute action reachable on the other three), plan_version (the project's sync version this run was computed against; null for runs recorded before #3140, which classify as `unknown`, never `current`), and plan_version_current (that version as of this response). `project_changed` is deliberately not named `plan_changed`: the underlying counter advances on ANY write in the project, so a description or label edit raises it without moving a date. It is a sound trigger for offering a recompute and NOT evidence that a schedule value changed — do not narrate it as one."
                     },
                     "400": {
                         "content": {
@@ -20763,7 +20763,7 @@
                                 }
                             }
                         },
-                        "description": "The most recent Monte Carlo result for the project. Keys: p50/p80/p95 (ISO-8601 finish dates), cpm_finish, delta_vs_cpm ({p50, p80, p95} calendar-day differences of shown days vs the CPM finish, not working time), runs (n_simulations), confidence_curve, histogram_buckets, sensitivity, last_run_at, status_date (the data date this run was computed against — project.status_date or today when unset, ADR-0132/#2638; null for runs persisted before #2638), from_history (true when served from a persisted run after the 24h cache TTL expired), and the risk_premium_* family (ADR-0698): risk_premium_state (not_run|unmeasurable|stale|zero|premium|negative — the discriminant every client renders from, never null), risk_premium_days, risk_premium_ratio, risk_premium_band (always null until #2299), risk_premium_as_of, risk_premium_reason, risk_premium_cpm_finish, risk_premium_p80. The premium is derived on every response and is never stored in the cache entry. Legacy runs with no stored distribution return empty confidence_curve/histogram_buckets/sensitivity arrays. Plus the forecast-staleness family (#3140): forecast_staleness (current|project_changed|aged|unknown — never null; only `current` means the forecast still describes the plan, and a client keeps the recompute action reachable on the other three), plan_version (the project's sync version this run was computed against — unlike the risk_premium family this one IS carried on the cache entry and the persisted row, because it is a run-time observation that cannot be re-derived later; null for runs recorded before #3140, which classify as `unknown`, never `current`), and plan_version_current (that version as of this response). `project_changed` is deliberately not named `plan_changed`: the underlying counter advances on ANY write in the project, so a description or label edit raises it without moving a date. It is a sound trigger for offering a recompute and NOT evidence that a schedule value changed — do not narrate it as one."
+                        "description": "The most recent Monte Carlo result for the project. Keys: p50/p80/p95 (ISO-8601 finish dates), p50/p80/p95_at_day_start and cpm_finish, cpm_finish_at_day_start (which edge of its shown day each finish is; null on a run persisted before #4204), delta_vs_cpm ({p50, p80, p95} calendar-day deltas vs the CPM finish, measured in working time), runs (n_simulations), confidence_curve, histogram_buckets, sensitivity, last_run_at, status_date (the data date this run was computed against — project.status_date or today when unset, ADR-0132/#2638; null for runs persisted before #2638), from_history (true when served from a persisted run after the 24h cache TTL expired), and the risk_premium_* family (ADR-0698): risk_premium_state (not_run|unmeasurable|stale|zero|premium|negative — the discriminant every client renders from, never null), risk_premium_days, risk_premium_ratio, risk_premium_band (always null until #2299), risk_premium_as_of, risk_premium_reason, risk_premium_cpm_finish, risk_premium_p80. The premium is derived on every response and is never stored in the cache entry. Legacy runs with no stored distribution return empty confidence_curve/histogram_buckets/sensitivity arrays. Plus the forecast-staleness family (#3140): forecast_staleness (current|project_changed|aged|unknown — never null; only `current` means the forecast still describes the plan, and a client keeps the recompute action reachable on the other three), plan_version (the project's sync version this run was computed against — unlike the risk_premium family this one IS carried on the cache entry and the persisted row, because it is a run-time observation that cannot be re-derived later; null for runs recorded before #3140, which classify as `unknown`, never `current`), and plan_version_current (that version as of this response). `project_changed` is deliberately not named `plan_changed`: the underlying counter advances on ANY write in the project, so a description or label edit raises it without moving a date. It is a sound trigger for offering a recompute and NOT evidence that a schedule value changed — do not narrate it as one."
                     },
                     "404": {
                         "content": {
@@ -20870,7 +20870,7 @@
                                 }
                             }
                         },
-                        "description": "What-if forecast. Keys: task_id; applied ({base_duration_days, duration_delta_days, new_duration_days}); current and whatif (each {p50, p80, p95, cpm_finish (ISO-8601 or null), critical_path ([task_id])}); critical_path_changed (bool — did the set of critical tasks change); delta_vs_current ({p50, p80, p95, cpm_finish} signed calendar-day shifts, positive = later/worse, null when a date is missing; cpm_finish is measured in working time, so a milestone finish that only moves from the end of a Friday to the start of the next Monday is 0); runs (n_simulations); seed (fixed RNG seed shared by both runs so the delta isolates the change); cpm_status_date and mc_status_date (ADR-0132/#2638, floor armed on the CPM path by ADR-0752 §4) — the resolved data dates (project.status_date, or today when unset) fed to the deterministic and Monte Carlo passes respectively, shared by both current and whatif since this view runs both in one call; this view never persists, so these are the only provenance a caller gets for how the forecast was computed."
+                        "description": "What-if forecast. Keys: task_id; applied ({base_duration_days, duration_delta_days, new_duration_days}); current and whatif (each {p50, p80, p95, their *_at_day_start readings, cpm_finish (ISO-8601 or null), cpm_finish_at_day_start, critical_path ([task_id])}); critical_path_changed (bool — did the set of critical tasks change); delta_vs_current ({p50, p80, p95, cpm_finish} signed calendar-day shifts, positive = later/worse, null when a date is missing; every field is measured in working time (#4178, #4204), so a finish that only moves from the end of a Friday to the start of the next Monday is 0); runs (n_simulations); seed (fixed RNG seed shared by both runs so the delta isolates the change); cpm_status_date and mc_status_date (ADR-0132/#2638, floor armed on the CPM path by ADR-0752 §4) — the resolved data dates (project.status_date, or today when unset) fed to the deterministic and Monte Carlo passes respectively, shared by both current and whatif since this view runs both in one call; this view never persists, so these are the only provenance a caller gets for how the forecast was computed."
                     },
                     "400": {
                         "content": {
@@ -22409,7 +22409,7 @@
                         "schema": {
                             "type": "string"
                         },
-                        "description": "Which computed value to explain: a CPM quantity (early_start, early_finish, late_start, late_finish, total_float, free_float, scheduled_start) or a Monte Carlo percentile (p50, p80, p95). CPM quantities return {task_id, task_name, quantity, value, pass, is_critical, binding, contributions[]}, each contribution carrying its source task, dep_type, lag_days, imposed_date, calendar_days_added, slack_days, and is_binding. Percentiles return {quantity, value, cpm_finish, delta_vs_cpm_days, drivers[]} from the latest simulation.",
+                        "description": "Which computed value to explain: a CPM quantity (early_start, early_finish, late_start, late_finish, total_float, free_float, scheduled_start) or a Monte Carlo percentile (p50, p80, p95). CPM quantities return {task_id, task_name, quantity, value, pass, is_critical, binding, contributions[]}, each contribution carrying its source task, dep_type, lag_days, imposed_date, calendar_days_added, slack_days, and is_binding. Percentiles return {quantity, value, value_at_day_start, cpm_finish, cpm_finish_at_day_start, delta_vs_cpm_days (measured in working time, #4204), drivers[]} from the latest simulation.",
                         "required": true
                     },
                     {
@@ -58210,22 +58210,22 @@
             },
             "MonteCarloDelta": {
                 "type": "object",
-                "description": "Signed calendar-day delta of a percentile finish, per field (#987/#993/#2483).\n\nPositive means the field slipped later (worse). Shared shape for\n``run_monte_carlo``/``latest``'s ``delta_vs_cpm`` (each percentile vs the\ndeterministic CPM finish), the what-if endpoint's ``delta_vs_current``, and\nthe history endpoint's per-run ``delta`` (ADR-0108) — one derivation, one\nschema, three call sites. ``None`` whenever either date it is measured\nbetween is missing. A difference of shown days — see\n:data:`MC_SHOWN_DAY_DELTA_NOTE`.",
+                "description": "Signed delta of a percentile finish, per field, in working time (#987/#993/#2483/#4204).\n\nPositive means the field slipped later (worse). Shared shape for\n``run_monte_carlo``/``latest``'s ``delta_vs_cpm`` (each percentile vs the\ndeterministic CPM finish), the what-if endpoint's ``delta_vs_current``, and\nthe history endpoint's per-run ``delta`` (ADR-0108) — one derivation, one\nschema, three call sites. ``None`` whenever either date it is measured\nbetween is missing. Measured in working time from each date's edge-of-day\nreading, still reported in calendar days.",
                 "properties": {
                     "p50": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Signed P50 delta; positive = later. Calendar-day difference of the two shown finish days, not a working-time comparison: when a finish is a start-of-day milestone, two dates either side of a weekend or holiday can differ by several days here with no difference in working time."
+                        "description": "Signed P50 delta; positive = later. Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
                     },
                     "p80": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Signed P80 delta; positive = later. Calendar-day difference of the two shown finish days, not a working-time comparison: when a finish is a start-of-day milestone, two dates either side of a weekend or holiday can differ by several days here with no difference in working time."
+                        "description": "Signed P80 delta; positive = later. Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
                     },
                     "p95": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Signed P95 delta; positive = later. Calendar-day difference of the two shown finish days, not a working-time comparison: when a finish is a start-of-day milestone, two dates either side of a weekend or holiday can differ by several days here with no difference in working time."
+                        "description": "Signed P95 delta; positive = later. Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
                     }
                 },
                 "required": [
@@ -58270,7 +58270,7 @@
                     "risk_premium_days": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "P80 finish minus the deterministic CPM finish. Calendar-day difference of the two shown finish days, not a working-time comparison: when a finish is a start-of-day milestone, two dates either side of a weekend or holiday can differ by several days here with no difference in working time."
+                        "description": "P80 finish minus the deterministic CPM finish. Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
                     },
                     "risk_premium_ratio": {
                         "type": "number",
@@ -58353,6 +58353,21 @@
                         "format": "date",
                         "nullable": true
                     },
+                    "p50_at_day_start": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "Which edge of its shown day this finish is (#4204): true = the start of the day (a start-of-day milestone finish), false = the end. Null on a run persisted before #4204."
+                    },
+                    "p80_at_day_start": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "Which edge of its shown day this finish is (#4204): true = the start of the day (a start-of-day milestone finish), false = the end. Null on a run persisted before #4204."
+                    },
+                    "p95_at_day_start": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "Which edge of its shown day this finish is (#4204): true = the start of the day (a start-of-day milestone finish), false = the end. Null on a run persisted before #4204."
+                    },
                     "distribution": {
                         "type": "array",
                         "items": {
@@ -58365,6 +58380,11 @@
                         "type": "string",
                         "format": "date",
                         "nullable": true
+                    },
+                    "cpm_finish_at_day_start": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "Which edge of its shown day this finish is (#4204): true = the start of the day (a start-of-day milestone finish), false = the end. Null on a run persisted before #4204."
                     },
                     "delta_vs_cpm": {
                         "$ref": "#/components/schemas/MonteCarloDelta"
@@ -58394,14 +58414,18 @@
                 "required": [
                     "confidence_curve",
                     "cpm_finish",
+                    "cpm_finish_at_day_start",
                     "delta_vs_cpm",
                     "forecast_diagnostic",
                     "forecast_staleness",
                     "histogram_buckets",
                     "last_run_at",
                     "p50",
+                    "p50_at_day_start",
                     "p80",
+                    "p80_at_day_start",
                     "p95",
+                    "p95_at_day_start",
                     "plan_version",
                     "plan_version_current",
                     "project_id",
@@ -58553,6 +58577,26 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "p50_at_day_start": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "p80_at_day_start": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "p95_at_day_start": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "cpm_finish_at_day_start": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "n_simulations": {
                         "type": "integer",
                         "readOnly": true
@@ -58594,13 +58638,17 @@
                 },
                 "required": [
                     "cpm_finish",
+                    "cpm_finish_at_day_start",
                     "delta",
                     "distribution",
                     "id",
                     "n_simulations",
                     "p50",
+                    "p50_at_day_start",
                     "p80",
+                    "p80_at_day_start",
                     "p95",
+                    "p95_at_day_start",
                     "status_date",
                     "taken_at",
                     "task_count",
@@ -58646,26 +58694,27 @@
             },
             "MonteCarloWhatIfDelta": {
                 "type": "object",
-                "description": "Signed calendar-day shift of ``whatif`` vs ``current``, per field (#993).\n\nSame ``p50``/``p80``/``p95`` shape as :class:`MonteCarloDeltaSerializer`,\nplus ``cpm_finish`` — the what-if endpoint's own deterministic-pass delta,\ndistinct from ``delta_vs_cpm``'s MC-vs-CPM comparison elsewhere. The\npercentile deltas are differences of shown days (:data:`MC_SHOWN_DAY_DELTA_NOTE`);\n``cpm_finish`` is measured in working time.",
+                "description": "Signed shift of ``whatif`` vs ``current``, per field, in working time (#993/#4204).\n\nSame ``p50``/``p80``/``p95`` shape as :class:`MonteCarloDeltaSerializer`,\nplus ``cpm_finish`` — the what-if endpoint's own deterministic-pass delta,\ndistinct from ``delta_vs_cpm``'s MC-vs-CPM comparison elsewhere. All four are\nmeasured in working time and reported in calendar days.",
                 "properties": {
                     "p50": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Signed P50 shift; positive = later. Calendar-day difference of the two shown finish days, not a working-time comparison: when a finish is a start-of-day milestone, two dates either side of a weekend or holiday can differ by several days here with no difference in working time."
+                        "description": "Signed P50 shift; positive = later. Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
                     },
                     "p80": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Signed P80 shift; positive = later. Calendar-day difference of the two shown finish days, not a working-time comparison: when a finish is a start-of-day milestone, two dates either side of a weekend or holiday can differ by several days here with no difference in working time."
+                        "description": "Signed P80 shift; positive = later. Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
                     },
                     "p95": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Signed P95 shift; positive = later. Calendar-day difference of the two shown finish days, not a working-time comparison: when a finish is a start-of-day milestone, two dates either side of a weekend or holiday can differ by several days here with no difference in working time."
+                        "description": "Signed P95 shift; positive = later. Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
                     },
                     "cpm_finish": {
                         "type": "integer",
-                        "nullable": true
+                        "nullable": true,
+                        "description": "Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
                     }
                 },
                 "required": [
@@ -58691,10 +58740,27 @@
                         "type": "string",
                         "format": "date"
                     },
+                    "p50_at_day_start": {
+                        "type": "boolean",
+                        "description": "Which edge of its shown day this finish is (#4204): true = the start of the day (a start-of-day milestone finish), false = the end. Null on a run persisted before #4204."
+                    },
+                    "p80_at_day_start": {
+                        "type": "boolean",
+                        "description": "Which edge of its shown day this finish is (#4204): true = the start of the day (a start-of-day milestone finish), false = the end. Null on a run persisted before #4204."
+                    },
+                    "p95_at_day_start": {
+                        "type": "boolean",
+                        "description": "Which edge of its shown day this finish is (#4204): true = the start of the day (a start-of-day milestone finish), false = the end. Null on a run persisted before #4204."
+                    },
                     "cpm_finish": {
                         "type": "string",
                         "format": "date",
                         "nullable": true
+                    },
+                    "cpm_finish_at_day_start": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "Which edge of its shown day this finish is (#4204): true = the start of the day (a start-of-day milestone finish), false = the end. Null on a run persisted before #4204."
                     },
                     "critical_path": {
                         "type": "array",
@@ -58705,10 +58771,14 @@
                 },
                 "required": [
                     "cpm_finish",
+                    "cpm_finish_at_day_start",
                     "critical_path",
                     "p50",
+                    "p50_at_day_start",
                     "p80",
-                    "p95"
+                    "p80_at_day_start",
+                    "p95",
+                    "p95_at_day_start"
                 ]
             },
             "MonteCarloWhatIfResponse": {
@@ -68000,7 +68070,7 @@
                         "type": "integer",
                         "readOnly": true,
                         "nullable": true,
-                        "description": "P80 finish minus the deterministic CPM finish. Calendar-day difference of the two shown finish days, not a working-time comparison (#4204)."
+                        "description": "P80 minus the CPM finish, in signed calendar days measured in working time (#4204): a start-of-day milestone finish on a Monday equals the end of the Friday before it."
                     },
                     "risk_premium_ratio": {
                         "type": "number",
@@ -71093,15 +71163,25 @@
                         "format": "date",
                         "nullable": true
                     },
+                    "value_at_day_start": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "Which edge of its shown day this finish is (#4204): true = the start of the day (a start-of-day milestone finish), false = the end. Null on a run persisted before #4204."
+                    },
                     "cpm_finish": {
                         "type": "string",
                         "format": "date",
                         "nullable": true
                     },
+                    "cpm_finish_at_day_start": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "Which edge of its shown day this finish is (#4204): true = the start of the day (a start-of-day milestone finish), false = the end. Null on a run persisted before #4204."
+                    },
                     "delta_vs_cpm_days": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "The percentile minus the deterministic CPM finish. Calendar-day difference of the two shown finish days, not a working-time comparison: when a finish is a start-of-day milestone, two dates either side of a weekend or holiday can differ by several days here with no difference in working time."
+                        "description": "The percentile minus the deterministic CPM finish. Signed calendar days, measured in working time (#4204): each finish is read with its edge of the day (the `*_at_day_start` readings), so a start-of-day milestone finish on a Monday equals the end of the Friday before it and diffs as 0 rather than 3. A reading persisted before #4204 is unknown: two equal days diff as 0, otherwise it is read as the end of its day."
                     },
                     "drivers": {
                         "type": "array",
@@ -71122,6 +71202,7 @@
                 },
                 "required": [
                     "cpm_finish",
+                    "cpm_finish_at_day_start",
                     "delta_vs_cpm_days",
                     "drivers",
                     "forecast_staleness",
@@ -71131,7 +71212,8 @@
                     "plan_version_current",
                     "quantity",
                     "runs",
-                    "value"
+                    "value",
+                    "value_at_day_start"
                 ]
             },
             "ScheduleMonteCarloDerivationPassEnum": {

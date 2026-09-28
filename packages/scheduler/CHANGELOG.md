@@ -26,9 +26,28 @@ change between releases. Pin an exact version (e.g.
   the value for every task that is not a network-placed milestone. Set by
   `schedule()`; an input value is ignored. Appended after `scheduled_start`, so
   positional construction of `Task` is unchanged.
+- **`MonteCarloResult.p50_at_day_start` / `p80_at_day_start` / `p95_at_day_start`
+  (#4204).** Each percentile's edge-of-day reading, the Monte Carlo counterpart of
+  `Task.milestone_at_day_end`: `True` means the percentile is the *start* of its
+  shown day (the finish is a start-of-day milestone). Also emitted by `to_dict()`.
+  Appended after `sensitivity` with a default of `False`, so positional
+  construction is unchanged.
 
 ### Fixed
 
+- **Monte Carlo percentiles are ordered by working-time finish, not by shown day
+  (#4204).** A start-of-day milestone is shown one working day past the working
+  time it occupies, so ordering runs by shown day ranked the start of a Monday
+  after the end of the Friday before it although neither is later. `p50`/`p80`/
+  `p95` are now order statistics over each run's working-time finish position.
+  Where runs at that position are shown on different days (the end of a Friday
+  and the start of the Monday after it), each percentile is shown on the day its
+  rank lands on with runs ordered by position, then shown day, and reads as the
+  start of the day when that day lies past the position. So it stays a two-sided
+  quantile of `distribution`: at least 80% of runs are shown on or before P80, and
+  fewer than 80% (plus one run) strictly before it. When no run
+  finishes on a start-of-day milestone the dates are exactly those the previous
+  shown-day ranking gave; the `distribution` is unchanged.
 - **A deterministic `monte_carlo()` now finishes on the CPM finish when a live
   task's `actual_start` falls on non-working time (#4175).** `schedule()` keeps a
   recorded start verbatim, even on a weekend or holiday, but Monte Carlo's

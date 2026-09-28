@@ -12278,8 +12278,9 @@ class ProjectOverviewSerializer(serializers.Serializer[dict[str, Any]]):
         read_only=True,
         allow_null=True,
         help_text=(
-            "P80 finish minus the deterministic CPM finish. Calendar-day difference of "
-            "the two shown finish days, not a working-time comparison (#4204)."
+            "P80 minus the CPM finish, in signed calendar days measured in working "
+            "time (#4204): a start-of-day milestone finish on a Monday equals the end "
+            "of the Friday before it."
         ),
     )
     risk_premium_ratio = serializers.FloatField(read_only=True, allow_null=True)

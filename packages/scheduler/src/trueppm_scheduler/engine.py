@@ -400,6 +400,18 @@ class MonteCarloResult:
     deterministic :func:`schedule` finish and carries roughly even odds. When all
     three are equal the project had nothing to vary (no three-point estimates, no
     velocity signal) and the simulation correctly collapsed onto the CPM finish.
+
+    Each percentile is an order statistic over the runs' **working-time** finish
+    positions (#4204), shown on a day the way :attr:`ScheduleResult.project_finish`
+    is. ``p50_at_day_start`` / ``p80_at_day_start`` / ``p95_at_day_start`` say which
+    edge of that day the percentile is: ``True`` means the *start* of the day (the
+    finish is a start-of-day milestone, #4079), ``False`` the end. The end of a
+    Friday and the start of the following Monday are the same working-time
+    position, so compare a percentile with a CPM finish, or with another run's
+    percentile, in working time — reading a start-of-day finish as the end of the
+    last working day before it — never as the calendar-day difference of the two
+    shown days. All three default to ``False``, the reading every finish had before
+    #4079.
     """
 
     project_id: str
@@ -414,6 +426,11 @@ class MonteCarloResult:
     # descending and capped to the top entries. Empty for a fully deterministic
     # project (no sampled variance to correlate against the finish).
     sensitivity: list[TaskSensitivity] = field(default_factory=list)
+    # Which edge of its shown day each percentile is (#4204): True = the start of
+    # the day. Appended with defaults so positional construction is unchanged.
+    p50_at_day_start: bool = False
+    p80_at_day_start: bool = False
+    p95_at_day_start: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Return the simulation result as a JSON-serializable dict.
@@ -422,7 +439,8 @@ class MonteCarloResult:
             The percentile dates as ISO-8601 strings, the full ``distribution``
             (one date per run — this is the large field, and callers that only
             need the percentiles should read those attributes instead of
-            serializing), and the duration-sensitivity tornado.
+            serializing), the duration-sensitivity tornado, and each percentile's
+            edge-of-day reading (``p50_at_day_start`` etc., #4204).
         """
         return {
             "project_id": self.project_id,
@@ -430,6 +448,9 @@ class MonteCarloResult:
             "p50": self.p50.isoformat(),
             "p80": self.p80.isoformat(),
             "p95": self.p95.isoformat(),
+            "p50_at_day_start": self.p50_at_day_start,
+            "p80_at_day_start": self.p80_at_day_start,
+            "p95_at_day_start": self.p95_at_day_start,
             "distribution": [d.isoformat() for d in self.distribution],
             "sensitivity": [s.to_dict() for s in self.sensitivity],
         }
@@ -4847,6 +4868,72 @@ def _offset_to_date(
     return resolved
 
 
+def _mc_percentiles(
+    completion_offsets: np.ndarray,
+    shown_offsets: np.ndarray,
+    wd_index: list[date],
+    finish_floor: date | None,
+    floor_at_day_start: bool,
+) -> list[tuple[date, bool]]:
+    """P50/P80/P95 as ``(shown day, at_day_start)`` from per-run finish offsets (#4204).
+
+    ``completion_offsets`` is each run's **working-time** finish position and
+    ``shown_offsets`` the exclusive offset of the day that finish is shown on; they
+    differ only for a run whose finish is a start-of-day milestone, shown one working
+    day past its position.
+
+    Percentile convention (documented for the public surface, #826): numpy.percentile
+    — linear interpolation between the two nearest ranks — over the FULL run set,
+    mapped to a working-day date. The position ``k`` is taken over working-time
+    positions, not shown days: ordering by shown day ranked the start of a Monday
+    after the end of the Friday before it, although neither is later in working time.
+
+    Runs at one position can still be shown on different days — some at the end of a
+    Friday, some at the start of the Monday. The percentile is shown on the day its
+    rank lands on when runs are ordered by ``(position, shown day)``: the earliest
+    shown day of a run at ``k`` on or before which at least that share of ALL runs is
+    shown. So it is a two-sided quantile of ``distribution`` — at least PXX% of runs
+    on or before it, and fewer than PXX% (plus one run) strictly before it — rather
+    than following either the earliest or the latest reading at ``k``. It reads as the
+    start of its day when that day lies past ``k``. Every candidate day is the same
+    working-time position, so a delta measured in working time does not depend on
+    the choice, and with no start-of-day finish it is exactly the day the pre-#4204
+    shown-day ranking reported. With no run at ``k`` (interpolation between two
+    positions) it is the end of the working day before ``k``.
+
+    Limit: on mixed calendars the reference ruler can hold days a milestone's own
+    calendar skips, so a start-of-day run may be shown more than one reference day
+    past its position; the reading is still start-of-day, and the API reads it
+    against the project calendar.
+    """
+    n = len(completion_offsets)
+    shown_rounded = np.rint(shown_offsets)
+    rounded_positions = np.rint(completion_offsets)
+    out: list[tuple[date, bool]] = []
+    for q, pct in zip(
+        (50, 80, 95), np.percentile(completion_offsets, [50, 80, 95]).tolist(), strict=True
+    ):
+        k = round(pct)
+        at_k = rounded_positions == k
+        if at_k.any():
+            candidates = np.unique(shown_rounded[at_k])  # ascending
+            shown = float(candidates[-1])
+            for d in candidates.tolist():
+                # Integer arithmetic: at least q% of ALL runs are shown on or before d.
+                if int(np.count_nonzero(shown_rounded <= d)) * 100 >= q * n:
+                    shown = float(d)
+                    break
+            at_start = shown > k
+        else:
+            shown, at_start = float(k), False
+        resolved = _offset_to_date(shown, wd_index, None)
+        if finish_floor is not None and finish_floor > resolved:
+            out.append((finish_floor, floor_at_day_start))
+        else:
+            out.append((resolved, at_start))
+    return out
+
+
 def monte_carlo(
     project: Project,
     *,
@@ -5006,8 +5093,10 @@ def monte_carlo(
                    allocated. It does not change any computed value.
 
     Returns:
-        MonteCarloResult with P50, P80, P95 completion dates, the full sorted
-        distribution, and the duration-sensitivity tornado (``sensitivity``).
+        MonteCarloResult with P50, P80, P95 completion dates — each an order
+        statistic over working-time finish positions, with its edge-of-day reading
+        in ``p50_at_day_start`` etc. (#4204) — the full sorted distribution of shown
+        finish days, and the duration-sensitivity tornado (``sensitivity``).
 
     Raises:
         SimulationCapExceeded: If ``runs`` exceeds ``max_runs`` or the project
@@ -5167,7 +5256,7 @@ def monte_carlo(
     verbatim_actuals = _mc_verbatim_actuals(
         project, task_map, cal_of, cal_key_of, offset_of_by_cal, wd_index_by_cal
     )
-    _es_mat, ef_mat, milestone_finish_floor = _mc_forward_pass(
+    es_mat, ef_mat, milestone_finish_floor = _mc_forward_pass(
         topo_order,
         runs,
         g,
@@ -5184,6 +5273,21 @@ def monte_carlo(
             [cal_of[tid] for tid in topo_order],
         ),
         verbatim_actuals,
+    )
+    # Working-time finish of each column (#4204). Work ends at its EF. A live
+    # milestone's EF is the exclusive offset of the day it is *shown* on, one past its
+    # instant for a start-of-day reading, so its working-time position is its ES —
+    # the end of a Friday and the start of the next Monday are the same position.
+    wt_mat = ef_mat
+    milestone_cols = [task_idx[tid] for tid in milestone_ids]
+    if milestone_cols:
+        wt_mat = ef_mat.copy()
+        wt_mat[:, milestone_cols] = es_mat[:, milestone_cols]
+    # The floor wins over the index only when it is later; it is a start-of-day
+    # reading exactly when it comes from a milestone shown at the start of its
+    # non-working actual day and no completed work finishes that day or later.
+    floor_at_day_start = milestone_finish_floor is not None and (
+        completed_finish_floor is None or milestone_finish_floor > completed_finish_floor
     )
     if milestone_finish_floor is not None:
         # A live milestone shown on its non-working actual day is a finish date the
@@ -5202,28 +5306,28 @@ def monte_carlo(
     # the earlier date.
     if len(wd_index_by_cal) > 1:
         ref_ord, wd_index = _build_reference_index(wd_ord_by_cal)
-        ef_mat = np.column_stack(
-            [
-                _to_reference_offset(ef_mat[:, col], wd_ord_by_cal[cal_key_of[tid]], ref_ord)
-                for col, tid in enumerate(topo_order)
-            ]
-        )
-    completion_offsets = ef_mat.max(axis=1)  # shape (runs,)
 
+        def _to_reference(mat: np.ndarray) -> np.ndarray:
+            return np.column_stack(
+                [
+                    _to_reference_offset(mat[:, col], wd_ord_by_cal[cal_key_of[tid]], ref_ord)
+                    for col, tid in enumerate(topo_order)
+                ]
+            )
+
+        ef_mat_ref = _to_reference(ef_mat)
+        wt_mat = _to_reference(wt_mat) if milestone_cols else ef_mat_ref
+        ef_mat = ef_mat_ref
+    shown_offsets = ef_mat.max(axis=1)  # shape (runs,): the day each run is shown on
+    completion_offsets = wt_mat.max(axis=1)  # shape (runs,): its working-time position
     # Convert offsets back to dates via the working-day index (reused from above).
-    # Percentile convention (documented for the public surface, #826): use
-    # numpy.percentile — the de-facto Python standard (linear interpolation between
-    # the two nearest ranks) — on the completion-offset distribution, then map the
-    # resulting offset to a working-day date. numpy.percentile is what PyPI consumers
-    # expect and stays reproducible under the same seed. Percentiles use the FULL
-    # distribution.
     all_dates = sorted(
-        _offset_to_date(o, wd_index, completed_finish_floor) for o in completion_offsets.tolist()
+        _offset_to_date(o, wd_index, completed_finish_floor) for o in shown_offsets.tolist()
     )
-    pct_offsets = np.percentile(completion_offsets, [50, 80, 95])
-    p50 = _offset_to_date(float(pct_offsets[0]), wd_index, completed_finish_floor)
-    p80 = _offset_to_date(float(pct_offsets[1]), wd_index, completed_finish_floor)
-    p95 = _offset_to_date(float(pct_offsets[2]), wd_index, completed_finish_floor)
+    percentiles = _mc_percentiles(
+        completion_offsets, shown_offsets, wd_index, completed_finish_floor, floor_at_day_start
+    )
+    (p50, p50_start), (p80, p80_start), (p95, p95_start) = percentiles
 
     # Duration-sensitivity tornado (ADR-0140) — which tasks' sampled durations
     # most move the finish, from the same sampled matrix (no second pass). Computed
@@ -5250,4 +5354,7 @@ def monte_carlo(
         p95=p95,
         distribution=all_dates,
         sensitivity=sensitivity,
+        p50_at_day_start=p50_start,
+        p80_at_day_start=p80_start,
+        p95_at_day_start=p95_start,
     )

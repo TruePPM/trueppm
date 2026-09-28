@@ -267,7 +267,7 @@ def _mc_forecast_why(payload: Mapping[str, Any]) -> dict[str, Any]:
     if p80 and cpm_finish and isinstance(premium, int):
         segments.append(
             f"the P80 finish {p80} is {premium} calendar day(s) past the deterministic "
-            f"CPM finish {cpm_finish}"
+            f"CPM finish {cpm_finish}, measured in working time"
         )
     elif p80 and cpm_finish:
         segments.append(

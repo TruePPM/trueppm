@@ -212,6 +212,7 @@ def record_monte_carlo_run(
     diagnostic: dict[str, Any] | None = None,
     status_date: date | None = None,
     plan_version: int | None = None,
+    readings: dict[str, bool | None] | None = None,
 ) -> MonteCarloRun | None:
     """Persist one project-level Monte Carlo run for the forecast history (ADR-0175).
 
@@ -246,8 +247,20 @@ def record_monte_carlo_run(
     written to since — the server-owned answer to "is this forecast still current?" that
     replaced a session-local counter in the web client (#3140). ``None`` for callers that
     do not supply one; such a run classifies as ``unknown``, never ``current``.
+
+    ``readings`` maps ``p50_at_day_start`` / ``p80_at_day_start`` /
+    ``p95_at_day_start`` / ``cpm_finish_at_day_start`` to which edge of its shown
+    day each finish is (#4204); omitted keys persist as ``None`` (unknown).
     """
     from trueppm_api.apps.scheduling.models import MonteCarloRun
+
+    reading_fields = (
+        "p50_at_day_start",
+        "p80_at_day_start",
+        "p95_at_day_start",
+        "cpm_finish_at_day_start",
+    )
+    reading_values = {f: (readings or {}).get(f) for f in reading_fields}
 
     triggered_by = user if getattr(user, "is_authenticated", False) else None
     try:
@@ -264,6 +277,7 @@ def record_monte_carlo_run(
             diagnostic=diagnostic,
             status_date=status_date,
             plan_version=plan_version,
+            **reading_values,
         )
     except Exception:
         logger.exception(

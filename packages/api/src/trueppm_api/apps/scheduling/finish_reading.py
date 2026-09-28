@@ -26,7 +26,7 @@ engine's public surface.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import date, timedelta
 from types import SimpleNamespace
 from typing import Any
@@ -179,3 +179,20 @@ def finish_shift_days(prior: Finish, new: Finish, calendar: Any | None) -> int:
     return (
         working_time_end_day(new_known, calendar) - working_time_end_day(prior_known, calendar)
     ).days
+
+
+def lazy_finish_shift_days(
+    prior: Finish, new: Finish, calendar_for: Callable[[], Any | None] | None
+) -> int:
+    """:func:`finish_shift_days`, composing the calendar only when a reading needs it.
+
+    The calendar only changes the answer when one side is a known start-of-day
+    reading: two end-of-day finishes (or an unknown one, which reads as the end of
+    its day or as unmoved) diff as their shown days. So a read path that has no
+    calendar in hand — the Monte Carlo history, the ``latest`` fallback, the project
+    overview's risk premium (#4204) — pays for composing one only on a project
+    whose finish actually is a start-of-day milestone.
+    """
+    if not prior[1] and not new[1]:
+        return (new[0] - prior[0]).days
+    return finish_shift_days(prior, new, calendar_for() if calendar_for is not None else None)

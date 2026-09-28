@@ -12578,11 +12578,26 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
 
         latest_run = (
             MonteCarloRun.objects.filter(project=project)
-            .only("p80", "cpm_finish", "taken_at", "diagnostic", "plan_version")
+            .only(
+                "p80",
+                "cpm_finish",
+                "taken_at",
+                "diagnostic",
+                "plan_version",
+                # The edge-of-day readings the premium is measured in working time
+                # from (#4204); omitting them here would be one deferred query each.
+                "p80_at_day_start",
+                "cpm_finish_at_day_start",
+            )
             .order_by("-taken_at")
             .first()
         )
-        risk_premium = build_risk_premium(latest_run, today=today)
+        from trueppm_api.apps.scheduling.calendars import compose_project_calendar
+
+        # Composed only when the P80 or CPM finish is a start-of-day reading.
+        risk_premium = build_risk_premium(
+            latest_run, today=today, calendar_for=lambda: compose_project_calendar(project)
+        )
         # Promoted here for the same reason the premium is (#3140): this endpoint is
         # what cards, MCP health reads and rollups consult instead of running a
         # simulation, so if the discriminant lived only on `/monte-carlo/latest/`,
