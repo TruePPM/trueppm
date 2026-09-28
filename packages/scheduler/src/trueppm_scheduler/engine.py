@@ -4859,28 +4859,46 @@ def _mc_percentiles(
 
     Percentile convention (documented for the public surface, #826): numpy.percentile
     — linear interpolation between the two nearest ranks — over the FULL run set,
-    mapped to a working-day date. The order statistic is taken over working-time
+    mapped to a working-day date. The position ``k`` is taken over working-time
     positions, not shown days: ordering by shown day ranked the start of a Monday
     after the end of the Friday before it, although neither is later in working time.
 
-    The percentile is then shown on the **latest day any run at its (rounded)
-    position is shown on**, and is a start-of-day reading when any of those runs is.
-    Every such day is the same working-time position, so a delta measured in working
-    time does not depend on the choice — but the latest one is what keeps the
-    percentile a true quantile of ``distribution`` (at least that share of runs is
-    shown on or before it), and it is exactly the day the pre-#4204 shown-day ranking
-    reported whenever no run is a start-of-day finish. With no run at the position
-    (interpolation between two), it is the end of the working day before it.
+    Runs at one position can still be shown on different days — some at the end of a
+    Friday, some at the start of the Monday. The percentile is shown on the day its
+    rank lands on when runs are ordered by ``(position, shown day)``: the earliest
+    shown day of a run at ``k`` on or before which at least that share of ALL runs is
+    shown. So it is a two-sided quantile of ``distribution`` — at least PXX% of runs
+    on or before it, and fewer than PXX% (plus one run) strictly before it — rather
+    than following either the earliest or the latest reading at ``k``. It reads as the
+    start of its day when that day lies past ``k``. Every candidate day is the same
+    working-time position, so a delta measured in working time does not depend on
+    the choice, and with no start-of-day finish it is exactly the day the pre-#4204
+    shown-day ranking reported. With no run at ``k`` (interpolation between two
+    positions) it is the end of the working day before ``k``.
+
+    Limit: on mixed calendars the reference ruler can hold days a milestone's own
+    calendar skips, so a start-of-day run may be shown more than one reference day
+    past its position; the reading is still start-of-day, and the API reads it
+    against the project calendar.
     """
-    run_at_day_start = np.rint(shown_offsets) > np.rint(completion_offsets)
+    n = len(completion_offsets)
+    shown_rounded = np.rint(shown_offsets)
     rounded_positions = np.rint(completion_offsets)
     out: list[tuple[date, bool]] = []
-    for pct in np.percentile(completion_offsets, [50, 80, 95]).tolist():
+    for q, pct in zip(
+        (50, 80, 95), np.percentile(completion_offsets, [50, 80, 95]).tolist(), strict=True
+    ):
         k = round(pct)
         at_k = rounded_positions == k
         if at_k.any():
-            shown = float(np.rint(shown_offsets[at_k]).max())
-            at_start = bool(run_at_day_start[at_k].any())
+            candidates = np.unique(shown_rounded[at_k])  # ascending
+            shown = float(candidates[-1])
+            for d in candidates.tolist():
+                # Integer arithmetic: at least q% of ALL runs are shown on or before d.
+                if int(np.count_nonzero(shown_rounded <= d)) * 100 >= q * n:
+                    shown = float(d)
+                    break
+            at_start = shown > k
         else:
             shown, at_start = float(k), False
         resolved = _offset_to_date(shown, wd_index, None)

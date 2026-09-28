@@ -174,13 +174,14 @@ def _simulate(project: Project) -> MonteCarloResult | None:
         return None
 
 
-def _mixed_reading_project() -> Project:
+def _mixed_reading_project(most_likely_days: int = 5) -> Project:
     """Runs at one working-time position split between the end of Friday and the start of Monday.
 
     ``W`` always ends Friday. ``A`` samples 4..5 days: at 4 it ends Thursday and the
     1-day lag lands ``M`` at the end of Friday; at 5 it ends Friday and the lag lands
     ``M`` on Sunday, shown at the start of Monday. Every run finishes at the same
-    working-time position; about 96% of them are shown on the Monday.
+    working-time position. With ``A``'s most-likely at 5 about 96% of runs are shown
+    on the Monday; at 4, about 96% on the Friday.
     """
     w = Task(id="W", name="W", duration=timedelta(days=5))
     a = Task(
@@ -188,7 +189,7 @@ def _mixed_reading_project() -> Project:
         name="A",
         duration=timedelta(days=4),
         optimistic_duration=timedelta(days=4),
-        most_likely_duration=timedelta(days=5),
+        most_likely_duration=timedelta(days=most_likely_days),
         pessimistic_duration=timedelta(days=5),
     )
     m = Task(id="M", name="M", duration=timedelta(0))
@@ -210,15 +211,38 @@ def test_a_position_shared_by_friday_and_monday_runs_is_shown_on_the_monday() ->
         assert (day, at_start) == (date(2026, 8, 10), True)
 
 
+def test_a_few_monday_runs_do_not_drag_the_percentiles_onto_the_monday() -> None:
+    """Mostly-Friday split: 193 runs end Friday, 7 start Monday; every percentile is Friday.
+
+    Taking the latest reading at the position put P95 on the Monday with 96.5% of
+    runs strictly before it.
+    """
+    mc = monte_carlo(_mixed_reading_project(most_likely_days=4), runs=200, seed=1)
+    fri, mon = date(2026, 8, 7), date(2026, 8, 10)
+    assert set(mc.distribution) == {fri, mon}
+    assert mc.distribution.count(mon) < 0.05 * len(mc.distribution)
+    for day, at_start in (
+        (mc.p50, mc.p50_at_day_start),
+        (mc.p80, mc.p80_at_day_start),
+        (mc.p95, mc.p95_at_day_start),
+    ):
+        assert (day, at_start) == (fri, False)
+
+
 @example(project=_mixed_reading_project())
+@example(project=_mixed_reading_project(most_likely_days=4))
 @given(project=_plausible_projects())
 def test_each_percentile_is_a_quantile_of_the_distribution(project: Project) -> None:
-    """At least XX% of runs are shown on or before PXX (#4204).
+    """PXX is a two-sided quantile of ``distribution`` (#4204).
+
+    At least XX% of runs are shown on or before it, and fewer than XX% (plus one
+    run) strictly before it.
 
     ``distribution`` places each run on its shown day, and the histogram, the
     confidence curve and the detail panel's P80 highlight all read it. A percentile
     shown on the Friday while the runs at its working-time position show the Monday
-    would sit below its own quantile. The ``1 / runs`` slack is numpy's linear
+    would sit below its own quantile; one shown on the Monday because a handful of
+    runs there do would sit above it. The ``1 / runs`` slack is numpy's linear
     interpolation between two ranks, not a tolerance on the rule.
     """
     mc = _simulate(project)
@@ -229,6 +253,8 @@ def test_each_percentile_is_a_quantile_of_the_distribution(project: Project) -> 
         day = getattr(mc, name)
         share = sum(1 for d in mc.distribution if d <= day) / n
         assert share >= q - 1 / n, f"{name}={day} but only {share:.1%} of runs are on or before it"
+        before = sum(1 for d in mc.distribution if d < day) / n
+        assert before < q + 1 / n, f"{name}={day} but {before:.1%} of runs are strictly before it"
 
 
 @given(project=_plausible_projects())

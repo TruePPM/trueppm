@@ -40,9 +40,12 @@ change between releases. Pin an exact version (e.g.
   time it occupies, so ordering runs by shown day ranked the start of a Monday
   after the end of the Friday before it although neither is later. `p50`/`p80`/
   `p95` are now order statistics over each run's working-time finish position.
-  Each is shown on the latest day any run at that position is shown on, and reads
-  as the start of the day when any of those runs does, so it stays a true quantile
-  of `distribution` (at least 80% of runs are shown on or before P80). When no run
+  Where runs at that position are shown on different days (the end of a Friday
+  and the start of the Monday after it), each percentile is shown on the day its
+  rank lands on with runs ordered by position, then shown day, and reads as the
+  start of the day when that day lies past the position. So it stays a two-sided
+  quantile of `distribution`: at least 80% of runs are shown on or before P80, and
+  fewer than 80% (plus one run) strictly before it. When no run
   finishes on a start-of-day milestone the dates are exactly those the previous
   shown-day ranking gave; the `distribution` is unchanged.
 - **A deterministic `monte_carlo()` now finishes on the CPM finish when a live
