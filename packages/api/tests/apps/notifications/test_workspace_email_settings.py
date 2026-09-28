@@ -404,6 +404,203 @@ def test_username_preserved_on_unrelated_patch(operator_client: APIClient, _no_p
 
 
 # ---------------------------------------------------------------------------
+# Custom SMTP with no authentication (#4190)
+# ---------------------------------------------------------------------------
+
+
+def test_smtp_no_auth_saves_with_blank_username_and_password(
+    operator_client: APIClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An internal relay with no SMTP AUTH (Postfix `mynetworks`) can be saved.
+
+    Before #4190 this was rejected — either "re-enter the password" (mode
+    change) or "a username is required" — leaving the docs' own "trusted
+    internal relay" use case for Security: None configurable only via the
+    EMAIL_* env fallback, never in-app. Asserts the probe reaches
+    `probe_transport` with blank credentials, not merely that the save 200s.
+    """
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(email_backend, "probe_transport", lambda **kw: calls.append(kw))
+
+    resp = operator_client.put(
+        URL,
+        {
+            "transport_mode": "smtp",
+            "host": "mail.corp.test",
+            "port": 25,
+            "security": "none",
+            "username": "",
+            "password": "",
+        },
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert calls == [
+        {
+            "transport_mode": "smtp",
+            "host": "mail.corp.test",
+            "port": 25,
+            "security": "none",
+            "username": "",
+            "password": "",
+        }
+    ]
+    obj = WorkspaceEmailSettings.load()
+    assert obj.transport_mode == EmailTransportMode.SMTP
+    assert obj.username == ""
+    assert obj.password_is_set is False
+
+
+def test_smtp_no_auth_clears_a_previously_stored_password(
+    operator_client: APIClient, _no_probe: None
+) -> None:
+    """Switching an already-credentialed SMTP transport to no-auth clears the secret.
+
+    Blanking the username while leaving password untouched (the natural thing
+    to do — a no-auth relay needs no password) must not leave the old
+    credential sitting in storage: `resolve_email_connection` would never send
+    it (username stays blank so Django's backend skips login()), but a stale
+    secret at rest is exactly the "silently keep sending an old password"
+    failure the issue calls out, and it would resurface unexpectedly if a
+    username were ever added back without also re-entering a password.
+    """
+    operator_client.put(
+        URL,
+        {
+            "transport_mode": "smtp",
+            "host": "mail.corp.test",
+            "port": 587,
+            "security": "tls",
+            "username": "postmaster@corp.test",
+            "password": "s3cret",
+        },
+        format="json",
+    )
+    assert WorkspaceEmailSettings.load().get_password() == "s3cret"
+
+    resp = operator_client.patch(URL, {"username": ""}, format="json")
+    assert resp.status_code == 200
+    obj = WorkspaceEmailSettings.load()
+    assert obj.username == ""
+    assert obj.get_password() == ""
+    assert obj.password_is_set is False
+
+
+def test_mode_change_into_smtp_no_auth_does_not_require_password_reentry(
+    operator_client: APIClient, _no_probe: None
+) -> None:
+    """Switching transports into a no-auth SMTP config skips the M2 re-entry gate.
+
+    `needs_fresh_password` normally fires on any mode change with no incoming
+    password (M2 — don't reuse a SendGrid key as an SES password). That gate
+    doesn't apply here: there is no password to reuse, because a no-auth
+    config never carries one forward.
+    """
+    operator_client.put(
+        URL,
+        {"transport_mode": "sendgrid", "username": "", "password": "SG.key"},
+        format="json",
+    )
+    resp = operator_client.patch(
+        URL,
+        {
+            "transport_mode": "smtp",
+            "host": "mail.corp.test",
+            "username": "",
+            "password": "",
+        },
+        format="json",
+    )
+    assert resp.status_code == 200
+    obj = WorkspaceEmailSettings.load()
+    assert obj.transport_mode == EmailTransportMode.SMTP
+    assert obj.password_is_set is False
+
+
+def test_ses_still_requires_a_credential_with_no_auth_carve_out(
+    operator_client: APIClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SES has no unauthenticated mode — the #4190 carve-out is SMTP-only.
+
+    Configures a working SES transport first (no mode change in play), then
+    tries the same blank-username/blank-password pair that a Custom SMTP relay
+    may use — it must still 400 on the username, and the probe must not run.
+    """
+    monkeypatch.setattr(email_backend, "probe_transport", lambda **kw: None)
+    operator_client.put(
+        URL,
+        {
+            "transport_mode": "ses",
+            "host": "email-smtp.us-east-1.amazonaws.com",
+            "username": "AKIA123",
+            "password": "sespw",
+        },
+        format="json",
+    )
+
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(email_backend, "probe_transport", lambda **kw: calls.append(kw))
+    resp = operator_client.patch(URL, {"username": "", "password": ""}, format="json")
+    assert resp.status_code == 400
+    assert "username" in resp.data
+    assert calls == []
+
+
+def test_sendgrid_still_requires_a_credential_with_no_auth_carve_out(
+    operator_client: APIClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SendGrid has no unauthenticated mode either — only its username is fixed."""
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(email_backend, "probe_transport", lambda **kw: calls.append(kw))
+
+    resp = operator_client.put(
+        URL, {"transport_mode": "sendgrid", "username": "", "password": ""}, format="json"
+    )
+    assert resp.status_code == 400
+    assert "password" in resp.data
+    assert calls == []
+
+
+def test_smtp_password_with_no_username_is_still_rejected(
+    operator_client: APIClient, _no_probe: None
+) -> None:
+    """A password with no username is a dead credential, not "no auth" — reject it.
+
+    Distinguishes the two blank-username cases: BOTH username and password
+    blank is the new no-auth path; a password with a still-blank username is
+    the original #2552 bug class (a credential the backend will never present)
+    and must keep failing.
+    """
+    resp = operator_client.put(
+        URL,
+        {
+            "transport_mode": "smtp",
+            "host": "mail.corp.test",
+            "username": "",
+            "password": "pw",
+        },
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert "username" in resp.data
+    assert "no authentication" in resp.data["username"][0].lower()
+
+
+def test_resolver_smtp_no_auth_builds_connection_without_credentials(db: object) -> None:
+    """`resolve_email_connection` builds a connection Django's backend won't auth with."""
+    obj = WorkspaceEmailSettings.load()
+    obj.transport_mode = EmailTransportMode.SMTP
+    obj.host = "mail.corp.test"
+    obj.port = 25
+    obj.security = "none"
+    obj.username = ""
+    obj.save()
+    conn = resolve_email_connection(obj)
+    assert conn.username == ""
+    assert conn.password == ""
+
+
+# ---------------------------------------------------------------------------
 # SSRF + header-injection guards (H1/M3)
 # ---------------------------------------------------------------------------
 
