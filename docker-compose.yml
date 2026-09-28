@@ -49,6 +49,25 @@ services:
       timeout: 5s
       retries: 5
 
+  # Catch-all SMTP relay for local dev (#4200) — accepts any mail with no
+  # credentials, so it needs no EMAIL_HOST_USER/PASSWORD, and shows every send
+  # in a browser at http://localhost:8025 instead of a real relay silently
+  # failing on the deliberately-blank EMAIL_HOST default. This exercises the
+  # exact "Server default (built-in)" / EMAIL_* fallback path documented in
+  # administration/email.md — WorkspaceEmailSettings intentionally refuses a
+  # blank username, so a no-credential relay like this can only be wired
+  # through the Layer-1 env vars below, never through the in-app page.
+  mailpit:
+    image: axllent/mailpit:v1.31.3@sha256:ed9b00c609e77e99c79b93f1178255ebc271868920f2c69a8d166bd5634ed10d
+    ports:
+      - "127.0.0.1:8025:8025" # web UI — view every email the stack sends
+      - "127.0.0.1:1025:1025" # SMTP
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8025/"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: .
@@ -112,6 +131,14 @@ services:
       # caller sent, so rotating one header minted a fresh budget per value.
       # At 0 the throttles key on the TCP peer and ignore the header.
       TRUEPPM_NUM_PROXIES: "0"
+      # Outbound email (#4200) — routes every send (password reset, invites,
+      # the Email & SMTP page's "send test email") to the mailpit catch-all
+      # below instead of the deliberately-blank production default, so the
+      # send is visible at http://localhost:8025 instead of silently no-op'ing.
+      EMAIL_HOST: mailpit
+      EMAIL_PORT: "1025"
+      EMAIL_USE_TLS: "false"
+      DEFAULT_FROM_EMAIL: dev@trueppm.local
     volumes:
       - ./packages/api/src:/app/src
     ports:
@@ -120,6 +147,8 @@ services:
       db:
         condition: service_healthy
       valkey:
+        condition: service_healthy
+      mailpit:
         condition: service_healthy
     # /readyz (#3346), not /health/ — this healthcheck is what other services'
     # `depends_on: condition: service_healthy` key off, so it should answer the
@@ -195,12 +224,21 @@ services:
       # self-exits the worker once its own heartbeat file (below) goes stale
       # past its threshold, instead of sitting `unhealthy` forever.
       TRUEPPM_CELERY_WORKER_SELF_HEAL: "1"
+      # Outbound email (#4200) — mirrors the api service's pin above. The
+      # worker is what actually sends invite/export/mention emails, so this
+      # is the pin that matters for seeing them at http://localhost:8025.
+      EMAIL_HOST: mailpit
+      EMAIL_PORT: "1025"
+      EMAIL_USE_TLS: "false"
+      DEFAULT_FROM_EMAIL: dev@trueppm.local
     volumes:
       - ./packages/api/src:/app/src
     depends_on:
       db:
         condition: service_healthy
       valkey:
+        condition: service_healthy
+      mailpit:
         condition: service_healthy
     # `restart: unless-stopped` only restarts on process EXIT — a healthcheck
     # transitioning to `unhealthy` changes only what `docker compose ps`
