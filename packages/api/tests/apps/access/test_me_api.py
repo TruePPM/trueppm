@@ -102,6 +102,8 @@ def test_me_authenticated_returns_200_with_expected_fields(db: object) -> None:
     # Display frame (#1953, ADR-0410): both prefs default to the 'auto' sentinel.
     assert data["timezone"] == "auto"
     assert data["date_format"] == "auto"
+    # Install-operator signal (#4219): a plain user is never the operator.
+    assert data["is_workspace_operator"] is False
 
 
 def test_me_surfaces_stored_display_prefs(db: object) -> None:
@@ -352,6 +354,56 @@ def test_role_signal_deactivated_workspace_membership_has_no_access(db: object) 
     assert resp.status_code == 200
     assert resp.data["workspace_role"] is None
     assert resp.data["can_access_admin_settings"] is False
+
+
+# ---------------------------------------------------------------------------
+# Install-operator signal — is_workspace_operator (#4219)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_is_workspace_operator_true_for_superuser(db: object) -> None:
+    """A Django superuser is the install operator (mirrors ``IsWorkspaceOperator``)."""
+    user = User.objects.create_superuser(username="root", password="pw")
+    resp = _make_client(user).get(URL)
+    assert resp.status_code == 200
+    assert resp.data["is_workspace_operator"] is True
+
+
+@pytest.mark.django_db
+def test_is_workspace_operator_false_for_project_admin(db: object) -> None:
+    """A project ADMIN (non-superuser) is NOT the install operator.
+
+    Regression for #4219: ``can_access_admin_settings`` is true for this user
+    (ADMIN+ in a project), but ``IsWorkspaceOperator``-gated endpoints (System
+    Health, dead-letter queue, mail transport) still refuse them. A client that
+    gates a fetch on ``can_access_admin_settings`` instead of this narrower
+    field gets a guaranteed 403 for exactly this population.
+    """
+    from datetime import date
+
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.projects.models import Calendar, Project
+
+    cal = Calendar.objects.create(name="Standard")
+    proj = Project.objects.create(name="P1", start_date=date(2026, 1, 1), calendar=cal)
+    user = User.objects.create_user(username="atlas-alex", password="pw")
+    ProjectMembership.objects.create(project=proj, user=user, role=Role.ADMIN)
+
+    resp = _make_client(user).get(URL)
+    assert resp.status_code == 200
+    assert resp.data["can_access_admin_settings"] is True
+    assert resp.data["is_workspace_operator"] is False
+
+
+@pytest.mark.django_db
+def test_is_workspace_operator_false_for_plain_member(db: object) -> None:
+    """A plain contributor with no elevated role anywhere is not the operator."""
+    user = User.objects.create_user(username="priya2", password="pw")
+    resp = _make_client(user).get(URL)
+    assert resp.status_code == 200
+    assert resp.data["can_access_admin_settings"] is False
+    assert resp.data["is_workspace_operator"] is False
 
 
 # ---------------------------------------------------------------------------

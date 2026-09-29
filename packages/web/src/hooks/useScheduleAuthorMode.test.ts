@@ -29,6 +29,7 @@ function makeUser(id: string) {
     max_project_role: 200,
     workspace_role: null,
     can_access_admin_settings: false,
+    is_workspace_operator: false,
     default_landing: 'auto' as const,
     landing: { intent: 'my_work' as const, path: '/me/work', resolved_by: 'fallback' as const },
     hidden_views: [],

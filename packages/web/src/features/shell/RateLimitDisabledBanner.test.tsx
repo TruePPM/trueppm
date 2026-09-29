@@ -14,15 +14,21 @@ vi.mock('@/hooks/useSystemHealth', () => ({
   useSystemHealth: (opts?: unknown) => useSystemHealth(opts) as unknown,
 }));
 
-const admin = { can_access_admin_settings: true };
-const nonAdmin = { can_access_admin_settings: false };
+// The install operator (Django superuser) — the only population
+// `/health/system/`'s `IsWorkspaceOperator` gate actually admits.
+const operator = { can_access_admin_settings: true, is_workspace_operator: true };
+// A Project Admin: `can_access_admin_settings` is true (it gates the settings
+// shell nav), but `is_workspace_operator` is false — this is the #4219
+// population that used to get a guaranteed 403 from the mis-gated fetch.
+const projectAdmin = { can_access_admin_settings: true, is_workspace_operator: false };
+const nonAdmin = { can_access_admin_settings: false, is_workspace_operator: false };
 
 describe('RateLimitDisabledBanner (#2316)', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('keeps the live region mounted but empty when rate limiting is enabled (#2203)', () => {
     // Persisted so switching to disabled injects text into an existing live node.
-    useCurrentUser.mockReturnValue({ user: admin, isLoading: false });
+    useCurrentUser.mockReturnValue({ user: operator, isLoading: false });
     useSystemHealth.mockReturnValue({ data: { security: { rate_limiting_enabled: true } } });
     render(<RateLimitDisabledBanner />);
     const region = screen.getByRole('status');
@@ -31,14 +37,14 @@ describe('RateLimitDisabledBanner (#2316)', () => {
   });
 
   it('stays empty while the health query is loading — tri-state, no flash', () => {
-    useCurrentUser.mockReturnValue({ user: admin, isLoading: false });
+    useCurrentUser.mockReturnValue({ user: operator, isLoading: false });
     useSystemHealth.mockReturnValue({ data: undefined });
     render(<RateLimitDisabledBanner />);
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
-  it('renders a critical status banner when rate limiting is disabled for an admin', () => {
-    useCurrentUser.mockReturnValue({ user: admin, isLoading: false });
+  it('renders a critical status banner when rate limiting is disabled for the operator', () => {
+    useCurrentUser.mockReturnValue({ user: operator, isLoading: false });
     useSystemHealth.mockReturnValue({ data: { security: { rate_limiting_enabled: false } } });
     render(<RateLimitDisabledBanner />);
     const banner = screen.getByRole('status');
@@ -50,11 +56,22 @@ describe('RateLimitDisabledBanner (#2316)', () => {
     expect(banner.querySelector('a')).toBeNull();
   });
 
-  it('gates the health fetch on admin (enabled:true only for admins)', () => {
-    useCurrentUser.mockReturnValue({ user: admin, isLoading: false });
+  it('gates the health fetch on the operator flag (enabled:true only for the operator)', () => {
+    useCurrentUser.mockReturnValue({ user: operator, isLoading: false });
     useSystemHealth.mockReturnValue({ data: { security: { rate_limiting_enabled: true } } });
     render(<RateLimitDisabledBanner />);
     expect(useSystemHealth).toHaveBeenCalledWith({ poll: false, enabled: true });
+  });
+
+  it('never shows for a Project Admin and skips the health fetch entirely (#4219)', () => {
+    // can_access_admin_settings is true for this user, but is_workspace_operator
+    // is not — the server's IsWorkspaceOperator gate would 403 them, so the
+    // banner must never issue the (guaranteed-403) request on their behalf.
+    useCurrentUser.mockReturnValue({ user: projectAdmin, isLoading: false });
+    useSystemHealth.mockReturnValue({ data: { security: { rate_limiting_enabled: false } } });
+    render(<RateLimitDisabledBanner />);
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+    expect(useSystemHealth).toHaveBeenCalledWith({ poll: false, enabled: false });
   });
 
   it('never shows for a non-admin and skips the health fetch entirely', () => {

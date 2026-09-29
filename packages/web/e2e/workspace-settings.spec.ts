@@ -149,6 +149,12 @@ async function setup(page: Page) {
         // Workspace admin — the threshold RequireWorkspaceAdmin gates on (#2012).
         can_access_admin_settings: true,
         workspace_role: 300,
+        // Also the install operator so RateLimitDisabledBanner's health fetch
+        // fires (#4219: the fetch is gated on is_workspace_operator, a NARROWER
+        // population than can_access_admin_settings — a plain workspace Admin is
+        // not enough). The System-group tests below depend on this to exercise
+        // both the enabled and disabled rate-limiting states.
+        is_workspace_operator: true,
       }),
     }),
   );
