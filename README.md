@@ -89,7 +89,7 @@ Need the admin account (username `admin`)? Its password is generated on first st
 | API        | http://localhost:8000                        |
 | Swagger UI | http://localhost:8000/api/schema/swagger-ui/ |
 
-Prefer to read before you click? Start with [The Story](https://docs.trueppm.com/the-story/) — the end-to-end hybrid workflow in plain narrative. A hosted public demo (no install at all) is part of the 0.4 beta launch.
+Prefer to read before you click? Start with [The Story](https://docs.trueppm.com/the-story/) — the end-to-end hybrid workflow in plain narrative. Or skip the install entirely: **[try.trueppm.com](https://try.trueppm.com)** is a hosted, read-only demo of the same Atlas sample — no signup, no login, and nothing you do there can change it. See [Try TruePPM](https://docs.trueppm.com/getting-started/try-it/) for the zero-config local-trial alternative if you'd rather not open a third-party host.
 
 ## Is this for you?
 
@@ -257,6 +257,7 @@ All four dependency types (FS/SS/FF/SF), lead/lag on every link, multi-calendar 
 
 Full documentation at **[docs.trueppm.com](https://docs.trueppm.com)** (published via GitLab Pages on every release tag, and from `main` on every merge — so the site tracks unreleased work; pages documenting behavior that is not in the latest tag carry a "Ships in 0.X" callout).
 
+- **[Try TruePPM](https://docs.trueppm.com/getting-started/try-it/)** — the hosted read-only demo ([try.trueppm.com](https://try.trueppm.com)) and a zero-config local trial, no install required for either
 - **[Installation](https://docs.trueppm.com/getting-started/installation/)** — Docker Compose, Helm/Kubernetes, single-server, or scheduler library
 - **[Quickstart](https://docs.trueppm.com/getting-started/quickstart/)** — from clone to a populated workspace in five minutes
 - **[Evaluation guide](https://docs.trueppm.com/getting-started/evaluation-guide/)** — verify every capability in ~30 minutes: which demo, which login, which screen, what to expect
@@ -313,10 +314,13 @@ trueppm-suite/
 │   ├── wasm-scheduler/ # Rust + petgraph CPM engine compiled to WASM
 │   ├── api/            # Django 5.2 REST + Channels backend
 │   ├── web/            # React 19 + TypeScript frontend
+│   ├── mobile/         # React Native app scaffold (nav shell + typed boundaries)
+│   ├── mcp/            # trueppm-mcp — read-only MCP server (pip: trueppm-mcp)
 │   ├── helm/           # Helm 3 chart for Kubernetes deployment
 │   └── website/        # Astro Starlight documentation site
 ├── docs/            # Architecture Decision Records (source of record)
 ├── docker-compose.yml       # development stack
+├── docker-compose.demo.yml  # zero-config read-only demo stack
 └── docker-compose.prod.yml  # production stack (release images + TLS)
 ```
 
