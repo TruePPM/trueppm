@@ -3853,22 +3853,53 @@ scheduler:fuzz-deep:
       optional: true
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
+  # Sharded by test file (#4222). Each property costs ~5 min at the deep budget,
+  # and one job running all of them grew from 29 min (7 properties) to ~58 min
+  # (12) in four days — against the 60-min project timeout. `other` runs every
+  # fuzz property outside the named files, so a property added in a new file is
+  # still fuzzed rather than silently dropped; it collects nothing today, and
+  # pytest's exit 5 ("no tests collected") is success for that shard only. When
+  # `other` starts collecting, give that file its own shard.
+  parallel:
+    matrix:
+      - FUZZ_SHARD: [contract, milestone, other]
+  timeout: 50m
   # Persist Hypothesis's example database across scheduled runs so the search
   # accumulates a shrinking corpus of interesting inputs rather than starting
   # cold each night. Separate cache key from the pip cache (a list cache replaces
-  # the template map, so re-state the pip cache via the anchor).
+  # the template map, so re-state the pip cache via the anchor). One key per
+  # shard, because parallel jobs pushing a shared key overwrite each other's
+  # database; the fallback seeds each shard from the pre-#4222 combined corpus.
+  # `when: always` keeps the failing examples a red run found, which Hypothesis
+  # replays first on the next run.
   cache:
     - <<: *scheduler-cache
       policy: pull
-    - key: scheduler-fuzz-corpus
+    - key: scheduler-fuzz-corpus-$FUZZ_SHARD
+      fallback_keys:
+        - scheduler-fuzz-corpus
       paths:
         - packages/scheduler/.hypothesis/
+      when: always
   variables:
     HYPOTHESIS_PROFILE: deep
     FUZZ_MAX_EXAMPLES: "50000"
   script:
     - cd packages/scheduler
-    - pytest -m fuzz -p no:cacheprovider --no-cov
+    - |
+      case "$FUZZ_SHARD" in
+        contract)  set -- tests/test_contract_fuzz.py ;;
+        milestone) set -- tests/test_milestone_instant.py ;;
+        other)     set -- --ignore=tests/test_contract_fuzz.py --ignore=tests/test_milestone_instant.py ;;
+        *) echo "unknown FUZZ_SHARD '$FUZZ_SHARD'"; exit 1 ;;
+      esac
+      rc=0
+      pytest -m fuzz -p no:cacheprovider --no-cov "$@" || rc=$?
+      if [ "$rc" -eq 5 ] && [ "$FUZZ_SHARD" = other ]; then
+        echo "No fuzz properties outside the named shards."
+        rc=0
+      fi
+      exit "$rc"
   artifacts:
     paths:
       - packages/scheduler/.hypothesis/
