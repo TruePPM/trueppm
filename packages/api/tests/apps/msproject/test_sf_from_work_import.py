@@ -19,12 +19,12 @@ documented rather than silently worked around:
    engine, so they cannot serve as the oracle. See
    ``test_sf_zero_lag_from_a_real_export_matches_the_4145_rule`` for how this is
    handled.
-2. ``sf_from_work_lagged.xml``'s round trip surfaced a genuine engine gap — the
-   project-start floor silently suppresses an SF link's anchor whenever the anchor
-   would fall before the project's nominal start date, which is common because SF is
-   the one dependency type that can legitimately require the successor to be
+2. ``sf_from_work_lagged.xml``'s round trip surfaced an engine gap, fixed in #4218:
+   the project-start floor silently suppressed an SF link's anchor whenever the
+   anchor fell before the project's nominal start date, which is common because SF
+   is the one dependency type that can legitimately require the successor to be
    scheduled *before* an early predecessor. See
-   ``test_sf_anchor_before_project_start_is_suppressed_by_the_floor``.
+   ``test_sf_anchor_before_project_start_places_the_successor_before_it``.
 """
 
 from __future__ import annotations
@@ -138,10 +138,18 @@ def lagged_project(db: object) -> Project:
     # here rather than moved earlier, because moving it earlier would dodge
     # exactly the real-world case (a predecessor sitting on the project's first
     # working day) that this file exercises.
+    #
+    # The status date is the file's own <CurrentDate> (2026-09-10): the file has no
+    # <StatusDate>, and MS Project computed its dates as of that day. It is set
+    # explicitly because the data date floors an SF-only task where the project
+    # start no longer does (#4218) — a status date on the project start (as this
+    # fixture had before) holds "Dependency SF" there regardless, which
+    # test_the_data_date_still_floors_the_sf_successor pins; and leaving it null
+    # would resolve to today's date and make the result depend on the clock.
     return Project.objects.create(
         name="SF lagged real export",
         start_date=date(2026, 10, 5),
-        status_date=date(2026, 10, 5),
+        status_date=date(2026, 9, 10),
         calendar=Calendar.objects.create(name="Standard"),
     )
 
@@ -177,47 +185,32 @@ def test_dependency_sf_lag_is_truncated_to_zero_days_on_import(
 
 
 @pytest.mark.django_db
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "#4155 finding: the project-start floor silently suppresses an SF link's "
-        "anchor whenever the anchor falls before the project's nominal start date. "
-        "'Design' (the predecessor) is unconstrained and floats to the project's "
-        "very first working day (Monday 2026-10-05, matching the file's own "
-        "<StartDate>) — a common, entirely ordinary real-world shape (many real "
-        "plans start task 1 on day 1), not a contrived edge case. The SF anchor for "
-        "'Dependency SF' is therefore the last working day *before* the project "
-        "opens (Friday 2026-10-02), which the file's own MS-Project-computed Start "
-        "date confirms (2026-10-02T10:00:00 — day matches at the date granularity "
-        "this engine schedules in; the file's hour and its Finish day additionally "
-        "reflect the real 2-hour lag that #2290 truncates to zero on import, a "
-        "separate and already-tracked limitation, not this bug). "
-        "Root cause (reproduces in the pure trueppm_scheduler package, no Django "
-        "involved): packages/scheduler/src/trueppm_scheduler/engine.py's "
-        "_early_start_floors() unconditionally seeds es_constraints with the "
-        "project-start floor for every task, and _forward_pass()'s FF/SF branch "
-        "('if min_ef > task.early_finish') only ever pulls a date LATER than what "
-        "the floor already implies, never earlier. So when a task's only real "
-        "constraint is an SF link whose anchor is before the floor, that anchor "
-        "loses to the floor and is treated as non-binding — the task simply floats "
-        "to the project-start floor like an unconstrained task would. This is "
-        "exactly the degenerate case packages/scheduler/tests/test_sf_from_work.py's "
-        "_sf() helper's own docstring calls out and deliberately avoids testing: "
-        "'Without [an SNET], A sits on the first working day and its SF anchor "
-        "falls before the project opens, where the bound is dominated by B's own "
-        "duration and nothing is tested.' It is not a disagreement with the #4145 "
-        "anchor FORMULA (confirmed correct in isolation by that same file) — it is "
-        "an interaction between the anchor and the project-start floor that #4145 "
-        "never exercised. Needs a fresh cross-engine design decision (Python + Rust "
-        "+ web), out of scope for this issue per its own instructions; tracked as a "
-        "follow-up to #4145."
-    ),
-)
-def test_sf_anchor_before_project_start_is_suppressed_by_the_floor(
+def test_sf_anchor_before_project_start_places_the_successor_before_it(
     lagged_project: Project,
 ) -> None:
+    """#4218: the SF successor starts the working day before the project opens.
+
+    "Design" is unconstrained and sits on the project's first working day, Mon
+    2026-10-05. "Dependency SF"'s SF anchor is therefore Fri 2026-10-02, which is
+    the Start MS Project itself computed for it (2026-10-02T10:00:00; the hour and
+    its Finish day reflect the real 2-hour lag #2290 truncates on import). Before
+    #4218 the project-start floor discarded the anchor and put it on 10-05.
+    """
     by_name = _import_and_schedule(lagged_project, "sf_from_work_lagged.xml")
+    assert by_name["Design"].early_start == date(2026, 10, 5)
     sf_task = by_name["Dependency SF"]
-    # Currently computed as 2026-10-05 (floored to the project start, same day as
-    # "Design") instead of 2026-10-02 (the day before "Design" starts).
     assert sf_task.early_start == date(2026, 10, 2)
+    assert sf_task.early_start < lagged_project.start_date
+
+
+@pytest.mark.django_db
+def test_the_data_date_still_floors_the_sf_successor(lagged_project: Project) -> None:
+    """The project start is lifted for an SF-only task; the data date is not.
+
+    With the status date on the project start, remaining work cannot be forecast
+    before it, so "Dependency SF" is held on Mon 2026-10-05 (#4218's design split).
+    """
+    lagged_project.status_date = date(2026, 10, 5)
+    lagged_project.save(update_fields=["status_date"])
+    by_name = _import_and_schedule(lagged_project, "sf_from_work_lagged.xml")
+    assert by_name["Dependency SF"].early_start == date(2026, 10, 5)

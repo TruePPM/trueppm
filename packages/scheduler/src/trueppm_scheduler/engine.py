@@ -48,6 +48,27 @@ opening midnight now schedule identically — before #4145 the two disagreed by 
 working day, and the work branch scheduled one day later than the source plan an MS
 Project import came from.
 
+An SF-only task may start before the project start (#4218)
+----------------------------------------------------------
+Every task is floored at the project start, with one exception: a task whose
+incoming links are *all* SF is placed by those links alone, even when that puts it
+before the project start. SF is the one link type that can legitimately require a
+successor to run *before* its predecessor, and the ordinary shape (a predecessor on
+the project's first working day, an SF successor finishing the day before) is
+exactly what MS Project schedules — it moves the successor, and the project's
+earliest date with it, ahead of the nominal start. Flooring that task used to
+discard its SF bound silently: the bound can only pull a finish *later*, so the
+task floated to the project start as if it were unlinked.
+
+The **data date** still floors it. The project start is a planning convention the
+network may overrule; the data date is a fact about time — remaining work cannot
+be forecast to happen before "as of now" — and an SF anchor in the past says the
+successor is already late, not that it finished. Any other link on the task (FS,
+SS, FF) keeps the project-start floor for it, so leads and FF back-offs stay
+floored exactly as before, and an SNET or a recorded actual start still binds.
+:func:`_sf_only` is the test; :func:`monte_carlo` widens its working-day index
+backwards to hold the same placements (:func:`_mc_pre_start_pad_days`).
+
 Tasks pinned out of network logic by recorded actuals (ADR-0136) keep their
 recorded dates and are treated as ordinary work by their successors. ``monte_carlo``
 carries each run's milestone instant as a date (:func:`_mc_milestone_bounds`), and
@@ -1553,7 +1574,7 @@ def _forward_pass(
     and extend the same rule. A task pinned by recorded actuals is absent: it is
     ordinary work to its successors.
     """
-    floors: dict[int, tuple[date, date]] = {}
+    floors: dict[int, tuple[date, date, date | None]] = {}
     instants: dict[str, _Instant] = {}
 
     def cal_for(tid: str) -> Calendar:
@@ -1566,7 +1587,7 @@ def _forward_pass(
         # every predecessor constraint (lag is consumed on the successor's
         # calendar). With no per-task calendars this is always ``calendar``.
         cal = calendar if task_calendars is None else task_calendars.get(node_id, calendar)
-        start_base, start = _calendar_floors(cal, project_start, status_date, floors)
+        start_base, start, data_floor = _calendar_floors(cal, project_start, status_date, floors)
         # Only a network-placed milestone can sit at the end of its day (#4079);
         # reset first so an input carrying a previous run's value cannot leak.
         task.milestone_at_day_end = False
@@ -1577,7 +1598,9 @@ def _forward_pass(
             task.scheduled_start = _compute_scheduled_start(task, cal)
             continue
 
-        duration_days, es_constraints = _early_start_floors(task, cal, start_base, start)
+        duration_days, es_constraints = _early_start_floors(
+            task, cal, start_base, start, data_floor, sf_only=_sf_only(node_id, g)
+        )
 
         if duration_days == 0:
             instant, day = _place_milestone(
@@ -1594,6 +1617,18 @@ def _forward_pass(
             node_id, task_map, g, cal, instants, cal_for
         )
         es_constraints.extend(pred_es)
+
+        if not es_constraints:
+            # An SF-only task with no data date, SNET or actual start (#4218): its
+            # SF links are the only thing that places it, and nothing floors the
+            # start they back-solve. ``_sf_only`` guarantees ef_constraints here.
+            min_ef = max(ef_constraints)
+            task.early_start = _start_from_finish(min_ef, duration_days, cal)
+            task.early_finish = max(
+                _finish_from_start(task.early_start, duration_days, cal), min_ef
+            )
+            task.scheduled_start = _compute_scheduled_start(task, cal)
+            continue
 
         # ES = latest of all ES constraints.
         task.early_start = max(es_constraints)
@@ -1619,26 +1654,57 @@ def _forward_pass(
     return instants
 
 
+def _sf_only(node_id: str, g: nx.DiGraph[str]) -> bool:
+    """Whether ``node_id`` has incoming links and every one of them is SF (#4218).
+
+    Such a task is placed by its SF links alone and is not floored at the project
+    start (see "An SF-only task may start before the project start" in the module
+    docstring). It reads the graph the pass schedules — the same edge set
+    :mod:`trueppm_scheduler.derive` explains from — and the Monte Carlo pass, the
+    derivation and the Rust engine (``forward.rs::sf_only``) apply the same test.
+    """
+    preds = list(g.predecessors(node_id))
+    return bool(preds) and all(g[p][node_id]["dep"].dep_type == DependencyType.SF for p in preds)
+
+
 def _early_start_floors(
-    task: Task, cal: Calendar, start_base: date, start: date
+    task: Task,
+    cal: Calendar,
+    start_base: date,
+    start: date,
+    data_floor: date | None = None,
+    *,
+    sf_only: bool = False,
 ) -> tuple[int, list[date]]:
     """Return ``(duration_days, es_constraints)``: the duration to schedule and the ES lower bounds.
 
     The bounds cover the project-start / data-date floor, an in-progress task's
     ``actual_start``, and ``planned_start`` (SNET). Predecessor-driven bounds are
     added by the caller.
+
+    ``sf_only`` (:func:`_sf_only`) drops the project-start floor and keeps only the
+    data date (``data_floor``, ``None`` when no status date is set), so the list
+    may come back empty (#4218). Why the two floors part here: the project start
+    is where the plan *nominally* opens, and an SF link is the one dependency that
+    can legitimately require work before an early predecessor — MS Project moves
+    such a successor ahead of the project start rather than dropping its link. The
+    data date is not a planning choice: remaining work cannot be forecast into the
+    past, so an SF anchor behind it means the successor is late, and it stays on
+    the data date like any other unfinished work. A complete-without-actuals task
+    was never floored at the data date, so it keeps no floor at all.
     """
     if _is_complete(task):
         # Complete but with no actuals recorded: a full-duration CPM planning
         # position, anchored at the un-floored project start rather than the
         # data date (completed work is historical and is never floored at it).
         duration_days = task.duration.days
-        es_constraints: list[date] = [start_base]
+        es_constraints: list[date] = [] if sf_only else [start_base]
     else:
         # In-progress work contributes only what is left, laid forward from the
         # data date; not-started work uses its full estimate.
         duration_days = _effective_duration_days(task)
-        es_constraints = [start]
+        es_floor = data_floor if sf_only else start
+        es_constraints = [] if es_floor is None else [es_floor]
         if task.actual_start is not None:
             # ADR-0132 §2 / #2621: work already underway is floored at where
             # it actually started, not just at the data date or predecessor
@@ -1659,8 +1725,8 @@ def _calendar_floors(
     cal: Calendar,
     project_start: date,
     status_date: date | None,
-    cache: dict[int, tuple[date, date]],
-) -> tuple[date, date]:
+    cache: dict[int, tuple[date, date, date | None]],
+) -> tuple[date, date, date | None]:
     """The project-start floor and the data-date floor for ``cal``, memoized (#1824).
 
     Both floors snap to the task's *own* calendar — a task can never begin on its own
@@ -1675,9 +1741,11 @@ def _calendar_floors(
     identity: Calendar holds a mutable exceptions list and isn't hashable, and the
     resolved objects are stable here.
 
-    Returns ``(start_base, start)`` — the project-start floor, and that floor raised to
-    the data date when one is set. A status date at or before project start is already
-    covered by the project-start floor.
+    Returns ``(start_base, start, data_floor)`` — the project-start floor, that floor
+    raised to the data date when one is set, and the data-date floor on its own
+    (``None`` without a status date). A status date at or before project start is
+    already covered by the project-start floor in ``start``; ``data_floor`` is what an
+    SF-only task, which the project start does not floor, is held at (#4218).
     """
     key = id(cal)
     cached = cache.get(key)
@@ -1686,12 +1754,14 @@ def _calendar_floors(
 
     start_base = _next_working_day(project_start, cal)
     start = start_base
+    data_floor: date | None = None
     if status_date is not None:
         # The data date floors all not-yet-finished work: nothing remaining can be
         # scheduled before "as of now".
-        start = max(start_base, _next_working_day(status_date, cal))
-    cache[key] = (start_base, start)
-    return start_base, start
+        data_floor = _next_working_day(status_date, cal)
+        start = max(start_base, data_floor)
+    cache[key] = (start_base, start, data_floor)
+    return start_base, start, data_floor
 
 
 def _compute_scheduled_start(task: Task, cal: Calendar) -> date:
@@ -4060,6 +4130,69 @@ def _mc_index_size(
     return int(dur_upper + lag_upper + snet_upper + status_upper + actual_upper + n_tasks + 30)
 
 
+# Calendar days of slack added below the earliest pre-start placement the pad bound
+# derives, so the working-day lookups one day either side of it stay on the index.
+_MC_PRE_START_PAD_BUFFER_DAYS = 14
+
+
+def _mc_pre_start_pad_days(
+    project: Project,
+    task_map: dict[str, Task],
+    topo_order: list[str],
+    g: nx.DiGraph[str],
+    cal_of: dict[str, Calendar],
+) -> tuple[int, frozenset[str]]:
+    """``(pad_days, sf_only_ids)``: how far before the project start the index must reach.
+
+    An SF-only task (:func:`_sf_only`) is not floored at the project start (#4218), so
+    a run can place it before the working-day index's first day, where no offset
+    exists. The index therefore opens ``pad_days`` calendar days early. With no
+    SF-only task the pad is 0 and every offset is exactly what it was before.
+
+    The bound is a lower bound on every run's start, not a deterministic replay: in a
+    run, a task that is not SF-only starts no earlier than the project-start floor
+    (or, when pinned by actuals, at its fixed recorded start), and an SF-only task's
+    start is at least the back-solve of any single SF bound over its *longest*
+    possible sampled duration, measured from that lower bound on the predecessor —
+    the SF bound is monotone in the predecessor's start and the back-solve is
+    monotone in both arguments. Floors (data date, SNET) only raise the true start,
+    so leaving them out keeps the bound safe.
+    """
+    sf_only = frozenset(tid for tid in topo_order if _sf_only(tid, g))
+    if not sf_only:
+        return 0, sf_only
+    lo: dict[str, date] = {}
+    earliest = project.start_date
+    for tid in topo_order:
+        task = task_map[tid]
+        cal = cal_of[tid]
+        pinned = _pinned_placement(task, cal)
+        if pinned is not None:
+            lo[tid] = pinned[0]
+            continue
+        if tid not in sf_only:
+            lo[tid] = _next_working_day(project.start_date, cal)
+            continue
+        bound = max(
+            _next_working_day(
+                _safe_offset(
+                    _prev_working_day(_safe_offset(lo[pred], -_ONE_DAY), cal_of[pred]),
+                    g[pred][tid]["dep"].lag,
+                ),
+                cal,
+            )
+            for pred in g.predecessors(tid)
+        )
+        longest = max(
+            task.duration.days,
+            0 if task.pessimistic_duration is None else task.pessimistic_duration.days,
+            _velocity_worst_case_days(task, project),
+        )
+        lo[tid] = _start_from_finish(bound, longest, cal) if longest > 0 else bound
+        earliest = min(earliest, lo[tid])
+    return (project.start_date - earliest).days + _MC_PRE_START_PAD_BUFFER_DAYS, sf_only
+
+
 def _snapped_offsets(
     wd_ord: np.ndarray, last_off: int, anchor_ords: np.ndarray, shift_days: int
 ) -> np.ndarray:
@@ -4435,6 +4568,7 @@ def _mc_es_floors(
     cal_key_of: dict[str, int],
     offset_of_by_cal: dict[int, dict[date, int]],
     wd_index_by_cal: dict[int, list[date]],
+    sf_only: frozenset[str] = frozenset(),
 ) -> dict[str, float]:
     """Merge each task's SNET pin, recorded actual start, and the data-date floor.
 
@@ -4491,6 +4625,13 @@ def _mc_es_floors(
 
     All three are ES lower bounds on the same task, so they merge here and the forward
     pass reads a single number.
+
+    The project-start floor is the fourth, and the one an ``sf_only`` task
+    (:func:`_sf_only`, #4218) does not take. Offset 0 is the project start only while
+    the index opens there; once :func:`_mc_pre_start_pad_days` opens it earlier, every
+    other task carries its project-start offset explicitly, and an SF-only task keeps
+    just its data date, SNET and actual start, each read wherever it falls on the
+    index — before the project start included, as ``schedule()`` reads them.
     """
 
     def _snap_offset(d: date, tid: str) -> float:
@@ -4498,12 +4639,27 @@ def _mc_es_floors(
         cal_key = cal_key_of[tid]
         snapped = _next_working_day(d, cal_of[tid])
         off = offset_of_by_cal[cal_key].get(snapped)
-        return float(off) if off is not None else float(len(wd_index_by_cal[cal_key]) - 1)
+        if off is not None:
+            return float(off)
+        index = wd_index_by_cal[cal_key]
+        return 0.0 if snapped < index[0] else float(len(index) - 1)
 
     es_floor: dict[str, float] = {}
     status_date = project.status_date
     for t in task_map.values():
-        floor = 0.0
+        if t.id in sf_only:
+            floor = 0.0
+            if t.planned_start is not None:
+                floor = _snap_offset(t.planned_start, t.id)
+            if status_date is not None and not _is_complete(t):
+                floor = max(floor, _snap_offset(status_date, t.id))
+            if t.actual_start is not None and not _is_complete(t):
+                floor = max(floor, _snap_offset(t.actual_start, t.id))
+            if floor:
+                es_floor[t.id] = floor
+            continue
+        # 0.0 while the index opens on the project start, i.e. unchanged.
+        floor = _snap_offset(project.start_date, t.id)
         if t.planned_start is not None and t.planned_start > project.start_date:
             floor = _snap_offset(t.planned_start, t.id)
         if status_date is not None and status_date > project.start_date:
@@ -4536,6 +4692,7 @@ def _mc_verbatim_actuals(
     cal_key_of: dict[str, int],
     offset_of_by_cal: dict[int, dict[date, int]],
     wd_index_by_cal: dict[int, list[date]],
+    sf_only: frozenset[str] = frozenset(),
 ) -> dict[str, _VerbatimActual]:
     """The live tasks whose recorded ``actual_start`` falls on a non-working day (#4175).
 
@@ -4550,6 +4707,8 @@ def _mc_verbatim_actuals(
     the anchor from the verbatim date instead, the way #2461 did for completed tasks.
 
     A working-day actual is left out: its snap is the identity and nothing diverges.
+    ``other_floor`` mirrors :func:`_mc_es_floors`, project-start floor included for
+    every task that is not ``sf_only`` (#4218).
     """
     out: dict[str, _VerbatimActual] = {}
     status_date = project.status_date
@@ -4564,9 +4723,17 @@ def _mc_verbatim_actuals(
         cal_key = cal_key_of[t.id]
         offset_of = offset_of_by_cal[cal_key]
         last = float(len(wd_index_by_cal[cal_key]) - 1)
-        other = 0.0
+        if t.id in sf_only:
+            other = 0.0
+            if t.planned_start is not None:
+                other = _snapped_offset(t.planned_start, cal, offset_of, last)
+            if status_date is not None:
+                other = max(other, _snapped_offset(status_date, cal, offset_of, last))
+            out[t.id] = (actual.toordinal(), _snapped_offset(actual, cal, offset_of, last), other)
+            continue
+        other = _snapped_offset(project.start_date, cal, offset_of, last)
         if t.planned_start is not None and t.planned_start > project.start_date:
-            other = _snapped_offset(t.planned_start, cal, offset_of, last)
+            other = max(other, _snapped_offset(t.planned_start, cal, offset_of, last))
         if status_date is not None and status_date > project.start_date:
             other = max(other, _snapped_offset(status_date, cal, offset_of, last))
         out[t.id] = (actual.toordinal(), _snapped_offset(actual, cal, offset_of, last), other)
@@ -4579,8 +4746,13 @@ def _snapped_offset(d: date, cal: Calendar, offset_of: dict[date, int], last: fl
     The same lookup :func:`_mc_es_floors` floors a task with, so the offsets
     :func:`_mc_verbatim_actuals` compares against are the ones the forward pass holds.
     """
-    off = offset_of.get(_next_working_day(d, cal))
-    return float(off) if off is not None else last
+    snapped = _next_working_day(d, cal)
+    off = offset_of.get(snapped)
+    if off is not None:
+        return float(off)
+    # Below the index only for a pre-start date on an SF-only task (#4218), which
+    # the pad was sized to hold; the index's first day is the safe side to clamp to.
+    return 0.0 if snapped < min(offset_of, default=snapped) else last
 
 
 def _mc_progress_state(
@@ -4593,6 +4765,7 @@ def _mc_progress_state(
     cal_key_of: dict[str, int],
     offset_of_by_cal: dict[int, dict[date, int]],
     wd_index_by_cal: dict[int, list[date]],
+    sf_only: frozenset[str] = frozenset(),
 ) -> tuple[
     dict[str, float],
     dict[str, tuple[float, float]],
@@ -4623,7 +4796,7 @@ def _mc_progress_state(
     """
 
     es_floor = _mc_es_floors(
-        project, task_map, cal_of, cal_key_of, offset_of_by_cal, wd_index_by_cal
+        project, task_map, cal_of, cal_key_of, offset_of_by_cal, wd_index_by_cal, sf_only
     )
 
     # The verbatim dates schedule() gives each completed task — read off an actual
@@ -5432,10 +5605,18 @@ def monte_carlo(
     cal_key_of = {tid: id(cal) for tid, cal in cal_of.items()}
     distinct_cals: dict[int, Calendar] = {id(calendar): calendar}
     distinct_cals.update({key: cal_of[tid] for tid, key in cal_key_of.items()})
+    # An SF-only task can be placed before the project start (#4218); the index then
+    # opens early enough to hold it. ``pad_days`` is 0 for a project with no SF-only
+    # task, leaving every index — and so every offset — exactly as before.
+    pad_days, sf_only_ids = _mc_pre_start_pad_days(project, task_map, topo_order, g, cal_of)
+    index_origin = _safe_offset(project.start_date, timedelta(days=-pad_days))
+    # The pad's calendar days hold at most as many working days, so adding them to
+    # the forward bound is enough.
+    index_size += pad_days
     # Each index is sized by the same project-wide bound, so every calendar's index
     # spans at least as many calendar days as the offsets ever reach.
     wd_index_by_cal = {
-        key: _build_working_day_index(project.start_date, cal, index_size)
+        key: _build_working_day_index(index_origin, cal, index_size)
         for key, cal in distinct_cals.items()
     }
     offset_of_by_cal = {
@@ -5505,6 +5686,7 @@ def monte_carlo(
         cal_key_of,
         offset_of_by_cal,
         wd_index_by_cal,
+        sf_only_ids,
     )
 
     # A completed task's dates are run-invariant, so both the constraints it imposes
@@ -5527,7 +5709,7 @@ def monte_carlo(
     )
 
     verbatim_actuals = _mc_verbatim_actuals(
-        project, task_map, cal_of, cal_key_of, offset_of_by_cal, wd_index_by_cal
+        project, task_map, cal_of, cal_key_of, offset_of_by_cal, wd_index_by_cal, sf_only_ids
     )
     es_mat, ef_mat, milestone_finish_floor = _mc_forward_pass(
         topo_order,

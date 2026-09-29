@@ -200,12 +200,12 @@ def test_forward_sf_imposes_finish_and_pulls_start_back() -> None:
         imposed_date="2026-03-05",
         calendar_days_added=0,
     )
+    # S's only link is SF, so the engine does not floor it at the project start
+    # (#4218) and the derivation offers no project-start term for it.
     assert _contribs(p, "S", Quantity.EARLY_FINISH) == [
-        _PROJECT_START,
         {**sf, "is_binding": True},
     ]
     assert _contribs(p, "S", Quantity.EARLY_START) == [
-        _PROJECT_START,
         sf,
         _c(
             "early_finish_pullback",
@@ -658,23 +658,28 @@ def _term(sid: str, imposed: date | None, dep_type: str) -> DerivationContributi
 
 
 def _pullback_terms(dep_type: str) -> list[DerivationContribution]:
-    # The tightest (earliest) term is deliberately neither first nor last, and an
-    # undated term sorts as date.max rather than crashing the comparison.
+    # Neither extreme term is first or last, and an undated term sorts as the
+    # loosest bound rather than crashing the comparison.
     return [
-        _term("L", date(2026, 3, 10), dep_type),
-        _term("N", None, dep_type),
-        _term("T", date(2026, 3, 6), dep_type),
         _term("M", date(2026, 3, 9), dep_type),
+        _term("L", date(2026, 3, 10), dep_type),
+        _term("T", date(2026, 3, 6), dep_type),
+        _term("N", None, dep_type),
+        _term("K", date(2026, 3, 7), dep_type),
     ]
 
 
 def test_forward_pullback_cites_the_tightest_finish_driver() -> None:
+    # An early-finish bound is a LOWER bound, so the tightest one is the latest
+    # (L, 03-10): the engine pulls the start back from max(ef_constraints). This
+    # cited the earliest until #4218, when an SF-only task with several SF links
+    # made the pullback the ordinary case and named the wrong link.
     task = Task(id="X", name="X", duration=timedelta(days=3), early_start=date(2026, 3, 5))
     got = _forward_pullback_binding(task, _pullback_terms("FF"))
     assert got.to_dict() == _c(
         "early_finish_pullback",
-        source_task_id="T",
-        source_task_name="Task T",
+        source_task_id="L",
+        source_task_name="Task L",
         dep_type="FF",
         lag_days=2,
         imposed_date="2026-03-05",
