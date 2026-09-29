@@ -2659,7 +2659,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8,<1.0" },
     { name = "schemathesis", marker = "extra == 'fuzz'", specifier = ">=4.0,<5.0" },
     { name = "testcontainers", extras = ["postgres"], marker = "extra == 'dev'", specifier = ">=4.7,<5.0" },
-    { name = "trueppm-scheduler", specifier = ">=0.4.0b4,<0.5" },
+    { name = "trueppm-scheduler", specifier = ">=0.4.0b5,<0.5" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.29,<1.0" },
     { name = "whitenoise", specifier = ">=6.0,<7.0" },
 ]
@@ -2667,15 +2667,15 @@ provides-extras = ["c", "binary", "dev", "fuzz"]
 
 [[package]]
 name = "trueppm-scheduler"
-version = "0.4.0b4"
+version = "0.4.0b5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "networkx" },
     { name = "numpy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b8/2b/d68a9ea55f81c85b58d13aa3a6d21c5b6ed8eb05e388366ebc6c88d05fd2/trueppm_scheduler-0.4.0b4.tar.gz", hash = "sha256:4d23c42f261ef19736335923c25986b0d2f56c662bc6a9b570be123ba659c2bd", size = 328567, upload-time = "2026-09-24T04:27:56.839Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c6/05/a338e227d1245832533fcaa61ad4ee0c5d144cfd63b1196328ac496cb4be/trueppm_scheduler-0.4.0b5.tar.gz", hash = "sha256:201356dcabac963f52a7ac5aec3454ecd5ffba1b2771df6420ffa6686008d6ce", size = 426729, upload-time = "2026-09-29T04:48:06.109Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2d/39/8903d4e912a451cfd6a45ff5420bb24bdd00ed909d2ef2d726c7e39e41e8/trueppm_scheduler-0.4.0b4-py3-none-any.whl", hash = "sha256:8ca6fd31064c31f6d7e6718c72866a57873a3573ab4a62883aea2af526935934", size = 114848, upload-time = "2026-09-24T04:27:55.364Z" },
+    { url = "https://files.pythonhosted.org/packages/22/d8/97f7c5b111447f178c9f67a764dee49adb2ef8271e8d05363cf2d9a537cb/trueppm_scheduler-0.4.0b5-py3-none-any.whl", hash = "sha256:aff13d9458b0213998f68fade8033a0876b9b6428fef0a10cfabfdf4ad40b8c2", size = 153083, upload-time = "2026-09-29T04:48:04.688Z" },
 ]
 
 [[package]]
