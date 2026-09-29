@@ -304,7 +304,7 @@ def _serve_public_share(
             status=status.HTTP_410_GONE,
         )
 
-    payload = serialize(link)
+    payload = share_services.get_cached_public_payload(link, serialize)
     body = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     etag = 'W/"' + hashlib.sha256(body.encode()).hexdigest()[:32] + '"'
 

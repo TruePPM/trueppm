@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import logging
 import secrets
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import F
 from django.utils import timezone
 
@@ -124,6 +126,49 @@ def record_access(link: ShareLink) -> None:
         access_count=F("access_count") + 1,
         last_accessed_at=timezone.now(),
     )
+
+
+# TTL matches the client-facing `Cache-Control: private, max-age=30` in
+# share_views.py (#4226) — a server-side cache hit is never staler than what a
+# browser already tolerates on a re-poll. Short on purpose: the projection changes
+# at most once a day (the demo reset job, or a real workspace's own edits), so a
+# bounded TTL is enough to collapse a burst of concurrent visitors on the same link
+# into one DB round trip without needing explicit invalidation on every write that
+# could touch the payload.
+SHARE_PAYLOAD_CACHE_TTL = 30
+
+
+def _share_payload_cache_key(link: ShareLink) -> str:
+    """Cache key for one link's built projection.
+
+    Keyed on pk, not token: the token is only ever hashed on the way in
+    (``resolve_share_link``), and by the time this key is built the caller already
+    holds the resolved row. ``content_kind`` is folded in even though a pk alone is
+    unique, purely so the key is self-describing in a cache dump.
+    """
+    return f"share-payload:{link.content_kind}:{link.pk}"
+
+
+def get_cached_public_payload(
+    link: ShareLink, serialize: Callable[[ShareLink], dict[str, Any]]
+) -> dict[str, Any]:
+    """Serve ``serialize(link)`` from Valkey when a recent build exists, else build and cache it.
+
+    Collapses concurrent visitors on the same share link into one DB-hitting build
+    per TTL window instead of one per request (#4226) — the projection queries
+    (``serialize_public_board`` / ``serialize_public_schedule``) previously ran on
+    every single request with no server-side cache in front of them, despite Valkey
+    already being deployed for every instance that serves this view.
+    """
+    key = _share_payload_cache_key(link)
+    payload = cache.get(key)
+    if payload is None:
+        payload = serialize(link)
+        cache.set(key, payload, timeout=SHARE_PAYLOAD_CACHE_TTL)
+        return payload
+    # cache.get()'s return type is untyped (Any) — cast rather than trust it, since
+    # this branch returns whatever a previous call stored under this key.
+    return cast("dict[str, Any]", payload)
 
 
 def _public_columns(project: Any) -> list[dict[str, str]]:
