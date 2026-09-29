@@ -165,7 +165,14 @@ Only the earlier direction is automatic. Moving the project start *later* (past 
 
 Because this lives at the API layer, every write path behaves the same way, including integrations and imports that set task dates directly.
 
-The one exception is a task whose links are **all Start-to-Finish**. An SF link can require its successor to finish before the predecessor starts. If that predecessor opens the project, the successor belongs before the project start, and the engine puts it there. The project start date itself does not move. Only the task's computed dates sit ahead of it, and the Schedule draws the bar there. MS Project schedules the same case the same way. The data date still applies: remaining work is never scheduled before it. See [Scheduler conventions](/features/scheduler-conventions/) for the exact rule.
+The one exception is a task whose links are **all Start-to-Finish**. An SF link can require its successor to finish before the predecessor starts. If that predecessor opens the project, the successor belongs before the project start, and the engine puts it there. The project start date itself does not move. Only the task's computed dates sit ahead of it, and the Schedule draws the bar there. MS Project schedules the same case the same way. The data date still applies: remaining work is never scheduled before it. When a project has no status date, the data date is today. As a result, you see this placement only when the SF anchor falls on or after the data date, for example in a project that starts in the future.
+
+Two consequences to know about:
+
+- **Adding a non-SF link restores the floor.** The exception covers only a task whose links are *all* SF. If you add an FS, SS or FF link to such a task, it returns to the project start, even when the new link would allow an earlier date on its own. Adding a link can therefore move a task later. This is tracked in [#4220](https://gitlab.com/trueppm/trueppm/-/issues/4220).
+- **Rescheduling the task by hand opens the before-project-start prompt.** Dragging or nudging an SF-placed task that sits before the project start asks you to move the project start or snap the task to it. Both options override the SF placement. This is tracked in [#4221](https://gitlab.com/trueppm/trueppm/-/issues/4221).
+
+See [Scheduler conventions](/features/scheduler-conventions/) for the exact rule.
 
 ## When the server changes your date
 

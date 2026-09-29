@@ -496,8 +496,9 @@ def _safe_offset(d: date, delta: timedelta) -> date:
         return d + delta
     except OverflowError as err:
         raise InvalidScheduleInput(
-            "The schedule span pushed a date past the representable range; use an "
-            "earlier project start date or reduce durations/lags."
+            "The schedule span pushed a date past the representable date range; move "
+            "the project start date away from that end of the range or reduce "
+            "durations/lags."
         ) from err
 
 
@@ -1266,7 +1267,9 @@ def _place_milestone(
             finish_day = _next_working_day(raw, cal)
             offer((_safe_offset(finish_day, _ONE_DAY), False, finish_day))
 
-    assert best is not None  # es_floors always carries the project-start floor
+    # es_floors carries the project-start floor for every task except an SF-only one
+    # (#4218), and that one has at least one SF link, which offers a candidate.
+    assert best is not None
     return (best[0], best[1]), best[2]
 
 
@@ -3335,8 +3338,10 @@ def _validate_span_bounds(project: Project) -> None:
     # Celery worker, and the documented contract). Reject it cleanly here. The
     # estimate is conservative: it can refuse an absurd far-future start with a huge
     # span, but never a realistically-dated project. (The symmetric date.min
-    # underflow is unreachable — the backward pass never retreats below the forward
-    # pass's earliest date, which is >= start_date.)
+    # underflow is no longer strictly unreachable: an SF-only task can sit before
+    # start_date (#4218), reaching back at most the SF chain's durations and leads.
+    # Only a start date within that reach of date.min can underflow, and
+    # _safe_offset turns it into InvalidScheduleInput rather than an OverflowError.)
     max_calendar_reach = total_span * 7 + MAX_CALENDAR_SCAN_DAYS
     if (date.max - project.start_date).days < max_calendar_reach:
         raise InvalidScheduleInput(
@@ -3484,10 +3489,15 @@ def schedule(project: Project) -> ScheduleResult:
     }
     # Precompute a working-day index over the schedule's span so float
     # computation is O(log n) per span instead of O(span) (#822, ADR-0142). Every
-    # date _compute_floats measures lies within [start_date, project_finish]. The
-    # counter is built over the default calendar; per-task-calendar spans fall back
-    # to the scalar count inside _compute_floats.
-    wd_counter = _WorkingDayCounter.build(project.start_date, project_finish, project.calendar)
+    # date _compute_floats measures lies within [earliest early start,
+    # project_finish]; the earliest early start is start_date or earlier, since an
+    # SF-only task can be placed before the project start (#4218). The counter is
+    # built over the default calendar; per-task-calendar spans fall back to the
+    # scalar count inside _compute_floats.
+    counter_lo = min(
+        [project.start_date, *(t.early_start for t in task_map.values() if t.early_start)]
+    )
+    wd_counter = _WorkingDayCounter.build(counter_lo, project_finish, project.calendar)
     driving_edges = _compute_floats(
         task_map,
         topo_order,
@@ -4112,9 +4122,11 @@ def _mc_index_size(
         # the last entry, so monte_carlo() reported a finish months before schedule()
         # on the same completed project (#1821). Cover the furthest future actual
         # (calendar days over-estimate working-day offsets, as snet/status do). A
-        # pre-start actual is not covered here — the forward index starts at the
-        # project start; _completed_offsets floors those at offset 0 (an anomalous
-        # data state: a task completed before the project began).
+        # pre-start actual is not covered here — the forward index opens at the
+        # project start, or earlier by _mc_pre_start_pad_days when an SF-only task
+        # exists (#4218); _completed_offsets clamps a date before the index to its
+        # first offset (an anomalous data state: a task completed before the project
+        # began).
         for actual in (t.actual_start, t.actual_finish):
             if actual is not None:
                 actual_upper = max(actual_upper, (actual - project.start_date).days)

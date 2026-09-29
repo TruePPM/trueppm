@@ -23,8 +23,14 @@ documented rather than silently worked around:
    the project-start floor silently suppressed an SF link's anchor whenever the
    anchor fell before the project's nominal start date, which is common because SF
    is the one dependency type that can legitimately require the successor to be
-   scheduled *before* an early predecessor. See
-   ``test_sf_anchor_before_project_start_places_the_successor_before_it``.
+   scheduled *before* an early predecessor. **Through this import path the fix is
+   not observable**, though: the importer turns every task's ``<Start>`` into a
+   ``planned_start`` (SNET) and pulls the project start back to the earliest one
+   (#2891/#867), so the SF successor is placed by its own imported SNET on
+   2026-10-02 with or without the engine fix. See
+   ``test_sf_successor_lands_on_ms_projects_date_through_the_import``; the engine
+   fix itself is proven through the API by
+   ``tests/apps/scheduling/test_sf_before_project_start.py``.
 """
 
 from __future__ import annotations
@@ -185,30 +191,41 @@ def test_dependency_sf_lag_is_truncated_to_zero_days_on_import(
 
 
 @pytest.mark.django_db
-def test_sf_anchor_before_project_start_places_the_successor_before_it(
+def test_sf_successor_lands_on_ms_projects_date_through_the_import(
     lagged_project: Project,
 ) -> None:
-    """#4218: the SF successor starts the working day before the project opens.
+    """The round trip reproduces MS Project's Fri 2026-10-02 for "Dependency SF".
 
-    "Design" is unconstrained and sits on the project's first working day, Mon
-    2026-10-05. "Dependency SF"'s SF anchor is therefore Fri 2026-10-02, which is
-    the Start MS Project itself computed for it (2026-10-02T10:00:00; the hour and
-    its Finish day reflect the real 2-hour lag #2290 truncates on import). Before
-    #4218 the project-start floor discarded the anchor and put it on 10-05.
+    "Design" is unconstrained and sits on Mon 2026-10-05. "Dependency SF"'s SF
+    anchor is Fri 2026-10-02, the Start MS Project itself computed for it
+    (2026-10-02T10:00:00; the hour and its Finish day reflect the real 2-hour lag
+    #2290 truncates on import).
+
+    This does NOT discriminate the #4218 engine fix, and says so rather than
+    claiming it: the importer stores that same ``<Start>`` as the task's
+    ``planned_start`` and pulls the project start back to it, so the SNET alone
+    places the task on 10-02 on the unfixed engine too. The discriminating test
+    builds the same shape without an SNET
+    (``tests/apps/scheduling/test_sf_before_project_start.py``).
     """
     by_name = _import_and_schedule(lagged_project, "sf_from_work_lagged.xml")
+    lagged_project.refresh_from_db()
     assert by_name["Design"].early_start == date(2026, 10, 5)
     sf_task = by_name["Dependency SF"]
     assert sf_task.early_start == date(2026, 10, 2)
-    assert sf_task.early_start < lagged_project.start_date
+    # Why the import cannot tell the fix apart: the SNET and the shifted project
+    # start both already sit on the answer.
+    assert sf_task.planned_start == date(2026, 10, 2)
+    assert lagged_project.start_date == date(2026, 10, 2)
 
 
 @pytest.mark.django_db
 def test_the_data_date_still_floors_the_sf_successor(lagged_project: Project) -> None:
-    """The project start is lifted for an SF-only task; the data date is not.
+    """The data date holds remaining work at "as of now", SNET or SF anchor aside.
 
-    With the status date on the project start, remaining work cannot be forecast
-    before it, so "Dependency SF" is held on Mon 2026-10-05 (#4218's design split).
+    With the status date on Mon 2026-10-05, "Dependency SF" (SF anchor and
+    imported SNET both Fri 10-02) is held on 10-05: remaining work is never
+    forecast into the past (#4218's design split between the two floors).
     """
     lagged_project.status_date = date(2026, 10, 5)
     lagged_project.save(update_fields=["status_date"])

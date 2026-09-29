@@ -76,6 +76,10 @@ const IN_SCOPE_FIXTURES = [
   // milestone) is ordinary and unaffected, and this suite asserts only
   // early_start/early_finish.
   'milestone_terminal_lag_seed',
+  // #4218: SF-only successors placed BEFORE the project start, reached from one
+  // unconstrained source. This engine never applied the project-start floor, so
+  // it already agrees with the server engines here; this pins that it stays so.
+  'sf_before_project_start_chain',
 ] as const;
 
 /**
@@ -149,6 +153,13 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // the tie is between two of them, so a single seeded source cannot reach it.
   milestone_start_of_day_ties_finish_instant: 'adapter: 3 source tasks',
   milestone_reading_tie_free_float: 'adapter: 3 source tasks',
+  // #4218. The SF-before-project-start rule itself is asserted through
+  // `sf_before_project_start_chain` (in scope). This one also carries an SNET
+  // task (F) and FS/SF-mixed tasks that the server floors at the project start,
+  // which this engine does not (the same gap as `fs_negative_lag_floored`).
+  sf_before_project_start:
+    'adapter: seeds all tasks at project start, overriding SNET; mixed-link project-start floor not modeled',
+  sf_before_project_start_data_date: 'adapter: does not thread actuals/status date',
   // A genuine forward-pass divergence, unrelated to calendars or the adapter.
   fs_negative_lag_floored: 'engine gap: negative lag is not floored at the project start',
 };
