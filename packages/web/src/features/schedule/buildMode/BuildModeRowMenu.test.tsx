@@ -145,6 +145,27 @@ describe('BuildModeRowMenu — viewport overflow', () => {
     expect(menu.style.top).toBe('44px');
   });
 
+  it('does NOT flip above an anchor near the top of the viewport merely because content overflows below (#4228)', () => {
+    // A right-click can land anywhere, including near the TOP of a short
+    // viewport. The naive check ("does the full content fit below?") flips
+    // here even though "above" (20px) has far less room than "below" (160px)
+    // — squeezing the menu into a sliver instead of staying below and
+    // scrolling. This mirrors the useAnchoredPopover fix for the Display menu.
+    Object.defineProperty(window, 'innerHeight', { value: 180, configurable: true });
+    const items: RowMenuItem[] = Array.from({ length: 8 }, (_, i) => ({
+      key: `item-${i}`,
+      label: `Item ${i}`,
+      onSelect: vi.fn(),
+    }));
+    render(<BuildModeRowMenu anchor={{ x: 50, y: 20 }} items={items} onClose={vi.fn()} />);
+    const menu = screen.getByRole('menu');
+    // anchor.y (20) + menuHeight (8 items × 32 + 8 = 264) = 284 > 180 (content
+    // doesn't fit below), but spaceAbove (20) < spaceBelow (160), so it stays
+    // below rather than flipping into a near-zero sliver.
+    expect(menu.style.top).toBe('20px');
+    expect(menu.style.maxHeight).toBe('160px');
+  });
+
   it('flips left when menu would overflow right edge', () => {
     Object.defineProperty(window, 'innerWidth', { value: 250, configurable: true });
     render(
