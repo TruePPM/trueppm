@@ -233,7 +233,23 @@ envFrom:
 # production topology rather than carving an exception to ADR-0081 (Beat is a silent
 # SPOF; drains, purges and health depend on it). It is sized down instead, since a
 # demo with no write path enqueues almost nothing.
-replicaCount: 1
+#
+# 3, not the inherited default of 1 (#4226): the shipped image runs one uvicorn
+# process per pod (`api.workers: 1`, values.yaml), and that chart's own comment on
+# `api.workers` says request throughput "does not scale with the pod's CPU limit at
+# all, only with replicaCount" — and to prefer replicas over multi-worker pods on
+# Kubernetes. This also scales celery-worker (harmless; it was already comfortably
+# under its own resource limits) — celery-beat stays a fixed singleton regardless,
+# it does not key off `replicaCount`. Deliberately conservative: the only measured
+# multi-process number in the repo (`sizing.md`, 4 uvicorn *workers* cutting 8
+# concurrent Schedule-opens 22.5s→7.3s) is for the multi-process-per-pod shape, not
+# replicas — replicas are "expected to behave the same but have not been [measured]"
+# per that same comment, so 3 is a deliberately modest first step, not a number
+# read off that benchmark. Each replica adds one more persistent PostgreSQL
+# connection (`CONN_MAX_AGE=600` in `trueppm_api.settings.prod`); well under the
+# stock `max_connections=100` at this count, but don't push it further without
+# checking that math again.
+replicaCount: 3
 
 resources:
   api:
@@ -264,8 +280,10 @@ resources:
       memory: 192Mi
       ephemeral-storage: 128Mi
 
-# A single-node demo has nothing to fail over to, so the HA machinery is noise:
-# a PDB with one replica blocks node drains, and autoscaling has no headroom.
+# A single-node demo has nothing to fail over to regardless of replicaCount above
+# (#4226 raised that for throughput, not HA) — there is no second node for a
+# drained pod to land on, so a PDB would just block the one node's drain rather
+# than buy anything, and autoscaling has no headroom to scale into.
 autoscaling:
   enabled: false
 podDisruptionBudget:

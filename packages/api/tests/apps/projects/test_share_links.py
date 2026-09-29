@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, timedelta
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -309,6 +311,68 @@ def test_public_access_is_metered(project):
     link.refresh_from_db()
     assert link.access_count == 1
     assert link.last_accessed_at is not None
+
+
+# --------------------------------------------------------------------------- #
+# Payload caching (#4226) — concurrent-visitor capacity on the public endpoint
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.django_db
+def test_public_board_payload_is_cached_between_requests(project):
+    """The projection build runs at most once per TTL window.
+
+    Before #4226, every request re-ran the DB-hitting projection build even
+    though the same link served the same content until the next reseed/edit —
+    concurrent visitors on one link each paid the full query cost.
+    """
+    cache.clear()
+    _seed_board(project)
+    _link, raw = share_services.mint_share_link(project, None)
+    with patch(
+        "trueppm_api.apps.projects.share_services.serialize_public_board",
+        wraps=share_services.serialize_public_board,
+    ) as spy:
+        first = APIClient().get(_public_url(raw))
+        second = APIClient().get(_public_url(raw))
+    assert first.status_code == second.status_code == 200
+    assert first.data == second.data
+    spy.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_public_access_is_metered_on_every_request_even_when_cached(project):
+    """The access meter and the payload cache are independent (#4226) — caching
+    the built payload must not silently stop counting visits.
+    """
+    cache.clear()
+    link, raw = share_services.mint_share_link(project, None)
+    client = APIClient()
+    client.get(_public_url(raw))
+    client.get(_public_url(raw))
+    client.get(_public_url(raw))
+    link.refresh_from_db()
+    assert link.access_count == 3
+
+
+@pytest.mark.django_db
+def test_public_board_cache_rebuilds_after_eviction(project):
+    """A cache eviction (TTL expiry in production) triggers a fresh build.
+
+    Proves this is a bounded-TTL optimization and not an accidental permanent
+    cache that would need explicit invalidation on every project write.
+    """
+    cache.clear()
+    _seed_board(project)
+    link, raw = share_services.mint_share_link(project, None)
+    APIClient().get(_public_url(raw))
+    cache.delete(share_services._share_payload_cache_key(link))
+    with patch(
+        "trueppm_api.apps.projects.share_services.serialize_public_board",
+        wraps=share_services.serialize_public_board,
+    ) as spy:
+        APIClient().get(_public_url(raw))
+    spy.assert_called_once()
 
 
 # --------------------------------------------------------------------------- #
