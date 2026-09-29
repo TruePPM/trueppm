@@ -1036,9 +1036,40 @@ done
 if [ "$DRILL_LEG" = "upgrade" ]; then
   PREV_API_IMAGE="${IMAGE_REPO}/api:v${PREV_CHART_VERSION}"
   PREV_WEB_IMAGE="${IMAGE_REPO}/web:v${PREV_CHART_VERSION}"
+  # resolve_previous_chart_version only proves PREV_CHART_VERSION's CHART is
+  # published to ghcr.io — it says nothing about whether the paired image on
+  # THIS registry has landed. The chart-publish job and the api/web
+  # image-publish jobs (built as -amd64/-arm64 legs, then merged into a
+  # multi-arch manifest) are two unsynchronized jobs on the same tag
+  # pipeline, with no `needs:` ordering between them, so the chart can go
+  # live several minutes before its image does. A nightly schedule pipeline
+  # landing on the exact commit `/release` is actively cutting can race that
+  # gap and see "manifest unknown" on an image whose chart is already
+  # visible (observed: chart tag visible while this job ran, the api image
+  # manifest pushed ~7.5 minutes later, #4224). Retry the pull instead of
+  # failing on the first miss — a missing manifest fails fast (no layers to
+  # download) so retrying costs no meaningful bandwidth — but still fail
+  # loudly once the budget is exhausted: a chart genuinely published with no
+  # matching image is a real defect, not something to paper over forever.
+  # 8 attempts * 60s = 7m per image, up to 14m worst case across both images —
+  # comfortably covers the observed ~7.5m gap with margin, and still leaves
+  # well over half of this job's 40m CI timeout for the rest of the drill.
+  PREV_IMAGE_PULL_ATTEMPTS="${PREV_IMAGE_PULL_ATTEMPTS:-8}"
+  PREV_IMAGE_PULL_RETRY_DELAY="${PREV_IMAGE_PULL_RETRY_DELAY:-60}"
   for img in "$PREV_API_IMAGE" "$PREV_WEB_IMAGE"; do
-    log "pull + load $img (previous release, upgrade FROM)"
-    docker pull "$img"
+    attempt=1
+    while true; do
+      log "pull + load $img (previous release, upgrade FROM, attempt ${attempt}/${PREV_IMAGE_PULL_ATTEMPTS})"
+      if docker pull "$img"; then
+        break
+      fi
+      if [ "$attempt" -ge "$PREV_IMAGE_PULL_ATTEMPTS" ]; then
+        fail "previous release image ${img} still not pullable after ${PREV_IMAGE_PULL_ATTEMPTS} attempts — chart ${PREV_CHART_VERSION} is published on ${CHART_GHCR_HOST} but its image never appeared on ${REGISTRY} (cross-registry publish race, #4224, or a real publish gap)"
+      fi
+      log "  not yet available — retrying in ${PREV_IMAGE_PULL_RETRY_DELAY}s"
+      sleep "$PREV_IMAGE_PULL_RETRY_DELAY"
+      attempt=$((attempt + 1))
+    done
     kind load docker-image "$img" --name "$CLUSTER"
   done
 fi

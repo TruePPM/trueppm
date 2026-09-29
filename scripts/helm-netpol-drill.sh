@@ -283,11 +283,20 @@ allowed_hosts="${probe_host},${api_svc},localhost,127.0.0.1"
 log "ALLOWED_HOSTS=${allowed_hosts}"
 
 log "creating trueppm-env secret"
+# Created via `apply` (not a plain `kubectl create`) even though nothing exists
+# yet: this Secret is updated in place later via the same dry-run-apply idiom
+# (demo.interactive step below), and `apply` on an object that was never
+# `apply`d itself has no last-applied-configuration annotation to diff
+# against — kubectl warns and patches it in automatically, but only on the
+# FIRST such apply, so keeping the two mismatched left a deterministic warning
+# on every run. Creating it through `apply` from the start keeps the
+# annotation present the whole time.
 kubectl create secret generic trueppm-env \
   --from-literal=SECRET_KEY="$secret_key" \
   --from-literal=ALLOWED_HOSTS="$allowed_hosts" \
   --from-literal=INTEGRATION_ENCRYPTION_KEY="$integration_key" \
-  --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
+  --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true \
+  --dry-run=client -o yaml | kubectl apply -f -
 
 if [ -n "${CI_REGISTRY_PASSWORD:-}" ]; then
   log "docker login ${REGISTRY}"
