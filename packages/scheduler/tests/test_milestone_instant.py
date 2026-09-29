@@ -17,7 +17,7 @@ import copy
 from datetime import date, timedelta
 
 import pytest
-from hypothesis import example, given
+from hypothesis import assume, example, given
 from hypothesis import strategies as st
 
 from trueppm_scheduler import (
@@ -117,15 +117,37 @@ def test_inserting_a_milestone_into_an_fs_link_moves_nothing(
     ``A -FS(l1)-> M -FS(l2)-> B`` must schedule exactly as ``A -FS(l1+l2)-> B``:
     the milestone is a raw instant, never rounded to a working day, so calendar-day
     lags compose through it.
+
+    Out of scope (#4223): this composition law is only checked here when A's own
+    early_finish is not itself floored below the project start. A reaches there
+    exactly when every one of ITS incoming links is SF (#4218's `_sf_only`; MS
+    Project's one escape hatch for starting a task ahead of the project's nominal
+    open) — the randomly-drawn extra edges above can make A that kind of SF-only
+    node. When that happens, splitting the combined lag across an inserted
+    milestone stops being lossless: `_place_milestone` floors the milestone at
+    the project start (correctly — M's own only incoming link is the FS under
+    test, not SF, so M does not inherit A's exemption), but a *positive* lag_out
+    then measures forward from the milestone's real, floored position rather than
+    from A's pre-floor instant, landing B on a later day than the direct,
+    combined-lag network would. Whether that is the engine's correct behavior for
+    a floored intermediate milestone (arguably yes — a downstream lag should
+    count from where the checkpoint actually landed) or a composition bug the
+    "raw instant" design (#4079) is supposed to rule out is an open question
+    tracked in #4225, not resolved by this test. See
+    test_milestone_after_an_sf_only_predecessor_is_still_floored_at_project_start
+    below for a deterministic pin of the (non-controversial) M-placement half.
     """
     tasks, deps, (a, b), lag_in, lag_out, cal = case
     direct = _project(tasks, [*deps, _dep(a, b, lag=lag_in + lag_out)], cal)
+    before = _by_id(direct)
+    a_early_finish = before[a].early_finish
+    assert a_early_finish is not None  # every scheduled task has one
+    assume(a_early_finish >= MON)
     via_m = _project(
         [*tasks, _task("M", 0)],
         [*deps, _dep(a, "M", lag=lag_in), _dep("M", b, lag=lag_out)],
         cal,
     )
-    before = _by_id(direct)
     after = _by_id(via_m)
     for tid, t in before.items():
         u = after[tid]
@@ -139,6 +161,41 @@ def test_inserting_a_milestone_into_an_fs_link_moves_nothing(
 
 def durations_of(tasks: list[Task], tid: str) -> int:
     return next(t.duration.days for t in tasks if t.id == tid)
+
+
+def test_milestone_after_an_sf_only_predecessor_is_still_floored_at_project_start() -> None:
+    """A zero-lag FS milestone does not inherit its predecessor's SF-only exemption (#4223).
+
+    ``T0 -SF(-2cd)-> T2`` makes T2 SF-only (#4218), so T2 is scheduled before the
+    project start (2025-12-31, a Wednesday, vs. the Monday 2026-01-05 project
+    start). Chaining a zero-lag milestone off T2 (``T2 -FS(0)-> M``) does not carry
+    T2's exemption forward: M's own only incoming link is FS, not SF, so
+    ``_place_milestone`` floors M at the project start — identically to how an
+    ordinary FS successor in the same position is floored (T3 below, linked
+    directly to T2 with the combined lag, lands on the same day M does).
+
+    This is the deterministic pin for a `scheduler:fuzz-deep` finding that turned
+    out to be a test-precondition gap, not an engine bug: the general "inserting a
+    milestone into an FS link moves nothing" property above still holds for every
+    original task; only its extra "M sits exactly on A's finish" assertion was
+    too strong for an A pulled before the project start by an unrelated SF edge.
+    """
+    tasks = [_task("T0", 0), _task("T1", 0), _task("T2", 1), _task("T3", 0)]
+    sf_pred = _dep("T0", "T2", DependencyType.SF, lag=-2)
+
+    direct = _by_id(_project(tasks, [sf_pred, _dep("T2", "T3", lag=-2)]))
+    assert direct["T2"].early_finish == date(2025, 12, 31)  # SF-only: before project start
+    assert direct["T3"].early_start == MON  # ordinary FS successor: floored at project start
+
+    via_m = _by_id(
+        _project(
+            [*tasks, _task("M", 0)],
+            [sf_pred, _dep("T2", "M", lag=0), _dep("M", "T3", lag=-2)],
+            None,
+        )
+    )
+    assert via_m["M"].early_start == via_m["M"].early_finish == MON  # floored, not T2's finish
+    assert via_m["T3"].early_start == direct["T3"].early_start  # composition still holds
 
 
 # ---------------------------------------------------------------------------
