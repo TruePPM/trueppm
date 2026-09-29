@@ -16,6 +16,10 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.4.0b5] - 2026-09-29
+
 ### Added
 
 - **`Task.milestone_at_day_end` (#4079).** `early_start == early_finish` names
@@ -598,7 +602,8 @@ _No library-facing changes in this release._
 - Cycle detection that names the offending task IDs (`CyclicDependencyError`).
 - CLI: `trueppm-scheduler schedule` / `trueppm-scheduler monte-carlo`.
 
-[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b4...main
+[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b5...main
+[0.4.0b5]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b4...scheduler-v0.4.0b5
 [0.4.0b4]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b3...scheduler-v0.4.0b4
 [0.4.0b3]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b2...scheduler-v0.4.0b3
 [0.4.0b2]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b1...scheduler-v0.4.0b2
