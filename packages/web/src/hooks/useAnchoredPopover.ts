@@ -20,12 +20,17 @@ import {
  *   1. Portal the panel to `document.body` (a `z-index` bump can NOT let a child
  *      escape an overflow-clipping ancestor; only leaving the subtree can).
  *   2. Position it `fixed`, computed from the trigger's `getBoundingClientRect()`:
- *      below the trigger, FLIPPING above when there is not enough room, and
- *      CLAMPED horizontally so it never leaves the viewport. `popoverStyle` also
- *      carries a `maxHeight` derived from the real gap to whichever viewport edge
- *      the panel opened toward (web-rule 351) — the caller still owns its own
- *      `overflow-y-auto`, but never has to guess a `max-h-NN` pixel value that
- *      silently swallows content on a short viewport (issue #3109).
+ *      below the trigger by default, FLIPPING above only when doing so gains
+ *      more room than staying below (never merely because the full content
+ *      doesn't fit below — a trigger near the TOP of the viewport, e.g. a
+ *      toolbar button, has almost no room above either, and flipping into
+ *      that sliver while abandoning hundreds of px below reads as content
+ *      clipped right after the panel opens, #4228). CLAMPED horizontally so it
+ *      never leaves the viewport. `popoverStyle` also carries a `maxHeight`
+ *      derived from the real gap to whichever viewport edge the panel opened
+ *      toward (web-rule 351) — the caller still owns its own `overflow-y-auto`,
+ *      but never has to guess a `max-h-NN` pixel value that silently swallows
+ *      content on a short viewport (issue #3109).
  *   3. Because a `fixed` panel cannot track its anchor, re-derive its coords on
  *      scroll (capture phase, so nested scroll containers count) and resize.
  *   4. Dismiss on an outside pointer-down that spans BOTH the trigger and the
@@ -142,15 +147,26 @@ export function useAnchoredPopover<
     const measured = popoverRef.current?.offsetHeight ?? 0;
     const height = measured === 0 ? estimatedHeight : measured;
 
-    // Vertical: below the anchor, flipping above when there is not enough room.
+    // Vertical: below the anchor by default, flipping above only when doing so
+    // gains more room than staying below. The naive version of this check
+    // flips whenever the content doesn't fully fit below, with no regard for
+    // how much room "above" actually has — for a trigger near the TOP of the
+    // viewport (exactly where a toolbar button lives), that flips into a
+    // sliver a few px tall while abandoning hundreds of px of scrollable room
+    // below, which reads as content clipped/bleeding right after it opens
+    // (#4228). Comparing the two candidate spaces and taking whichever is
+    // larger keeps the panel anchored to its natural (below) side unless
+    // "above" is a genuine improvement.
     const below = rect.bottom + gap;
-    const flipUp = below + height > vh - margin;
+    const spaceBelow = Math.max(0, vh - margin - below);
+    const spaceAbove = Math.max(0, rect.top - gap - margin);
+    const flipUp = below + height > vh - margin && spaceAbove > spaceBelow;
     const top = flipUp ? Math.max(margin, rect.top - height - gap) : below;
 
     // The real gap to the edge the panel opened toward, not the estimate/measured
     // height used only to decide the flip direction above — content taller than
     // that guess must scroll within this, never spill past the viewport edge.
-    const maxHeight = Math.max(0, flipUp ? rect.top - gap - margin : vh - margin - below);
+    const maxHeight = flipUp ? spaceAbove : spaceBelow;
 
     // Horizontal: align to a trigger edge, then clamp inside the viewport.
     const rawLeft = align === 'right' ? rect.right - resolvedWidth : rect.left;

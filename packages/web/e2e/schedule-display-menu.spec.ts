@@ -484,3 +484,52 @@ test.describe('Schedule Display menu — short viewport scroll (#3109)', () => {
     await expect(hidden).toHaveAttribute('aria-checked', 'true');
   });
 });
+
+test.describe('Schedule Display menu — does not flip into a sliver above a top-anchored trigger (#4228)', () => {
+  test('stays below the trigger and keeps every section reachable when the viewport is tall enough to fit it', async ({
+    page,
+  }) => {
+    // The Display trigger lives in the toolbar near the TOP of the page, so it
+    // has almost no room above it. The reported bug: `useAnchoredPopover`
+    // flipped the panel above the trigger whenever the full content estimate
+    // didn't fit below — even though "above" had far LESS room than "below" —
+    // squeezing the panel into a few-px-tall sliver at the top of the screen.
+    // Outline + View filters + Render filters + Columns + Chart together
+    // comfortably exceed 700px, so this viewport is tall enough that the panel
+    // should stay below the trigger and scroll there, never flip.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await gotoSchedule(page);
+    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    const trigger = page
+      .getByRole('toolbar', { name: 'Schedule toolbar' })
+      .getByRole('button', { name: 'Display' });
+    await trigger.click();
+    const menu = page.getByRole('menu', { name: 'Display options' });
+    await expect(menu).toBeVisible();
+
+    const triggerBox = await trigger.boundingBox();
+    const menuBox = await menu.boundingBox();
+    expect(triggerBox).not.toBeNull();
+    expect(menuBox).not.toBeNull();
+
+    // The panel opened BELOW the trigger (its top is at or after the trigger's
+    // bottom), not flipped into a sliver above it. Before the fix this failed:
+    // the panel flipped and rendered a ~50px-tall box pinned to the very top of
+    // the viewport, well above (and overlapping) the trigger itself.
+    expect(menuBox!.y).toBeGreaterThanOrEqual(triggerBox!.y + triggerBox!.height - 1);
+
+    // ...and it has real, usable room — not the few-px sliver the bug produced.
+    expect(menuBox!.height).toBeGreaterThan(200);
+
+    // The Outline section's own first heading AND the next section's heading
+    // are both genuinely visible (not clipped/bleeding past the panel edge) —
+    // exactly the two headings the report named.
+    await expect(menu.getByText('Outline', { exact: true })).toBeVisible();
+    await expect(menu.getByText('View filters', { exact: true })).toBeVisible();
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'How-to bar' })).toBeVisible();
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'CP only' })).toBeVisible();
+  });
+});
