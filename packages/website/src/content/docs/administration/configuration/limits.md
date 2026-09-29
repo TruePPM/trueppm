@@ -75,9 +75,11 @@ TRUEPPM_RATE_LIMIT_DISABLE_ACK=i-understand-this-disables-abuse-protection
   limit. "Off" means off, with no hidden exceptions.
 - It is **deploy-time operator config only** — there is no in-app toggle, so an
   authenticated user can never switch off this protection through the API. While it
-  is off, workspace admins see a persistent red banner and a card under
-  **Settings → System**, and the `trueppm.ratelimit.enabled` OpenTelemetry gauge
-  reports `0`, so the state is impossible to miss and easy to alert on.
+  is off, the install operator (a Django superuser) sees a persistent red banner
+  and a card under **Settings → System** — not every workspace admin, since the
+  health endpoint the banner reads is operator-only — and the
+  `trueppm.ratelimit.enabled` OpenTelemetry gauge reports `0`, so the state is
+  impossible to miss and easy to alert on.
 
 Never set these on a production-facing deployment. Leave `TRUEPPM_RATE_LIMIT_ENABLED`
 at its default `true` to keep abuse protection on.

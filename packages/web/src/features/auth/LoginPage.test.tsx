@@ -31,6 +31,7 @@ function makeCurrentUser(overrides: Partial<CurrentUser> = {}): CurrentUser {
     max_project_role: 300,
     workspace_role: 100,
     can_access_admin_settings: false,
+    is_workspace_operator: false,
     default_landing: 'auto',
     landing: { intent: 'my_work', path: '/me/work', resolved_by: 'role_policy' },
     hidden_views: [],

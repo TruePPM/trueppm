@@ -45,10 +45,20 @@ export interface CurrentUser {
    *   - can_access_admin_settings: Admin+ in any project OR Admin+ at the
    *     workspace (the implicit superuser OWNER counts) — gates the settings shell
    *     admin scopes and the Signal-only notification default.
+   *   - is_workspace_operator: true only for the install operator (a Django
+   *     superuser) — the SAME predicate the server's `IsWorkspaceOperator`
+   *     permission enforces (mail transport, dead-letter queue, System Health /
+   *     Prometheus / retention / telemetry views). Deliberately narrower than
+   *     `can_access_admin_settings`, which also passes any project Admin — a
+   *     population `IsWorkspaceOperator` refuses. Gate a fetch of an
+   *     operator-only endpoint on THIS field, not `can_access_admin_settings`
+   *     (#4219: RateLimitDisabledBanner polled /health/system/ on the broader
+   *     flag and got a guaranteed 403 for every Project Admin).
    */
   max_project_role: number | null;
   workspace_role: number | null;
   can_access_admin_settings: boolean;
+  is_workspace_operator: boolean;
   /**
    * Role-based app front door (ADR-0129). `default_landing` is the user's stored
    * preference; `landing` is the server-resolved destination the client

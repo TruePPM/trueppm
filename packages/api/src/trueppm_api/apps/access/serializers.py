@@ -20,6 +20,7 @@ from trueppm_api.apps.access.models import (
     UserDefinedMentionGroup,
     program_role_label,
 )
+from trueppm_api.apps.access.permissions import is_workspace_operator as _is_workspace_operator
 from trueppm_api.apps.profiles.models import DateFormat, RoleContext
 from trueppm_api.apps.workspace.models import WorkspaceRole
 from trueppm_api.apps.workspace.permissions import (
@@ -787,9 +788,21 @@ class MeSerializer(serializers.Serializer[Any]):
     #   - can_access_admin_settings: true iff Admin+ in any project OR Admin+ at
     #     the workspace (the implicit superuser OWNER counts) — the single boolean
     #     the settings shell gates on.
+    #   - is_workspace_operator: true iff this user is the install operator
+    #     (Django superuser) — the SAME predicate access.permissions.is_workspace_
+    #     operator() uses to gate IsWorkspaceOperator-protected endpoints (mail
+    #     transport, dead-letter queue, the observability app's System Health /
+    #     Prometheus / retention / telemetry views, #4009). Deliberately narrower
+    #     than can_access_admin_settings, which also passes any project Admin —
+    #     a population IsWorkspaceOperator refuses. Added so client code that
+    #     fetches an operator-only endpoint can gate on the matching signal
+    #     instead of can_access_admin_settings, whose broader population was
+    #     producing a guaranteed 403 for every Project Admin polling
+    #     /health/system/ from RateLimitDisabledBanner (#4219).
     max_project_role = serializers.SerializerMethodField()
     workspace_role = serializers.SerializerMethodField()
     can_access_admin_settings = serializers.SerializerMethodField()
+    is_workspace_operator = serializers.SerializerMethodField()
     # Role-based app front door (ADR-0129). The web router reads these and
     # navigates — it holds no role→surface policy itself. API-first: the
     # destination is a server fact, identical for web, mobile, and MCP clients.
@@ -862,6 +875,9 @@ class MeSerializer(serializers.Serializer[Any]):
         return (proj is not None and proj >= Role.ADMIN) or (
             ws is not None and ws >= WorkspaceRole.ADMIN
         )
+
+    def get_is_workspace_operator(self, obj: Any) -> bool:
+        return _is_workspace_operator(obj)
 
     def _prefs(self, obj: Any) -> tuple[str, list[str], str, str, str]:
         # Memoized single read of (default_landing, hidden_views, role_context,

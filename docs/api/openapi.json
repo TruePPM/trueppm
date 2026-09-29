@@ -57093,6 +57093,10 @@
                         "type": "boolean",
                         "readOnly": true
                     },
+                    "is_workspace_operator": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "default_landing": {
                         "type": "string",
                         "readOnly": true
@@ -57156,6 +57160,7 @@
                     "hidden_views",
                     "id",
                     "initials",
+                    "is_workspace_operator",
                     "landing",
                     "max_project_role",
                     "role_context",

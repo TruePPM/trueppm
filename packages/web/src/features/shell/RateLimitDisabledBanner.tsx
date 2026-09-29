@@ -12,9 +12,13 @@ import { useSystemHealth } from '@/hooks/useSystemHealth';
  * banner. This is NOT a control — re-enabling it is an operator/env change, so
  * there is deliberately no link to change it here.
  *
- * Admin-only: the health endpoint 403s for non-admins, so the fetch is gated on
- * `can_access_admin_settings` (`enabled: false` skips the request entirely) and
- * anonymous / non-admin users never see the banner.
+ * Operator-only: `/health/system/` is `IsWorkspaceOperator`-gated (Django
+ * superuser only, #4009) — a Project Admin or workspace Admin is NOT enough and
+ * gets a 403. The fetch is therefore gated on `is_workspace_operator`
+ * (`enabled: false` skips the request entirely), not the broader
+ * `can_access_admin_settings` (Admin+ in any project OR workspace) that used to
+ * gate it here and produced a guaranteed 403 on every page load for any Project
+ * Admin (#4219). Anonymous / non-operator users never see the banner.
  *
  * Like OfflineBanner, the live region is mounted permanently and collapses to
  * `sr-only` when inactive so the message is injected into an already-present node
@@ -25,12 +29,12 @@ import { useSystemHealth } from '@/hooks/useSystemHealth';
  */
 export function RateLimitDisabledBanner() {
   const { user } = useCurrentUser();
-  const isAdmin = user?.can_access_admin_settings === true;
-  const { data } = useSystemHealth({ poll: false, enabled: isAdmin });
-  // Gate on isAdmin as well as the payload (defense-in-depth): the fetch is
-  // already skipped for non-admins, but never render the notice unless we have
-  // confirmed admin — a non-admin must never see this operator status.
-  const disabled = isAdmin && data?.security?.rate_limiting_enabled === false;
+  const isOperator = user?.is_workspace_operator === true;
+  const { data } = useSystemHealth({ poll: false, enabled: isOperator });
+  // Gate on isOperator as well as the payload (defense-in-depth): the fetch is
+  // already skipped for non-operators, but never render the notice unless we
+  // have confirmed operator — a non-operator must never see this operator status.
+  const disabled = isOperator && data?.security?.rate_limiting_enabled === false;
 
   return (
     <div
