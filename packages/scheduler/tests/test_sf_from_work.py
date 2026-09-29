@@ -53,7 +53,9 @@ def _sf(
 
     ``a_planned_start`` is an SNET that lifts A off the project-start floor. Without
     it A sits on the first working day and its SF anchor falls *before* the project
-    opens, where the bound is dominated by B's own duration and nothing is tested.
+    opens — which, since #4218, is where B is placed: an SF-only task is not floored
+    at the project start (see ``test_sf_anchor_before_the_project_start_places_the_
+    successor_there`` below).
 
     ``b_planned_start`` holds B's finish out beyond the bound, which is what gives A
     slack on the link: when the SF bound *is* B's finish the relationship free float
@@ -295,3 +297,230 @@ def test_monte_carlo_matches_cpm_for_sf_from_work_at_the_index_start() -> None:
     mc = monte_carlo(project, runs=32, seed=1, max_runs=None, max_tasks=None)
     assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
     assert all(d == result.project_finish for d in mc.distribution)
+
+
+# ---------------------------------------------------------------------------
+# #4218 — an SF anchor before the project start is not floored away
+# ---------------------------------------------------------------------------
+
+
+def _schedule(
+    tasks: list[Task],
+    deps: list[Dependency],
+    status_date: date | None = None,
+) -> ScheduleResult:
+    return schedule(
+        Project(
+            id="sf-pre",
+            name="sf-pre",
+            start_date=PROJECT_START,
+            calendar=Calendar(),
+            tasks=tasks,
+            dependencies=deps,
+            status_date=status_date,
+        )
+    )
+
+
+def _sf_dep(pred: str, succ: str, lag_days: int = 0) -> Dependency:
+    return Dependency(pred, succ, dep_type=DependencyType.SF, lag=timedelta(days=lag_days))
+
+
+def _days(n: int) -> timedelta:
+    return timedelta(days=n)
+
+
+def test_sf_anchor_before_the_project_start_places_the_successor_there() -> None:
+    """The #4218 repro: A opens the project, B's SF anchor is the Friday before.
+
+    A (no SNET) starts Mon 03-02, the project's first working day; the SF anchor is
+    the working day before it, Fri 02-27. B (2d) must finish then, so it runs Thu
+    02-26..Fri 02-27 — before the nominal project start. The project-start floor
+    used to hold B on Mon 03-02 as if the link did not exist.
+    """
+    by = _sf(0)
+    assert by["A"].early_start == PROJECT_START
+    assert by["B"].early_finish == date(2026, 2, 27)  # Fri — the day before A
+    assert by["B"].early_start == date(2026, 2, 26)  # Thu, before the project opens
+    assert by["B"].early_start < PROJECT_START
+
+
+def test_the_result_project_start_follows_the_earliest_task() -> None:
+    """``ScheduleResult.project_start`` is the earliest early start, so it moves too."""
+    result = _schedule(
+        [Task(id="A", name="A", duration=_days(3)), Task(id="B", name="B", duration=_days(2))],
+        [_sf_dep("A", "B")],
+    )
+    assert result.project_start == date(2026, 2, 26)
+
+
+def test_sf_lag_that_lands_inside_the_project_still_pulls_the_start_before_it() -> None:
+    """The bound can be after the project start while the task still starts before it.
+
+    Fri 02-27 + 3 calendar days = Mon 03-02, so B (5d) must finish Mon 03-02 and
+    starts Tue 02-24. Before #4218 B sat on Mon 03-02..Fri 03-06: it satisfied the
+    finish bound, but three days late against the SF placement MS Project gives it.
+    """
+    by = _sf(3, b_dur=5)
+    assert by["B"].early_finish == PROJECT_START
+    assert by["B"].early_start == date(2026, 2, 24)
+
+
+def test_floats_stay_consistent_for_a_pre_start_task() -> None:
+    """Backward pass and float read the pre-start placement like any other.
+
+    B finishes Fri 02-27 and nothing follows it, so its late finish is the project
+    finish, A's Wed 03-04: B's total float is the three working days in between.
+    A drives B through the link, so A's free float is 0 and A is critical. Late
+    dates never fall before early dates.
+    """
+    by = _sf(0, a_dur=3)
+    a, b = by["A"], by["B"]
+    assert b.late_finish == a.early_finish == date(2026, 3, 4)
+    assert b.total_float == b.free_float == _days(3)  # Mon, Tue, Wed
+    assert a.free_float == _days(0)
+    assert a.is_critical
+    for t in (a, b):
+        assert t.late_start is not None and t.early_start is not None
+        assert t.late_start >= t.early_start
+
+
+def test_the_data_date_still_floors_an_sf_only_task() -> None:
+    """The data date is not the project start: remaining work is never forecast
+    into the past, so an SF anchor behind it leaves the task late, not early.
+
+    With the status date on the project start (the #4218 import fixture's own
+    shape before it was corrected), B is held on Mon 03-02; the finish is then
+    driven by B's duration, not the SF bound.
+    """
+    result = _schedule(
+        [Task(id="A", name="A", duration=_days(3)), Task(id="B", name="B", duration=_days(2))],
+        [_sf_dep("A", "B")],
+        status_date=PROJECT_START,
+    )
+    b = {t.id: t for t in result.tasks}["B"]
+    assert b.early_start == PROJECT_START
+    assert b.early_finish == date(2026, 3, 3)
+
+
+def test_a_data_date_before_the_project_start_floors_there_not_at_the_start() -> None:
+    """Only the project-start floor is lifted: a data date before it still binds.
+
+    B (5d) would start Tue 02-24 (see the lagged case above); a status date of
+    Wed 02-25 holds it there, so it runs Wed 02-25..Tue 03-03 — still before the
+    project start, never before "as of now".
+    """
+    result = _schedule(
+        [Task(id="A", name="A", duration=_days(3)), Task(id="B", name="B", duration=_days(5))],
+        [_sf_dep("A", "B", 3)],
+        status_date=date(2026, 2, 25),
+    )
+    b = {t.id: t for t in result.tasks}["B"]
+    assert b.early_start == date(2026, 2, 25)
+    assert b.early_finish == date(2026, 3, 3)
+
+
+def test_an_snet_on_the_sf_successor_still_wins() -> None:
+    """SNET is the PM's own constraint, not the project floor: it keeps binding."""
+    by = _sf(0, b_planned_start=date(2026, 3, 4))
+    assert by["B"].early_start == date(2026, 3, 4)
+
+
+def test_an_snet_before_the_project_start_binds_an_sf_only_task() -> None:
+    """…including an SNET that is itself before the project start (Wed 02-25)."""
+    by = _sf(0, b_dur=5, b_planned_start=date(2026, 2, 25))
+    # SF alone would start B Mon 02-23 (5d finishing Fri 02-27); the SNET wins.
+    assert by["B"].early_start == date(2026, 2, 25)
+
+
+def test_any_non_sf_link_keeps_the_project_start_floor() -> None:
+    """Mixed FS + SF: the max of the bounds still applies, floor included.
+
+    C has the SF link from A (anchor Fri 02-27) and an FS link from X carrying a
+    lead that also lands before the project start; neither may take C there, so C
+    is floored on Mon 03-02, exactly as before #4218. Leads stay floored.
+    """
+    result = _schedule(
+        [
+            Task(id="A", name="A", duration=_days(3)),
+            Task(id="X", name="X", duration=_days(3)),
+            Task(id="C", name="C", duration=_days(1)),
+        ],
+        [
+            _sf_dep("A", "C"),
+            Dependency("X", "C", dep_type=DependencyType.FS, lag=_days(-10)),
+        ],
+    )
+    c = {t.id: t for t in result.tasks}["C"]
+    assert c.early_start == PROJECT_START
+
+
+def test_multiple_sf_links_take_the_latest_bound() -> None:
+    """Two SF predecessors: the later anchor places the task (max still applies).
+
+    A starts Mon 03-02 (anchor Fri 02-27); P is held to Wed 03-04 (anchor Tue
+    03-03). B (2d) must finish by the later, so it runs Mon 03-02..Tue 03-03.
+    """
+    result = _schedule(
+        [
+            Task(id="A", name="A", duration=_days(3)),
+            Task(id="P", name="P", duration=_days(1), planned_start=date(2026, 3, 4)),
+            Task(id="B", name="B", duration=_days(2)),
+        ],
+        [_sf_dep("A", "B"), _sf_dep("P", "B")],
+    )
+    b = {t.id: t for t in result.tasks}["B"]
+    assert b.early_finish == date(2026, 3, 3)
+    assert b.early_start == PROJECT_START
+
+
+def test_an_sf_only_milestone_sits_before_the_project_start() -> None:
+    """A zero-duration SF successor is the same rule as an instant: the end of Fri 02-27."""
+    result = _schedule(
+        [Task(id="A", name="A", duration=_days(3)), Task(id="M", name="M", duration=_days(0))],
+        [_sf_dep("A", "M")],
+    )
+    m = {t.id: t for t in result.tasks}["M"]
+    assert m.early_start == m.early_finish == date(2026, 2, 27)
+    assert m.milestone_at_day_end
+
+
+@pytest.mark.parametrize("status_date", [None, date(2026, 2, 20), PROJECT_START])
+def test_monte_carlo_matches_cpm_before_the_project_start(status_date: date | None) -> None:
+    """Zero-variance Monte Carlo agrees with CPM when SF work sits before the start.
+
+    B (5d) is SF-only and ends Fri 02-27, starting a week before the project; D is
+    SF-only from B, reaching further back; C follows B by FS with a long lag, so the
+    pre-start placement is what sets the project finish. The simulation's
+    working-day index opened on the project start and could not hold any of it
+    until ``_mc_pre_start_pad_days`` (#4218); a floored B finished C a week late.
+    """
+    project = Project(
+        id="sf-pre-mc",
+        name="sf-pre-mc",
+        start_date=PROJECT_START,
+        calendar=Calendar(),
+        status_date=status_date,
+        tasks=[
+            Task(id="A", name="A", duration=_days(1)),
+            Task(id="B", name="B", duration=_days(5)),
+            Task(id="C", name="C", duration=_days(2)),
+            Task(id="D", name="D", duration=_days(4)),
+        ],
+        dependencies=[
+            _sf_dep("A", "B"),
+            Dependency("B", "C", dep_type=DependencyType.FS, lag=_days(14)),
+            _sf_dep("B", "D"),
+        ],
+    )
+    result = schedule(project)
+    mc = monte_carlo(project, runs=16, seed=3, max_runs=None, max_tasks=None)
+    assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
+    if status_date is None:
+        by = {t.id: t for t in result.tasks}
+        # B Mon 02-23..Fri 02-27; D's anchor is Fri 02-20, the working day before
+        # B, so D runs Tue 02-17..Fri 02-20; C starts Fri 02-27 + 1 + 14 = Sat
+        # 03-14, snapped to Mon 03-16, and finishes Tue 03-17.
+        assert by["B"].early_start == date(2026, 2, 23)
+        assert by["D"].early_start == date(2026, 2, 17)
+        assert result.project_finish == date(2026, 3, 17)

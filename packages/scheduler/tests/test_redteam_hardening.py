@@ -684,23 +684,27 @@ def test_monte_carlo_matches_schedule_for_late_actual_start_only() -> None:
 # weekend — reporting free_float 0 against a total_float of 2 (#1828). start_date
 # 2026-03-02 is a Monday; the default calendar is Mon-Fri.
 _ABSORBED_LAG_CASES = [
-    # dep_type, A duration (days), lag (calendar days), B duration (days)
-    (DependencyType.FS, 3, 2, 2),
-    (DependencyType.SS, 2, 5, 2),
-    (DependencyType.FF, 2, 4, 2),
-    # SF anchors on the working day BEFORE A's start (#4145) — Fri 2026-02-27, not
-    # Mon 03-02 — so its lag crosses the weekend from one day earlier and the row
-    # was re-picked to keep the same property under test: a 3-cd lag whose weekend
-    # portion is absorbed (Fri 02-27 + 3cd lands on Mon 03-02, one working day on),
-    # with 2 working days of float on A. Keeping (2, 5, 2) instead made B's finish
-    # A-driven and left A on the critical path with zero float, testing nothing.
-    (DependencyType.SF, 2, 3, 5),
+    # dep_type, A duration (days), lag (calendar days), B duration (days), A's SNET
+    (DependencyType.FS, 3, 2, 2, None),
+    (DependencyType.SS, 2, 5, 2, None),
+    (DependencyType.FF, 2, 4, 2, None),
+    # SF anchors on the working day BEFORE A's start (#4145), and since #4218 an
+    # SF-only B is placed by that bound alone rather than floored at the project
+    # start — so with A on the project's first day, B's finish is always the bound
+    # itself, and A's first slip moves the anchor Fri -> Mon, across the weekend, so
+    # no lag can absorb it. (The previous row, (2, 3, 5), only had float because the
+    # project-start floor held B's finish past the bound — the #4218 bug.) A is held
+    # to Thu 03-05 instead: anchor Wed 03-04 + 3cd = Sat, snapped to Mon 03-09; a
+    # slip of 1 or 2 working days moves the anchor to Thu/Fri, landing Sun/Mon, both
+    # Mon 03-09; a third moves B. A (1d) finishing Thu against a Mon finish also has
+    # exactly 2 working days of total float.
+    (DependencyType.SF, 1, 3, 2, date(2026, 3, 5)),
 ]
 
 
-@pytest.mark.parametrize(("dep_type", "dur_a", "lag_days", "dur_b"), _ABSORBED_LAG_CASES)
+@pytest.mark.parametrize(("dep_type", "dur_a", "lag_days", "dur_b", "a_snet"), _ABSORBED_LAG_CASES)
 def test_free_float_lag_absorbed_by_weekend(
-    dep_type: DependencyType, dur_a: int, lag_days: int, dur_b: int
+    dep_type: DependencyType, dur_a: int, lag_days: int, dur_b: int, a_snet: date | None
 ) -> None:
     """A calendar-day lag fully absorbed by a weekend must not zero out free float.
 
@@ -711,7 +715,7 @@ def test_free_float_lag_absorbed_by_weekend(
         name="p",
         start_date=date(2026, 3, 2),
         tasks=[
-            Task(id="A", name="A", duration=timedelta(days=dur_a)),
+            Task(id="A", name="A", duration=timedelta(days=dur_a), planned_start=a_snet),
             Task(id="B", name="B", duration=timedelta(days=dur_b)),
         ],
         dependencies=[

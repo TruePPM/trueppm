@@ -159,11 +159,20 @@ exactly the situation the span exists to surface rather than hide.
 
 ## Scheduling before the project start
 
-The project start date is the floor for the schedule: the critical-path engine never plans a task to begin before it. But the floor is elastic in the *earlier* direction. When you place a task on a date before the project start — by typing a date, creating the task, importing from MS Project, or writing through the API — TruePPM keeps the floor honest by **pulling the project start back to fit the task**, in the same change. The task lands where you put it, and the project boundary follows; nothing is silently clamped or discarded.
+The project start date is the floor for the schedule: the critical-path engine does not plan a task to begin before it, with one exception described below. But the floor is elastic in the *earlier* direction. When you place a task on a date before the project start — by typing a date, creating the task, importing from MS Project, or writing through the API — TruePPM keeps the floor honest by **pulling the project start back to fit the task**, in the same change. The task lands where you put it, and the project boundary follows; nothing is silently clamped or discarded.
 
 Only the earlier direction is automatic. Moving the project start *later* (past tasks that already begin before the new date) stays a deliberate Project Settings edit. Pulling the start earlier to fit a task needs only the permission to edit that task — the project boundary is treated as a derived artifact of its tasks — so it isn't gated behind project administration, and collaborators see the new start update in real time.
 
 Because this lives at the API layer, every write path behaves the same way, including integrations and imports that set task dates directly.
+
+The one exception is a task whose links are **all Start-to-Finish**. An SF link can require its successor to finish before the predecessor starts. If that predecessor opens the project, the successor belongs before the project start, and the engine puts it there. The project start date itself does not move. Only the task's computed dates sit ahead of it, and the Schedule draws the bar there. MS Project schedules the same case the same way. The data date still applies: remaining work is never scheduled before it. When a project has no status date, the data date is today. As a result, you see this placement only when the SF anchor falls on or after the data date, for example in a project that starts in the future.
+
+Two consequences to know about:
+
+- **Adding a non-SF link restores the floor.** The exception covers only a task whose links are *all* SF. If you add an FS, SS or FF link to such a task, it returns to the project start, even when the new link would allow an earlier date on its own. Adding a link can therefore move a task later. This is tracked in [#4220](https://gitlab.com/trueppm/trueppm/-/issues/4220).
+- **Rescheduling the task by hand opens the before-project-start prompt.** Dragging or nudging an SF-placed task that sits before the project start asks you to move the project start or snap the task to it. Both options override the SF placement. This is tracked in [#4221](https://gitlab.com/trueppm/trueppm/-/issues/4221).
+
+See [Scheduler conventions](/features/scheduler-conventions/) for the exact rule.
 
 ## When the server changes your date
 

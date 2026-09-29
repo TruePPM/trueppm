@@ -1,0 +1,27 @@
+{
+  "id": "p-sf-before-project-start-chain",
+  "name": "SF-only successors placed before the project start from one unconstrained source (#4218)",
+  "start_date": "2026-10-05",
+  "tasks": [
+    {"id": "A", "name": "Predecessor on the project's first working day", "duration": 259200.0},
+    {"id": "B", "name": "SF-only, lag 0: finishes the Friday before the project opens", "duration": 86400.0},
+    {"id": "C", "name": "SF-only, +2d lag across the weekend, longer than the gap", "duration": 432000.0},
+    {"id": "D", "name": "SF-only from a pre-start predecessor", "duration": 172800.0},
+    {"id": "G", "name": "SF-only milestone", "duration": 0.0},
+    {"id": "I", "name": "SF-only from two predecessors: the latest bound wins", "duration": 259200.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "SF", "lag": 0.0},
+    {"predecessor_id": "A", "successor_id": "C", "dep_type": "SF", "lag": 172800.0},
+    {"predecessor_id": "B", "successor_id": "D", "dep_type": "SF", "lag": 0.0},
+    {"predecessor_id": "A", "successor_id": "G", "dep_type": "SF", "lag": 0.0},
+    {"predecessor_id": "A", "successor_id": "I", "dep_type": "SF", "lag": 0.0},
+    {"predecessor_id": "D", "successor_id": "I", "dep_type": "SF", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

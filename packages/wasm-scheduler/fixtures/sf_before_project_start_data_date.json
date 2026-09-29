@@ -1,0 +1,21 @@
+{
+  "id": "p-sf-before-project-start-data-date",
+  "name": "An SF-only task pierces the project start but never the data date (#4218)",
+  "start_date": "2026-10-05",
+  "status_date": "2026-09-30",
+  "tasks": [
+    {"id": "A", "name": "Predecessor on the project's first working day", "duration": 259200.0},
+    {"id": "B", "name": "SF-only, lag 0: Fri 10-02 is after the data date, so it holds", "duration": 86400.0},
+    {"id": "C", "name": "SF-only, would start Tue 09-29: held at the Wed 09-30 data date", "duration": 432000.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "SF", "lag": 0.0},
+    {"predecessor_id": "A", "successor_id": "C", "dep_type": "SF", "lag": 172800.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}
