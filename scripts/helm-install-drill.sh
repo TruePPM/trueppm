@@ -288,7 +288,7 @@ WEB_IMAGE="${IMAGE_REPO}/web:${RELEASE_IMAGE_TAG}"
 log() { echo "==> $*"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-# ---- admin password retrievable from the shared emptyDir (#3964) -----------
+# ---- admin password retrievable from the shared emptyDir (#3964, #4226) ----
 # The password file lives on an emptyDir — pod-local, not persisted across a
 # pod replacement — and create_admin is deliberately idempotent: it no-ops the
 # moment a superuser already exists (packages/api/.../create_admin.py). So this
@@ -298,14 +298,34 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 # container correctly skips writing the file a second time, and checking the
 # post-upgrade pod for it (the original bug, #3964) fails by construction,
 # not because anything is broken.
+#
+# Loops every api pod rather than trusting `.items[0]` — that indexing was
+# only ever safe while every leg that calls this ran a single api replica.
+# #4226 raised the demo overlay's replicaCount to 3, and create_admin's
+# bootstrap advisory lock means only ONE of those pods actually wins and
+# writes the file; `.items[0]` picks whichever pod the API server happens to
+# list first, which is frequently a loser and reads as "create_admin did not
+# write it" on a bootstrap that in fact succeeded (#4226). Same
+# exactly-one-holder assertion as check_admin_password_documented, just
+# scoped to the current kubectl context namespace instead of
+# $WALKTHROUGH_NAMESPACE, matching this function's existing callers (install/
+# demo/upgrade legs never switch off the default namespace).
 check_admin_password() {
-  local api_pod pw_file admin_pw
-  api_pod="$(kubectl get pod -l app.kubernetes.io/component=api -o jsonpath='{.items[0].metadata.name}')"
+  local pw_file pod pw admin_pw holders=0
   # Chart default admin.passwordFile; overridable via $ADMIN_PASSWORD_FILE.
   pw_file="${ADMIN_PASSWORD_FILE:-/run/trueppm/admin_password}"
-  log "reading admin password from ${api_pod}:${pw_file}"
-  admin_pw="$(kubectl exec "$api_pod" -c api -- cat "$pw_file" 2>/dev/null || true)"
-  [ -n "$admin_pw" ] || fail "admin password file '$pw_file' empty/absent — create_admin did not write it"
+  log "reading admin password from every api pod (${pw_file})"
+  for pod in $(kubectl get pods -o name \
+      -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=api"); do
+    pw="$(kubectl exec "$pod" -c api -- cat "$pw_file" 2>/dev/null || true)"
+    if [ -n "$pw" ]; then
+      holders=$((holders + 1))
+      admin_pw="$pw"
+      log "  ${pod} holds ${pw_file}"
+    fi
+  done
+  [ "$holders" -eq 1 ] \
+    || fail "expected exactly one api pod to hold ${pw_file}, found ${holders} — create_admin's bootstrap advisory lock (#4039) is not serializing the replicas, or no pod bootstrapped"
   log "admin password present (${#admin_pw} chars) — bootstrap wrote the shared emptyDir"
 }
 
