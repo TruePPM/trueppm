@@ -156,3 +156,40 @@ Each has a corresponding `@pytest.mark.parametrize` case in `test_msproject.py::
 | `cross_project_link.xml` | 3 | 2 | 0 | External `PredecessorUID` not in local task list |
 | `unicode_names.xml` | 5 | 2 | 1 | CJK, RTL Arabic, emoji, XML-significant chars |
 | `calendar_exceptions.xml` | 3 | 1 | 1 | Full `<Calendars>` block with exceptions (parsed since #1769) |
+
+---
+
+## Real-export SF-from-work fixtures (issue #4155)
+
+`#4145` changed the Start-to-Finish anchor for ordinary (non-milestone) work to the
+MS Project / Primavera P6 reading (last working day before the predecessor starts)
+on the maintainer's decision, without confirming it against a genuine MS Project
+export. These two fixtures are **real files MS Project itself wrote** — not
+hand-authored XML and not a third-party MSPDI writer — obtained to close that gap.
+Both are attributed with an XML comment near the top of the file in addition to
+this table (a user requirement for #4155: attribution must be discoverable by
+grepping the fixture itself, not only the commit history).
+
+| File | Source | License | SF link exercised |
+|------|--------|---------|--------------------|
+| `sf_from_work_zero_lag.xml` | `rpbouman/open-msp-viewer`, `sample/link types.xml` ([permalink](https://github.com/rpbouman/open-msp-viewer/blob/9acd1c3eada483cc5bb7c1cdcb6333cf73b1a4ba/sample/link%20types.xml)) | Apache-2.0, Copyright 2014 Roland Bouman | UID 15 ("task9") → UID 16 ("task10"), zero lag |
+| `sf_from_work_lagged.xml` | `EvotecIT/OfficeIMO`, `OfficeIMO.Project.Tests/Fixtures/Project2024/relationships.xml` ([permalink](https://github.com/EvotecIT/OfficeIMO/blob/35a9df10531fc7fad496d2f0797b0c02b56509ed/OfficeIMO.Project.Tests/Fixtures/Project2024/relationships.xml)) | MIT, Copyright (c) 2022 Evotec | UID 2 ("Design") → UID 8 ("Dependency SF"), 2-hour lag (`LinkLag=1200`, `LagFormat=5`) |
+
+**`sf_from_work_zero_lag.xml` caveat, verified by parsing with MPXJ and confirmed by
+round-tripping through the real importer:** the SF successor tasks (UID 16 "task10",
+UID 17 "task11", and the second pair UID 45/46 off predecessor UID 47 "task24") are
+all `<Manual>1</Manual>` in the source file — MS Project's manual-scheduling mode.
+A manually-scheduled task's `<Start>`/`<Finish>` are whatever the file's author typed
+in; MS Project's own CPM engine never computed them, so they are **not** usable as
+the oracle for a round-trip assertion (TruePPM's importer does not read `<Manual>`
+at all — see `test_sf_from_work_import.py`). The test instead asserts against the
+`#4145` rule's own predicted value, which is independently confirmed correct by
+`packages/scheduler/tests/test_sf_from_work.py`; this fixture's contribution is
+confirming the *parser* correctly reads a real MS-Project-authored `Type=2`
+(Start-to-Finish) link and a real zero `LinkLag` off a genuine export, not that the
+file's own dates match (they cannot, structurally).
+
+**`sf_from_work_lagged.xml` finding:** round-tripping this fixture surfaced a real
+engine gap, not a disagreement with the `#4145` anchor formula itself — see
+`test_sf_from_work_import.py::test_sf_anchor_before_project_start_is_suppressed_by_the_floor`
+and issue #4155's resolution notes.
