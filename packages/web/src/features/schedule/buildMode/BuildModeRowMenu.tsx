@@ -120,16 +120,25 @@ export function BuildModeRowMenu({ anchor, items, onClose }: BuildModeRowMenuPro
 
   if (!anchor) return null;
 
-  // Auto-flip if the menu would overflow the viewport.
+  // Auto-flip if the menu would overflow the viewport — but only UP when doing
+  // so gains more room than staying below. A right-click can land anywhere,
+  // including near the TOP of the viewport, where "above" has almost no room;
+  // flipping there anyway (because the content merely doesn't fit below)
+  // squeezes the menu into a sliver instead of the hundreds of px still
+  // available below — the same defect shape fixed in useAnchoredPopover for
+  // the Display menu (#4228).
   const menuHeight = items.length * ITEM_HEIGHT + 8;
   const viewportH = typeof window !== 'undefined' ? window.innerHeight : 800;
   const viewportW = typeof window !== 'undefined' ? window.innerWidth : 1200;
-  const top = anchor.y + menuHeight > viewportH ? Math.max(0, anchor.y - menuHeight) : anchor.y;
+  const spaceBelow = Math.max(0, viewportH - anchor.y);
+  const spaceAbove = Math.max(0, anchor.y);
+  const flipUp = anchor.y + menuHeight > viewportH && spaceAbove > spaceBelow;
+  const top = flipUp ? Math.max(0, anchor.y - menuHeight) : anchor.y;
   const left = anchor.x + MENU_WIDTH > viewportW ? Math.max(0, anchor.x - MENU_WIDTH) : anchor.x;
-  // The flip above only re-derives `top`; on a viewport shorter than the menu
-  // itself neither direction has room, so clamp the panel's own height to what's
-  // actually left and let it scroll rather than spill past the opposite edge.
-  const maxHeight = Math.max(0, viewportH - 16);
+  // The real gap to the viewport edge the menu opened toward — content taller
+  // than the estimate must scroll within this, never spill past the opposite
+  // edge.
+  const maxHeight = flipUp ? spaceAbove : spaceBelow;
 
   return createPortal(
     <ul

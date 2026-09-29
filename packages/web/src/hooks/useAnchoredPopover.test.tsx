@@ -129,8 +129,42 @@ describe('useAnchoredPopover', () => {
       { width: 200, estimatedHeight: 100 },
       { top: 5, bottom: 10, left: 50, right: 150, width: 100 },
     );
-    // below = 14; 14 + 100 = 114 > (50 - 8) → flip: raw maxHeight = top(5) - gap(4) - margin(8) = -7 → clamped to 0
-    expect(panel.style.maxHeight).toBe('0px');
+    // below = 14; content (100) doesn't fit below (14+100=114 > 42) OR above
+    // (top(5) - gap(4) - margin(8) = -7, clamped to 0) — but space below (28)
+    // still beats space above (0), so it stays below rather than flipping into
+    // nothing. maxHeight = vh(50) - margin(8) - below(14) = 28.
+    expect(panel.style.maxHeight).toBe('28px');
+    expect(panel.style.top).toBe('14px');
+  });
+
+  it('does NOT flip above a trigger near the top of the viewport merely because content overflows below (#4228)', async () => {
+    // The Schedule toolbar's "Display" trigger sits near the TOP of the page —
+    // almost no room above it. Content taller than the viewport used to flip
+    // the panel into that sliver anyway (because "below" alone didn't fit the
+    // full estimate), abandoning hundreds of px of scrollable room below and
+    // reading as the panel's content clipping/bleeding right after it opens.
+    setViewport(1024, 700);
+    const panel = await open(
+      { width: 280, estimatedHeight: 900 }, // content far taller than the viewport
+      { top: 60, bottom: 88, left: 700, right: 980, width: 100 },
+    );
+    // below = 92; space below = 700 - 8 - 92 = 600; space above = 60 - 4 - 8 = 48.
+    // Below offers far more room, so the panel stays below and scrolls.
+    expect(panel.style.top).toBe('92px');
+    expect(panel.style.maxHeight).toBe('600px');
+  });
+
+  it('still flips above when the trigger is near the bottom and above genuinely has more room', async () => {
+    setViewport(1024, 700);
+    const panel = await open(
+      { width: 280, estimatedHeight: 900 },
+      { top: 650, bottom: 670, left: 700, right: 980, width: 100 },
+    );
+    // below = 674; space below = 700 - 8 - 674 = 18; space above = 650 - 4 - 8 = 638.
+    // Above offers far more room, so the panel flips. top clamps to margin(8)
+    // since the estimate (900) is taller than the space above (638).
+    expect(panel.style.top).toBe('8px');
+    expect(panel.style.maxHeight).toBe('638px');
   });
 
   it('clamps horizontally so a wide panel never leaves the right edge', async () => {
