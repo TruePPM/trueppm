@@ -42,9 +42,9 @@
 [[IgnoredVulns]]
 id = "GHSA-hj66-6f7g-4r5v"
 ignoreUntil = 2026-11-30
-reason = "oauthlib 3.3.1 JSONP callback injection in RevocationEndpoint (MODERATE, CVSS 6.1). Fixed only in oauthlib 4.0.0 (2026-09-28), which django-allauth (pins oauthlib<4 at latest 65.19.5) does not yet admit. Non-blocking WARN under osv-severity-gate.sh. Tracked in #4236."
+reason = "oauthlib 3.3.1 JSONP callback injection in RevocationEndpoint (MODERATE, CVSS 6.1). Fixed only in oauthlib 4.0.0 (2026-09-28), which django-allauth (pins oauthlib<4 at latest 65.19.5) does not yet admit. Non-blocking WARN under osv-severity-gate.sh. Tracked in #4236; upstream ask filed at pennersr/django-allauth#4241."
 
 [[IgnoredVulns]]
 id = "GHSA-xpv3-w29h-x7cv"
 ignoreUntil = 2026-11-30
-reason = "oauthlib 3.3.1 PKCE code_verifier comparison timing attack (MODERATE, CVSS 6.8, CWE-208). Fixed only in oauthlib 4.0.0 (2026-09-28), which django-allauth (pins oauthlib<4 at latest 65.19.5) does not yet admit. Non-blocking WARN under osv-severity-gate.sh. Tracked in #4236."
+reason = "oauthlib 3.3.1 PKCE code_verifier comparison timing attack (MODERATE, CVSS 6.8, CWE-208). Fixed only in oauthlib 4.0.0 (2026-09-28), which django-allauth (pins oauthlib<4 at latest 65.19.5) does not yet admit. Non-blocking WARN under osv-severity-gate.sh. Tracked in #4236; upstream ask filed at pennersr/django-allauth#4241."
