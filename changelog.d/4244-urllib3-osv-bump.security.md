@@ -6,3 +6,12 @@
   malicious chunked-encoding response). `urllib3` is not pinned directly in
   `packages/api/pyproject.toml`; this is a re-resolution against an
   already-present dependency, not a newly added package.
+- **Dependency security bump**: `axios` 1.18.1 → 1.20.0 in `packages/web`
+  clears seven HIGH advisories introduced by upstream releases since 1.18.1,
+  including an HTTP/2 adapter that bypassed configured DNS lookup and proxy
+  controls (GHSA-3pq3-5fj3-cg6v), a redirect-based SSRF via an unenforced
+  `maxRedirects: 0` on the fetch adapter (GHSA-r4gj-5m52-g5wh), and a
+  prototype-pollution gadget in the Node HTTP adapter allowing request
+  socket hijack (GHSA-m8m8-qj5v-23w3). `axios` is already pinned `^1.18.1`
+  in `packages/web/package.json`; 1.20.0 resolves within that existing
+  range.
