@@ -15,6 +15,94 @@ followed by the detailed entries.
 
 _Nothing yet._
 
+## [0.4.0-beta.6] — 2026-09-30
+
+TruePPM 0.4.0-beta.6 supersedes 0.4.0-beta.5.
+
+This is a fix-and-hardening beta: no new features, a handful of UI bug fixes, and a round of dependency security bumps.
+
+Fixed: the Display ▾ menu and the Build-mode row-actions menu could clip into an unreadable sliver when their trigger sat near the top of the viewport; Today view and the board Queue layout broke on phones (overlapping badges, sideways scroll, a shrunken location label); schedule health's Late count no longer double-counts rolled-up phase status; the read-only demo no longer offers create controls it would refuse, and no longer overclaims that resizing a task re-ran the scheduling engine; the `trueppm-scheduler` README no longer claims a bare `pip install` always skips beta releases.
+
+Security: `pyjwt` 2.13.0 → 2.15.1 clears a CRITICAL PEM-detection bypass and five HIGH advisories; `urllib3` 2.7.0 → 2.8.0 clears two HIGH advisories (TLS proxy config and unbounded chunked-response memory allocation); `axios` 1.18.1 → 1.20.0 clears seven HIGH advisories; `brace-expansion`, `dompurify`, and `fast-uri` are bumped to clear HIGH/MODERATE/LOW advisories; two MODERATE `oauthlib` findings not yet fixable upstream (blocked on a `django-allauth` pin) are now documented, self-expiring `security:osv` suppressions instead of relying on the gate's non-blocking WARN.
+
+Also: the `trueppm-mcp` README now carries the ownership-verification marker required for listing on the official MCP registry, and the public `try.trueppm.com` demo now caches its share-link projections and runs more replicas to absorb more concurrent visitors.
+
+### Changed
+- **MCP server registry listing**: added the `mcp-name` ownership-verification
+  marker to the `trueppm-mcp` README, required by the official MCP registry
+  (`registry.modelcontextprotocol.io`) to confirm the PyPI package matches the
+  `com.trueppm/mcp-server` manifest before the server can be published under a
+  domain-verified namespace.
+- **Public share-link demo capacity**: `try.trueppm.com`'s share endpoints now cache
+  their built board/schedule projection in Valkey for a short TTL instead of hitting
+  Postgres on every visitor request, and the demo Helm overlay runs 3 API/worker
+  replicas instead of 1. No change to the response shape or the per-visitor rate
+  limit — this only raises how much concurrent traffic the demo can absorb before
+  latency degrades.
+
+### Fixed
+- **Schedule Display menu clipping near the top of the viewport**: the Display ▾ menu's popover could flip above its trigger whenever its full content didn't fit below — even when the trigger sat near the top of the page and "above" had far less room than "below." That squeezed the panel into a few-pixel-tall sliver, clipping the Outline section partway through and leaving "View filters" and every section after it unreachable. `useAnchoredPopover` now flips only when doing so genuinely gains more room than staying on the default side.
+- **Schedule row-actions menu had the same clipping bug**: the right-click row menu in Build mode (`BuildModeRowMenu`) flipped above its anchor under the same flawed condition — fixed with the same space-comparison logic.
+- **`trueppm-scheduler` README pre-release wording**: corrected the claim that a
+  bare `pip install trueppm-scheduler` always skips beta releases — pip falls
+  back to the latest pre-release when no final release exists yet, which is
+  the case today, so a bare install currently gets the newest beta. The README
+  now describes both states and still recommends pinning an exact version.
+- **Nightly test flake**: `test_the_shutdown_exception_moves_the_program_finish` resolved
+  its seed fixture's import anchor to the real `date.today()`, so which weekday the
+  nightly pipeline ran on could mask the shutdown calendar exception's effect on the
+  public launch date behind an unrelated, independent scheduling path. The anchor is now
+  pinned to a fixed date, matching the `_pin_today` pattern used elsewhere in the suite.
+Fixed the read-only demo's copy overclaiming that resizing a task ran the scheduling engine. Resizing a task's duration in the demo (and the login panel's pitch) now describes what actually happens — a local preview, not a recomputed schedule — while dragging a task to a new date keeps the accurate "recomputes live" claim it already earns.
+- **Schedule health read On track beside late tasks**: the **Late** count no longer includes phase rows. A phase's status is rolled up from its children, so a phase whose children were all done was still counted as late. Without a baseline, schedule health now measures done and due tasks from the same set of tasks, so work finished outside the window can't hide late work. That ratio now tops out at 1.00. The program rollup uses the same counts, so a project shows the same band on its own page and in its program (#4238).
+- **Today view and board Queue layout broke on phones**: fixed so that every row shows its task name, badges no longer overlap the status, the page no longer scrolls sideways, and the last row can scroll above the **Add task** button. A row with no owner now says **Unassigned** (it used to show a dashed "?" circle), and tapping a row no longer leaves it highlighted. The top bar no longer shrinks the location label to a stray "M ›"; on a phone it shows the current view, or nothing when there isn't room (#4238).
+- **Read-only demo offered create controls it would refuse**: the demo no longer shows the board's **Add task** button, lane **+**, or quick capture. Before, a visitor could type a whole task and only then get the demo's refusal. Dragging cards still works as before (#4238).
+
+### Security
+- **Dependency security bumps**: `pyjwt` 2.13.0 → 2.15.1 (`packages/api` and
+  `packages/mcp`) clears one CRITICAL asymmetric-PEM detection bypass
+  (GHSA-ffc3-869f-jxw9, CVSS 9.1) and five HIGH PyJWK/validation advisories.
+  `brace-expansion` bumped at all three pinned major lines (1.1.18→1.1.21,
+  2.1.4→2.1.7, 5.0.9→5.0.12 in `packages/web` and `packages/mobile`) clears a
+  HIGH ReDoS/stack-exhaustion advisory (GHSA-6j4f-fj2g-mc7p /
+  GHSA-qhr7-859c-m2p7). `fast-uri` 3.1.7 → 3.1.8 (`packages/website`) clears a
+  MODERATE host-normalization advisory (GHSA-hrr3-gc8f-f4qj). All are unpatched
+  pins against already-present dependencies, not newly added packages.
+- **oauthlib MODERATE advisories documented, not silently absorbed**: `oauthlib` 3.3.1's two MODERATE findings (GHSA-hj66-6f7g-4r5v, JSONP callback injection; GHSA-xpv3-w29h-x7cv, PKCE timing attack) are fixed only in `oauthlib` 4.0.0, which `django-allauth` does not yet admit (`oauthlib<4` pin at its latest release). Both are now explicit, self-expiring `security:osv` suppressions instead of relying on the gate's non-blocking WARN status. Tracked in #4236; upstream ask to widen django-allauth's oauthlib pin filed at pennersr/django-allauth#4241.
+- **Dependency security bump**: `urllib3` 2.7.0 → 2.8.0 in `packages/api`
+  (transitive via `boto3`/`botocore`, `docker`/`testcontainers`, and
+  `requests`) clears two HIGH advisories: GHSA-8988-9cw3-xx77 (CVSS 7.6,
+  HTTPS proxy TLS configuration may be ignored or overridden) and
+  GHSA-vxq7-64xx-v4gw (CVSS 8.9, unbounded memory allocation reading a
+  malicious chunked-encoding response). `urllib3` is not pinned directly in
+  `packages/api/pyproject.toml`; this is a re-resolution against an
+  already-present dependency, not a newly added package.
+- **Dependency security bump**: `axios` 1.18.1 → 1.20.0 in `packages/web`
+  clears seven HIGH advisories introduced by upstream releases since 1.18.1,
+  including an HTTP/2 adapter that bypassed configured DNS lookup and proxy
+  controls (GHSA-3pq3-5fj3-cg6v), a redirect-based SSRF via an unenforced
+  `maxRedirects: 0` on the fetch adapter (GHSA-r4gj-5m52-g5wh), and a
+  prototype-pollution gadget in the Node HTTP adapter allowing request
+  socket hijack (GHSA-m8m8-qj5v-23w3). `axios` is already pinned `^1.18.1`
+  in `packages/web/package.json`; 1.20.0 resolves within that existing
+  range.
+- **Dependency security bump**: `dompurify` 3.4.13 → 3.4.16 in both
+  `packages/web` and `packages/website` clears GHSA-p98j-92pf-mc4p (LOW,
+  CVSS 2.3 — non-blocking under `osv-severity-gate.sh`, fixed anyway since
+  a patched release exists): an `IN_PLACE`-mode DOM XSS where a
+  node-removing `afterSanitizeElements`/`afterSanitizeAttributes` hook
+  could detach a subtree without neutralizing its descendants' event
+  handlers, leaving them armed on the caller's live tree. `dompurify` is
+  already pinned `^3.4.13` (web) and `^3.3.3` (website); 3.4.16 resolves
+  within both existing ranges. The severity gate's table strips each
+  finding's directory prefix down to the bare lockfile name, so both
+  packages' identical `dompurify@3.4.13` findings displayed as the same
+  "package-lock.json" row and read as one advisory rather than two — only
+  bumping `packages/web` left the gate still WARNing on `packages/website`'s
+  copy. No source in this repo calls `DOMPurify` with `IN_PLACE` or a
+  node-removing hook, so the advisory had no reachable trigger here — fixed
+  for defense in depth, not an active exposure.
+
 ## [0.4.0-beta.5] — 2026-09-29
 
 TruePPM 0.4.0-beta.5 supersedes 0.4.0-beta.4.

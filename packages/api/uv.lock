@@ -2545,7 +2545,7 @@ wheels = [
 
 [[package]]
 name = "trueppm-api"
-version = "0.4.0b5"
+version = "0.4.0b6"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
