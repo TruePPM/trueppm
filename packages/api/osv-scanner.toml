@@ -14,15 +14,37 @@
 # surface it. It remains suppressed in security:pip-audit:scheduler, which
 # audits an installed environment (where pip is present).
 #
-# This file currently carries no suppressions. Both former entries were removed
-# on 2026-08-06 (#2786) once the scanner began reporting them as unused —
-# meaning the locked version had moved out of the advisory's affected range, so
-# the entry was no longer suppressing anything:
+# Two prior entries were removed on 2026-08-06 (#2786) once the scanner began
+# reporting them as unused — meaning the locked version had moved out of the
+# advisory's affected range, so the entry was no longer suppressing anything:
 #
 #   PYSEC-2025-183 (pyjwt, disputed "weak encryption") — affects <= 2.10.1;
 #     uv.lock is at pyjwt 2.13.0.
 #   CVE-2026-4539 / PYSEC-2026-2987 (pygments AdlLexer ReDoS) — fixed in 2.20.0;
 #     uv.lock is at pygments 2.20.0.
 #
-# The file is kept rather than deleted so the auto-discovery path and the
-# accepted-risk contract above stay in place for the next entry.
+# The two entries below (added #4236, following !2887) are WARN, not FAIL:
+# both CVSS scores land in osv-severity-gate.sh's MEDIUM band, so the nightly
+# gate already treats them as non-blocking. They're suppressed anyway to make
+# the accepted-risk explicit and self-expiring rather than leaning on
+# allow_failure to quietly absorb them.
+
+# GHSA-hj66-6f7g-4r5v — oauthlib RevocationEndpoint unsafe JSONP callback
+# injection (MODERATE, CVSS 6.1). GHSA-xpv3-w29h-x7cv — oauthlib PKCE
+# code_verifier comparison timing attack (MODERATE, CVSS 6.8, CWE-208). Both
+# fixed only in oauthlib 4.0.0 (released 2026-09-28) — a clean major bump, no
+# 3.3.x patch backport exists. oauthlib is transitive via
+# django-allauth[socialaccount]/[idp-oidc], which pins `oauthlib<4,>=3.3.0` at
+# every published release including the latest (65.19.5) as of 2026-09-30, so
+# we cannot move to 4.0.0 without overriding allauth's own declared
+# constraint on an OAuth-critical dependency. Re-evaluate once django-allauth
+# ships a release admitting oauthlib>=4; see #4236.
+[[IgnoredVulns]]
+id = "GHSA-hj66-6f7g-4r5v"
+ignoreUntil = 2026-11-30
+reason = "oauthlib 3.3.1 JSONP callback injection in RevocationEndpoint (MODERATE, CVSS 6.1). Fixed only in oauthlib 4.0.0 (2026-09-28), which django-allauth (pins oauthlib<4 at latest 65.19.5) does not yet admit. Non-blocking WARN under osv-severity-gate.sh. Tracked in #4236."
+
+[[IgnoredVulns]]
+id = "GHSA-xpv3-w29h-x7cv"
+ignoreUntil = 2026-11-30
+reason = "oauthlib 3.3.1 PKCE code_verifier comparison timing attack (MODERATE, CVSS 6.8, CWE-208). Fixed only in oauthlib 4.0.0 (2026-09-28), which django-allauth (pins oauthlib<4 at latest 65.19.5) does not yet admit. Non-blocking WARN under osv-severity-gate.sh. Tracked in #4236."
