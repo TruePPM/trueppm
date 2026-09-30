@@ -357,8 +357,14 @@ API may still change before 1.0. **Pin an exact version** rather than a range:
 trueppm-scheduler==0.4.0b5
 ```
 
-Beta releases are pre-releases — `pip install trueppm-scheduler` skips them
-unless you pass `--pre`. Breaking changes are recorded in
+Beta releases are pre-releases: `pip` installs a pre-release only when you pass
+`--pre`, **or when no final release satisfies the requirement yet**. PyPI
+currently holds only pre-releases of `trueppm-scheduler` (no version has
+reached final), so today a bare `pip install trueppm-scheduler` falls into the
+second case and installs the latest beta. Once `0.4.0` final ships, that
+changes: a bare install will resolve to `0.4.0` and skip any later `0.5.0`
+betas unless you pass `--pre` — which is why pinning an exact version (above)
+is the reliable approach in either state. Breaking changes are recorded in
 [`CHANGELOG.md`](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/CHANGELOG.md),
 which also ships inside the wheel.
 
