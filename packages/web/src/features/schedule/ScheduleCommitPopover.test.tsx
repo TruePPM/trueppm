@@ -216,11 +216,13 @@ describe('ScheduleCommitPopover — read-only demo refusal (ADR-1197 D3)', () =>
     Object.defineProperty(window, 'innerHeight', { value: 900, configurable: true });
   });
 
-  it('renders the terminal notice with its exact copy, keeping the change line', () => {
+  it('renders the terminal notice with its exact copy for a reschedule, keeping the change line', () => {
     renderPopover({ demoRefusal: true });
     expect(screen.getByText('Calculated, not saved')).toBeInTheDocument();
     // The mono change line still says WHAT moved.
     expect(screen.getByText('May 17 → Jun 5')).toBeInTheDocument();
+    // True only for reschedule: useDragCpm runs a real CPM forward pass over the
+    // dragged task's downstream subgraph (#4237) — a resize never does, see below.
     expect(
       screen.getByText(
         'This is a read-only demo. Your change ran through the scheduling engine in your browser — nothing was written to the server.',
@@ -228,6 +230,18 @@ describe('ScheduleCommitPopover — read-only demo refusal (ADR-1197 D3)', () =>
     ).toBeInTheDocument();
     expect(
       screen.getByText('The bar stays where you put it until you reload the page.'),
+    ).toBeInTheDocument();
+  });
+
+  it('does not claim the scheduling engine ran for a resize (#4237) — that path is local arithmetic, no CPM pass', () => {
+    renderPopover({ demoRefusal: true, action: makeResizeAction() });
+    expect(screen.getByText('Calculated, not saved')).toBeInTheDocument();
+    expect(screen.getByText('14d → 21d')).toBeInTheDocument();
+    expect(screen.queryByText(/ran through the scheduling engine/)).toBeNull();
+    expect(
+      screen.getByText(
+        "This is a read-only demo. The new duration previewed locally — nothing was written to the server. Resizing does not recompute the schedule; dragging a task to a new date does.",
+      ),
     ).toBeInTheDocument();
   });
 
