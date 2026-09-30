@@ -1,0 +1,1 @@
+Fixed the read-only demo's copy overclaiming that resizing a task ran the scheduling engine. Resizing a task's duration in the demo (and the login panel's pitch) now describes what actually happens — a local preview, not a recomputed schedule — while dragging a task to a new date keeps the accurate "recomputes live" claim it already earns.
