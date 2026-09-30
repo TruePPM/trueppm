@@ -21,7 +21,11 @@
 #   5. it builds the api image and does NOT try to build the web image locally;
 #   6. its pinned Trivy version stays in lockstep with .gitlab-ci.yml — a CI bump
 #      that forgets release.sh would silently scan with a different DB/engine;
-#   7. the api image builds for linux/amd64 (the published architecture).
+#   7. the api image build is parameterized by platform (not hardcoded to
+#      linux/amd64) and is invoked once per architecture CI publishes — the
+#      host's native architecture as the mandatory leg, the other as a
+#      best-effort QEMU-emulated leg (#4245: the two architectures' published
+#      images can disagree, so a single-architecture preflight can't catch it).
 #
 # Run: bash scripts/tests/release-preflight.test.sh
 
@@ -100,14 +104,23 @@ else
 fi
 check "release.sh TRIVY_VERSION ($rel_ver) is pinned identically in CI" "$r"
 
-# --- 7: builds for the published architecture (linux/amd64) ------------------
-# The CI runners publish linux/amd64 images; building host-arch on an Apple
-# Silicon release host would scan a different artifact than what ships. The api
-# build must pin --platform linux/amd64 (runs under emulation on an arm64 host).
-echo "7: builds for linux/amd64 (the published architecture)"
-if grep -qE 'docker build --platform linux/amd64 .*-f packages/api/Dockerfile' "$RELEASE_SH"; then
+# --- 7: builds BOTH published architectures (native mandatory, other best-effort) ---
+# CI publishes both linux/amd64 (api:publish) and linux/arm64 (api:publish:arm64),
+# and #4245 showed they can disagree (a stale Docker cache masked a CVE on one
+# architecture's runner but not the other's, on the identical commit). A preflight
+# hardcoded to one architecture cannot catch that class of drift, so the build must
+# be parameterized by a $platform variable and invoked once per architecture: the
+# host's own architecture as the mandatory leg (real build, fails closed), the other
+# as a best-effort leg under QEMU emulation (a build crash there only warns — an
+# emulation-layer problem, not a code regression — but a Trivy FINDING still dies).
+echo "7: builds both architectures (native mandatory, other best-effort)"
+if grep -qE 'docker build --no-cache --platform "\$platform" .*-f packages/api/Dockerfile' "$RELEASE_SH" \
+   && grep -qE 'native_platform="linux/arm64"; *other_platform="linux/amd64"' "$RELEASE_SH" \
+   && grep -qE 'native_platform="linux/amd64"; *other_platform="linux/arm64"' "$RELEASE_SH" \
+   && grep -qE '_preflight_scan_one "\$native_platform" 1' "$RELEASE_SH" \
+   && grep -qE '_preflight_scan_one "\$other_platform" 0' "$RELEASE_SH"; then
   r=0; else r=1; fi
-check "api image build pins --platform linux/amd64" "$r"
+check "api image build is parameterized and scans both architectures, native mandatory / other best-effort" "$r"
 
 # --- 8: the Helm chart is bumped and staged with the release (#3907) --------
 # Chart.yaml is not a manifest the other bumps touch, and it sat at 0.4.0 through
