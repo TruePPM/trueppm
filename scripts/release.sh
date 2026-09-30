@@ -334,7 +334,14 @@ preflight_image_scan() {
   echo " host the linux/amd64 build runs under emulation. Bypass: RELEASE_SKIP_IMAGE_SCAN=1.)" >&2
 
   echo "  • building api image (linux/amd64, context: repo root) ..." >&2
-  docker build --platform linux/amd64 -f packages/api/Dockerfile -t trueppm-api:release-preflight . \
+  # --no-cache: this runs on the developer's own persistent Docker daemon, so
+  # a cache hit on the apt-get upgrade layer would silently skip the same
+  # step the previous run didn't need — and Debian's security team ships
+  # point-release patches between releases without this Dockerfile changing.
+  # A cached layer proves nothing about CURRENT CVEs (#4245: the 0.4.0-beta.6
+  # cut's api:publish:arm64 job failed this exact way on a persistent CI
+  # runner while the fresh-daemon amd64 leg passed).
+  docker build --no-cache --platform linux/amd64 -f packages/api/Dockerfile -t trueppm-api:release-preflight . \
     || die "api image failed to build — fix the build before cutting a tag."
   docker save trueppm-api:release-preflight -o "$scan_dir/api-image.tar"
   echo "  • scanning api image ..." >&2
