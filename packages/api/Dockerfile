@@ -6,7 +6,7 @@
 # release builds unchanged.
 ARG DOCKERHUB_PREFIX=docker.io
 
-FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:da047cb8f9d1d98e5c070f5300ba9f7274e33b8fc0e5be5ed88740aed1b95ba9 AS builder
+FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:e41613d42d4891e4930f79523f93f81bbc7632584ec65e36ab055f41a800b41e AS builder
 
 # `apt-get upgrade` (not just `update`) so this layer carries the Debian
 # security team's latest point-release patches even when the upstream
@@ -18,6 +18,22 @@ FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:da047cb8f9d1d98e5c070f5300ba9f7
 # nothing to do with this image's own dependencies. Build-stage CVEs never
 # ship (this stage is discarded), so this line matters only for the runtime
 # stage below — kept here too so both stages patch identically.
+#
+# This RUN line itself is not enough on a persistent Docker daemon: if
+# neither this instruction nor anything above it changes between builds,
+# Docker's build cache reuses the *entire cached layer* — including its
+# apt-get upgrade — without re-executing it, so a CVE patched by Debian
+# between two builds never gets pulled in. That is exactly what happened to
+# api:publish:arm64 at the 0.4.0-beta.6 cut (#4245): the amd64 leg (fresh
+# Docker daemon per job, nothing to cache) picked up the just-released
+# libssl3t64 patch and passed; the arm64 leg (persistent macOS runner) served
+# the stale cached layer from before the patch existed and failed the gate.
+# The base-image digest above was bumped as a one-time unblock for that cut;
+# the durable fix is `--no-cache` on every `docker build` that feeds a
+# pre-publish Trivy gate on a persistent daemon — see api:publish:arm64,
+# web:publish:arm64, and ci:arm64-smoke in .gitlab-ci.yml, and
+# preflight_image_scan() in scripts/release.sh. Bumping this digest again in
+# the future does NOT re-close this gap by itself.
 RUN apt-get update -qq && \
     apt-get upgrade -y -qq && \
     apt-get install -y -qq --no-install-recommends build-essential libpq-dev && \
@@ -143,10 +159,11 @@ RUN /venv/bin/python -c "import django; import trueppm_scheduler; django.setup()
 # ---------------------------------------------------------------------------
 # Stage 2: runtime — lean image with only what is needed to run
 # ---------------------------------------------------------------------------
-FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:da047cb8f9d1d98e5c070f5300ba9f7274e33b8fc0e5be5ed88740aed1b95ba9 AS runtime
+FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:e41613d42d4891e4930f79523f93f81bbc7632584ec65e36ab055f41a800b41e AS runtime
 
 # See the matching comment in the builder stage above — this is the stage that
 # actually ships, so this `upgrade` is the one that matters for the Trivy gate.
+# It is also the one the stale-cache gap in that comment actually bit (#4245).
 RUN apt-get update -qq && \
     apt-get upgrade -y -qq && \
     apt-get install -y -qq --no-install-recommends libpq5 && \
