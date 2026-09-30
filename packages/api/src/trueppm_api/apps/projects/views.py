@@ -159,6 +159,11 @@ from trueppm_api.apps.projects.models import (
     structural_parent,
     sync_structure_shadow_values,
 )
+from trueppm_api.apps.projects.program_rollup import (
+    spi_counts_by_project,
+    spi_health_band,
+    task_is_phase_expr,
+)
 from trueppm_api.apps.projects.refusal_codes import (
     CAPABILITY_DEPENDENCIES,
     BulkRefusalCode,
@@ -12173,62 +12178,27 @@ def compute_health_band(health: str, at_risk_count: int, critical_count: int) ->
     return "on_track", "derived"
 
 
-def _spi_health_band(spi: float) -> str:
-    """Map an SPI proxy onto the overview card's three health bands."""
-    if spi >= 0.95:
-        return "on_track"
-    if spi >= 0.85:
-        return "at_risk"
-    return "critical"
-
-
 def _project_spi_and_health(project: Project, today: datetime.date) -> tuple[float | None, str]:
     """SPI proxy and its health band for the project overview KPI card.
 
-    SPI = BCWP / BCWS, deliberately uncapped — a value above 1.0 is a genuine
-    ahead-of-schedule signal, not an error to clamp.
-
-    The denominator prefers the active baseline's finish dates because those are
-    stable across CPM reruns; with no baseline it falls back to ``early_finish``
-    and merges both counts into a single aggregate so the no-baseline path stays
-    one DB round-trip (P17). The numerator counts tasks COMPLETE by today —
-    keying on ``actual_finish`` rather than status alone stops a late completion
-    from masquerading as on-time. A null ``actual_finish`` on a COMPLETE task
-    still counts.
+    Counts come from :func:`program_rollup.spi_counts_by_project`, which the
+    program rollup also reads, so a project's band on its own overview and inside
+    its program's rollup cannot diverge. That function's docstring carries the
+    two paths: with an active baseline the ratio is EVM-style and may exceed 1.0
+    (#398); without one, both counts are taken over one task set so work
+    completed outside the planned-by-today window can no longer mask late work
+    (#4238).
 
     Returns ``(None, "unknown")`` when there is no planned work to measure
     against, which the card renders as an absent ratio rather than zero.
     """
-    active_baseline = Baseline.objects.filter(
-        project=project, is_active=True, is_deleted=False
-    ).first()
-    if active_baseline is not None:
-        planned_count = active_baseline.tasks.filter(finish__lte=today).count()
-        planned_complete = 0
-        if planned_count > 0:
-            planned_complete = (
-                Task.objects.filter(project=project, is_deleted=False, status=TaskStatus.COMPLETE)
-                .filter(
-                    db_models.Q(actual_finish__lte=today) | db_models.Q(actual_finish__isnull=True)
-                )
-                .count()
-            )
-    else:
-        spi_agg = Task.objects.filter(project=project, is_deleted=False).aggregate(
-            planned=Count("id", filter=db_models.Q(early_finish__lte=today)),
-            planned_complete=Count(
-                "id",
-                filter=db_models.Q(status=TaskStatus.COMPLETE)
-                & (db_models.Q(actual_finish__lte=today) | db_models.Q(actual_finish__isnull=True)),
-            ),
-        )
-        planned_count = spi_agg["planned"] or 0
-        planned_complete = spi_agg["planned_complete"] or 0
-
+    planned_count, planned_complete = spi_counts_by_project([project.pk], today).get(
+        project.pk, (0, 0)
+    )
     if planned_count <= 0:
         return None, "unknown"
     spi = round(planned_complete / planned_count, 3)
-    return spi, _spi_health_band(spi)
+    return spi, spi_health_band(spi)
 
 
 @extend_schema(
@@ -12468,15 +12438,26 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         ]
 
         # ── Task counts (single query) ──────────────────────────────────────
-        counts = Task.objects.filter(project=project, is_deleted=False).aggregate(
-            total=Count("id"),
-            complete=Count("id", filter=db_models.Q(status=TaskStatus.COMPLETE)),
-            critical=Count("id", filter=db_models.Q(is_critical=True)),
-            # Late: CPM says it should be done but status is not complete
-            late=Count(
-                "id",
-                filter=db_models.Q(early_finish__lt=today, status__in=active_statuses),
-            ),
+        counts = (
+            Task.objects.filter(project=project, is_deleted=False)
+            .annotate(_is_phase=task_is_phase_expr())
+            .aggregate(
+                total=Count("id"),
+                complete=Count("id", filter=db_models.Q(status=TaskStatus.COMPLETE)),
+                critical=Count("id", filter=db_models.Q(is_critical=True)),
+                # Late: CPM says it should be done but status is not complete. Leaf
+                # rows only — a phase's stored status is never maintained (ADR-0293),
+                # so a phase whose children are all done still reads NOT_STARTED and
+                # would count as late beside an on-track SPI (#4238).
+                late=Count(
+                    "id",
+                    filter=db_models.Q(
+                        early_finish__lt=today,
+                        status__in=active_statuses,
+                        _is_phase=False,
+                    ),
+                ),
+            )
         )
 
         total: int = counts["total"] or 0
@@ -12719,9 +12700,16 @@ class ProjectAttentionView(APIView):
         return Response({"items": items}, status=status.HTTP_200_OK)
 
     def _critical_late_items(self, project: Project, today: datetime.date) -> list[dict[str, Any]]:
-        """Critical-path tasks whose CPM finish has passed but are not complete."""
+        """Critical-path tasks whose CPM finish has passed but are not complete.
+
+        Leaf rows only, like the overview's late count: a phase's stored status is
+        never maintained (ADR-0293), so a phase over all-complete children would be
+        listed here as late work (#4238).
+        """
         critical_late = (
-            Task.objects.filter(
+            Task.objects.annotate(_is_phase=task_is_phase_expr())
+            .filter(_is_phase=False)
+            .filter(
                 project=project,
                 is_deleted=False,
                 is_critical=True,

@@ -14,7 +14,7 @@
  * because the lock cannot rule out the one thing it exists to prevent.
  */
 import { describe, expect, it } from 'vitest';
-import { boardReadOnly } from './useBoardIdentity';
+import { boardCanCompose, boardReadOnly } from './useBoardIdentity';
 import { ROLE_ADMIN, ROLE_MEMBER, ROLE_VIEWER } from '@/lib/roles';
 
 describe('boardReadOnly (#2680)', () => {
@@ -44,16 +44,34 @@ describe('boardReadOnly (#2680)', () => {
 });
 
 describe('boardReadOnly — unresolved sprint state (#3424)', () => {
-  it('is read-only for a Member while the scoped sprint\'s state is unknown', () => {
+  it("is read-only for a Member while the scoped sprint's state is unknown", () => {
     expect(boardReadOnly(ROLE_MEMBER, false, true)).toBe(true);
   });
 
-  it('is read-only for an Admin while the scoped sprint\'s state is unknown — same as closed', () => {
+  it("is read-only for an Admin while the scoped sprint's state is unknown — same as closed", () => {
     expect(boardReadOnly(ROLE_ADMIN, false, true)).toBe(true);
     expect(boardReadOnly(ROLE_ADMIN, false, true)).toBe(boardReadOnly(ROLE_ADMIN, true, false));
   });
 
   it('unlocks the moment the sprint is known open', () => {
     expect(boardReadOnly(ROLE_MEMBER, false, false)).toBe(false);
+  });
+});
+
+describe('boardCanCompose — the read-only demo withholds create (#4238)', () => {
+  it('offers create on a writable board outside the demo', () => {
+    expect(boardCanCompose(false, false)).toBe(true);
+  });
+
+  it('withholds create in the read-only demo even when the role could write', () => {
+    // The demo identity is Member+, so `boardReadOnly` is false there — drag stays
+    // offered (ADR-1198) — and only this second input removes the FAB / lane "+".
+    expect(boardReadOnly(ROLE_MEMBER, false, false)).toBe(false);
+    expect(boardCanCompose(boardReadOnly(ROLE_MEMBER, false, false), true)).toBe(false);
+  });
+
+  it('withholds create whenever the board is already read-only', () => {
+    expect(boardCanCompose(true, false)).toBe(false);
+    expect(boardCanCompose(true, true)).toBe(false);
   });
 });

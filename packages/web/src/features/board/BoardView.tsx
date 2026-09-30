@@ -122,7 +122,8 @@ import { useBoardTaskMaps } from './boardView/useBoardTaskMaps';
 import { useBoardSprintScope } from './boardView/useBoardSprintScope';
 import { BoardChrome } from './boardView/BoardChrome';
 import { boardKeyboardBindings, isB3OverlayOpen } from './boardView/boardKeyboardBindings';
-import { boardReadOnly, useBoardIdentity } from './boardView/useBoardIdentity';
+import { boardCanCompose, boardReadOnly, useBoardIdentity } from './boardView/useBoardIdentity';
+import { useDemoMode } from '@/hooks/useDemoMode';
 import { COLUMN_TINT } from './boardView/columnTokens';
 import { BoardConfirmDialogs } from './boardView/BoardConfirmDialogs';
 import { BoardCardOverlays } from './boardView/BoardCardOverlays';
@@ -1723,6 +1724,9 @@ export function BoardView() {
   } = useBoardSprintScope(projectId, searchParams, setSearchParams);
 
   const readOnly = boardReadOnly(currentRole, sprintClosed, sprintStateUnknown);
+  // Create is withheld in the read-only demo; drag is not (see `boardCanCompose`).
+  const { isDemoReadOnly } = useDemoMode();
+  const canCompose = boardCanCompose(readOnly, isDemoReadOnly);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overCell, setOverCell] = useState<string | null>(null); // `${phaseId}:${status}`
@@ -2939,8 +2943,7 @@ export function BoardView() {
   // view. What changed is what it opens: a one-field bar that leaves the
   // destination column on screen, instead of a full-screen sheet that covered
   // it (see `MobileComposeBar`).
-  const composeStatus: TaskStatus =
-    effectiveLayout === 'queue' ? 'BACKLOG' : mobileActiveStatus;
+  const composeStatus: TaskStatus = effectiveLayout === 'queue' ? 'BACKLOG' : mobileActiveStatus;
   const composeDestinationLabel = composeDestinationLabelFor(
     effectiveLayout === 'queue',
     mobileActiveStatus,
@@ -3148,9 +3151,7 @@ export function BoardView() {
     // its memo skips the drag-over re-render (issue 1520). overCell is
     // `${phaseId}:${trackKey}`; phase ids carry no ':'.
     overTrackKey:
-      overCell && overCell.startsWith(`${phase.id}:`)
-        ? overCell.slice(phase.id.length + 1)
-        : null,
+      overCell && overCell.startsWith(`${phase.id}:`) ? overCell.slice(phase.id.length + 1) : null,
     isDragActive: activeId !== null,
     showWip,
     showColTints,
@@ -3168,7 +3169,7 @@ export function BoardView() {
     // suppressed board-wide when `readOnly` (closed sprint or a
     // Viewer, #2146).
     onAddTask:
-      readOnly || groupMode === 'assignee' || groupMode === 'epic' ? undefined : handleAddTask,
+      !canCompose || groupMode === 'assignee' || groupMode === 'epic' ? undefined : handleAddTask,
     focusedCardId,
     // Search match set (when active) overrides the issue-182 dep-hover
     // dim set — see effectiveHighlightIds (issue 323).
@@ -3419,7 +3420,7 @@ export function BoardView() {
             isBacklogOver={overCell === BACKLOG_BAND_DROPPABLE_ID}
             backlogDensity={toolbarPrefs.backlogDensity}
             onSchedule={handleScheduleRequest}
-            onQuickCapture={handleQuickCaptureBacklog}
+            onQuickCapture={canCompose ? handleQuickCaptureBacklog : undefined}
             isQuickCapturePending={createTask.isPending}
             fileUnderTargets={fileUnderTargets}
             onFileUnder={readOnly ? undefined : handleFileUnder}
@@ -3491,7 +3492,7 @@ export function BoardView() {
 
       <MobileComposeControls
         projectId={projectId}
-        readOnly={readOnly}
+        readOnly={!canCompose}
         composeOpen={composeOpen}
         fabRef={composeFabRef}
         onOpen={handleMobileFabAdd}

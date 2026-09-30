@@ -176,30 +176,37 @@ describe('LocationSwitcher (#1643)', () => {
     expect(screen.queryByTestId('program-subtitle')).not.toBeInTheDocument();
   });
 
-  it('mobile renders non-interactive wayfinding (Project › Leaf, no pickers)', () => {
+  it('mobile renders non-interactive wayfinding — the leaf alone, no pickers (#4238)', () => {
     mockBreakpoint.mockReturnValue('sm');
     mockModel.mockReturnValue(model());
     renderWithRouter(<LocationSwitcher />);
     // No picker buttons on mobile — switching happens through the rail drawer.
     expect(screen.queryByRole('button', { name: /Switch/ })).not.toBeInTheDocument();
-    expect(screen.getByText('Launch Site')).toBeInTheDocument();
     expect(screen.getByText('Board')).toHaveAttribute('aria-current', 'page');
+    // No phone width fits `Project › Leaf` beside the right cluster; it rendered as
+    // "M ›" and a lone ellipsis. The project segment is dropped below md.
+    expect(screen.queryByText('Launch Site')).not.toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Location' })).not.toHaveTextContent('›');
   });
 
-  it("mobile wayfinding yields FIRST — it carries the bar's shrink weight below md (#3505)", () => {
+  it("mobile wayfinding takes only the bar's LEFTOVER width, and never draws a fragment (#3505, #4238)", () => {
     mockBreakpoint.mockReturnValue('sm');
     mockModel.mockReturnValue(model());
     renderWithRouter(<LocationSwitcher />);
     const nav = screen.getByRole('navigation', { name: 'Location' });
-    // The shell bar's right region stopped being `shrink-0` below md, because a
-    // rigid status cluster pushes past the bar instead of scrolling (rule 290,
-    // #3505). With both sides shrinkable, flexbox splits the squeeze
-    // proportionally — which would keep these two labels at width and scroll the
-    // health chip under the pinned chrome instead. The overwhelming weight here
-    // restores #1788's order: non-interactive wayfinding, whose labels truncate
-    // cleanly, is what the phone spends first.
-    expect(nav.className).toContain('shrink-[9999]');
+    // #3505's order of sacrifice — wayfinding gives before the status strip —
+    // taken to its end: with a zero flex-basis the nav never competes for width at
+    // all, so it can never push the right cluster past the bar (the header
+    // overflowed 48–67px at 375 when the leaf was given a rigid floor instead).
+    expect(nav.className).toContain('grow');
+    expect(nav.className).toContain('basis-0');
     expect(nav.className).toContain('min-w-0');
+    // It is a size container: the leaf is drawn only when the leftover can hold a
+    // readable label, and is otherwise sr-only — announced, never "M ›" and a dash.
+    expect(nav.className).toContain('[container-type:inline-size]');
+    const leaf = screen.getByText('Board');
+    expect(leaf.className).toMatch(/(^|\s)sr-only(\s|$)/);
+    expect(leaf.className).toContain('[@container(min-width:2.5rem)]:not-sr-only');
   });
 
   it('desktop wayfinding does NOT take that weight — at md+ the region absorbs the squeeze', () => {

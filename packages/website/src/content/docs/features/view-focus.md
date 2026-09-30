@@ -59,6 +59,33 @@ so anyone can open it — Unified Today focus just makes it your starting point.
 project with no active sprint, the pulse simply reads "No active sprint" and the board
 shows its own empty state.
 
+### How the pulse measures schedule health
+
+Schedule health is a count-based SPI: the tasks due by today that are done, divided by
+all the tasks due by today.
+
+- **With an active baseline**, "due by today" means the baseline's finish dates. Work
+  finished early still counts as done, so the ratio can go above 1.00.
+- **With no baseline**, "due by today" means the current plan's finish dates. Both
+  counts come from the same tasks, so the ratio tops out at 1.00, and a task finished
+  outside that window can't hide a late one.
+- **Unknown** means nothing is due yet, or the active baseline holds no finish dates.
+
+Phase rows are left out of the **Late** count and the no-baseline ratio. A phase's
+status is rolled up from its children, so a phase whose children are all done never
+counts as late.
+
+### On a phone
+
+In the Queue layout, each row shows the task name on its own line. The phase, status,
+duration and owner sit on a second line below it. A task with no owner says
+**Unassigned**. A task with no estimate shows **—**, except a milestone. The list
+leaves room at the bottom so the last row can scroll above the **Add task** button.
+
+On the hosted read-only demo, the board shows no **Add task** button, lane **+**, or
+quick capture, because the demo would refuse the create. You can still drag cards; the
+board keeps each move on screen and tells you nothing was saved.
+
 ## What it does not do
 
 View focus is a presentation preference, not a role. Switching it **never grants or

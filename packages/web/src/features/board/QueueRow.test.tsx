@@ -51,47 +51,31 @@ describe('QueueRow', () => {
   });
 
   it('renders an italic, secondary-tone name for BACKLOG rows', () => {
-    render(
-      <QueueRow {...BASE_PROPS} task={makeTask({ status: 'BACKLOG', name: 'Idea X' })} />,
-    );
+    render(<QueueRow {...BASE_PROPS} task={makeTask({ status: 'BACKLOG', name: 'Idea X' })} />);
     const name = screen.getByText('Idea X');
     expect(name.className).toMatch(/italic/);
     expect(name.className).toMatch(/text-neutral-text-secondary/);
   });
 
   it('renders the readiness chip for BACKLOG rows', () => {
-    render(
-      <QueueRow
-        {...BASE_PROPS}
-        task={makeTask({ status: 'BACKLOG', readiness: 'ready' })}
-      />,
-    );
+    render(<QueueRow {...BASE_PROPS} task={makeTask({ status: 'BACKLOG', readiness: 'ready' })} />);
     expect(screen.getByText('ready')).toBeInTheDocument();
   });
 
   it('renders a status badge with progress for IN_PROGRESS rows', () => {
-    render(
-      <QueueRow
-        {...BASE_PROPS}
-        task={makeTask({ status: 'IN_PROGRESS', progress: 42 })}
-      />,
-    );
+    render(<QueueRow {...BASE_PROPS} task={makeTask({ status: 'IN_PROGRESS', progress: 42 })} />);
     expect(screen.getByText('In progress')).toBeInTheDocument();
     expect(screen.getByText('42%')).toBeInTheDocument();
   });
 
   it('hides the percent suffix for NOT_STARTED rows', () => {
-    render(
-      <QueueRow {...BASE_PROPS} task={makeTask({ status: 'NOT_STARTED', progress: 0 })} />,
-    );
+    render(<QueueRow {...BASE_PROPS} task={makeTask({ status: 'NOT_STARTED', progress: 0 })} />);
     expect(screen.getByText('To do')).toBeInTheDocument();
     expect(screen.queryByText('0%')).toBeNull();
   });
 
   it('renders the CP badge when the task is on the critical path', () => {
-    render(
-      <QueueRow {...BASE_PROPS} task={makeTask({ isCritical: true, isComplete: false })} />,
-    );
+    render(<QueueRow {...BASE_PROPS} task={makeTask({ isCritical: true, isComplete: false })} />);
     expect(screen.getByLabelText(/On the critical path/i)).toHaveTextContent('CP');
   });
 
@@ -120,13 +104,11 @@ describe('QueueRow', () => {
     expect(screen.getByText('7d')).toBeInTheDocument();
   });
 
-  it('shows the unassigned avatar placeholder when there are no assignees', () => {
-    const { container } = render(
-      <QueueRow {...BASE_PROPS} task={makeTask({ assignees: [] })} />,
-    );
-    // The placeholder is a "?" glyph inside a dashed-border circle. It is
-    // aria-hidden, so query by text content rather than role.
-    expect(container.textContent).toContain('?');
+  it('says "Unassigned" in words when there are no assignees (#4238)', () => {
+    const { container } = render(<QueueRow {...BASE_PROPS} task={makeTask({ assignees: [] })} />);
+    // The former dashed "?" circle read as a loading skeleton, not "no owner".
+    expect(screen.getByTestId('queue-row-unassigned')).toHaveTextContent('Unassigned');
+    expect(container.querySelector('.border-dashed')).toBeNull();
   });
 
   it('shows initials avatar when an assignee is present', () => {
@@ -223,5 +205,45 @@ describe('QueueRow', () => {
   it('omits the duration suffix when duration is zero (milestone-like row)', () => {
     render(<QueueRow {...BASE_PROPS} task={makeTask({ duration: 0 })} />);
     expect(screen.queryByText('0d')).toBeNull();
+  });
+
+  it('an unestimated non-milestone row shows an em dash, not an empty slot (#4238)', () => {
+    render(<QueueRow {...BASE_PROPS} task={makeTask({ duration: 0, isMilestone: false })} />);
+    expect(screen.getByTestId('queue-row-no-duration')).toHaveTextContent('—');
+  });
+
+  it('a milestone shows no duration dash — the ◆ beside the name says why (#4238)', () => {
+    render(<QueueRow {...BASE_PROPS} task={makeTask({ duration: 0, isMilestone: true })} />);
+    expect(screen.queryByTestId('queue-row-no-duration')).toBeNull();
+  });
+
+  // #4238 — the row's hover fill is gated to devices that can hover, so a tapped
+  // row on a phone does not keep a highlight after release. jsdom has no layout or
+  // media evaluation, so the class string is the contract here; the geometry is
+  // pinned in e2e/today-view-mobile.spec.ts.
+  it('gates every hover fill to (hover: hover)', () => {
+    render(<QueueRow {...BASE_PROPS} task={makeTask({})} />);
+    const button = screen.getByTestId('queue-row-t1');
+    const bareHover = button.className.split(/\s+/).filter((c) => c.startsWith('hover:'));
+    expect(bareHover).toEqual([]);
+    expect(button.className).toContain('[@media(hover:hover)]:hover:bg-neutral-surface-sunken');
+  });
+
+  it('a truncating name exposes its full value via title (rule 255, #4238)', () => {
+    render(<QueueRow {...BASE_PROPS} task={makeTask({ name: 'A very long task name' })} />);
+    expect(screen.getByText('A very long task name')).toHaveAttribute(
+      'title',
+      'A very long task name',
+    );
+  });
+
+  it('the name cluster clips its badges instead of painting over the status (#4238)', () => {
+    render(<QueueRow {...BASE_PROPS} task={makeTask({ isCritical: true, isMilestone: true })} />);
+    expect(screen.getByTestId('queue-row-name').className).toContain('overflow-hidden');
+    // Below md the phase/status/owner line is its own clipping row; at md+ it
+    // dissolves (`display: contents`) back into the six desktop tracks.
+    const meta = screen.getByTestId('queue-row-meta');
+    expect(meta.className).toContain('overflow-hidden');
+    expect(meta.className).toContain('md:contents');
   });
 });
