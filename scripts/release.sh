@@ -280,10 +280,26 @@ compute_new_version() {
 # build-tool CVEs; #1388, #1391). Run the SAME build + scan here, before any
 # manifest is bumped or tag created, and fail closed if the image would fail.
 #
-# Mirrors api:publish exactly: same Dockerfile + build context (repo root), built
-# for linux/amd64 (the architecture CI publishes and users `docker pull`, so we
-# scan exactly what ships — on an arm64 host this runs under emulation), and the
-# same `trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1`.
+# Mirrors BOTH api:publish (amd64) and api:publish:arm64 exactly: same
+# Dockerfile + build context (repo root), same
+# `trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1`. Scans
+# both architectures CI publishes, because #4245 showed they can disagree: at
+# the 0.4.0-beta.6 cut, api:publish:arm64 failed a Trivy gate that api:publish
+# (amd64) passed on the identical commit, since the two run on different
+# runners with different Docker cache lifetimes. A preflight that only ever
+# checked one architecture cannot catch that class of drift.
+#
+# The build for this host's NATIVE architecture is mandatory — die on either a
+# build failure or a Trivy finding, same as before. The OTHER architecture
+# runs under QEMU emulation and is best-effort: a BUILD failure there (e.g.
+# `uv`'s amd64 binary segfaulting under QEMU on an arm64 Mac — confirmed
+# reproducible in isolation, unrelated to any code change) only warns, since
+# it is an emulation-layer problem this preflight cannot fix and CI's own
+# dedicated per-architecture runners are unaffected by it. A Trivy FINDING on
+# the emulated build still dies — that is a real CVE, not an emulation
+# artifact, and ignoring it would silently narrow this preflight back down to
+# one architecture.
+#
 # Prefer a host trivy; otherwise scan with the same pinned Trivy version the CI
 # job installs, in a container. Keep TRIVY_VERSION in lockstep with the pin in
 # .gitlab-ci.yml (.docker-publish-base).
@@ -329,29 +345,63 @@ preflight_image_scan() {
   rm -rf "$scan_dir"; mkdir -p "$scan_dir"
 
   echo "" >&2
-  echo "Pre-tag publish-gate preflight: building + Trivy-scanning the api image." >&2
-  echo "(Mirrors api:publish so a CVE fails HERE, not after the tag is cut. On an arm64" >&2
-  echo " host the linux/amd64 build runs under emulation. Bypass: RELEASE_SKIP_IMAGE_SCAN=1.)" >&2
+  echo "Pre-tag publish-gate preflight: building + Trivy-scanning the api image" >&2
+  echo "for BOTH architectures CI publishes (mirrors api:publish + api:publish:arm64," >&2
+  echo "#4245 — they can disagree). Bypass: RELEASE_SKIP_IMAGE_SCAN=1." >&2
 
-  echo "  • building api image (linux/amd64, context: repo root) ..." >&2
-  # --no-cache: this runs on the developer's own persistent Docker daemon, so
-  # a cache hit on the apt-get upgrade layer would silently skip the same
-  # step the previous run didn't need — and Debian's security team ships
-  # point-release patches between releases without this Dockerfile changing.
-  # A cached layer proves nothing about CURRENT CVEs (#4245: the 0.4.0-beta.6
-  # cut's api:publish:arm64 job failed this exact way on a persistent CI
-  # runner while the fresh-daemon amd64 leg passed).
-  docker build --no-cache --platform linux/amd64 -f packages/api/Dockerfile -t trueppm-api:release-preflight . \
-    || die "api image failed to build — fix the build before cutting a tag."
-  docker save trueppm-api:release-preflight -o "$scan_dir/api-image.tar"
-  echo "  • scanning api image ..." >&2
-  trivy_scan_tar "$scan_dir/api-image.tar" || die \
-"api image FAILED the Trivy gate (a fixable HIGH/CRITICAL CVE). This is exactly what
-   would fail api:publish AFTER the tag is cut. Patch or remove the offending dependency
-   in packages/api/Dockerfile and re-run. Bypass: RELEASE_SKIP_IMAGE_SCAN=1."
+  # Host's native arch is the mandatory leg (real build, no emulation, no
+  # excuse for a failure). The other arch runs under QEMU and is best-effort:
+  # a build crash there only warns (emulation-layer problem, not a code
+  # regression); a Trivy FINDING there still dies (a real CVE either way).
+  local host_arch native_platform other_platform
+  host_arch="$(uname -m)"
+  case "$host_arch" in
+    arm64|aarch64) native_platform="linux/arm64"; other_platform="linux/amd64" ;;
+    *)             native_platform="linux/amd64"; other_platform="linux/arm64" ;;
+  esac
+
+  _preflight_scan_one() {
+    # _preflight_scan_one <platform> <mandatory: 1|0>
+    local platform="$1" mandatory="$2" tag_suffix tar_path
+    tag_suffix="$(echo "$platform" | tr '/' '-')"
+    tar_path="$scan_dir/api-image-${tag_suffix}.tar"
+
+    echo "  • building api image (${platform}, context: repo root) ..." >&2
+    # --no-cache: this runs on the developer's own persistent Docker daemon,
+    # so a cache hit on the apt-get upgrade layer would silently skip the
+    # same step the previous run didn't need — and Debian's security team
+    # ships point-release patches between releases without this Dockerfile
+    # changing. A cached layer proves nothing about CURRENT CVEs (#4245: the
+    # 0.4.0-beta.6 cut's api:publish:arm64 job failed this exact way on a
+    # persistent CI runner while the fresh-daemon amd64 leg passed).
+    if ! docker build --no-cache --platform "$platform" -f packages/api/Dockerfile \
+           -t "trueppm-api:release-preflight-${tag_suffix}" . ; then
+      if [ "$mandatory" = "1" ]; then
+        die "api image (${platform}) failed to build — fix the build before cutting a tag."
+      else
+        echo "  ! api image (${platform}) failed to build under QEMU emulation — treating" >&2
+        echo "    as an environment problem, not a code regression (this platform's own" >&2
+        echo "    dedicated CI runner builds it natively and is unaffected). Skipping its" >&2
+        echo "    scan. If you need to verify this architecture locally, use a native" >&2
+        echo "    ${platform} host." >&2
+        return 0
+      fi
+    fi
+    docker save "trueppm-api:release-preflight-${tag_suffix}" -o "$tar_path"
+    echo "  • scanning api image (${platform}) ..." >&2
+    trivy_scan_tar "$tar_path" || die \
+"api image (${platform}) FAILED the Trivy gate (a fixable HIGH/CRITICAL CVE). This is
+   exactly what would fail the matching publish job AFTER the tag is cut. Patch or
+   remove the offending dependency in packages/api/Dockerfile and re-run.
+   Bypass: RELEASE_SKIP_IMAGE_SCAN=1."
+    echo "  ✓ api image (${platform}) passes the Trivy gate." >&2
+  }
+
+  _preflight_scan_one "$native_platform" 1
+  _preflight_scan_one "$other_platform" 0
 
   rm -rf "$scan_dir"
-  echo "  ✓ api image passes the Trivy gate." >&2
+  unset -f _preflight_scan_one
 }
 
 # ---------------------------------------------------------------------------
