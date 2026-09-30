@@ -35,7 +35,8 @@ import datetime
 from collections.abc import Collection
 from typing import Any
 
-from django.db.models import Count, F, Max, Q, Sum
+from django.db.models import BooleanField, Count, F, Max, Q, Sum
+from django.db.models.expressions import RawSQL
 from django.utils import timezone
 
 from trueppm_api.apps.projects.models import (
@@ -266,29 +267,84 @@ def _committed_task_counts(project_ids: list[Any]) -> dict[Any, int]:
     return {r["project_id"]: r["c"] for r in rows}
 
 
-def _schedule_health_by_project(project_ids: list[Any], today: datetime.date) -> dict[Any, str]:
-    """project_id → SPI-proxy health band, matching ProjectOverviewView semantics.
+def task_is_phase_expr() -> RawSQL:
+    """Boolean expression: this task row is a phase (has a structural child).
 
-    SPI = (tasks complete by today) / (tasks that should be done by today). The
-    "should be done" denominator prefers the active baseline's snapshot finishes
-    and falls back to CPM ``early_finish`` for projects with no baseline. A
-    project with no due-by-today work is ``unknown`` and is excluded from the
-    program reduce.
+    A phase's status, percent, and dates are a rollup of its children and are
+    never set directly (ADR-0293), so the *stored* ``status`` on a phase row is
+    not a fact about the work — a seeded or imported phase sits at
+    ``NOT_STARTED`` while every child is done. Any count that reads ``status``
+    must therefore count leaf work only, or a phase whose children are all
+    complete reads as late (#4238). Same ltree shape as the ``is_phase``
+    annotation on the task list; subtask children do not make a phase.
+    """
+    # nosemgrep: avoid-raw-sql — static SQL literal, no params interpolated.
+    return RawSQL(
+        "EXISTS("
+        "  SELECT 1 FROM projects_task c"
+        "  WHERE c.project_id = projects_task.project_id"
+        "    AND c.is_deleted = false"
+        "    AND c.is_subtask = false"
+        "    AND c.id != projects_task.id"
+        "    AND c.wbs_path IS NOT NULL"
+        "    AND projects_task.wbs_path IS NOT NULL"
+        "    AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1}')::lquery"
+        ")",
+        [],
+        output_field=BooleanField(),
+    )
+
+
+def spi_counts_by_project(
+    project_ids: Collection[Any], today: datetime.date
+) -> dict[Any, tuple[int, int]]:
+    """project_id → ``(planned, planned_complete)`` for the SPI proxy.
+
+    The single source for both the project overview card
+    (``_project_spi_and_health``) and the program rollup, so the two can never
+    disagree about the same project.
+
+    **Baseline path — EVM semantics (#398).** ``planned`` is the active baseline's
+    rows with ``finish <= today``; ``planned_complete`` is *every* task complete by
+    today. The numerator is deliberately wider than the denominator: work finished
+    ahead of its baselined date is earned value, so SPI can exceed 1.0.
+
+    **No-baseline path — one task set (#4238).** Both counts come from the *same*
+    rows: live leaf tasks (phase rows excluded, see :func:`task_is_phase_expr`)
+    whose CPM ``early_finish <= today``, and of those, the ones complete by today.
+    Without a baseline there is no fixed plan to be ahead of — the reference is
+    the live CPM forecast, and a COMPLETE task is pinned to its
+    actuals on the next run. A complete task *outside* that window therefore has a
+    null or stale ``early_finish``, not an ahead-of-plan finish, and counting it in
+    the numerator let it cancel out genuinely late rows: the overview read
+    ``on_track`` / ``spi=1.0`` in a project that also reported late tasks. Scoped
+    this way the ratio cannot exceed 1.0 and drops for exactly the rows
+    ``tasks_late_count`` counts (the same ``early_finish`` reference).
+
+    A null ``actual_finish`` on a COMPLETE task still counts as complete by today —
+    keying on ``actual_finish`` stops a late completion masquerading as on-time,
+    but a missing stamp is not evidence of lateness.
+
+    Projects with no planned-by-today work are absent from the result.
     """
     if not project_ids:
         return {}
+    complete_by_today = Q(status=TaskStatus.COMPLETE) & (
+        Q(actual_finish__lte=today) | Q(actual_finish__isnull=True)
+    )
 
     # Active baseline per project (at most one — is_active is a per-project flag).
     active_baseline = dict(
         Baseline.objects.filter(
-            project_id__in=project_ids, is_active=True, is_deleted=False
+            project_id__in=list(project_ids), is_active=True, is_deleted=False
         ).values_list("project_id", "id")
     )
 
-    # Planned-by-today via baseline snapshots (grouped by baseline → project).
-    planned_by_project: dict[Any, int] = {}
+    out: dict[Any, tuple[int, int]] = {}
+
     if active_baseline:
         baseline_to_project = {bid: pid for pid, bid in active_baseline.items()}
+        planned_by_project: dict[Any, int] = {}
         for br in (
             BaselineTask.objects.filter(
                 baseline_id__in=list(active_baseline.values()), finish__lte=today
@@ -297,40 +353,56 @@ def _schedule_health_by_project(project_ids: list[Any], today: datetime.date) ->
             .annotate(c=Count("id"))
         ):
             planned_by_project[baseline_to_project[br["baseline_id"]]] = br["c"]
+        if planned_by_project:
+            completed_by_project = {
+                cr["project_id"]: cr["c"]
+                for cr in (
+                    Task.objects.filter(project_id__in=list(planned_by_project), is_deleted=False)
+                    .filter(complete_by_today)
+                    .values("project_id")
+                    .annotate(c=Count("id"))
+                )
+            }
+            for pid, planned in planned_by_project.items():
+                out[pid] = (planned, completed_by_project.get(pid, 0))
 
-    # Planned-by-today fallback (CPM early_finish) for projects without a baseline.
     no_baseline = [pid for pid in project_ids if pid not in active_baseline]
     if no_baseline:
         for fr in (
             Task.objects.filter(
                 project_id__in=no_baseline, is_deleted=False, early_finish__lte=today
             )
+            .annotate(_is_phase=task_is_phase_expr())
+            .filter(_is_phase=False)
             .values("project_id")
-            .annotate(c=Count("id"))
+            .annotate(planned=Count("id"), complete=Count("id", filter=complete_by_today))
         ):
-            planned_by_project[fr["project_id"]] = fr["c"]
+            out[fr["project_id"]] = (fr["planned"], fr["complete"])
 
-    # Completed-by-today numerator (null actual_finish on a COMPLETE task counts).
-    completed_by_project = {
-        cr["project_id"]: cr["c"]
-        for cr in (
-            Task.objects.filter(
-                project_id__in=project_ids, is_deleted=False, status=TaskStatus.COMPLETE
-            )
-            .filter(Q(actual_finish__lte=today) | Q(actual_finish__isnull=True))
-            .values("project_id")
-            .annotate(c=Count("id"))
-        )
-    }
+    return out
 
+
+def spi_health_band(spi: float) -> str:
+    """Map an SPI proxy onto the three health bands (shared with the overview card)."""
+    if spi >= 0.95:
+        return "on_track"
+    if spi >= 0.85:
+        return "at_risk"
+    return "critical"
+
+
+def _schedule_health_by_project(project_ids: list[Any], today: datetime.date) -> dict[Any, str]:
+    """project_id → SPI-proxy health band, matching ProjectOverviewView semantics.
+
+    Counts come from :func:`spi_counts_by_project`, the same function the project
+    overview uses. A project with no due-by-today work is ``unknown`` and is
+    excluded from the program reduce.
+    """
+    counts = spi_counts_by_project(project_ids, today)
     out: dict[Any, str] = {}
     for pid in project_ids:
-        planned = planned_by_project.get(pid, 0)
-        if planned <= 0:
-            out[pid] = "unknown"
-            continue
-        spi = completed_by_project.get(pid, 0) / planned
-        out[pid] = "on_track" if spi >= 0.95 else "at_risk" if spi >= 0.85 else "critical"
+        planned, complete = counts.get(pid, (0, 0))
+        out[pid] = "unknown" if planned <= 0 else spi_health_band(complete / planned)
     return out
 
 

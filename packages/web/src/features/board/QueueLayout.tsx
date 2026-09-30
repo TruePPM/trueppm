@@ -225,10 +225,18 @@ function PriorityBars({ rank }: { rank: number | undefined }) {
   );
 }
 
-function PhaseTag({ name, color }: { name: string; color: string }) {
+function PhaseTag({
+  name,
+  color,
+  className = '',
+}: {
+  name: string;
+  color: string;
+  className?: string;
+}) {
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5 text-xs font-medium text-neutral-text-secondary max-w-[120px]"
+      className={`inline-flex min-w-0 items-center gap-1 rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5 text-xs font-medium text-neutral-text-secondary max-w-[120px] ${className}`}
       title={name}
     >
       <span
@@ -282,13 +290,14 @@ function StatusBadge({ status, progress }: { status: TaskStatus; progress: numbe
 
 function Avatar({ initials }: { initials: string | null }) {
   if (!initials) {
+    // A word, not a glyph (#4238): the former dashed "?" circle beside an empty
+    // duration slot read as a loading skeleton, not as "nobody owns this".
     return (
       <span
-        aria-hidden="true"
-        className="inline-flex items-center justify-center rounded-full border border-dashed border-neutral-border text-neutral-text-disabled"
-        style={{ width: 18, height: 18, fontSize: 10, flexShrink: 0 }}
+        data-testid="queue-row-unassigned"
+        className="shrink-0 text-xs text-neutral-text-secondary"
       >
-        ?
+        Unassigned
       </span>
     );
   }
@@ -405,7 +414,8 @@ function QueueRowOverflow({
         <span
           aria-hidden="true"
           className="inline-flex items-center justify-center rounded-control text-neutral-text-secondary
-            group-hover:bg-neutral-surface-sunken group-hover:text-neutral-text-primary"
+            [@media(hover:hover)]:group-hover:bg-neutral-surface-sunken
+            [@media(hover:hover)]:group-hover:text-neutral-text-primary"
           style={{ width: 24, height: 24, fontSize: 14, lineHeight: 1 }}
         >
           ⋯
@@ -450,24 +460,41 @@ export function QueueRow({
         onFocus={onFocus}
         onClick={(e) => onClick(e.currentTarget)}
         data-testid={`queue-row-${task.id}`}
-        className={`grid items-center gap-3 px-4 py-2 text-left w-full
-        border-b border-neutral-border/40 hover:bg-neutral-surface-sunken
+        // Two layouts, one DOM (#4238). The six-track desktop grid's minimum widths
+        // sum past a phone viewport, so below md the 1fr name track got nothing:
+        // three "Cutover" rows were indistinguishable, the badges spilled over the
+        // status column, and the page scrolled sideways. Below md the row is two
+        // lines — the name as primary text, then a meta line (phase, status,
+        // duration, owner) that clips rather than pushes. At md+ the meta wrapper
+        // is `display: contents`, so its children are grid items again and each
+        // is placed into its original track explicitly.
+        //
+        // `hover:` is gated to `(hover: hover)`: on touch the tapped row otherwise
+        // keeps its hover fill after release and reads as a selection.
+        className={`grid w-full items-center gap-x-3 gap-y-0.5 px-4 py-2 text-left md:gap-3
+        grid-cols-[auto_minmax(0,1fr)_28px]
+        md:grid-cols-[minmax(14px,auto)_minmax(80px,130px)_minmax(0,1fr)_minmax(120px,160px)_minmax(110px,auto)_28px]
+        border-b border-neutral-border/40 [@media(hover:hover)]:hover:bg-neutral-surface-sunken
         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset
         ${focusRing}`}
-        style={{
-          gridTemplateColumns:
-            'minmax(14px, auto) minmax(80px, 130px) minmax(0, 1fr) minmax(120px, 160px) minmax(110px, auto) 28px',
-        }}
       >
-        <PriorityBars rank={task.priorityRank} />
-        <PhaseTag name={phaseName} color={phaseColor} />
+        <span className="col-start-1 row-span-2 row-start-1 flex items-center md:row-span-1">
+          <PriorityBars rank={task.priorityRank} />
+        </span>
 
-        {/* Name + inline affordances */}
-        <span className="flex items-center gap-1.5 min-w-0">
+        {/* Name + inline affordances. `overflow-hidden` so a squeezed cluster clips
+            its fixed-size badges instead of painting them over the next track. */}
+        <span
+          data-testid="queue-row-name"
+          className="col-start-2 row-start-1 flex min-w-0 items-center gap-1.5 overflow-hidden md:col-start-3"
+        >
           <span
-            className={`flex-1 min-w-0 truncate text-xs font-medium ${
+            className={`flex-1 min-w-0 truncate text-sm md:text-xs font-medium ${
               isIdeaTone ? 'italic text-neutral-text-secondary' : 'text-neutral-text-primary'
             }`}
+            // Rule 255: names truncate routinely at phone width; the full value
+            // stays reachable on hover (the button's aria-label carries it for AT).
+            title={task.name}
           >
             {task.name}
           </span>
@@ -503,22 +530,46 @@ export function QueueRow({
           )}
         </span>
 
-        {/* Status / readiness column */}
-        {task.status === 'BACKLOG' ? (
-          <ReadinessChip readiness={readiness} variant="compact" />
-        ) : (
-          <StatusBadge status={task.status} progress={task.progress} />
-        )}
+        {/* Meta line on a phone; dissolved into the desktop tracks at md+. */}
+        <span
+          data-testid="queue-row-meta"
+          className="col-start-2 row-start-2 flex min-w-0 items-center gap-2 overflow-hidden md:contents"
+        >
+          <PhaseTag
+            name={phaseName}
+            color={phaseColor}
+            className="shrink md:col-start-2 md:row-start-1"
+          />
 
-        {/* Duration + owner */}
-        <span className="flex items-center gap-2 justify-end text-xs text-neutral-text-secondary">
-          {task.duration > 0 && <span className="tppm-mono">{task.duration}d</span>}
-          <Avatar initials={initials} />
+          {/* Status / readiness column */}
+          <span className="flex min-w-0 shrink-0 items-center md:col-start-4 md:row-start-1">
+            {task.status === 'BACKLOG' ? (
+              <ReadinessChip readiness={readiness} variant="compact" />
+            ) : (
+              <StatusBadge status={task.status} progress={task.progress} />
+            )}
+          </span>
+
+          {/* Duration + owner. A zero-duration non-milestone row (an unestimated
+              idea) shows an em dash so the slot never reads as still loading; a
+              milestone's ◆ beside the name already says why it has no span. */}
+          <span className="ml-auto flex shrink-0 items-center justify-end gap-2 text-xs text-neutral-text-secondary md:col-start-5 md:row-start-1 md:ml-0">
+            {task.duration > 0 ? (
+              <span className="tppm-mono">{task.duration}d</span>
+            ) : (
+              !isMilestone && (
+                <span aria-hidden="true" data-testid="queue-row-no-duration">
+                  —
+                </span>
+              )
+            )}
+            <Avatar initials={initials} />
+          </span>
         </span>
 
-        {/* Column 6 (28px) is a spacer — the overflow trigger overlays it as an
-          absolutely-positioned sibling of this button (a button cannot nest an
-          interactive control). */}
+        {/* The last track (28px, at both widths) is a spacer — the overflow trigger
+          overlays it as an absolutely-positioned sibling of this button (a button
+          cannot nest an interactive control). */}
       </button>
       <QueueRowOverflow
         task={task}
@@ -597,7 +648,13 @@ export function QueueLayout({
   }
 
   return (
-    <div className="flex-1 overflow-auto min-h-0 bg-neutral-surface" data-testid="queue-layout">
+    // Below md the board's floating "Add task" button (`MobileComposeControls`, 56px,
+    // 8px above the 56px bottom nav) sits over this scroller's last rows; the bottom
+    // padding lets the final row scroll clear of it (#4238).
+    <div
+      className="flex-1 overflow-auto min-h-0 bg-neutral-surface pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0"
+      data-testid="queue-layout"
+    >
       {header}
       {groups.map((group) => (
         <section

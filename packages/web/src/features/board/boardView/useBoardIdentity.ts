@@ -72,3 +72,25 @@ export function boardReadOnly(
 ): boolean {
   return sprintClosed || sprintStateUnknown || !canEditTask(currentRole);
 }
+
+/**
+ * Whether the board may offer a CREATE affordance — the mobile "Add task" FAB,
+ * the lane "+", and backlog quick-capture (#4238).
+ *
+ * `boardReadOnly` answers from role and sprint state only; it has no input for
+ * "this deployment refuses every write regardless of role" — the read-only demo
+ * (ADR-1197), whose shared identity is Member+ so the board reads as real sample
+ * data. Folding the demo into `boardReadOnly` would be wrong: drag-to-move is
+ * deliberately *offered* in the demo and refused after the fact with a
+ * board-local notice (ADR-1198), and `readOnly` gates drag too.
+ *
+ * Create gets the other treatment on purpose — hide it up front. Composing a
+ * task (typing a name, picking the lane) is a larger investment than a drag, and
+ * the refusal can only arrive after it, as the generic global demo toast. Web
+ * rule 302: a session that cannot write has no apparatus, not a disabled one.
+ * The server's demo middleware remains the enforcement boundary; this only stops
+ * the UI offering a create it knows will be refused.
+ */
+export function boardCanCompose(readOnly: boolean, isDemoReadOnly: boolean): boolean {
+  return !readOnly && !isDemoReadOnly;
+}

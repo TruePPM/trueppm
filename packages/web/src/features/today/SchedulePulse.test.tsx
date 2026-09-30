@@ -56,6 +56,47 @@ describe('SchedulePulse', () => {
     expect(screen.getByTestId('pulse-health')).toHaveTextContent('SPI 0.92');
   });
 
+  // #4238 — the band states. The pill prints the SERVER's band (web rule 397); the
+  // "On track beside late tasks" contradiction was fixed where the band and the late
+  // count are computed, so this pins that the client neither re-derives nor recolors.
+  describe('health band states (#4238)', () => {
+    function withOverview(over: Record<string, unknown>) {
+      useProjectScheduleSummary.mockReturnValue({
+        data: { ...OVERVIEW, ...over },
+        isLoading: false,
+        error: null,
+      });
+      render(<SchedulePulse projectId="p1" />);
+      return screen.getByTestId('pulse-health');
+    }
+
+    it('critical: red band with its word and ratio, late count tinted critical', () => {
+      const pill = withOverview({ schedule_health: 'critical', spi: 0.75, tasks_late_count: 1 });
+      expect(pill).toHaveTextContent('Critical');
+      expect(pill).toHaveTextContent('SPI 0.75');
+      expect(pill.className).toContain('text-semantic-critical');
+      expect(screen.getByText('1').className).toContain('text-semantic-critical');
+    });
+
+    it('late tasks never recolor a server on_track band — the client does not re-derive it', () => {
+      const pill = withOverview({ schedule_health: 'on_track', spi: 0.97, tasks_late_count: 1 });
+      expect(pill).toHaveTextContent('On track');
+      expect(pill.className).toContain('text-semantic-on-track');
+    });
+
+    it('unknown (nothing due yet, or a baseline with no dates): neutral band, no ratio', () => {
+      const pill = withOverview({ schedule_health: 'unknown', spi: null, tasks_late_count: 0 });
+      expect(pill).toHaveTextContent('Unknown');
+      expect(pill).not.toHaveTextContent('SPI');
+      expect(pill.className).toContain('text-neutral-text-secondary');
+    });
+
+    it('a numeric SPI prints as a two-decimal ratio beside the band word', () => {
+      const pill = withOverview({ schedule_health: 'on_track', spi: 1, tasks_late_count: 0 });
+      expect(pill).toHaveTextContent('SPI 1.00');
+    });
+  });
+
   it('renders schedule KPIs from the overview endpoint', () => {
     render(<SchedulePulse projectId="p1" />);
     // 5 / 20 complete → 25%

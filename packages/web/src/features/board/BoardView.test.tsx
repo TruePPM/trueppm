@@ -193,6 +193,19 @@ vi.mock('@/hooks/useCurrentUserRole', () => ({
   useCurrentUserRole: () => ({ role: boardRoleMock, isLoading: false }),
 }));
 
+// Deployment mode (ADR-1197). Default: a normal install; the #4238 demo-FAB test
+// flips it. Mocked so no render fires a real `/edition/` read.
+let demoReadOnlyMock = false;
+vi.mock('@/hooks/useDemoMode', () => ({
+  useDemoMode: () => ({
+    isDemoReadOnly: demoReadOnlyMock,
+    loginHint: null,
+    resetSchedule: null,
+    isLoading: false,
+  }),
+  isDemoReadOnlySync: () => demoReadOnlyMock,
+}));
+
 // PDF-export footer reads the current user's display name (issue 326). Mock so
 // the board test never fires a real `/auth/me/` XHR.
 vi.mock('@/hooks/useCurrentUser', () => ({
@@ -398,6 +411,23 @@ describe('BoardView', () => {
   it('shows the backlog quick-capture affordance for an authoring role', () => {
     renderBoard(); // default ADMIN
     expect(screen.getByRole('textbox', { name: /Capture a backlog idea/i })).toBeInTheDocument();
+  });
+
+  // #4238 — the read-only demo withholds every create affordance up front (see
+  // `boardCanCompose`), even for a role that could write. The FAB is covered in the
+  // mobile FAB block; these pin the other two call sites of the same gate.
+  it('the read-only demo withholds the lane "+" and backlog quick capture (#4238)', () => {
+    demoReadOnlyMock = true;
+    try {
+      renderBoard(); // default ADMIN — boardReadOnly is false
+      expect(screen.getByText('TO DO')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Add task to/ })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('textbox', { name: /Capture a backlog idea/i }),
+      ).not.toBeInTheDocument();
+    } finally {
+      demoReadOnlyMock = false;
+    }
   });
 
   it('names the root lane after the project, not a synthetic "Project Tasks" label (#2947)', () => {
@@ -696,9 +726,7 @@ describe('BoardView', () => {
     expect(field).toBeInTheDocument();
     // Asserted through the accessible name, because that is where the destination
     // is stated to a screen reader — the visible hint is aria-hidden.
-    expect(
-      within(field).getByRole('textbox', { name: /lands in BACKLOG/i }),
-    ).toBeInTheDocument();
+    expect(within(field).getByRole('textbox', { name: /lands in BACKLOG/i })).toBeInTheDocument();
 
     // And the create it issues carries that status, not merely the label.
     await user.type(within(field).getByRole('textbox'), 'Rough idea');
@@ -961,9 +989,7 @@ describe('BoardView', () => {
     const field = await screen.findByTestId('lane-compose-field');
     await user.type(within(field).getByRole('textbox'), 'Abandoned');
     await user.keyboard('{Escape}');
-    await waitFor(() =>
-      expect(screen.queryByTestId('lane-compose-field')).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.queryByTestId('lane-compose-field')).not.toBeInTheDocument());
     expect(createTaskMutate).not.toHaveBeenCalled();
   });
 
@@ -1211,7 +1237,7 @@ describe('BoardView', () => {
       return screen
         .getAllByRole('button', { name })
         .map((el) => el.closest<HTMLElement>('[data-board-card]'))
-      .find((el) => el !== null)!;
+        .find((el) => el !== null)!;
     }
 
     it('clicking a card opens the popover dialog and shows task metadata', () => {
@@ -2579,9 +2605,8 @@ describe('lens filter chips in the phase grid', () => {
   // A card's child controls share its accessible name; count only title buttons,
   // of which there is exactly one per card (#2618).
   const cardRootCount = (name: RegExp) =>
-    screen
-      .queryAllByRole('button', { name })
-      .filter((el) => el.hasAttribute('data-card-title')).length;
+    screen.queryAllByRole('button', { name }).filter((el) => el.hasAttribute('data-card-title'))
+      .length;
 
   it('Tech-debt lens hides non-debt cards, shows a chip, and "Show all →" restores', async () => {
     const user = userEvent.setup();
@@ -2742,14 +2767,25 @@ describe('mobile create FAB (#605)', () => {
     expect(document.activeElement).toBe(field);
   });
 
+  it('the read-only demo offers no FAB even for a role that could write (#4238)', async () => {
+    // ADMIN by default: `boardReadOnly` is false, so drag stays offered and is
+    // refused after the fact (ADR-1198) — but create is withheld up front.
+    demoReadOnlyMock = true;
+    try {
+      renderBoard();
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Add task' })).toBeNull());
+      expect(screen.queryByTestId('mobile-compose-bar')).toBeNull();
+    } finally {
+      demoReadOnlyMock = false;
+    }
+  });
+
   it('a read-only board offers no FAB at all — absence, not a disabled + (rule 302)', async () => {
     boardRoleMock = ROLE_VIEWER;
     renderBoard();
     // The FAB was gated on `projectId` alone while every other write path on
     // this board honored readOnly, so a Viewer on a phone got a live "+".
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Add task' })).toBeNull(),
-    );
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Add task' })).toBeNull());
     expect(screen.queryByTestId('mobile-compose-bar')).toBeNull();
   });
 });
@@ -2973,7 +3009,6 @@ describe('backlog quick capture (#2459)', () => {
     expect(screen.queryByRole('button', { name: /Add with details/i })).toBeNull();
   });
 });
-
 
 describe('board PDF export (#2459)', () => {
   beforeEach(reset2459);

@@ -199,6 +199,119 @@ class TestProjectOverview:
         assert res.json()["schedule_health"] == "critical"
         assert res.json()["tasks_late_count"] == 3
 
+    def test_no_baseline_work_completed_outside_the_window_cannot_mask_late_tasks(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """#4238: numerator and denominator are counted over ONE task set.
+
+        Four tasks are due by today per CPM; three are done and one is late. Two
+        more are complete but sit outside the planned-by-today window — one with
+        a future ``early_finish`` (CPM not rerun since), one never scheduled. The
+        old independently-filtered numerator counted all five completions against
+        a denominator of four (SPI 1.25, "on_track") while the same payload
+        reported a late task. Scoped to one set it is 3/4 = 0.75.
+        """
+        today = datetime.date.today()
+        yesterday = today - datetime.timedelta(days=1)
+        for i in range(3):
+            make_task(
+                project,
+                name=f"Done {i}",
+                early_finish=yesterday,
+                actual_finish=yesterday,
+                status=TaskStatus.COMPLETE,
+            )
+        make_task(project, name="Late", early_finish=yesterday, status=TaskStatus.IN_PROGRESS)
+        make_task(
+            project,
+            name="Done early, stale CPM date",
+            early_finish=today + datetime.timedelta(days=10),
+            actual_finish=yesterday,
+            status=TaskStatus.COMPLETE,
+        )
+        make_task(project, name="Done, never scheduled", status=TaskStatus.COMPLETE)
+
+        data = client.get(self.url(project.pk)).json()
+        assert data["tasks_late_count"] == 1
+        assert data["spi"] == 0.75
+        assert data["schedule_health"] == "critical"
+
+    def test_no_baseline_spi_never_exceeds_one(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """Without a baseline there is no fixed plan to be ahead of (#4238)."""
+        today = datetime.date.today()
+        yesterday = today - datetime.timedelta(days=1)
+        make_task(project, name="Due", early_finish=yesterday, status=TaskStatus.COMPLETE)
+        make_task(
+            project,
+            name="Early",
+            early_finish=today + datetime.timedelta(days=5),
+            status=TaskStatus.COMPLETE,
+        )
+        data = client.get(self.url(project.pk)).json()
+        assert data["spi"] == 1.0
+        assert data["schedule_health"] == "on_track"
+
+    def test_phase_row_with_stale_status_is_not_counted_late(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """#4238: a phase's stored status is never maintained (ADR-0293).
+
+        The hosted demo's landing project read "On track · SPI 1.00" beside
+        "Late 2" because the two "late" rows were phases sitting at a seeded
+        NOT_STARTED over children that were all complete. A leaf that merely
+        has drawer subtasks is still real work and still counts.
+        """
+        yesterday = datetime.date.today() - datetime.timedelta(days=1)
+        make_task(
+            project,
+            name="Assess",
+            wbs_path="1",
+            early_finish=yesterday,
+            status=TaskStatus.NOT_STARTED,
+        )
+        for i in (1, 2):
+            make_task(
+                project,
+                name=f"Assess child {i}",
+                wbs_path=f"1.{i}",
+                early_finish=yesterday,
+                actual_finish=yesterday,
+                status=TaskStatus.COMPLETE,
+            )
+        # Leaf-with-subtasks: its only child is a drawer subtask, so it is NOT a
+        # phase and its own late status is real.
+        make_task(
+            project,
+            name="Leaf with subtask",
+            wbs_path="2",
+            early_finish=yesterday,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        make_task(project, name="Sub", wbs_path="2.1", is_subtask=True)
+
+        data = client.get(self.url(project.pk)).json()
+        assert data["tasks_late_count"] == 1
+        # SPI over leaf work only: 2 children done + the late leaf = 2/3.
+        assert data["spi"] == round(2 / 3, 3)
+
+    def test_program_rollup_band_agrees_with_the_overview(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """The rollup's per-project band reads the same counts as the card (#4238)."""
+        from trueppm_api.apps.projects.program_rollup import _schedule_health_by_project
+
+        yesterday = datetime.date.today() - datetime.timedelta(days=1)
+        make_task(project, name="Late", early_finish=yesterday, status=TaskStatus.NOT_STARTED)
+        make_task(project, name="Done, never scheduled", status=TaskStatus.COMPLETE)
+
+        data = client.get(self.url(project.pk)).json()
+        assert data["schedule_health"] == "critical"
+        assert _schedule_health_by_project([project.pk], datetime.date.today()) == {
+            project.pk: "critical"
+        }
+
     def test_critical_count_reflects_is_critical_tasks(
         self, client: APIClient, project: Project, membership: object
     ) -> None:
@@ -296,6 +409,32 @@ class TestProjectAttention:
         assert items[0]["type"] == "critical_task_late"
         assert items[0]["severity"] == "critical"
         assert items[0]["task_name"] == "Critical late"
+
+    def test_critical_phase_with_stale_status_is_not_listed_late(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """#4238: same class as the overview's late count — a phase's stored
+        status is never maintained (ADR-0293), so only leaf work can be late."""
+        yesterday = datetime.date.today() - datetime.timedelta(days=1)
+        make_task(
+            project,
+            name="Assess",
+            wbs_path="1",
+            is_critical=True,
+            early_finish=yesterday,
+            status=TaskStatus.NOT_STARTED,
+        )
+        make_task(
+            project,
+            name="Assess child",
+            wbs_path="1.1",
+            is_critical=True,
+            early_finish=yesterday,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        items = client.get(self.url(project.pk)).json()["items"]
+        late = [i["task_name"] for i in items if i["type"] == "critical_task_late"]
+        assert late == ["Assess child"]
 
     def test_non_critical_late_task_not_in_critical_bucket(
         self, client: APIClient, project: Project, membership: object
