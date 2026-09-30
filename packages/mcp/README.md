@@ -1,5 +1,7 @@
 # trueppm-mcp
 
+<!-- mcp-name: com.trueppm/mcp-server -->
+
 [![PyPI version](https://img.shields.io/pypi/v/trueppm-mcp.svg)](https://pypi.org/project/trueppm-mcp/)
 [![PyPI downloads](https://img.shields.io/pypi/dm/trueppm-mcp.svg)](https://pypi.org/project/trueppm-mcp/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
