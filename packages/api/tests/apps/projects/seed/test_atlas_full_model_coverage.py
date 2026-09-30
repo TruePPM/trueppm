@@ -8,11 +8,13 @@ would have shipped claiming a calendar exception that moved nothing.
 """
 
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
 from django.contrib.auth import get_user_model
 
+import trueppm_api.apps.projects.seed.importer as importer_module
 from trueppm_api.apps.projects.models import (
     Baseline,
     CalendarException,
@@ -28,6 +30,44 @@ FIXTURE = (
     / "src/trueppm_api/apps/projects/fixtures/seeds/atlas-platform-launch.json"
 )
 SHUTDOWN = "Company shutdown"
+
+# The fixture carries no explicit "anchor", so `resolve_anchor()` falls back to
+# `date.today()` at import time (ADR-0114) — the import anchor, and therefore
+# every "A+N"-relative date in the pack, moves with the real calendar. A Monday
+# anchor is not an arbitrary "whatever happens to pass today" pick: the shutdown
+# calendar exception (A+67..A+73, 7 calendar days on a Mon-Fri calendar) always
+# removes exactly 5 working days regardless of anchor weekday, but the "Public
+# launch" task the exception must reach is `max(migration-tooling:6 + FS3,
+# launch-gate-review + FS2)` — a second, independent path on a *different*
+# calendar (GTM Regional). Which path dominates depends on how each path's
+# calendar-day offsets snap across weekends, which is anchor-weekday-dependent:
+# on a Wednesday or Thursday anchor the independent path already exceeds the
+# shutdown-shifted path, so the max() absorbs the shift and the launch date
+# does not move — reproduced locally by sweeping every weekday (#4234). A
+# Monday anchor was swept across ~2 years of same-weekday dates (2026-2028) and
+# consistently produced a 7-calendar-day migration-finish shift and a stable
+# 4-working-day launch shift, comfortably clear of the zero the Wed/Thu anchors
+# hit — and since this pins the anchor rather than reading the real clock, the
+# result no longer depends on when the suite runs.
+_PINNED_TODAY = date(2026, 1, 5)
+
+
+def _pin_today(monkeypatch: pytest.MonkeyPatch, today: date = _PINNED_TODAY) -> None:
+    """Freeze the seed importer's `date.today()` (ADR-0114 anchor resolution).
+
+    `importer.py` calls stdlib `date.today()` directly (`self.anchor =
+    resolve_anchor(payload, date.today())`), not `django.utils.timezone`, so the
+    `_pin_today` pattern from `test_monte_carlo_status_date.py` is adapted to
+    patch the module-level `date` name importer.py resolves against, via a
+    `date` subclass whose `.today()` returns the frozen value.
+    """
+
+    class _FrozenDate(date):
+        @classmethod
+        def today(cls) -> "_FrozenDate":
+            return cls(today.year, today.month, today.day)
+
+    monkeypatch.setattr(importer_module, "date", _FrozenDate)
 
 
 def _doc(*, strip_shutdown: bool = False) -> dict:
@@ -64,7 +104,7 @@ def _task(program, project_name: str, wbs: str) -> Task:
 
 
 @pytest.mark.django_db
-def test_the_shutdown_exception_moves_the_program_finish(owner):
+def test_the_shutdown_exception_moves_the_program_finish(owner, monkeypatch):
     """The exception has to bite, not merely exist.
 
     Imported *without* the shutdown first, then with it. The intervening delete
@@ -73,7 +113,16 @@ def test_the_shutdown_exception_moves_the_program_finish(owner):
     document over a full one silently keeps the exception and makes the whole
     comparison vacuous — which is exactly how the first version of this test
     passed while proving nothing.
+
+    The fixture has no explicit `anchor`, so the importer resolves it to
+    `date.today()` (ADR-0114) and every "A+N" date — including the shutdown
+    window and the independent `Launch gate review` path that competes with it
+    for the "Public launch" date — moves with the real calendar (#4234). Pinned
+    to a fixed Monday: see `_pin_today`'s docstring for why that weekday is
+    guaranteed to keep the shutdown's shift visible on the public launch date,
+    not just the migration finish.
     """
+    _pin_today(monkeypatch)
     program = _import_and_schedule(_doc(strip_shutdown=True), owner)
     baseline_finish = _task(program, "Migration Tooling", "6").early_finish
     baseline_launch = _task(program, "GTM Readiness", "3").early_finish

@@ -149,7 +149,13 @@ dependencies = [
     # against the IdP's JWKS (PyJWKSet/PyJWK; the JWKS is fetched through the
     # SSRF-guarded egress, not PyJWKClient's own socket). The [crypto] extra pulls
     # cryptography, which is already pinned directly above — no new transitive surface.
-    "pyjwt[crypto]>=2.10,<3.0",
+    # Floor raised to 2.14.0 to clear GHSA-ffc3-869f-jxw9 (CRITICAL, CVSS 9.1 —
+    # asymmetric-PEM detection bypass) and five HIGH PyJWK/validation advisories
+    # (GHSA-9j54-fg26-wv3r, GHSA-9v7f-9g4p-ffgj, GHSA-p4g4-x82p-q773,
+    # GHSA-r6x4-923q-g947, GHSA-w2cx-738m-mc7w), all fixed in 2.14.0 (#4235). This
+    # package is published as trueppm-api on PyPI, so the declared floor — not just
+    # the resolved lock — is a downstream consumer's security surface.
+    "pyjwt[crypto]>=2.14,<3.0",
     # OpenTelemetry observability foundation (ADR-0223, #708). Apache-2.0, as is the
     # full transitive closure (opentelemetry-api/-proto/-semantic-conventions,
     # googleapis-common-protos, grpcio, protobuf) — no copyleft, so license:check:py
