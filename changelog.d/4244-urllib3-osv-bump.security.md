@@ -15,3 +15,14 @@
   socket hijack (GHSA-m8m8-qj5v-23w3). `axios` is already pinned `^1.18.1`
   in `packages/web/package.json`; 1.20.0 resolves within that existing
   range.
+- **Dependency security bump**: `dompurify` 3.4.13 → 3.4.16 in
+  `packages/web` clears GHSA-p98j-92pf-mc4p (LOW, CVSS 2.3 — non-blocking
+  under `osv-severity-gate.sh`, fixed anyway since a patched release
+  exists): an `IN_PLACE`-mode DOM XSS where a node-removing
+  `afterSanitizeElements`/`afterSanitizeAttributes` hook could detach a
+  subtree without neutralizing its descendants' event handlers, leaving
+  them armed on the caller's live tree. `dompurify` is already pinned
+  `^3.4.13` in `packages/web/package.json`; 3.4.16 resolves within that
+  existing range. No source in this repo calls `DOMPurify` with
+  `IN_PLACE` or a node-removing hook, so the advisory had no reachable
+  trigger here — fixed for defense in depth, not an active exposure.
