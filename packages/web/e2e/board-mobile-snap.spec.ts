@@ -154,3 +154,69 @@ test.describe('Board mobile snap-scroll', () => {
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 5_000 });
   });
 });
+
+test.describe('Board mobile snap-scroll — last card clears the FAB (#4243)', () => {
+  test.beforeEach(async ({ page }) => {
+    // Phone viewport — trips the board's `isMobile` matchMedia gate.
+    await page.setViewportSize({ width: 375, height: 812 });
+    // Explicit rail pref so this renders the snap board, not the auto-Queue default.
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'trueppm.board.toolbarPrefs.v1',
+        JSON.stringify({ layout: 'rail', backlogDensity: 'comfortable' }),
+      );
+    });
+  });
+
+  test('the last card in a column scrolls clear of the Add task button', async ({ page }) => {
+    // Enough cards in one column that its list is taller than the phone, so the
+    // last card really does end under the FAB unless the column reserves room
+    // for it — the same class of overlap QueueLayout's scroller had before #4238
+    // (each status column here is its own vertical scroller, same fixed FAB).
+    const filler = Array.from({ length: 20 }, (_, i) => ({
+      id: `mbf${i}`,
+      wbs_path: `2.${i + 1}`,
+      name: `Filler card ${i + 1}`,
+      early_start: '2026-01-05',
+      early_finish: '2026-01-16',
+      duration: 10,
+      percent_complete: 0,
+      is_critical: false,
+      is_milestone: false,
+      is_summary: false,
+      parent_id: null,
+      status: 'NOT_STARTED',
+      assignees: [],
+      total_float: null,
+      predecessor_count: 0,
+      is_blocked: false,
+      linked_risks_count: 0,
+      linked_risks_max_severity: null,
+    }));
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: [...FIXTURE_TASKS, ...filler],
+      statusSummary: { task_count: 4 + filler.length },
+    });
+    await page.goto(`${BASE_URL}/board`);
+
+    const fab = page.getByRole('button', { name: 'Add task', exact: true });
+    await expect(fab).toBeVisible({ timeout: 10_000 });
+
+    // NOT_STARTED ("To Do") is the first column and snapped into view on load.
+    const column = page.locator('[data-mobile-column="true"][data-status="NOT_STARTED"]');
+    await expect(column).toBeVisible();
+    await column.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
+
+    // The column's children are the header row followed by one wrapper div per
+    // card, so the last direct child (with 21 NOT_STARTED cards here) is always
+    // the last card once the column is non-empty.
+    const lastCard = column.locator(':scope > div').last();
+    const cardBox = await lastCard.boundingBox();
+    const fabBox = await fab.boundingBox();
+    expect(cardBox && fabBox && cardBox.y + cardBox.height <= fabBox.y).toBe(true);
+  });
+});

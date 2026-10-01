@@ -167,7 +167,15 @@ export function MobileBoard({
               data-status={col.status}
               data-mobile-column="true"
               aria-label={`${col.label}, ${cards.length} task${cards.length !== 1 ? 's' : ''}`}
-              className="min-w-full snap-start overflow-y-auto px-4 py-3 flex flex-col gap-2.5"
+              // Each column is its own vertical scroller, and the board's floating
+              // "Add task" button (`MobileComposeControls`, 56px, 8px above the
+              // bottom nav) is `position: fixed` over all of them — same overlap
+              // QueueLayout's scroller had before #4238 fixed it there. The bottom
+              // padding lets the last card in every column scroll clear of the FAB
+              // (#4243). `md:pb-3` keeps the original `py-3` bottom spacing above
+              // md even though this component only mounts under the `isMobile`
+              // JS gate, so it is never actually reached at that width.
+              className="min-w-full snap-start overflow-y-auto px-4 pt-3 flex flex-col gap-2.5 pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-3"
             >
               <div className="flex items-center gap-2 pb-1">
                 <h2 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
