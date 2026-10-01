@@ -304,22 +304,36 @@ def spi_counts_by_project(
     (``_project_spi_and_health``) and the program rollup, so the two can never
     disagree about the same project.
 
-    **Baseline path — EVM semantics (#398).** ``planned`` is the active baseline's
-    rows with ``finish <= today``; ``planned_complete`` is *every* task complete by
-    today. The numerator is deliberately wider than the denominator: work finished
-    ahead of its baselined date is earned value, so SPI can exceed 1.0.
+    **Baseline path — EVM semantics (#398), ``has_cpm_dates=True`` only (#4242).**
+    ``planned`` is the active baseline's rows with ``finish <= today``;
+    ``planned_complete`` is *every* task complete by today. The numerator is
+    deliberately wider than the denominator: work finished ahead of its baselined
+    date is earned value, so SPI can exceed 1.0. This path requires the active
+    baseline to carry real dates: a baseline captured with ``has_cpm_dates=False``
+    (snapshot taken before the CPM engine first ran, see :class:`Baseline`) has
+    mostly-or-entirely null ``BaselineTask.finish`` rows, which collapses
+    ``planned`` toward zero while ``planned_complete`` still counts every real
+    completion project-wide — an on-track-looking ratio over a near-empty
+    denominator next to a project that also reports late tasks (the hosted demo's
+    "GTM Readiness"/"Platform Core" symptom). A ``has_cpm_dates=False`` baseline is
+    therefore excluded from this path entirely (see the ``active_baseline`` query
+    below) and such a project falls through to the no-baseline path instead, per
+    the maintainer decision recorded on #4242: there is no fixed plan to be ahead
+    of until a baseline has real CPM dates.
 
     **No-baseline path — one task set (#4238).** Both counts come from the *same*
     rows: live leaf tasks (phase rows excluded, see :func:`task_is_phase_expr`)
     whose CPM ``early_finish <= today``, and of those, the ones complete by today.
-    Without a baseline there is no fixed plan to be ahead of — the reference is
-    the live CPM forecast, and a COMPLETE task is pinned to its
+    Without a (usable) baseline there is no fixed plan to be ahead of — the
+    reference is the live CPM forecast, and a COMPLETE task is pinned to its
     actuals on the next run. A complete task *outside* that window therefore has a
     null or stale ``early_finish``, not an ahead-of-plan finish, and counting it in
     the numerator let it cancel out genuinely late rows: the overview read
     ``on_track`` / ``spi=1.0`` in a project that also reported late tasks. Scoped
     this way the ratio cannot exceed 1.0 and drops for exactly the rows
-    ``tasks_late_count`` counts (the same ``early_finish`` reference).
+    ``tasks_late_count`` counts (the same ``early_finish`` reference). A project
+    whose active baseline has ``has_cpm_dates=False`` is routed here too (#4242),
+    so the same cap applies to it.
 
     A null ``actual_finish`` on a COMPLETE task still counts as complete by today —
     keying on ``actual_finish`` stops a late completion masquerading as on-time,
@@ -334,9 +348,17 @@ def spi_counts_by_project(
     )
 
     # Active baseline per project (at most one — is_active is a per-project flag).
+    # has_cpm_dates=True only (#4242): a baseline snapshotted before CPM first ran
+    # has mostly-or-entirely null BaselineTask.finish, so it is not a usable EVM
+    # plan — see the docstring above. A has_cpm_dates=False active baseline is
+    # therefore treated as if the project had no active baseline at all, which
+    # routes it into the no_baseline path below.
     active_baseline = dict(
         Baseline.objects.filter(
-            project_id__in=list(project_ids), is_active=True, is_deleted=False
+            project_id__in=list(project_ids),
+            is_active=True,
+            is_deleted=False,
+            has_cpm_dates=True,
         ).values_list("project_id", "id")
     )
 
@@ -461,6 +483,13 @@ def _baseline_variance_by_project(project_ids: list[Any]) -> dict[Any, float]:
     a plan whose finishing milestone moves from the end of a Friday to the start of
     the next Monday reports 0, not +3. Only the rows *on* each end day are read for
     that — the max itself stays a grouped aggregate.
+
+    ``has_cpm_dates=True`` only (#4242): a baseline snapshotted before CPM first
+    ran has mostly-or-entirely null ``BaselineTask.finish``, so ``Max("finish")``
+    is either ``None`` (already excluded below) or a date computed from an
+    incomplete subset of rows — not the baseline's real projected end. Same
+    exclusion as :func:`spi_counts_by_project`: such a project is treated as
+    having no active baseline, and is absent from the returned map.
     """
     from trueppm_api.apps.scheduling.calendars import project_sched_calendars
     from trueppm_api.apps.scheduling.finish_reading import (
@@ -474,7 +503,10 @@ def _baseline_variance_by_project(project_ids: list[Any]) -> dict[Any, float]:
         return {}
     active_baseline = dict(
         Baseline.objects.filter(
-            project_id__in=project_ids, is_active=True, is_deleted=False
+            project_id__in=project_ids,
+            is_active=True,
+            is_deleted=False,
+            has_cpm_dates=True,
         ).values_list("project_id", "id")
     )
     if not active_baseline:
@@ -567,6 +599,11 @@ def _schedule_variance_by_project(project_ids: list[Any]) -> dict[Any, float]:
     day, read as its end, and a baselined start-of-day milestone finish is read as
     the end of the working day before it — so a milestone baselined at the start
     of a Monday and hit on the Friday before landed on time, not three days early.
+
+    ``has_cpm_dates=True`` only (#4242): same exclusion as
+    :func:`spi_counts_by_project` and :func:`_baseline_variance_by_project` — a
+    baseline snapshotted before CPM first ran has mostly-or-entirely null
+    ``BaselineTask.finish`` and is not a usable plan to measure lateness against.
     """
     from trueppm_api.apps.scheduling.calendars import project_sched_calendars
     from trueppm_api.apps.scheduling.finish_reading import finish_shift_days
@@ -575,7 +612,10 @@ def _schedule_variance_by_project(project_ids: list[Any]) -> dict[Any, float]:
         return {}
     active_baseline = dict(
         Baseline.objects.filter(
-            project_id__in=project_ids, is_active=True, is_deleted=False
+            project_id__in=project_ids,
+            is_active=True,
+            is_deleted=False,
+            has_cpm_dates=True,
         ).values_list("project_id", "id")
     )
     if not active_baseline:
