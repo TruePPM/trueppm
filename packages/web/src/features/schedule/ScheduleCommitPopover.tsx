@@ -59,6 +59,9 @@ export interface ScheduleCommitPopoverProps {
 const POPOVER_WIDTH = 288;
 const VIEWPORT_PAD = 8;
 const POINTER_TRIANGLE_HEIGHT = 6;
+// Assumed task-bar height (rule 14) when anchor.y is the bar top — used to place
+// the popover below the bar when it flips down.
+const ANCHOR_BAR_HEIGHT = 18;
 
 function formatShortDate(iso: string): string {
   // Parse as UTC midnight to match the canvas's date arithmetic (rule 56).
@@ -102,17 +105,35 @@ export function ScheduleCommitPopover({
     const vh = window.innerHeight;
 
     let left = anchor.x - rect.width / 2;
-    let flipped = false;
     let top = anchor.y - rect.height - POINTER_TRIANGLE_HEIGHT;
 
-    if (top < VIEWPORT_PAD) {
-      // Flip to below the bar — assume bar height ~18 (rule 14) when anchor.y is the bar top.
-      top = anchor.y + 18 + POINTER_TRIANGLE_HEIGHT;
-      flipped = true;
+    // Default to above the bar, but only flip below when doing so gains more
+    // room than staying above — not merely because "above" doesn't fully fit.
+    // The naive version flips whenever `top < VIEWPORT_PAD`, with no regard for
+    // how much room "below" actually has: a bar near the BOTTOM of the
+    // viewport has almost no room below either, so flipping there anyway
+    // squeezes the popover into a sliver while abandoning hundreds of px of
+    // room above (the #4228 defect shape, filed separately as #4229 because
+    // this is a canvas overlay that doesn't route through useAnchoredPopover).
+    const spaceAbove = Math.max(0, anchor.y - POINTER_TRIANGLE_HEIGHT - VIEWPORT_PAD);
+    const spaceBelow = Math.max(
+      0,
+      vh - anchor.y - ANCHOR_BAR_HEIGHT - POINTER_TRIANGLE_HEIGHT - VIEWPORT_PAD,
+    );
+    const fitsAbove = top >= VIEWPORT_PAD;
+    const flipped = !fitsAbove && spaceBelow > spaceAbove;
+
+    if (flipped) {
+      top = anchor.y + ANCHOR_BAR_HEIGHT + POINTER_TRIANGLE_HEIGHT;
     }
 
     if (left < VIEWPORT_PAD) left = VIEWPORT_PAD;
     if (left + rect.width > vw - VIEWPORT_PAD) left = vw - VIEWPORT_PAD - rect.width;
+    // Clamp vertically too — when neither side has enough room (a popover taller
+    // than the viewport, or squeezed between two short edges), staying on the
+    // non-flipped side per the comparison above must not leave it floating
+    // off-screen; pull it back inside both edges the same way `left` already is.
+    if (top < VIEWPORT_PAD) top = VIEWPORT_PAD;
     if (top + rect.height > vh - VIEWPORT_PAD) top = vh - VIEWPORT_PAD - rect.height;
 
     setPosition({ top, left, flipped });

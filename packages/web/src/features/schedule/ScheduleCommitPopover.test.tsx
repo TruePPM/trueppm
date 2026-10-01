@@ -1,6 +1,6 @@
 import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders as render } from '@/test/utils';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ComponentProps } from 'react';
 import { ScheduleCommitPopover, type CommitAction } from './ScheduleCommitPopover';
 
@@ -279,5 +279,67 @@ describe('ScheduleCommitPopover — read-only demo refusal (ADR-1197 D3)', () =>
       'aria-describedby',
       'schedule-commit-demo-notice',
     );
+  });
+});
+
+describe('ScheduleCommitPopover — vertical flip space comparison (#4229)', () => {
+  // jsdom's getBoundingClientRect returns all-zeros, so the layout effect's
+  // flip/clamp math is driven by mocking the dialog's own measured rect.
+  function mockPopoverRect(rect: Partial<DOMRect>) {
+    const full: DOMRect = {
+      top: 0,
+      bottom: 0,
+      left: 0,
+      right: 0,
+      width: 0,
+      height: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+      ...rect,
+    } as DOMRect;
+    vi.spyOn(HTMLDivElement.prototype, 'getBoundingClientRect').mockReturnValue(full);
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('stays above the anchor when the default (above) side fits', () => {
+    Object.defineProperty(window, 'innerWidth', { value: 1280, configurable: true });
+    Object.defineProperty(window, 'innerHeight', { value: 900, configurable: true });
+    mockPopoverRect({ width: 288, height: 80 });
+
+    renderPopover({ anchor: { x: 500, y: 300 } });
+
+    // top = anchor.y(300) - height(80) - POINTER_TRIANGLE_HEIGHT(6) = 214.
+    expect(screen.getByRole('dialog')).toHaveStyle({ top: '214px' });
+  });
+
+  it('flips below when the above side does not fit and below has more room', () => {
+    Object.defineProperty(window, 'innerWidth', { value: 1280, configurable: true });
+    Object.defineProperty(window, 'innerHeight', { value: 900, configurable: true });
+    // Anchor near the TOP of the viewport: almost no room above, hundreds of px below.
+    mockPopoverRect({ width: 288, height: 200 });
+
+    renderPopover({ anchor: { x: 500, y: 20 } });
+
+    // top = anchor.y(20) + ANCHOR_BAR_HEIGHT(18) + POINTER_TRIANGLE_HEIGHT(6) = 44.
+    expect(screen.getByRole('dialog')).toHaveStyle({ top: '44px' });
+  });
+
+  it('stays above (rather than flipping into even less room below) when neither side fully fits', () => {
+    Object.defineProperty(window, 'innerWidth', { value: 1280, configurable: true });
+    Object.defineProperty(window, 'innerHeight', { value: 900, configurable: true });
+    // Anchor near the BOTTOM of the viewport with a tall popover: above doesn't
+    // fully fit, but below (168px) has even less room than above (686px) — the
+    // naive "flip whenever it doesn't fit" version would pick the worse side.
+    mockPopoverRect({ width: 288, height: 700 });
+
+    renderPopover({ anchor: { x: 500, y: 700 } });
+
+    // top_above = 700 - 700 - 6 = -6, clamped up to VIEWPORT_PAD(8) rather than
+    // flipped below into the smaller 168px gap.
+    expect(screen.getByRole('dialog')).toHaveStyle({ top: '8px' });
   });
 });
