@@ -72,21 +72,79 @@ apiClient.interceptors.request.use((config) => {
 // Track whether a token refresh is already in-flight to prevent concurrent retries.
 let refreshPromise: Promise<string> | null = null;
 
-async function refreshAccessToken(): Promise<string> {
-  const { setAccessToken } = useAuthStore.getState();
+/** Web Lock name that serializes cookie refreshes across every tab of this origin. */
+export const REFRESH_LOCK_NAME = 'trueppm-auth-refresh';
 
+/**
+ * How long to wait before the single retry of a refused refresh. Long enough for a
+ * sibling tab's in-flight rotation response (and its `Set-Cookie`) to land.
+ */
+export const REFRESH_RETRY_DELAY_MS = 300;
+
+const REFRESH_TIMEOUT_MS = 30_000;
+
+function postCookieRefresh() {
   // The refresh token lives in an httpOnly cookie (#897), not in the store or
   // the request body. `withCredentials` sends that cookie; the server reads it,
   // rotates it (sets a fresh cookie), and returns only a new access token. We
   // never see or send the refresh token from JavaScript.
-  const response = await axios.post<{ access: string }>(
+  //
+  // Bounded like every apiClient call: this request runs while holding the
+  // cross-tab refresh lock, so a hung response would otherwise stall the refresh
+  // of every tab of the origin, not just this one.
+  return axios.post<{ access: string }>(
     '/api/v1/auth/token/refresh/',
     {},
-    { withCredentials: true },
+    { withCredentials: true, timeout: REFRESH_TIMEOUT_MS },
   );
+}
 
+/**
+ * One cookie refresh, tolerant of a sibling tab having just rotated the cookie.
+ *
+ * Every tab shares ONE refresh cookie, and the server rotates it and blacklists
+ * the value it consumed (ROTATE_REFRESH_TOKENS + BLACKLIST_AFTER_ROTATION). A tab
+ * whose request carries the value a sibling has just rotated is refused with 401
+ * even though the session is alive — that refusal surfaced as a false "Your
+ * session expired" on reload (#4247). The retry re-sends with whatever the jar now
+ * holds, which is the sibling's rotated value. Only a 401 is retried, and only
+ * once: a genuinely dead session (logout, revocation, TTL) is refused again and
+ * still expires. No server-side grace for the consumed token is needed, so the
+ * #2999 revocation guarantee is untouched.
+ */
+async function postCookieRefreshWithSiblingRetry() {
+  try {
+    return await postCookieRefresh();
+  } catch (error: unknown) {
+    if (!axios.isAxiosError(error) || error.response?.status !== 401) throw error;
+    await new Promise((resolve) => setTimeout(resolve, REFRESH_RETRY_DELAY_MS));
+    return postCookieRefresh();
+  }
+}
+
+/**
+ * Run `fn` while holding the cross-tab refresh lock, when the browser has one.
+ *
+ * `refreshPromise` only coalesces refreshes within ONE tab. The Web Lock extends
+ * that to every tab of the origin: a reloading tab waits for a sibling's in-flight
+ * rotation to finish (its response, and therefore its `Set-Cookie`, has landed by
+ * the time the lock is released) and then refreshes with the rotated cookie,
+ * instead of racing it with the stale one (#4247). Browsers without the Locks API
+ * fall back to the retry in `postCookieRefreshWithSiblingRetry`.
+ */
+function withCrossTabRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+  // The DOM lib types `navigator.locks` as always present; it is not (jsdom, older
+  // embedded WebViews), so this check is load-bearing at runtime.
+  const locks: LockManager | undefined =
+    typeof navigator === 'undefined' ? undefined : navigator.locks;
+  if (!locks) return fn();
+  return locks.request(REFRESH_LOCK_NAME, fn);
+}
+
+async function refreshAccessToken(): Promise<string> {
+  const response = await withCrossTabRefreshLock(postCookieRefreshWithSiblingRetry);
   const newAccessToken = response.data.access;
-  setAccessToken(newAccessToken);
+  useAuthStore.getState().setAccessToken(newAccessToken);
   return newAccessToken;
 }
 

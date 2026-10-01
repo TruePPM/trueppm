@@ -45,6 +45,19 @@ line, a support screenshot, a browser extension with page-script access. The
 refresh token is rotated on every use and the prior one blacklisted, so a
 stolen refresh token is a single-use window, not a standing credential.
 
+Rotation has a consequence for anyone running several tabs: every tab of the
+same browser shares the one refresh cookie, so a tab that sends the value a
+sibling tab has just rotated is refused with the same `401` a replayed, stolen
+token gets. The server cannot tell the two apart, and is deliberately not asked
+to — a grace period for a just-used token would also be a grace period for a
+thief. The browser client absorbs it instead. Refreshes are serialized across
+tabs with a [Web Lock](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API),
+so a reloading tab waits for a sibling's in-flight rotation and then presents
+the rotated cookie. A refresh refused with `401` is retried once after a short
+pause, which covers a browser without the Locks API. A session that has really
+ended (signed out, revoked, or past its lifetime) is refused again on the retry
+and the client shows the session-expired dialog.
+
 ## Which identifier authenticates
 
 The sign-in form asks for an email address, and Django's `ModelBackend` matches
