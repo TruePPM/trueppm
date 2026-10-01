@@ -56,6 +56,7 @@ function lastResult(): ResultMessage | undefined {
 beforeEach(() => {
   // Clear any resident state carried over from a prior test, then reset the spy.
   send({ type: 'DRAG_END' });
+  send({ type: 'RESIZE_END' });
   postSpy.mockClear();
 });
 
@@ -189,6 +190,71 @@ describe('cpmWorker protocol', () => {
 
       const a = lastResult()?.results.find((r) => r.taskId === 'A');
       expect(a?.earlyStart).toBe('2025-02-03');
+    });
+  });
+
+  // Resize (issue #4237) mirrors the drag protocol one-for-one: RESIZE_START /
+  // RESIZE_MOVE / RESIZE_END in place of DRAG_START / DRAG_MOVE / DRAG_END.
+  describe('resize protocol', () => {
+    it('drops a RESIZE_MOVE that arrives with no resident subgraph', () => {
+      send({ type: 'RESIZE_MOVE', seq: 1, newDurationDays: 8 });
+      expect(postSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not post anything on RESIZE_START itself', () => {
+      send({ type: 'RESIZE_START', resizedTaskId: 'A', subgraph: SUBGRAPH_A });
+      expect(postSpy).not.toHaveBeenCalled();
+    });
+
+    it('recomputes over the resident subgraph on RESIZE_MOVE after RESIZE_START', () => {
+      send({ type: 'RESIZE_START', resizedTaskId: 'A', subgraph: SUBGRAPH_A });
+      send({ type: 'RESIZE_MOVE', seq: 1, newDurationDays: 8 });
+
+      const result = lastResult();
+      expect(result?.type).toBe('RESULT');
+      expect(result?.seq).toBe(1);
+      expect(result?.draggedTaskId).toBe('A');
+      const a = result?.results.find((r) => r.taskId === 'A');
+      // Start is untouched; only the finish responds to the new duration.
+      expect(a?.earlyStart).toBe('2025-01-06');
+      expect(a?.earlyFinish).toBe('2025-01-15');
+    });
+
+    it('reuses the resident subgraph across multiple resize moves, echoing each seq', () => {
+      send({ type: 'RESIZE_START', resizedTaskId: 'A', subgraph: SUBGRAPH_A });
+      send({ type: 'RESIZE_MOVE', seq: 1, newDurationDays: 6 });
+      send({ type: 'RESIZE_MOVE', seq: 2, newDurationDays: 8 });
+
+      expect(postSpy).toHaveBeenCalledTimes(2);
+      expect(lastResult()?.seq).toBe(2);
+      expect(lastResult()?.results.find((r) => r.taskId === 'A')?.earlyFinish).toBe(
+        '2025-01-15',
+      );
+    });
+
+    it('drops resize moves after RESIZE_END clears the resident subgraph', () => {
+      send({ type: 'RESIZE_START', resizedTaskId: 'A', subgraph: SUBGRAPH_A });
+      send({ type: 'RESIZE_END' });
+      postSpy.mockClear();
+
+      send({ type: 'RESIZE_MOVE', seq: 5, newDurationDays: 10 });
+      expect(postSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not let a RESIZE_MOVE act on a subgraph resident for a DRAG (cross-gesture guard)', () => {
+      send({ type: 'DRAG_START', draggedTaskId: 'A', subgraph: SUBGRAPH_A });
+      postSpy.mockClear();
+
+      send({ type: 'RESIZE_MOVE', seq: 1, newDurationDays: 8 });
+      expect(postSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not let a DRAG_MOVE act on a subgraph resident for a RESIZE (cross-gesture guard)', () => {
+      send({ type: 'RESIZE_START', resizedTaskId: 'A', subgraph: SUBGRAPH_A });
+      postSpy.mockClear();
+
+      send({ type: 'DRAG_MOVE', seq: 1, newStartIso: '2025-01-13' });
+      expect(postSpy).not.toHaveBeenCalled();
     });
   });
 });

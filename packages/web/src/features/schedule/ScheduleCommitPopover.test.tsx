@@ -221,8 +221,8 @@ describe('ScheduleCommitPopover — read-only demo refusal (ADR-1197 D3)', () =>
     expect(screen.getByText('Calculated, not saved')).toBeInTheDocument();
     // The mono change line still says WHAT moved.
     expect(screen.getByText('May 17 → Jun 5')).toBeInTheDocument();
-    // True only for reschedule: useDragCpm runs a real CPM forward pass over the
-    // dragged task's downstream subgraph (#4237) — a resize never does, see below.
+    // useDragCpm runs a real CPM forward pass over the dragged task's
+    // downstream subgraph (#4237).
     expect(
       screen.getByText(
         'This is a read-only demo. Your change ran through the scheduling engine in your browser — nothing was written to the server.',
@@ -233,16 +233,18 @@ describe('ScheduleCommitPopover — read-only demo refusal (ADR-1197 D3)', () =>
     ).toBeInTheDocument();
   });
 
-  it('does not claim the scheduling engine ran for a resize (#4237) — that path is local arithmetic, no CPM pass', () => {
+  it('claims the scheduling engine ran for a resize too (#4237) — useDragCpm now previews a resize through the same CPM worker', () => {
     renderPopover({ demoRefusal: true, action: makeResizeAction() });
     expect(screen.getByText('Calculated, not saved')).toBeInTheDocument();
     expect(screen.getByText('14d → 21d')).toBeInTheDocument();
-    expect(screen.queryByText(/ran through the scheduling engine/)).toBeNull();
+    // Same exact copy as the reschedule case — the resize preview now runs
+    // the same worker, so there is no longer a true/false distinction to draw.
     expect(
       screen.getByText(
-        "This is a read-only demo. The new duration previewed locally — nothing was written to the server. Resizing does not recompute the schedule; dragging a task to a new date does.",
+        'This is a read-only demo. Your change ran through the scheduling engine in your browser — nothing was written to the server.',
       ),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/previewed locally/)).toBeNull();
   });
 
   it('offers exactly one button, named "Got it"', () => {

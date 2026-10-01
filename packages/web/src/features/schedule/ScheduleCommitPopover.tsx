@@ -289,16 +289,14 @@ export function ScheduleCommitPopover({
           className="mt-2 border-l-2 border-brand-primary bg-brand-primary/5 pl-2 py-1 pr-2 text-xs text-neutral-text-primary"
         >
           <p>
-            {action.kind === 'reschedule'
-              ? // True only for reschedule: useDragCpm runs a real client-side CPM
-                // forward pass (packages/web/src/workers/cpmEngine.ts) over the dragged
-                // task's downstream subgraph while the drag is held. A resize never
-                // calls that worker — see the branch below (#4237).
-                'This is a read-only demo. Your change ran through the scheduling engine in your browser — nothing was written to the server.'
-              : // A resize is local arithmetic (useScheduleCommit's workingDaysInclusive),
-                // not a CPM pass — no cascade, no critical-path recompute. Claiming the
-                // scheduling engine ran here would be false (#4237).
-                'This is a read-only demo. The new duration previewed locally — nothing was written to the server. Resizing does not recompute the schedule; dragging a task to a new date does.'}
+            {
+              // True for both gestures: useDragCpm runs a real client-side CPM
+              // forward pass (packages/web/src/workers/cpmEngine.ts) over the
+              // dragged/resized task's downstream subgraph while the gesture is
+              // held — a reschedule overrides the task's start, a resize its
+              // duration, and both cascade through the same worker (#4237).
+              'This is a read-only demo. Your change ran through the scheduling engine in your browser — nothing was written to the server.'
+            }
           </p>
           <p className="mt-1 text-neutral-text-secondary">
             The bar stays where you put it until you reload the page.

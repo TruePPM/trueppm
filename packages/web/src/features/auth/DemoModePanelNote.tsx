@@ -5,10 +5,11 @@
  * Says what the demo *is* before the visitor signs in, and scopes the promise
  * honestly. The two paragraphs are deliberately asymmetric, not just factually
  * distinct: the first names the Schedule as the demo's *only* interactive surface
- * (dragging a task to a new date recomputes the CPM cascade live, in the
- * browser — resizing a task's duration does not, see #4237), and the second explicitly
- * says everything else — boards, backlogs, sprints, resource plans — is sample data
- * to browse, not a workspace to try things in. Pitching both in the same inviting
+ * (dragging a task to a new date, or resizing its bar to change its duration,
+ * both recompute the CPM cascade live, in the browser — see #4237), and the
+ * second explicitly says everything else — boards, backlogs, sprints, resource
+ * plans — is sample data to browse, not a workspace to try things in. Pitching
+ * both in the same inviting
  * tone is what turns a Product Owner's first click on the backlog into disappointment
  * rather than an informed choice (#3970) — which is itself a milder version of the
  * "product is broken" failure D3's refusal copy exists to prevent.
@@ -36,9 +37,9 @@ export function DemoModePanelNote() {
         <span aria-hidden="true">◆</span> Read-only demo
       </h2>
       <p className="text-xs leading-relaxed text-chrome-text-secondary">
-        The Schedule is the only interactive part of this demo — drag a task to a new date and watch
-        the critical path recompute live in your browser. (Resizing a task&apos;s duration previews
-        the new length only; it doesn&apos;t recompute the schedule.) Nothing you do here is saved.
+        The Schedule is the only interactive part of this demo — drag a task to a new date, or
+        resize its bar to change its duration, and watch the critical path recompute live in your
+        browser. Nothing you do here is saved.
       </p>
       <p className="text-xs leading-relaxed text-chrome-text-secondary">
         Everything else — boards, backlogs, sprints and resource plans — is real sample data to

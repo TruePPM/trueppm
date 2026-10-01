@@ -1759,6 +1759,10 @@ export function ScheduleView() {
     ariaLiveRef,
     keyboardModeRef,
     statusDate,
+    // #4237: the resize preview's pixel→duration conversion needs the
+    // project's real weekday mask — same field `useScheduleCommit` already
+    // reads for the resize-commit path's working-day count (#2561/#1987).
+    workingDaysMask: projectDetail?.effective_calendar?.working_days ?? null,
   });
 
   // Keyboard rescheduling — Enter/Arrow/d/Escape (issue #34)

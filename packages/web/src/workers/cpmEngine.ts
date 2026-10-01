@@ -402,19 +402,20 @@ function constraintFromEdge(edge: CpmEdge, source: TaskState, target: TaskState)
 }
 
 /**
- * Run the incremental CPM forward pass over the subgraph.
- *
- * The dragged task's earlyStart is overridden with `newStartIso`; all
- * downstream tasks are recalculated in topological order.
- *
- * Returns per-task results and the most-impacted milestone.
+ * Shared pipeline behind {@link runCpmForwardPass} and
+ * {@link runCpmResizeForwardPass} (issue #4237): build the mutable state map,
+ * resolve milestone instants, apply the caller's override to the gesture's
+ * target task, run the forward pass, and collect results. The two gestures
+ * differ only in WHAT they override on the target — a reschedule overrides
+ * its start, a resize overrides its duration — so everything else (topo
+ * sort, relaxation, critical-path detection, milestone selection) is one
+ * implementation rather than two copies that could silently drift apart.
  */
-export function runCpmForwardPass(
+function runForwardPassCore(
   tasks: CpmTask[],
   edges: CpmEdge[],
-  draggedTaskId: string,
-  newStartIso: string,
-  statusDate?: string | null,
+  targetTaskId: string,
+  applyOverride: (target: TaskState | undefined) => void,
 ): {
   results: PreviewTaskResult[];
   worstMilestone: PreviewMilestone | null;
@@ -435,15 +436,64 @@ export function runCpmForwardPass(
     task.instantMs = followsWork ? task.earlyFinishMs + MS_PER_DAY : task.earlyStartMs;
   }
 
-  // --- Override dragged task start ---
-  applyDrag(stateMap.get(draggedTaskId), newStartIso, statusDate);
+  // --- Override the gesture's target task ---
+  applyOverride(stateMap.get(targetTaskId));
   const order = topologicalSort(tasks, edges, inDegree);
 
   // --- Forward pass ---
-  relaxForward(order, stateMap, predecessors, draggedTaskId);
+  relaxForward(order, stateMap, predecessors, targetTaskId);
 
   // --- Collect results ---
   return collectResults(stateMap);
+}
+
+/**
+ * Run the incremental CPM forward pass over the subgraph.
+ *
+ * The dragged task's earlyStart is overridden with `newStartIso`; all
+ * downstream tasks are recalculated in topological order.
+ *
+ * Returns per-task results and the most-impacted milestone.
+ */
+export function runCpmForwardPass(
+  tasks: CpmTask[],
+  edges: CpmEdge[],
+  draggedTaskId: string,
+  newStartIso: string,
+  statusDate?: string | null,
+): {
+  results: PreviewTaskResult[];
+  worstMilestone: PreviewMilestone | null;
+} {
+  return runForwardPassCore(tasks, edges, draggedTaskId, (dragged) =>
+    applyDrag(dragged, newStartIso, statusDate),
+  );
+}
+
+/**
+ * Run the incremental CPM forward pass for a RESIZE (issue #4237).
+ *
+ * Unlike a reschedule, the resized task's start never moves — only its
+ * working-day duration changes, which shifts its finish and ripples through
+ * downstream FS/SS/FF/SF constraints exactly as a reschedule's start shift
+ * does. Extends the live preview to the resize gesture, which previously ran
+ * no CPM pass at all (the commit path's `workingDaysInclusive` is plain
+ * arithmetic with no cascade).
+ *
+ * Returns per-task results and the most-impacted milestone.
+ */
+export function runCpmResizeForwardPass(
+  tasks: CpmTask[],
+  edges: CpmEdge[],
+  resizedTaskId: string,
+  newDurationDays: number,
+): {
+  results: PreviewTaskResult[];
+  worstMilestone: PreviewMilestone | null;
+} {
+  return runForwardPassCore(tasks, edges, resizedTaskId, (resized) =>
+    applyResize(resized, newDurationDays),
+  );
 }
 
 /**
@@ -550,6 +600,37 @@ function applyDrag(
     dragged.instantMs = earlyStartMs;
     dragged.startDisplay = true;
   }
+}
+
+/**
+ * Change the resized task's WORKING-DAY DURATION in place, holding its start
+ * fixed (issue #4237) — a resize drags the right edge only, unlike a drag
+ * which moves the whole bar. Recomputes the finish from the new duration via
+ * {@link setEarlyWindow}, which is what lets `relaxForward` cascade the shift
+ * through downstream FS/SS/FF/SF constraints exactly as a reschedule's start
+ * shift does.
+ *
+ * The duration delta is applied to BOTH the full duration and the effective
+ * (remaining-work) duration, so an in-progress task's already-burned portion
+ * does not change — only the work still ahead of it grows or shrinks by the
+ * same amount the handle moved. This mirrors the fact that resizing extends
+ * or shortens the task's remaining work, not its history.
+ *
+ * A pinned task (completed + actuals) is left alone, same as `applyDrag`:
+ * the server's forward pass returns its actuals before any resize is ever
+ * considered. A milestone has no duration to resize and the UI exposes no
+ * resize handle for one; guarded here anyway so a stray RESIZE_* message can
+ * never silently reshape one.
+ */
+function applyResize(resized: TaskState | undefined, newDurationDays: number): void {
+  if (!resized || resized.isPinned || resized.isMilestone) return;
+  const deltaDays = newDurationDays - resized.durationDays;
+  resized.durationDays = newDurationDays;
+  resized.effectiveDurationDays = Math.max(0, resized.effectiveDurationDays + deltaDays);
+  // The resized task's own `planned_start` never changes — unlike a drag,
+  // which replaces it with the drop date — so the span floor is whatever it
+  // already was, exactly as `relaxForward` treats every non-dragged task.
+  setEarlyWindow(resized, resized.earlyStartMs, resized.plannedStartMs ?? -Infinity);
 }
 
 /**

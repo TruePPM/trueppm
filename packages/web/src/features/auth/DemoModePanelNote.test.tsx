@@ -7,7 +7,7 @@ describe('DemoModePanelNote (#3970)', () => {
     render(<DemoModePanelNote />);
     expect(
       screen.getByText(
-        "The Schedule is the only interactive part of this demo — drag a task to a new date and watch the critical path recompute live in your browser. (Resizing a task's duration previews the new length only; it doesn't recompute the schedule.) Nothing you do here is saved.",
+        "The Schedule is the only interactive part of this demo — drag a task to a new date, or resize its bar to change its duration, and watch the critical path recompute live in your browser. Nothing you do here is saved.",
       ),
     ).toBeInTheDocument();
   });
