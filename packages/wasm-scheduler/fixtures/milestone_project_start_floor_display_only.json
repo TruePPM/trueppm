@@ -1,0 +1,110 @@
+{
+  "id": "p-milestone-project-start-floor-display-only",
+  "name": "A milestone floored at the project start passes its pre-floor instant on: D_T3 and V_T3 land on the same day (#4225)",
+  "start_date": "2026-01-05",
+  "tasks": [
+    {
+      "id": "D_T0",
+      "name": "T0 (direct)",
+      "duration": 0.0
+    },
+    {
+      "id": "D_T1",
+      "name": "T1 (direct)",
+      "duration": 0.0
+    },
+    {
+      "id": "D_T2",
+      "name": "T2 (direct)",
+      "duration": 0.0
+    },
+    {
+      "id": "D_T3",
+      "name": "T3 (direct)",
+      "duration": 0.0
+    },
+    {
+      "id": "D_T4",
+      "name": "T4 (direct)",
+      "duration": 0.0
+    },
+    {
+      "id": "D_T5",
+      "name": "T5 (direct)",
+      "duration": 172800.0
+    },
+    {
+      "id": "V_T0",
+      "name": "T0 (via inserted milestone)",
+      "duration": 0.0
+    },
+    {
+      "id": "V_T1",
+      "name": "T1 (via inserted milestone)",
+      "duration": 0.0
+    },
+    {
+      "id": "V_T2",
+      "name": "T2 (via inserted milestone)",
+      "duration": 0.0
+    },
+    {
+      "id": "V_T3",
+      "name": "T3 (via inserted milestone)",
+      "duration": 0.0
+    },
+    {
+      "id": "V_T4",
+      "name": "T4 (via inserted milestone)",
+      "duration": 0.0
+    },
+    {
+      "id": "V_T5",
+      "name": "T5 (via inserted milestone)",
+      "duration": 172800.0
+    },
+    {
+      "id": "V_M",
+      "name": "M: shown at the project start, measured from below it",
+      "duration": 0.0
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "D_T1",
+      "successor_id": "D_T2",
+      "dep_type": "SF",
+      "lag": -172800.0
+    },
+    {
+      "predecessor_id": "V_T1",
+      "successor_id": "V_T2",
+      "dep_type": "SF",
+      "lag": -172800.0
+    },
+    {
+      "predecessor_id": "D_T2",
+      "successor_id": "D_T3",
+      "dep_type": "FS",
+      "lag": 172800.0
+    },
+    {
+      "predecessor_id": "V_T2",
+      "successor_id": "V_M",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "V_M",
+      "successor_id": "V_T3",
+      "dep_type": "FS",
+      "lag": 172800.0
+    }
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

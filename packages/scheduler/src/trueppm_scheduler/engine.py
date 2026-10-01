@@ -26,9 +26,13 @@ engine now follows the MS Project / Primavera P6 convention:
 * Links **out of** a milestone measure from the instant (FS/SS) or the last working
   day before it (FF/SF). The instant is never rounded to a working day, so
   calendar-day lags compose through it: ``A -FS(l1)-> M -FS(l2)-> B`` schedules
-  exactly as ``A -FS(l1+l2)-> B`` whenever the lags are not negative (a negative
-  lag can reach the milestone's own project-start or project-finish bound, as it
-  would for any node inserted into the link).
+  exactly as ``A -FS(l1+l2)-> B`` unless ``l2`` is negative or a hard floor holds
+  ``M``. The project-start floor does not break it: it only sets the day ``M`` is
+  shown on, and links out of ``M`` measure from the instant below it (#4225). A
+  negative ``l2`` can reach ``M``'s own project-finish bound, as it would for any
+  node inserted into the link. The data date, an SNET and a recorded actual
+  start do hold ``M`` and every lag measured from it, so ``B`` can land later
+  than the direct link puts it.
 * The backward pass and free float invert the same rule (:func:`_milestone_latest`,
   :func:`_milestone_refs`), and every late date is seeded from the instant the
   project ends (:func:`_finish_instant`), so a milestone on the critical path
@@ -912,6 +916,7 @@ def _milestone_free_instants(
     task_map: dict[str, Task],
     instants: dict[str, _Instant],
     cal_for: Callable[[str], Calendar],
+    link_instants: dict[str, _Instant] | None = None,
 ) -> dict[str, date]:
     """The latest instant each milestone may reach without moving anything (#4180).
 
@@ -934,13 +939,21 @@ def _milestone_free_instants(
     against that successor's early references — its own free instant when it is
     a milestone, which is why this runs in reverse topological order. Moving the
     instant anywhere up to the result moves nothing downstream.
+
+    A milestone held up by the project-start floor alone (#4225) is shown at the
+    floor but measured from by its successors at its earlier link instant
+    (``link_instants``, :func:`_place_milestone`). Its stretch runs from that link
+    instant — the one a predecessor's slip moves — up to the same shown-day bound
+    and successor caps, so its predecessors see the slack the direct link gives them.
     """
+    links = link_instants or {}
     free: dict[str, date] = {}
     for node_id in reversed(topo_order):
         early = instants.get(node_id)
         if early is None:
             continue
         instant, start_display = early
+        link = links.get(node_id, early)[0]
         cal = cal_for(node_id)
         if not start_display:
             free[node_id] = instant
@@ -958,7 +971,7 @@ def _milestone_free_instants(
             else:
                 refs = _milestone_refs(succ_free, cal_for(succ_id))
             bound = min(bound, _milestone_latest(dep.dep_type, dep.lag, *refs, cal))
-        free[node_id] = max(instant, bound)
+        free[node_id] = max(link, bound)
     return free
 
 
@@ -1197,10 +1210,15 @@ def _place_milestone(
     g: nx.DiGraph[str],
     cal: Calendar,
     es_floors: list[date],
-    instants: dict[str, _Instant],
+    links: dict[str, _Instant],
     cal_for: Callable[[str], Calendar],
-) -> tuple[_Instant, date]:
-    """Place a zero-duration task as an instant: ``((instant, start_display), day)``.
+    start_floor: date | None = None,
+) -> tuple[_Instant, date, _Instant]:
+    """Place a zero-duration task as an instant: ``(shown, day, link)``.
+
+    ``shown`` is ``(instant, start_display)``, the position the milestone is shown at
+    on ``day``; ``link`` is the instant its own successors measure from, read off
+    ``links`` for each predecessor milestone in turn.
 
     Each floor and each incoming link proposes an instant, and the latest wins:
 
@@ -1223,6 +1241,21 @@ def _place_milestone(
     milestone floored at the data date or an SNET day is never shown before it.
     Because the instant is a raw midnight and never rounded, lags compose through a
     milestone exactly as they would without it.
+
+    The **project-start floor** (``start_floor``) only places the milestone where it
+    is *shown* (#4225). ``es_floors`` holds the others — data date, SNET, a recorded
+    actual start — which are facts about when the milestone can happen, so they bind
+    ``link`` as well. The project start is a display bound: nothing is shown before
+    the plan opens, but every successor carries that same floor itself, so a
+    milestone held at it by the floor alone has nothing to add downstream. Measuring
+    a successor's lag from the floored instant instead made the milestone a node
+    that moved its successor: with ``A`` placed before the project start (an
+    SF-only task, #4218, or a negative lag), ``A -FS(2cd)-> B`` and
+    ``A -FS-> M -FS(2cd)-> B`` put ``B`` a working day apart. ``link`` is therefore
+    the latest proposal *without* the project-start floor, and ``shown`` with it —
+    the same raw-versus-shown split :func:`_start_reading` keeps for a display-only
+    snap (#4173). When nothing but the project-start floor proposes, the two are
+    the same instant.
     """
     best: tuple[date, bool, date] | None = None
 
@@ -1238,7 +1271,7 @@ def _place_milestone(
         pred = task_map[pred_id]
         dep: Dependency = g[pred_id][node_id]["dep"]
         assert pred.early_start is not None and pred.early_finish is not None
-        pred_instant = instants.get(pred_id)
+        pred_instant = links.get(pred_id)
         anchor = _edge_anchor(
             dep.dep_type,
             pred.early_start,
@@ -1267,10 +1300,14 @@ def _place_milestone(
             finish_day = _next_working_day(raw, cal)
             offer((_safe_offset(finish_day, _ONE_DAY), False, finish_day))
 
-    # es_floors carries the project-start floor for every task except an SF-only one
-    # (#4218), and that one has at least one SF link, which offers a candidate.
+    link = best
+    if start_floor is not None:
+        offer((start_floor, True, start_floor))
+    # start_floor is given for every task except an SF-only one (#4218), and that one
+    # has at least one SF link, which offers a candidate.
     assert best is not None
-    return (best[0], best[1]), best[2]
+    shown = (best[0], best[1])
+    return shown, best[2], shown if link is None else (link[0], link[1])
 
 
 def _resolve_task_calendars(project: Project) -> dict[str, Calendar] | None:
@@ -1550,6 +1587,7 @@ def _forward_pass(
     calendar: Calendar,
     status_date: date | None = None,
     task_calendars: dict[str, Calendar] | None = None,
+    link_instants: dict[str, _Instant] | None = None,
 ) -> dict[str, _Instant]:
     """Compute early_start and early_finish for every task (in-place).
 
@@ -1576,9 +1614,15 @@ def _forward_pass(
     float computation and Monte Carlo's completed-task constraints read to invert
     and extend the same rule. A task pinned by recorded actuals is absent: it is
     ordinary work to its successors.
+
+    ``link_instants``, when given, is filled with the instant each of those
+    milestones' successors measure from (:func:`_place_milestone`'s ``link``). It
+    differs from the shown instant only for a milestone held up by the project-start
+    floor alone (#4225).
     """
     floors: dict[int, tuple[date, date, date | None]] = {}
     instants: dict[str, _Instant] = {}
+    links: dict[str, _Instant] = {} if link_instants is None else link_instants
 
     def cal_for(tid: str) -> Calendar:
         return calendar if task_calendars is None else task_calendars.get(tid, calendar)
@@ -1601,13 +1645,27 @@ def _forward_pass(
             task.scheduled_start = _compute_scheduled_start(task, cal)
             continue
 
+        sf_only = _sf_only(node_id, g)
         duration_days, es_constraints = _early_start_floors(
-            task, cal, start_base, start, data_floor, sf_only=_sf_only(node_id, g)
+            task, cal, start_base, start, data_floor, sf_only=sf_only
         )
 
         if duration_days == 0:
-            instant, day = _place_milestone(
-                node_id, task_map, g, cal, es_constraints, instants, cal_for
+            # Every floor but the project start's — the list an SF-only task gets —
+            # binds the instant successors measure from; the project start only
+            # bounds where the milestone is shown (#4225, see _place_milestone).
+            _, hard_floors = _early_start_floors(
+                task, cal, start_base, start, data_floor, sf_only=True
+            )
+            instant, day, links[node_id] = _place_milestone(
+                node_id,
+                task_map,
+                g,
+                cal,
+                hard_floors,
+                links,
+                cal_for,
+                None if sf_only else start_base,
             )
             task.early_start = task.early_finish = day
             instants[node_id] = instant
@@ -1617,7 +1675,7 @@ def _forward_pass(
             continue
 
         pred_es, ef_constraints = _forward_edge_constraints(
-            node_id, task_map, g, cal, instants, cal_for
+            node_id, task_map, g, cal, links, cal_for
         )
         es_constraints.extend(pred_es)
 
@@ -1851,7 +1909,9 @@ def _forward_edge_constraints(
     snapping uses ``cal`` — the successor's calendar — because lag is consumed on the
     successor's calendar and the successor is the node being computed. Each bound is
     ``next_wd(anchor + lag)``; :func:`_edge_anchor` supplies the anchor, which for a
-    milestone predecessor is its instant rather than a day it occupies (#4079).
+    milestone predecessor is the instant its successors measure from (``instants``
+    here is :func:`_forward_pass`'s link map, #4225) rather than a day it occupies
+    (#4079).
     """
     es_constraints: list[date] = []
     ef_constraints: list[date] = []
@@ -1885,6 +1945,7 @@ def _backward_pass(
     calendar: Calendar,
     task_calendars: dict[str, Calendar] | None = None,
     instants: dict[str, _Instant] | None = None,
+    link_instants: dict[str, _Instant] | None = None,
 ) -> dict[str, date]:
     """Compute late_start and late_finish for every task (in-place).
 
@@ -1917,8 +1978,16 @@ def _backward_pass(
     Wednesday). These are the *uncapped* instants predecessors read; a milestone's
     own total float is measured to :func:`_float_late_instant` of them, which the
     caller computes (#4183).
+
+    ``link_instants`` is :func:`_forward_pass`'s link map (#4225). A milestone held
+    up by the project-start floor alone is shown later than the instant its
+    successors measure from, and its late instant is floored at the latter: that is
+    the coordinate its predecessors invert against, so the floor at the shown
+    instant would hand them a bound the direct link never imposes. Its own late
+    date is still never shown before its early one.
     """
     early_instants = instants or {}
+    links = link_instants or {}
     late_instants: dict[str, date] = {}
     # Every late date is seeded from the instant the project ends. Without
     # milestones that is the end of the finish day, exactly the old seed; a
@@ -1953,7 +2022,7 @@ def _backward_pass(
             late_instants[node_id] = _apply_milestone_late_date(
                 node_id,
                 task,
-                early,
+                (early, links.get(node_id, early)),
                 g,
                 task_map,
                 node_cal,
@@ -2001,7 +2070,7 @@ def _late_refs(
 def _apply_milestone_late_date(
     node_id: str,
     task: Task,
-    early: _Instant,
+    early_pair: tuple[_Instant, _Instant],
     g: nx.DiGraph[str],
     task_map: dict[str, Task],
     node_cal: Calendar,
@@ -2015,7 +2084,12 @@ def _apply_milestone_late_date(
     project's finish (:func:`_milestone_finish_bound`; ``finish`` is
     ``(project_finish, finish_instant)``) and floored at the early instant for the
     same coordinate-system reason as :func:`_apply_late_dates` (#4079).
+
+    ``early_pair`` is ``(shown, link)`` (:func:`_place_milestone`). The returned
+    instant, which predecessors read, is floored at ``link``; the shown late date
+    at ``shown`` (#4225).
     """
+    early, link = early_pair
     project_finish, finish_instant = finish
     bounds: list[date] = [_milestone_finish_bound(finish_instant, project_finish, node_cal)]
     for succ_id in g.successors(node_id):
@@ -2027,8 +2101,10 @@ def _apply_milestone_late_date(
             succ_id, succ, late_instants, cal_for, (dep, True, project_finish)
         )
         bounds.append(_milestone_latest(dep.dep_type, dep.lag, start_ref, finish_ref, node_cal))
-    late = max(min(bounds), early[0])
-    task.late_start = task.late_finish = _late_display(late, task, early, node_cal, project_finish)
+    late = max(min(bounds), link[0])
+    task.late_start = task.late_finish = _late_display(
+        max(late, early[0]), task, early, node_cal, project_finish
+    )
     return late
 
 
@@ -2203,6 +2279,7 @@ def _compute_floats(
     task_calendars: dict[str, Calendar] | None = None,
     instants: dict[str, _Instant] | None = None,
     late_instants: dict[str, date] | None = None,
+    link_instants: dict[str, _Instant] | None = None,
 ) -> list[DrivingEdge]:
     """Compute total_float, free_float, and is_critical for every task (in-place).
 
@@ -2241,9 +2318,14 @@ def _compute_floats(
     shown on can name the end of Tuesday as "Tuesday" and the start of Wednesday as
     "Wednesday", one instant apart by zero working days, so a span between shown
     days would miscount.
+
+    ``link_instants`` is :func:`_forward_pass`'s link map (#4225): a milestone's own
+    floats run from its shown instant, its successors' free-float stretch from the
+    instant they measure from.
     """
     early_instants = instants or {}
     lates = late_instants or {}
+    links = link_instants or {}
 
     # Driving edges (#2095): links whose per-edge free-float slack is zero — the
     # predecessor that pins the successor's early date. Collected as a side output
@@ -2257,6 +2339,7 @@ def _compute_floats(
         task_map,
         early_instants,
         lambda tid: calendar if task_calendars is None else task_calendars.get(tid, calendar),
+        links,
     )
 
     for node_id in topo_order:
@@ -2325,7 +2408,7 @@ def _compute_floats(
             wd_counter,
             calendar,
             driving_edges,
-            early_instants,
+            (early_instants, links),
             task_calendars,
             free_instants,
         )
@@ -2363,7 +2446,7 @@ def _free_float_days(
     wd_counter: _WorkingDayCounter | None,
     calendar: Calendar,
     driving_edges: list[DrivingEdge],
-    instants: dict[str, _Instant],
+    instant_maps: tuple[dict[str, _Instant], dict[str, _Instant]],
     task_calendars: dict[str, Calendar] | None,
     free_instants: dict[str, date],
 ) -> int:
@@ -2379,7 +2462,12 @@ def _free_float_days(
     would report false-zero free float on the live predecessor (#1819).
 
     A task with no live successor falls back to its total float.
+
+    ``instant_maps`` is ``(instants, link_instants)``: this task's own slip runs from
+    its shown instant, and a zero-lag link carries its link instant's reading into a
+    milestone successor (:func:`_place_milestone`, #4225).
     """
+    instants, links = instant_maps
     ff_days = tf_days
     for succ_id in g.successors(node_id):
         succ = task_map[succ_id]
@@ -2391,6 +2479,7 @@ def _free_float_days(
         succ_free = free_instants.get(succ_id)
         own = instants.get(node_id)
         own_instant = None if own is None else own[0]
+        own_link = links.get(node_id, own)
         if succ_free is None:
             refs = raw_refs = (succ.early_start, succ.early_finish)
         else:
@@ -2404,7 +2493,7 @@ def _free_float_days(
             # #4183's tie bound only adjusts one that reads as end of day.
             assert succ_instant is not None  # free_instants mirrors instants' domain
             start_ref = _free_start_ref(
-                (succ_free, succ_instant[1]), dep.dep_type, dep.lag, own, succ_cal
+                (succ_free, succ_instant[1]), dep.dep_type, dep.lag, own_link, succ_cal
             )
             refs = (start_ref, raw_refs[1])
         slack = _link_slack(dep, task, refs, own_instant, node_cal, wd_counter, calendar)
@@ -3457,6 +3546,7 @@ def schedule(project: Project) -> ScheduleResult:
     # single-calendar fast path, identical to the pre-ADR-0120 behavior.
     task_calendars = _resolve_task_calendars(project)
 
+    link_instants: dict[str, _Instant] = {}
     instants = _forward_pass(
         task_map,
         topo_order,
@@ -3465,6 +3555,7 @@ def schedule(project: Project) -> ScheduleResult:
         project.calendar,
         project.status_date,
         task_calendars,
+        link_instants,
     )
 
     # Project finish = latest early_finish across all tasks.
@@ -3472,7 +3563,14 @@ def schedule(project: Project) -> ScheduleResult:
     project_finish: date = max(t.early_finish for t in tasks if t.early_finish is not None)
 
     late_instants = _backward_pass(
-        task_map, topo_order, g, project_finish, project.calendar, task_calendars, instants
+        task_map,
+        topo_order,
+        g,
+        project_finish,
+        project.calendar,
+        task_calendars,
+        instants,
+        link_instants,
     )
     # A milestone's own float stops where its reading would show it past the
     # finish (#4183); its predecessors already read the uncapped instant.
@@ -3507,6 +3605,7 @@ def schedule(project: Project) -> ScheduleResult:
         task_calendars,
         instants,
         float_lates,
+        link_instants,
     )
 
     # Order the critical path deterministically AND topologically. Filtering a
@@ -3544,8 +3643,8 @@ def schedule(project: Project) -> ScheduleResult:
 
 def _milestone_instants(
     project: Project,
-) -> tuple[dict[str, _Instant], dict[str, date], date]:
-    """``(instants, late_instants, finish_instant)`` exactly as :func:`schedule` has them.
+) -> tuple[dict[str, _Instant], dict[str, date], date, dict[str, _Instant]]:
+    """``(instants, late_instants, finish_instant, link_instants)`` as :func:`schedule` has them.
 
     Replays the forward and backward passes over copies, which is the only faithful
     source (#4079): a milestone's instant can chain through other milestones
@@ -3557,6 +3656,7 @@ def _milestone_instants(
     topo_order: list[str] = list(nx.topological_sort(g))
     task_map = {t.id: copy.copy(t) for t in project.tasks}
     task_calendars = _resolve_task_calendars(project)
+    link_instants: dict[str, _Instant] = {}
     instants = _forward_pass(
         task_map,
         topo_order,
@@ -3565,16 +3665,27 @@ def _milestone_instants(
         project.calendar,
         project.status_date,
         task_calendars,
+        link_instants,
     )
     project_finish = max(t.early_finish for t in task_map.values() if t.early_finish is not None)
     late_instants = _backward_pass(
-        task_map, topo_order, g, project_finish, project.calendar, task_calendars, instants
+        task_map,
+        topo_order,
+        g,
+        project_finish,
+        project.calendar,
+        task_calendars,
+        instants,
+        link_instants,
     )
-    return instants, late_instants, _finish_instant(task_map, instants)
+    return instants, late_instants, _finish_instant(task_map, instants), link_instants
 
 
 def _project_free_instants(
-    project: Project, scheduled: list[Task], instants: dict[str, _Instant]
+    project: Project,
+    scheduled: list[Task],
+    instants: dict[str, _Instant],
+    link_instants: dict[str, _Instant] | None = None,
 ) -> dict[str, date]:
     """:func:`_milestone_free_instants` over a scheduled project, for :mod:`derive` (#4180).
 
@@ -3593,6 +3704,7 @@ def _project_free_instants(
             if task_calendars is None
             else task_calendars.get(tid, project.calendar)
         ),
+        link_instants,
     )
 
 
@@ -4169,6 +4281,12 @@ def _mc_pre_start_pad_days(
     the SF bound is monotone in the predecessor's start and the back-solve is
     monotone in both arguments. Floors (data date, SNET) only raise the true start,
     so leaving them out keeps the bound safe.
+
+    A milestone that is not SF-only is *shown* no earlier than the project start,
+    but its successors measure from its link instant, which the project-start floor
+    does not raise (#4225). Its bound is therefore the one any single incoming link
+    proves — the link instant is the latest proposal, so it is at least each of
+    them — and an SF-only successor of it is bounded from there.
     """
     sf_only = frozenset(tid for tid in topo_order if _sf_only(tid, g))
     if not sf_only:
@@ -4184,6 +4302,9 @@ def _mc_pre_start_pad_days(
             continue
         if tid not in sf_only:
             lo[tid] = _next_working_day(project.start_date, cal)
+            if task.duration.days == 0 and any(True for _ in g.predecessors(tid)):
+                lo[tid] = min(lo[tid], max(_link_lower_bound(g, tid, lo, cal_of)))
+                earliest = min(earliest, lo[tid])
             continue
         bound = max(
             _next_working_day(
@@ -4203,6 +4324,26 @@ def _mc_pre_start_pad_days(
         lo[tid] = _start_from_finish(bound, longest, cal) if longest > 0 else bound
         earliest = min(earliest, lo[tid])
     return (project.start_date - earliest).days + _MC_PRE_START_PAD_BUFFER_DAYS, sf_only
+
+
+def _link_lower_bound(
+    g: nx.DiGraph[str], tid: str, lo: dict[str, date], cal_of: dict[str, Calendar]
+) -> Iterator[date]:
+    """A lower bound on the instant each incoming link proposes to milestone ``tid``.
+
+    From a predecessor that starts (or, as a milestone, sits) no earlier than its
+    ``lo``: a start-anchored link's anchor is at least that, and a finish-anchored
+    one's at least the working day before it, so the proposal is at least that
+    anchor plus the lag (:func:`_edge_anchor`, :func:`_place_milestone`).
+    """
+    for pred in g.predecessors(tid):
+        dep: Dependency = g[pred][tid]["dep"]
+        anchor = (
+            lo[pred]
+            if dep.dep_type in _START_ANCHORED
+            else _prev_working_day(_safe_offset(lo[pred], -_ONE_DAY), cal_of[pred])
+        )
+        yield _safe_offset(anchor, dep.lag)
 
 
 def _snapped_offsets(
@@ -4434,7 +4575,10 @@ def _completed_dates(
     # the same isolation schedule() applies, and safe for the same reason (every
     # Task field is an immutable scalar).
     scratch = {tid: copy.copy(t) for tid, t in task_map.items()}
-    instants = _forward_pass(
+    # Live successors measure a completed milestone's links from its link instant
+    # (#4225), which is what the constraints below are built from.
+    instants: dict[str, _Instant] = {}
+    _forward_pass(
         scratch,
         topo_order,
         g,
@@ -4442,6 +4586,7 @@ def _completed_dates(
         project.calendar,
         project.status_date,
         task_calendars,
+        instants,
     )
 
     dates: dict[str, tuple[date, date]] = {}
@@ -4687,6 +4832,49 @@ def _mc_es_floors(
     return es_floor
 
 
+_MilestoneFloors = tuple[int | None, int | None]
+"""``(hard, start)`` floors of a live milestone as date ordinals (#4225).
+
+``hard`` is the latest of its data-date, SNET and recorded-actual-start floors, and
+``start`` the project-start floor (``None`` for an SF-only milestone, #4218): the
+split :func:`_place_milestone` makes between what binds its link instant and what
+only bounds where it is shown.
+"""
+
+
+def _mc_milestone_floors(
+    project: Project,
+    task_map: dict[str, Task],
+    milestone_ids: frozenset[str],
+    cal_of: dict[str, Calendar],
+    sf_only: frozenset[str] = frozenset(),
+) -> dict[str, _MilestoneFloors]:
+    """Each live milestone's :data:`_MilestoneFloors`, as ``_forward_pass`` builds them.
+
+    Read in date space and never through the offset index, which cannot hold a
+    non-working actual (#4175) or a floor before the index opens: the hard floors
+    are exactly ``_early_start_floors(..., sf_only=True)`` — the data date and SNET
+    snapped to the milestone's own working days, the actual start verbatim.
+    """
+    out: dict[str, _MilestoneFloors] = {}
+    status_date = project.status_date
+    for tid in milestone_ids:
+        t = task_map[tid]
+        cal = cal_of[tid]
+        hard: list[date] = []
+        if status_date is not None:
+            hard.append(_next_working_day(status_date, cal))
+        if t.actual_start is not None:
+            hard.append(t.actual_start)
+        if t.planned_start is not None:
+            hard.append(_next_working_day(t.planned_start, cal))
+        out[tid] = (
+            max(hard).toordinal() if hard else None,
+            None if tid in sf_only else _next_working_day(project.start_date, cal).toordinal(),
+        )
+    return out
+
+
 _VerbatimActual = tuple[int, float, float]
 """``(actual_ordinal, snapped_offset, other_floor)`` of a live non-working actual start.
 
@@ -4914,6 +5102,7 @@ def _mc_forward_pass(
     milestone_ids: frozenset[str] = frozenset(),
     index: _McIndex | None = None,
     verbatim_actuals: dict[str, _VerbatimActual] | None = None,
+    milestone_floors: dict[str, _MilestoneFloors] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, date | None]:
     """Vectorised forward pass — early-start/early-finish working-day offset matrices.
 
@@ -4930,7 +5119,11 @@ def _mc_forward_pass(
     ordinal and its links are resolved in date space by
     :func:`_mc_milestone_bounds`, replaying :func:`_place_milestone` exactly. Its ES
     is the instant's position; its EF holds the exclusive offset of the day it is
-    shown on, which is what the project finish reads.
+    shown on, which is what the project finish reads. ``milestone_floors``
+    (:func:`_mc_milestone_floors`) gives each milestone's floors in date space, the
+    project start apart from the rest: the column's ES/EF are the *shown* instant
+    and ``instant_mat`` the *link* instant its successors measure from, which the
+    project-start floor does not raise (#4225, :func:`_place_milestone`).
 
     Per-task calendars (#1385) are deliberately invisible here. A task's own column
     is expressed in its own calendar's working-day space, and each edge's delta
@@ -4959,6 +5152,7 @@ def _mc_forward_pass(
     instant_mat = np.zeros((runs, n_tasks), dtype=np.int64)
     start_display_mat = np.zeros((runs, n_tasks), dtype=bool)
     verbatim_actuals = verbatim_actuals or {}
+    milestone_floors = milestone_floors or {}
     # Per-run verbatim start ordinal of live work whose non-working actual binds its
     # start, -1 in the runs where something later does; read by SS successors.
     verbatim_start: dict[str, np.ndarray] = {}
@@ -4975,22 +5169,21 @@ def _mc_forward_pass(
 
         if tid in milestone_ids:
             assert index is not None
-            instant, start_display = _mc_milestone_bounds(
+            (link, link_display), (instant, start_display) = _mc_milestone_bounds(
                 tid,
                 col,
                 g,
                 task_idx,
                 (es_mat, ef_mat, instant_mat, start_display_mat),
-                es_floor,
+                milestone_floors.get(tid, (None, None)),
                 completed_edge,
                 milestone_ids,
                 index,
                 runs,
-                verbatim_actuals.get(tid),
                 verbatim_start,
             )
-            instant_mat[:, col] = instant
-            start_display_mat[:, col] = start_display
+            instant_mat[:, col] = link
+            start_display_mat[:, col] = link_display
             position = index.next_wd_offset(col, instant)
             es_mat[:, col] = position
             # The day it is shown on (engine._instant_day), as an exclusive offset:
@@ -5053,35 +5246,37 @@ def _mc_milestone_bounds(
     g: nx.DiGraph[str],
     task_idx: dict[str, int],
     mats: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
-    es_floor: dict[str, float],
+    floors: _MilestoneFloors,
     completed_edge: dict[tuple[str, str], _FixedEdge],
     milestone_ids: frozenset[str],
     index: _McIndex,
     runs: int,
-    actual: _VerbatimActual | None = None,
     verbatim_start: dict[str, np.ndarray] | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Per-run ``(instant ordinal, start_display)`` of a live milestone (#4079).
+) -> tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]]:
+    """Per-run ``(link, shown)`` of a live milestone, each ``(instant ordinal, start_display)``.
 
     The vectorised :func:`_place_milestone`: every floor and incoming link proposes
     a raw midnight and the latest wins, a start-of-day reading winning a tie. The
     ``key = 2 * ordinal + start_display`` encoding makes that one ``maximum``, and
     :func:`_start_reading` is applied to the winner.
-    ``mats`` is ``(es, ef, instant, start_display)`` for the columns filled so far.
+    ``mats`` is ``(es, ef, instant, start_display)`` for the columns filled so far;
+    its instant columns hold each earlier milestone's *link* instant.
 
-    A non-working ``actual`` start proposes its VERBATIM midnight, not the snapped
-    working day ``es_floor`` holds (#4175): ``schedule()`` places the milestone on
-    Sunday 00:00, and a calendar-day lag measured from Monday instead lands a
-    weekend later. ``verbatim_start`` likewise gives an SS link from live work
-    whose non-working actual binds its start the raw date to measure from.
+    ``floors`` is ``(hard, start)`` (:func:`_mc_milestone_floors`), both date
+    ordinals in date space. ``hard`` — data date, SNET, the VERBATIM recorded actual
+    start (#4175) — binds the link instant; the project-start floor ``start`` only
+    the shown one (#4225). A non-working actual therefore proposes its own midnight,
+    not the snapped working day the offset floor holds: ``schedule()`` places the
+    milestone on Sunday 00:00, and a calendar-day lag measured from Monday instead
+    lands a weekend later. ``verbatim_start`` likewise gives an SS link from live
+    work whose non-working actual binds its start the raw date to measure from.
     """
     es_mat, ef_mat, instant_mat, start_display_mat = mats
     verbatim_start = verbatim_start or {}
-    if actual is None:
-        key = index.ordinal_at(col, np.full(runs, es_floor.get(tid, 0.0))) * 2 + 1
-    else:
-        key = index.ordinal_at(col, np.full(runs, actual[2])) * 2 + 1
-        np.maximum(key, actual[0] * 2 + 1, out=key)
+    hard, start = floors
+    # The floor of every key: below any ordinal a proposal can produce. An SF-only
+    # milestone with no hard floor always has an SF link that offers a candidate.
+    key = np.full(runs, -1 if hard is None else hard * 2 + 1, dtype=np.int64)
 
     def offer(ordinals: np.ndarray, start_display: np.ndarray | bool) -> None:
         np.maximum(key, ordinals * 2 + np.asarray(start_display, dtype=np.int64), out=key)
@@ -5123,13 +5318,19 @@ def _mc_milestone_bounds(
         # FF/SF propose the end of the finish day next_wd(anchor + lag).
         offer(index.next_wd_ordinal(col, anchor + lag) + 1, False)
 
-    # _start_reading (#4173): an end-of-day reading needs a working day before the
-    # instant. Applying it once to the winner equals applying it to every proposal,
-    # because it only ever raises the flag of a key and never reorders two keys.
-    instant = key // 2
-    day_before = instant - 1
-    after_non_working = index.next_wd_ordinal(col, day_before) != day_before
-    return instant, (key % 2).astype(bool) | after_non_working
+    def read(winner: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        # _start_reading (#4173): an end-of-day reading needs a working day before
+        # the instant. Applying it once to the winner equals applying it to every
+        # proposal, because it only ever raises the flag of a key and never
+        # reorders two keys.
+        instant = winner // 2
+        day_before = instant - 1
+        after_non_working = index.next_wd_ordinal(col, day_before) != day_before
+        return instant, (winner % 2).astype(bool) | after_non_working
+
+    shown_key = key if start is None else np.maximum(key, start * 2 + 1)
+    # Nothing but the project start proposed: the link instant is the shown one.
+    return read(np.where(key < 0, shown_key, key)), read(shown_key)
 
 
 def _mc_edge_constraints(
@@ -5740,6 +5941,7 @@ def monte_carlo(
             [cal_of[tid] for tid in topo_order],
         ),
         verbatim_actuals,
+        _mc_milestone_floors(project, task_map, milestone_ids, cal_of, sf_only_ids),
     )
     # Working-time finish of each column (#4204). Work ends at its EF. A live
     # milestone's EF is the exclusive offset of the day it is *shown* on, one past its

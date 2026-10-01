@@ -16,7 +16,22 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **A milestone held at the project start no longer delays its successors
+  (#4225).** When a lead or an SF-only predecessor (#4218) put a milestone's
+  links before the project start, the milestone was floored at the project
+  start, and its successors measured their lags from that floored instant. So
+  `A -FS-> M -FS(2cd)-> B` placed `B` a working day after `A -FS(2cd)-> B`.
+  The project-start floor now only sets where the milestone is shown: its
+  successors measure from the latest instant its links, the data date, its
+  `planned_start` and its recorded `actual_start` give it, so the project-start
+  floor no longer makes inserting a milestone into a finish-to-start link move
+  anything. The data date, `planned_start` and `actual_start` still hold the
+  milestone and the lags out of it, so a milestone held by one of those can
+  still move a successor later than the direct link would. A successor that is
+  not SF-only is still floored at the project start itself. `monte_carlo()`,
+  `derive_value()` and the Rust/WASM engine apply the same rule.
 
 ## [0.4.0b6] - 2026-09-30
 
