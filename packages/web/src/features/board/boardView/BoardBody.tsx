@@ -210,7 +210,16 @@ export function BoardBody(props: BoardBodyProps) {
           }
         />
       )}
-      {effectiveLayout === 'drawer' && (
+      {/* `!isMobile` (#4248): BacklogDrawer is a `flex-shrink-0` block with no
+          scroller of its own, stacked in the same flex column as the mobile
+          snap board below. With enough backlog cards its natural height alone
+          exceeded a phone viewport and pushed the entire MobileBoard — every
+          status column — past the fold of this container's `overflow-hidden`,
+          with no scroll affordance to reach it: not a FAB-overlap case, a
+          total-loss one. The rail's BacklogBand was already confined to
+          `BoardDesktopGrid`, which only renders `!isMobile`; the drawer had no
+          equivalent gate even though the comment below already claimed one. */}
+      {effectiveLayout === 'drawer' && !isMobile && (
         <BacklogDrawer
           tasks={backlogTasks}
           isDragActive={isDragActive}

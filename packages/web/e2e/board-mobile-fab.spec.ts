@@ -206,5 +206,71 @@ test.describe('Board mobile — Queue auto-default + FAB (issue 605)', () => {
     // is never mounted — the explicit choice survives the breakpoint.
     await expect(page.getByTestId('mobile-board-scroller')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('queue-layout')).toHaveCount(0);
+    // #4248: the drawer surface itself must not co-render with the snap board —
+    // see the dedicated spec below for the clipping failure this produced.
+    await expect(page.getByTestId('backlog-drawer')).toHaveCount(0);
+  });
+});
+
+test.describe('Board mobile — drawer layout does not stack with the snap board (#4248)', () => {
+  test.beforeEach(async ({ page }) => {
+    // Phone viewport — trips the board's `isMobile` matchMedia gate.
+    await page.setViewportSize({ width: 390, height: 844 });
+  });
+
+  test('a tall backlog does not push the snap board off-screen', async ({ page }) => {
+    // BacklogDrawer (toolbarPrefs.layout === 'drawer') is a `flex-shrink-0`
+    // block with no scroller of its own, stacked in the same flex column as
+    // MobileBoard below it. With no `isMobile` gate of its own, it used to
+    // render alongside MobileBoard on a phone; with enough backlog cards its
+    // natural height alone pushed the entire snap board — every status
+    // column — past the fold of the ancestor `overflow-hidden` container,
+    // with no scroll affordance to reach it. This is not the FAB-overlap
+    // class #4238/#4243 fixed — it is a total loss of the board.
+    await seedLayoutPref(page, 'drawer');
+    await setup(page);
+    const backlogTasks = Array.from({ length: 12 }, (_, i) => ({
+      id: `bl-${i}`,
+      wbs_path: `3.${i + 1}`,
+      name: `Backlog idea ${i + 1}`,
+      early_start: '2026-01-05',
+      early_finish: '2026-01-16',
+      duration: 10,
+      percent_complete: 0,
+      is_critical: false,
+      is_milestone: false,
+      is_summary: false,
+      parent_id: null,
+      status: 'BACKLOG',
+      assignees: [],
+      total_float: null,
+      predecessor_count: 0,
+      is_blocked: false,
+      linked_risks_count: 0,
+      linked_risks_max_severity: null,
+    }));
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: [...FIXTURE_TASKS, ...backlogTasks],
+      statusSummary: { task_count: FIXTURE_TASKS.length + backlogTasks.length },
+    });
+    await page.goto(`${BASE_URL}/board`);
+
+    // The drawer surface must not mount on mobile at all — it has no FAB
+    // clearance or independent scroll of its own, and the snap board already
+    // covers capture/move on a phone.
+    await expect(page.getByTestId('backlog-drawer')).toHaveCount(0);
+
+    const scroller = page.getByTestId('mobile-board-scroller');
+    await expect(scroller).toBeVisible({ timeout: 10_000 });
+    const box = await scroller.boundingBox();
+    expect(box).not.toBeNull();
+    // Regression guard for the clipping failure: the snap board must start
+    // within the viewport, not be pushed below the fold by the drawer's height.
+    expect(box && box.y < 844).toBe(true);
+    expect(box && box.height).toBeGreaterThan(0);
   });
 });
