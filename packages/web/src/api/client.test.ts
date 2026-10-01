@@ -149,7 +149,7 @@ describe('apiClient', () => {
         expect(postSpy).toHaveBeenCalledWith(
           '/api/v1/auth/token/refresh/',
           {},
-          { withCredentials: true },
+          { withCredentials: true, timeout: 30_000 },
         );
         const [, body] = postSpy.mock.calls[0];
         expect(body).toEqual({});
@@ -213,7 +213,7 @@ describe('apiClient', () => {
       expect(postSpy).toHaveBeenCalledWith(
         '/api/v1/auth/token/refresh/',
         {},
-        { withCredentials: true },
+        { withCredentials: true, timeout: 30_000 },
       );
       expect(useAuthStore.getState().accessToken).toBe('boot-access');
       expect(useAuthStore.getState().isAuthenticated).toBe(true);
@@ -227,6 +227,161 @@ describe('apiClient', () => {
 
       expect(useAuthStore.getState().accessToken).toBeNull();
       expect(useAuthStore.getState().sessionExpired).toBe(true);
+    });
+  });
+
+  // #4247: every tab shares ONE rotating refresh cookie. A reloading tab that
+  // presents the value a sibling tab has just rotated is refused (401) by the
+  // blacklist, which used to surface as a false "Your session expired".
+  describe('concurrent-tab refresh (#4247)', () => {
+    function refused401() {
+      return new AxiosError('Unauthorized', 'ERR_BAD_REQUEST', undefined, undefined, {
+        status: 401,
+        data: { detail: 'Token is blacklisted' },
+      } as AxiosResponse);
+    }
+
+    async function getModule() {
+      return import('./client');
+    }
+
+    /** A minimal origin-wide LockManager: one holder at a time, FIFO waiters. */
+    function installFakeLocks() {
+      let tail: Promise<unknown> = Promise.resolve();
+      const requested: string[] = [];
+      const locks = {
+        request: (name: string, cb: () => Promise<unknown>) => {
+          requested.push(name);
+          const run = tail.then(cb, cb);
+          tail = run.catch(() => undefined);
+          return run;
+        },
+      };
+      Object.defineProperty(navigator, 'locks', { value: locks, configurable: true });
+      return { locks, requested };
+    }
+
+    afterEach(() => {
+      vi.useRealTimers();
+      Reflect.deleteProperty(navigator, 'locks');
+    });
+
+    it('retries once with the rotated cookie when a sibling tab won the race', async () => {
+      vi.useFakeTimers();
+      const { bootstrapAccessToken, REFRESH_RETRY_DELAY_MS } = await getModule();
+      const postSpy = vi
+        .spyOn(axios, 'post')
+        .mockRejectedValueOnce(refused401())
+        .mockResolvedValueOnce({ data: { access: 'rotated-access' } });
+
+      const pending = bootstrapAccessToken();
+      await vi.advanceTimersByTimeAsync(REFRESH_RETRY_DELAY_MS);
+
+      await expect(pending).resolves.toBe(true);
+      expect(postSpy).toHaveBeenCalledTimes(2);
+      expect(useAuthStore.getState().accessToken).toBe('rotated-access');
+      expect(useAuthStore.getState().sessionExpired).toBe(false);
+    });
+
+    it('still expires a genuinely dead session, after exactly one retry', async () => {
+      vi.useFakeTimers();
+      const { bootstrapAccessToken, REFRESH_RETRY_DELAY_MS } = await getModule();
+      const postSpy = vi
+        .spyOn(axios, 'post')
+        .mockRejectedValueOnce(refused401())
+        .mockRejectedValueOnce(refused401());
+
+      const pending = bootstrapAccessToken();
+      await vi.advanceTimersByTimeAsync(REFRESH_RETRY_DELAY_MS);
+
+      await expect(pending).resolves.toBe(false);
+      expect(postSpy).toHaveBeenCalledTimes(2);
+      expect(useAuthStore.getState().sessionExpired).toBe(true);
+    });
+
+    it('does not retry a refusal that is not a 401', async () => {
+      const { bootstrapAccessToken } = await getModule();
+      const postSpy = vi.spyOn(axios, 'post').mockRejectedValueOnce(new Error('network down'));
+
+      await expect(bootstrapAccessToken()).resolves.toBe(false);
+      expect(postSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('waits for a sibling tab holding the refresh lock before presenting the cookie', async () => {
+      const { locks, requested } = installFakeLocks();
+      const { bootstrapAccessToken, REFRESH_LOCK_NAME } = await getModule();
+      const postSpy = vi
+        .spyOn(axios, 'post')
+        .mockResolvedValueOnce({ data: { access: 'after-sibling' } });
+
+      // The sibling tab is mid-rotation: it holds the lock until its response lands.
+      let releaseSibling!: () => void;
+      const siblingHolds = new Promise<void>((resolve) => {
+        releaseSibling = resolve;
+      });
+      const sibling = locks.request(REFRESH_LOCK_NAME, () => siblingHolds);
+
+      const pending = bootstrapAccessToken();
+      await Promise.resolve();
+      await Promise.resolve();
+      // Presenting the cookie now would race the sibling's rotation with a stale value.
+      expect(postSpy).not.toHaveBeenCalled();
+
+      releaseSibling();
+      await sibling;
+      await expect(pending).resolves.toBe(true);
+      expect(postSpy).toHaveBeenCalledTimes(1);
+      expect(requested).toEqual([REFRESH_LOCK_NAME, REFRESH_LOCK_NAME]);
+      expect(useAuthStore.getState().accessToken).toBe('after-sibling');
+    });
+
+    // The 401 response interceptor shares `refreshAccessToken()` (client.ts:219)
+    // with `bootstrapAccessToken` — every case above drives the bootstrap path
+    // only, which left the mid-session path's use of the same retry-under-lock
+    // unexercised. A protected request's 401 here is a DIFFERENT 401 from the
+    // refresh's own: the interceptor sees the protected request refused, calls
+    // refreshAccessToken(), and it is that refresh call which is refused-then-
+    // retried by a sibling's rotation before the original request is replayed.
+    it('mid-session 401 on a protected request recovers via the retried refresh and stays signed in', async () => {
+      vi.useFakeTimers();
+      const client = await getApiClient();
+      const { rejected } = getResponseInterceptors(client);
+      const { REFRESH_RETRY_DELAY_MS } = await getModule();
+
+      const postSpy = vi
+        .spyOn(axios, 'post')
+        .mockRejectedValueOnce(refused401())
+        .mockResolvedValueOnce({ data: { access: 'mid-session-rotated-access' } });
+
+      const originalAdapter = client.defaults.adapter;
+      const adapterSpy = vi
+        .fn()
+        .mockResolvedValue({ status: 200, data: { ok: true }, headers: {}, config: {} });
+      client.defaults.adapter = adapterSpy;
+
+      const protectedRequest401 = Object.assign(new Error('Unauthorized'), {
+        isAxiosError: true,
+        response: { status: 401 },
+        config: { headers: {} },
+      });
+
+      try {
+        const pending = rejected(protectedRequest401);
+        await vi.advanceTimersByTimeAsync(REFRESH_RETRY_DELAY_MS);
+        await pending;
+
+        // Refresh was refused once (the sibling's stale cookie) and retried once.
+        expect(postSpy).toHaveBeenCalledTimes(2);
+        expect(useAuthStore.getState().accessToken).toBe('mid-session-rotated-access');
+        expect(useAuthStore.getState().sessionExpired).toBe(false);
+        // The ORIGINAL protected request was replayed with the recovered token —
+        // the interceptor never gave up on the request that triggered it.
+        expect(adapterSpy).toHaveBeenCalledTimes(1);
+        const retryConfig = adapterSpy.mock.calls[0][0] as { headers?: Record<string, string> };
+        expect(retryConfig.headers?.Authorization).toBe('Bearer mid-session-rotated-access');
+      } finally {
+        client.defaults.adapter = originalAdapter;
+      }
     });
   });
 });

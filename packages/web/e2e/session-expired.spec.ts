@@ -136,4 +136,40 @@ test.describe('Session expired banner', () => {
     await gate.getByRole('button', { name: 'Sign in' }).click();
     await expect(page).toHaveURL(/\/login/);
   });
+
+  test('reload while a sibling tab rotates the refresh cookie restores the session silently (#4247)', async ({
+    page,
+  }) => {
+    // No in-memory access token: this is a reload, so RequireAuth bootstraps one
+    // from the refresh cookie before the app renders.
+    await setupAuth(page, { accessToken: null });
+    await setupCatchAll(page);
+    await setupApiMocks(page, { projects: [PROJECT], projectId: PROJECT_ID });
+
+    // The first refresh presents the cookie value a sibling tab has just rotated,
+    // so the server's blacklist refuses it. By the time the client retries, the
+    // browser's jar holds the sibling's rotated value and the refresh succeeds.
+    let refreshCalls = 0;
+    await page.route('**/api/v1/auth/token/refresh/', (route) => {
+      refreshCalls += 1;
+      if (refreshCalls === 1) {
+        return route.fulfill({
+          status: 401,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'Token is blacklisted' }),
+        });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ access: 'e2e-rotated-access' }),
+      });
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/overview`);
+
+    await expect(page.getByText(PROJECT.name).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('dialog', { name: /Your session expired/ })).toHaveCount(0);
+    expect(refreshCalls).toBe(2);
+  });
 });

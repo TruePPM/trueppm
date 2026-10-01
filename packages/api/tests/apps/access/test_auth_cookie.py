@@ -764,3 +764,78 @@ def test_refresh_cookie_path_reaches_the_logout_endpoint() -> None:
     # Still narrow enough that ordinary API calls never carry the credential.
     assert cookie_path.startswith("/api/v1/auth/")
     assert not "/api/v1/projects/".startswith(cookie_path)
+
+
+# ---------------------------------------------------------------------------
+# Cross-tab refresh race (#4247). Every tab in a browser shares ONE refresh
+# cookie, and rotation blacklists the token it consumed. A tab that presents the
+# cookie value a sibling tab has just rotated is therefore refused — that 401 is
+# what surfaced as a false "Your session expired" on reload. The server half is
+# deliberately left as is (the refusal IS the #910/#2999 replay guarantee); the
+# fix is client-side: serialize refresh across tabs and retry once with the
+# rotated cookie. These tests pin both halves of that contract.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_sibling_tab_presenting_the_pre_rotation_cookie_is_refused(user) -> None:
+    """Reproduces #4247 at the API: two tabs, one cookie, the second refresh 401s."""
+    tab_a = APIClient()
+    shared_cookie = _login(tab_a)
+    tab_b = APIClient()
+    tab_b.cookies[_COOKIE] = shared_cookie
+
+    # Tab A rotates first; the browser's shared jar now holds the rotated value.
+    rotated = tab_a.post(_REFRESH_URL, {}, format="json")
+    assert rotated.status_code == 200
+    rotated_cookie = rotated.cookies[_COOKIE].value
+    assert rotated_cookie != shared_cookie
+
+    # Tab B's request was built with the value it read before A's response landed.
+    stale = tab_b.post(_REFRESH_URL, {}, format="json")
+    assert stale.status_code == 401
+    # The refusal must not clear the cookie: if it did, the jar would lose the
+    # sibling's rotated token and the session really would be gone.
+    assert _COOKIE not in stale.cookies
+
+
+@pytest.mark.django_db
+def test_sibling_tab_retry_with_the_rotated_cookie_recovers_the_session(user) -> None:
+    """The client fix: after the 401, one retry carries the jar's rotated cookie."""
+    tab_a = APIClient()
+    shared_cookie = _login(tab_a)
+    rotated = tab_a.post(_REFRESH_URL, {}, format="json")
+    assert rotated.status_code == 200
+
+    tab_b = APIClient()
+    tab_b.cookies[_COOKIE] = shared_cookie
+    assert tab_b.post(_REFRESH_URL, {}, format="json").status_code == 401
+
+    # The browser jar is shared, so tab B's retry carries what tab A received.
+    tab_b.cookies[_COOKIE] = rotated.cookies[_COOKIE].value
+    retried = tab_b.post(_REFRESH_URL, {}, format="json")
+    assert retried.status_code == 200
+    assert retried.data["access"]
+
+
+@pytest.mark.django_db
+def test_cross_tab_recovery_does_not_reopen_revocation(user) -> None:
+    """#2999 must hold across the race: revocation ends every tab's session.
+
+    The fix grants no grace window to a just-rotated token, so after
+    ``revoke_all_refresh_tokens`` neither the stale value nor the rotated one a
+    sibling tab would retry with can mint an access token.
+    """
+    from trueppm_api.apps.access.services import revoke_all_refresh_tokens
+
+    tab_a = APIClient()
+    shared_cookie = _login(tab_a)
+    rotated = tab_a.post(_REFRESH_URL, {}, format="json")
+    assert rotated.status_code == 200
+
+    revoke_all_refresh_tokens(user)
+
+    for value in (shared_cookie, rotated.cookies[_COOKIE].value):
+        replay = APIClient()
+        replay.cookies[_COOKIE] = value
+        assert replay.post(_REFRESH_URL, {}, format="json").status_code == 401
