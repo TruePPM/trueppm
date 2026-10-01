@@ -356,6 +356,138 @@ describe('useDragCpm', () => {
     });
   });
 
+  // Resize preview (issue #4237) — mirrors the drag-task-* describe blocks
+  // above one-for-one, since resize-task-* is the same protocol with a
+  // duration override instead of a start override.
+  describe('resize-task event', () => {
+    it('transitions the store to dragging with the correct task id', () => {
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('resize-task', { id: 't1' }));
+      expect(useDragStore.getState().phase).toBe('dragging');
+      expect(useDragStore.getState().draggedTaskId).toBe('t1');
+    });
+
+    it('posts a RESIZE_START carrying the subgraph once at resize start', () => {
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('resize-task', { id: 't1' }));
+      expect(workerMock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'RESIZE_START',
+          resizedTaskId: 't1',
+          subgraph: { tasks: [], edges: [] },
+        }),
+      );
+    });
+  });
+
+  describe('resize-task-move event', () => {
+    it('posts a RESIZE_MOVE with seq = 1 and the working-day duration for the dropped edge', () => {
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('resize-task', { id: 't1' }));
+      workerMock.postMessage.mockClear(); // drop the RESIZE_START call
+      // right = 180px → 15 days from the scale origin (12px/day) → the
+      // handle is dropped on 2025-01-16 (exclusive edge) → finish 2025-01-15.
+      // t1 runs Jan 6 (Mon) .. Jan 15 (Wed) inclusive under the default
+      // Mon–Fri mask = 8 working days (vs. its original 5-day duration).
+      void act(() => engine.emit('resize-task-move', { id: 't1', right: 180 }));
+      expect(workerMock.postMessage).toHaveBeenCalledWith({
+        type: 'RESIZE_MOVE',
+        seq: 1,
+        newDurationDays: 8,
+      });
+    });
+
+    it('increments seq on each move event', () => {
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('resize-task', { id: 't1' }));
+      void act(() => engine.emit('resize-task-move', { id: 't1', right: 132 }));
+      void act(() => engine.emit('resize-task-move', { id: 't1', right: 180 }));
+      expect(workerMock.postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ type: 'RESIZE_MOVE', seq: 2 }),
+      );
+    });
+
+    it('does not post a RESIZE_MOVE when the dropped edge resolves before the task start', () => {
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('resize-task', { id: 't1' }));
+      workerMock.postMessage.mockClear();
+      // right = 0 → the scale origin itself (2025-01-01) → exclusive-edge-minus-
+      // one-day finish is 2024-12-31, before t1's 2025-01-06 start.
+      void act(() => engine.emit('resize-task-move', { id: 't1', right: 0 }));
+      expect(workerMock.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('uses the project working-days mask passed in, not the Mon–Fri default (#4237)', () => {
+      const engine = new ControllableEngine();
+      const ariaLiveRef = makeAriaRef();
+      // Mon–Sat (63) — one more working day in range than the default Mon–Fri
+      // mask, so the two must disagree if the mask is actually threaded through.
+      renderHook(() =>
+        useDragCpm({
+          engine,
+          tasks: TASKS,
+          links: LINKS,
+          ariaLiveRef,
+          workingDaysMask: 63,
+        }),
+      );
+      void act(() => engine.emit('resize-task', { id: 't1' }));
+      workerMock.postMessage.mockClear();
+      void act(() => engine.emit('resize-task-move', { id: 't1', right: 180 }));
+      expect(workerMock.postMessage).toHaveBeenCalledWith({
+        type: 'RESIZE_MOVE',
+        seq: 1,
+        newDurationDays: 9,
+      });
+    });
+  });
+
+  describe('resize-task-end event', () => {
+    it('posts a RESIZE_END to release the resident subgraph', () => {
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('resize-task', { id: 't1' }));
+      workerMock.postMessage.mockClear(); // drop the RESIZE_START call
+      void act(() => engine.emit('resize-task-end', { id: 't1', right: 0 }));
+      expect(workerMock.postMessage).toHaveBeenCalledWith({ type: 'RESIZE_END' });
+    });
+
+    it('calls cancelDrag and announces "Resize cancelled" when ev.cancelled is true', () => {
+      const engine = new ControllableEngine();
+      const { ariaLiveRef } = renderCpm(engine);
+      void act(() => engine.emit('resize-task', { id: 't1' }));
+      void act(() => engine.emit('resize-task-end', { id: 't1', right: 0, cancelled: true }));
+      expect(useDragStore.getState().phase).toBe('idle');
+      expect(ariaLiveRef.current?.textContent).toBe('Resize cancelled');
+    });
+
+    it('calls commitDrag when online and not cancelled', () => {
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('resize-task', { id: 't1' }));
+      void act(() => engine.emit('resize-task-end', { id: 't1', right: 0 }));
+      expect(useDragStore.getState().phase).toBe('committing');
+    });
+
+    it('calls cancelDrag + setError when offline (rule 29)', () => {
+      const spy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+      try {
+        const engine = new ControllableEngine();
+        renderCpm(engine);
+        void act(() => engine.emit('resize-task', { id: 't1' }));
+        void act(() => engine.emit('resize-task-end', { id: 't1', right: 0 }));
+        expect(useDragStore.getState().phase).toBe('error');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
+
   describe('Escape key handler (rule 28)', () => {
     it('cancels an active pointer drag and calls engine.cancelDrag', () => {
       const engine = new ControllableEngine();
@@ -413,6 +545,16 @@ describe('useDragCpm', () => {
       void act(() => engine.emit('drag-task', { id: 't1' }));
       void act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
       expect(ariaLiveRef.current?.textContent).toBe('Drag cancelled');
+    });
+
+    it('writes "Resize cancelled" on Escape cancel of an active resize (#4237)', () => {
+      const engine = new ControllableEngine();
+      const { ariaLiveRef } = renderCpm(engine);
+      void act(() => engine.emit('resize-task', { id: 't1' }));
+      void act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+      expect(useDragStore.getState().phase).toBe('idle');
+      expect(engine.cancelDragCalled).toBe(true);
+      expect(ariaLiveRef.current?.textContent).toBe('Resize cancelled');
     });
   });
 

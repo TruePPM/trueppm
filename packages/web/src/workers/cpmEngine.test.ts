@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { runCpmForwardPass } from './cpmEngine';
+import { runCpmForwardPass, runCpmResizeForwardPass } from './cpmEngine';
 import type { CpmTask, CpmEdge } from './cpmWorker.types';
 
 // Helper: build a task with sensible defaults
@@ -981,5 +981,88 @@ describe('runCpmForwardPass — zero-duration milestones are instants (#4079)', 
     );
     const m2ZeroLag = zeroLag.results.find((r) => r.taskId === 'M2')!;
     expect(m2ZeroLag.milestoneAtDayEnd).toBe(false); // inherited M1's own reading
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resize preview (issue #4237) — a resize holds the task's start fixed and
+// changes only its working-day duration, unlike a drag which moves the whole
+// bar. Everything downstream of the new finish must cascade the same way it
+// does for a reschedule.
+// ---------------------------------------------------------------------------
+describe('runCpmResizeForwardPass', () => {
+  it('changes only the resized task finish, keeping its start fixed', () => {
+    const tasks: CpmTask[] = [task('A', '2025-01-06', '2025-01-10')]; // 5 working days
+    const { results } = runCpmResizeForwardPass(tasks, [], 'A', 8);
+
+    const a = results.find((r) => r.taskId === 'A')!;
+    expect(a.earlyStart).toBe('2025-01-06'); // unchanged — a resize never moves the start
+    expect(a.earlyFinish).toBe('2025-01-15'); // 8 working days from Jan 6 (Mon)
+  });
+
+  it('cascades a duration INCREASE to a downstream FS dependency', () => {
+    // A (5d, Jan 6–10) —FS→ B (3d, originally Jan 11–13).
+    // Resizing A to 8 working days pushes its finish to Jan 15 (Wed), so B's
+    // FS anchor (the day after) moves to Jan 16 (Thu) and B's own 3-day span
+    // walks the following weekend to land on Jan 20 (Mon).
+    const tasks: CpmTask[] = [
+      task('A', '2025-01-06', '2025-01-10'),
+      task('B', '2025-01-11', '2025-01-13'),
+    ];
+    const edges: CpmEdge[] = [edge('A', 'B', 'FS')];
+
+    const { results } = runCpmResizeForwardPass(tasks, edges, 'A', 8);
+    const a = results.find((r) => r.taskId === 'A')!;
+    const b = results.find((r) => r.taskId === 'B')!;
+
+    expect(a.earlyFinish).toBe('2025-01-15');
+    expect(b.earlyStart).toBe('2025-01-16');
+    expect(b.earlyFinish).toBe('2025-01-20');
+  });
+
+  it('cascades a duration DECREASE (pull-in) the same as a reschedule pull-in does', () => {
+    // A (5d) —FS→ B. Shrinking A to 2 working days pulls B's anchor in too,
+    // mirroring issue #3535's bidirectional relaxation for a reschedule.
+    const tasks: CpmTask[] = [
+      task('A', '2025-01-06', '2025-01-10'),
+      task('B', '2025-01-11', '2025-01-13'),
+    ];
+    const edges: CpmEdge[] = [edge('A', 'B', 'FS')];
+
+    const { results } = runCpmResizeForwardPass(tasks, edges, 'A', 2);
+    const a = results.find((r) => r.taskId === 'A')!;
+    const b = results.find((r) => r.taskId === 'B')!;
+
+    expect(a.earlyFinish).toBe('2025-01-07'); // 2 working days from Jan 6
+    expect(b.earlyStart).toBe('2025-01-08');
+    expect(b.earlyFinish).toBe('2025-01-10');
+  });
+
+  it('flags a resized task as critical when its new finish reaches lateFinish', () => {
+    const tasks: CpmTask[] = [
+      task('A', '2025-01-06', '2025-01-10', { lateFinish: '2025-01-15' }),
+    ];
+    const { results } = runCpmResizeForwardPass(tasks, [], 'A', 8);
+    expect(results.find((r) => r.taskId === 'A')!.isCritical).toBe(true);
+  });
+
+  it('does not resize a pinned (completed + actuals) task — actuals are never renegotiated', () => {
+    const tasks: CpmTask[] = [
+      task('A', '2025-01-06', '2025-01-10', {
+        isComplete: true,
+        actualStart: '2025-01-06',
+        actualFinish: '2025-01-10',
+      }),
+    ];
+    const { results } = runCpmResizeForwardPass(tasks, [], 'A', 8);
+    expect(results.find((r) => r.taskId === 'A')!.earlyFinish).toBe('2025-01-10');
+  });
+
+  it('does not resize a milestone (zero duration) even if a stray message asks it to', () => {
+    const tasks: CpmTask[] = [
+      task('A', '2025-01-10', '2025-01-10', { isMilestone: true, durationDays: 0 }),
+    ];
+    const { results } = runCpmResizeForwardPass(tasks, [], 'A', 5);
+    expect(results.find((r) => r.taskId === 'A')!.earlyFinish).toBe('2025-01-10');
   });
 });

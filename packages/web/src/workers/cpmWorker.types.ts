@@ -171,12 +171,54 @@ export interface RecalcMessage {
   statusDate?: string | null;
 }
 
+/**
+ * Sent once at resize start (issue #4237), paralleling `DragStartMessage` for
+ * the right-edge resize gesture. The resized task's downstream subgraph is
+ * topologically invariant for the whole resize — a resize changes a bar's
+ * DURATION, not the dependency network — so the worker keeps it resident and
+ * every subsequent RESIZE_MOVE reuses it, same as a drag.
+ *
+ * Carries no `statusDate`: that floor exists to clamp the DRAGGED task's
+ * start when a drop lands in the past, and a resize never moves the task's
+ * start — only its finish.
+ */
+export interface ResizeStartMessage {
+  type: 'RESIZE_START';
+  resizedTaskId: string;
+  /** Only tasks reachable downstream from resizedTaskId (inclusive). */
+  subgraph: {
+    tasks: CpmTask[];
+    edges: CpmEdge[];
+  };
+}
+
+/**
+ * Sent on each resize frame after RESIZE_START. Carries only the changed
+ * working-day duration — the resized task's start never moves, so there is
+ * no date to send, unlike `DragMoveMessage`.
+ */
+export interface ResizeMoveMessage {
+  type: 'RESIZE_MOVE';
+  /** Monotonically increasing sequence number — stale results are discarded. */
+  seq: number;
+  /** The resized task's new FULL working-day duration. */
+  newDurationDays: number;
+}
+
+/** Sent at resize end (commit or cancel) so the worker releases the subgraph. */
+export interface ResizeEndMessage {
+  type: 'RESIZE_END';
+}
+
 /** Discriminated union of every message the worker accepts. */
 export type WorkerRequest =
   | DragStartMessage
   | DragMoveMessage
   | DragEndMessage
-  | RecalcMessage;
+  | RecalcMessage
+  | ResizeStartMessage
+  | ResizeMoveMessage
+  | ResizeEndMessage;
 
 /** Per-task result posted back from the worker. */
 export interface PreviewTaskResult {
@@ -212,6 +254,7 @@ export interface ResultMessage {
   type: 'RESULT';
   /** Echoed sequence number so stale results can be discarded. */
   seq: number;
+  /** The dragged OR resized task id (issue #4237) — whichever gesture is live. */
   draggedTaskId: string;
   results: PreviewTaskResult[];
   worstMilestone: PreviewMilestone | null;

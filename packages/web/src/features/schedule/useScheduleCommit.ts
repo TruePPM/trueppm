@@ -6,7 +6,7 @@ import { describeWriteRefusal, type WriteRefusal } from '@/lib/writeRefusal';
 import { isDemoReadOnlyRefusal } from '@/lib/demoReadOnly';
 import { isDemoReadOnlySync } from '@/hooks/useDemoMode';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
-import type { GanttEngine } from './engine';
+import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, dragDropStartIso, leftToDate } from './engine';
 import { CHART_HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
 import type { Task, ApiSprint } from '@/types';
@@ -165,7 +165,7 @@ function isoFromUtcMs(ms: number): string {
 }
 
 /** Mon–Fri (1+2+4+8+16) — mirrors the server's `working_day_duration` default. */
-const MON_FRI_MASK = 31;
+export const MON_FRI_MASK = 31;
 
 /**
  * Is a UTC-midnight instant a working day under a `Calendar.working_days` mask?
@@ -199,7 +199,7 @@ function isWorkingDayUtc(ms: number, mask: number): boolean {
  * with this same function, so a holiday inside the unchanged prefix cancels out;
  * the residue is a holiday landing in the extended region (#1498).
  */
-function workingDaysInclusive(startIso: string, finishIso: string, mask: number): number {
+export function workingDaysInclusive(startIso: string, finishIso: string, mask: number): number {
   const startMs = new Date(startIso + 'T00:00:00Z').getTime();
   const finishMs = new Date(finishIso + 'T00:00:00Z').getTime();
   let count = 0;
@@ -207,6 +207,25 @@ function workingDaysInclusive(startIso: string, finishIso: string, mask: number)
     if (isWorkingDayUtc(ms, mask)) count += 1;
   }
   return Math.max(1, count);
+}
+
+/**
+ * The finish DATE a resize's right-edge pixel resolves to (issue #4237).
+ *
+ * The resize handle tracks the bar's EXCLUSIVE right edge — `dateToRight`
+ * paints one day past the inclusive finish (the morning after the last
+ * working day). Snap that edge to a day boundary (the FSM emits an unsnapped
+ * pixel `right`) and step back one day to recover the finish DATE the user
+ * is pointing at.
+ *
+ * Shared with `useDragCpm`'s live resize preview (which calls this on every
+ * `resize-task-move` frame) so the preview and this file's own
+ * `resize-task-end` commit handler can never resolve the same pixel to two
+ * different dates.
+ */
+export function resizeMoveFinishIso(right: number, scales: GanttScaleData): string {
+  const exclusiveEdgeMs = Math.round(leftToDate(right, scales).getTime() / DAY_MS) * DAY_MS;
+  return isoFromUtcMs(exclusiveEdgeMs - DAY_MS);
 }
 
 /** "Aug 15" — UTC-parsed to match this module's date arithmetic (rule 56). */
@@ -360,13 +379,10 @@ export function useScheduleCommit({
       if (!scales) return;
       const task = allTasksRef.current.find((t) => t.id === id);
       if (!task?.start) return;
-      // The resize handle tracks the bar's EXCLUSIVE right edge — `dateToRight`
-      // paints one day past the inclusive finish (the morning after the last
-      // working day). Snap that edge to a day boundary (the FSM emits an
-      // unsnapped pixel `right`) and step back one day to recover the finish
-      // DATE the user dropped on.
-      const exclusiveEdgeMs = Math.round(leftToDate(right, scales).getTime() / DAY_MS) * DAY_MS;
-      const newFinish = isoFromUtcMs(exclusiveEdgeMs - DAY_MS);
+      // Resolve the dropped pixel to a finish DATE — shared with the live
+      // resize preview via `resizeMoveFinishIso` (#4237) so the two can never
+      // disagree about what a given pixel means.
+      const newFinish = resizeMoveFinishIso(right, scales);
       // No-op / invalid guards compare the finish DATE — NOT a calendar-day vs
       // working-day duration, which falsely fired when the bar spanned a weekend
       // or holiday (#951): a no-op grab read the calendar span (e.g. 4) against

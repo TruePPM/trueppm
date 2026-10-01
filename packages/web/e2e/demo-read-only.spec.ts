@@ -126,7 +126,7 @@ test.describe('Read-only demo — login announcement (ADR-1197 D3)', () => {
     await expect(page.getByText(/^◆\s*Read-only demo$/)).toBeVisible();
     await expect(
       page.getByText(
-        "The Schedule is the only interactive part of this demo — drag a task to a new date and watch the critical path recompute live in your browser. (Resizing a task's duration previews the new length only; it doesn't recompute the schedule.) Nothing you do here is saved.",
+        "The Schedule is the only interactive part of this demo — drag a task to a new date, or resize its bar to change its duration, and watch the critical path recompute live in your browser. Nothing you do here is saved.",
       ),
     ).toBeVisible();
     // One shared login, so no collaboration to see — and where to go instead (#3998).
