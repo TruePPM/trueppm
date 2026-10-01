@@ -120,6 +120,9 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // `sf_from_work_chained` (in scope), which reaches the same shape via FS.
   sf_lag_weekend: 'adapter: seeds all tasks at project start, overriding SNET',
   sf_from_work_vs_milestone: 'adapter: seeds all tasks at project start, overriding SNET',
+  // #4225. The exact fuzz network, direct and via an inserted milestone side by
+  // side, so it carries several unlinked source tasks in each half.
+  milestone_project_start_floor_display_only: 'adapter: 8 source tasks',
   // Progress fixtures need actuals and a status date threaded through the
   // adapter; the engine implements the floors (#2813), the harness does not
   // feed them. Tracked as the next widening step.

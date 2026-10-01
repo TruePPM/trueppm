@@ -25,6 +25,21 @@ use crate::models::{Calendar, Dependency, DependencyType, Task};
 /// see the `trueppm_scheduler.engine` module docstring for the convention.
 pub type Instant = (NaiveDate, bool);
 
+/// Every milestone's two instants by node index, as `forward_pass` places them.
+///
+/// `shown` is where each milestone is shown (its `early_start`/`early_finish` day
+/// and reading); `links` is the instant its successors measure from. They differ
+/// only for a milestone held up by the project-start floor alone, which bounds
+/// where a milestone is shown but not what it passes on (#4225). Mirrors the
+/// Python `_forward_pass` return value and its `link_instants` map.
+#[derive(Debug, Clone, Default)]
+pub struct MilestoneInstants {
+    /// Each milestone's shown position (`None` for ordinary work).
+    pub shown: Vec<Option<Instant>>,
+    /// Each milestone's link instant (`None` for ordinary work).
+    pub links: Vec<Option<Instant>>,
+}
+
 /// Whether a dependency type bounds its successor's *start* (FS/SS).
 pub(crate) fn start_anchored(dep_type: DependencyType) -> bool {
     matches!(dep_type, DependencyType::FS | DependencyType::SS)
@@ -94,7 +109,11 @@ pub(crate) fn start_reading(
     Ok(start_display || !cal.is_working_day(checked_offset_days(instant, -1)?))
 }
 
-/// Place a zero-duration task as an instant: `((instant, start_display), day)`.
+/// Place a zero-duration task as an instant: `(shown, day, link)`.
+///
+/// `shown` is the `(instant, start_display)` the milestone is shown at on `day`;
+/// `link` is the instant its own successors measure from, read off `links` for
+/// each predecessor milestone in turn.
 ///
 /// Every floor and incoming link proposes a raw midnight and the latest wins, a
 /// start-of-day reading winning a tie (floors are offered first, so a floor keeps
@@ -107,6 +126,17 @@ pub(crate) fn start_reading(
 /// after non-working time is always shown at the start of the next working day
 /// ([`start_reading`], #4173); FF/SF links propose the end of the finish day
 /// `next_wd(anchor + lag)`. Mirrors the Python `_place_milestone` (#4079).
+///
+/// The project-start floor (`start_floor`) only bounds where the milestone is
+/// *shown* (#4225); `floors` holds the others (data date, SNET, a recorded actual
+/// start), which bind `link` too. Every successor carries the project-start floor
+/// itself, so a milestone held at it by that floor alone has nothing to add
+/// downstream — measuring a successor's lag from the floored instant made
+/// `A -FS-> M -FS(2cd)-> B` put `B` a working day after `A -FS(2cd)-> B` whenever
+/// `A` sits before the project start (an SF-only task, #4218, or a negative lag).
+/// `link` is the latest proposal without the project-start floor and `shown` the
+/// latest with it; with nothing but that floor proposing, they are the same.
+#[allow(clippy::too_many_arguments)]
 fn place_milestone(
     idx: NodeIndex,
     tasks: &[Task],
@@ -114,22 +144,26 @@ fn place_milestone(
     deps: &[Dependency],
     cals: &PassCalendars,
     floors: &[NaiveDate],
-    instants: &[Option<Instant>],
-) -> Result<(Instant, NaiveDate), String> {
+    start_floor: Option<NaiveDate>,
+    links: &[Option<Instant>],
+) -> Result<(Instant, NaiveDate, Instant), String> {
     let cal = cals.for_node(idx.index());
-    let mut best: Option<(NaiveDate, bool, NaiveDate)> = None;
-    let mut offer = |candidate: (NaiveDate, bool, NaiveDate)| match best {
-        Some(b) if (candidate.0, candidate.1) <= (b.0, b.1) => {}
-        _ => best = Some(candidate),
-    };
+    type Proposal = (NaiveDate, bool, NaiveDate);
+    fn offer(best: &mut Option<Proposal>, candidate: Proposal) {
+        match *best {
+            Some(b) if (candidate.0, candidate.1) <= (b.0, b.1) => {}
+            _ => *best = Some(candidate),
+        }
+    }
+    let mut best: Option<Proposal> = None;
     for &floor in floors {
-        offer((floor, true, floor));
+        offer(&mut best, (floor, true, floor));
     }
     for edge in pg.graph.edges_directed(idx, Direction::Incoming) {
         let dep = &deps[*edge.weight()];
         let p = edge.source().index();
         let pred = &tasks[p];
-        let pred_instant = instants[p];
+        let pred_instant = links[p];
         let anchor = edge_anchor(
             dep.dep_type,
             pred.early_start.unwrap(),
@@ -151,16 +185,27 @@ fn place_milestone(
                 _ => dep.dep_type == DependencyType::SS,
             };
             let start_display = start_reading(raw, base_display, cal)?;
-            offer((raw, start_display, instant_day(raw, start_display, cal)?));
+            offer(
+                &mut best,
+                (raw, start_display, instant_day(raw, start_display, cal)?),
+            );
         } else {
             let finish_day = next_working_day(raw, cal)?;
-            offer((checked_offset_days(finish_day, 1)?, false, finish_day));
+            offer(
+                &mut best,
+                (checked_offset_days(finish_day, 1)?, false, finish_day),
+            );
         }
+    }
+    let link = best;
+    if let Some(floor) = start_floor {
+        offer(&mut best, (floor, true, floor));
     }
     // Every node carries a floor or an incoming link: only an SF-only node goes
     // without the project-start floor (#4218), and it has at least one SF link.
     let (x, start_display, day) = best.expect("a floor or an incoming link proposes an instant");
-    Ok(((x, start_display), day))
+    let shown = (x, start_display);
+    Ok((shown, day, link.map_or(shown, |l| (l.0, l.1))))
 }
 
 /// The per-calendar start floors `(un-floored, floored, data date)`.
@@ -251,9 +296,10 @@ fn apply_ef_constraints(
 /// working day within the scan bound — see `calendar::next_working_day` (#908).
 ///
 /// Zero-duration tasks scheduled through the network are placed as instants
-/// (#4079, `place_milestone`); the returned vector holds each one's [`Instant`] by
-/// node index (`None` for ordinary work and for tasks pinned by actuals), which
-/// the backward pass and float computation read to invert the same rule.
+/// (#4079, `place_milestone`); the returned [`MilestoneInstants`] holds each
+/// one's shown and link [`Instant`] by node index (`None` for ordinary work and
+/// for tasks pinned by actuals), which the backward pass and float computation
+/// read to invert the same rule.
 ///
 /// Tasks are carried in a `Vec<Task>` indexed by node position (#1535); each
 /// node's predecessors are read by iterating its incoming edges directly
@@ -268,10 +314,11 @@ pub fn forward_pass(
     project_start: NaiveDate,
     cals: &PassCalendars,
     status_date: Option<NaiveDate>,
-) -> Result<Vec<Option<Instant>>, String> {
+) -> Result<MilestoneInstants, String> {
     // Memoized per distinct calendar — see `start_floors_for`.
     let mut floors_by_cal: HashMap<*const Calendar, StartFloors> = HashMap::new();
     let mut instants: Vec<Option<Instant>> = vec![None; tasks.len()];
+    let mut links: Vec<Option<Instant>> = vec![None; tasks.len()];
 
     for &idx in topo_order {
         let i = idx.index();
@@ -310,9 +357,18 @@ pub fn forward_pass(
         // work cannot be forecast into the past. A complete-without-actuals task
         // was never floored at the data date, so it keeps no floor at all. Mirrors
         // the Python `_early_start_floors`.
-        let mut es_constraints: Vec<NaiveDate> = if !sf_only(idx, pg, deps) {
+        let is_sf_only = sf_only(idx, pg, deps);
+        let mut es_constraints: Vec<NaiveDate> = if !is_sf_only {
             vec![base_es]
         } else if tasks[i].is_complete() {
+            Vec::new()
+        } else {
+            data_floor.into_iter().collect()
+        };
+        // Every floor but the project start's — the list an SF-only task gets —
+        // binds a milestone's link instant; the project start only bounds where
+        // it is shown (#4225, see `place_milestone`).
+        let mut hard_floors: Vec<NaiveDate> = if tasks[i].is_complete() {
             Vec::new()
         } else {
             data_floor.into_iter().collect()
@@ -327,15 +383,28 @@ pub fn forward_pass(
                 // non-working day (e.g. logged over a weekend) and is not
                 // renegotiated.
                 es_constraints.push(actual_start);
+                hard_floors.push(actual_start);
             }
         }
         if let Some(ps) = tasks[i].planned_start {
-            es_constraints.push(next_working_day(ps, node_cal)?);
+            let snet = next_working_day(ps, node_cal)?;
+            es_constraints.push(snet);
+            hard_floors.push(snet);
         }
         if duration_days == 0 {
-            let (instant, day) =
-                place_milestone(idx, tasks, pg, deps, cals, &es_constraints, &instants)?;
+            let start_floor = (!is_sf_only).then_some(start_base);
+            let (instant, day, link) = place_milestone(
+                idx,
+                tasks,
+                pg,
+                deps,
+                cals,
+                &hard_floors,
+                start_floor,
+                &links,
+            )?;
             instants[i] = Some(instant);
+            links[i] = Some(link);
             let task = &mut tasks[i];
             task.early_start = Some(day);
             task.early_finish = Some(day);
@@ -345,7 +414,7 @@ pub fn forward_pass(
             continue;
         }
         let (pred_es_constraints, ef_constraints) =
-            edge_constraints(idx, tasks, pg, deps, cals, &instants)?;
+            edge_constraints(idx, tasks, pg, deps, cals, &links)?;
         es_constraints.extend(pred_es_constraints);
 
         if es_constraints.is_empty() {
@@ -384,7 +453,10 @@ pub fn forward_pass(
         task.early_finish = Some(ef);
         task.scheduled_start = Some(compute_scheduled_start(task, node_cal)?);
     }
-    Ok(instants)
+    Ok(MilestoneInstants {
+        shown: instants,
+        links,
+    })
 }
 
 /// The task's span start (ADR-0752), as distinct from `early_start`.
@@ -620,5 +692,63 @@ mod tests {
         );
         assert_eq!(p2.early_start, d(6));
         assert!(!p2.milestone_at_day_end);
+    }
+
+    /// #4225: the project-start floor only places a milestone where it is shown.
+    /// `T1 -SF(-2cd)-> T2` puts SF-only `T2` on Wed 2025-12-31, so `T2 -FS(2cd)->
+    /// T3` measures from midnight 2026-01-01 and is floored at Mon 2026-01-05.
+    /// Splitting that link with `M` must land `T3` on the same day — `M` is shown
+    /// on Monday, but `T3`'s lag counts from `M`'s pre-floor instant. Measuring it
+    /// from the floored instant put `T3` on Tuesday. This asserts the correct
+    /// outcome, not just agreement with the Python engine.
+    #[test]
+    fn a_milestone_floored_at_project_start_passes_its_raw_instant_on() {
+        let tasks = [
+            ("T0", 0),
+            ("T1", 0),
+            ("T2", 0),
+            ("T3", 0),
+            ("T4", 0),
+            ("T5", 2),
+        ];
+        let sf = ("T1", "T2", "SF", -2);
+        let direct = schedule_one(&tasks, &[sf, ("T2", "T3", "FS", 2)], "T3");
+        let mut with_m = tasks.to_vec();
+        with_m.push(("M", 0));
+        let deps = [sf, ("T2", "M", "FS", 0), ("M", "T3", "FS", 2)];
+        let via_m = schedule_one(&with_m, &deps, "T3");
+        let m = schedule_one(&with_m, &deps, "M");
+        assert_eq!(direct.early_start, d(5));
+        assert_eq!(via_m.early_start, direct.early_start);
+        assert_eq!(via_m.late_start, direct.late_start);
+        assert_eq!(via_m.total_float, direct.total_float);
+        // M is still never shown before the project start, nor late before early.
+        assert_eq!((m.early_start, m.late_start), (d(5), d(5)));
+    }
+
+    /// #4225: a data-date floor is not a display bound — an unreached milestone
+    /// happens no earlier than "as of now", so a lag after it counts from there.
+    #[test]
+    fn a_data_date_floored_milestone_still_moves_its_successor() {
+        let project: Project = serde_json::from_value(json!({
+            "id": "p",
+            "name": "p",
+            "start_date": "2026-01-05",
+            "status_date": "2026-01-12",
+            "tasks": [
+                {"id": "A", "name": "A", "duration": 86400.0,
+                 "actual_start": "2026-01-05", "actual_finish": "2026-01-05"},
+                {"id": "M", "name": "M", "duration": 0.0},
+                {"id": "B", "name": "B", "duration": 86400.0},
+            ],
+            "dependencies": [
+                {"predecessor_id": "A", "successor_id": "M", "dep_type": "FS", "lag": 0.0},
+                {"predecessor_id": "M", "successor_id": "B", "dep_type": "FS", "lag": 172800.0},
+            ],
+        }))
+        .expect("test project parses");
+        let result = schedule_impl(&project).expect("test project schedules");
+        let b = result.tasks.iter().find(|t| t.id == "B").unwrap();
+        assert_eq!(b.early_start, d(14));
     }
 }

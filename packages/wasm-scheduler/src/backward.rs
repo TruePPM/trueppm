@@ -11,7 +11,7 @@ use crate::calendar::{
     checked_offset_days, finish_from_start, next_working_day, prev_working_day,
     retreat_calendar_days, start_from_finish, PassCalendars,
 };
-use crate::forward::{start_anchored, start_reading, Instant};
+use crate::forward::{start_anchored, start_reading, Instant, MilestoneInstants};
 use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, Task};
 
@@ -219,6 +219,12 @@ fn late_refs(
 /// `float_lates` at every call site (`lib.rs`, `typed.rs`, `incremental.rs`),
 /// matching the Python engine, which caps in `schedule()` via
 /// `_float_late_instant` instead of inside the pass.
+///
+/// A milestone held up by the project-start floor alone is shown later than its
+/// link instant (#4225, `MilestoneInstants`). Its late instant — what its
+/// predecessors invert against — is floored at the link instant, so they see the
+/// bound the direct link would give them; its own late date and float are still
+/// floored at the shown instant, never shown before its early date.
 pub fn backward_pass(
     tasks: &mut [Task],
     topo_order: &[NodeIndex],
@@ -226,8 +232,9 @@ pub fn backward_pass(
     deps: &[Dependency],
     project_finish: NaiveDate,
     cals: &PassCalendars,
-    instants: &[Option<Instant>],
+    milestones: &MilestoneInstants,
 ) -> Result<Vec<Option<NaiveDate>>, String> {
+    let instants = &milestones.shown;
     let end = finish_instant(tasks, instants, project_finish)?;
     let mut late_instants: Vec<Option<NaiveDate>> = vec![None; tasks.len()];
     let mut float_lates: Vec<Option<NaiveDate>> = vec![None; tasks.len()];
@@ -277,9 +284,16 @@ pub fn backward_pass(
                     node_cal,
                 )?);
             }
-            let late = bound.max(early.0);
+            let link = milestones.links[i].unwrap_or(early);
+            let late = bound.max(link.0);
             let early_day = tasks[i].early_start.unwrap();
-            let day = late_display(late, early_day, early, node_cal, project_finish)?;
+            let day = late_display(
+                late.max(early.0),
+                early_day,
+                early,
+                node_cal,
+                project_finish,
+            )?;
             late_instants[i] = Some(late);
             // A milestone's own total float is *defined* against the reading that
             // places it early (#4183). The reason is not insertion invariance —

@@ -12,7 +12,7 @@ use crate::calendar::{
     checked_offset_days, next_working_day, prev_working_day, retreat_calendar_days,
     working_days_between, PassCalendars, WorkingDayCounter,
 };
-use crate::forward::{start_anchored, start_reading, Instant};
+use crate::forward::{start_anchored, start_reading, Instant, MilestoneInstants};
 use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, DrivingEdge, Task};
 
@@ -31,20 +31,26 @@ use crate::models::{Calendar, Dependency, DependencyType, DrivingEdge, Task};
 /// live successor link, inverted with `milestone_latest` against that successor's
 /// early references — its own free instant when it is a milestone, which is why
 /// this walks the topological order backwards.
+///
+/// A milestone held up by the project-start floor alone (#4225) is shown at the
+/// floor but measured from at its earlier link instant; its stretch runs from that
+/// link instant, so its predecessors see the slack the direct link gives them.
 fn milestone_free_instants(
     tasks: &[Task],
     topo_order: &[NodeIndex],
     pg: &ProjectGraph,
     deps: &[Dependency],
     cals: &PassCalendars,
-    instants: &[Option<Instant>],
+    milestones: &MilestoneInstants,
 ) -> Result<Vec<Option<NaiveDate>>, String> {
     let mut free: Vec<Option<NaiveDate>> = vec![None; tasks.len()];
     for &idx in topo_order.iter().rev() {
         let i = idx.index();
-        let Some((instant, start_display)) = instants[i] else {
+        let Some(early) = milestones.shown[i] else {
             continue;
         };
+        let (instant, start_display) = early;
+        let link = milestones.links[i].unwrap_or(early).0;
         if !start_display {
             free[i] = Some(instant);
             continue;
@@ -70,7 +76,7 @@ fn milestone_free_instants(
                 cal,
             )?);
         }
-        free[i] = Some(instant.max(bound));
+        free[i] = Some(link.max(bound));
     }
     Ok(free)
 }
@@ -187,9 +193,12 @@ pub fn compute_floats(
     pg: &ProjectGraph,
     deps: &[Dependency],
     cals: &PassCalendars,
-    instants: &[Option<Instant>],
+    milestones: &MilestoneInstants,
     float_lates: &[Option<NaiveDate>],
 ) -> Result<Vec<DrivingEdge>, String> {
+    // A milestone's own floats run from its shown instant; a zero-lag link carries
+    // its link instant's reading into a milestone successor (#4225).
+    let instants = &milestones.shown;
     let calendar = cals.default_calendar();
     let spans = SpanCounter {
         counter: WorkingDayCounter::build(tasks, calendar)?,
@@ -198,7 +207,7 @@ pub fn compute_floats(
     let mut driving_edges: Vec<DrivingEdge> = Vec::new();
     // Free float compares a milestone successor by its shown position, not its raw
     // instant (#4180).
-    let free_instants = milestone_free_instants(tasks, topo_order, pg, deps, cals, instants)?;
+    let free_instants = milestone_free_instants(tasks, topo_order, pg, deps, cals, milestones)?;
     for &idx in topo_order {
         let i = idx.index();
         let es = tasks[i].early_start.unwrap();
@@ -262,7 +271,7 @@ pub fn compute_floats(
                     free_start_ref(
                         (free_instants[s].unwrap(), start_display),
                         dep,
-                        instants[i],
+                        milestones.links[i],
                         cals.for_node(s),
                     )?,
                     raw_refs.1,

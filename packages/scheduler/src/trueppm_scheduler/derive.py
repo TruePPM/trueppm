@@ -1179,19 +1179,25 @@ def _milestone_context(
     the same instant, so a milestone-free project still derives in O(degree).
     """
     task_calendars = _resolve_task_calendars(project)
-    instants, late_instants, finish_instant = (
+    instants, late_instants, finish_instant, link_instants = (
         _milestone_instants(project)
         if any(t.duration.days == 0 for t in project.tasks)
-        else ({}, {}, _safe_offset(result.project_finish, timedelta(days=1)))
+        else ({}, {}, _safe_offset(result.project_finish, timedelta(days=1)), {})
     )
 
     # Free float compares a milestone successor at its free-float instant (#4180).
-    free_instants = _project_free_instants(project, result.tasks, instants) if instants else {}
+    free_instants = (
+        _project_free_instants(project, result.tasks, instants, link_instants) if instants else {}
+    )
 
     def cal_of(tid: str) -> Calendar:
         return _cal_for(tid, default_cal, task_calendars)
 
     own = instants.get(task.id)
+    # A link out of this milestone, or out of a milestone predecessor, is measured
+    # from its link instant: shown at the project-start floor, measured from below
+    # it (engine._place_milestone, #4225).
+    own_link = link_instants.get(task.id, own)
 
     def late_refs(succ: Task, dep_type: DependencyType, lag: timedelta) -> tuple[date, date]:
         late = late_instants.get(succ.id)
@@ -1218,7 +1224,7 @@ def _milestone_context(
         _, finish_ref = _milestone_refs(early, succ_cal)
         raw = instants.get(succ.id)
         assert raw is not None  # free_instants is derived from instants (#4180)
-        start_ref = _free_start_ref((early, raw[1]), dep_type, lag, own, succ_cal)
+        start_ref = _free_start_ref((early, raw[1]), dep_type, lag, own_link, succ_cal)
         return start_ref, finish_ref
 
     milestone: tuple[date, _DayFn] | None = None
@@ -1236,7 +1242,10 @@ def _milestone_context(
             own[0],
             _float_late_instant(late_instants[task.id], own, cal, result.project_finish),
         )
-    links = [_LinkContext(instants.get(p.id), cal_of(p.id), own is not None) for p, _, _ in preds]
+    links = [
+        _LinkContext(link_instants.get(p.id, instants.get(p.id)), cal_of(p.id), own is not None)
+        for p, _, _ in preds
+    ]
     return _MilestoneContext(late_refs, early_refs, milestone, own_instants, links, finish_instant)
 
 
