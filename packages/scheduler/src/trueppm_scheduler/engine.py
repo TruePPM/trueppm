@@ -26,9 +26,13 @@ engine now follows the MS Project / Primavera P6 convention:
 * Links **out of** a milestone measure from the instant (FS/SS) or the last working
   day before it (FF/SF). The instant is never rounded to a working day, so
   calendar-day lags compose through it: ``A -FS(l1)-> M -FS(l2)-> B`` schedules
-  exactly as ``A -FS(l1+l2)-> B`` whenever the lags are not negative (a negative
-  lag can reach the milestone's own project-start or project-finish bound, as it
-  would for any node inserted into the link).
+  exactly as ``A -FS(l1+l2)-> B`` unless ``l2`` is negative or a hard floor holds
+  ``M``. The project-start floor does not break it: it only sets the day ``M`` is
+  shown on, and links out of ``M`` measure from the instant below it (#4225). A
+  negative ``l2`` can reach ``M``'s own project-finish bound, as it would for any
+  node inserted into the link. The data date, an SNET and a recorded actual
+  start do hold ``M`` and every lag measured from it, so ``B`` can land later
+  than the direct link puts it.
 * The backward pass and free float invert the same rule (:func:`_milestone_latest`,
   :func:`_milestone_refs`), and every late date is seeded from the instant the
   project ends (:func:`_finish_instant`), so a milestone on the critical path

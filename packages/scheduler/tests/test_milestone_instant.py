@@ -75,10 +75,16 @@ def _networks_with_an_fs_link(
 ) -> tuple[list[Task], list[Dependency], tuple[str, str], int, int, Calendar]:
     """A small random DAG, one FS link in it to split, and the lag on each side of M.
 
-    A negative lag goes on one side only: the milestone is a node with its own
-    project-start and project-finish bounds, which a negative lag across it can
-    reach where the direct link's combined lag does not — true of any node
-    inserted into a negatively-lagged link, not a property of milestones.
+    A lead *into* M may pair with any lag out of it: M's project-start floor only
+    sets where it is shown, so its successors measure from the instant below it
+    and the lags compose (#4225). A lead *out of* M goes on that side alone,
+    because the latest M can sit is the project-finish instant, and a successor's
+    late dates measured back across it can reach that bound where the direct
+    link's combined lag does not — true of any node inserted into a
+    negatively-lagged link, not a property of milestones. The draw sets no data
+    date, ``planned_start`` or actual: those still hold M and every lag out of it,
+    so they are not composition-preserving (see
+    ``test_a_data_date_floor_still_moves_the_successor``).
     """
     n = draw(st.integers(min_value=2, max_value=7))
     durations = draw(st.lists(st.sampled_from([0, 1, 2, 3, 5]), min_size=n, max_size=n))
@@ -101,7 +107,7 @@ def _networks_with_an_fs_link(
                 )
     lag_in = draw(st.sampled_from([-2, -1, 0, 0, 0, 1, 2, 3, 7]))
     lag_out = draw(st.sampled_from([-2, -1, 0, 0, 0, 1, 2, 3, 7]))
-    if (lag_in < 0 and lag_out != 0) or (lag_out < 0 and lag_in != 0):
+    if lag_out < 0 and lag_in != 0:
         lag_out = 0
     exceptions = [DateRange(date(2026, 1, 14), date(2026, 1, 15))] if draw(st.booleans()) else []
     return tasks, deps, (f"T{a}", f"T{b}"), lag_in, lag_out, Calendar(exceptions=exceptions)
@@ -302,17 +308,48 @@ class TestProjectStartFloorIsDisplayOnly:
         mc = monte_carlo(p, runs=16, seed=1)
         assert mc.p50 == mc.p95 == result.project_finish
 
+    @pytest.mark.parametrize("lead", [-20, -60])
+    def test_a_lead_longer_than_the_monte_carlo_pad_agrees_with_cpm(self, lead: int) -> None:
+        # A lead into M puts its link instant ``lead`` days before the project
+        # start, and the SF-only X follows it there. Monte Carlo's fixed pre-start
+        # buffer is 14 days, so a shorter lead fits inside it whether or not the
+        # pad accounts for the milestone's link instant; these do not. The lag out
+        # of X reaches the finish, so an index that opens too late moves it.
+        p = _project(
+            [_task("A", 1), _task("M", 0), _task("X", 2), _task("Y", 1)],
+            [
+                _dep("A", "M", lag=lead),
+                _dep("M", "X", DependencyType.SF),
+                _dep("X", "Y", lag=-lead + 5),
+            ],
+        )
+        result = schedule(p)
+        x = next(t for t in result.tasks if t.id == "X")
+        assert x.early_start is not None and x.early_start < MON + timedelta(days=lead + 14)
+        assert result.project_finish == date(2026, 1, 12)
+        mc = monte_carlo(p, runs=16, seed=1)
+        assert mc.p50 == mc.p95 == result.project_finish
+
     def test_derivation_cites_the_engines_value(self) -> None:
+        # The value alone is read off the result; the binding is what derive_value
+        # replays. Measuring M's FS link from its floored instant would cite it as
+        # binding T3 at 2026-01-06 while the value says 2026-01-05.
         _, via_m = self._networks()
         result = schedule(via_m)
         for tid in ("M", "T3"):
             t = next(t for t in result.tasks if t.id == tid)
             for q, want in (
                 (Quantity.EARLY_START, t.early_start),
+                (Quantity.EARLY_FINISH, t.early_finish),
                 (Quantity.LATE_START, t.late_start),
+                (Quantity.LATE_FINISH, t.late_finish),
             ):
                 d = derive_value(via_m, tid, q, result)
                 assert d.value == want.isoformat(), (tid, q)
+                assert d.binding is not None, (tid, q)
+                assert d.binding.imposed_date == want, (tid, q, d.binding)
+        t3 = derive_value(via_m, "T3", Quantity.EARLY_START, result)
+        assert t3.binding is not None and t3.binding.kind == "project_start"
 
 
 # ---------------------------------------------------------------------------
