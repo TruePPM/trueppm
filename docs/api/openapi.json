@@ -68140,15 +68140,18 @@
                     },
                     "critical_task_count": {
                         "type": "integer",
-                        "readOnly": true
+                        "readOnly": true,
+                        "description": "Leaf rows only. A phase's is_critical is a rollup of its children (ADR-0293), not a fact about the phase row itself, so counting it would double-count the child whose criticality produced it."
                     },
                     "total_tasks": {
                         "type": "integer",
-                        "readOnly": true
+                        "readOnly": true,
+                        "description": "Leaf rows only — phase rows are excluded, same as critical_task_count and complete_tasks."
                     },
                     "complete_tasks": {
                         "type": "integer",
-                        "readOnly": true
+                        "readOnly": true,
+                        "description": "Leaf rows only. A phase's status is a rollup of its children (ADR-0293) and is never set directly, so counting it would double-count the children whose completion rolled it up."
                     },
                     "next_milestone": {
                         "allOf": [

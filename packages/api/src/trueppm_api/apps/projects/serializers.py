@@ -12299,9 +12299,29 @@ class ProjectOverviewSerializer(serializers.Serializer[dict[str, Any]]):
     plan_version = serializers.IntegerField(read_only=True, allow_null=True)
     plan_version_current = serializers.IntegerField(read_only=True, allow_null=True)
     tasks_late_count = serializers.IntegerField(read_only=True)
-    critical_task_count = serializers.IntegerField(read_only=True)
-    total_tasks = serializers.IntegerField(read_only=True)
-    complete_tasks = serializers.IntegerField(read_only=True)
+    critical_task_count = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Leaf rows only. A phase's is_critical is a rollup of its children "
+            "(ADR-0293), not a fact about the phase row itself, so counting it "
+            "would double-count the child whose criticality produced it."
+        ),
+    )
+    total_tasks = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Leaf rows only — phase rows are excluded, same as critical_task_count "
+            "and complete_tasks."
+        ),
+    )
+    complete_tasks = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Leaf rows only. A phase's status is a rollup of its children "
+            "(ADR-0293) and is never set directly, so counting it would double-"
+            "count the children whose completion rolled it up."
+        ),
+    )
     next_milestone = ProjectOverviewNextMilestoneSerializer(read_only=True, allow_null=True)
     team_utilization_pct = serializers.FloatField(read_only=True, allow_null=True)
     team_utilization_reason = serializers.ChoiceField(

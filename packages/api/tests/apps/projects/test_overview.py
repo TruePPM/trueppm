@@ -320,6 +320,45 @@ class TestProjectOverview:
         res = client.get(self.url(project.pk))
         assert res.json()["critical_task_count"] == 1
 
+    def test_phase_row_excluded_from_total_complete_and_critical_counts(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """Same class as the late-count fix, but for total/complete/critical.
+
+        A phase's status and is_critical are rollups of its children (ADR-0293),
+        not facts about the phase row itself — counting the phase row on top of
+        the children that produced its rollup double-counts their contribution.
+        The phase row here is set up the way a real rollup would leave it:
+        status=COMPLETE and is_critical=True, both derived from its two
+        complete, critical children.
+        """
+        yesterday = datetime.date.today() - datetime.timedelta(days=1)
+        make_task(
+            project,
+            name="Phase",
+            wbs_path="1",
+            early_finish=yesterday,
+            actual_finish=yesterday,
+            status=TaskStatus.COMPLETE,
+            is_critical=True,
+        )
+        for i in (1, 2):
+            make_task(
+                project,
+                name=f"Phase child {i}",
+                wbs_path=f"1.{i}",
+                early_finish=yesterday,
+                actual_finish=yesterday,
+                status=TaskStatus.COMPLETE,
+                is_critical=True,
+            )
+
+        data = client.get(self.url(project.pk)).json()
+        # Two leaf children only — the phase row is excluded from all three counts.
+        assert data["total_tasks"] == 2
+        assert data["complete_tasks"] == 2
+        assert data["critical_task_count"] == 2
+
     def test_next_milestone_returned_when_upcoming(
         self, client: APIClient, project: Project, membership: object
     ) -> None:

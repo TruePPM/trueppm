@@ -12438,9 +12438,18 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         ]
 
         # ── Task counts (single query) ──────────────────────────────────────
+        # total/complete/critical are leaf-rows-only, same as `late` below: a
+        # phase's status and is_critical are rollups of its children (ADR-0293,
+        # `_rollup_one_summary`), not facts about the phase row itself, so a
+        # phase would otherwise be double-counted on top of the children whose
+        # rollup produced its value — e.g. a complete phase whose children are
+        # all complete inflates `complete_tasks` (and `total_tasks`) by one, and
+        # a phase rolled up critical=True because one child is critical double-
+        # counts that child's critical-ness.
         counts = (
             Task.objects.filter(project=project, is_deleted=False)
             .annotate(_is_phase=task_is_phase_expr())
+            .filter(_is_phase=False)
             .aggregate(
                 total=Count("id"),
                 complete=Count("id", filter=db_models.Q(status=TaskStatus.COMPLETE)),
@@ -12454,7 +12463,6 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
                     filter=db_models.Q(
                         early_finish__lt=today,
                         status__in=active_statuses,
-                        _is_phase=False,
                     ),
                 ),
             )
