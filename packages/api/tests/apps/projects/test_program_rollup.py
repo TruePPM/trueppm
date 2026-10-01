@@ -294,6 +294,63 @@ def test_schedule_health_average_blends_to_at_risk(
 
 
 @pytest.mark.django_db
+def test_spi_counts_has_cpm_dates_false_baseline_matches_no_baseline_path(
+    program: Program, calendar: Calendar
+) -> None:
+    """#4242: a has_cpm_dates=False active baseline must not open the EVM path.
+
+    spi_counts_by_project is the single source for both the project overview
+    card and this rollup (see its docstring) — pinning it here protects both
+    callers in one test. With has_cpm_dates=False excluded from the
+    ``active_baseline`` query, the project is treated as having no active
+    baseline at all, so its counts must be *identical* to the no-baseline
+    (#4238) computation for the same tasks, not merely similar.
+    """
+    from trueppm_api.apps.projects.program_rollup import spi_counts_by_project
+
+    p = _project(program, calendar, "GTM Readiness")
+    done = _task(p, early_finish=TODAY, actual_finish=TODAY, status=TaskStatus.COMPLETE)
+    for _ in range(3):
+        _task(p, early_finish=TODAY, status=TaskStatus.IN_PROGRESS)
+
+    no_baseline_counts = spi_counts_by_project([p.pk], TODAY)
+    assert no_baseline_counts[p.pk] == (4, 1)
+
+    # A pre-CPM baseline with a null-finish snapshot row for the completed task.
+    baseline = Baseline.objects.create(
+        project=p, name="Pre-CPM", is_active=True, has_cpm_dates=False
+    )
+    BaselineTask.objects.create(
+        baseline=baseline, task_id=done.pk, task_name=done.name, finish=None, duration=1
+    )
+
+    with_bad_baseline_counts = spi_counts_by_project([p.pk], TODAY)
+    assert with_bad_baseline_counts == no_baseline_counts
+
+
+@pytest.mark.django_db
+def test_spi_counts_has_cpm_dates_true_baseline_still_uses_evm_semantics(
+    program: Program, calendar: Calendar
+) -> None:
+    """A has_cpm_dates=True baseline keeps the narrower EVM denominator (#398).
+
+    Guards the fix from #4242 against overreaching: only has_cpm_dates=False
+    baselines fall through, a real one still lets planned_complete (every
+    COMPLETE task project-wide) exceed planned (the baseline's due-by-today
+    rows) — the EVM semantics SPI > 1.0 depends on.
+    """
+    from trueppm_api.apps.projects.program_rollup import spi_counts_by_project
+
+    p = _project(program, calendar, "EVM project")
+    tasks = [_task(p, status=TaskStatus.COMPLETE) for _ in range(3)]
+    # Only 2 of the 3 completions sit in the baseline's planned-by-today window.
+    _baseline(p, {tasks[0]: TODAY, tasks[1]: TODAY})
+
+    counts = spi_counts_by_project([p.pk], TODAY)
+    assert counts[p.pk] == (2, 3)
+
+
+@pytest.mark.django_db
 def test_milestone_health_critical_when_milestone_overdue(
     member: object, program: Program, calendar: Calendar
 ) -> None:
@@ -347,6 +404,44 @@ def test_schedule_variance_from_completed_work(
     _configure(program, [RollupKpi.SCHEDULE_VARIANCE.value], AggregationPolicy.AVERAGE.value)
     data = _client(member).get(_url(program)).data
     assert data["kpis"]["schedule_variance"]["value"] == 5.0
+
+
+@pytest.mark.django_db
+def test_variance_kpis_ignore_has_cpm_dates_false_baseline(
+    member: object, program: Program, calendar: Calendar
+) -> None:
+    """#4242: the same has_cpm_dates=True exclusion applies to the variance KPIs.
+
+    baseline_variance and schedule_variance share the "compare against the
+    active baseline" shape with the SPI path, and a has_cpm_dates=False
+    baseline's mostly-null BaselineTask.finish is not a usable plan for either.
+    A project whose only active baseline is has_cpm_dates=False must read as if
+    it had no active baseline at all: value None (built-but-no-data), not a
+    number computed from an incomplete snapshot.
+    """
+    p = _project(program, calendar, "A")
+    t1 = _task(p, early_finish=TODAY + datetime.timedelta(days=10))
+    t2 = _task(p, status=TaskStatus.COMPLETE, actual_finish=TODAY + datetime.timedelta(days=4))
+    baseline = Baseline.objects.create(
+        project=p, name="Pre-CPM", is_active=True, has_cpm_dates=False
+    )
+    # One row carries a real date (mostly-null, not entirely-null) — must still
+    # be excluded, since has_cpm_dates governs the whole snapshot's reliability.
+    BaselineTask.objects.create(
+        baseline=baseline, task_id=t1.pk, task_name=t1.name, finish=TODAY, duration=1
+    )
+    BaselineTask.objects.create(
+        baseline=baseline, task_id=t2.pk, task_name=t2.name, finish=TODAY, duration=1
+    )
+
+    _configure(
+        program,
+        [RollupKpi.BASELINE_VARIANCE.value, RollupKpi.SCHEDULE_VARIANCE.value],
+        AggregationPolicy.AVERAGE.value,
+    )
+    data = _client(member).get(_url(program)).data
+    assert data["kpis"]["baseline_variance"]["value"] is None
+    assert data["kpis"]["schedule_variance"]["value"] is None
 
 
 # ---------------------------------------------------------------------------

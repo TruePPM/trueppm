@@ -813,6 +813,97 @@ class TestOverviewSpiProxy:
         # BCWP=1 (complete), BCWS=1 (baseline finish=today) → SPI=1.0, not 0.
         assert spi == 1.0
 
+    def test_has_cpm_dates_false_baseline_falls_through_to_no_baseline_path(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """#4242: a baseline captured before CPM ran must not open the EVM path.
+
+        Reproduces the hosted demo's "GTM Readiness" symptom: an active baseline
+        with ``has_cpm_dates=False`` has mostly-null ``BaselineTask.finish`` rows,
+        but one row happened to carry a real date. Under the old code that row
+        alone became the EVM denominator (BCWS=1) while the numerator still
+        counted every COMPLETE task project-wide (BCWP=3, including two never
+        baselined at all) — SPI=3.0, "on_track", next to 3 real late tasks. With
+        has_cpm_dates=False excluded, the project instead falls through to the
+        no-baseline (#4238) scoped path: planned = the 4 leaf tasks due by today
+        (the baselined one + the 3 late ones), complete = 1 → SPI=0.25, critical.
+        """
+        from trueppm_api.apps.projects.models import Baseline, BaselineTask
+
+        baseline = Baseline.objects.create(
+            project=project, name="Pre-CPM snapshot", is_active=True, has_cpm_dates=False
+        )
+        today = datetime.date.today()
+        yesterday = today - datetime.timedelta(days=1)
+        due_and_baselined = make_task(
+            project,
+            name="Due, baselined",
+            early_finish=yesterday,
+            actual_finish=yesterday,
+            status=TaskStatus.COMPLETE,
+        )
+        # One real date leaked into an otherwise pre-CPM (mostly-null) baseline.
+        BaselineTask.objects.create(
+            baseline=baseline,
+            task_id=due_and_baselined.pk,
+            task_name=due_and_baselined.name,
+            finish=yesterday,
+            duration=1,
+        )
+        # Two completions with no baseline row at all — would inflate the old
+        # project-wide numerator without widening the EVM denominator.
+        for i in range(2):
+            make_task(
+                project,
+                name=f"Done elsewhere {i}",
+                status=TaskStatus.COMPLETE,
+            )
+        for i in range(3):
+            make_task(
+                project,
+                name=f"Late {i}",
+                early_finish=yesterday,
+                status=TaskStatus.IN_PROGRESS,
+            )
+
+        res = client.get(self.url(project.pk))
+        assert res.status_code == 200
+        data = res.json()
+        assert data["tasks_late_count"] == 3
+        assert data["spi"] == 0.25
+        assert data["schedule_health"] == "critical"
+
+    def test_has_cpm_dates_false_baseline_with_all_null_dates_falls_through(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """#4242: the all-null variant (the demo's "Platform Core" symptom).
+
+        When every BaselineTask row is null, the old EVM path matched zero rows
+        and dropped the project out of both paths entirely (planned=0 →
+        "unknown" health) despite it having real late work. Excluding
+        has_cpm_dates=False routes it to the no-baseline path instead, so it
+        reads a real band rather than "unknown".
+        """
+        from trueppm_api.apps.projects.models import Baseline, BaselineTask
+
+        baseline = Baseline.objects.create(
+            project=project, name="Pre-CPM snapshot", is_active=True, has_cpm_dates=False
+        )
+        today = datetime.date.today()
+        yesterday = today - datetime.timedelta(days=1)
+        for i in range(8):
+            t = make_task(
+                project, name=f"Late {i}", early_finish=yesterday, status=TaskStatus.NOT_STARTED
+            )
+            BaselineTask.objects.create(
+                baseline=baseline, task_id=t.pk, task_name=t.name, finish=None, duration=1
+            )
+
+        data = client.get(self.url(project.pk)).json()
+        assert data["tasks_late_count"] == 8
+        assert data["schedule_health"] == "critical"
+        assert data["schedule_health"] != "unknown"
+
 
 # ---------------------------------------------------------------------------
 # Team utilization on the overview payload (#2428)

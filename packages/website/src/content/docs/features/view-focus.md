@@ -64,12 +64,14 @@ shows its own empty state.
 Schedule health is a count-based SPI: the tasks due by today that are done, divided by
 all the tasks due by today.
 
-- **With an active baseline**, "due by today" means the baseline's finish dates. Work
-  finished early still counts as done, so the ratio can go above 1.00.
-- **With no baseline**, "due by today" means the current plan's finish dates. Both
-  counts come from the same tasks, so the ratio tops out at 1.00, and a task finished
-  outside that window can't hide a late one.
-- **Unknown** means nothing is due yet, or the active baseline holds no finish dates.
+- **With an active baseline that has real schedule dates** (captured after the schedule
+  was first computed), "due by today" means the baseline's finish dates. Work finished
+  early still counts as done, so the ratio can go above 1.00.
+- **With no baseline — or an active baseline captured before the schedule was ever
+  computed**, so it has no reliable finish dates to compare against — "due by today"
+  means the current plan's finish dates. Both counts come from the same tasks, so the
+  ratio tops out at 1.00, and a task finished outside that window can't hide a late one.
+- **Unknown** means nothing is due yet under whichever of those two references applies.
 
 Phase rows are left out of the **Late** count and the no-baseline ratio. A phase's
 status is rolled up from its children, so a phase whose children are all done never
