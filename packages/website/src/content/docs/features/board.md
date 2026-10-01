@@ -387,6 +387,8 @@ On a screen narrower than 768px, the board reflows into a **horizontal snap-scro
 
 A **dot-strip** above the board names every column with its task count and a health dot, and acts as the map: the active column's bar fills solid, and tapping any segment jumps to that column. Card anatomy, WIP limits, and the critical / blocked treatment are unchanged from desktop — only the layout reflows.
 
+The backlog rail and drawer are both desktop-only surfaces and never render on a phone, even if you picked **Rail** or **Drawer** from the toolbar before switching to a narrower screen — that choice is preserved and takes effect again once you're back above 768px. On a phone, the snap-scroll columns and the floating **+** cover capture and triage instead.
+
 The floating **+** opens a **compose bar** across the bottom of the screen rather than a full-screen form. It is one field, it names where a committed row will land ("Lands in To Do" — the column in view, or **Backlog** under the Queue layout), and it stays open after each entry so a run of items can be captured without reopening anything. The bar is not shown at all to a Viewer, or on a closed sprint.
 
 ## Permissions
