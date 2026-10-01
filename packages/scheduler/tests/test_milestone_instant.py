@@ -17,7 +17,7 @@ import copy
 from datetime import date, timedelta
 
 import pytest
-from hypothesis import assume, example, given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from trueppm_scheduler import (
@@ -75,10 +75,16 @@ def _networks_with_an_fs_link(
 ) -> tuple[list[Task], list[Dependency], tuple[str, str], int, int, Calendar]:
     """A small random DAG, one FS link in it to split, and the lag on each side of M.
 
-    A negative lag goes on one side only: the milestone is a node with its own
-    project-start and project-finish bounds, which a negative lag across it can
-    reach where the direct link's combined lag does not — true of any node
-    inserted into a negatively-lagged link, not a property of milestones.
+    A lead *into* M may pair with any lag out of it: M's project-start floor only
+    sets where it is shown, so its successors measure from the instant below it
+    and the lags compose (#4225). A lead *out of* M goes on that side alone,
+    because the latest M can sit is the project-finish instant, and a successor's
+    late dates measured back across it can reach that bound where the direct
+    link's combined lag does not — true of any node inserted into a
+    negatively-lagged link, not a property of milestones. The draw sets no data
+    date, ``planned_start`` or actual: those still hold M and every lag out of it,
+    so they are not composition-preserving (see
+    ``test_a_data_date_floor_still_moves_the_successor``).
     """
     n = draw(st.integers(min_value=2, max_value=7))
     durations = draw(st.lists(st.sampled_from([0, 1, 2, 3, 5]), min_size=n, max_size=n))
@@ -101,7 +107,7 @@ def _networks_with_an_fs_link(
                 )
     lag_in = draw(st.sampled_from([-2, -1, 0, 0, 0, 1, 2, 3, 7]))
     lag_out = draw(st.sampled_from([-2, -1, 0, 0, 0, 1, 2, 3, 7]))
-    if (lag_in < 0 and lag_out != 0) or (lag_out < 0 and lag_in != 0):
+    if lag_out < 0 and lag_in != 0:
         lag_out = 0
     exceptions = [DateRange(date(2026, 1, 14), date(2026, 1, 15))] if draw(st.booleans()) else []
     return tasks, deps, (f"T{a}", f"T{b}"), lag_in, lag_out, Calendar(exceptions=exceptions)
@@ -118,31 +124,16 @@ def test_inserting_a_milestone_into_an_fs_link_moves_nothing(
     the milestone is a raw instant, never rounded to a working day, so calendar-day
     lags compose through it.
 
-    Out of scope (#4223): this composition law is only checked here when A's own
-    early_finish is not itself floored below the project start. A reaches there
-    exactly when every one of ITS incoming links is SF (#4218's `_sf_only`; MS
-    Project's one escape hatch for starting a task ahead of the project's nominal
-    open) — the randomly-drawn extra edges above can make A that kind of SF-only
-    node. When that happens, splitting the combined lag across an inserted
-    milestone stops being lossless: `_place_milestone` floors the milestone at
-    the project start (correctly — M's own only incoming link is the FS under
-    test, not SF, so M does not inherit A's exemption), but a *positive* lag_out
-    then measures forward from the milestone's real, floored position rather than
-    from A's pre-floor instant, landing B on a later day than the direct,
-    combined-lag network would. Whether that is the engine's correct behavior for
-    a floored intermediate milestone (arguably yes — a downstream lag should
-    count from where the checkpoint actually landed) or a composition bug the
-    "raw instant" design (#4079) is supposed to rule out is an open question
-    tracked in #4225, not resolved by this test. See
-    test_milestone_after_an_sf_only_predecessor_is_still_floored_at_project_start
-    below for a deterministic pin of the (non-controversial) M-placement half.
+    That includes an ``A`` placed before the project start — an SF-only task
+    (#4218), which the randomly drawn extra edges can make it. ``M`` is then
+    *shown* at the project start (it is not SF-only itself), but ``B`` measures its
+    lag from ``M``'s pre-floor instant, exactly as it would from ``A`` directly
+    (#4225, the deterministic pin is
+    ``test_a_milestone_floored_at_project_start_passes_its_raw_instant_on``).
     """
     tasks, deps, (a, b), lag_in, lag_out, cal = case
     direct = _project(tasks, [*deps, _dep(a, b, lag=lag_in + lag_out)], cal)
     before = _by_id(direct)
-    a_early_finish = before[a].early_finish
-    assert a_early_finish is not None  # every scheduled task has one
-    assume(a_early_finish >= MON)
     via_m = _project(
         [*tasks, _task("M", 0)],
         [*deps, _dep(a, "M", lag=lag_in), _dep("M", b, lag=lag_out)],
@@ -155,8 +146,11 @@ def test_inserting_a_milestone_into_an_fs_link_moves_nothing(
         assert (u.late_start, u.late_finish) == (t.late_start, t.late_finish), tid
         assert u.total_float == t.total_float, tid
     if lag_in == 0 and durations_of(tasks, a) > 0:
-        # With no lag between work and M, M is shown on that work's finish day.
-        assert after["M"].early_start == after["M"].early_finish == before[a].early_finish
+        # With no lag between work and M, M is shown on that work's finish day —
+        # or on the project start, for an SF-only A finishing before it (#4223).
+        a_finish = before[a].early_finish
+        assert a_finish is not None
+        assert after["M"].early_start == after["M"].early_finish == max(a_finish, MON)
 
 
 def durations_of(tasks: list[Task], tid: str) -> int:
@@ -196,6 +190,166 @@ def test_milestone_after_an_sf_only_predecessor_is_still_floored_at_project_star
     )
     assert via_m["M"].early_start == via_m["M"].early_finish == MON  # floored, not T2's finish
     assert via_m["T3"].early_start == direct["T3"].early_start  # composition still holds
+
+
+class TestProjectStartFloorIsDisplayOnly:
+    """A milestone floored at the project start passes its raw instant on (#4225).
+
+    The ``scheduler:fuzz-deep`` network from #4225: ``T1 -SF(-2cd)-> T2`` makes T2
+    SF-only (#4218) and places it on 2025-12-31, before the Monday 2026-01-05
+    project start. ``T2 -FS(2cd)-> T3`` measures from T2's raw instant (midnight
+    2026-01-01), lands below the project start and is floored there. Inserting
+    ``M`` (``T2 -FS-> M -FS(2cd)-> T3``) used to measure T3's lag from M's
+    *floored* instant and move T3 a working day later. M is still shown at the
+    project start; its successors measure from the instant below it.
+    """
+
+    @staticmethod
+    def _networks() -> tuple[Project, Project]:
+        tasks = [_task(f"T{i}", d) for i, d in enumerate([0, 0, 0, 0, 0, 2])]
+        sf = _dep("T1", "T2", DependencyType.SF, lag=-2)
+        direct = _project(tasks, [sf, _dep("T2", "T3", lag=2)])
+        via_m = _project(
+            [*copy.deepcopy(tasks), _task("M", 0)],
+            [sf, _dep("T2", "M"), _dep("M", "T3", lag=2)],
+        )
+        return direct, via_m
+
+    def test_a_milestone_floored_at_project_start_passes_its_raw_instant_on(self) -> None:
+        direct, via_m = self._networks()
+        before, after = _by_id(direct), _by_id(via_m)
+        assert before["T2"].early_finish == date(2025, 12, 31)
+        assert before["T3"].early_start == MON
+        # M is shown at the project start, not on T2's pre-start finish ...
+        assert after["M"].early_start == after["M"].early_finish == MON
+        # ... and T3 lands where the direct link puts it, not a working day later.
+        for tid, t in before.items():
+            u = after[tid]
+            assert (u.early_start, u.early_finish) == (t.early_start, t.early_finish), tid
+            assert (u.late_start, u.late_finish) == (t.late_start, t.late_finish), tid
+            assert (u.total_float, u.free_float) == (t.total_float, t.free_float), tid
+
+    def test_the_floored_milestone_is_never_shown_late_before_early(self) -> None:
+        _, via_m = self._networks()
+        m = _by_id(via_m)["M"]
+        assert m.late_start == m.late_finish == m.early_start == MON
+        assert m.total_float == m.free_float == timedelta(0)
+
+    def test_an_ordinary_successor_is_still_floored_at_the_project_start(self) -> None:
+        # T2 -FS-> M -FS(0)-> W: M's link instant is 2026-01-01, W is not SF-only.
+        tasks = [_task("T0", 0), _task("T2", 1), _task("M", 0), _task("W", 3)]
+        p = _project(
+            tasks,
+            [
+                _dep("T0", "T2", DependencyType.SF, lag=-2),
+                _dep("T2", "M"),
+                _dep("M", "W"),
+            ],
+        )
+        got = _by_id(p)
+        assert got["T2"].early_start < MON
+        assert got["W"].early_start == MON
+
+    def test_a_negative_lag_into_the_milestone_composes_too(self) -> None:
+        # No SF: A on the project start, a -3cd lead into M floors M; the +3cd lag
+        # out of M returns exactly to A's finish, as the direct lag-0 link does.
+        tasks = [_task("A", 2), _task("B", 1)]
+        direct = _by_id(_project(tasks, [_dep("A", "B")]))
+        via_m = _by_id(
+            _project(
+                [*copy.deepcopy(tasks), _task("M", 0)],
+                [_dep("A", "M", lag=-5), _dep("M", "B", lag=5)],
+            )
+        )
+        assert via_m["M"].early_start == MON
+        assert via_m["B"].early_start == direct["B"].early_start
+
+    def test_a_data_date_floor_still_moves_the_successor(self) -> None:
+        # The data date is not a display bound: an unreached milestone happens no
+        # earlier than "as of now", and a lag after it counts from there.
+        a = _task("A", 1)
+        a.actual_start, a.actual_finish = MON, MON
+        p = _project([a, _task("M", 0), _task("B", 1)], [_dep("A", "M"), _dep("M", "B", lag=2)])
+        p.status_date = date(2026, 1, 12)
+        got = _by_id(p)
+        assert got["M"].early_start == date(2026, 1, 12)
+        assert got["B"].early_start == date(2026, 1, 14)
+
+    def test_an_snet_floor_still_moves_the_successor(self) -> None:
+        tasks = [_task("A", 1), _task("M", 0), _task("B", 1)]
+        tasks[1].planned_start = date(2026, 1, 12)
+        got = _by_id(_project(tasks, [_dep("A", "M"), _dep("M", "B", lag=2)]))
+        assert got["B"].early_start == date(2026, 1, 14)
+
+    def test_monte_carlo_agrees_with_cpm(self) -> None:
+        for p in self._networks():
+            result = schedule(p)
+            mc = monte_carlo(p, runs=16, seed=1)
+            assert mc.p50 == mc.p95 == result.project_finish
+
+    def test_an_sf_only_successor_of_the_floored_milestone_agrees_with_monte_carlo(
+        self,
+    ) -> None:
+        # M -SF-> X makes X SF-only, measured from M's pre-start link instant: the
+        # Monte Carlo index must open early enough to hold it.
+        tasks = [_task("T0", 0), _task("T2", 1), _task("M", 0), _task("X", 2), _task("Y", 1)]
+        p = _project(
+            tasks,
+            [
+                _dep("T0", "T2", DependencyType.SF, lag=-2),
+                _dep("T2", "M"),
+                _dep("M", "X", DependencyType.SF, lag=-3),
+                _dep("X", "Y"),
+            ],
+        )
+        result = schedule(p)
+        x = next(t for t in result.tasks if t.id == "X")
+        assert x.early_finish is not None and x.early_finish < MON
+        mc = monte_carlo(p, runs=16, seed=1)
+        assert mc.p50 == mc.p95 == result.project_finish
+
+    @pytest.mark.parametrize("lead", [-20, -60])
+    def test_a_lead_longer_than_the_monte_carlo_pad_agrees_with_cpm(self, lead: int) -> None:
+        # A lead into M puts its link instant ``lead`` days before the project
+        # start, and the SF-only X follows it there. Monte Carlo's fixed pre-start
+        # buffer is 14 days, so a shorter lead fits inside it whether or not the
+        # pad accounts for the milestone's link instant; these do not. The lag out
+        # of X reaches the finish, so an index that opens too late moves it.
+        p = _project(
+            [_task("A", 1), _task("M", 0), _task("X", 2), _task("Y", 1)],
+            [
+                _dep("A", "M", lag=lead),
+                _dep("M", "X", DependencyType.SF),
+                _dep("X", "Y", lag=-lead + 5),
+            ],
+        )
+        result = schedule(p)
+        x = next(t for t in result.tasks if t.id == "X")
+        assert x.early_start is not None and x.early_start < MON + timedelta(days=lead + 14)
+        assert result.project_finish == date(2026, 1, 12)
+        mc = monte_carlo(p, runs=16, seed=1)
+        assert mc.p50 == mc.p95 == result.project_finish
+
+    def test_derivation_cites_the_engines_value(self) -> None:
+        # The value alone is read off the result; the binding is what derive_value
+        # replays. Measuring M's FS link from its floored instant would cite it as
+        # binding T3 at 2026-01-06 while the value says 2026-01-05.
+        _, via_m = self._networks()
+        result = schedule(via_m)
+        for tid in ("M", "T3"):
+            t = next(t for t in result.tasks if t.id == tid)
+            for q, want in (
+                (Quantity.EARLY_START, t.early_start),
+                (Quantity.EARLY_FINISH, t.early_finish),
+                (Quantity.LATE_START, t.late_start),
+                (Quantity.LATE_FINISH, t.late_finish),
+            ):
+                d = derive_value(via_m, tid, q, result)
+                assert d.value == want.isoformat(), (tid, q)
+                assert d.binding is not None, (tid, q)
+                assert d.binding.imposed_date == want, (tid, q, d.binding)
+        t3 = derive_value(via_m, "T3", Quantity.EARLY_START, result)
+        assert t3.binding is not None and t3.binding.kind == "project_start"
 
 
 # ---------------------------------------------------------------------------

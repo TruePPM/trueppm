@@ -1,0 +1,176 @@
+{
+  "project_id": "p-milestone-project-start-floor-display-only",
+  "project_start": "2025-12-31",
+  "project_finish": "2026-01-06",
+  "tasks": [
+    {
+      "id": "D_T0",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-05",
+      "late_start": "2026-01-06",
+      "late_finish": "2026-01-06",
+      "total_float": 86400.0,
+      "free_float": 86400.0,
+      "is_critical": false,
+      "scheduled_start": "2026-01-05"
+    },
+    {
+      "id": "D_T1",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-05",
+      "late_start": "2026-01-05",
+      "late_finish": "2026-01-05",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-05"
+    },
+    {
+      "id": "D_T2",
+      "early_start": "2025-12-31",
+      "early_finish": "2025-12-31",
+      "late_start": "2026-01-02",
+      "late_finish": "2026-01-02",
+      "total_float": 172800.0,
+      "free_float": 172800.0,
+      "is_critical": false,
+      "scheduled_start": "2025-12-31",
+      "milestone_at_day_end": true
+    },
+    {
+      "id": "D_T3",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-05",
+      "late_start": "2026-01-06",
+      "late_finish": "2026-01-06",
+      "total_float": 86400.0,
+      "free_float": 86400.0,
+      "is_critical": false,
+      "scheduled_start": "2026-01-05"
+    },
+    {
+      "id": "D_T4",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-05",
+      "late_start": "2026-01-06",
+      "late_finish": "2026-01-06",
+      "total_float": 86400.0,
+      "free_float": 86400.0,
+      "is_critical": false,
+      "scheduled_start": "2026-01-05"
+    },
+    {
+      "id": "D_T5",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-06",
+      "late_start": "2026-01-05",
+      "late_finish": "2026-01-06",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-05"
+    },
+    {
+      "id": "V_T0",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-05",
+      "late_start": "2026-01-06",
+      "late_finish": "2026-01-06",
+      "total_float": 86400.0,
+      "free_float": 86400.0,
+      "is_critical": false,
+      "scheduled_start": "2026-01-05"
+    },
+    {
+      "id": "V_T1",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-05",
+      "late_start": "2026-01-05",
+      "late_finish": "2026-01-05",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-05"
+    },
+    {
+      "id": "V_T2",
+      "early_start": "2025-12-31",
+      "early_finish": "2025-12-31",
+      "late_start": "2026-01-02",
+      "late_finish": "2026-01-02",
+      "total_float": 172800.0,
+      "free_float": 172800.0,
+      "is_critical": false,
+      "scheduled_start": "2025-12-31",
+      "milestone_at_day_end": true
+    },
+    {
+      "id": "V_T3",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-05",
+      "late_start": "2026-01-06",
+      "late_finish": "2026-01-06",
+      "total_float": 86400.0,
+      "free_float": 86400.0,
+      "is_critical": false,
+      "scheduled_start": "2026-01-05"
+    },
+    {
+      "id": "V_T4",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-05",
+      "late_start": "2026-01-06",
+      "late_finish": "2026-01-06",
+      "total_float": 86400.0,
+      "free_float": 86400.0,
+      "is_critical": false,
+      "scheduled_start": "2026-01-05"
+    },
+    {
+      "id": "V_T5",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-06",
+      "late_start": "2026-01-05",
+      "late_finish": "2026-01-06",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-05"
+    },
+    {
+      "id": "V_M",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-05",
+      "late_start": "2026-01-05",
+      "late_finish": "2026-01-05",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-05"
+    }
+  ],
+  "critical_path": [
+    "D_T1",
+    "D_T5",
+    "V_T1",
+    "V_M",
+    "V_T5"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "D_T1",
+      "successor_id": "D_T2",
+      "dep_type": "SF"
+    },
+    {
+      "predecessor_id": "V_M",
+      "successor_id": "V_T3",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "V_T1",
+      "successor_id": "V_T2",
+      "dep_type": "SF"
+    }
+  ]
+}
