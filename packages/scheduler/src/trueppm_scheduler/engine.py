@@ -1306,8 +1306,16 @@ def _place_milestone(
     # start_floor is given for every task except an SF-only one (#4218), and that one
     # has at least one SF link, which offers a candidate.
     assert best is not None
-    shown = (best[0], best[1])
-    return shown, best[2], shown if link is None else (link[0], link[1])
+    # Rebind to a non-Optional local: SonarPython's dataflow analysis loses the
+    # assert's narrowing of `best` across the `offer()` closure boundary (it is
+    # reassigned via `nonlocal` from inside a nested function), so it still sees
+    # `best` as `tuple[...] | None` below and flags every subscript as a possible
+    # `None.__getitem__` (S5644, #4259). `resolved` carries the narrowed type.
+    resolved = best
+    shown = (resolved[0], resolved[1])
+    if link is None:
+        return shown, resolved[2], shown
+    return shown, resolved[2], (link[0], link[1])
 
 
 def _resolve_task_calendars(project: Project) -> dict[str, Calendar] | None:

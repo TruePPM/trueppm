@@ -434,6 +434,32 @@ class TestMilestoneLinkTypes:
         assert by_id["M"].total_float == timedelta(days=4)
         assert by_id["S"].total_float == timedelta(days=4)
 
+    def test_milestone_resolves_to_the_latest_of_several_competing_predecessors(
+        self,
+    ) -> None:
+        """Regression for #4259: ``_place_milestone``'s ``offer()``/``best`` pick
+
+        among three real competing candidates of three different dependency types
+        (not a floor vs. a single link), so ``best`` is reassigned via the
+        ``nonlocal`` closure more than once before the function reads it back. A,
+        B and C all feed ``M``; B's Friday finish is the latest and must win over
+        A's Tuesday and C's Monday, and ``D`` must measure from that winner.
+        """
+        by_id = _by_id(
+            _project(
+                [_task("A", 2), _task("B", 5), _task("C", 1), _task("M", 0), _task("D", 2)],
+                [
+                    _dep("A", "M", DependencyType.FS),
+                    _dep("B", "M", DependencyType.FS),
+                    _dep("C", "M", DependencyType.SS),
+                    _dep("M", "D", DependencyType.FS),
+                ],
+            )
+        )
+        assert by_id["M"].early_start == date(2026, 1, 9)
+        assert by_id["D"].early_start == date(2026, 1, 12)
+        assert by_id["D"].early_finish == date(2026, 1, 13)
+
 
 class TestMilestoneAtDayEnd:
     """``milestone_at_day_end`` tells a renderer which edge of the shown day (#4079).
